@@ -1,5 +1,12 @@
 # plenty
-Programming language
+Stack-based Programming language
+
+## Demo
+
+```forth
+---> 1 2 + .
+3
+```
 
 # copilot canvas
 
