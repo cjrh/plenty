@@ -33,13 +33,7 @@ impl std::str::FromStr for Token {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         debug!("Parsing token: {}", s);
-        if s.starts_with(':') {
-            if s.len() == 1 {
-                Err("Invalid function name")
-            } else {
-                Ok(Token::Function(s[1..].to_string()))
-            }
-        } else if s == "." {
+        if s == "." {
             Ok(Token::Display)
         } else if s == "+" {
             Ok(Token::Plus)
@@ -53,10 +47,16 @@ impl std::str::FromStr for Token {
             Ok(Token::LParen)
         } else if s == ")" {
             Ok(Token::RParen)
-        } else if s == "clear" {
+        } else if s == ":clear" {
             Ok(Token::Clear)
-        } else if s == "listdir" {
+        } else if s == ":listdir" {
             Ok(Token::ListDir)
+        } else if s.starts_with(':') {
+            if s.len() == 1 {
+                Err("Invalid function name")
+            } else {
+                Ok(Token::Function(s[1..].to_string()))
+            }
         } else if let Ok(number) = s.parse::<i32>() {
             Ok(Token::NumberI32(number))
         } else {

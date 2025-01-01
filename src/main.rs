@@ -33,8 +33,10 @@ fn main() {
 
         let items: Vec<&str> = input_clean.split_whitespace().collect();
         for item in items {
-            match stack.push_str(item) {
-                Ok(_) => {},
+            match stack.run_program(item) {
+                Ok(_) => {
+                    // println!("{:?}", stack.repr());
+                },
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     break;
