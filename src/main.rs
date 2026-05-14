@@ -1,8 +1,10 @@
-use std::io::Write;
+//! The Plenty REPL.
 
-// main.rs
-fn main() {
-    let banner = r#"
+use std::io::{self, Write};
+
+use plenty::Vm;
+
+const BANNER: &str = r#"
 :::::::::  :::        :::::::::: ::::    ::: ::::::::::: :::   :::
 :+:    :+: :+:        :+:        :+:+:   :+:     :+:     :+:   :+:
 +:+    +:+ +:+        +:+        :+:+:+  +:+     +:+      +:+ +:+
@@ -11,37 +13,33 @@ fn main() {
 #+#        #+#        #+#        #+#   #+#+#     #+#        #+#
 ###        ########## ########## ###    ####     ###        ###
 "#;
-    println!("{}", banner);
 
-    let mut stack = plenty::Stack::new();
+fn main() {
+    pretty_env_logger::init();
+    println!("{BANNER}");
 
-    // Let's make an interpreter loop
-    let prompt = "---> ";
-    let mut input = String::new();
+    let mut vm = Vm::new();
+    let stdin = io::stdin();
+    let mut line = String::new();
+
     loop {
-        print!("{}", prompt);
-        std::io::stdout().flush().unwrap();
+        print!("---> ");
+        io::stdout().flush().expect("stdout flush failed");
 
-        input.clear();
-        std::io::stdin().read_line(&mut input).unwrap();
-        input.shrink_to_fit();
-        let input_clean = &input[..input.len()-1].trim();
-
-        if ["exit", "q", "quit"].contains(input_clean) {
+        line.clear();
+        // `read_line` returns Ok(0) only at end of input (e.g. Ctrl-D).
+        if stdin.read_line(&mut line).expect("stdin read failed") == 0 {
+            println!();
             break;
         }
 
-        let items: Vec<&str> = input_clean.split_whitespace().collect();
-        for item in items {
-            match stack.run_program(item) {
-                Ok(_) => {
-                    // println!("{:?}", stack.repr());
-                },
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    break;
-                }
-            }
+        let source = line.trim();
+        if matches!(source, "exit" | "q" | "quit") {
+            break;
+        }
+
+        if let Err(e) = vm.run(source) {
+            eprintln!("error: {e}");
         }
     }
 }
