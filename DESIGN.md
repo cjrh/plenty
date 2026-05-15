@@ -231,13 +231,30 @@ pub struct FnSig {
 pub enum Op {
     PushInt(i64),
     PushStr(StrId),                // literal already interned into the heap
+    PushBool(bool),                // `true` / `false` literal
     Add, Sub, Mul, Div,
+    Eq, Lt, Gt,                    // comparisons (Bool result)
+    Not,                           // boolean negation
     Display,                       // the `.` word
     Clear,                         // the `:clear` word
     ListDir,                       // the `:listdir` word
     DefineFn(String, CompiledFn),  // bind name -> compiled function
     Call(String),                  // invoke a function by name (late-bound)
+    TailCall(String),              // tail-position call; reuses the frame (§11.8)
     LoadLocal(u8),                 // push the i-th input of the active call
+    Match(Rc<[MatchArm]>),         // structured branch (§11.8)
+}
+
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body:    Rc<[Op]>,         // arm body — runs against the current stack
+}
+
+pub enum Pattern {
+    Int(i64),
+    Str(StrId),
+    Bool(bool),
+    Wildcard,
 }
 
 pub struct CompiledFn {
@@ -413,17 +430,32 @@ pub struct Vm {
     stack: Vec<Value>,
     heap: Heap,
     functions: HashMap<String, CompiledFn>,
-    locals: Vec<Value>,    // every active call's locals, packed end-to-end
-    frames: Vec<usize>,    // start index of each call's locals frame
-}                                              // derives Default
+    locals: Vec<Value>,     // every active call's locals, packed end-to-end
+    frames: Vec<Frame>,     // the execution-context stack — see below
+}                                                       // derives Default
+
+struct Frame {
+    body: Rc<[Op]>,          // the op stream this frame is iterating
+    pc: usize,               // index of the next op to run
+    locals_start: usize,     // the enclosing call's locals frame start
+    owns_locals: bool,       // true → popping this frame tears down the locals
+                             //         starting at `locals_start`
+                             // false → frame is borrowing an outer call's locals
+                             //         (a match-arm block frame, or top level)
+}
 ```
 
 The running interpreter. All fields are private.
 
-`locals` and `frames` together implement per-call named locals (§11.5).
-The active call's `i`-th input lives at `locals[frames.last().unwrap() + i]`.
-One backing allocation amortises across nested and recursive calls; popping
-a frame is just `frames.pop()` plus `locals.truncate(frame_start)`.
+`locals` and `frames` together implement per-call named locals (§11.5)
+and the loop-based execution model (§11.8). The active call's `i`-th
+input lives at `locals[frame.locals_start + i]` where `frame` is the
+innermost frame whose `owns_locals` is true. One backing allocation for
+`locals` amortises across nested and recursive calls; popping a frame
+that owns its locals is `frames.pop()` plus
+`locals.truncate(frame.locals_start)`. A match-arm block pushes a frame
+that *borrows* the enclosing call's locals — `owns_locals = false` — so
+its pop is free. The top-level frame is also a borrowing frame.
 
 ### Public API
 
@@ -446,49 +478,68 @@ pub fn clear(&mut self);                       // clears the stack, not function
   (e.g. `[1 2 "three"]`), deliberately independent of internal representation.
   It is what the `.` word prints and what tests assert against.
 
-### Execution — `exec` (private)
+### Execution — the interpreter loop (private)
 
-```rust
-fn exec(&mut self, op: &Op) -> Result<()>;
-```
+The interpreter is a loop over the `frames` stack. Each iteration reads
+the next op from the innermost frame; when a frame's `pc` reaches the
+end of its body, the frame is popped (truncating `locals` if it owns
+them) and the loop continues with the parent. The loop returns when
+`frames` is empty.
 
-Dispatches one `Op`:
+One op-dispatch:
 
-| `Op`            | Action                                                          |
-|-----------------|-----------------------------------------------------------------|
-| `PushInt`/`PushStr` | push the value                                              |
-| `Add`           | `add` — polymorphic (see below)                                 |
-| `Sub`/`Mul`/`Div` | `int_binop` with `checked_*` arithmetic                       |
-| `Display`       | `println!` the `stack_repr`                                     |
-| `Clear`         | `clear` the stack                                               |
-| `ListDir`       | print directory entries (`list_dir`, a free fn)                 |
-| `DefineFn(n,f)` | `functions.insert(n.clone(), f.clone())` — **stack untouched** |
-| `Call(n)`       | `call` — set up a locals frame, run the body, tear it down      |
-| `LoadLocal(i)`  | push `locals[frames.last() + i]` onto the data stack            |
+| `Op`               | Action                                                                      |
+|--------------------|-----------------------------------------------------------------------------|
+| `PushInt`/`PushStr`/`PushBool` | push the value                                                  |
+| `Add`              | `add` — polymorphic over `(Int, Int)` and `(Str, Str)`                      |
+| `Sub`/`Mul`/`Div`  | `int_binop` with `checked_*` arithmetic                                     |
+| `Eq`/`Lt`/`Gt`     | pop two, compare, push a `Bool` (`Eq` polymorphic; `Lt`/`Gt` Int-only)      |
+| `Not`              | pop a `Bool`, push its negation                                             |
+| `Display`          | `println!` the `stack_repr`                                                 |
+| `Clear`            | clear the data stack                                                        |
+| `ListDir`          | print directory entries                                                     |
+| `DefineFn(n,f)`    | `functions.insert(n.clone(), f.clone())` — **stack untouched**              |
+| `Call(n)`          | drain the callee's inputs into a new locals frame, push a Call frame        |
+| `TailCall(n)`      | pop block frames + the enclosing Call frame, then push the replacement      |
+| `LoadLocal(i)`     | push `locals[frame.locals_start + i]` onto the data stack                   |
+| `Match(arms)`      | pop the matched value, pick the first matching arm, push a Block frame      |
 
-Helpers:
+Helpers and conventions:
 
-- `add` — pops two values; `(Int, Int)` → `checked_add`; `(Str, Str)` →
-  concatenate into the heap; otherwise an error. Operands are concatenated in
-  natural order (`a` then `b`, where `b` was on top).
-- `int_binop(op: fn(i64,i64) -> Option<i64>, err)` — pops two integers `a`, `b`
-  (with `b` on top), pushes `op(a, b)`, errors with `err` when `op` returns
-  `None`. `Sub`/`Mul` use `i64::checked_*`; `Div` uses a closure that maps
-  divide-by-zero and overflow to `None`.
-- `call(name)` — looks the function up, clones the `Rc<FnSig>` and
-  `Rc<[Op]>`, *releases the borrow on `self`*, then drains
-  `sig.inputs.len()` values off the data stack into a fresh locals frame,
-  executes the body, and tears the frame down — on both success and error,
-  so a recoverable failure cannot leave a frame stranded. Self-recursion
-  gets a brand-new frame on every entry, which is the whole point of the
-  per-call frame design. Cloning the `Rc`s makes recursion and
-  self-reference borrow-safe.
-- `load_local(i)` — pushes `locals[frames.last() + i]` onto the data stack.
-  Only reachable from inside a `call`, since the compiler only emits
-  `LoadLocal` inside a function body.
-- `pop` / `pop_int` — `pop` errors on underflow; `pop_int` additionally errors
-  on a non-integer.
-- `render(Value) -> String` — `Int` → decimal; `Str` → `{:?}` (quoted/escaped).
+- `add` — pops two values; `(Int, Int)` → `checked_add`; `(Str, Str)`
+  → concatenate into the heap; otherwise an error. Operands are
+  concatenated in natural order (`a` then `b`, where `b` was on top).
+- `int_binop(op: fn(i64,i64) -> Option<i64>, err)` — pops two integers
+  `a`, `b` (with `b` on top), pushes `op(a, b)`, errors with `err` when
+  `op` returns `None`. `Sub`/`Mul` use `i64::checked_*`; `Div` uses a
+  closure that maps divide-by-zero and overflow to `None`.
+- `Call(n)` — looks the function up, clones the `Rc<FnSig>` and
+  `Rc<[Op]>`, drains `sig.inputs.len()` values off the data stack into
+  a fresh locals frame, and **pushes a `Call`-kind frame** onto
+  `frames`. Control returns to the parent frame automatically when
+  this body's `pc` reaches its end; the locals are torn down at that
+  point. Cloning the `Rc`s decouples the function dictionary from the
+  active body, which is what makes self-recursion borrow-safe.
+- `TailCall(n)` — same drain into a temporary, then pop block frames
+  off `frames` until the enclosing Call frame is reached, tear down
+  *its* locals, pop it, and push the replacement Call frame with the
+  drained args. Net effect: the recursion depth does not grow, and the
+  data-stack arguments slot into the same range of `locals` the old
+  call vacated.
+- `Match(arms)` — pops the matched value, walks `arms` in order,
+  pushes a Block-kind frame for the first arm whose pattern matches.
+  The checker has already verified exhaustiveness, so the search
+  cannot fall off the end on a compiled program — but the runtime
+  raises an error if it ever does, as a defence against direct VM
+  construction outside the public `run` path.
+- `load_local(i)` — pushes `locals[frame.locals_start + i]` onto the
+  data stack. Only reachable inside a function body (the compiler
+  never emits `LoadLocal` at the top level), so `frame.locals_start`
+  always refers to a real frame.
+- `pop` / `pop_int` / `pop_bool` — pop one value; the `_int` /
+  `_bool` variants additionally error on the wrong type.
+- `render(Value) -> String` — `Int` → decimal; `Str` → `{:?}`
+  (quoted/escaped); `Bool` → `true` / `false`.
 
 ## 8. Language semantics
 
@@ -578,16 +629,61 @@ A function with more than `u8::MAX` (255) inputs is rejected at
 compile time, since `Op::LoadLocal` indexes its frame with a `u8`. The
 limit is a degenerate-input guard, not a tuning knob.
 
+### Control flow
+
+Plenty has one branching primitive, `match`, and no looping primitive
+(§11.8). The full surface is:
+
+```forth
+value match
+  PATTERN [ BODY ]
+  PATTERN [ BODY ]
+  _       [ BODY ]
+end
+```
+
+- `match` pops one value off the data stack and dispatches on it.
+- Each arm is a *pattern* (a typed literal — `0`, `true`, `"hello"`
+  — or `_`) followed by a *bracketed block*. The first arm whose
+  pattern matches runs; subsequent arms do not.
+- An arm body runs against the same data stack and the same locals
+  frame as the surrounding code. The brackets are syntactic structure,
+  not a value.
+- `end` closes the match.
+
+The checker enforces two properties at compile time: every arm leaves
+the stack in the same shape (the *branch join*), and every match is
+exhaustive (both `true` and `false` for `Bool`, a `_` arm for `Int` or
+`Str`). A non-exhaustive match is a compile error, not a runtime one.
+
+### Iteration is recursion
+
+A function that needs to repeat calls itself. The compiler detects when
+a call sits in tail position — last op of the body, or last op of a
+match arm whose enclosing match is itself in tail position — and emits
+`Op::TailCall` in place of `Op::Call`. The interpreter reuses the
+current call's locals frame for a `TailCall`, so tail-recursive loops
+do not grow the call stack. Non-tail calls grow an explicit frame
+stack on the heap, not the host's Rust call stack, so even deep
+non-tail recursion is bounded by available memory rather than by a
+host ulimit. There are no `for`, `while`, or `do` words.
+
 ### Built-in words summary
 
-| Word       | Effect                                                       |
-|------------|--------------------------------------------------------------|
-| `+ - * /`  | binary arithmetic (`+` also concatenates text)               |
-| `.`        | print the whole stack (does **not** pop)                     |
-| `:clear`   | discard every value on the stack                             |
-| `:listdir` | print the entries of the current directory                   |
-| `: name { sig } "doc" body ;` | define a function with mandatory header and docstring |
-| `:name`    | call the function `name`                                     |
+| Word           | Effect                                                                 |
+|----------------|------------------------------------------------------------------------|
+| `+ - * /`      | binary arithmetic (`+` also concatenates text)                         |
+| `= < >`        | comparisons; push a `Bool` (`=` is polymorphic; `< >` are Int-only)    |
+| `not`          | pop a `Bool`, push its negation                                        |
+| `true` `false` | push the `Bool` literal                                                |
+| `match … end`  | dispatch on the top-of-stack value (§11.8)                             |
+| `[ … ]`        | compile-time block — only valid as a match-arm body (§11.8)            |
+| `_`            | wildcard pattern (in match-arm position only)                          |
+| `.`            | print the whole stack (does **not** pop)                               |
+| `:clear`       | discard every value on the stack                                       |
+| `:listdir`     | print the entries of the current directory                             |
+| `: name { sig } "doc" body ;` | define a function with mandatory header and docstring   |
+| `:name`        | call the function `name`                                               |
 
 ## 9. Error handling
 
@@ -868,9 +964,9 @@ language a small, learnable shape; partial or contextual rules do not.
 
 - `Int` — 64-bit signed integer.
 - `Str` — heap-backed string (held by `StrId`).
-- `Bool` — `true` or `false`. Produced by literal `true` / `false` and by
-  comparison operators; consumed by conditionals (when control flow lands,
-  §11.6).
+- `Bool` — `true` or `false`. Produced by the literals `true`/`false` and
+  by the comparison operators `=`, `<`, `>` (and `not` for negation);
+  consumed by `match` (§11.8).
 
 Arrays and sum types are deferred (§12.7, §12.14). No further base types
 are planned for the first pass.
@@ -1039,12 +1135,12 @@ cognitive burden of "what *generalised* here?" on every contributor.
 That is §11.4's trade exactly in reverse: high implementation and carry
 cost for no user-visible benefit. The simpler design wins on the merits.
 
-Deferred: **branch joins.** When control flow lands (an `if`-equivalent,
-loops, or a `match` on a sum type), both arms of a branch must produce
-the same stack effect, and the checker has to enforce that. The
-mechanism — typically requiring both arms to agree pointwise at the join
-— is not designed here because control flow itself is not designed yet.
-It is flagged so the cost is on the books rather than discovered later.
+Landed: **branch joins.** Per §11.8, control flow is `match`, and every
+arm must leave the stack in the same shape. The checker snapshots the
+abstract stack at `match`, type-checks each arm body against a copy of
+the snapshot, and requires the resulting stacks to agree pointwise; the
+agreed shape becomes the match's overall stack effect. No new
+machinery beyond a per-arm snapshot was needed.
 
 ### 11.7 Documentation and string literals
 
@@ -1103,6 +1199,133 @@ captured by the compiler as one owned `String` per function. Tools that
 link the Plenty crate get it trivially; tools that re-implement parsing
 have only a few simple rules to mirror.
 
+### 11.8 Control flow — one branching primitive, recursion for iteration
+
+Plenty has **one** branching primitive — `match` — and **no looping
+primitive**. Iteration is recursion plus mandatory tail-call
+optimisation. The user-visible control-flow vocabulary is small enough
+to state in one line: `match`, `end`, `[`, `]`, `_`. There is no `if`,
+no `else`, no `for`, no `while`, no `do`. `Bool` is just a two-variant
+value handled the same way as any other finite type.
+
+**`match` is how you branch.**
+
+```forth
+: classify { x Int -> Str } "name a small number"
+  x match
+    0 [ "zero" ]
+    1 [ "one"  ]
+    _ [ "many" ]
+  end ;
+```
+
+Surface:
+
+- `match` consumes the top-of-stack value and dispatches on it.
+- Each arm is `PATTERN [ BODY ]`. Patterns are typed literals (`0`,
+  `true`, `"foo"`) or `_` (the wildcard).
+- `end` closes the match.
+
+Two **mandatory rules** that hold without exception:
+
+1. *Every arm has the shape `PATTERN [ BODY ]`.* No `->` or `=>` between
+   pattern and block. No separator between arms. Arm order is
+   significant: the first matching arm wins.
+2. *Every match is exhaustive.* For `Bool`, both `true` and `false` arms
+   must be present (a wildcard arm also satisfies exhaustiveness). For
+   `Int` and `Str` (whose value spaces are unbounded), a `_` arm is
+   required. The checker rejects non-exhaustive matches at compile time.
+
+**Brackets are compile-time blocks, not quotation values.**
+
+A `[ ... ]` is **syntactic structure**, the same way `: ... ;` and
+`{ ... }` already are. The ops between the brackets are compiled into a
+separately-stored `Rc<[Op]>` that the match arm holds and that the
+runtime executes against the *current* data stack and the *current*
+locals frame. There is no `Value::Quot`, no first-class code, no
+quotation type in the type system. A bracketed block is reachable only
+as a match arm body.
+
+This is the load-bearing decision that lets §11.2's monomorphism remain
+intact. First-class quotations would force quotation types — a stack
+effect *as* a type — which is the gateway to row polymorphism (Factor's
+approach). The block-as-structure reading sidesteps that gateway
+entirely.
+
+**`Bool` is not syntactically privileged.** With `match` as the only
+conditional, `Bool` is just a two-variant value that you handle the way
+you'd handle any other finite type. An `if`-style sugar would be a
+second way to say the same thing, which the hard-rules stance refuses
+on principle; see also the exhaustiveness rule, which makes "every
+conditional has both branches" a property of `match` rather than a
+separate rule.
+
+**Branch joins, as promised by §11.6.** The type checker treats each
+arm independently — snapshot the abstract stack at `match`, pop the
+matched value's type, type-check each arm body against a copy of the
+snapshot, require all arms to leave the stack in the same shape. That
+shape becomes the stack effect of the match as a whole. A mismatch at
+the join is a type error with both shapes named. No new machinery is
+needed beyond the per-arm snapshot.
+
+**Iteration is recursion.**
+
+```forth
+: countdown { n Int -> } "print n down to 1, then stop"
+  n .
+  n 1 > match
+    true  [ n 1 - :countdown ]
+    false [ ]
+  end ;
+```
+
+There is no `for`, no `while`, no special looping construct. A function
+that needs to repeat calls itself, and the recursive call sits in tail
+position — the last op of an arm that is itself the last op of the
+function body. The compiler **detects tail position structurally**
+during a post-compile pass over each function body: a `Call` is in tail
+position if it is the last op of the body, or the last op of an arm
+body whose enclosing `Match` is itself in tail position. Detected tail
+calls are rewritten in place to `Op::TailCall`.
+
+**Tail-call optimisation is mandatory, not opportunistic.** The
+interpreter's main loop recognises `Op::TailCall` and reuses the
+current call's locals frame instead of allocating a new one; the call
+stack does not grow. Without this guarantee, recursion is not a
+legitimate substitute for looping — every iteration would consume host
+stack space, which contradicts the low-memory north star (§1) on the
+very feature meant to make iteration cheap. The guarantee is part of
+the language contract, not an optimisation.
+
+**The interpreter is a loop, not a recursive walker.** To make TCO
+work, the prior recursive `exec`-per-op design is replaced by an
+explicit interpreter loop with an explicit frame stack (§7). Each
+frame carries the body it is executing (`Rc<[Op]>`), a program
+counter, and a discriminator that says whether it owns a locals frame
+(a call frame) or borrows the enclosing call's (a match-arm block
+frame). Executing a `TailCall` pops the current call frame — and any
+block frames sitting above it — then pushes the replacement call
+frame with the inputs drained from the data stack.
+
+**Pattern binders are deferred with sum types.** Today's patterns are
+typed literals and `_`. When sum types land (§12.14), patterns will
+additionally introduce *binders* — `Ok x` would bind the payload as a
+local `x` scoped to the arm's body, extending §11.5's locals mechanism
+per-arm. Nothing in the current design has to change to accommodate
+them; the arm-body compilation path already inherits the enclosing
+function's locals scope, and pattern binders just push onto it for the
+arm's duration.
+
+**Comparison and Boolean vocabulary.** `=`, `<`, `>` are comparison
+ops; `not` is boolean negation. `=` is polymorphic over the equality
+types (`Int Int -> Bool`, `Str Str -> Bool`, `Bool Bool -> Bool`); `<`
+and `>` are `(Int Int -> Bool)`. Additional comparisons (`!=`, `<=`,
+`>=`) and boolean operators (`and`, `or`) are open — not committed
+direction, not deliberately omitted, just not on the immediate path.
+There is no short-circuit semantics: both operands of `and`/`or` (if
+they land) are values already on the stack. Short-circuit dispatch is
+what `match` is for.
+
 ## 12. Known limitations and open questions
 
 For future iterations. Update this section as items are resolved or added.
@@ -1159,19 +1382,31 @@ open.
    compactness and faster lookup.
 10. **Stringly-typed errors.** `Box<dyn Error>` over ad-hoc strings. A typed
     error enum would give callers something to match on.
-11. **Unbounded recursion overflows the host stack.** `call`/`exec` recurse on
-    the Rust call stack; there is no depth limit and no tail-call handling.
+11. **Tail-call optimisation — implemented.** **(direction)** §11.8
+    commits TCO as part of the language contract (recursion is the
+    iteration primitive, so it must not grow the call stack). The
+    interpreter is now a loop over an explicit frame stack; a
+    `Call` in tail position is compiled to `Op::TailCall`, which
+    reuses the enclosing call's locals frame instead of pushing a
+    new one. Non-tail calls still recurse on the explicit frame
+    stack (not the Rust call stack), so deep non-tail recursion is
+    bounded by available heap, not by the host's stack ulimit.
 12. **`i64` only.** No floating point, no other numeric widths.
 13. **Embedding API is implicit.** Hosts get `Vm::new` / `Vm::run` /
     `Vm::stack_repr`, but there is no typed push/pop or way to register a host
     function. §11.1 implies this surface will grow; the shape is open.
-14. **No sum types.** **(direction)** Option and Result are the obvious shape
-    once control flow lands: single-slot values (discriminator + payload —
-    fits the 16-byte invariant for `Int`/`Str` payloads), and their dispatch
-    is the same branch-join problem §11.6 already defers. Design them
-    alongside `if` / control flow, not before either is on paper. The open
-    question is surface: anonymous quotations (Factor-style `[ ... ]` arms)
-    versus dedicated `match-*` words that take named handler functions.
+14. **No sum types.** **(direction)** Option and Result are the obvious
+    shape now that control flow has landed: single-slot values
+    (discriminator + payload — fits the 16-byte invariant for
+    `Int`/`Str` payloads), dispatched by `match` (§11.8). The surface
+    question §12.14 previously held open (anonymous quotations vs
+    `match-*` words with named handlers) is settled the third way:
+    `match` with compile-time bracketed arms, neither of the two
+    routes named here. What's still open is the *declaration* surface
+    for user-defined sum types and the corresponding extension of
+    `match` patterns with payload binders (`Ok x [ ... ]` binding `x`
+    as a local scoped to the arm body) — both flagged by §11.8 as the
+    natural next step.
 15. **Bare-word-as-text typo safety.** A bare word in body code that
     isn't a builtin, operator, number, `:name` call, or local still
     pushes as text (§6 word resolution). A typo like `dlb` (for `dbl`)
@@ -1188,14 +1423,20 @@ open.
     character. The simple rule "input names must not parse as `i64`
     and must not be one of `+ - * /`" would foreclose this with
     almost no implementation cost.
-17. **No Bool literals or comparison operators.** §11.2 names `Bool`
-    as a base type produced by `true` / `false` and by comparisons —
-    neither is implemented. Now that the type checker is in, the
-    absence is load-bearing: a function declared to return `Bool`
-    can only do so by forwarding an input. The next step is the
-    literals and comparison ops, but they want to land alongside
-    control flow (§11.6 branch joins) since that is the reason
-    `Bool` exists in the first place.
+17. **Bool literals and comparison operators — implemented.**
+    **(direction)** §11.2 named `Bool` as a base type and §11.8
+    committed `match` as its consumer. Both have landed: `true` and
+    `false` are literals, `=`/`<`/`>` are the comparison ops, `not`
+    negates a `Bool`. `=` is polymorphic over the equality types
+    (`Int Int -> Bool`, `Str Str -> Bool`, `Bool Bool -> Bool`);
+    `<`/`>` are `(Int Int -> Bool)`. Further comparisons (`!=`,
+    `<=`, `>=`) and boolean operators (`and`, `or`) are open per
+    §11.8's last paragraph — uncommitted but unblocked.
+18. **Control flow — implemented.** **(direction)** §11.8 is in:
+    `match` with bracketed arms is the single branching primitive,
+    iteration is recursion plus mandatory TCO (see also §12.11),
+    and the type checker enforces exhaustiveness and pointwise
+    branch-join agreement.
 
 ## 13. Invariants
 
@@ -1212,5 +1453,14 @@ These must hold; changing one is a deliberate design decision.
 - **No module below the `op` layer may depend on the `vm` layer.** The `Op`
   stream stays self-contained so a second backend (AOT, §11.1) can consume
   it without dragging the interpreter in.
+- **Tail calls do not grow the call stack** (§11.8). A `Call` op in tail
+  position is compiled to `Op::TailCall`, which the interpreter implements
+  by reusing the enclosing call's locals frame rather than nesting. The
+  test `tail_recursion_runs_without_growing_the_call_stack` enforces this
+  on a recursion deep enough that the non-TCO interpreter would overflow.
+- **Every `match` is exhaustive** (§11.8). The checker requires both arms
+  for `Bool` (or a `_`), and a `_` arm for `Int`/`Str`. The runtime
+  preserves a defensive "no arm matched" error path but a compiled,
+  type-checked program cannot reach it.
 - The tutorial in `README.md` between the `TUTORIAL` markers is generated, not
   hand-edited; `tests/tutorial.rs` is its source of truth.

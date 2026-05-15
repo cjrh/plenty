@@ -14,10 +14,15 @@ pub struct StrId(u32);
 /// the language cannot avoid touching. A million integers cost 16 MB, not 32+.
 /// Anything variable-sized (text today, arrays later) lives in the [`Heap`] and
 /// is referenced here by a compact handle, never stored inline.
+///
+/// `Bool` is its own variant, not an integer alias: §11.2's "no implicit
+/// conversions" rule says a `Bool` is a `Bool`, and the only way to get one is
+/// to produce one (a literal, or a comparison).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
     Int(i64),
     Str(StrId),
+    Bool(bool),
 }
 
 /// Backing store for values that do not fit in a 16-byte stack slot.

@@ -56,6 +56,8 @@ pub enum Op {
     PushInt(i64),
     /// Push a string literal — already stored in the heap — onto the stack.
     PushStr(StrId),
+    /// Push a `Bool` literal onto the stack (`true` / `false`).
+    PushBool(bool),
     /// Pop two values; push their sum (integers) or concatenation (text).
     Add,
     /// Pop two integers `a b`; push `a - b`.
@@ -64,6 +66,16 @@ pub enum Op {
     Mul,
     /// Pop two integers `a b`; push `a / b`.
     Div,
+    /// Pop two values; push `true` if they are equal, `false` otherwise.
+    /// Polymorphic over Int/Str/Bool (§11.8); mixed-type pairs are rejected
+    /// by the type checker, never reached at runtime by a compiled source.
+    Eq,
+    /// Pop two integers `a b`; push `a < b`.
+    Lt,
+    /// Pop two integers `a b`; push `a > b`.
+    Gt,
+    /// Pop a `Bool`; push its negation.
+    Not,
     /// Print the whole stack — the `.` word.
     Display,
     /// Discard every value on the stack.
@@ -75,12 +87,41 @@ pub enum Op {
     /// The body is carved out of the token stream at compile time, so running
     /// this op never touches the runtime stack — whatever is on it stays put.
     DefineFn(String, CompiledFn),
-    /// Invoke a user-defined function by name.
+    /// Invoke a user-defined function by name. Non-tail position.
     Call(String),
+    /// Invoke a user-defined function by name from tail position (§11.8).
+    /// The interpreter reuses the enclosing call's locals frame; the call
+    /// stack does not grow. Emitted only by the post-compile tail-call pass.
+    TailCall(String),
     /// Push the value of the `i`-th input local of the enclosing call's frame
     /// (§11.5). Only emitted inside function bodies, so the VM always has at
     /// least one frame on its frame stack when it runs one.
     LoadLocal(u8),
+    /// Pop the top of the stack and dispatch on it (§11.8). The first arm
+    /// whose pattern matches runs; the value itself is *consumed* by the
+    /// match. Exhaustiveness has been checked at compile time, so on a
+    /// well-formed source the search always finds a match.
+    Match(Rc<[MatchArm]>),
+}
+
+/// One arm of a [`Op::Match`]. The pattern is matched against the popped
+/// value; if the match succeeds, `body` is executed against the current
+/// data stack and the enclosing call's locals frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Rc<[Op]>,
+}
+
+/// What a match-arm pattern can be. Today: typed literals plus the wildcard.
+/// Sum-type patterns with payload binders are designed (§11.8) but deferred
+/// until sum types themselves land (§12.14).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Pattern {
+    Int(i64),
+    Str(StrId),
+    Bool(bool),
+    Wildcard,
 }
 
 /// A compiled function: the signature (§11.2), the docstring (§11.7), and
@@ -109,10 +150,12 @@ pub fn compile(toks: &[Tok], heap: &mut Heap) -> Result<Vec<Op>> {
 /// What ends the run of tokens a [`Compiler::compile_seq`] call is reading.
 #[derive(Clone, Copy, PartialEq)]
 enum Stop {
-    /// The top level: stop at end of input; a `;` here is an error.
+    /// The top level: stop at end of input; a `;`, `]`, or `end` here is an error.
     EndOfInput,
     /// A function body: stop at — and consume — the matching `;`.
     Semicolon,
+    /// A match-arm body: stop at — and consume — the matching `]`.
+    CloseBracket,
 }
 
 /// A cursor over a token slice that compiles it to ops.
@@ -120,12 +163,14 @@ enum Stop {
 /// Bundled into a struct because the four things — the tokens, the position
 /// within them, the heap that literals are interned into, and the stack of
 /// enclosing functions' input-name lists — all travel together through the
-/// recursion that handles nested `: ... ;` definitions.
+/// recursion that handles nested `: ... ;` definitions and `match ... end`
+/// dispatches.
 ///
 /// `local_scopes` is a stack only so that nested definitions can push and pop
 /// cleanly; per §11.5, **only the innermost (topmost) scope is visible** at
 /// any point. Outer scopes are inaccessible by design: nested functions do
-/// not see their enclosing function's locals.
+/// not see their enclosing function's locals. Match-arm bodies do *not* push
+/// a new scope — they share their enclosing function's locals (§11.8).
 struct Compiler<'t, 'src> {
     toks: &'t [Tok<'src>],
     pos: usize,
@@ -135,7 +180,7 @@ struct Compiler<'t, 'src> {
 
 impl Compiler<'_, '_> {
     /// Compile tokens from the current position until `stop` is reached,
-    /// consuming the terminating `;` if there is one.
+    /// consuming the terminating delimiter where there is one.
     fn compile_seq(&mut self, stop: Stop) -> Result<Vec<Op>> {
         let mut ops = Vec::new();
         while let Some(tok) = self.toks.get(self.pos).copied() {
@@ -143,6 +188,11 @@ impl Compiler<'_, '_> {
             match tok {
                 Tok::Word(";") if stop == Stop::Semicolon => return Ok(ops),
                 Tok::Word(";") => return Err("';' has no matching ':'".into()),
+                Tok::Word("]") if stop == Stop::CloseBracket => return Ok(ops),
+                Tok::Word("]") => return Err("']' has no matching '['".into()),
+                Tok::Word("[") => return Err("'[' is only valid inside a `match` arm".into()),
+                Tok::Word("end") => return Err("`end` has no matching `match`".into()),
+                Tok::Word("match") => ops.push(self.compile_match()?),
                 Tok::Word(":") => ops.push(self.compile_definition()?),
                 Tok::Word(w) => match self.lookup_local(w) {
                     Some(ix) => ops.push(Op::LoadLocal(ix)),
@@ -153,6 +203,7 @@ impl Compiler<'_, '_> {
         }
         match stop {
             Stop::Semicolon => Err("':' has no matching ';'".into()),
+            Stop::CloseBracket => Err("'[' has no matching ']'".into()),
             Stop::EndOfInput => Ok(ops),
         }
     }
@@ -211,8 +262,58 @@ impl Compiler<'_, '_> {
         self.local_scopes.push(locals);
         let body_result = self.compile_seq(Stop::Semicolon);
         self.local_scopes.pop();
-        let body = body_result?;
+        let mut body = body_result?;
+        // Tail-call rewrite — §11.8. Done after the body is fully compiled so
+        // we can identify "last op in body / last op in last match arm" purely
+        // structurally.
+        mark_tail_calls(&mut body);
         Ok(Op::DefineFn(name, CompiledFn { sig, doc, body: body.into() }))
+    }
+
+    /// Compile a `match PATTERN [ BODY ] PATTERN [ BODY ] ... end` dispatch.
+    /// The opening `match` has already been consumed; the cursor sits on the
+    /// first pattern (or on `end` for an empty match, which is rejected).
+    fn compile_match(&mut self) -> Result<Op> {
+        let mut arms: Vec<MatchArm> = Vec::new();
+        loop {
+            // Pattern or end-of-match.
+            let pattern = match self.toks.get(self.pos).copied() {
+                Some(Tok::Word("end")) => {
+                    self.pos += 1;
+                    break;
+                }
+                Some(Tok::Word("[")) => {
+                    return Err("match arm is missing a pattern before `[`".into())
+                }
+                Some(Tok::Word(";")) | Some(Tok::Word("]")) | None => {
+                    return Err("`match` has no matching `end`".into())
+                }
+                Some(Tok::Word(w)) => {
+                    self.pos += 1;
+                    parse_pattern_word(w)?
+                }
+                Some(Tok::Text(s)) => {
+                    self.pos += 1;
+                    Pattern::Str(self.heap.add_str(unescape(s)?))
+                }
+            };
+            // Opening bracket — patterns are followed *only* by `[`.
+            match self.toks.get(self.pos).copied() {
+                Some(Tok::Word("[")) => self.pos += 1,
+                _ => {
+                    return Err(
+                        "match arm pattern must be followed by `[` to open the arm body".into(),
+                    )
+                }
+            }
+            // Body, up to the matching `]`. `compile_seq` consumes the `]`.
+            let body = self.compile_seq(Stop::CloseBracket)?;
+            arms.push(MatchArm { pattern, body: body.into() });
+        }
+        if arms.is_empty() {
+            return Err("`match` requires at least one arm".into());
+        }
+        Ok(Op::Match(arms.into()))
     }
 
     /// Compile a `{ name Type ... -> Type ... }` header (§11.2).
@@ -333,6 +434,29 @@ fn parse_type(w: &str) -> Option<Ty> {
     }
 }
 
+/// Parse a match-arm pattern from a bare word. Numbers parse as `Pattern::Int`,
+/// `true`/`false` as `Pattern::Bool`, `_` as `Pattern::Wildcard`. A pattern
+/// must be a literal or a wildcard — never an arbitrary word.
+fn parse_pattern_word(w: &str) -> Result<Pattern> {
+    if w == "_" {
+        return Ok(Pattern::Wildcard);
+    }
+    if w == "true" {
+        return Ok(Pattern::Bool(true));
+    }
+    if w == "false" {
+        return Ok(Pattern::Bool(false));
+    }
+    if let Ok(n) = w.parse::<i64>() {
+        return Ok(Pattern::Int(n));
+    }
+    Err(format!(
+        "match-arm pattern `{w}` is not a recognised literal \
+         (use a number, `true`, `false`, a `\"...\"` string, or `_`)"
+    )
+    .into())
+}
+
 /// Decode the `\"` and `\\` escapes inside a raw string-literal slice. Any
 /// other `\X` is an error. The lexer guarantees that every `\` is followed by
 /// some character, so trailing-backslash is unreachable from real input — the
@@ -362,10 +486,16 @@ fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
         return Ok(Op::PushInt(n));
     }
     Ok(match word {
+        "true" => Op::PushBool(true),
+        "false" => Op::PushBool(false),
         "+" => Op::Add,
         "-" => Op::Sub,
         "*" => Op::Mul,
         "/" => Op::Div,
+        "=" => Op::Eq,
+        "<" => Op::Lt,
+        ">" => Op::Gt,
+        "not" => Op::Not,
         "." => Op::Display,
         ":clear" => Op::Clear,
         ":listdir" => Op::ListDir,
@@ -374,6 +504,42 @@ fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
             None => Op::PushStr(heap.add_str(word.to_string())),
         },
     })
+}
+
+// --- tail-call detection (§11.8) -------------------------------------------
+
+/// Rewrite the last `Call` in `body` to `TailCall`, recursing through the
+/// last arm-bodies of trailing `Match` ops. A function body's last op is in
+/// tail position; the last op of a match arm is in tail position iff the
+/// match itself is in tail position — that recursion is what this function
+/// implements.
+///
+/// The rewrite is structural: we walk only the *tail* of the body, so
+/// non-tail calls anywhere else stay `Call`. Match arms are stored as
+/// `Rc<[Op]>`, so mutating an arm body means rebuilding it; we only do that
+/// for arms that actually contain a tail call.
+fn mark_tail_calls(body: &mut [Op]) {
+    let Some(last) = body.last_mut() else {
+        return;
+    };
+    match last {
+        Op::Call(name) => {
+            *last = Op::TailCall(std::mem::take(name));
+        }
+        Op::Match(arms) => {
+            // Rebuild arms with each arm's tail rewritten.
+            let new_arms: Vec<MatchArm> = arms
+                .iter()
+                .map(|arm| {
+                    let mut new_body: Vec<Op> = arm.body.iter().cloned().collect();
+                    mark_tail_calls(&mut new_body);
+                    MatchArm { pattern: arm.pattern, body: new_body.into() }
+                })
+                .collect();
+            *arms = new_arms.into();
+        }
+        _ => {}
+    }
 }
 
 // --- type checking (§11.6) -------------------------------------------------
@@ -420,9 +586,17 @@ pub fn check(ops: &[Op], prior_sigs: &HashMap<String, Rc<FnSig>>) -> Result<()> 
 /// ordering.
 fn collect_sigs(ops: &[Op], out: &mut HashMap<String, Rc<FnSig>>) {
     for op in ops {
-        if let Op::DefineFn(name, f) = op {
-            out.insert(name.clone(), Rc::clone(&f.sig));
-            collect_sigs(&f.body, out);
+        match op {
+            Op::DefineFn(name, f) => {
+                out.insert(name.clone(), Rc::clone(&f.sig));
+                collect_sigs(&f.body, out);
+            }
+            Op::Match(arms) => {
+                for arm in arms.iter() {
+                    collect_sigs(&arm.body, out);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -441,6 +615,7 @@ fn step(
     match op {
         Op::PushInt(_) => stack.push(Ty::Int),
         Op::PushStr(_) => stack.push(Ty::Str),
+        Op::PushBool(_) => stack.push(Ty::Bool),
         Op::Add => {
             let (a, b) = pop2(stack, "+")?;
             let out = match (a, b) {
@@ -458,6 +633,25 @@ fn step(
         Op::Sub => arith(stack, "-")?,
         Op::Mul => arith(stack, "*")?,
         Op::Div => arith(stack, "/")?,
+        Op::Eq => {
+            let (a, b) = pop2(stack, "=")?;
+            if a != b {
+                return Err(format!(
+                    "`=` requires both operands of the same type, got ({a} {b})"
+                )
+                .into());
+            }
+            stack.push(Ty::Bool);
+        }
+        Op::Lt => cmp_int(stack, "<")?,
+        Op::Gt => cmp_int(stack, ">")?,
+        Op::Not => {
+            let top = stack.pop().ok_or("stack underflow on `not`")?;
+            if top != Ty::Bool {
+                return Err(format!("`not` requires Bool, got {top}").into());
+            }
+            stack.push(Ty::Bool);
+        }
         Op::Display | Op::ListDir => {}
         Op::Clear => stack.clear(),
         Op::LoadLocal(i) => {
@@ -467,7 +661,8 @@ fn step(
             stack.push(ty);
         }
         Op::DefineFn(name, f) => check_body(name, &f.sig, &f.body, sigs)?,
-        Op::Call(name) => check_call(name, stack, sigs)?,
+        Op::Call(name) | Op::TailCall(name) => check_call(name, stack, sigs)?,
+        Op::Match(arms) => check_match(arms, stack, locals, sigs)?,
     }
     Ok(())
 }
@@ -497,6 +692,19 @@ fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
         .into());
     }
     stack.push(Ty::Int);
+    Ok(())
+}
+
+/// Stack effect for `<` / `>`: (Int Int -> Bool).
+fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
+    let (a, b) = pop2(stack, op_label)?;
+    if a != Ty::Int || b != Ty::Int {
+        return Err(format!(
+            "`{op_label}` requires (Int Int), got ({a} {b})"
+        )
+        .into());
+    }
+    stack.push(Ty::Bool);
     Ok(())
 }
 
@@ -537,6 +745,88 @@ fn check_call(
     for out in &sig.outputs {
         stack.push(*out);
     }
+    Ok(())
+}
+
+/// Stack effect for `match`: pop the matched value's type, type-check
+/// every arm body against a copy of the abstract stack, require all arm
+/// results to agree pointwise, and require exhaustiveness (§11.8).
+///
+/// The agreed-on shape becomes the post-match stack.
+fn check_match(
+    arms: &[MatchArm],
+    stack: &mut Vec<Ty>,
+    locals: &[Ty],
+    sigs: &HashMap<String, Rc<FnSig>>,
+) -> Result<()> {
+    let matched_ty = stack
+        .pop()
+        .ok_or("stack underflow on `match` (no value to match against)")?;
+    if arms.is_empty() {
+        return Err("`match` requires at least one arm".into());
+    }
+
+    // Pattern compatibility — each pattern must be reachable on the
+    // matched type. Wildcards are always reachable.
+    for arm in arms {
+        let compatible = matches!(
+            (matched_ty, arm.pattern),
+            (_, Pattern::Wildcard)
+                | (Ty::Int, Pattern::Int(_))
+                | (Ty::Str, Pattern::Str(_))
+                | (Ty::Bool, Pattern::Bool(_))
+        );
+        if !compatible {
+            return Err(format!(
+                "match-arm pattern is incompatible with the matched type {matched_ty}"
+            )
+            .into());
+        }
+    }
+
+    // Exhaustiveness — Bool requires both literals (or a wildcard);
+    // Int and Str (unbounded) require a wildcard.
+    let has_wildcard = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard));
+    let exhaustive = match matched_ty {
+        Ty::Bool => {
+            has_wildcard
+                || (arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(true)))
+                    && arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(false))))
+        }
+        Ty::Int | Ty::Str => has_wildcard,
+    };
+    if !exhaustive {
+        return Err(format!(
+            "non-exhaustive `match` on {matched_ty} (add the missing arm or `_`)"
+        )
+        .into());
+    }
+
+    // Check every arm body against a fresh copy of the abstract stack;
+    // require all arms to leave the stack in the same shape.
+    let snapshot = stack.clone();
+    let mut joined: Option<Vec<Ty>> = None;
+    for (i, arm) in arms.iter().enumerate() {
+        let mut arm_stack = snapshot.clone();
+        for op in arm.body.iter() {
+            step(op, &mut arm_stack, locals, sigs)?;
+        }
+        match &joined {
+            None => joined = Some(arm_stack),
+            Some(expected) => {
+                if &arm_stack != expected {
+                    return Err(format!(
+                        "match arm {i} leaves [{}], but the first arm leaves [{}] \
+                         (every arm must produce the same stack effect)",
+                        fmt_types(&arm_stack),
+                        fmt_types(expected),
+                    )
+                    .into());
+                }
+            }
+        }
+    }
+    *stack = joined.expect("arms.is_empty() is rejected above");
     Ok(())
 }
 
