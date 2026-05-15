@@ -42,15 +42,31 @@ impl Vm {
         Vm::default()
     }
 
-    /// Lex, compile, and execute `source`.
+    /// Lex, compile, type-check, and execute `source`.
+    ///
+    /// The flow is **lex → compile → check → exec** (§7, §9, §11.6). All
+    /// three pre-execution stages are atomic: if any of them fails, *no* op
+    /// in this `run` executes and the VM's state — stack, heap, function
+    /// dictionary — is unchanged by this call (the heap may carry interned
+    /// literals from the abandoned compile, but the heap is append-only
+    /// and those bytes are unreachable from the dictionary).
     ///
     /// Output-producing words (`.`, `:listdir`) write to stdout as a side
-    /// effect. On error, the ops before the failing one have already run — the
-    /// stack is left as they left it.
+    /// effect. On an *execution* error, the ops before the failing one have
+    /// already run — the stack is left as they left it.
     pub fn run(&mut self, source: &str) -> Result<()> {
         debug!("run: {source:?}");
         let toks = lexer::lex(source)?;
         let ops = op::compile(&toks, &mut self.heap)?;
+        // The checker sees the union of (already-defined sigs ∪ sigs in
+        // this source). Cloning the `Rc<FnSig>`s is one refcount bump per
+        // entry — cheap, and it lets `op::check` own its working table.
+        let prior_sigs: HashMap<String, Rc<FnSig>> = self
+            .functions
+            .iter()
+            .map(|(n, f)| (n.clone(), Rc::clone(&f.sig)))
+            .collect();
+        op::check(&ops, &prior_sigs)?;
         for op in &ops {
             self.exec(op)?;
         }

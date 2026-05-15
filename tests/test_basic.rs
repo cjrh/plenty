@@ -37,7 +37,7 @@ fn malformed_string_literals_are_rejected(#[case] program: &str) {
 }
 
 #[rstest]
-#[case(r#": add { a Int b Int -> Int } "Sum two values." + ;"#, vec!["add"])]
+#[case(r#": add { a Int b Int -> Int } "Sum two values." a b + ;"#, vec!["add"])]
 fn defining_a_function_registers_its_name(#[case] program: &str, #[case] expected: Vec<&str>) {
     let mut vm = Vm::new();
     vm.run(program).unwrap();
@@ -104,12 +104,16 @@ fn function_sig_returns_the_captured_signature() {
 #[case(r#": noop { -> } "Does nothing." ;"#)] // empty inputs and outputs
 #[case(r#": zero { -> Int } "Push zero." 0 ;"#)] // no inputs, one output
 #[case(r#": consume { x Int -> } "Discard an int." ;"#)] // input, no outputs
-#[case(r#": divmod { a Int b Int -> q Int r Int } "Quot and rem." ;"#)] // named outputs
-#[case(r#": flip { x Bool -> Bool } "Negate." ;"#)] // Bool type
-#[case(r#": echo { s Str -> Str } "Identity for strings." ;"#)] // Str type
+// named outputs — placeholder body that produces two Ints (no `mod` op yet).
+#[case(
+    r#": divmod { a Int b Int -> q Int r Int } "Quot and rem (placeholder)." a b / a b / ;"#
+)]
+// Bool type — identity body, since there are no Bool literals or ops yet.
+#[case(r#": flip { x Bool -> Bool } "Identity, until ops exist." x ;"#)]
+#[case(r#": echo { s Str -> Str } "Identity for strings." s ;"#)] // Str type
 fn well_formed_type_headers_are_accepted(#[case] program: &str) {
     let mut vm = Vm::new();
-    vm.run(program).expect("header should parse");
+    vm.run(program).expect("header should parse and body should type-check");
 }
 
 #[rstest]
@@ -186,6 +190,78 @@ fn nested_calls_use_independent_locals_frames() {
     )
     .unwrap();
     assert_eq!(vm.stack_repr(), "[12]");
+}
+
+#[rstest]
+// Body underflows: declares one Int input but tries to add two values from
+// an empty stack.
+#[case(r#": bad { x Int -> Int } "Underflows." + ;"#)]
+// Body produces the wrong type for the declared output.
+#[case(r#": bad { x Int -> Str } "Wrong output type." x ;"#)]
+// Body leaves too many values on the stack.
+#[case(r#": bad { -> Int } "Leaves two ints." 1 2 ;"#)]
+// Body leaves no value when an output is declared.
+#[case(r#": bad { -> Int } "Leaves nothing." ;"#)]
+// `+` applied to mixed types is a type error, not a runtime error.
+#[case(r#": bad { -> Int } "Mixed-type +." 1 hello + ;"#)]
+// `-` applied to a string is a type error.
+#[case(r#": bad { s Str -> Str } "Subtract from a string." s 1 - ;"#)]
+// Call to an undefined function — caught pre-execution.
+#[case(r#": bad { -> Int } "Calls nothing." :no-such-fn ;"#)]
+// Call with wrong argument type.
+#[case(r#": id { x Int -> Int } "Identity." x ;
+          : bad { -> Int } "Calls id with a Str." hello :id ;"#)]
+// Top-level type error: `+` on mixed Int/Str.
+#[case(r#"1 hello +"#)]
+// Top-level type error: `*` on a Str.
+#[case(r#"hello 2 *"#)]
+fn type_errors_are_caught_before_execution(#[case] program: &str) {
+    let mut vm = Vm::new();
+    let err = vm.run(program).expect_err("checker should reject this program");
+    // Smoke check that we got something usable — not a panic, not a runtime
+    // surprise. Specific wording is tested elsewhere; here we only care
+    // that the type pass rejected the source.
+    assert!(!err.to_string().is_empty());
+}
+
+#[test]
+fn forward_reference_within_one_source_type_checks() {
+    // `caller` is defined before `callee` in source order, but the checker
+    // sees both before any op runs and resolves the forward reference.
+    let mut vm = Vm::new();
+    vm.run(
+        r#"
+        : caller { -> Int } "Calls callee, defined below." :callee ;
+        : callee { -> Int } "Pushes 42." 42 ;
+        :caller
+        "#,
+    )
+    .unwrap();
+    assert_eq!(vm.stack_repr(), "[42]");
+}
+
+#[test]
+fn type_check_failure_leaves_the_vm_unchanged() {
+    // Atomicity: a check failure must not partially register definitions
+    // or push partially-evaluated values onto the stack.
+    let mut vm = Vm::new();
+    vm.run("99").unwrap();
+    let before = vm.stack_repr();
+    let names_before = vm.function_names().len();
+
+    let err = vm.run(
+        r#"
+        : good { -> Int } "Type-correct." 7 ;
+        : bad { -> Int } "Wrong output type." hello ;
+        "#,
+    );
+    assert!(err.is_err(), "checker should reject the bad function");
+    assert_eq!(vm.stack_repr(), before, "stack must not change on a check failure");
+    assert_eq!(
+        vm.function_names().len(),
+        names_before,
+        "no definition (even the type-correct one) should register when any sibling fails check",
+    );
 }
 
 #[test]

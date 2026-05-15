@@ -5,7 +5,9 @@
 //! heap, function bodies compiled to nested `Op` sequences. A compiled program
 //! is just a `Vec<Op>`, run without ever re-lexing its source.
 
+use std::collections::HashMap;
 use std::error::Error;
+use std::fmt;
 use std::rc::Rc;
 
 use crate::lexer::Tok;
@@ -23,6 +25,16 @@ pub enum Ty {
     Int,
     Str,
     Bool,
+}
+
+impl fmt::Display for Ty {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Ty::Int => "Int",
+            Ty::Str => "Str",
+            Ty::Bool => "Bool",
+        })
+    }
 }
 
 /// A function's stack-effect signature: what it consumes and what it leaves.
@@ -362,4 +374,207 @@ fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
             None => Op::PushStr(heap.add_str(word.to_string())),
         },
     })
+}
+
+// --- type checking (§11.6) -------------------------------------------------
+
+/// Type-check a compiled op stream against a side table of function sigs.
+///
+/// Forward abstract interpretation of `ops` over a tiny type lattice
+/// (§11.6). Each op is treated as a stack effect: pop its declared inputs,
+/// error on underflow or mismatch, push its outputs. Every function body
+/// inside `ops` is recursively checked against its declared sig; top-level
+/// ops have no declared sig, so they are checked op-by-op without an
+/// end-of-stream invariant (the REPL case).
+///
+/// `prior_sigs` is the caller's already-known dictionary — typically the
+/// VM's `functions` map. The checker also collects sigs from every
+/// `DefineFn` reachable from `ops` (top-level and nested) into a single
+/// table, so forward references *within* this source resolve cleanly.
+/// References to functions that are neither in `prior_sigs` nor defined
+/// in `ops` are rejected here, before any op executes.
+///
+/// Returns `Ok(())` if the program is well-typed; otherwise a stringly
+/// error per §12.10. Error messages are name-bearing where they can be —
+/// stack-language errors are hard to localise, so anchoring them to a
+/// function name helps.
+pub fn check(ops: &[Op], prior_sigs: &HashMap<String, Rc<FnSig>>) -> Result<()> {
+    let mut sigs = prior_sigs.clone();
+    collect_sigs(ops, &mut sigs);
+    // Top-level: locals are empty (the compiler will never have emitted a
+    // `LoadLocal` here either), and there is no end-of-stream invariant.
+    let mut stack: Vec<Ty> = Vec::new();
+    for op in ops {
+        step(op, &mut stack, &[], &sigs)?;
+    }
+    Ok(())
+}
+
+/// Add the sig of every `DefineFn` reachable from `ops` — top-level and
+/// nested — to `out`. Walking recursively makes the resulting table a
+/// safe over-approximation of "what's callable somewhere in this source":
+/// it allows forward references at the cost of accepting calls to a
+/// nested function before its enclosing definition has run. The latter is
+/// caught at runtime as an "undefined function" error, which is fine —
+/// the checker's job is to catch *type* mismatches, not to police call
+/// ordering.
+fn collect_sigs(ops: &[Op], out: &mut HashMap<String, Rc<FnSig>>) {
+    for op in ops {
+        if let Op::DefineFn(name, f) = op {
+            out.insert(name.clone(), Rc::clone(&f.sig));
+            collect_sigs(&f.body, out);
+        }
+    }
+}
+
+/// Apply one op to the abstract stack.
+///
+/// `locals` types the active function's input names by index — empty at
+/// the top level, non-empty inside a body. `sigs` is the resolved table
+/// of every function callable in this source.
+fn step(
+    op: &Op,
+    stack: &mut Vec<Ty>,
+    locals: &[Ty],
+    sigs: &HashMap<String, Rc<FnSig>>,
+) -> Result<()> {
+    match op {
+        Op::PushInt(_) => stack.push(Ty::Int),
+        Op::PushStr(_) => stack.push(Ty::Str),
+        Op::Add => {
+            let (a, b) = pop2(stack, "+")?;
+            let out = match (a, b) {
+                (Ty::Int, Ty::Int) => Ty::Int,
+                (Ty::Str, Ty::Str) => Ty::Str,
+                _ => {
+                    return Err(format!(
+                        "`+` requires (Int Int) or (Str Str), got ({a} {b})"
+                    )
+                    .into())
+                }
+            };
+            stack.push(out);
+        }
+        Op::Sub => arith(stack, "-")?,
+        Op::Mul => arith(stack, "*")?,
+        Op::Div => arith(stack, "/")?,
+        Op::Display | Op::ListDir => {}
+        Op::Clear => stack.clear(),
+        Op::LoadLocal(i) => {
+            let ty = locals.get(*i as usize).copied().ok_or_else(|| {
+                format!("LoadLocal({i}) has no matching input in the enclosing function")
+            })?;
+            stack.push(ty);
+        }
+        Op::DefineFn(name, f) => check_body(name, &f.sig, &f.body, sigs)?,
+        Op::Call(name) => check_call(name, stack, sigs)?,
+    }
+    Ok(())
+}
+
+/// Pop two values off the abstract stack; produce a uniform underflow
+/// error message that names the operator.
+fn pop2(stack: &mut Vec<Ty>, op_label: &str) -> Result<(Ty, Ty)> {
+    if stack.len() < 2 {
+        return Err(format!(
+            "stack underflow on `{op_label}` (need 2 values, have {})",
+            stack.len()
+        )
+        .into());
+    }
+    let b = stack.pop().expect("length checked");
+    let a = stack.pop().expect("length checked");
+    Ok((a, b))
+}
+
+/// Stack effect for the three integer-only arithmetic ops.
+fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
+    let (a, b) = pop2(stack, op_label)?;
+    if a != Ty::Int || b != Ty::Int {
+        return Err(format!(
+            "`{op_label}` requires (Int Int), got ({a} {b})"
+        )
+        .into());
+    }
+    stack.push(Ty::Int);
+    Ok(())
+}
+
+/// Stack effect for a `Call(name)`: verify the top of the stack matches
+/// the function's declared inputs in declaration order, then replace them
+/// with the declared outputs.
+fn check_call(
+    name: &str,
+    stack: &mut Vec<Ty>,
+    sigs: &HashMap<String, Rc<FnSig>>,
+) -> Result<()> {
+    let sig = sigs
+        .get(name)
+        .ok_or_else(|| format!("call to undefined function `{name}`"))?;
+    let n = sig.inputs.len();
+    if stack.len() < n {
+        return Err(format!(
+            "calling `{name}`: needs {n} value(s) on the stack, have {}",
+            stack.len()
+        )
+        .into());
+    }
+    // `inputs[0]` is the deepest value on the stack at call time — same
+    // direction as the runtime drain in `Vm::call`. So the type at
+    // `stack[split + i]` must match `inputs[i]`.
+    let split = stack.len() - n;
+    for (i, (param, expected)) in sig.inputs.iter().enumerate() {
+        let actual = stack[split + i];
+        if actual != *expected {
+            return Err(format!(
+                "calling `{name}`: argument `{param}` (position {i}) \
+                 expects {expected}, got {actual}"
+            )
+            .into());
+        }
+    }
+    stack.truncate(split);
+    for out in &sig.outputs {
+        stack.push(*out);
+    }
+    Ok(())
+}
+
+/// Check one function body against its declared sig.
+///
+/// The body's abstract data stack starts **empty** — inputs are drained
+/// into the locals frame by `Op::Call`, not left on the stack — and the
+/// inputs become the body's `locals` for `LoadLocal` to resolve against.
+/// At end of body the abstract stack must equal the declared outputs
+/// exactly; anything else is a type error.
+fn check_body(
+    fn_name: &str,
+    sig: &FnSig,
+    body: &[Op],
+    sigs: &HashMap<String, Rc<FnSig>>,
+) -> Result<()> {
+    let locals: Vec<Ty> = sig.inputs.iter().map(|(_, t)| *t).collect();
+    let mut stack: Vec<Ty> = Vec::new();
+    for op in body {
+        step(op, &mut stack, &locals, sigs)
+            .map_err(|e| -> Box<dyn Error> { format!("in `{fn_name}`: {e}").into() })?;
+    }
+    if stack != sig.outputs {
+        return Err(format!(
+            "function `{fn_name}` body leaves [{}], but signature declares outputs [{}]",
+            fmt_types(&stack),
+            fmt_types(&sig.outputs),
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// Render a sequence of types for a human, space-separated, the same
+/// orientation as the runtime `stack_repr` (deepest on the left).
+fn fmt_types(tys: &[Ty]) -> String {
+    tys.iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
