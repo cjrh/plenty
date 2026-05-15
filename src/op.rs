@@ -13,6 +13,30 @@ use crate::value::{Heap, StrId};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
+/// A Plenty type, as it appears in a function's type header (§11.2).
+///
+/// Monomorphic by design: `Int`, `Str`, `Bool` are the entire user-visible
+/// vocabulary. No type variables, no parametric types. Arrays and sum types
+/// are deferred (§12.7, §12.14).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Ty {
+    Int,
+    Str,
+    Bool,
+}
+
+/// A function's stack-effect signature: what it consumes and what it leaves.
+///
+/// Inputs are `(name, type)` pairs because the names matter — the body refers
+/// to them as locals (§11.5). Outputs are bare types because there is nothing
+/// for an output name to bind to; users may *write* output names for
+/// documentation (the parser accepts them) but they are discarded here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FnSig {
+    pub inputs: Vec<(String, Ty)>,
+    pub outputs: Vec<Ty>,
+}
+
 /// A single instruction for the Plenty VM.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
@@ -34,13 +58,30 @@ pub enum Op {
     Clear,
     /// Print the names in the current directory.
     ListDir,
-    /// Define a function: bind `name` to an already-compiled body.
+    /// Define a function: bind `name` to an already-compiled body and docstring.
     ///
     /// The body is carved out of the token stream at compile time, so running
     /// this op never touches the runtime stack — whatever is on it stays put.
-    DefineFn(String, Rc<[Op]>),
+    DefineFn(String, CompiledFn),
     /// Invoke a user-defined function by name.
     Call(String),
+    /// Push the value of the `i`-th input local of the enclosing call's frame
+    /// (§11.5). Only emitted inside function bodies, so the VM always has at
+    /// least one frame on its frame stack when it runs one.
+    LoadLocal(u8),
+}
+
+/// A compiled function: the signature (§11.2), the docstring (§11.7), and
+/// the body.
+///
+/// All three fields are `Rc`-shared so that defining a function — at either
+/// compile time (`Op::DefineFn` carries one) or run time (the VM stores it
+/// in the dictionary) — never copies the body, the docstring, or the sig.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompiledFn {
+    pub sig: Rc<FnSig>,
+    pub doc: Rc<str>,
+    pub body: Rc<[Op]>,
 }
 
 /// Compile lexed words into ops, interning string literals into `heap`.
@@ -49,7 +90,8 @@ pub enum Op {
 /// source and, recursively, for function bodies, so it depends on nothing but
 /// the `Heap`.
 pub fn compile(toks: &[Tok], heap: &mut Heap) -> Result<Vec<Op>> {
-    Compiler { toks, pos: 0, heap }.compile_seq(Stop::EndOfInput)
+    Compiler { toks, pos: 0, heap, local_scopes: Vec::new() }
+        .compile_seq(Stop::EndOfInput)
 }
 
 /// What ends the run of tokens a [`Compiler::compile_seq`] call is reading.
@@ -63,13 +105,20 @@ enum Stop {
 
 /// A cursor over a token slice that compiles it to ops.
 ///
-/// Bundled into a struct because the three things — the tokens, the position
-/// within them, and the heap that literals are interned into — all travel
-/// together through the recursion that handles nested `: ... ;` definitions.
+/// Bundled into a struct because the four things — the tokens, the position
+/// within them, the heap that literals are interned into, and the stack of
+/// enclosing functions' input-name lists — all travel together through the
+/// recursion that handles nested `: ... ;` definitions.
+///
+/// `local_scopes` is a stack only so that nested definitions can push and pop
+/// cleanly; per §11.5, **only the innermost (topmost) scope is visible** at
+/// any point. Outer scopes are inaccessible by design: nested functions do
+/// not see their enclosing function's locals.
 struct Compiler<'t, 'src> {
     toks: &'t [Tok<'src>],
     pos: usize,
     heap: &'t mut Heap,
+    local_scopes: Vec<Vec<String>>,
 }
 
 impl Compiler<'_, '_> {
@@ -83,7 +132,10 @@ impl Compiler<'_, '_> {
                 Tok::Word(";") if stop == Stop::Semicolon => return Ok(ops),
                 Tok::Word(";") => return Err("';' has no matching ':'".into()),
                 Tok::Word(":") => ops.push(self.compile_definition()?),
-                Tok::Word(w) => ops.push(compile_word(w, self.heap)?),
+                Tok::Word(w) => match self.lookup_local(w) {
+                    Some(ix) => ops.push(Op::LoadLocal(ix)),
+                    None => ops.push(compile_word(w, self.heap)?),
+                },
                 Tok::Text(s) => ops.push(Op::PushStr(self.heap.add_str(unescape(s)?))),
             }
         }
@@ -93,9 +145,18 @@ impl Compiler<'_, '_> {
         }
     }
 
-    /// Compile a `: name body... ;` definition. The opening `:` has already
-    /// been consumed; the cursor sits on the name. A nested `:` inside the body
-    /// is handled by the recursive `compile_seq` call, so definitions nest.
+    /// If `name` is one of the enclosing function's input names, return its
+    /// index. Only the innermost (topmost) scope is consulted — nested
+    /// definitions deliberately do not inherit outer locals (§11.5).
+    fn lookup_local(&self, name: &str) -> Option<u8> {
+        let scope = self.local_scopes.last()?;
+        scope.iter().position(|n| n == name).map(|i| i as u8)
+    }
+
+    /// Compile a `: name { sig } "doc" body... ;` definition. The opening `:`
+    /// has already been consumed; the cursor sits on the name. A nested `:`
+    /// inside the body is handled by the recursive `compile_seq` call, so
+    /// definitions nest.
     fn compile_definition(&mut self) -> Result<Op> {
         let name = match self.toks.get(self.pos).copied() {
             Some(Tok::Word(w)) if w != ":" && w != ";" => w.to_string(),
@@ -107,8 +168,156 @@ impl Compiler<'_, '_> {
             }
         };
         self.pos += 1;
-        let body = self.compile_seq(Stop::Semicolon)?;
-        Ok(Op::DefineFn(name, body.into()))
+        let sig: Rc<FnSig> = self.compile_sig(&name)?.into();
+        if sig.inputs.len() > u8::MAX as usize {
+            return Err(format!(
+                "function `{name}` has too many inputs \
+                 (max {}, got {})",
+                u8::MAX,
+                sig.inputs.len()
+            )
+            .into());
+        }
+        let doc: Rc<str> = match self.toks.get(self.pos).copied() {
+            Some(Tok::Text(s)) => {
+                self.pos += 1;
+                unescape(s)?.into()
+            }
+            Some(_) | None => {
+                return Err(format!(
+                    "function `{name}` is missing a docstring \
+                     (expected \"...\" after the type header)"
+                )
+                .into())
+            }
+        };
+        // The input names are in scope for the duration of the body. Pushing
+        // a fresh scope per definition is what gives nested definitions their
+        // own (non-inheriting) frame; pop on every exit, success or error, so
+        // the scope stack tracks the lexical structure faithfully.
+        let locals: Vec<String> = sig.inputs.iter().map(|(n, _)| n.clone()).collect();
+        self.local_scopes.push(locals);
+        let body_result = self.compile_seq(Stop::Semicolon);
+        self.local_scopes.pop();
+        let body = body_result?;
+        Ok(Op::DefineFn(name, CompiledFn { sig, doc, body: body.into() }))
+    }
+
+    /// Compile a `{ name Type ... -> Type ... }` header (§11.2).
+    ///
+    /// Inputs are `name Type` pairs; outputs are either bare `Type`s or
+    /// `name Type` pairs (the name is documentation-only and discarded).
+    /// The `->` is mandatory; both sides may be empty. `fn_name` is used for
+    /// error messages only.
+    fn compile_sig(&mut self, fn_name: &str) -> Result<FnSig> {
+        match self.toks.get(self.pos).copied() {
+            Some(Tok::Word("{")) => self.pos += 1,
+            _ => {
+                return Err(format!(
+                    "function `{fn_name}` is missing a type header \
+                     (expected `{{ ... -> ... }}` after the name)"
+                )
+                .into())
+            }
+        }
+
+        let mut inputs = Vec::new();
+        loop {
+            match self.toks.get(self.pos).copied() {
+                Some(Tok::Word("->")) => {
+                    self.pos += 1;
+                    break;
+                }
+                Some(Tok::Word("}")) => {
+                    return Err(format!(
+                        "function `{fn_name}` type header is missing `->` \
+                         (write `{{ -> ... }}` for a function with no inputs)"
+                    )
+                    .into())
+                }
+                Some(Tok::Word(w)) if parse_type(w).is_some() => {
+                    return Err(format!(
+                        "function `{fn_name}` type header: input requires a name \
+                         before the type `{w}` (write `{{ x {w} -> ... }}`)"
+                    )
+                    .into())
+                }
+                Some(Tok::Word(w)) if !w.is_empty() => {
+                    self.pos += 1;
+                    let ty = self.consume_type(fn_name)?;
+                    inputs.push((w.to_string(), ty));
+                }
+                Some(_) | None => {
+                    return Err(format!(
+                        "function `{fn_name}` type header: unexpected token \
+                         while reading inputs"
+                    )
+                    .into())
+                }
+            }
+        }
+
+        let mut outputs = Vec::new();
+        loop {
+            match self.toks.get(self.pos).copied() {
+                Some(Tok::Word("}")) => {
+                    self.pos += 1;
+                    break;
+                }
+                Some(Tok::Word(w)) if parse_type(w).is_some() => {
+                    self.pos += 1;
+                    outputs.push(parse_type(w).expect("just checked"));
+                }
+                Some(Tok::Word(_)) => {
+                    // Named output: name, then type. The name is discarded.
+                    self.pos += 1;
+                    let ty = self.consume_type(fn_name)?;
+                    outputs.push(ty);
+                }
+                Some(_) | None => {
+                    return Err(format!(
+                        "function `{fn_name}` type header: unexpected token \
+                         while reading outputs (or missing `}}`)"
+                    )
+                    .into())
+                }
+            }
+        }
+
+        Ok(FnSig { inputs, outputs })
+    }
+
+    /// Consume one token and require it to name a Plenty type.
+    fn consume_type(&mut self, fn_name: &str) -> Result<Ty> {
+        match self.toks.get(self.pos).copied() {
+            Some(Tok::Word(w)) => match parse_type(w) {
+                Some(ty) => {
+                    self.pos += 1;
+                    Ok(ty)
+                }
+                None => Err(format!(
+                    "function `{fn_name}` type header: `{w}` is not a known type \
+                     (expected `Int`, `Str`, or `Bool`)"
+                )
+                .into()),
+            },
+            _ => Err(format!(
+                "function `{fn_name}` type header: expected a type, found end of header"
+            )
+            .into()),
+        }
+    }
+}
+
+/// Parse a single word as a Plenty type name. Returns `None` for words that
+/// are not type names; that lets callers reject them with a context-specific
+/// message rather than a generic "not a type" error.
+fn parse_type(w: &str) -> Option<Ty> {
+    match w {
+        "Int" => Some(Ty::Int),
+        "Str" => Some(Ty::Str),
+        "Bool" => Some(Ty::Bool),
+        _ => None,
     }
 }
 

@@ -37,7 +37,7 @@ fn malformed_string_literals_are_rejected(#[case] program: &str) {
 }
 
 #[rstest]
-#[case(": add + ;", vec!["add"])]
+#[case(r#": add { a Int b Int -> Int } "Sum two values." + ;"#, vec!["add"])]
 fn defining_a_function_registers_its_name(#[case] program: &str, #[case] expected: Vec<&str>) {
     let mut vm = Vm::new();
     vm.run(program).unwrap();
@@ -45,11 +45,24 @@ fn defining_a_function_registers_its_name(#[case] program: &str, #[case] expecte
 }
 
 #[rstest]
-// define a function, then call it — newline and space are interchangeable
-#[case(": add + ;\n1 2 :add", "[3]")]
-#[case(": add + ; 1 2 :add", "[3]")]
+#[case(
+    "\
+: add { a Int b Int -> Int } \"Sum two ints.\" a b + ;
+1 2 :add",
+    "[3]"
+)]
+#[case(
+    r#": add { a Int b Int -> Int } "Sum two ints." a b + ; 1 2 :add"#,
+    "[3]"
+)]
 // a function body may call other functions
-#[case(": double 2 * ; : quad :double :double ; 5 :quad", "[20]")]
+#[case(
+    "\
+: double { x Int -> Int } \"Double an int.\" x 2 * ; \
+: quad { x Int -> Int } \"Quadruple an int.\" x :double :double ; \
+5 :quad",
+    "[20]"
+)]
 fn calling_a_function_runs_its_body(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
     vm.run(program).unwrap();
@@ -62,18 +75,117 @@ fn defining_a_function_leaves_the_stack_untouched() {
     // out at compile time, so values already on the stack are never disturbed.
     let mut vm = Vm::new();
     vm.run("99").unwrap();
-    vm.run(": double 2 * ;").unwrap();
+    vm.run(r#": double { x Int -> Int } "Double an int." x 2 * ;"#).unwrap();
     vm.run("21 :double").unwrap();
     assert_eq!(vm.stack_repr(), "[99 42]");
 }
 
+#[test]
+fn function_doc_returns_the_captured_docstring() {
+    let mut vm = Vm::new();
+    vm.run(r#": double { x Int -> Int } "Double an integer." x 2 * ;"#)
+        .unwrap();
+    assert_eq!(vm.function_doc("double"), Some("Double an integer."));
+    assert_eq!(vm.function_doc("nonexistent"), None);
+}
+
+#[test]
+fn function_sig_returns_the_captured_signature() {
+    use plenty::Ty;
+    let mut vm = Vm::new();
+    vm.run(r#": double { x Int -> Int } "Double an integer." x 2 * ;"#)
+        .unwrap();
+    let sig = vm.function_sig("double").expect("function should be defined");
+    assert_eq!(sig.inputs, vec![("x".to_string(), Ty::Int)]);
+    assert_eq!(sig.outputs, vec![Ty::Int]);
+}
+
+#[rstest]
+#[case(r#": noop { -> } "Does nothing." ;"#)] // empty inputs and outputs
+#[case(r#": zero { -> Int } "Push zero." 0 ;"#)] // no inputs, one output
+#[case(r#": consume { x Int -> } "Discard an int." ;"#)] // input, no outputs
+#[case(r#": divmod { a Int b Int -> q Int r Int } "Quot and rem." ;"#)] // named outputs
+#[case(r#": flip { x Bool -> Bool } "Negate." ;"#)] // Bool type
+#[case(r#": echo { s Str -> Str } "Identity for strings." ;"#)] // Str type
+fn well_formed_type_headers_are_accepted(#[case] program: &str) {
+    let mut vm = Vm::new();
+    vm.run(program).expect("header should parse");
+}
+
 #[rstest]
 #[case("1 2 ;")] // ';' with no opening ':'
-#[case(": add +")] // ':' with no closing ';'
 #[case(":")] // ':' with no name
+#[case(r#": add { a Int b Int -> Int } "doc" +"#)] // ':' with no closing ';'
 fn malformed_definitions_are_rejected(#[case] program: &str) {
     let mut vm = Vm::new();
     assert!(vm.run(program).is_err());
+}
+
+#[rstest]
+#[case(": double 2 * ;")] // no header at all
+#[case(r#": double "doc" 2 * ;"#)] // docstring where `{` expected
+#[case(": double { a Int 2 * ;")] // missing `->`
+#[case(r#": double { Int -> Int } "doc" ;"#)] // type word in input-name slot
+#[case(r#": double { a Floob -> Int } "doc" ;"#)] // unknown type
+#[case(r#": double { a Int -> Bogus } "doc" ;"#)] // unknown output type
+fn malformed_type_headers_are_rejected(#[case] program: &str) {
+    let mut vm = Vm::new();
+    assert!(vm.run(program).is_err());
+}
+
+#[rstest]
+#[case(": double { x Int -> Int } 2 * ;")] // valid header, no docstring
+#[case(": double { x Int -> Int } ;")] // valid header, only ';' after
+fn missing_docstring_is_rejected(#[case] program: &str) {
+    let mut vm = Vm::new();
+    assert!(vm.run(program).is_err());
+}
+
+#[rstest]
+// One input loaded twice in the body.
+#[case(
+    r#": dbl { x Int -> Int } "Sum x with itself." x x + ; 5 :dbl"#,
+    "[10]"
+)]
+// Multiple inputs, reordered and each loaded more than once.
+#[case(
+    r#": hyp { a Int b Int -> Int } "a*a + b*b." a a * b b * + ; 3 4 :hyp"#,
+    "[25]"
+)]
+// A non-commutative operator demonstrates declaration order: `inputs[0]` is
+// the deeper value, so `a - b` evaluates with `a` as the minuend.
+#[case(
+    r#": diff { a Int b Int -> Int } "Subtract b from a." a b - ; 10 3 :diff"#,
+    "[7]"
+)]
+// A bare word that doesn't match a local still pushes as text (§11's
+// existing fallback — locals just take precedence when the name matches).
+#[case(
+    r#": tag { n Int -> Str } "Prefix n with a label." label ; 1 :tag"#,
+    r#"["label"]"#
+)]
+fn local_names_resolve_to_call_inputs(#[case] program: &str, #[case] expected: &str) {
+    let mut vm = Vm::new();
+    vm.run(program).unwrap();
+    assert_eq!(vm.stack_repr(), expected);
+}
+
+#[test]
+fn nested_calls_use_independent_locals_frames() {
+    // The outer call's `a` must survive an inner call's full frame setup and
+    // teardown — otherwise the second load of `a` would see the wrong value.
+    let mut vm = Vm::new();
+    vm.run(
+        r#"
+        : id { v Int -> Int } "Identity, but goes through a call."  v ;
+        : add-via-id { a Int b Int -> Int }
+            "a + b, with a nested :id call between the loads of a and b."
+            a :id b + ;
+        7 5 :add-via-id
+        "#,
+    )
+    .unwrap();
+    assert_eq!(vm.stack_repr(), "[12]");
 }
 
 #[test]

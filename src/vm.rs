@@ -8,7 +8,7 @@ use std::rc::Rc;
 use log::debug;
 
 use crate::lexer;
-use crate::op::{self, Op};
+use crate::op::{self, CompiledFn, FnSig, Op};
 use crate::value::{Heap, Value};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -22,9 +22,19 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 pub struct Vm {
     stack: Vec<Value>,
     heap: Heap,
-    /// Compiled function bodies, shared (`Rc`) so a call need not copy the body
-    /// and so a function can safely call itself.
-    functions: HashMap<String, Rc<[Op]>>,
+    /// Compiled function bodies and their docstrings, shared (`Rc` inside
+    /// `CompiledFn`) so a call need not copy either and so a function can
+    /// safely call itself.
+    functions: HashMap<String, CompiledFn>,
+    /// Per-call locals, all calls' frames packed end-to-end into one `Vec`.
+    /// The `i`-th input of the active call lives at `locals[frames.last() + i]`.
+    /// One backing allocation amortises across nested and recursive calls;
+    /// `frames` indexes into it.
+    locals: Vec<Value>,
+    /// Start indices of each active call's locals frame. The top of the stack
+    /// names the active frame; popping a frame is just `frames.pop()` plus a
+    /// `locals.truncate(frame_start)`.
+    frames: Vec<usize>,
 }
 
 impl Vm {
@@ -64,6 +74,21 @@ impl Vm {
         names
     }
 
+    /// The docstring of a defined function, or `None` if no such function
+    /// exists. The docstring is captured at compile time (§11.7) and is the
+    /// single thing tools — LSP hover, generated docs, REPL `help` — display
+    /// for a function alongside its signature.
+    pub fn function_doc(&self, name: &str) -> Option<&str> {
+        self.functions.get(name).map(|f| f.doc.as_ref())
+    }
+
+    /// The stack-effect signature of a defined function, or `None` if no
+    /// such function exists. Together with [`Vm::function_doc`], this gives
+    /// tools everything they need to render a function's interface.
+    pub fn function_sig(&self, name: &str) -> Option<&FnSig> {
+        self.functions.get(name).map(|f| f.sig.as_ref())
+    }
+
     /// Discard every value on the stack. Defined functions are kept.
     pub fn clear(&mut self) {
         self.stack.clear();
@@ -86,11 +111,31 @@ impl Vm {
             Op::Display => println!("{}", self.stack_repr()),
             Op::Clear => self.clear(),
             Op::ListDir => list_dir()?,
-            Op::DefineFn(name, body) => {
-                self.functions.insert(name.clone(), Rc::clone(body));
+            Op::DefineFn(name, func) => {
+                self.functions.insert(name.clone(), func.clone());
             }
             Op::Call(name) => self.call(name)?,
+            Op::LoadLocal(i) => self.load_local(*i)?,
         }
+        Ok(())
+    }
+
+    /// Push the `i`-th local of the active call's frame.
+    ///
+    /// The compiler only emits `LoadLocal` inside a function body, so this is
+    /// always reached with at least one frame on the stack. The bounds check
+    /// against `locals` is defensive — a mismatch would be a compiler bug, not
+    /// a user-program error.
+    fn load_local(&mut self, i: u8) -> Result<()> {
+        let frame_start = *self
+            .frames
+            .last()
+            .ok_or("LoadLocal executed outside a call")?;
+        let v = *self
+            .locals
+            .get(frame_start + i as usize)
+            .ok_or("LoadLocal index out of range")?;
+        self.stack.push(v);
         Ok(())
     }
 
@@ -126,16 +171,35 @@ impl Vm {
     }
 
     /// Run the body of a previously-defined function.
+    ///
+    /// Each call drains its declared inputs off the data stack into a fresh
+    /// locals frame, runs the body, then tears the frame down — on both
+    /// success and error, so a recoverable failure cannot leave a frame
+    /// stranded. Self-recursion gets a new frame on every entry, which is
+    /// the whole point of the per-call frame design.
     fn call(&mut self, name: &str) -> Result<()> {
-        let body = self
+        let (sig, body) = self
             .functions
             .get(name)
-            .cloned()
+            .map(|f| (Rc::clone(&f.sig), Rc::clone(&f.body)))
             .ok_or_else(|| format!("undefined function: {name}"))?;
-        for op in body.iter() {
-            self.exec(op)?;
+        let n = sig.inputs.len();
+        if self.stack.len() < n {
+            return Err(format!("stack underflow calling `{name}`").into());
         }
-        Ok(())
+        let frame_start = self.locals.len();
+        // Drain preserves order: `inputs[0]` is the deepest popped value and
+        // ends up at `locals[frame_start]`, which is what the compiler
+        // assumes when it emits `LoadLocal(0)` for that name.
+        let drained_from = self.stack.len() - n;
+        self.locals.extend(self.stack.drain(drained_from..));
+        self.frames.push(frame_start);
+
+        let result = body.iter().try_for_each(|op| self.exec(op));
+
+        self.locals.truncate(frame_start);
+        self.frames.pop();
+        result
     }
 
     // --- stack helpers ---------------------------------------------------

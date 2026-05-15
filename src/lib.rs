@@ -14,5 +14,6 @@ mod op;
 mod value;
 mod vm;
 
+pub use op::{FnSig, Ty};
 pub use value::{StrId, Value};
 pub use vm::Vm;

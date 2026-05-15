@@ -70,18 +70,40 @@ const EXAMPLES: &[Example] = &[
     },
     Example {
         title: "Functions",
-        prose: "Define a function with `: name body... ;`, and call it by \
-                prefixing its name with a colon. The body is compiled once, \
-                when the function is defined.",
-        program: ": double 2 * ;\n5 :double",
+        prose: "Define a function with `: name { signature } \"docstring\" \
+                body... ;`. The signature lists inputs as `name Type` pairs, \
+                then `->`, then output types; `{ x Int -> Int }` reads as \
+                \"takes one `Int` named `x`, leaves one `Int`\". Inside the \
+                body, those input names refer to the values passed in — so \
+                the body can mention `x` instead of juggling the stack. The \
+                docstring describes what the function does. Both the \
+                signature and the docstring are mandatory — together they \
+                form the function's interface. Call the function by \
+                prefixing its name with a colon.",
+        program: ": double { x Int -> Int } \"Double an integer.\" x 2 * ;\n\
+                  5 :double",
         stack: "[10]",
     },
     Example {
         title: "Functions calling functions",
         prose: "A function body may call other functions. Defining a function \
                 never disturbs the stack.",
-        program: ": double 2 * ;\n: quad :double :double ;\n3 :quad",
+        program: ": double { x Int -> Int } \"Double an integer.\" x 2 * ;\n\
+                  : quad { x Int -> Int } \"Multiply by four.\" x :double :double ;\n\
+                  3 :quad",
         stack: "[12]",
+    },
+    Example {
+        title: "Named inputs replace stack juggling",
+        prose: "Each input named in the signature is in scope for the whole \
+                body — write the name to load it. A function with several \
+                inputs can refer to each by name, in any order, as many times \
+                as it likes, without `dup`, `swap`, or `rot`.",
+        program: ": hypot-sq { a Int b Int -> Int } \
+                  \"Square the hypotenuse: a*a + b*b.\" \
+                  a a * b b * + ;\n\
+                  3 4 :hypot-sq",
+        stack: "[25]",
     },
 ];
 
