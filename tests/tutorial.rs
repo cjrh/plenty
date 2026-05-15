@@ -105,6 +105,73 @@ const EXAMPLES: &[Example] = &[
                   3 4 :hypot-sq",
         stack: "[25]",
     },
+    Example {
+        title: "Booleans and comparisons",
+        prose: "`true` and `false` are the `Bool` literals. The comparison \
+                operators `=`, `<`, and `>` pop two values and push a `Bool`; \
+                `not` negates one. `=` accepts any two values of the same \
+                type (`Int`, `Str`, or `Bool`); `<` and `>` are integers \
+                only. A `Bool` is *not* an integer: there is no \"zero is \
+                false\" convention. The only way to get a `Bool` is to \
+                produce one.",
+        program: "1 2 <  3 3 =  true not",
+        stack: "[true true false]",
+    },
+    Example {
+        title: "Branching with `match`",
+        prose: "`match` is the only branching primitive. It pops the top-of-stack \
+                value and runs the bracketed body of the first arm whose \
+                pattern matches; `end` closes the construct. Every match must \
+                be exhaustive — for a `Bool`, that means both `true` and \
+                `false` arms (or a wildcard). There is no `if` and no `else`: \
+                `match` covers both jobs without privileging `Bool` over any \
+                other finite type.",
+        program: ": describe { flag Bool -> Str } \"Render a Bool as text.\"\n  \
+                    flag match\n    \
+                      true  [ \"yes\" ]\n    \
+                      false [ \"no\"  ]\n  \
+                    end ;\n\
+                  true :describe  false :describe",
+        stack: "[\"yes\" \"no\"]",
+    },
+    Example {
+        title: "Wildcards for the open cases",
+        prose: "`Int` and `Str` have unbounded value spaces, so a match on \
+                either must include a wildcard arm — `_` — that catches \
+                everything not named above. Patterns are tested in order, so \
+                specific arms first and `_` last. The arm body sees the \
+                surrounding stack and the surrounding function's locals; the \
+                brackets are syntactic structure, not a separate sub-stack.",
+        program: ": name-it { n Int -> Str }\n  \
+                    \"Name a small integer; anything else is 'many'.\"\n  \
+                    n match\n    \
+                      0 [ \"zero\" ]\n    \
+                      1 [ \"one\"  ]\n    \
+                      2 [ \"two\"  ]\n    \
+                      _ [ \"many\" ]\n  \
+                    end ;\n\
+                  1 :name-it  7 :name-it",
+        stack: "[\"one\" \"many\"]",
+    },
+    Example {
+        title: "Iteration is recursion",
+        prose: "Plenty has no `for` or `while`. A function that needs to \
+                repeat calls itself, and the compiler detects when that \
+                recursive call sits in *tail* position — the last thing the \
+                function would do before returning — and reuses the current \
+                call's frame instead of stacking a new one. A million tail \
+                calls cost the same call-stack space as one. The pattern is \
+                always the same: thread the running total through an \
+                accumulator argument so the recursive call ends the body.",
+        program: ": sum-to { n Int acc Int -> Int }\n  \
+                    \"Tail-recursive accumulator: 1 + 2 + ... + n + acc.\"\n  \
+                    n 0 = match\n    \
+                      true  [ acc ]\n    \
+                      false [ n 1 - acc n + :sum-to ]\n  \
+                    end ;\n\
+                  100 0 :sum-to",
+        stack: "[5050]",
+    },
 ];
 
 const BEGIN_MARKER: &str = "<!-- BEGIN TUTORIAL";

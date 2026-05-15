@@ -124,6 +124,73 @@ Each input named in the signature is in scope for the whole body — write the n
 [25]
 ```
 
+### Booleans and comparisons
+
+`true` and `false` are the `Bool` literals. The comparison operators `=`, `<`, and `>` pop two values and push a `Bool`; `not` negates one. `=` accepts any two values of the same type (`Int`, `Str`, or `Bool`); `<` and `>` are integers only. A `Bool` is *not* an integer: there is no "zero is false" convention. The only way to get a `Bool` is to produce one.
+
+```forth
+1 2 <  3 3 =  true not
+```
+
+```
+[true true false]
+```
+
+### Branching with `match`
+
+`match` is the only branching primitive. It pops the top-of-stack value and runs the bracketed body of the first arm whose pattern matches; `end` closes the construct. Every match must be exhaustive — for a `Bool`, that means both `true` and `false` arms (or a wildcard). There is no `if` and no `else`: `match` covers both jobs without privileging `Bool` over any other finite type.
+
+```forth
+: describe { flag Bool -> Str } "Render a Bool as text."
+  flag match
+    true  [ "yes" ]
+    false [ "no"  ]
+  end ;
+true :describe  false :describe
+```
+
+```
+["yes" "no"]
+```
+
+### Wildcards for the open cases
+
+`Int` and `Str` have unbounded value spaces, so a match on either must include a wildcard arm — `_` — that catches everything not named above. Patterns are tested in order, so specific arms first and `_` last. The arm body sees the surrounding stack and the surrounding function's locals; the brackets are syntactic structure, not a separate sub-stack.
+
+```forth
+: name-it { n Int -> Str }
+  "Name a small integer; anything else is 'many'."
+  n match
+    0 [ "zero" ]
+    1 [ "one"  ]
+    2 [ "two"  ]
+    _ [ "many" ]
+  end ;
+1 :name-it  7 :name-it
+```
+
+```
+["one" "many"]
+```
+
+### Iteration is recursion
+
+Plenty has no `for` or `while`. A function that needs to repeat calls itself, and the compiler detects when that recursive call sits in *tail* position — the last thing the function would do before returning — and reuses the current call's frame instead of stacking a new one. A million tail calls cost the same call-stack space as one. The pattern is always the same: thread the running total through an accumulator argument so the recursive call ends the body.
+
+```forth
+: sum-to { n Int acc Int -> Int }
+  "Tail-recursive accumulator: 1 + 2 + ... + n + acc."
+  n 0 = match
+    true  [ acc ]
+    false [ n 1 - acc n + :sum-to ]
+  end ;
+100 0 :sum-to
+```
+
+```
+[5050]
+```
+
 <!-- END TUTORIAL -->
 
 ### Other words
