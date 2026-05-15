@@ -84,7 +84,7 @@ impl Compiler<'_, '_> {
                 Tok::Word(";") => return Err("';' has no matching ':'".into()),
                 Tok::Word(":") => ops.push(self.compile_definition()?),
                 Tok::Word(w) => ops.push(compile_word(w, self.heap)?),
-                Tok::Text(s) => ops.push(Op::PushStr(self.heap.add_str(s.to_string()))),
+                Tok::Text(s) => ops.push(Op::PushStr(self.heap.add_str(unescape(s)?))),
             }
         }
         match stop {
@@ -110,6 +110,28 @@ impl Compiler<'_, '_> {
         let body = self.compile_seq(Stop::Semicolon)?;
         Ok(Op::DefineFn(name, body.into()))
     }
+}
+
+/// Decode the `\"` and `\\` escapes inside a raw string-literal slice. Any
+/// other `\X` is an error. The lexer guarantees that every `\` is followed by
+/// some character, so trailing-backslash is unreachable from real input — the
+/// defensive check is cheap and keeps the function honest in isolation.
+fn unescape(raw: &str) -> Result<String> {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some(other) => return Err(format!("invalid escape: \\{other}").into()),
+                None => return Err("invalid escape: trailing backslash".into()),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Ok(out)
 }
 
 /// Resolve a single ordinary word — never `:` or `;`, which the caller handles

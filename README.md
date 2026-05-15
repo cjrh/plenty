@@ -72,28 +72,16 @@ hello world +
 ["helloworld"]
 ```
 
-### Quoting text
+### Quoted strings
 
-Prefix a word with a backtick to push it as text even when it would otherwise be read as a number or an operator.
-
-```forth
-`+ `42 +
-```
-
-```
-["+42"]
-```
-
-### Literal runs
-
-A bare backtick starts a literal run and `~` ends it; every word between them is pushed as text.
+Wrap text in double quotes to push it as a single string. Spaces, operators, and other special characters inside the quotes are taken verbatim.
 
 ```forth
-` 2 + 2 ~
+"hello world" " and goodbye" +
 ```
 
 ```
-["2" "+" "2"]
+["hello world and goodbye"]
 ```
 
 ### Functions

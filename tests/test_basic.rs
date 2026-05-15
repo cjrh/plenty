@@ -18,11 +18,22 @@ fn arithmetic_leaves_expected_stack(#[case] program: &str, #[case] expected: &st
 }
 
 #[rstest]
-#[case("`hello", "[\"hello\"]")]
-fn a_backtick_pushes_text(#[case] program: &str, #[case] expected: &str) {
+#[case(r#""hello""#, r#"["hello"]"#)]
+#[case(r#""hello world""#, r#"["hello world"]"#)]
+#[case(r#""a\"b""#, r#"["a\"b"]"#)]
+#[case(r#""a\\b""#, r#"["a\\b"]"#)]
+fn a_quoted_string_pushes_text(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
     vm.run(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
+}
+
+#[rstest]
+#[case(r#""hello"#)] // unterminated string literal
+#[case(r#""bad \z escape""#)] // unrecognised escape sequence
+fn malformed_string_literals_are_rejected(#[case] program: &str) {
+    let mut vm = Vm::new();
+    assert!(vm.run(program).is_err());
 }
 
 #[rstest]

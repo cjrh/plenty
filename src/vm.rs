@@ -39,7 +39,7 @@ impl Vm {
     /// stack is left as they left it.
     pub fn run(&mut self, source: &str) -> Result<()> {
         debug!("run: {source:?}");
-        let toks = lexer::lex(source);
+        let toks = lexer::lex(source)?;
         let ops = op::compile(&toks, &mut self.heap)?;
         for op in &ops {
             self.exec(op)?;

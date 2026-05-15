@@ -61,18 +61,12 @@ const EXAMPLES: &[Example] = &[
         stack: "[\"helloworld\"]",
     },
     Example {
-        title: "Quoting text",
-        prose: "Prefix a word with a backtick to push it as text even when it \
-                would otherwise be read as a number or an operator.",
-        program: "`+ `42 +",
-        stack: "[\"+42\"]",
-    },
-    Example {
-        title: "Literal runs",
-        prose: "A bare backtick starts a literal run and `~` ends it; every \
-                word between them is pushed as text.",
-        program: "` 2 + 2 ~",
-        stack: "[\"2\" \"+\" \"2\"]",
+        title: "Quoted strings",
+        prose: "Wrap text in double quotes to push it as a single string. \
+                Spaces, operators, and other special characters inside the \
+                quotes are taken verbatim.",
+        program: r#""hello world" " and goodbye" +"#,
+        stack: r#"["hello world and goodbye"]"#,
     },
     Example {
         title: "Functions",
