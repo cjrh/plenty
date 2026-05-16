@@ -124,7 +124,7 @@ fn match_on_bool_dispatches_to_the_true_arm() {
            end"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[1]");
+    assert_eq!(vm.stack_repr(), "[1i64]");
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn match_on_bool_dispatches_to_the_false_arm() {
            end"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[0]");
+    assert_eq!(vm.stack_repr(), "[0i64]");
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn match_on_bool_accepts_a_wildcard_arm_for_exhaustiveness() {
            end"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[42]");
+    assert_eq!(vm.stack_repr(), "[42i64]");
 }
 
 #[rstest]
@@ -164,12 +164,12 @@ fn non_exhaustive_bool_match_is_rejected(#[case] program: &str) {
     assert!(vm.run(program).is_err());
 }
 
-// --- Match on Int ---------------------------------------------------------
+// --- Match on i64 ---------------------------------------------------------
 
 #[rstest]
-#[case("0 match  0 [ 99 ] _ [ 0 ] end", "[99]")]
-#[case("1 match  0 [ 99 ] _ [ 0 ] end", "[0]")]
-#[case("7 match  0 [ 99 ] 7 [ 77 ] _ [ 0 ] end", "[77]")]
+#[case("0 match  0 [ 99 ] _ [ 0 ] end", "[99i64]")]
+#[case("1 match  0 [ 99 ] _ [ 0 ] end", "[0i64]")]
+#[case("7 match  0 [ 99 ] 7 [ 77 ] _ [ 0 ] end", "[77i64]")]
 fn match_on_int_dispatches_on_value(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
     vm.run(program).unwrap();
@@ -181,7 +181,7 @@ fn match_on_int_uses_first_matching_arm() {
     // Even with redundant patterns, the first matching arm wins.
     let mut vm = Vm::new();
     vm.run("5 match 5 [ 99 ] 5 [ 88 ] _ [ 0 ] end").unwrap();
-    assert_eq!(vm.stack_repr(), "[99]");
+    assert_eq!(vm.stack_repr(), "[99i64]");
 }
 
 #[test]
@@ -192,9 +192,9 @@ fn match_on_int_without_wildcard_is_rejected() {
 }
 
 #[rstest]
-// Bool pattern against Int value.
+// Bool pattern against i64 value.
 #[case("1 match true [ 0 ] false [ 0 ] _ [ 0 ] end")]
-// String pattern against Int value.
+// String pattern against i64 value.
 #[case(r#"1 match "hi" [ 0 ] _ [ 0 ] end"#)]
 fn pattern_type_must_match_value_type(#[case] program: &str) {
     let mut vm = Vm::new();
@@ -213,7 +213,7 @@ fn match_on_str_dispatches_on_contents() {
            end"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[1]");
+    assert_eq!(vm.stack_repr(), "[1i64]");
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn match_on_str_falls_through_to_wildcard() {
            end"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[0]");
+    assert_eq!(vm.stack_repr(), "[0i64]");
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn match_consumes_the_matched_value() {
     // The matched value is popped before the arm body runs: only `99` remains.
     let mut vm = Vm::new();
     vm.run("7 match 7 [ 99 ] _ [ 0 ] end").unwrap();
-    assert_eq!(vm.stack_repr(), "[99]");
+    assert_eq!(vm.stack_repr(), "[99i64]");
 }
 
 #[test]
@@ -260,14 +260,14 @@ fn arm_body_operates_on_the_surrounding_stack() {
            end"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[30]");
+    assert_eq!(vm.stack_repr(), "[30i64]");
 }
 
 #[test]
 fn arm_body_sees_function_locals() {
     let mut vm = Vm::new();
     vm.run(
-        r#": pick { x Int y Int flag Bool -> Int }
+        r#": pick { x i64 y i64 flag Bool -> i64 }
              "Return x if flag is true, otherwise y."
              flag match
                true  [ x ]
@@ -277,7 +277,7 @@ fn arm_body_sees_function_locals() {
            3 4 false :pick"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[1 4]");
+    assert_eq!(vm.stack_repr(), "[1i64 4i64]");
 }
 
 #[test]
@@ -298,7 +298,7 @@ fn empty_match_is_rejected() {
 // `]` with no matching `[`.
 #[case("1 ]")]
 // `[` outside any match.
-#[case("[ 0 ]")]
+#[case("[ 0i64 ]")]
 // `end` outside any match.
 #[case("end")]
 fn malformed_match_syntax_is_rejected(#[case] program: &str) {
@@ -310,7 +310,7 @@ fn malformed_match_syntax_is_rejected(#[case] program: &str) {
 
 #[test]
 fn arms_that_disagree_on_stack_effect_are_rejected() {
-    // True arm leaves one Int; false arm leaves nothing. The join requires
+    // True arm leaves one i64; false arm leaves nothing. The join requires
     // both arms to produce the same shape.
     let mut vm = Vm::new();
     let err = vm
@@ -349,7 +349,7 @@ fn arms_may_take_different_paths_if_they_agree_at_the_end() {
            end"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[3]");
+    assert_eq!(vm.stack_repr(), "[3i64]");
 }
 
 // --- Nested matches -------------------------------------------------------
@@ -358,7 +358,7 @@ fn arms_may_take_different_paths_if_they_agree_at_the_end() {
 fn nested_match_dispatches_correctly() {
     let mut vm = Vm::new();
     vm.run(
-        r#": classify { n Int -> Str }
+        r#": classify { n i64 -> Str }
              "Return zero/positive/negative for a sign classification."
              n 0 = match
                true  [ "zero" ]
@@ -382,7 +382,7 @@ fn nested_match_branch_join_works_independently_of_outer() {
     let mut vm = Vm::new();
     let err = vm
         .run(
-            r#": bad { n Int -> Int }
+            r#": bad { n i64 -> i64 }
                  "Inner arms disagree."
                  n 0 = match
                    true  [ 0 ]
@@ -402,7 +402,7 @@ fn nested_match_branch_join_works_independently_of_outer() {
 fn simple_tail_recursion_works() {
     let mut vm = Vm::new();
     vm.run(
-        r#": countdown { n Int -> Int }
+        r#": countdown { n i64 -> i64 }
              "Recurse down to zero, returning zero."
              n 0 = match
                true  [ n ]
@@ -411,7 +411,7 @@ fn simple_tail_recursion_works() {
            10 :countdown"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[0]");
+    assert_eq!(vm.stack_repr(), "[0i64]");
 }
 
 #[test]
@@ -419,7 +419,7 @@ fn tail_recursive_accumulator_works() {
     // Classic tail-recursive sum-to-n.
     let mut vm = Vm::new();
     vm.run(
-        r#": sum-to { n Int acc Int -> Int }
+        r#": sum-to { n i64 acc i64 -> i64 }
              "Tail-recursive accumulator: 1+2+...+n + acc."
              n 0 = match
                true  [ acc ]
@@ -429,7 +429,7 @@ fn tail_recursive_accumulator_works() {
     )
     .unwrap();
     // 1+2+...+100 = 5050
-    assert_eq!(vm.stack_repr(), "[5050]");
+    assert_eq!(vm.stack_repr(), "[5050i64]");
 }
 
 #[test]
@@ -440,7 +440,7 @@ fn deep_tail_recursion_does_not_overflow_the_call_stack() {
     // constant size for the entire run.
     let mut vm = Vm::new();
     vm.run(
-        r#": sum-to { n Int acc Int -> Int }
+        r#": sum-to { n i64 acc i64 -> i64 }
              "Tail-recursive accumulator over a deep recursion."
              n 0 = match
                true  [ acc ]
@@ -450,7 +450,7 @@ fn deep_tail_recursion_does_not_overflow_the_call_stack() {
     )
     .unwrap();
     // 1 + 2 + ... + 1_000_000 = 500_000_500_000
-    assert_eq!(vm.stack_repr(), "[500000500000]");
+    assert_eq!(vm.stack_repr(), "[500000500000i64]");
 }
 
 #[test]
@@ -459,13 +459,13 @@ fn mutual_tail_recursion_works() {
     // to run without growing the call stack.
     let mut vm = Vm::new();
     vm.run(
-        r#": even? { n Int -> Bool }
+        r#": even? { n i64 -> Bool }
              "True if n is even (mutually recursive with odd?)."
              n 0 = match
                true  [ true ]
                false [ n 1 - :odd? ]
              end ;
-           : odd? { n Int -> Bool }
+           : odd? { n i64 -> Bool }
              "True if n is odd (mutually recursive with even?)."
              n 0 = match
                true  [ false ]
@@ -486,7 +486,7 @@ fn non_tail_recursion_works_for_moderate_depth() {
     // here to avoid huge integer outputs.
     let mut vm = Vm::new();
     vm.run(
-        r#": fact { n Int -> Int }
+        r#": fact { n i64 -> i64 }
              "Non-tail-recursive factorial."
              n 1 = match
                true  [ 1 ]
@@ -496,7 +496,7 @@ fn non_tail_recursion_works_for_moderate_depth() {
     )
     .unwrap();
     // 10! = 3628800
-    assert_eq!(vm.stack_repr(), "[3628800]");
+    assert_eq!(vm.stack_repr(), "[3628800i64]");
 }
 
 #[test]
@@ -506,7 +506,7 @@ fn tail_call_inside_outer_match_is_optimised() {
     // The compiler's tail-call detection must recurse through both matches.
     let mut vm = Vm::new();
     vm.run(
-        r#": squeeze { n Int -> Int }
+        r#": squeeze { n i64 -> i64 }
              "Recurse until n hits 0, branching via two nested matches."
              n 0 = match
                true  [ n ]
@@ -518,7 +518,7 @@ fn tail_call_inside_outer_match_is_optimised() {
            500000 :squeeze"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[0]");
+    assert_eq!(vm.stack_repr(), "[0i64]");
 }
 
 // --- Integration with the rest of the language ---------------------------
@@ -527,7 +527,7 @@ fn tail_call_inside_outer_match_is_optimised() {
 fn a_function_returning_bool_via_comparison_type_checks() {
     let mut vm = Vm::new();
     vm.run(
-        r#": positive? { n Int -> Bool } "True if n > 0." n 0 > ;
+        r#": positive? { n i64 -> Bool } "True if n > 0." n 0 > ;
            5 :positive?
            -1 :positive?"#,
     )
@@ -558,7 +558,7 @@ fn fibonacci_via_match_and_recursion() {
     // splits into two recursive sub-calls. fib(12) = 144.
     let mut vm = Vm::new();
     vm.run(
-        r#": fib { n Int -> Int }
+        r#": fib { n i64 -> i64 }
              "Fibonacci, demonstrating two-arm match plus double recursion."
              n 2 < match
                true  [ n ]
@@ -567,7 +567,7 @@ fn fibonacci_via_match_and_recursion() {
            12 :fib"#,
     )
     .unwrap();
-    assert_eq!(vm.stack_repr(), "[144]");
+    assert_eq!(vm.stack_repr(), "[144i64]");
 }
 
 // --- Atomicity preserves invariants across failing match programs --------
@@ -582,7 +582,7 @@ fn a_type_failing_match_does_not_register_its_definition() {
     // The body type-checks except that arms disagree; the whole `run` is
     // rejected pre-execution and the VM is left unchanged.
     let err = vm.run(
-        r#": bad { n Int -> Int }
+        r#": bad { n i64 -> i64 }
              "Arms disagree."
              n 0 = match
                true  [ 1 ]

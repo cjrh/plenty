@@ -140,8 +140,10 @@ An opaque 4-byte handle to a string held in a `Heap`. Derives
 
 ```rust
 pub enum Value {
-    Int(i64),
+    I8(i8),  I16(i16), I32(i32), I64(i64),
+    U8(u8),  U16(u16), U32(u32), U64(u64),
     Str(StrId),
+    Bool(bool),
 }
 ```
 
@@ -221,7 +223,11 @@ and `~` are ordinary and become parts of words like any other character.
 ### `Op`
 
 ```rust
-pub enum Ty { Int, Str, Bool }    // base type vocabulary (§11.2)
+pub enum Ty {                     // base type vocabulary (§11.2)
+    I8, I16, I32, I64,
+    U8, U16, U32, U64,
+    Str, Bool,
+}
 
 pub struct FnSig {
     pub inputs:  Vec<(String, Ty)>,   // name+type pairs (names matter; §11.5)
@@ -243,6 +249,7 @@ pub enum Op {
     TailCall(String),              // tail-position call; reuses the frame (§11.8)
     LoadLocal(u8),                 // push the i-th input of the active call
     Match(Rc<[MatchArm]>),         // structured branch (§11.8)
+    Cast(Ty),                      // integer width conversion (§11.2)
 }
 
 pub struct MatchArm {
@@ -339,11 +346,12 @@ enum Stop { EndOfInput, Semicolon }
   Returns `Op::DefineFn(name, CompiledFn { sig, doc, body })`.
 
 - `compile_sig(&mut self, fn_name: &str) -> Result<FnSig>` — parses one
-  header. Inputs are `Word`-then-`Type` pairs until `->`; using a known type
-  word (`Int`/`Str`/`Bool`) in the input-name slot is a dedicated "input
-  requires a name before the type" error. Outputs are either bare type
-  words or `Word`-then-`Type` pairs (the names are discarded). Unknown
-  type words are rejected with a "not a known type" error.
+  header. Inputs are `Word`-then-`Type` pairs until `->`; using a known
+  type word (`i8`/.../`i64`, `u8`/.../`u64`, `Str`, `Bool`) in the
+  input-name slot is a dedicated "input requires a name before the type"
+  error. Outputs are either bare type words or `Word`-then-`Type` pairs
+  (the names are discarded). Unknown type words are rejected with a "not
+  a known type" error.
 
 ### Word resolution
 
@@ -365,6 +373,7 @@ A bare `Tok::Word` inside `compile_seq` is resolved in two steps:
    | `.`                             | `Op::Display`                             |
    | `:clear`                        | `Op::Clear`                               |
    | `:listdir`                      | `Op::ListDir`                             |
+   | `:as-i8` ... `:as-u64`          | `Op::Cast(Ty::...)` — integer width cast  |
    | `:name` (any other `:`-prefix)  | `Op::Call(name)`                          |
    | anything else                   | `Op::PushStr(intern(word))` — bare text   |
 
@@ -382,22 +391,33 @@ which is the only caller of `compile_word`.
 ### `check` (§11.6)
 
 ```rust
-pub fn check(ops: &[Op], prior_sigs: &HashMap<String, Rc<FnSig>>) -> Result<()>;
+pub fn check(
+    ops: &[Op],
+    initial_stack: Vec<Ty>,
+    prior_sigs: &HashMap<String, Rc<FnSig>>,
+) -> Result<()>;
 ```
 
 A pass — not a transformation. Forward abstract interpretation of `ops`
 over a tiny type lattice (`Ty`). For each op, the checker pops its
 declared inputs from a `Vec<Ty>` shadowing the runtime stack, errors on
-underflow or mismatch, and pushes its outputs.
+underflow or mismatch, and pushes its outputs. `initial_stack` is the
+abstract stack the checker begins with — the REPL passes the live
+runtime stack's types here so a line containing only `+` sees the
+values left by the previous line; file-execution mode passes an empty
+stack.
 
-- **Builtin effects are hardcoded.** `PushInt` `() -> (Int)`,
-  `PushStr` `() -> (Str)`, `Add` is `(Int Int -> Int)` or
-  `(Str Str -> Str)` (mixed types are rejected), `Sub`/`Mul`/`Div` are
-  `(Int Int -> Int)`, `Display`/`ListDir` are no-ops on the type stack,
-  `Clear` empties it, `LoadLocal(i)` pushes the type at index `i` of the
-  enclosing function's input list, `Call(name)` looks up the sig and
-  applies its full stack effect, `DefineFn` recursively checks the body
-  (no change to the outer stack).
+- **Builtin effects are hardcoded.** `PushInt` `() -> (i64)`,
+  `PushStr` `() -> (Str)`, `Add` is `(T T -> T)` for any integer width
+  `T` or `(Str Str -> Str)` (mixed widths or mixed types are rejected),
+  `Sub`/`Mul`/`Div` are `(T T -> T)` for any integer width `T`,
+  `Lt`/`Gt` are `(T T -> Bool)` for any integer width `T`, `Cast(target)`
+  is `(T -> target)` for any integer source `T` and target,
+  `Display`/`ListDir` are no-ops on the type stack, `Clear` empties it,
+  `LoadLocal(i)` pushes the type at index `i` of the enclosing
+  function's input list, `Call(name)` looks up the sig and applies its
+  full stack effect, `DefineFn` recursively checks the body (no change
+  to the outer stack).
 - **`prior_sigs` is the VM's dictionary.** The checker copies it, then
   walks `ops` (top-level and nested) collecting every `DefineFn`'s sig
   into the same table. This makes **forward references within a single
@@ -494,9 +514,9 @@ One op-dispatch:
 | `Op`               | Action                                                                      |
 |--------------------|-----------------------------------------------------------------------------|
 | `PushInt`/`PushStr`/`PushBool` | push the value                                                  |
-| `Add`              | `add` — polymorphic over `(Int, Int)` and `(Str, Str)`                      |
+| `Add`              | `add` — polymorphic over `(T, T)` and `(Str, Str)`                      |
 | `Sub`/`Mul`/`Div`  | `int_binop` with `checked_*` arithmetic                                     |
-| `Eq`/`Lt`/`Gt`     | pop two, compare, push a `Bool` (`Eq` polymorphic; `Lt`/`Gt` Int-only)      |
+| `Eq`/`Lt`/`Gt`     | pop two, compare, push a `Bool` (`Eq` polymorphic; `Lt`/`Gt` integer-only)      |
 | `Not`              | pop a `Bool`, push its negation                                             |
 | `Display`          | `println!` the `stack_repr`                                                 |
 | `Clear`            | clear the data stack                                                        |
@@ -509,7 +529,7 @@ One op-dispatch:
 
 Helpers and conventions:
 
-- `add` — pops two values; `(Int, Int)` → `checked_add`; `(Str, Str)`
+- `add` — pops two values; `(T, T)` → `checked_add`; `(Str, Str)`
   → concatenate into the heap; otherwise an error. Operands are
   concatenated in natural order (`a` then `b`, where `b` was on top).
 - `int_binop(op: fn(i64,i64) -> Option<i64>, err)` — pops two integers
@@ -541,7 +561,7 @@ Helpers and conventions:
   always refers to a real frame.
 - `pop` / `pop_int` / `pop_bool` — pop one value; the `_int` /
   `_bool` variants additionally error on the wrong type.
-- `render(Value) -> String` — `Int` → decimal; `Str` → `{:?}`
+- `render(Value) -> String` — `i64` → decimal; `Str` → `{:?}`
   (quoted/escaped); `Bool` → `true` / `false`.
 
 ## 8. Language semantics
@@ -562,7 +582,7 @@ computes `a / b`.
 
 ### `+` is overloaded
 
-`Int + Int` is integer addition; `Str + Str` is concatenation; any other
+`integer + integer` is integer addition; `Str + Str` is concatenation; any other
 combination is an error. `-`, `*`, `/` are integer-only.
 
 ### Numbers
@@ -609,7 +629,7 @@ The input names in a function's header are in scope for the whole body
 corresponding value onto the data stack.
 
 - A call drains its declared inputs off the data stack into a fresh locals
-  frame, leftmost (deepest) first. So `: f { a Int b Int -> ... }` invoked
+  frame, leftmost (deepest) first. So `: f { a i64 b i64 -> ... }` invoked
   as `1 2 :f` enters the body with no `a`/`b` on the data stack and with
   `locals = [..., 1, 2]`; `a` and `b` are how the body reaches them.
 - A bare word inside a body that *matches* an input name compiles to
@@ -656,7 +676,7 @@ end
 
 The checker enforces two properties at compile time: every arm leaves
 the stack in the same shape (the *branch join*), and every match is
-exhaustive (both `true` and `false` for `Bool`, a `_` arm for `Int` or
+exhaustive (both `true` and `false` for `Bool`, a `_` arm for `i64` or
 `Str`). A non-exhaustive match is a compile error, not a runtime one.
 
 ### Iteration is recursion
@@ -676,7 +696,7 @@ host ulimit. There are no `for`, `while`, or `do` words.
 | Word           | Effect                                                                 |
 |----------------|------------------------------------------------------------------------|
 | `+ - * /`      | binary arithmetic (`+` also concatenates text)                         |
-| `= < >`        | comparisons; push a `Bool` (`=` is polymorphic; `< >` are Int-only)    |
+| `= < >`        | comparisons; push a `Bool` (`=` is polymorphic; `< >` are integer-only)    |
 | `not`          | pop a `Bool`, push its negation                                        |
 | `true` `false` | push the `Bool` literal                                                |
 | `match … end`  | dispatch on the top-of-stack value (§11.8)                             |
@@ -816,7 +836,7 @@ For each current `Op`, what an AOT backend would do with it:
 |--------------------|-----------------------------------------------------------|
 | `PushInt(n)`       | push the constant onto the runtime stack                  |
 | `PushStr(id)`      | push a `StrId` constant; literals baked as static data    |
-| `Add`              | `checked_add` for `Int Int`, runtime call for `Str Str`   |
+| `Add`              | `checked_add` for `integer`, runtime call for `Str Str`   |
 | `Sub`/`Mul`/`Div`  | `checked_*` with an error branch on `None`                |
 | `Display`          | runtime call                                              |
 | `Clear`            | runtime call (reset stack length)                         |
@@ -928,9 +948,9 @@ machine-checkable interface description).
 declaration between its name and its body:
 
 ```forth
-: hypot  { a Int b Int -> Int }           a a * b b * + sqrt ;
-: divmod { a Int b Int -> q Int r Int }   a b / a b mod ;
-: zero   { -> Int }                       0 ;
+: hypot  { a i64 b i64 -> i64 }           a a * b b * + sqrt ;
+: divmod { a i64 b i64 -> q i64 r i64 }   a b / a b mod ;
+: zero   { -> i64 }                       0 ;
 : greet  { name Str -> Str }              hello name + ;
 ```
 
@@ -953,8 +973,8 @@ structurally impossible here.
 **Three rules that hold without exception.** Mandatory rules give the
 language a small, learnable shape; partial or contextual rules do not.
 
-1. The `->` arrow is always present. `{ -> Int }` (no inputs) and
-   `{ x Int -> }` (no outputs) are both legal; `{ x Int }` (no arrow) is
+1. The `->` arrow is always present. `{ -> i64 }` (no inputs) and
+   `{ x i64 -> }` (no outputs) are both legal; `{ x i64 }` (no arrow) is
    not.
 2. Every function definition carries a header. An unsignatured definition
    is a compile error. Inference inside the body is welcome; inference of
@@ -965,23 +985,65 @@ language a small, learnable shape; partial or contextual rules do not.
 
 **Type vocabulary.** The base types are:
 
-- `Int` — 64-bit signed integer.
+- `i8`, `i16`, `i32`, `i64` — signed integers of the named bit width.
+- `u8`, `u16`, `u32`, `u64` — unsigned integers of the named bit width.
 - `Str` — heap-backed string (held by `StrId`).
 - `Bool` — `true` or `false`. Produced by the literals `true`/`false` and
   by the comparison operators `=`, `<`, `>` (and `not` for negation);
   consumed by `match` (§11.8).
 
-Arrays and sum types are deferred (§12.7, §12.14). No further base types
-are planned for the first pass.
+Sized integers are a hard rule, picked over a polymorphic `i64` for two
+reasons: it aligns the surface with the low-memory north star (the user
+can place a hot inner loop's `n` in a `u8` if that's enough) and it maps
+one-to-one onto the integer types the AOT backend (§11.1) will lower to.
+Arrays, sum types, and floating-point types are deferred (§12.7, §12.14,
+§12).
 
-**No implicit conversions.** A value of one type is never silently accepted
-where a value of another type is expected. In particular, **an `Int` in a
-position that expects a `Bool` is a type error** — Plenty does not have
-the "`0` is false, anything else is true" convention. The hard-rule
-alternative wins: a `Bool` is a `Bool`, and the only way to get one is to
-produce one (a literal, or a comparison). This forecloses an entire class
-of "what does truthiness mean here?" questions before control flow even
-arrives.
+**No implicit conversions.** A value of one type is never silently
+accepted where a value of another type is expected. The rule applies in
+two places:
+
+- **Between integers and Bool.** An integer in a position that expects a
+  `Bool` is a type error — Plenty does not have the "`0` is false,
+  anything else is true" convention. A `Bool` is a `Bool`, and the only
+  way to get one is to produce one (a literal, or a comparison).
+- **Between integer widths.** `i32 + i64` is a type error. To combine
+  values of different widths, the user writes the cast they want — see
+  "Explicit casts" below. This forecloses the silent-truncation /
+  silent-promotion class of bugs and matches what the AOT backend will
+  emit at the IR level anyway.
+
+**Integer literals are `i64`.** Numbers written in source — `42`, `-7`,
+`0` — push as `i64`. Smaller widths are reached *only* via an explicit
+cast word: `255 :as-u8`, `-1 :as-i8`. The hard rule beats per-literal
+type suffixes (`42i8`, `0u32`) on the metric §11.2 cares about — one
+form to learn, no special syntax in the lexer.
+
+**Explicit casts.** Eight cast words convert between integer widths:
+`:as-i8`, `:as-i16`, `:as-i32`, `:as-i64`, `:as-u8`, `:as-u16`,
+`:as-u32`, `:as-u64`. Each pops one integer of any width and pushes its
+representation at the target width. The conversion follows Rust's `as`
+semantics: widening sign-extends signed sources and zero-extends
+unsigned ones, narrowing truncates, equal-width signedness change
+reinterprets the bit pattern. Casts that silently change a value's
+mathematical meaning (e.g. `-1 :as-u8 → 255u8`) are still allowed —
+that is precisely the point of an explicit cast, as opposed to an
+implicit conversion.
+
+**Arithmetic, comparison, equality.**
+
+- `+`, `-`, `*`, `/` require **same-width integers** (or `Str Str` for
+  `+`, which concatenates). The output has the same width as the
+  operands.
+- `<`, `>` require same-width integers, output `Bool`.
+- `=` accepts any pair of the same type (integer-of-any-width, `Str`,
+  `Bool`), output `Bool`.
+
+**Rendering.** Integer values print with their width suffix
+(`42i64`, `255u8`, `-1i8`); `Bool` prints as `true`/`false`; `Str` is
+quoted. The width is part of how a stack slot reads at a glance — a
+`u8` is not interchangeable with an `i64`, so the rendered form makes
+that clear.
 
 **Other committed properties.**
 
@@ -1120,7 +1182,7 @@ Committed direction:
   then push its output types. At end of body the state must equal the
   function's declared outputs.
 - **Builtin effects are hardcoded in the checker.** `dup` peeks the top
-  and pushes it again; `swap` swaps; `+` dispatches `Int Int -> Int`
+  and pushes it again; `swap` swaps; `+` dispatches `T T -> T (any integer width)`
   versus `Str Str -> Str`. No type variables ever enter the checker's
   vocabulary, which is what "polymorphic builtins via side channel"
   literally means. If user-defined polymorphism is ever reopened (§11.2),
@@ -1188,7 +1250,7 @@ string" form versus "value string" form.
    definition, between the type header and the body:
 
    ```forth
-   : hypot { a Int b Int -> Int }
+   : hypot { a i64 b i64 -> ... }
        "Euclidean distance from origin."
        a a * b b * + sqrt ;
    ```
@@ -1224,7 +1286,7 @@ value handled the same way as any other finite type.
 **`match` is how you branch.**
 
 ```forth
-: classify { x Int -> Str } "name a small number"
+: classify { x i64 -> Str } "name a small number"
   x match
     0 [ "zero" ]
     1 [ "one"  ]
@@ -1246,7 +1308,7 @@ Two **mandatory rules** that hold without exception:
    significant: the first matching arm wins.
 2. *Every match is exhaustive.* For `Bool`, both `true` and `false` arms
    must be present (a wildcard arm also satisfies exhaustiveness). For
-   `Int` and `Str` (whose value spaces are unbounded), a `_` arm is
+   `i64` and `Str` (whose value spaces are unbounded), a `_` arm is
    required. The checker rejects non-exhaustive matches at compile time.
 
 **Brackets are compile-time blocks, not quotation values.**
@@ -1284,7 +1346,7 @@ needed beyond the per-arm snapshot.
 **Iteration is recursion.**
 
 ```forth
-: countdown { n Int -> } "print n down to 1, then stop"
+: countdown { n i64 -> } "print n down to 1, then stop"
   n .
   n 1 > match
     true  [ n 1 - :countdown ]
@@ -1331,8 +1393,8 @@ arm's duration.
 
 **Comparison and Boolean vocabulary.** `=`, `<`, `>` are comparison
 ops; `not` is boolean negation. `=` is polymorphic over the equality
-types (`Int Int -> Bool`, `Str Str -> Bool`, `Bool Bool -> Bool`); `<`
-and `>` are `(Int Int -> Bool)`. Additional comparisons (`!=`, `<=`,
+types (`T T -> Bool (any integer width)`, `Str Str -> Bool`, `Bool Bool -> Bool`); `<`
+and `>` are `(T T -> Bool (any integer width))`. Additional comparisons (`!=`, `<=`,
 `>=`) and boolean operators (`and`, `or`) are open — not committed
 direction, not deliberately omitted, just not on the immediate path.
 There is no short-circuit semantics: both operands of `and`/`or` (if
@@ -1354,7 +1416,7 @@ open.
    against the union of (VM dictionary sigs ∪ sigs in the current
    source). Function bodies must agree with their declared inputs and
    outputs, calls must agree with their callees' signatures, builtin
-   stack effects are hardcoded (`+` is polymorphic over `Int Int` and
+   stack effects are hardcoded (`+` is polymorphic over `integer` and
    `Str Str`; everything else is monomorphic). Top-level ops are
    checked op-by-op without an end-of-stream invariant, so the REPL
    case keeps working.
@@ -1409,14 +1471,28 @@ open.
     new one. Non-tail calls still recurse on the explicit frame
     stack (not the Rust call stack), so deep non-tail recursion is
     bounded by available heap, not by the host's stack ulimit.
-12. **`i64` only.** No floating point, no other numeric widths.
+12. **Sized integers — implemented.** **(direction)** §11.2 commits to
+    `i8`..`i64` and `u8`..`u64` as the integer vocabulary, with no
+    polymorphic `Int`. Arithmetic, comparison, and equality require
+    same-width operands; explicit cast words (`:as-i8` ... `:as-u64`)
+    convert between widths with Rust-`as` semantics. Integer literals
+    default to `i64`; other widths are reached only via a cast. The
+    deferred piece is **floating point** — `f32`/`f64` and their
+    arithmetic, equality (NaN handling), printing, and parsing — kept
+    out of this pass to bound the change.
+13. **Literal width suffixes.** Integer literals are always `i64`; you
+    cannot write `42u8` or `0i32` directly. The hard rule was chosen
+    over per-literal suffixes (one form to learn, no special lexer
+    syntax), but it makes short snippets verbose
+    (`255 :as-u8` for what could be `255u8`). Adding suffixes later is
+    a small, additive change if usage shows the cost is real.
 13. **Embedding API is implicit.** Hosts get `Vm::new` / `Vm::run` /
     `Vm::stack_repr`, but there is no typed push/pop or way to register a host
     function. §11.1 implies this surface will grow; the shape is open.
 14. **No sum types.** **(direction)** Option and Result are the obvious
     shape now that control flow has landed: single-slot values
     (discriminator + payload — fits the 16-byte invariant for
-    `Int`/`Str` payloads), dispatched by `match` (§11.8). The surface
+    `i64`/`Str` payloads), dispatched by `match` (§11.8). The surface
     question §12.14 previously held open (anonymous quotations vs
     `match-*` words with named handlers) is settled the third way:
     `match` with compile-time bracketed arms, neither of the two
@@ -1435,9 +1511,9 @@ open.
     committed; tracked here so the rough edge isn't forgotten.
 16. **Input-name slot accepts numbers and operators.** The header
     parser binds whatever `Tok::Word` it finds in an input-name
-    position, so `{ 2 Int -> Int }` treats `2` as a name and the body
+    position, so `{ 2 i64 -> i64 }` treats `2` as a name and the body
     that mentions `2` would load that local instead of pushing two.
-    `{ + Int Int -> Int }` is the same problem with an operator
+    `{ + T T -> T (any integer width) }` is the same problem with an operator
     character. The simple rule "input names must not parse as `i64`
     and must not be one of `+ - * /`" would foreclose this with
     almost no implementation cost.
@@ -1446,8 +1522,8 @@ open.
     committed `match` as its consumer. Both have landed: `true` and
     `false` are literals, `=`/`<`/`>` are the comparison ops, `not`
     negates a `Bool`. `=` is polymorphic over the equality types
-    (`Int Int -> Bool`, `Str Str -> Bool`, `Bool Bool -> Bool`);
-    `<`/`>` are `(Int Int -> Bool)`. Further comparisons (`!=`,
+    (`T T -> Bool (any integer width)`, `Str Str -> Bool`, `Bool Bool -> Bool`);
+    `<`/`>` are `(T T -> Bool (any integer width))`. Further comparisons (`!=`,
     `<=`, `>=`) and boolean operators (`and`, `or`) are open per
     §11.8's last paragraph — uncommitted but unblocked.
 18. **Control flow — implemented.** **(direction)** §11.8 is in:
@@ -1477,7 +1553,7 @@ These must hold; changing one is a deliberate design decision.
   test `tail_recursion_runs_without_growing_the_call_stack` enforces this
   on a recursion deep enough that the non-TCO interpreter would overflow.
 - **Every `match` is exhaustive** (§11.8). The checker requires both arms
-  for `Bool` (or a `_`), and a `_` arm for `Int`/`Str`. The runtime
+  for `Bool` (or a `_`), and a `_` arm for `i64`/`Str`. The runtime
   preserves a defensive "no arm matched" error path but a compiled,
   type-checked program cannot reach it.
 - The tutorial in `README.md` between the `TUTORIAL` markers is generated, not

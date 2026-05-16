@@ -17,20 +17,68 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 /// A Plenty type, as it appears in a function's type header (§11.2).
 ///
-/// Monomorphic by design: `Int`, `Str`, `Bool` are the entire user-visible
-/// vocabulary. No type variables, no parametric types. Arrays and sum types
-/// are deferred (§12.7, §12.14).
+/// Sized integers (§11.2): the user picks an exact bit width, signed or
+/// unsigned, so the program's memory footprint and overflow semantics are
+/// declared on the surface rather than hidden behind a polymorphic "Int".
+/// `Str` and `Bool` round out the vocabulary. Arrays and sum types are
+/// deferred (§12.7, §12.14); so are floating-point types (§12).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
-    Int,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
     Str,
     Bool,
+}
+
+impl Ty {
+    /// `true` for every integer width. The two non-integer types (`Str`,
+    /// `Bool`) return `false`. Used by the checker to enforce the
+    /// "arithmetic and ordering work on same-width integers only" rule
+    /// without naming each width in eight places.
+    pub fn is_int(self) -> bool {
+        matches!(
+            self,
+            Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64 | Ty::U8 | Ty::U16 | Ty::U32 | Ty::U64
+        )
+    }
+
+    /// The half-open range `[min, max+1)` of `i128` values that fit in
+    /// this integer type, or `None` for non-integer types. Used to check
+    /// that pattern literals (parsed as `i64`) fit the scrutinee's type
+    /// at compile time, before the runtime narrowing of `pattern_matches`.
+    pub fn int_range(self) -> Option<(i128, i128)> {
+        let r = match self {
+            Ty::I8 => (i8::MIN as i128, i8::MAX as i128 + 1),
+            Ty::I16 => (i16::MIN as i128, i16::MAX as i128 + 1),
+            Ty::I32 => (i32::MIN as i128, i32::MAX as i128 + 1),
+            Ty::I64 => (i64::MIN as i128, i64::MAX as i128 + 1),
+            Ty::U8 => (0, u8::MAX as i128 + 1),
+            Ty::U16 => (0, u16::MAX as i128 + 1),
+            Ty::U32 => (0, u32::MAX as i128 + 1),
+            Ty::U64 => (0, u64::MAX as i128 + 1),
+            Ty::Str | Ty::Bool => return None,
+        };
+        Some(r)
+    }
 }
 
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Ty::Int => "Int",
+            Ty::I8 => "i8",
+            Ty::I16 => "i16",
+            Ty::I32 => "i32",
+            Ty::I64 => "i64",
+            Ty::U8 => "u8",
+            Ty::U16 => "u16",
+            Ty::U32 => "u32",
+            Ty::U64 => "u64",
             Ty::Str => "Str",
             Ty::Bool => "Bool",
         })
@@ -44,7 +92,14 @@ impl fmt::Display for Ty {
 impl From<Value> for Ty {
     fn from(v: Value) -> Ty {
         match v {
-            Value::Int(_) => Ty::Int,
+            Value::I8(_) => Ty::I8,
+            Value::I16(_) => Ty::I16,
+            Value::I32(_) => Ty::I32,
+            Value::I64(_) => Ty::I64,
+            Value::U8(_) => Ty::U8,
+            Value::U16(_) => Ty::U16,
+            Value::U32(_) => Ty::U32,
+            Value::U64(_) => Ty::U64,
             Value::Str(_) => Ty::Str,
             Value::Bool(_) => Ty::Bool,
         }
@@ -116,6 +171,14 @@ pub enum Op {
     /// match. Exhaustiveness has been checked at compile time, so on a
     /// well-formed source the search always finds a match.
     Match(Rc<[MatchArm]>),
+    /// Pop an integer of any width; push its representation at the target
+    /// integer width. Surface syntax is `:as-i8` ... `:as-u64`. Conversion
+    /// follows Rust's `as` semantics: widening sign-extends signed sources
+    /// and zero-extends unsigned ones; narrowing truncates; equal-width
+    /// signedness change reinterprets the bit pattern. Casts that would
+    /// silently change a value's mathematical meaning are still allowed —
+    /// that is the whole point of an explicit cast word.
+    Cast(Ty),
 }
 
 /// One arm of a [`Op::Match`]. The pattern is matched against the popped
@@ -424,7 +487,7 @@ impl Compiler<'_, '_> {
                 }
                 None => Err(format!(
                     "function `{fn_name}` type header: `{w}` is not a known type \
-                     (expected `Int`, `Str`, or `Bool`)"
+                     (expected one of `i8`..`i64`, `u8`..`u64`, `Str`, `Bool`)"
                 )
                 .into()),
             },
@@ -441,7 +504,14 @@ impl Compiler<'_, '_> {
 /// message rather than a generic "not a type" error.
 fn parse_type(w: &str) -> Option<Ty> {
     match w {
-        "Int" => Some(Ty::Int),
+        "i8" => Some(Ty::I8),
+        "i16" => Some(Ty::I16),
+        "i32" => Some(Ty::I32),
+        "i64" => Some(Ty::I64),
+        "u8" => Some(Ty::U8),
+        "u16" => Some(Ty::U16),
+        "u32" => Some(Ty::U32),
+        "u64" => Some(Ty::U64),
         "Str" => Some(Ty::Str),
         "Bool" => Some(Ty::Bool),
         _ => None,
@@ -513,6 +583,14 @@ fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
         "." => Op::Display,
         ":clear" => Op::Clear,
         ":listdir" => Op::ListDir,
+        ":as-i8" => Op::Cast(Ty::I8),
+        ":as-i16" => Op::Cast(Ty::I16),
+        ":as-i32" => Op::Cast(Ty::I32),
+        ":as-i64" => Op::Cast(Ty::I64),
+        ":as-u8" => Op::Cast(Ty::U8),
+        ":as-u16" => Op::Cast(Ty::U16),
+        ":as-u32" => Op::Cast(Ty::U32),
+        ":as-u64" => Op::Cast(Ty::U64),
         _ => match word.strip_prefix(':') {
             Some(name) => Op::Call(name.to_string()),
             None => Op::PushStr(heap.add_str(word.to_string())),
@@ -637,17 +715,21 @@ fn step(
     sigs: &HashMap<String, Rc<FnSig>>,
 ) -> Result<()> {
     match op {
-        Op::PushInt(_) => stack.push(Ty::Int),
+        // Integer literals always start out as `i64`; widths other than
+        // that are reached via an explicit `:as-*` cast (§11.2). This is
+        // the hard rule chosen over per-literal type suffixes: one width
+        // for every number written in source, no special syntax to learn.
+        Op::PushInt(_) => stack.push(Ty::I64),
         Op::PushStr(_) => stack.push(Ty::Str),
         Op::PushBool(_) => stack.push(Ty::Bool),
         Op::Add => {
             let (a, b) = pop2(stack, "+")?;
             let out = match (a, b) {
-                (Ty::Int, Ty::Int) => Ty::Int,
                 (Ty::Str, Ty::Str) => Ty::Str,
+                (a, b) if a == b && a.is_int() => a,
                 _ => {
                     return Err(format!(
-                        "`+` requires (Int Int) or (Str Str), got ({a} {b})"
+                        "`+` requires same-width integers or (Str Str), got ({a} {b})"
                     )
                     .into())
                 }
@@ -687,6 +769,16 @@ fn step(
         Op::DefineFn(name, f) => check_body(name, &f.sig, &f.body, sigs)?,
         Op::Call(name) | Op::TailCall(name) => check_call(name, stack, sigs)?,
         Op::Match(arms) => check_match(arms, stack, locals, sigs)?,
+        Op::Cast(target) => {
+            let top = stack.pop().ok_or("stack underflow on cast")?;
+            if !top.is_int() {
+                return Err(format!(
+                    "cast `:as-{target}` requires an integer source, got {top}"
+                )
+                .into());
+            }
+            stack.push(*target);
+        }
     }
     Ok(())
 }
@@ -706,25 +798,28 @@ fn pop2(stack: &mut Vec<Ty>, op_label: &str) -> Result<(Ty, Ty)> {
     Ok((a, b))
 }
 
-/// Stack effect for the three integer-only arithmetic ops.
+/// Stack effect for `-`, `*`, `/`: same-width integers in, same width out.
+/// No implicit widening — the operands' types must match exactly, which is
+/// the hard rule §11.2 commits to over the convenience of mixed-width
+/// arithmetic.
 fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if a != Ty::Int || b != Ty::Int {
+    if !a.is_int() || a != b {
         return Err(format!(
-            "`{op_label}` requires (Int Int), got ({a} {b})"
+            "`{op_label}` requires same-width integers, got ({a} {b})"
         )
         .into());
     }
-    stack.push(Ty::Int);
+    stack.push(a);
     Ok(())
 }
 
-/// Stack effect for `<` / `>`: (Int Int -> Bool).
+/// Stack effect for `<` / `>`: same-width integers in, Bool out.
 fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if a != Ty::Int || b != Ty::Int {
+    if !a.is_int() || a != b {
         return Err(format!(
-            "`{op_label}` requires (Int Int), got ({a} {b})"
+            "`{op_label}` requires same-width integers, got ({a} {b})"
         )
         .into());
     }
@@ -791,15 +886,28 @@ fn check_match(
     }
 
     // Pattern compatibility — each pattern must be reachable on the
-    // matched type. Wildcards are always reachable.
+    // matched type. Wildcards are always reachable; integer patterns are
+    // legal against any integer width but their value must fit (otherwise
+    // the arm could never fire after the runtime narrowing in
+    // `pattern_matches`).
     for arm in arms {
-        let compatible = matches!(
-            (matched_ty, arm.pattern),
-            (_, Pattern::Wildcard)
-                | (Ty::Int, Pattern::Int(_))
-                | (Ty::Str, Pattern::Str(_))
-                | (Ty::Bool, Pattern::Bool(_))
-        );
+        let compatible = match (matched_ty, arm.pattern) {
+            (_, Pattern::Wildcard) => true,
+            (Ty::Str, Pattern::Str(_)) => true,
+            (Ty::Bool, Pattern::Bool(_)) => true,
+            (t, Pattern::Int(n)) if t.is_int() => {
+                let (lo, hi) = t.int_range().expect("integer types have a range");
+                let n = n as i128;
+                if n < lo || n >= hi {
+                    return Err(format!(
+                        "pattern literal {n} is out of range for {matched_ty}"
+                    )
+                    .into());
+                }
+                true
+            }
+            _ => false,
+        };
         if !compatible {
             return Err(format!(
                 "match-arm pattern is incompatible with the matched type {matched_ty}"
@@ -809,7 +917,10 @@ fn check_match(
     }
 
     // Exhaustiveness — Bool requires both literals (or a wildcard);
-    // Int and Str (unbounded) require a wildcard.
+    // every other type (integers and Str) is treated as unbounded and
+    // requires a wildcard arm. We deliberately do not special-case `u8`
+    // (256 values, technically exhaustible by listing); that would be a
+    // soft rule and §11.2 chose the hard one.
     let has_wildcard = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard));
     let exhaustive = match matched_ty {
         Ty::Bool => {
@@ -817,7 +928,7 @@ fn check_match(
                 || (arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(true)))
                     && arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(false))))
         }
-        Ty::Int | Ty::Str => has_wildcard,
+        _ => has_wildcard,
     };
     if !exhaustive {
         return Err(format!(

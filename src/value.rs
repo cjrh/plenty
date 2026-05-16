@@ -15,12 +15,26 @@ pub struct StrId(u32);
 /// Anything variable-sized (text today, arrays later) lives in the [`Heap`] and
 /// is referenced here by a compact handle, never stored inline.
 ///
+/// Every integer width Plenty surfaces — `i8` through `i64`, `u8` through
+/// `u64` — has its own variant; the 16-byte budget is set by the largest
+/// payload (`i64`/`u64`) and every other variant pays the same slot. This
+/// is the trade for a single homogeneous stack: width information is
+/// preserved at the value level, so arithmetic and overflow remain
+/// width-accurate without leaning on the static type tracker for them.
+///
 /// `Bool` is its own variant, not an integer alias: §11.2's "no implicit
-/// conversions" rule says a `Bool` is a `Bool`, and the only way to get one is
-/// to produce one (a literal, or a comparison).
+/// conversions" rule says a `Bool` is a `Bool`, and the only way to get one
+/// is to produce one (a literal, or a comparison).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
-    Int(i64),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
     Str(StrId),
     Bool(bool),
 }

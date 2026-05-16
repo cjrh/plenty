@@ -36,14 +36,14 @@ fn a_well_formed_program_runs_to_completion_and_prints_via_dot() {
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[3]");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[3i64]");
 }
 
 #[test]
 fn defining_and_calling_a_function_works_from_a_file() {
     let path = write_tempfile(
         r#"
-        : double { x Int -> Int } "Double an int." x 2 * ;
+        : double { x i64 -> i64 } "Double an int." x 2 * ;
         21 :double .
         "#,
         "fndef",
@@ -52,7 +52,7 @@ fn defining_and_calling_a_function_works_from_a_file() {
     let _ = std::fs::remove_file(&path);
 
     assert!(out.status.success(), "stderr: {:?}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[42]");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[42i64]");
 }
 
 #[test]

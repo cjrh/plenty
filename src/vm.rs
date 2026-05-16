@@ -18,6 +18,69 @@ use crate::lexer;
 use crate::op::{self, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 
+/// Dispatch a checked integer binary operation across every supported
+/// width. The compiler's type checker (§11.6) has already ensured the
+/// operands share a width, so the catch-all `(a, b) =>` arm is defensive
+/// — it only fires under direct VM construction outside the public
+/// `run` path. The `$method:ident` is a `checked_*` method name from
+/// the inherent impls on each primitive type, e.g. `checked_add`.
+macro_rules! checked_int_binop {
+    ($self:expr, $method:ident, $err:expr) => {{
+        let b = $self.pop()?;
+        let a = $self.pop()?;
+        let result = match (a, b) {
+            (Value::I8(a), Value::I8(b)) => Value::I8(a.$method(b).ok_or($err)?),
+            (Value::I16(a), Value::I16(b)) => Value::I16(a.$method(b).ok_or($err)?),
+            (Value::I32(a), Value::I32(b)) => Value::I32(a.$method(b).ok_or($err)?),
+            (Value::I64(a), Value::I64(b)) => Value::I64(a.$method(b).ok_or($err)?),
+            (Value::U8(a), Value::U8(b)) => Value::U8(a.$method(b).ok_or($err)?),
+            (Value::U16(a), Value::U16(b)) => Value::U16(a.$method(b).ok_or($err)?),
+            (Value::U32(a), Value::U32(b)) => Value::U32(a.$method(b).ok_or($err)?),
+            (Value::U64(a), Value::U64(b)) => Value::U64(a.$method(b).ok_or($err)?),
+            (a, b) => {
+                return Err(format!(
+                    "arithmetic requires same-width integers, got {} and {}",
+                    $self.render(a),
+                    $self.render(b)
+                )
+                .into())
+            }
+        };
+        $self.stack.push(result);
+        Ok(())
+    }};
+}
+
+/// Dispatch `<` / `>` across every integer width. `$method` is `PartialOrd::lt`
+/// or `PartialOrd::gt` — same shape as the arithmetic dispatcher but
+/// always producing a `Bool`.
+macro_rules! int_cmp {
+    ($self:expr, $method:ident) => {{
+        let b = $self.pop()?;
+        let a = $self.pop()?;
+        let result = match (a, b) {
+            (Value::I8(a), Value::I8(b)) => a.$method(&b),
+            (Value::I16(a), Value::I16(b)) => a.$method(&b),
+            (Value::I32(a), Value::I32(b)) => a.$method(&b),
+            (Value::I64(a), Value::I64(b)) => a.$method(&b),
+            (Value::U8(a), Value::U8(b)) => a.$method(&b),
+            (Value::U16(a), Value::U16(b)) => a.$method(&b),
+            (Value::U32(a), Value::U32(b)) => a.$method(&b),
+            (Value::U64(a), Value::U64(b)) => a.$method(&b),
+            (a, b) => {
+                return Err(format!(
+                    "comparison requires same-width integers, got {} and {}",
+                    $self.render(a),
+                    $self.render(b)
+                )
+                .into())
+            }
+        };
+        $self.stack.push(Value::Bool(result));
+        Ok(())
+    }};
+}
+
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 /// One execution context on the VM's `frames` stack.
@@ -188,19 +251,18 @@ impl Vm {
     /// Execute one op against the current frame.
     fn exec_op(&mut self, op: Op) -> Result<()> {
         match op {
-            Op::PushInt(n) => self.stack.push(Value::Int(n)),
+            // Integer literals enter the stack as `i64`; smaller widths
+            // are reached via `Op::Cast` (§11.2).
+            Op::PushInt(n) => self.stack.push(Value::I64(n)),
             Op::PushStr(id) => self.stack.push(Value::Str(id)),
             Op::PushBool(b) => self.stack.push(Value::Bool(b)),
             Op::Add => self.add()?,
-            Op::Sub => self.int_binop(i64::checked_sub, "integer overflow")?,
-            Op::Mul => self.int_binop(i64::checked_mul, "integer overflow")?,
-            Op::Div => self.int_binop(
-                |a, b| if b == 0 { None } else { a.checked_div(b) },
-                "division by zero",
-            )?,
+            Op::Sub => self.sub()?,
+            Op::Mul => self.mul()?,
+            Op::Div => self.div()?,
             Op::Eq => self.eq()?,
-            Op::Lt => self.cmp_int(|a, b| a < b)?,
-            Op::Gt => self.cmp_int(|a, b| a > b)?,
+            Op::Lt => self.lt()?,
+            Op::Gt => self.gt()?,
             Op::Not => self.not()?,
             Op::Display => println!("{}", self.stack_repr()),
             Op::Clear => self.clear(),
@@ -212,6 +274,7 @@ impl Vm {
             Op::TailCall(name) => self.do_tail_call(&name)?,
             Op::LoadLocal(i) => self.load_local(i)?,
             Op::Match(arms) => self.do_match(arms)?,
+            Op::Cast(target) => self.cast(target)?,
         }
         Ok(())
     }
@@ -235,45 +298,110 @@ impl Vm {
         Ok(())
     }
 
-    /// `+`: integer addition, or text concatenation, depending on the operands.
+    /// `+`: same-width integer addition, or text concatenation. Mixed
+    /// integer widths reach the runtime only via direct VM construction;
+    /// the type checker rejects them first.
     fn add(&mut self) -> Result<()> {
+        // Peek the pair so we can route to `Str`-concat or integer
+        // arithmetic without popping twice. `Value` is `Copy`, so this is
+        // free.
+        let len = self.stack.len();
+        if len >= 2 {
+            if let (Value::Str(_), Value::Str(_)) = (self.stack[len - 2], self.stack[len - 1]) {
+                let b = match self.stack.pop() {
+                    Some(Value::Str(id)) => id,
+                    _ => unreachable!(),
+                };
+                let a = match self.stack.pop() {
+                    Some(Value::Str(id)) => id,
+                    _ => unreachable!(),
+                };
+                let joined = format!("{}{}", self.heap.str(a), self.heap.str(b));
+                let id = self.heap.add_str(joined);
+                self.stack.push(Value::Str(id));
+                return Ok(());
+            }
+        }
+        checked_int_binop!(self, checked_add, "integer overflow")
+    }
+
+    fn sub(&mut self) -> Result<()> {
+        checked_int_binop!(self, checked_sub, "integer overflow")
+    }
+
+    fn mul(&mut self) -> Result<()> {
+        checked_int_binop!(self, checked_mul, "integer overflow")
+    }
+
+    /// Division separates "divisor was zero" from "result would overflow"
+    /// so the user sees the more specific message; `checked_div` would
+    /// otherwise collapse both into a single `None`.
+    fn div(&mut self) -> Result<()> {
         let b = self.pop()?;
         let a = self.pop()?;
+        let zero = matches!(
+            b,
+            Value::I8(0)
+                | Value::I16(0)
+                | Value::I32(0)
+                | Value::I64(0)
+                | Value::U8(0)
+                | Value::U16(0)
+                | Value::U32(0)
+                | Value::U64(0)
+        );
+        if zero {
+            return Err("division by zero".into());
+        }
         let result = match (a, b) {
-            (Value::Int(a), Value::Int(b)) => {
-                Value::Int(a.checked_add(b).ok_or("integer overflow")?)
+            (Value::I8(a), Value::I8(b)) => Value::I8(a.checked_div(b).ok_or("integer overflow")?),
+            (Value::I16(a), Value::I16(b)) => {
+                Value::I16(a.checked_div(b).ok_or("integer overflow")?)
             }
-            (Value::Str(a), Value::Str(b)) => {
-                let joined = format!("{}{}", self.heap.str(a), self.heap.str(b));
-                Value::Str(self.heap.add_str(joined))
+            (Value::I32(a), Value::I32(b)) => {
+                Value::I32(a.checked_div(b).ok_or("integer overflow")?)
+            }
+            (Value::I64(a), Value::I64(b)) => {
+                Value::I64(a.checked_div(b).ok_or("integer overflow")?)
+            }
+            (Value::U8(a), Value::U8(b)) => Value::U8(a.checked_div(b).ok_or("integer overflow")?),
+            (Value::U16(a), Value::U16(b)) => {
+                Value::U16(a.checked_div(b).ok_or("integer overflow")?)
+            }
+            (Value::U32(a), Value::U32(b)) => {
+                Value::U32(a.checked_div(b).ok_or("integer overflow")?)
+            }
+            (Value::U64(a), Value::U64(b)) => {
+                Value::U64(a.checked_div(b).ok_or("integer overflow")?)
             }
             (a, b) => {
-                return Err(
-                    format!("cannot add {} and {}", self.render(a), self.render(b)).into(),
+                return Err(format!(
+                    "arithmetic requires same-width integers, got {} and {}",
+                    self.render(a),
+                    self.render(b)
                 )
+                .into())
             }
         };
         self.stack.push(result);
         Ok(())
     }
 
-    /// Pop two integers `a b`, push `op(a, b)`; fail with `err` when `op`
-    /// returns `None` — overflow, or division by zero.
-    fn int_binop(&mut self, op: fn(i64, i64) -> Option<i64>, err: &'static str) -> Result<()> {
-        let b = self.pop_int()?;
-        let a = self.pop_int()?;
-        self.stack.push(Value::Int(op(a, b).ok_or(err)?));
-        Ok(())
-    }
-
-    /// `=`: polymorphic equality over Int/Bool/Str. Mixed-type pairs are
-    /// rejected by the type checker; the defensive arm below protects
+    /// `=`: polymorphic equality over every scalar type. Mixed-type pairs
+    /// are rejected by the type checker; the defensive arm below protects
     /// against direct VM construction outside the public `run` path.
     fn eq(&mut self) -> Result<()> {
         let b = self.pop()?;
         let a = self.pop()?;
         let result = match (a, b) {
-            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::I8(a), Value::I8(b)) => a == b,
+            (Value::I16(a), Value::I16(b)) => a == b,
+            (Value::I32(a), Value::I32(b)) => a == b,
+            (Value::I64(a), Value::I64(b)) => a == b,
+            (Value::U8(a), Value::U8(b)) => a == b,
+            (Value::U16(a), Value::U16(b)) => a == b,
+            (Value::U32(a), Value::U32(b)) => a == b,
+            (Value::U64(a), Value::U64(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Str(a), Value::Str(b)) => self.heap.str(a) == self.heap.str(b),
             (a, b) => {
@@ -289,11 +417,51 @@ impl Vm {
         Ok(())
     }
 
-    /// `<` / `>`: integer-only comparison.
-    fn cmp_int(&mut self, op: fn(i64, i64) -> bool) -> Result<()> {
-        let b = self.pop_int()?;
-        let a = self.pop_int()?;
-        self.stack.push(Value::Bool(op(a, b)));
+    fn lt(&mut self) -> Result<()> {
+        int_cmp!(self, lt)
+    }
+
+    fn gt(&mut self) -> Result<()> {
+        int_cmp!(self, gt)
+    }
+
+    /// `:as-T`: pop any integer; push it reinterpreted/extended/truncated
+    /// to width `target`. Going through `i128` keeps the conversion table
+    /// to two short matches — every source widens losslessly to `i128`,
+    /// then Rust's `as` rules narrow it to the target. The semantics
+    /// match `source as target` directly.
+    fn cast(&mut self, target: Ty) -> Result<()> {
+        let v = self.pop()?;
+        let wide: i128 = match v {
+            Value::I8(n) => n as i128,
+            Value::I16(n) => n as i128,
+            Value::I32(n) => n as i128,
+            Value::I64(n) => n as i128,
+            Value::U8(n) => n as i128,
+            Value::U16(n) => n as i128,
+            Value::U32(n) => n as i128,
+            Value::U64(n) => n as i128,
+            other => {
+                return Err(format!(
+                    "cast `:as-{target}` requires an integer, got {}",
+                    self.render(other)
+                )
+                .into())
+            }
+        };
+        let result = match target {
+            Ty::I8 => Value::I8(wide as i8),
+            Ty::I16 => Value::I16(wide as i16),
+            Ty::I32 => Value::I32(wide as i32),
+            Ty::I64 => Value::I64(wide as i64),
+            Ty::U8 => Value::U8(wide as u8),
+            Ty::U16 => Value::U16(wide as u16),
+            Ty::U32 => Value::U32(wide as u32),
+            Ty::U64 => Value::U64(wide as u64),
+            // Defensive: the checker rejects casts to non-integer targets.
+            Ty::Str | Ty::Bool => return Err(format!("cannot cast to {target}").into()),
+        };
+        self.stack.push(result);
         Ok(())
     }
 
@@ -399,12 +567,26 @@ impl Vm {
     }
 
     /// Match one pattern against one value. Pure: never modifies VM state.
+    ///
+    /// Integer patterns are parsed as `i64` regardless of the scrutinee's
+    /// width. The compile-time check (`check_match`) verifies that the
+    /// parsed value fits in the scrutinee's range, so the narrowing `as`
+    /// casts below preserve the user's intended value — `300` against an
+    /// `i8` is rejected before reaching the runtime, not silently turned
+    /// into `44`.
     fn pattern_matches(&self, pat: Pattern, val: Value) -> bool {
         match (pat, val) {
             (Pattern::Wildcard, _) => true,
-            (Pattern::Int(a), Value::Int(b)) => a == b,
             (Pattern::Bool(a), Value::Bool(b)) => a == b,
             (Pattern::Str(a), Value::Str(b)) => self.heap.str(a) == self.heap.str(b),
+            (Pattern::Int(a), Value::I8(b)) => a as i8 == b,
+            (Pattern::Int(a), Value::I16(b)) => a as i16 == b,
+            (Pattern::Int(a), Value::I32(b)) => a as i32 == b,
+            (Pattern::Int(a), Value::I64(b)) => a == b,
+            (Pattern::Int(a), Value::U8(b)) => a as u8 == b,
+            (Pattern::Int(a), Value::U16(b)) => a as u16 == b,
+            (Pattern::Int(a), Value::U32(b)) => a as u32 == b,
+            (Pattern::Int(a), Value::U64(b)) => a as u64 == b,
             _ => false,
         }
     }
@@ -426,18 +608,20 @@ impl Vm {
         self.stack.pop().ok_or_else(|| "stack underflow".into())
     }
 
-    /// Pop one value, requiring it to be an integer.
-    fn pop_int(&mut self) -> Result<i64> {
-        match self.pop()? {
-            Value::Int(n) => Ok(n),
-            other => Err(format!("expected an integer, found {}", self.render(other)).into()),
-        }
-    }
-
-    /// Render a single value as Plenty would print it.
+    /// Render a single value as Plenty would print it. Every integer
+    /// carries a width suffix (`42i64`, `255u8`, `-1i8`) — type information
+    /// belongs in the rendered form so the user can see at a glance which
+    /// width a stack slot holds, especially after a cast.
     fn render(&self, value: Value) -> String {
         match value {
-            Value::Int(n) => n.to_string(),
+            Value::I8(n) => format!("{n}i8"),
+            Value::I16(n) => format!("{n}i16"),
+            Value::I32(n) => format!("{n}i32"),
+            Value::I64(n) => format!("{n}i64"),
+            Value::U8(n) => format!("{n}u8"),
+            Value::U16(n) => format!("{n}u16"),
+            Value::U32(n) => format!("{n}u32"),
+            Value::U64(n) => format!("{n}u64"),
             // `{:?}` quotes and escapes the string, so text reads as text.
             Value::Str(id) => format!("{:?}", self.heap.str(id)),
             Value::Bool(b) => if b { "true" } else { "false" }.to_string(),

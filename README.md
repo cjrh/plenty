@@ -22,7 +22,7 @@ A program is a stream of whitespace-separated words. A number is a word that pus
 ```
 
 ```
-[1 2 3]
+[1i64 2i64 3i64]
 ```
 
 ### Arithmetic
@@ -34,7 +34,7 @@ A program is a stream of whitespace-separated words. A number is a word that pus
 ```
 
 ```
-[8]
+[8i64]
 ```
 
 ### Operators consume only what they need
@@ -46,7 +46,7 @@ An operator touches just the top two values; everything below it on the stack is
 ```
 
 ```
-[1 2 7]
+[1i64 2i64 7i64]
 ```
 
 ### Clearing the stack
@@ -87,15 +87,15 @@ Wrap text in double quotes to push it as a single string. Spaces, operators, and
 
 ### Functions
 
-Define a function with `: name { signature } "docstring" body... ;`. The signature lists inputs as `name Type` pairs, then `->`, then output types; `{ x Int -> Int }` reads as "takes one `Int` named `x`, leaves one `Int`". Inside the body, those input names refer to the values passed in — so the body can mention `x` instead of juggling the stack. The docstring describes what the function does. Both the signature and the docstring are mandatory — together they form the function's interface. Call the function by prefixing its name with a colon.
+Define a function with `: name { signature } "docstring" body... ;`. The signature lists inputs as `name Type` pairs, then `->`, then output types; `{ x i64 -> i64 }` reads as "takes one `i64` named `x`, leaves one `i64`". Inside the body, those input names refer to the values passed in — so the body can mention `x` instead of juggling the stack. The docstring describes what the function does. Both the signature and the docstring are mandatory — together they form the function's interface. Call the function by prefixing its name with a colon.
 
 ```forth
-: double { x Int -> Int } "Double an integer." x 2 * ;
+: double { x i64 -> i64 } "Double an integer." x 2 * ;
 5 :double
 ```
 
 ```
-[10]
+[10i64]
 ```
 
 ### Functions calling functions
@@ -103,13 +103,13 @@ Define a function with `: name { signature } "docstring" body... ;`. The signatu
 A function body may call other functions. Defining a function never disturbs the stack.
 
 ```forth
-: double { x Int -> Int } "Double an integer." x 2 * ;
-: quad { x Int -> Int } "Multiply by four." x :double :double ;
+: double { x i64 -> i64 } "Double an integer." x 2 * ;
+: quad { x i64 -> i64 } "Multiply by four." x :double :double ;
 3 :quad
 ```
 
 ```
-[12]
+[12i64]
 ```
 
 ### Named inputs replace stack juggling
@@ -117,17 +117,17 @@ A function body may call other functions. Defining a function never disturbs the
 Each input named in the signature is in scope for the whole body — write the name to load it. A function with several inputs can refer to each by name, in any order, as many times as it likes, without `dup`, `swap`, or `rot`.
 
 ```forth
-: hypot-sq { a Int b Int -> Int } "Square the hypotenuse: a*a + b*b." a a * b b * + ;
+: hypot-sq { a i64 b i64 -> i64 } "Square the hypotenuse: a*a + b*b." a a * b b * + ;
 3 4 :hypot-sq
 ```
 
 ```
-[25]
+[25i64]
 ```
 
 ### Booleans and comparisons
 
-`true` and `false` are the `Bool` literals. The comparison operators `=`, `<`, and `>` pop two values and push a `Bool`; `not` negates one. `=` accepts any two values of the same type (`Int`, `Str`, or `Bool`); `<` and `>` are integers only. A `Bool` is *not* an integer: there is no "zero is false" convention. The only way to get a `Bool` is to produce one.
+`true` and `false` are the `Bool` literals. The comparison operators `=`, `<`, and `>` pop two values and push a `Bool`; `not` negates one. `=` accepts any two values of the same type (`i64`, `Str`, or `Bool`); `<` and `>` are integers only. A `Bool` is *not* an integer: there is no "zero is false" convention. The only way to get a `Bool` is to produce one.
 
 ```forth
 1 2 <  3 3 =  true not
@@ -156,10 +156,10 @@ true :describe  false :describe
 
 ### Wildcards for the open cases
 
-`Int` and `Str` have unbounded value spaces, so a match on either must include a wildcard arm — `_` — that catches everything not named above. Patterns are tested in order, so specific arms first and `_` last. The arm body sees the surrounding stack and the surrounding function's locals; the brackets are syntactic structure, not a separate sub-stack.
+`i64` and `Str` have unbounded value spaces, so a match on either must include a wildcard arm — `_` — that catches everything not named above. Patterns are tested in order, so specific arms first and `_` last. The arm body sees the surrounding stack and the surrounding function's locals; the brackets are syntactic structure, not a separate sub-stack.
 
 ```forth
-: name-it { n Int -> Str }
+: name-it { n i64 -> Str }
   "Name a small integer; anything else is 'many'."
   n match
     0 [ "zero" ]
@@ -179,7 +179,7 @@ true :describe  false :describe
 Plenty has no `for` or `while`. A function that needs to repeat calls itself, and the compiler detects when that recursive call sits in *tail* position — the last thing the function would do before returning — and reuses the current call's frame instead of stacking a new one. A million tail calls cost the same call-stack space as one. The pattern is always the same: thread the running total through an accumulator argument so the recursive call ends the body.
 
 ```forth
-: sum-to { n Int acc Int -> Int }
+: sum-to { n i64 acc i64 -> i64 }
   "Tail-recursive accumulator: 1 + 2 + ... + n + acc."
   n 0 = match
     true  [ acc ]
@@ -189,7 +189,19 @@ Plenty has no `for` or `while`. A function that needs to repeat calls itself, an
 ```
 
 ```
-[5050]
+[5050i64]
+```
+
+### Picking a width
+
+Numbers in source default to `i64`. To use a smaller — or unsigned — width, write the explicit cast: `:as-i8`, `:as-u8`, `:as-i32`, and so on. Casts pop one integer and push it at the target width, with Rust's `as` semantics (sign-extend, zero-extend, truncate, reinterpret). Arithmetic is same-width — `i32 + i64` is a type error, by design — so the cast is where the width change is made visible. The width travels with the value: `[200u8]` is a `u8` whatever else is on the stack.
+
+```forth
+200 :as-u8 50 :as-u8 +
+```
+
+```
+[250u8]
 ```
 
 <!-- END TUTORIAL -->
