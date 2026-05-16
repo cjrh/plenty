@@ -9,3 +9,8 @@ rstest = "0.23.0"
 [dependencies]
 log = "0.4.22"
 pretty_env_logger = "0.5.0"
+# Line editor for the REPL: Emacs-style bindings (ctrl-a/e/p/n/l/r, etc.),
+# pure Rust, cross-platform. No C `readline` dependency. `custom-bindings`
+# enables `bind_sequence` / `ConditionalEventHandler` for the editor hook;
+# `derive` enables the `#[derive(Helper, ...)]` macros for our completer.
+rustyline = { version = "18", default-features = false, features = ["custom-bindings", "derive"] }
