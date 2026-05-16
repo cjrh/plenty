@@ -411,8 +411,11 @@ underflow or mismatch, and pushes its outputs.
   exactly; anything else is a type error.
 - **Top-level programs have no declared sig.** They are checked op-by-op
   with `locals: &[]` and no end-of-stream invariant: leaving values on
-  the stack is the REPL case, not an error. Individual op-level errors
-  (underflow, mismatch, undefined call) are still caught.
+  the stack is the REPL case, not an error. The abstract stack is seeded
+  from the live runtime stack (§11.6 "REPL stack continuity"), so a line
+  containing only `+` sees the values left by the previous line.
+  Individual op-level errors (underflow, mismatch, undefined call) are
+  still caught.
 - **Branch joins are out of scope.** When control flow lands (§11.6),
   both arms of a branch must agree pointwise at the join; the mechanism
   is deferred with the surface that needs it.
@@ -1141,6 +1144,16 @@ abstract stack at `match`, type-checks each arm body against a copy of
 the snapshot, and requires the resulting stacks to agree pointwise; the
 agreed shape becomes the match's overall stack effect. No new
 machinery beyond a per-arm snapshot was needed.
+
+Landed: **REPL stack continuity.** Each `run` call's abstract stack is
+seeded from the live runtime stack (`Vec<Value>` → `Vec<Ty>` via
+`From<Value> for Ty`), not started empty. Without this, a REPL line
+containing only `+` would fail the check even when the previous line left
+two compatible values on the stack — the runtime would accept it but the
+checker, blind to prior state, would not. Seeding closes that gap: state
+persistence (§8) applies to the checker's view as well as the VM's.
+There is no new persistent state — `self.stack` remains the single source
+of truth, and the abstract stack is derived from it once per `run`.
 
 ### 11.7 Documentation and string literals
 

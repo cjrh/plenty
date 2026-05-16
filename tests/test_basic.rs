@@ -70,6 +70,32 @@ fn calling_a_function_runs_its_body(#[case] program: &str, #[case] expected: &st
 }
 
 #[test]
+fn an_operator_alone_on_a_line_consumes_the_prior_lines_values() {
+    // The REPL feel: state persists across `run` calls (DESIGN.md §8), and
+    // the type checker's view of the stack persists with it. A line with
+    // only `+` on it must operate on whatever was left behind, exactly as
+    // if it appeared inline.
+    let mut vm = Vm::new();
+    vm.run("1").unwrap();
+    vm.run("2").unwrap();
+    vm.run("+").unwrap();
+    assert_eq!(vm.stack_repr(), "[3]");
+}
+
+#[test]
+fn cross_line_type_mismatches_are_still_caught_pre_execution() {
+    // The other side of the coin: seeding the abstract stack from runtime
+    // values must not weaken the checker. `1` then `hello` then `+` is
+    // still a type error, caught before any op runs.
+    let mut vm = Vm::new();
+    vm.run("1").unwrap();
+    vm.run("hello").unwrap();
+    let before = vm.stack_repr();
+    assert!(vm.run("+").is_err());
+    assert_eq!(vm.stack_repr(), before, "failed check must leave the stack untouched");
+}
+
+#[test]
 fn defining_a_function_leaves_the_stack_untouched() {
     // The whole point of the `: name ... ;` redesign: a definition is carved
     // out at compile time, so values already on the stack are never disturbed.

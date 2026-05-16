@@ -15,7 +15,7 @@ use std::rc::Rc;
 use log::debug;
 
 use crate::lexer;
-use crate::op::{self, CompiledFn, FnSig, MatchArm, Op, Pattern};
+use crate::op::{self, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -89,7 +89,12 @@ impl Vm {
             .iter()
             .map(|(n, f)| (n.clone(), Rc::clone(&f.sig)))
             .collect();
-        op::check(&ops, &prior_sigs)?;
+        // Seed the abstract stack from the live runtime stack so a REPL
+        // line containing only `+` sees the values left by the previous
+        // line (§11.6). `Value -> Ty` is total: every value's runtime tag
+        // maps to exactly one checker type.
+        let initial_stack: Vec<Ty> = self.stack.iter().map(|&v| Ty::from(v)).collect();
+        op::check(&ops, initial_stack, &prior_sigs)?;
 
         // Push the top-level frame and run the interpreter loop. The
         // top-level frame is a "borrowing" frame (no locals of its own,

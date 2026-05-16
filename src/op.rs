@@ -11,7 +11,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::lexer::Tok;
-use crate::value::{Heap, StrId};
+use crate::value::{Heap, StrId, Value};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -34,6 +34,20 @@ impl fmt::Display for Ty {
             Ty::Str => "Str",
             Ty::Bool => "Bool",
         })
+    }
+}
+
+/// Every `Value` has an unambiguous `Ty` — the value's runtime tag and the
+/// checker's type lattice line up one-to-one. This lets the REPL seed the
+/// checker's abstract stack from the live runtime stack, so a line containing
+/// only `+` sees the values left by the previous line (§11.6).
+impl From<Value> for Ty {
+    fn from(v: Value) -> Ty {
+        match v {
+            Value::Int(_) => Ty::Int,
+            Value::Str(_) => Ty::Str,
+            Value::Bool(_) => Ty::Bool,
+        }
     }
 }
 
@@ -553,6 +567,12 @@ fn mark_tail_calls(body: &mut [Op]) {
 /// ops have no declared sig, so they are checked op-by-op without an
 /// end-of-stream invariant (the REPL case).
 ///
+/// `initial_stack` seeds the abstract stack the checker starts with — for
+/// the REPL, the types of the values already on the runtime stack from
+/// previous `run` calls. This makes `+` on a line by itself well-typed
+/// when the previous line left two compatible values; without it, the
+/// checker would treat every line as if the stack were empty.
+///
 /// `prior_sigs` is the caller's already-known dictionary — typically the
 /// VM's `functions` map. The checker also collects sigs from every
 /// `DefineFn` reachable from `ops` (top-level and nested) into a single
@@ -564,12 +584,16 @@ fn mark_tail_calls(body: &mut [Op]) {
 /// error per §12.10. Error messages are name-bearing where they can be —
 /// stack-language errors are hard to localise, so anchoring them to a
 /// function name helps.
-pub fn check(ops: &[Op], prior_sigs: &HashMap<String, Rc<FnSig>>) -> Result<()> {
+pub fn check(
+    ops: &[Op],
+    initial_stack: Vec<Ty>,
+    prior_sigs: &HashMap<String, Rc<FnSig>>,
+) -> Result<()> {
     let mut sigs = prior_sigs.clone();
     collect_sigs(ops, &mut sigs);
     // Top-level: locals are empty (the compiler will never have emitted a
     // `LoadLocal` here either), and there is no end-of-stream invariant.
-    let mut stack: Vec<Ty> = Vec::new();
+    let mut stack = initial_stack;
     for op in ops {
         step(op, &mut stack, &[], &sigs)?;
     }
