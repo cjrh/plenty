@@ -809,13 +809,19 @@ text ──lex──▶ Tok ──compile──▶ Op ──┬── Vm::exec �
 - **REPL.** Already implemented in `main.rs`. The REPL is allowed
   flexibilities the AOT path does not have — most importantly, definitions
   and calls interleaving across input lines.
-- **AOT native compilation.** A `.plenty` script (or a small set of scripts)
-  compiles to a standalone native binary. The current intent is to lower
-  `Op` to LLVM IR and let LLVM produce the executable; this is provisional
-  until a simpler backend has been ruled out. The AOT path will reject
-  programs that rely on truly dynamic behaviour (e.g. defining a function
-  whose body is not known at compile time). Those restrictions are part of
-  the language contract for the AOT mode, not bugs.
+- **AOT native compilation.** A `.plenty` script compiles to a native
+  object file via Cranelift (`cranelift-codegen` + `cranelift-object`).
+  Cranelift is pure-Rust, has no system dependencies, and emits the same
+  ELF/Mach-O/COFF the system linker expects, so the user runs
+  `cc OUT.o runtime/plenty_runtime.c -o myprog` to get an executable.
+  LLVM was considered and rejected: Cranelift's IR mirrors LLVM IR closely
+  enough that switching later is feasible, but for a hobby/learning
+  compiler with a low-memory north star Cranelift's pure-Rust build wins
+  the setup-cost trade. The AOT path will reject programs that rely on
+  truly dynamic behaviour (e.g. defining a function whose body is not
+  known at compile time). Those restrictions are part of the language
+  contract for the AOT mode, not bugs. The current implementation is
+  **phase c.1**: only top-level integer programs lower (see §12.3).
 
 Architectural consequence: nothing below the `op` layer may depend on the
 `vm` layer. The `Op` stream must remain fully self-contained — that is what
@@ -1429,9 +1435,32 @@ open.
    runtime defence remain in place — they protect against direct VM
    construction outside the public `run` path, not against compiled
    source.
-3. **No AOT backend yet.** **(direction)** §11.1 commits to one; only the
-   tree-walking VM exists. No `Op`-to-IR lowering, no LLVM dependency, no
-   `.plenty` file driver.
+3. **AOT backend — phase c.1.** **(direction)** §11.1 commits to one;
+   the first lowering pass is now in via Cranelift. `plenty --compile
+   FILE -o OUT.o` produces a native object that, linked with
+   `runtime/plenty_runtime.c`, runs as a standalone executable
+   reproducing the interpreter's output byte-for-byte (the integration
+   tests assert this directly). The compile-time stack is virtualised
+   into SSA values: each Plenty stack slot becomes a Cranelift `Value`,
+   threaded through `iadd`/`isub`/`imul`/`sdiv`/`udiv`/`icmp`/etc., so
+   the compiled code does no runtime push/pop. `Display` (`.`) lowers
+   to a sequence of calls into the C runtime's fixed-signature print
+   helpers — the runtime exists to sidestep variadic-ABI portability
+   issues with `printf`.
+
+   What c.1 *doesn't* lower: function definitions, calls (including
+   `LoadLocal`), `match`, anything that touches a `Str`. The lowering
+   returns a clear "not yet supported (c.1)" error for those; the
+   programs still run under the interpreter. The remaining phases
+   (c.2 functions/calls; c.3 `match`; c.4 strings + heap; c.5 linker
+   integration so `--compile` produces an executable in one step) reuse
+   the same scaffolding.
+
+   One semantic gap to be honest about: c.1 arithmetic does *not* trap
+   on overflow; it wraps. The interpreter checks with `checked_*` and
+   errors. Adding overflow checks to the AOT path is a small, additive
+   step (Cranelift has `*_overflow` instructions) and is on the c.2+
+   list.
 4. **File-execution mode — implemented.** **(direction)** `plenty FILE`
    reads the whole file, lexes/compiles/checks/runs it on a fresh `Vm`,
    and exits — stdout is the program's, stderr is for diagnostics, and

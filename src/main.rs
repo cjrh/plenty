@@ -152,39 +152,48 @@ impl ConditionalEventHandler for EditorTrigger {
 
 const USAGE: &str = "\
 Usage: plenty [FILE]
+       plenty --compile FILE -o OUT.o
        plenty -h | --help
 
 With no arguments, starts the interactive REPL. With a file path, lexes,
 compiles, type-checks, and runs the file, then exits — stdout is the
 program's, stderr is for diagnostics. Exit status is 0 on success and
 non-zero on any compile, type, or runtime error.
+
+`--compile FILE -o OUT.o` lowers FILE to a native object file at OUT.o
+(AOT, §11.1). Link it with the runtime C file shipped at
+`runtime/plenty_runtime.c` to produce an executable, e.g.
+    cc OUT.o runtime/plenty_runtime.c -o myprog
+Phase c.1 supports integer-only top-level programs; functions, `match`,
+and strings are not yet lowered — those programs still run under the
+interpreter.
 ";
 
 fn main() -> ExitCode {
     pretty_env_logger::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.as_slice() {
-        [] => match repl() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("error: {e}");
-                ExitCode::FAILURE
-            }
-        },
+    let outcome = match args.as_slice() {
+        [] => repl(),
         [flag] if flag == "-h" || flag == "--help" => {
             print!("{USAGE}");
-            ExitCode::SUCCESS
+            return ExitCode::SUCCESS;
         }
-        [path] if !path.starts_with('-') => match run_file(Path::new(path)) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("error: {e}");
-                ExitCode::FAILURE
-            }
-        },
+        [flag, source, dash_o, out]
+            if flag == "--compile" && (dash_o == "-o" || dash_o == "--output") =>
+        {
+            compile_file(Path::new(source), Path::new(out))
+        }
+        [path] if !path.starts_with('-') => run_file(Path::new(path)),
         _ => {
             eprintln!("plenty: unrecognised arguments");
             eprint!("{USAGE}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match outcome {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
             ExitCode::FAILURE
         }
     }
@@ -198,6 +207,15 @@ fn run_file(path: &Path) -> Result<(), Box<dyn Error>> {
         .map_err(|e| -> Box<dyn Error> { format!("reading {}: {e}", path.display()).into() })?;
     let mut vm = Vm::new();
     vm.run(&source)
+}
+
+/// Read `source` and emit a native object file at `output` (DESIGN.md
+/// §11.1, §12.3 — phase c.1). The user is responsible for linking the
+/// result with the C runtime to produce an executable.
+fn compile_file(source: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
+    let text = std::fs::read_to_string(source)
+        .map_err(|e| -> Box<dyn Error> { format!("reading {}: {e}", source.display()).into() })?;
+    plenty::compile_source_to_object(&text, output)
 }
 
 fn repl() -> Result<(), Box<dyn Error>> {
