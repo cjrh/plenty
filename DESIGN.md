@@ -806,23 +806,23 @@ text ──lex──▶ Tok ──compile──▶ Op ──┬── Vm::exec �
   flexibilities the AOT path does not have — most importantly, definitions
   and calls interleaving across input lines.
 - **AOT native compilation.** A `.plenty` script compiles to a native
-  object file via Cranelift (`cranelift-codegen` + `cranelift-object`).
+  executable via Cranelift (`cranelift-codegen` + `cranelift-object`).
   Cranelift is pure-Rust, has no system dependencies, and emits the same
-  ELF/Mach-O/COFF the system linker expects, so the user runs
-  `cc OUT.o runtime/plenty_runtime.c -o myprog` to get an executable.
-  LLVM was considered and rejected: Cranelift's IR mirrors LLVM IR closely
-  enough that switching later is feasible, but for a hobby/learning
-  compiler with a low-memory north star Cranelift's pure-Rust build wins
-  the setup-cost trade. The AOT path will reject programs that rely on
-  truly dynamic behaviour (e.g. defining a function whose body is not
-  known at compile time). Those restrictions are part of the language
-  contract for the AOT mode, not bugs. The current implementation is
-  at **phase c.4**: every Plenty op lowers — sized integers, Bool,
-  strings (concat / equality / print / pattern match), user-defined
-  functions with tail calls, and `match` (see §12.3). The only
-  remaining phase is c.5 — packaging the runtime so `--compile`
-  produces an executable in one step instead of writing an object the
-  user has to link by hand.
+  ELF/Mach-O/COFF the system linker expects. `plenty --compile FILE -o
+  OUT` writes the object to a tempfile, links it against the embedded
+  C runtime via `cc` on `PATH`, and leaves only the executable on disk.
+  LLVM was considered and rejected: Cranelift's IR mirrors LLVM IR
+  closely enough that switching later is feasible, but for a
+  hobby/learning compiler with a low-memory north star Cranelift's
+  pure-Rust build wins the setup-cost trade. The AOT path will reject
+  programs that rely on truly dynamic behaviour (e.g. defining a
+  function whose body is not known at compile time). Those restrictions
+  are part of the language contract for the AOT mode, not bugs. All
+  five planned phases (c.1–c.5) have shipped: every Plenty op lowers —
+  sized integers, Bool, strings (concat / equality / print / pattern
+  match), user-defined functions with tail calls, `match` — and the
+  link step is packaged behind the binary so users no longer run `cc`
+  by hand (see §12.3).
 
 Architectural consequence: nothing below the `op` layer may depend on the
 `vm` layer. The `Op` stream must remain fully self-contained — that is what
@@ -1435,13 +1435,14 @@ open.
    runtime defence remain in place — they protect against direct VM
    construction outside the public `run` path, not against compiled
    source.
-3. **AOT backend — phases c.1, c.2, c.3, c.4.** **(direction)** §11.1
-   commits to one; four of the five planned lowering phases are now
-   in via Cranelift. `plenty --compile FILE -o OUT.o` produces a
-   native object that, linked with `runtime/plenty_runtime.c`, runs
-   as a standalone executable reproducing the interpreter's output
-   byte-for-byte (the integration tests assert this directly). The
-   compile-time stack is virtualised into SSA values: each Plenty
+3. **AOT backend — phases c.1, c.2, c.3, c.4, c.5.** **(direction)**
+   §11.1 commits to one; all five planned lowering phases are now in
+   via Cranelift. `plenty --compile FILE -o OUT` produces a native
+   executable directly — the binary writes the object to a tempfile,
+   links it against the embedded C runtime via `cc`, and leaves only
+   `OUT` on disk. The compiled executable reproduces the interpreter's
+   output byte-for-byte (the integration tests assert this directly).
+   The compile-time stack is virtualised into SSA values: each Plenty
    stack slot becomes a Cranelift `Value`, threaded through
    `iadd`/`isub`/`imul`/`sdiv`/`udiv`/`icmp`/etc., so the compiled
    code does no runtime push/pop. `Display` (`.`) lowers to a sequence
@@ -1488,15 +1489,27 @@ open.
    `plenty_concat` `malloc`s but never `free`s, mirroring the
    interpreter's `Heap` (§12.1).
 
-   Every Plenty op lowers. The only remaining work is c.5 — packaging
-   the runtime so `--compile` produces an executable in one step
-   instead of writing an object the user has to link by hand.
+   c.5 packaged the runtime. `runtime/plenty_runtime.c` is embedded
+   into the `plenty` binary at build time via `include_bytes!`;
+   `compile_source_to_executable` writes the Cranelift-emitted object
+   and the runtime source to tempfiles, invokes `cc obj.o runtime.c
+   -o OUT`, and deletes the temps so the user sees only the
+   executable. `cc` must be on `PATH`; no `--linker` flag, no `$CC`
+   override — strict and learner-facing.
 
-   One semantic gap to be honest about: AOT arithmetic does *not*
-   trap on overflow; it wraps. The interpreter checks with
-   `checked_*` and errors. Adding overflow checks to the AOT path is
-   a small, additive step (Cranelift has `*_overflow` instructions)
-   and is on the c.5+ list.
+   c.5.5 closed the overflow correctness gap. `Op::Add`, `Op::Sub`,
+   and `Op::Mul` now lower to Cranelift's `sadd_overflow` /
+   `uadd_overflow` (etc.) and branch on the overflow flag to a trap
+   block that calls `plenty_trap_overflow` in the runtime. `Op::Div`
+   adds explicit `b == 0` and signed-INT_MIN/-1 checks before the
+   bare `sdiv`/`udiv`. Both trap helpers print the same stderr line
+   the interpreter would (`error: integer overflow` /
+   `error: division by zero`) and `exit(1)`, so the two backends now
+   agree on exit code and stderr for every program — failure-parity
+   tests in `tests/test_aot.rs` assert this directly.
+
+   Every Plenty op lowers, the AOT pipeline is one user-visible step,
+   and overflow semantics now match the interpreter byte-for-byte.
 4. **File-execution mode — implemented.** **(direction)** `plenty FILE`
    reads the whole file, lexes/compiles/checks/runs it on a fresh `Vm`,
    and exits — stdout is the program's, stderr is for diagnostics, and

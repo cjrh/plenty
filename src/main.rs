@@ -152,7 +152,7 @@ impl ConditionalEventHandler for EditorTrigger {
 
 const USAGE: &str = "\
 Usage: plenty [FILE]
-       plenty --compile FILE -o OUT.o
+       plenty --compile FILE -o OUT
        plenty -h | --help
 
 With no arguments, starts the interactive REPL. With a file path, lexes,
@@ -160,12 +160,9 @@ compiles, type-checks, and runs the file, then exits — stdout is the
 program's, stderr is for diagnostics. Exit status is 0 on success and
 non-zero on any compile, type, or runtime error.
 
-`--compile FILE -o OUT.o` lowers FILE to a native object file at OUT.o
-(AOT, §11.1). Link it with the runtime C file shipped at
-`runtime/plenty_runtime.c` to produce an executable, e.g.
-    cc OUT.o runtime/plenty_runtime.c -o myprog
-The AOT path covers every Plenty op. Phase c.5 will collapse the
-compile-then-link step into a single invocation.
+`--compile FILE -o OUT` produces a native executable at OUT (AOT, §11.1).
+The C compiler `cc` must be on PATH; the embedded runtime is linked
+automatically. The AOT path covers every Plenty op.
 ";
 
 fn main() -> ExitCode {
@@ -208,14 +205,14 @@ fn run_file(path: &Path) -> Result<(), Box<dyn Error>> {
     vm.run(&source)
 }
 
-/// Read `source` and emit a native object file at `output` (DESIGN.md
-/// §11.1, §12.3 — phases c.1–c.4 cover every Plenty op). The user is
-/// responsible for linking the result with the C runtime to produce an
-/// executable; c.5 will collapse this into a single step.
+/// Read `source` and produce a native executable at `output` (DESIGN.md
+/// §11.1, §12.3 — every Plenty op now lowers). Internally writes a
+/// temp object, links it with the embedded C runtime via `cc`, and
+/// deletes the temp; the user sees only `output`.
 fn compile_file(source: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     let text = std::fs::read_to_string(source)
         .map_err(|e| -> Box<dyn Error> { format!("reading {}: {e}", source.display()).into() })?;
-    plenty::compile_source_to_object(&text, output)
+    plenty::compile_source_to_executable(&text, output)
 }
 
 fn repl() -> Result<(), Box<dyn Error>> {

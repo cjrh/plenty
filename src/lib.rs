@@ -15,7 +15,7 @@ mod op;
 mod value;
 mod vm;
 
-pub use codegen::compile_source_to_object;
+pub use codegen::compile_source_to_executable;
 pub use op::{FnSig, Ty};
 pub use value::{StrId, Value};
 pub use vm::Vm;

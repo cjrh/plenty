@@ -1,24 +1,19 @@
-//! AOT integration tests (DESIGN.md §11.1, §12.3 — phases c.1–c.4).
+//! AOT integration tests (DESIGN.md §11.1, §12.3 — phases c.1–c.5).
 //!
 //! Each test runs a Plenty program two ways — once through the
-//! interpreter and once through the AOT pipeline (compile → link →
-//! execute) — and asserts that stdout matches. Anything the current
-//! AOT phase lowers correctly should produce identical output; that
-//! is the strongest end-to-end check we can give the AOT path without
+//! interpreter and once through the AOT pipeline (`plenty --compile`
+//! then execute) — and asserts that stdout matches. Anything the AOT
+//! path lowers correctly should produce identical output; that is the
+//! strongest end-to-end check we can give the AOT path without
 //! re-deriving expected output by hand.
 //!
 //! The tests are skipped automatically when a C compiler isn't on
 //! `PATH`; CI environments without `cc` shouldn't break the build.
 
-use std::path::PathBuf;
 use std::process::Command;
 
 fn plenty_bin() -> &'static str {
     env!("CARGO_BIN_EXE_plenty")
-}
-
-fn runtime_c() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("runtime/plenty_runtime.c")
 }
 
 fn cc_available() -> bool {
@@ -32,14 +27,15 @@ fn nonce() -> u128 {
         .as_nanos()
 }
 
-/// Write `source` to a tempfile, compile + link + run through the AOT
-/// pipeline, and return the captured stdout. Panics with a useful
-/// message on any failure — the test harness reports them as failures.
+/// Write `source` to a tempfile, compile to an executable via
+/// `plenty --compile` (which embeds the runtime and invokes `cc`
+/// internally), run it, and return the captured stdout. Panics with
+/// a useful message on any failure — the test harness reports them
+/// as failures.
 fn run_aot(source: &str, label: &str) -> String {
     let tmp = std::env::temp_dir();
     let n = nonce();
     let src_path = tmp.join(format!("plenty-aot-{label}-{n}.plenty"));
-    let obj_path = tmp.join(format!("plenty-aot-{label}-{n}.o"));
     let exe_path = tmp.join(format!("plenty-aot-{label}-{n}.exe"));
     std::fs::write(&src_path, source).expect("write source");
 
@@ -47,7 +43,7 @@ fn run_aot(source: &str, label: &str) -> String {
         .args(["--compile"])
         .arg(&src_path)
         .args(["-o"])
-        .arg(&obj_path)
+        .arg(&exe_path)
         .output()
         .expect("spawn plenty --compile");
     assert!(
@@ -56,22 +52,8 @@ fn run_aot(source: &str, label: &str) -> String {
         String::from_utf8_lossy(&compile.stderr)
     );
 
-    let link = Command::new("cc")
-        .arg(&obj_path)
-        .arg(runtime_c())
-        .arg("-o")
-        .arg(&exe_path)
-        .output()
-        .expect("spawn cc");
-    assert!(
-        link.status.success(),
-        "cc link failed: stderr {:?}",
-        String::from_utf8_lossy(&link.stderr)
-    );
-
     let run = Command::new(&exe_path).output().expect("run aot binary");
     let _ = std::fs::remove_file(&src_path);
-    let _ = std::fs::remove_file(&obj_path);
     let _ = std::fs::remove_file(&exe_path);
     assert!(run.status.success(), "aot binary exited non-zero");
     String::from_utf8(run.stdout).expect("aot stdout is utf-8")
@@ -92,6 +74,58 @@ fn run_interpreter(source: &str, label: &str) -> String {
     String::from_utf8(out.stdout).expect("interpreter stdout is utf-8")
 }
 
+/// One execution result captured from either backend. Bundles exit
+/// code and stderr so the failure-parity macro can compare both
+/// without re-running the program.
+struct Outcome {
+    code: i32,
+    stderr: String,
+}
+
+/// Run the interpreter on `source` regardless of whether it succeeds
+/// or fails. Returns the captured outcome so the failure-parity
+/// macro can compare it to AOT.
+fn run_interpreter_outcome(source: &str, label: &str) -> Outcome {
+    let path = std::env::temp_dir().join(format!("plenty-interp-fail-{label}-{}.plenty", nonce()));
+    std::fs::write(&path, source).expect("write source");
+    let out = Command::new(plenty_bin()).arg(&path).output().expect("spawn plenty");
+    let _ = std::fs::remove_file(&path);
+    Outcome {
+        code: out.status.code().unwrap_or(-1),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    }
+}
+
+/// Compile `source` and run the AOT binary, capturing exit code and
+/// stderr. Like `run_aot` but without the "must succeed" assertion.
+fn run_aot_outcome(source: &str, label: &str) -> Outcome {
+    let tmp = std::env::temp_dir();
+    let n = nonce();
+    let src_path = tmp.join(format!("plenty-aot-fail-{label}-{n}.plenty"));
+    let exe_path = tmp.join(format!("plenty-aot-fail-{label}-{n}.exe"));
+    std::fs::write(&src_path, source).expect("write source");
+
+    let compile = Command::new(plenty_bin())
+        .args(["--compile"])
+        .arg(&src_path)
+        .args(["-o"])
+        .arg(&exe_path)
+        .output()
+        .expect("spawn plenty --compile");
+    assert!(
+        compile.status.success(),
+        "compile failed: stderr {:?}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe_path).output().expect("run aot binary");
+    let _ = std::fs::remove_file(&src_path);
+    let _ = std::fs::remove_file(&exe_path);
+    Outcome {
+        code: run.status.code().unwrap_or(-1),
+        stderr: String::from_utf8_lossy(&run.stderr).into_owned(),
+    }
+}
+
 macro_rules! aot_matches_interpreter {
     ($name:ident, $label:expr, $source:expr $(,)?) => {
         #[test]
@@ -106,6 +140,39 @@ macro_rules! aot_matches_interpreter {
             assert_eq!(
                 aot, interp,
                 "AOT output disagrees with interpreter for:\n{source}"
+            );
+        }
+    };
+}
+
+/// Generate a `#[test]` that runs `source` through both backends and
+/// asserts that both fail with matching exit code and stderr. Used
+/// to verify the AOT trap path agrees with the interpreter's
+/// `checked_*` errors (integer overflow, division by zero).
+macro_rules! aot_failure_matches_interpreter {
+    ($name:ident, $label:expr, $source:expr $(,)?) => {
+        #[test]
+        fn $name() {
+            if !cc_available() {
+                eprintln!("skipping {}: no `cc` on PATH", stringify!($name));
+                return;
+            }
+            let source = $source;
+            let interp = run_interpreter_outcome(source, $label);
+            let aot = run_aot_outcome(source, $label);
+            assert!(
+                interp.code != 0,
+                "expected interpreter to fail for:\n{source}\nexit={} stderr={:?}",
+                interp.code,
+                interp.stderr
+            );
+            assert_eq!(
+                aot.code, interp.code,
+                "exit code disagrees for:\n{source}"
+            );
+            assert_eq!(
+                aot.stderr, interp.stderr,
+                "stderr disagrees for:\n{source}"
             );
         }
     };
@@ -492,3 +559,66 @@ aot_matches_interpreter!(
        false :describe ."#,
 );
 
+// --- c.5.5: overflow / div-zero parity with the interpreter -------------
+//
+// The interpreter's arithmetic uses `checked_*` and errors with
+// `"integer overflow"` or `"division by zero"`; `main.rs` prefixes
+// those with `error: ` and exits 1. The AOT path now matches via
+// `plenty_trap_overflow` / `plenty_trap_div_zero` in the runtime,
+// reached through CLIF `*_overflow` instructions and explicit
+// zero/INT_MIN checks for `Op::Div`. These tests assert the exit
+// code and stderr line agree on both backends.
+
+aot_failure_matches_interpreter!(
+    i64_add_overflows_at_max,
+    "trap-i64-add",
+    "9223372036854775807 1 + .",
+);
+
+aot_failure_matches_interpreter!(
+    i32_sub_overflows_at_min,
+    "trap-i32-sub",
+    "-2147483648 :as-i32 1 :as-i32 - .",
+);
+
+aot_failure_matches_interpreter!(
+    i64_mul_overflows,
+    "trap-i64-mul",
+    "9223372036854775807 2 * .",
+);
+
+aot_failure_matches_interpreter!(
+    u8_add_wraps_past_255,
+    "trap-u8-add",
+    // 200 + 100 = 300, doesn't fit in u8.
+    "200 :as-u8 100 :as-u8 + .",
+);
+
+aot_failure_matches_interpreter!(
+    u32_sub_underflows_below_zero,
+    "trap-u32-sub",
+    // 0u32 - 1 underflows; uint subtraction has no negative result.
+    "0 :as-u32 1 :as-u32 - .",
+);
+
+aot_failure_matches_interpreter!(
+    signed_div_by_zero,
+    "trap-sdiv-zero",
+    "10 0 / .",
+);
+
+aot_failure_matches_interpreter!(
+    unsigned_div_by_zero,
+    "trap-udiv-zero",
+    "10 :as-u32 0 :as-u32 / .",
+);
+
+aot_failure_matches_interpreter!(
+    signed_div_int_min_by_neg_one,
+    "trap-sdiv-intmin",
+    // The classic signed-division overflow: -INT_MIN is not
+    // representable. Cranelift's `sdiv` would normally hardware-trap
+    // here; the explicit pre-check routes this through the same
+    // `"integer overflow"` message the interpreter emits.
+    "-2147483648 :as-i32 -1 :as-i32 / .",
+);

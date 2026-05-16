@@ -41,10 +41,13 @@
 //! in the C runtime. `Display` prints strings via `plenty_print_str`,
 //! and `match` patterns of type `Str` become `plenty_str_eq` + `brif`.
 //!
-//! Every Plenty op now lowers — there are no "not yet supported"
-//! escapes left in the codegen path. c.5 is purely about packaging
-//! (one-step `--compile` that produces an executable instead of an
-//! object file).
+//! Phase c.5 packages the runtime. The contents of
+//! `runtime/plenty_runtime.c` are embedded into the `plenty` binary at
+//! build time via `include_bytes!`; [`compile_source_to_executable`]
+//! writes the object and the runtime to a tempdir, invokes `cc` to link
+//! them, and deletes the temps so the user's `-o OUT` is the only
+//! artifact. Every Plenty op lowers, and the user no longer needs to
+//! run `cc` by hand.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -66,16 +69,80 @@ use crate::lexer;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId};
 
-/// Read `source`, run it through the same lex → compile → check pipeline
-/// the VM uses, and lower the resulting op stream to a native object
-/// file at `output`. The exposed surface for the binary's `--compile`
-/// mode; everything else here is implementation detail.
-pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
+/// Read `source` and produce a native executable at `output` in one
+/// step (DESIGN.md §11.1, §12.3 — phase c.5). The source is lexed,
+/// compiled, and checked through the same pipeline the VM uses; the
+/// resulting op stream is lowered to a temp object file; the embedded
+/// C runtime is written alongside it; `cc` links the pair into the
+/// final executable and the temps are removed.
+///
+/// `cc` is invoked by name from `PATH` (no override). When `cc` is
+/// missing, the error message identifies the link step as the failure
+/// site so users can install a C toolchain or wrap an alternative
+/// compiler as `cc`.
+pub fn compile_source_to_executable(source: &str, output: &Path) -> Result<()> {
     let toks = lexer::lex(source)?;
     let mut heap = Heap::default();
     let ops = op::compile(&toks, &mut heap)?;
     op::check(&ops, Vec::new(), &HashMap::new())?;
-    compile_to_object(&ops, &heap, output)
+
+    // Tempfile names blend the process id and a nanosecond timestamp:
+    // unique across concurrent `plenty --compile` invocations without
+    // pulling in a tempfile crate. Both temps live in the same dir as
+    // the system tempdir to inherit OS-level cleanup as a fallback.
+    let tmp = std::env::temp_dir();
+    let pid = std::process::id();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let obj_path = tmp.join(format!("plenty-{pid}-{nonce}.o"));
+    let rt_path = tmp.join(format!("plenty-{pid}-{nonce}-runtime.c"));
+
+    let result = (|| -> Result<()> {
+        compile_to_object(&ops, &heap, &obj_path)?;
+        std::fs::write(&rt_path, RUNTIME_C)?;
+        link_with_cc(&obj_path, &rt_path, output)
+    })();
+
+    // Best-effort cleanup; never override a primary error with a
+    // missing-file error from `remove_file`.
+    let _ = std::fs::remove_file(&obj_path);
+    let _ = std::fs::remove_file(&rt_path);
+    result
+}
+
+/// Plenty's C runtime, embedded at build time. Writing this to a tempfile
+/// at link time lets `cc` do the runtime's compile-and-link in a single
+/// invocation — the same path the test harness took before c.5, just
+/// driven by the binary now.
+const RUNTIME_C: &[u8] = include_bytes!("../runtime/plenty_runtime.c");
+
+/// Invoke `cc` to link `obj` (the Cranelift-emitted object) with the
+/// runtime source `runtime_src` into the executable at `output`. The
+/// runtime is passed as a `.c` file rather than a precompiled archive
+/// so the build pipeline stays one-step (no `build.rs`); the runtime
+/// is small enough that the per-compile recompilation cost is invisible.
+fn link_with_cc(obj: &Path, runtime_src: &Path, output: &Path) -> Result<()> {
+    let out = std::process::Command::new("cc")
+        .arg(obj)
+        .arg(runtime_src)
+        .arg("-o")
+        .arg(output)
+        .output()
+        .map_err(|e| -> Box<dyn Error> {
+            format!(
+                "failed to invoke `cc` for the link step: {e}. \
+                 Plenty's AOT mode shells out to a C compiler named `cc` \
+                 on PATH to link the emitted object with the embedded runtime."
+            )
+            .into()
+        })?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("cc failed:\n{stderr}").into());
+    }
+    Ok(())
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -175,6 +242,14 @@ struct Runtime {
     concat: FuncId,
     /// `plenty_str_eq(*const u8, *const u8) -> i8` — c.4.
     str_eq: FuncId,
+    /// `plenty_trap_overflow() -> !` — prints `error: integer overflow`
+    /// to stderr and `exit(1)`s. The lowerer calls this from the
+    /// overflow branch of every checked arithmetic op.
+    trap_overflow: FuncId,
+    /// `plenty_trap_div_zero() -> !` — prints `error: division by zero`
+    /// to stderr and `exit(1)`s. Called from the zero-check branch of
+    /// the `Div` lowering.
+    trap_div_zero: FuncId,
 }
 
 fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
@@ -219,6 +294,8 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         print_space: nullary(module, "plenty_print_space")?,
         concat: two_args_one_return(module, "plenty_concat", PTR_TY, PTR_TY, PTR_TY)?,
         str_eq: two_args_one_return(module, "plenty_str_eq", PTR_TY, PTR_TY, types::I8)?,
+        trap_overflow: nullary(module, "plenty_trap_overflow")?,
+        trap_div_zero: nullary(module, "plenty_trap_div_zero")?,
     })
 }
 
@@ -554,6 +631,25 @@ fn is_signed(ty: Ty) -> bool {
 /// One CLIF stack slot, paired with the Plenty `Ty` that produced it.
 type StackEntry = (cranelift_codegen::ir::Value, Ty);
 
+/// Which checked-overflow CLIF instruction family to emit. The signed
+/// variants are picked by the `Ty` tag at the call site, so this enum
+/// only distinguishes the three ops, not their signedness.
+#[derive(Clone, Copy)]
+enum ArithKind {
+    Add,
+    Sub,
+    Mul,
+}
+
+/// Which shared trap block to branch into on a failed check. The two
+/// kinds map one-to-one to the two runtime helpers and the two
+/// possible interpreter error messages.
+#[derive(Clone, Copy)]
+enum TrapKind {
+    Overflow,
+    DivZero,
+}
+
 struct Lowerer<'a, 'b> {
     bcx: &'a mut FunctionBuilder<'b>,
     module: &'a mut ObjectModule,
@@ -591,17 +687,9 @@ impl Lowerer<'_, '_> {
             }
             Op::PushStr(id) => self.lower_push_str(*id)?,
             Op::Add => self.lower_add()?,
-            Op::Sub => self.int_binop(|bcx, a, b| bcx.ins().isub(a, b))?,
-            Op::Mul => self.int_binop(|bcx, a, b| bcx.ins().imul(a, b))?,
-            Op::Div => {
-                let (a, b, ty) = self.pop_int_pair()?;
-                let v = if is_signed(ty) {
-                    self.bcx.ins().sdiv(a, b)
-                } else {
-                    self.bcx.ins().udiv(a, b)
-                };
-                self.stack.push((v, ty));
-            }
+            Op::Sub => self.lower_checked_arith(ArithKind::Sub)?,
+            Op::Mul => self.lower_checked_arith(ArithKind::Mul)?,
+            Op::Div => self.lower_div()?,
             Op::Eq => self.lower_eq()?,
             Op::Lt => self.int_cmp(IntCC::SignedLessThan, IntCC::UnsignedLessThan)?,
             Op::Gt => self.int_cmp(IntCC::SignedGreaterThan, IntCC::UnsignedGreaterThan)?,
@@ -631,20 +719,103 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Lower an integer arithmetic op whose CLIF instruction is the same
-    /// for signed and unsigned operands (add/sub/mul).
-    fn int_binop(
-        &mut self,
-        emit: impl FnOnce(
-            &mut FunctionBuilder,
-            cranelift_codegen::ir::Value,
-            cranelift_codegen::ir::Value,
-        ) -> cranelift_codegen::ir::Value,
-    ) -> Result<()> {
+    /// Lower a signed-or-unsigned checked arithmetic op (add/sub/mul).
+    /// Emits the matching Cranelift `*_overflow` instruction, branches
+    /// on the overflow flag to the shared overflow-trap block, and
+    /// switches to a fresh successor block with the result on the
+    /// compile-time stack. The interpreter calls `checked_*` and
+    /// errors with `"integer overflow"` on `None`; we match by exit
+    /// status (1) and stderr line (`"error: integer overflow"`) via
+    /// the runtime helper `plenty_trap_overflow`.
+    fn lower_checked_arith(&mut self, kind: ArithKind) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
-        let v = emit(self.bcx, a, b);
+        let signed = is_signed(ty);
+        let (result, of) = match (kind, signed) {
+            (ArithKind::Add, true) => self.bcx.ins().sadd_overflow(a, b),
+            (ArithKind::Add, false) => self.bcx.ins().uadd_overflow(a, b),
+            (ArithKind::Sub, true) => self.bcx.ins().ssub_overflow(a, b),
+            (ArithKind::Sub, false) => self.bcx.ins().usub_overflow(a, b),
+            (ArithKind::Mul, true) => self.bcx.ins().smul_overflow(a, b),
+            (ArithKind::Mul, false) => self.bcx.ins().umul_overflow(a, b),
+        };
+        self.trap_if(of, TrapKind::Overflow);
+        self.stack.push((result, ty));
+        Ok(())
+    }
+
+    /// Lower `Op::Div`: explicit divisor-zero check (interpreter
+    /// distinguishes `"division by zero"` from `"integer overflow"`),
+    /// then for signed types an explicit INT_MIN/-1 check (the only
+    /// non-zero divisor for which `sdiv` traps inside Cranelift —
+    /// catching it ourselves lets us emit the same `"integer overflow"`
+    /// message the interpreter does), then the bare `sdiv`/`udiv`.
+    fn lower_div(&mut self) -> Result<()> {
+        let (a, b, ty) = self.pop_int_pair()?;
+        let cty = clif_type(ty);
+
+        let zero = self.bcx.ins().iconst(cty, 0);
+        let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
+        self.trap_if(b_is_zero, TrapKind::DivZero);
+
+        if is_signed(ty) {
+            // Only one signed-division overflow case exists: INT_MIN / -1.
+            // (Result `-INT_MIN` is not representable at the same width.)
+            let int_min = match ty {
+                Ty::I8 => i64::from(i8::MIN),
+                Ty::I16 => i64::from(i16::MIN),
+                Ty::I32 => i64::from(i32::MIN),
+                Ty::I64 => i64::MIN,
+                _ => unreachable!("signed integer type"),
+            };
+            let int_min_v = self.bcx.ins().iconst(cty, int_min);
+            let neg_one_v = self.bcx.ins().iconst(cty, -1);
+            let a_is_min = self.bcx.ins().icmp(IntCC::Equal, a, int_min_v);
+            let b_is_neg_one = self.bcx.ins().icmp(IntCC::Equal, b, neg_one_v);
+            let overflow = self.bcx.ins().band(a_is_min, b_is_neg_one);
+            self.trap_if(overflow, TrapKind::Overflow);
+        }
+
+        let v = if is_signed(ty) {
+            self.bcx.ins().sdiv(a, b)
+        } else {
+            self.bcx.ins().udiv(a, b)
+        };
         self.stack.push((v, ty));
         Ok(())
+    }
+
+    /// Branch to a fresh trap block when `flag` is non-zero (Plenty
+    /// Bool true); otherwise fall through into a sealed successor
+    /// block which becomes the new current block. The trap block
+    /// calls the runtime helper for `kind` (which `_Noreturn`s) and
+    /// ends with a CLIF `trap` to satisfy the verifier.
+    ///
+    /// Each call emits its own trap block rather than sharing one
+    /// per function: Cranelift's FunctionBuilder forbids switching
+    /// away from an unterminated block, so a shared lazily-filled
+    /// trap block would require either eager construction at entry
+    /// or a post-pass. Inlining is straightforward and the IR cost
+    /// is a handful of instructions per arithmetic op.
+    fn trap_if(&mut self, flag: cranelift_codegen::ir::Value, kind: TrapKind) {
+        let trap_block = self.bcx.create_block();
+        let after = self.bcx.create_block();
+        self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
+
+        // Fill the trap block. The `brif` above terminated the
+        // previous block, so this switch is legal.
+        self.bcx.switch_to_block(trap_block);
+        self.bcx.seal_block(trap_block);
+        let helper = match kind {
+            TrapKind::Overflow => self.runtime.trap_overflow,
+            TrapKind::DivZero => self.runtime.trap_div_zero,
+        };
+        let local = self.module.declare_func_in_func(helper, self.bcx.func);
+        self.bcx.ins().call(local, &[]);
+        self.bcx.ins().trap(TrapCode::unwrap_user(3));
+
+        // Continue lowering into `after`.
+        self.bcx.switch_to_block(after);
+        self.bcx.seal_block(after);
     }
 
     /// Lower `<` / `>` with a signedness-aware `icmp` condition code.
@@ -772,12 +943,13 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Lower `Op::Add`: integers go through the existing `iadd` path;
-    /// the `Str Str` case calls into the runtime's `plenty_concat`,
-    /// which allocates a fresh nul-terminated buffer and returns its
-    /// address. The polymorphic `+` is the only op that mixes these
-    /// two backends — every other arithmetic op stays integer-only
-    /// (`check::arith` rejects `Str Str` for `-`, `*`, `/`).
+    /// Lower `Op::Add`: integers go through the checked-overflow
+    /// arithmetic path; the `Str Str` case calls into the runtime's
+    /// `plenty_concat`, which allocates a fresh nul-terminated buffer
+    /// and returns its address. The polymorphic `+` is the only op
+    /// that mixes these two backends — every other arithmetic op
+    /// stays integer-only (`check::arith` rejects `Str Str` for `-`,
+    /// `*`, `/`).
     fn lower_add(&mut self) -> Result<()> {
         let len = self.stack.len();
         if len >= 2 && self.stack[len - 1].1 == Ty::Str && self.stack[len - 2].1 == Ty::Str {
@@ -791,7 +963,7 @@ impl Lowerer<'_, '_> {
             self.stack.push((v, Ty::Str));
             return Ok(());
         }
-        self.int_binop(|bcx, a, b| bcx.ins().iadd(a, b))
+        self.lower_checked_arith(ArithKind::Add)
     }
 
     /// Lower `Op::Eq`: same dispatch shape as [`lower_add`]. The

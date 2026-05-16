@@ -101,3 +101,19 @@ const char *plenty_concat(const char *a, const char *b) {
 int8_t plenty_str_eq(const char *a, const char *b) {
     return (int8_t)(strcmp(a, b) == 0);
 }
+
+// Trap helpers — c.5.5. Compiled programs branch here when an
+// arithmetic operation would have errored in the interpreter. Both
+// helpers print the same stderr line the interpreter's `main.rs`
+// would have (`error: <msg>`) and `exit(1)`. They never return; the
+// caller in generated code follows the call with a CLIF `trap` to
+// satisfy the verifier's block-terminator requirement.
+_Noreturn void plenty_trap_overflow(void) {
+    fputs("error: integer overflow\n", stderr);
+    exit(1);
+}
+
+_Noreturn void plenty_trap_div_zero(void) {
+    fputs("error: division by zero\n", stderr);
+    exit(1);
+}
