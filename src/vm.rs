@@ -134,7 +134,7 @@ impl Vm {
     /// literals from the abandoned compile, but the heap is append-only
     /// and those bytes are unreachable from the dictionary).
     ///
-    /// Output-producing words (`.`, `:listdir`) write to stdout as a side
+    /// The `.` word writes to stdout as a side
     /// effect. On an *execution* error, the ops before the failing one have
     /// already run — the stack is left as they left it. Active call frames
     /// and their locals are always torn down before `run` returns, whether
@@ -266,7 +266,6 @@ impl Vm {
             Op::Not => self.not()?,
             Op::Display => println!("{}", self.stack_repr()),
             Op::Clear => self.clear(),
-            Op::ListDir => list_dir()?,
             Op::DefineFn(name, func) => {
                 self.functions.insert(name, func);
             }
@@ -629,10 +628,3 @@ impl Vm {
     }
 }
 
-/// Print the entries of the current directory, one per line.
-fn list_dir() -> Result<()> {
-    for entry in std::fs::read_dir(".")? {
-        println!("{}", entry?.path().display());
-    }
-    Ok(())
-}

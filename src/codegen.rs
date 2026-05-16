@@ -1,4 +1,4 @@
-//! AOT code generation via Cranelift (§11.1, §12.3 — phases c.1, c.2).
+//! AOT code generation via Cranelift (§11.1, §12.3 — phases c.1–c.4).
 //!
 //! Lowers a Plenty `Op` stream to a Cranelift module emitted as a native
 //! object file. The object exports one symbol, `plenty_main`, which the
@@ -23,10 +23,28 @@
 //! `Op::LoadLocal` reads the i-th function input via a CLIF `Variable`
 //! defined once at function entry.
 //!
-//! What this still does *not* lower — `Op::Match`, anything that touches
-//! a `Str`, `:listdir` — is rejected with a clear "not yet implemented in
-//! AOT" error that names the next phase. Those programs still run under
-//! the tree-walking VM.
+//! Phase c.3 adds `Op::Match`: each arm becomes its own Cranelift block,
+//! patterns lower to a linear chain of `brif` compares (wildcards become
+//! unconditional jumps and short-circuit the chain), and a single join
+//! block reunites the non-terminating arms with block params carrying
+//! the agreed stack shape. Arms whose tail op is a `TailCall` skip the
+//! join jump — `return_call` is already the block terminator.
+//!
+//! Phase c.4 adds strings. Every string literal referenced by the source
+//! (whether by `Op::PushStr` or by a `Pattern::Str` inside a match) is
+//! emitted as one static-data symbol per `StrId`, carrying the UTF-8
+//! bytes plus a trailing nul. `Op::PushStr` lowers to `global_value` —
+//! the data's address — and onto the compile-time stack tagged as
+//! `Ty::Str` (CLIF `i64` for the host pointer width). `Op::Add` and
+//! `Op::Eq` now dispatch on operand types: integer pairs take the
+//! existing CLIF paths; `Str Str` calls `plenty_concat` / `plenty_str_eq`
+//! in the C runtime. `Display` prints strings via `plenty_print_str`,
+//! and `match` patterns of type `Str` become `plenty_str_eq` + `brif`.
+//!
+//! Every Plenty op now lowers — there are no "not yet supported"
+//! escapes left in the codegen path. c.5 is purely about packaging
+//! (one-step `--compile` that produces an executable instead of an
+//! object file).
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -34,17 +52,19 @@ use std::path::Path;
 use std::rc::Rc;
 
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{types, AbiParam, Function, InstBuilder, Signature, UserFuncName};
+use cranelift_codegen::ir::{
+    types, AbiParam, Block, BlockArg, Function, InstBuilder, Signature, TrapCode, UserFuncName,
+};
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::Configurable;
 use cranelift_codegen::{settings, Context};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::{FuncId, Linkage, Module};
+use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::lexer;
-use crate::op::{self, FnSig, Op, Ty};
-use crate::value::Heap;
+use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
+use crate::value::{Heap, StrId};
 
 /// Read `source`, run it through the same lex → compile → check pipeline
 /// the VM uses, and lower the resulting op stream to a native object
@@ -55,7 +75,7 @@ pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
     let mut heap = Heap::default();
     let ops = op::compile(&toks, &mut heap)?;
     op::check(&ops, Vec::new(), &HashMap::new())?;
-    compile_to_object(&ops, output)
+    compile_to_object(&ops, &heap, output)
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -63,10 +83,12 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// Lower `ops` to a native object file at `output`.
 ///
 /// The object exports `plenty_main` (`() -> i32`) and one locally-linked
-/// symbol per user-defined Plenty function. Link the object with
-/// `runtime/plenty_runtime.c` to produce an executable; the exit status
-/// of the final binary is 0 when the program runs to the end of `ops`.
-pub fn compile_to_object(ops: &[Op], output: &Path) -> Result<()> {
+/// symbol per user-defined Plenty function, plus one read-only data
+/// symbol per source-level string literal whose bytes come from `heap`.
+/// Link the object with `runtime/plenty_runtime.c` to produce an
+/// executable; the exit status of the final binary is 0 when the
+/// program runs to the end of `ops`.
+fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
     let isa = host_isa()?;
     let builder = ObjectBuilder::new(
         isa,
@@ -87,18 +109,25 @@ pub fn compile_to_object(ops: &[Op], output: &Path) -> Result<()> {
     // resolve to a definition collected above (§11.1).
     check_calls_resolve(ops, &user_fns)?;
 
+    // Pass 1b: emit one read-only data symbol per source string literal.
+    // We walk the ops (recursing into bodies and match arms) collecting
+    // every `StrId` referenced by `PushStr` or `Pattern::Str`, then
+    // declare and define each one. The interpreter's `Heap` is the
+    // source of truth for the literal bytes.
+    let str_data = declare_str_data(ops, heap, &mut module)?;
+
     // Pass 2: emit each user function's body. Bodies can refer to each
     // other (forward references, mutual recursion) because every callee
     // is already declared.
     let names: Vec<String> = user_fns.keys().cloned().collect();
     for name in &names {
-        emit_user_function(name, &user_fns, &runtime, &mut module)?;
+        emit_user_function(name, &user_fns, &str_data, &runtime, &mut module)?;
     }
 
     // Pass 3: emit `plenty_main`. Top-level `DefineFn`s are skipped
     // here — their bodies were emitted by Pass 2; at runtime a
     // definition is a no-op (it does not touch the data stack).
-    emit_main(ops, &user_fns, &runtime, &mut module)?;
+    emit_main(ops, &user_fns, &str_data, &runtime, &mut module)?;
 
     let product = module.finish();
     let bytes = product.emit()?;
@@ -138,9 +167,14 @@ struct Runtime {
     print_u32: FuncId,
     print_u64: FuncId,
     print_bool: FuncId,
+    print_str: FuncId,
     print_open_bracket: FuncId,
     print_close_bracket: FuncId,
     print_space: FuncId,
+    /// `plenty_concat(*const u8, *const u8) -> *const u8` — c.4.
+    concat: FuncId,
+    /// `plenty_str_eq(*const u8, *const u8) -> i8` — c.4.
+    str_eq: FuncId,
 }
 
 fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
@@ -148,6 +182,20 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         let mut sig = module.make_signature();
         sig.call_conv = CallConv::SystemV;
         sig.params.push(AbiParam::new(arg));
+        Ok(module.declare_function(name, Linkage::Import, &sig)?)
+    }
+    fn two_args_one_return(
+        module: &mut ObjectModule,
+        name: &str,
+        a: types::Type,
+        b: types::Type,
+        ret: types::Type,
+    ) -> Result<FuncId> {
+        let mut sig = module.make_signature();
+        sig.call_conv = CallConv::SystemV;
+        sig.params.push(AbiParam::new(a));
+        sig.params.push(AbiParam::new(b));
+        sig.returns.push(AbiParam::new(ret));
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     fn nullary(module: &mut ObjectModule, name: &str) -> Result<FuncId> {
@@ -165,10 +213,81 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         print_u32: one_arg(module, "plenty_print_u32", types::I32)?,
         print_u64: one_arg(module, "plenty_print_u64", types::I64)?,
         print_bool: one_arg(module, "plenty_print_bool", types::I8)?,
+        print_str: one_arg(module, "plenty_print_str", PTR_TY)?,
         print_open_bracket: nullary(module, "plenty_print_open_bracket")?,
         print_close_bracket: nullary(module, "plenty_print_close_bracket")?,
         print_space: nullary(module, "plenty_print_space")?,
+        concat: two_args_one_return(module, "plenty_concat", PTR_TY, PTR_TY, PTR_TY)?,
+        str_eq: two_args_one_return(module, "plenty_str_eq", PTR_TY, PTR_TY, types::I8)?,
     })
+}
+
+/// The CLIF type used for every Plenty `Str` value. Strings are passed
+/// around as nul-terminated C-style pointers (see `runtime/plenty_runtime.c`),
+/// and AOT mode only targets the host architecture today — every host
+/// we care about is 64-bit, so the pointer width is `types::I64`. If we
+/// ever cross-compile to a 32-bit target, this needs to come from
+/// `module.target_config().pointer_type()` instead.
+const PTR_TY: types::Type = types::I64;
+
+/// Walk `ops` recursively and collect every `StrId` referenced by a
+/// `PushStr` or `Pattern::Str`. For each unique `StrId`, declare a
+/// read-only data symbol in `module` whose contents are the literal's
+/// UTF-8 bytes plus a trailing nul (so C string helpers can scan with
+/// `strlen` / `strcmp`).
+fn declare_str_data(
+    ops: &[Op],
+    heap: &Heap,
+    module: &mut ObjectModule,
+) -> Result<HashMap<StrId, DataId>> {
+    let mut ids: Vec<StrId> = Vec::new();
+    let mut seen: HashMap<StrId, ()> = HashMap::new();
+    collect_str_ids(ops, &mut ids, &mut seen);
+
+    let mut out: HashMap<StrId, DataId> = HashMap::new();
+    for (i, id) in ids.into_iter().enumerate() {
+        // The name only has to be unique within the module; the linker
+        // never sees it externally (Linkage::Local). A stable index
+        // keeps the symbol names predictable when reading disassembly.
+        let name = format!("plenty_str_{i}");
+        let data_id = module.declare_data(&name, Linkage::Local, false, false)?;
+        let s = heap.str(id);
+        let mut bytes: Vec<u8> = Vec::with_capacity(s.len() + 1);
+        bytes.extend_from_slice(s.as_bytes());
+        bytes.push(0);
+        let mut desc = DataDescription::new();
+        desc.define(bytes.into_boxed_slice());
+        module.define_data(data_id, &desc)?;
+        out.insert(id, data_id);
+    }
+    Ok(out)
+}
+
+/// Recursive helper for [`declare_str_data`]: emits `StrId`s in
+/// first-seen order, skipping duplicates so the same literal appearing
+/// in multiple places shares one data symbol.
+fn collect_str_ids(
+    ops: &[Op],
+    out: &mut Vec<StrId>,
+    seen: &mut HashMap<StrId, ()>,
+) {
+    for op in ops {
+        match op {
+            Op::PushStr(id) if seen.insert(*id, ()).is_none() => out.push(*id),
+            Op::Match(arms) => {
+                for arm in arms.iter() {
+                    if let Pattern::Str(id) = arm.pattern {
+                        if seen.insert(id, ()).is_none() {
+                            out.push(id);
+                        }
+                    }
+                    collect_str_ids(&arm.body, out, seen);
+                }
+            }
+            Op::DefineFn(_, f) => collect_str_ids(&f.body, out, seen),
+            _ => {}
+        }
+    }
 }
 
 /// Declaration for a single user-defined Plenty function. Pass 1
@@ -276,6 +395,7 @@ fn check_calls_resolve(ops: &[Op], fns: &HashMap<String, UserFn>) -> Result<()> 
 fn emit_user_function(
     name: &str,
     fns: &HashMap<String, UserFn>,
+    str_data: &HashMap<StrId, DataId>,
     runtime: &Runtime,
     module: &mut ObjectModule,
 ) -> Result<()> {
@@ -313,6 +433,7 @@ fn emit_user_function(
             module,
             runtime,
             user_fns: fns,
+            str_data,
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
@@ -348,6 +469,7 @@ fn emit_user_function(
 fn emit_main(
     ops: &[Op],
     fns: &HashMap<String, UserFn>,
+    str_data: &HashMap<StrId, DataId>,
     runtime: &Runtime,
     module: &mut ObjectModule,
 ) -> Result<()> {
@@ -379,6 +501,7 @@ fn emit_main(
             module,
             runtime,
             user_fns: fns,
+            str_data,
             locals: &[],
             stack: Vec::new(),
             terminated: false,
@@ -396,18 +519,20 @@ fn emit_main(
     Ok(())
 }
 
-/// The CLIF type backing each Plenty integer/bool width. Plenty's
-/// signed/unsigned distinction lives in the `Ty` tag we carry alongside
-/// the SSA value; Cranelift treats both with the same machine type, the
-/// individual instruction (`sdiv` vs `udiv`, `icmp slt` vs `icmp ult`)
-/// picks the interpretation.
+/// The CLIF type backing each Plenty value. Plenty's signed/unsigned
+/// distinction lives in the `Ty` tag we carry alongside the SSA value;
+/// Cranelift treats both with the same machine type, the individual
+/// instruction (`sdiv` vs `udiv`, `icmp slt` vs `icmp ult`) picks the
+/// interpretation. `Str` is a host pointer (`PTR_TY`), the address of
+/// a nul-terminated byte sequence in either the module's data section
+/// (literals) or the runtime heap (results of `plenty_concat`).
 fn clif_type(ty: Ty) -> types::Type {
     match ty {
         Ty::I8 | Ty::U8 | Ty::Bool => types::I8,
         Ty::I16 | Ty::U16 => types::I16,
         Ty::I32 | Ty::U32 => types::I32,
         Ty::I64 | Ty::U64 => types::I64,
-        Ty::Str => unreachable!("Str values do not reach the AOT lowering yet"),
+        Ty::Str => PTR_TY,
     }
 }
 
@@ -437,6 +562,11 @@ struct Lowerer<'a, 'b> {
     /// Populated by Pass 1 before any body is emitted, so forward
     /// references and mutual recursion resolve cleanly.
     user_fns: &'a HashMap<String, UserFn>,
+    /// Read-only data symbol per source string literal. `Op::PushStr`
+    /// emits a `global_value` against the matching entry; pattern
+    /// compares in `Op::Match` use the same map for the `Pattern::Str`
+    /// case. Populated once per module by `declare_str_data`.
+    str_data: &'a HashMap<StrId, DataId>,
     /// The active function's input variables, indexed by the local
     /// slot `Op::LoadLocal` was emitted with. Empty when lowering
     /// `plenty_main` (top-level has no locals).
@@ -459,7 +589,8 @@ impl Lowerer<'_, '_> {
                 let v = self.bcx.ins().iconst(types::I8, if *b { 1 } else { 0 });
                 self.stack.push((v, Ty::Bool));
             }
-            Op::Add => self.int_binop(|bcx, a, b| bcx.ins().iadd(a, b))?,
+            Op::PushStr(id) => self.lower_push_str(*id)?,
+            Op::Add => self.lower_add()?,
             Op::Sub => self.int_binop(|bcx, a, b| bcx.ins().isub(a, b))?,
             Op::Mul => self.int_binop(|bcx, a, b| bcx.ins().imul(a, b))?,
             Op::Div => {
@@ -471,13 +602,7 @@ impl Lowerer<'_, '_> {
                 };
                 self.stack.push((v, ty));
             }
-            Op::Eq => {
-                let (a, b, ty) = self.pop_pair()?;
-                let v = self.bcx.ins().icmp(IntCC::Equal, a, b);
-                // Cranelift `icmp` already produces an i8 (0/1).
-                self.stack.push((v, Ty::Bool));
-                let _ = ty; // suppress unused — kept for future Str dispatch
-            }
+            Op::Eq => self.lower_eq()?,
             Op::Lt => self.int_cmp(IntCC::SignedLessThan, IntCC::UnsignedLessThan)?,
             Op::Gt => self.int_cmp(IntCC::SignedGreaterThan, IntCC::UnsignedGreaterThan)?,
             Op::Not => {
@@ -501,9 +626,7 @@ impl Lowerer<'_, '_> {
             // body is already being emitted elsewhere and the definition
             // itself has no runtime effect.
             Op::DefineFn(_, _) => {}
-            Op::ListDir => return Err(unsupported(":listdir")),
-            Op::PushStr(_) => return Err(unsupported("string literals")),
-            Op::Match(_) => return Err(unsupported("`match`")),
+            Op::Match(arms) => self.lower_match(arms)?,
         }
         Ok(())
     }
@@ -627,8 +750,71 @@ impl Lowerer<'_, '_> {
             Ty::U32 => self.runtime.print_u32,
             Ty::U64 => self.runtime.print_u64,
             Ty::Bool => self.runtime.print_bool,
-            Ty::Str => unreachable!("Str does not reach AOT printing yet"),
+            Ty::Str => self.runtime.print_str,
         }
+    }
+
+    /// Lower `Op::PushStr`: emit `global_value` for the data symbol
+    /// that holds this literal's bytes, push the address (typed as
+    /// `Ty::Str`) onto the compile-time stack.
+    fn lower_push_str(&mut self, id: StrId) -> Result<()> {
+        let data_id = *self.str_data.get(&id).ok_or_else(|| -> Box<dyn Error> {
+            // `declare_str_data` is supposed to register every StrId
+            // reachable through ops; missing here means the collection
+            // walk missed an op variant.
+            format!("AOT: PushStr({id:?}) without a declared data symbol").into()
+        })?;
+        let gv = self
+            .module
+            .declare_data_in_func(data_id, self.bcx.func);
+        let addr = self.bcx.ins().global_value(PTR_TY, gv);
+        self.stack.push((addr, Ty::Str));
+        Ok(())
+    }
+
+    /// Lower `Op::Add`: integers go through the existing `iadd` path;
+    /// the `Str Str` case calls into the runtime's `plenty_concat`,
+    /// which allocates a fresh nul-terminated buffer and returns its
+    /// address. The polymorphic `+` is the only op that mixes these
+    /// two backends — every other arithmetic op stays integer-only
+    /// (`check::arith` rejects `Str Str` for `-`, `*`, `/`).
+    fn lower_add(&mut self) -> Result<()> {
+        let len = self.stack.len();
+        if len >= 2 && self.stack[len - 1].1 == Ty::Str && self.stack[len - 2].1 == Ty::Str {
+            let b = self.stack.pop().expect("len >= 2").0;
+            let a = self.stack.pop().expect("len >= 2").0;
+            let concat = self
+                .module
+                .declare_func_in_func(self.runtime.concat, self.bcx.func);
+            let inst = self.bcx.ins().call(concat, &[a, b]);
+            let v = self.bcx.inst_results(inst)[0];
+            self.stack.push((v, Ty::Str));
+            return Ok(());
+        }
+        self.int_binop(|bcx, a, b| bcx.ins().iadd(a, b))
+    }
+
+    /// Lower `Op::Eq`: same dispatch shape as [`lower_add`]. The
+    /// integer/Bool case uses `icmp eq` (already produces an `i8`);
+    /// the `Str Str` case calls `plenty_str_eq`, which returns an `i8`
+    /// 0/1 directly suitable as a Plenty Bool.
+    fn lower_eq(&mut self) -> Result<()> {
+        let len = self.stack.len();
+        if len >= 2 && self.stack[len - 1].1 == Ty::Str && self.stack[len - 2].1 == Ty::Str {
+            let b = self.stack.pop().expect("len >= 2").0;
+            let a = self.stack.pop().expect("len >= 2").0;
+            let str_eq = self
+                .module
+                .declare_func_in_func(self.runtime.str_eq, self.bcx.func);
+            let inst = self.bcx.ins().call(str_eq, &[a, b]);
+            let v = self.bcx.inst_results(inst)[0];
+            self.stack.push((v, Ty::Bool));
+            return Ok(());
+        }
+        let (a, b, _) = self.pop_pair()?;
+        let v = self.bcx.ins().icmp(IntCC::Equal, a, b);
+        self.stack.push((v, Ty::Bool));
+        Ok(())
     }
 
     /// Lower `LoadLocal(i)`: read the i-th input variable and push the
@@ -701,13 +887,168 @@ impl Lowerer<'_, '_> {
         self.terminated = true;
         Ok(())
     }
+
+    /// Lower `Op::Match`: one CLIF block per arm, a linear `brif` chain
+    /// for dispatch, and a single join block whose params carry the
+    /// agreed stack shape every arm leaves (§11.8). The type checker
+    /// has already enforced exhaustiveness and pointwise agreement, so
+    /// the lowerer only has to mirror that structure — no runtime
+    /// shape-checking is needed.
+    ///
+    /// An arm whose tail op is a `TailCall` does *not* jump to the
+    /// join block: `return_call` is itself a block terminator and the
+    /// arm leaves the function entirely. If *every* arm terminates,
+    /// the whole match terminates the surrounding context and the join
+    /// block is unreachable — we still need a terminator so Cranelift
+    /// accepts the function, so we emit a defensive `trap` there.
+    fn lower_match(&mut self, arms: &[MatchArm]) -> Result<()> {
+        let (scrut, scrut_ty) = self.stack.pop().ok_or("AOT: stack underflow on match")?;
+        // The state every arm starts from — the data stack at the
+        // point `match` consumes its scrutinee.
+        let entry_stack = self.stack.clone();
+
+        // One block per arm body; arms are sealed once the dispatch
+        // chain finishes emitting (each arm has exactly one predecessor,
+        // the dispatch block that jumped to it).
+        let arm_blocks: Vec<Block> =
+            arms.iter().map(|_| self.bcx.create_block()).collect();
+        let join_block = self.bcx.create_block();
+
+        // --- Dispatch chain --------------------------------------------------
+        // We're currently in whatever block called `lower_match`. Each
+        // non-wildcard pattern emits an `icmp eq` + `brif`; the false
+        // branch falls into a fresh block we switch to for the next
+        // compare. A wildcard short-circuits with an unconditional jump
+        // and renders any trailing arms unreachable (the checker would
+        // already have noticed if a useful arm came after `_`).
+        let mut chain_terminated = false;
+        for (i, arm) in arms.iter().enumerate() {
+            if chain_terminated {
+                break;
+            }
+            match arm.pattern {
+                Pattern::Wildcard => {
+                    self.bcx.ins().jump(arm_blocks[i], &[]);
+                    chain_terminated = true;
+                }
+                Pattern::Bool(b) => {
+                    let pat = self.bcx.ins().iconst(types::I8, i64::from(b as i8));
+                    let eq = self.bcx.ins().icmp(IntCC::Equal, scrut, pat);
+                    let next = self.bcx.create_block();
+                    self.bcx.ins().brif(eq, arm_blocks[i], &[], next, &[]);
+                    self.bcx.switch_to_block(next);
+                    self.bcx.seal_block(next);
+                }
+                Pattern::Int(n) => {
+                    // Pattern literals are parsed as i64; `iconst` of a
+                    // smaller CLIF type truncates the upper bits — same
+                    // narrowing the interpreter's `pattern_matches` does
+                    // via `n as i8` / `as u8` / etc. The checker has
+                    // already rejected literals outside the scrutinee's
+                    // declared range, so truncation never changes the
+                    // user-intended value.
+                    let pat = self.bcx.ins().iconst(clif_type(scrut_ty), n);
+                    let eq = self.bcx.ins().icmp(IntCC::Equal, scrut, pat);
+                    let next = self.bcx.create_block();
+                    self.bcx.ins().brif(eq, arm_blocks[i], &[], next, &[]);
+                    self.bcx.switch_to_block(next);
+                    self.bcx.seal_block(next);
+                }
+                Pattern::Str(id) => {
+                    // String compares are runtime calls — `plenty_str_eq`
+                    // does the byte-for-byte comparison and returns a
+                    // Plenty Bool (`i8`). The data symbol for `id` was
+                    // already declared by `declare_str_data`.
+                    let data_id =
+                        *self.str_data.get(&id).ok_or_else(|| -> Box<dyn Error> {
+                            format!("AOT: Pattern::Str({id:?}) without declared data").into()
+                        })?;
+                    let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
+                    let pat_addr = self.bcx.ins().global_value(PTR_TY, gv);
+                    let str_eq =
+                        self.module.declare_func_in_func(self.runtime.str_eq, self.bcx.func);
+                    let call = self.bcx.ins().call(str_eq, &[scrut, pat_addr]);
+                    let eq = self.bcx.inst_results(call)[0];
+                    let next = self.bcx.create_block();
+                    self.bcx.ins().brif(eq, arm_blocks[i], &[], next, &[]);
+                    self.bcx.switch_to_block(next);
+                    self.bcx.seal_block(next);
+                }
+            }
+        }
+        if !chain_terminated {
+            // No wildcard arm matched the chain's fall-through path.
+            // The checker enforces exhaustiveness, so this is dead
+            // code under any well-formed source — emit a trap so
+            // direct-VM-construction bugs surface loudly instead of
+            // walking off the end of the function.
+            self.bcx
+                .ins()
+                .trap(TrapCode::unwrap_user(1));
+        }
+
+        // --- Arm bodies ------------------------------------------------------
+        // The join block's param types are decided by the first
+        // non-terminating arm; the checker has already guaranteed every
+        // subsequent non-terminating arm leaves the same shape, so the
+        // Cranelift verifier's "block param count must match jump arg
+        // count" rule lines up automatically.
+        let mut join_param_types: Option<Vec<Ty>> = None;
+        let mut any_arm_falls_through = false;
+        for (i, arm) in arms.iter().enumerate() {
+            self.bcx.switch_to_block(arm_blocks[i]);
+            self.bcx.seal_block(arm_blocks[i]);
+            self.stack = entry_stack.clone();
+            self.terminated = false;
+            for op in arm.body.iter() {
+                if self.terminated {
+                    break;
+                }
+                self.lower(op)?;
+            }
+            if self.terminated {
+                continue;
+            }
+            any_arm_falls_through = true;
+            if join_param_types.is_none() {
+                let types: Vec<Ty> = self.stack.iter().map(|(_, t)| *t).collect();
+                for ty in &types {
+                    self.bcx
+                        .append_block_param(join_block, clif_type(*ty));
+                }
+                join_param_types = Some(types);
+            }
+            // `jump` takes `&[BlockArg]`; every Plenty stack value is
+            // an SSA `Value`, which converts via `BlockArg::Value(_)`.
+            let args: Vec<BlockArg> =
+                self.stack.iter().map(|(v, _)| BlockArg::Value(*v)).collect();
+            self.bcx.ins().jump(join_block, &args);
+        }
+
+        // --- Join block ------------------------------------------------------
+        self.bcx.switch_to_block(join_block);
+        self.bcx.seal_block(join_block);
+        if any_arm_falls_through {
+            // Each arm started from a clone of `entry_stack` and the
+            // join block's params carry the *whole* stack the arm ended
+            // with — so the post-match stack is exactly those params,
+            // not entry_stack with the params appended. The type
+            // checker reflects the same shape (`*stack = joined` in
+            // `check_match`).
+            let types = join_param_types.expect("set when an arm falls through");
+            let params = self.bcx.block_params(join_block).to_vec();
+            self.stack = params.into_iter().zip(types).collect();
+            self.terminated = false;
+        } else {
+            // Every arm tail-called; the join is unreachable. Emit a
+            // trap to give the block a terminator and signal upward
+            // that the surrounding context is also dead.
+            self.bcx
+                .ins()
+                .trap(TrapCode::unwrap_user(2));
+            self.terminated = true;
+        }
+        Ok(())
+    }
 }
 
-fn unsupported(what: &str) -> Box<dyn Error> {
-    format!(
-        "AOT compilation does not yet support {what} \
-         (phase c.2 covers integer top-level programs plus user-defined \
-         functions; `match`, strings, and `:listdir` land in c.3-c.4)"
-    )
-    .into()
-}

@@ -56,7 +56,7 @@ const PROMPT: &str = "---> ";
 /// function dictionary — builtins, operators, keywords, type names.
 const STATIC_WORDS: &[&str] = &[
     "true", "false", "match", "end", "not", "Int", "Str", "Bool", ".", "+", "-", "*", "/", "=",
-    "<", ">", ":clear", ":listdir", "exit", "quit",
+    "<", ">", ":clear", "exit", "quit",
 ];
 
 #[derive(Helper, Highlighter, Hinter)]
@@ -96,7 +96,7 @@ impl Completer for PlentyHelper {
 
     /// Complete the word immediately before the cursor. A leading `:`
     /// flips us into "function call" mode and we only offer dictionary
-    /// names (and the `:clear`/`:listdir` builtins). Otherwise we offer
+    /// names (and the `:clear` builtin). Otherwise we offer
     /// the static word list. We only consider the word the cursor sits
     /// in; everything left of the previous whitespace is preserved.
     fn complete(
@@ -164,9 +164,8 @@ non-zero on any compile, type, or runtime error.
 (AOT, §11.1). Link it with the runtime C file shipped at
 `runtime/plenty_runtime.c` to produce an executable, e.g.
     cc OUT.o runtime/plenty_runtime.c -o myprog
-Phase c.1 supports integer-only top-level programs; functions, `match`,
-and strings are not yet lowered — those programs still run under the
-interpreter.
+The AOT path covers every Plenty op. Phase c.5 will collapse the
+compile-then-link step into a single invocation.
 ";
 
 fn main() -> ExitCode {
@@ -210,8 +209,9 @@ fn run_file(path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 /// Read `source` and emit a native object file at `output` (DESIGN.md
-/// §11.1, §12.3 — phase c.1). The user is responsible for linking the
-/// result with the C runtime to produce an executable.
+/// §11.1, §12.3 — phases c.1–c.4 cover every Plenty op). The user is
+/// responsible for linking the result with the C runtime to produce an
+/// executable; c.5 will collapse this into a single step.
 fn compile_file(source: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
     let text = std::fs::read_to_string(source)
         .map_err(|e| -> Box<dyn Error> { format!("reading {}: {e}", source.display()).into() })?;

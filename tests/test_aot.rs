@@ -1,4 +1,4 @@
-//! AOT integration tests (DESIGN.md §11.1, §12.3 — phases c.1, c.2).
+//! AOT integration tests (DESIGN.md §11.1, §12.3 — phases c.1–c.4).
 //!
 //! Each test runs a Plenty program two ways — once through the
 //! interpreter and once through the AOT pipeline (compile → link →
@@ -226,28 +226,269 @@ aot_matches_interpreter!(
        4 :outer ."#,
 );
 
-#[test]
-fn unsupported_op_emits_a_helpful_error() {
-    // c.2 still rejects string literals (and `match` and `:listdir`).
-    // The error must name a later phase so users know it's intentional.
-    let tmp = std::env::temp_dir();
-    let n = nonce();
-    let src = tmp.join(format!("plenty-aot-unsup-{n}.plenty"));
-    let obj = tmp.join(format!("plenty-aot-unsup-{n}.o"));
-    std::fs::write(&src, "\"hello\" .\n").unwrap();
-    let out = Command::new(plenty_bin())
-        .args(["--compile"])
-        .arg(&src)
-        .args(["-o"])
-        .arg(&obj)
-        .output()
-        .expect("spawn");
-    let _ = std::fs::remove_file(&src);
-    let _ = std::fs::remove_file(&obj);
-    assert!(!out.status.success(), "strings should be rejected before c.4");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("not yet support"),
-        "error should explain the limitation; got {stderr:?}"
-    );
-}
+// --- c.3: match ----------------------------------------------------------
+
+aot_matches_interpreter!(
+    match_on_bool_dispatches_to_true_arm,
+    "match-bool-true",
+    r#"true match
+         true  [ 1 ]
+         false [ 0 ]
+       end ."#,
+);
+
+aot_matches_interpreter!(
+    match_on_bool_dispatches_to_false_arm,
+    "match-bool-false",
+    r#"false match
+         true  [ 1 ]
+         false [ 0 ]
+       end ."#,
+);
+
+aot_matches_interpreter!(
+    match_on_int_with_wildcard,
+    "match-int-wild",
+    r#"0 match 0 [ 99 ] _ [ 0 ] end .
+       1 match 0 [ 99 ] _ [ 0 ] end .
+       7 match 0 [ 99 ] 7 [ 77 ] _ [ 0 ] end ."#,
+);
+
+aot_matches_interpreter!(
+    match_arm_first_match_wins,
+    "match-first-wins",
+    "5 match 5 [ 99 ] 5 [ 88 ] _ [ 0 ] end .",
+);
+
+aot_matches_interpreter!(
+    match_arm_operates_on_surrounding_stack,
+    "match-surrounding",
+    // The values 10 and 20 sit on the stack from before the match; the
+    // arm body adds them. Arms are not isolated sub-stacks (§11.8) —
+    // they share the data stack with the enclosing context.
+    r#"10 20 true match
+         true  [ + ]
+         false [ * ]
+       end ."#,
+);
+
+aot_matches_interpreter!(
+    match_arm_reads_function_locals,
+    "match-locals",
+    // The arm bodies reference `x` and `y` — locals declared by the
+    // enclosing function. Cranelift `Variable`s defined at function
+    // entry are visible across blocks, so each arm block reads the
+    // locals without any explicit threading.
+    r#": pick { x i64 y i64 flag Bool -> i64 }
+         "Return x if flag, else y."
+         flag match
+           true  [ x ]
+           false [ y ]
+         end ;
+       1 2 true :pick .
+       3 4 false :pick ."#,
+);
+
+aot_matches_interpreter!(
+    nested_match_dispatches_correctly,
+    "match-nested",
+    // Inner match drives the false branch of the outer match; arm
+    // joins compose, since each match's join block becomes the
+    // active block before the surrounding arm continues.
+    r#": classify { n i64 -> i64 }
+         "Return -1/0/1 by sign."
+         n 0 = match
+           true  [ 0 ]
+           false [ n 0 > match
+                     true  [ 1 ]
+                     false [ 0 1 - ]
+                   end ]
+         end ;
+       -3 :classify .
+       0 :classify .
+       7 :classify ."#,
+);
+
+aot_matches_interpreter!(
+    simple_tail_recursion,
+    "match-tail-simple",
+    // Both load-bearing pieces — `match` as the base case and
+    // `TailCall` in tail position — meeting for the first time. The
+    // arm whose body ends in `:countdown` lowers to `return_call` and
+    // never jumps to the match's join block.
+    r#": countdown { n i64 -> i64 }
+         "Recurse to zero."
+         n 0 = match
+           true  [ n ]
+           false [ n 1 - :countdown ]
+         end ;
+       10 :countdown ."#,
+);
+
+aot_matches_interpreter!(
+    deep_tail_recursion_does_not_overflow,
+    "match-deep-tco",
+    // The TCO stress test: one million tail calls. A naive `call +
+    // return` chain would blow the host C stack; `return_call` reuses
+    // the caller's frame so the depth stays bounded.
+    r#": sum-to { n i64 acc i64 -> i64 }
+         "Tail-recursive accumulator: 1+2+...+n + acc."
+         n 0 = match
+           true  [ acc ]
+           false [ n 1 - acc n + :sum-to ]
+         end ;
+       1000000 0 :sum-to ."#,
+);
+
+aot_matches_interpreter!(
+    mutual_tail_recursion,
+    "match-mutual",
+    // Mutual TCO across two functions; both functions are `Tail`
+    // convention and their tail calls into each other become
+    // `return_call`s. Forward declaration (Pass 1) is essential: at
+    // the point `even?`'s body is emitted, `odd?` must already be
+    // declared.
+    r#": even? { n i64 -> Bool }
+         "True if n is even."
+         n 0 = match
+           true  [ true ]
+           false [ n 1 - :odd? ]
+         end ;
+       : odd? { n i64 -> Bool }
+         "True if n is odd."
+         n 0 = match
+           true  [ false ]
+           false [ n 1 - :even? ]
+         end ;
+       100000 :even? ."#,
+);
+
+aot_matches_interpreter!(
+    non_tail_recursive_fibonacci,
+    "match-fib",
+    // Non-tail recursion: each `:fib` is followed by `+` (or `2 -
+    // :fib`), so neither call sits at the arm's tail. Both lower to
+    // regular `call`s and stack up frames on the host C stack —
+    // bounded by depth-12 fib, well within any host's ulimit.
+    r#": fib { n i64 -> i64 }
+         "Fibonacci via match + double recursion."
+         n 2 < match
+           true  [ n ]
+           false [ n 1 - :fib n 2 - :fib + ]
+         end ;
+       12 :fib ."#,
+);
+
+aot_matches_interpreter!(
+    match_at_top_level,
+    "match-toplevel",
+    // Top-level `match` is allowed; tail-call marking only runs inside
+    // function bodies, so any top-level arm's last op stays a regular
+    // op (or `Call` rather than `TailCall`). The join block falls
+    // through to the rest of the program.
+    r#"true match
+         true  [ 1 ]
+         false [ 0 ]
+       end
+       100 + ."#,
+);
+
+// --- c.4: strings + heap -------------------------------------------------
+
+aot_matches_interpreter!(
+    string_literal_prints,
+    "str-lit",
+    r#""hello" ."#,
+);
+
+aot_matches_interpreter!(
+    string_concat,
+    "str-concat",
+    r#""hello" "world" + ."#,
+);
+
+aot_matches_interpreter!(
+    string_concat_three_ways,
+    "str-concat-3",
+    // Multiple concatenations in a row; each call allocates a fresh
+    // buffer in the runtime's heap (malloc, never freed — same
+    // policy as the interpreter's append-only Heap).
+    r#""a" "b" + "c" + .
+       "" "x" + .
+       "x" "" + ."#,
+);
+
+aot_matches_interpreter!(
+    string_equality,
+    "str-eq",
+    r#""hi" "hi" = .
+       "hi" "bye" = .
+       "" "" = ."#,
+);
+
+aot_matches_interpreter!(
+    match_on_str_with_wildcard,
+    "match-str-wild",
+    r#""hello" match
+         "hello" [ 1 ]
+         _       [ 0 ]
+       end .
+       "xyz" match
+         "hello" [ 1 ]
+         _       [ 0 ]
+       end ."#,
+);
+
+aot_matches_interpreter!(
+    function_with_str_input_and_output,
+    "fn-str-io",
+    // Strings flow through function parameters and returns: the CLIF
+    // signature uses the pointer type for each Str slot.
+    r#": greet { who Str -> Str } "Build a greeting." "hello " who + ;
+       "world" :greet .
+       "there" :greet ."#,
+);
+
+aot_matches_interpreter!(
+    same_literal_used_twice,
+    "str-share",
+    // Two `PushStr` ops with the same `StrId` should share a single
+    // data symbol (collect_str_ids dedups), so the resulting compares
+    // are pointer-distinct but content-equal — and the runtime
+    // `plenty_str_eq` works on either.
+    r#""x" "x" = .
+       "x" "x" + ."#,
+);
+
+aot_matches_interpreter!(
+    classify_via_str_match,
+    "str-classify",
+    // The fully-worked nested-control-flow example from
+    // tests/test_control_flow.rs, ported through the AOT path.
+    r#": classify { n i64 -> Str }
+         "Return a sign label for n."
+         n 0 = match
+           true  [ "zero" ]
+           false [ n 0 > match
+                     true  [ "positive" ]
+                     false [ "negative" ]
+                   end ]
+         end ;
+       -3 :classify .
+       0 :classify .
+       7 :classify ."#,
+);
+
+aot_matches_interpreter!(
+    describe_bool_returns_str,
+    "str-describe",
+    r#": describe { flag Bool -> Str }
+         "Render a Bool as text."
+         flag match
+           true  [ "yes" ]
+           false [ "no" ]
+         end ;
+       true :describe .
+       false :describe ."#,
+);
+

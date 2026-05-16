@@ -206,10 +206,6 @@ Numbers in source default to `i64`. To use a smaller — or unsigned — width, 
 
 <!-- END TUTORIAL -->
 
-### Other words
-
-`:listdir` prints the entries of the current directory.
-
 ## Keeping the tutorial honest
 
 The tutorial section above is generated from `tests/tutorial.rs`, where every

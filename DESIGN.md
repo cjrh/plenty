@@ -243,7 +243,6 @@ pub enum Op {
     Not,                           // boolean negation
     Display,                       // the `.` word
     Clear,                         // the `:clear` word
-    ListDir,                       // the `:listdir` word
     DefineFn(String, CompiledFn),  // bind name -> compiled function
     Call(String),                  // invoke a function by name (late-bound)
     TailCall(String),              // tail-position call; reuses the frame (§11.8)
@@ -372,7 +371,6 @@ A bare `Tok::Word` inside `compile_seq` is resolved in two steps:
    | `+` `-` `*` `/`                 | `Op::Add` / `Sub` / `Mul` / `Div`         |
    | `.`                             | `Op::Display`                             |
    | `:clear`                        | `Op::Clear`                               |
-   | `:listdir`                      | `Op::ListDir`                             |
    | `:as-i8` ... `:as-u64`          | `Op::Cast(Ty::...)` — integer width cast  |
    | `:name` (any other `:`-prefix)  | `Op::Call(name)`                          |
    | anything else                   | `Op::PushStr(intern(word))` — bare text   |
@@ -413,7 +411,7 @@ stack.
   `Sub`/`Mul`/`Div` are `(T T -> T)` for any integer width `T`,
   `Lt`/`Gt` are `(T T -> Bool)` for any integer width `T`, `Cast(target)`
   is `(T -> target)` for any integer source `T` and target,
-  `Display`/`ListDir` are no-ops on the type stack, `Clear` empties it,
+  `Display` is a no-op on the type stack, `Clear` empties it,
   `LoadLocal(i)` pushes the type at index `i` of the enclosing
   function's input list, `Call(name)` looks up the sig and applies its
   full stack effect, `DefineFn` recursively checks the body (no change
@@ -520,7 +518,6 @@ One op-dispatch:
 | `Not`              | pop a `Bool`, push its negation                                             |
 | `Display`          | `println!` the `stack_repr`                                                 |
 | `Clear`            | clear the data stack                                                        |
-| `ListDir`          | print directory entries                                                     |
 | `DefineFn(n,f)`    | `functions.insert(n.clone(), f.clone())` — **stack untouched**              |
 | `Call(n)`          | drain the callee's inputs into a new locals frame, push a Call frame        |
 | `TailCall(n)`      | pop block frames + the enclosing Call frame, then push the replacement      |
@@ -704,7 +701,6 @@ host ulimit. There are no `for`, `while`, or `do` words.
 | `_`            | wildcard pattern (in match-arm position only)                          |
 | `.`            | print the whole stack (does **not** pop)                               |
 | `:clear`       | discard every value on the stack                                       |
-| `:listdir`     | print the entries of the current directory                             |
 | `: name { sig } "doc" body ;` | define a function with mandatory header and docstring   |
 | `:name`        | call the function `name`                                               |
 
@@ -821,9 +817,12 @@ text ──lex──▶ Tok ──compile──▶ Op ──┬── Vm::exec �
   truly dynamic behaviour (e.g. defining a function whose body is not
   known at compile time). Those restrictions are part of the language
   contract for the AOT mode, not bugs. The current implementation is
-  at **phase c.2**: top-level integer programs plus user-defined
-  functions (including tail calls) lower; `match`, strings, and
-  `:listdir` are still pending (see §12.3).
+  at **phase c.4**: every Plenty op lowers — sized integers, Bool,
+  strings (concat / equality / print / pattern match), user-defined
+  functions with tail calls, and `match` (see §12.3). The only
+  remaining phase is c.5 — packaging the runtime so `--compile`
+  produces an executable in one step instead of writing an object the
+  user has to link by hand.
 
 Architectural consequence: nothing below the `op` layer may depend on the
 `vm` layer. The `Op` stream must remain fully self-contained — that is what
@@ -848,7 +847,6 @@ For each current `Op`, what an AOT backend would do with it:
 | `Sub`/`Mul`/`Div`  | `checked_*` with an error branch on `None`                |
 | `Display`          | runtime call                                              |
 | `Clear`            | runtime call (reset stack length)                         |
-| `ListDir`          | runtime call                                              |
 | `LoadLocal(i)`     | load from the current locals frame                        |
 | `Call(name)`       | **does not survive** — needs resolution to a direct call  |
 | `DefineFn(n, f)`   | **does not survive** — must be extracted before codegen   |
@@ -900,8 +898,8 @@ AOT-compiled programs link a small `libplenty` written in Rust:
   verbatim.
 - A growable `Heap` — the interpreter's append-only `Vec<String>` re-used
   verbatim.
-- Per-op helpers (`plenty_concat`, `plenty_display`, `plenty_clear`,
-  `plenty_listdir`) and a handful more for arithmetic error paths.
+- Per-op helpers (`plenty_concat`, `plenty_display`, `plenty_clear`)
+  and a handful more for arithmetic error paths.
 - A static data section emitting every compile-time-interned string with
   its stable `StrId`.
 
@@ -1437,14 +1435,14 @@ open.
    runtime defence remain in place — they protect against direct VM
    construction outside the public `run` path, not against compiled
    source.
-3. **AOT backend — phases c.1, c.2.** **(direction)** §11.1 commits
-   to one; the first two lowering passes are now in via Cranelift.
-   `plenty --compile FILE -o OUT.o` produces a native object that,
-   linked with `runtime/plenty_runtime.c`, runs as a standalone
-   executable reproducing the interpreter's output byte-for-byte (the
-   integration tests assert this directly). The compile-time stack is
-   virtualised into SSA values: each Plenty stack slot becomes a
-   Cranelift `Value`, threaded through
+3. **AOT backend — phases c.1, c.2, c.3, c.4.** **(direction)** §11.1
+   commits to one; four of the five planned lowering phases are now
+   in via Cranelift. `plenty --compile FILE -o OUT.o` produces a
+   native object that, linked with `runtime/plenty_runtime.c`, runs
+   as a standalone executable reproducing the interpreter's output
+   byte-for-byte (the integration tests assert this directly). The
+   compile-time stack is virtualised into SSA values: each Plenty
+   stack slot becomes a Cranelift `Value`, threaded through
    `iadd`/`isub`/`imul`/`sdiv`/`udiv`/`icmp`/etc., so the compiled
    code does no runtime push/pop. `Display` (`.`) lowers to a sequence
    of calls into the C runtime's fixed-signature print helpers — the
@@ -1463,18 +1461,42 @@ open.
    function entry from the matching block parameter. The closed-world
    check (§11.1) rejects calls whose target is not in the source set.
 
-   What the AOT path *doesn't* yet lower: `match`, anything that
-   touches a `Str`, `:listdir`. The lowering returns a clear "not yet
-   supported" error naming the next phase; those programs still run
-   under the interpreter. The remaining phases are c.3 (`match`),
-   c.4 (strings + heap), and c.5 (linker integration so `--compile`
-   produces an executable in one step).
+   c.3 added `match`: one Cranelift block per arm, a linear `brif`
+   dispatch chain (wildcards become unconditional jumps and
+   short-circuit the chain), and a single join block whose params
+   carry the agreed stack shape. Arms whose tail op is `TailCall`
+   skip the join — `return_call` is itself a block terminator and
+   the arm leaves the function. Integer patterns use `iconst` of the
+   scrutinee's width (truncating to match the runtime's `n as i8 /
+   u8 / …` narrowing); Bool patterns are i8 compares. The 1M-iteration
+   tail-recursive accumulator test compiles and runs without growing
+   the host C stack, confirming `return_call` is wired through
+   `match` correctly.
+
+   c.4 added strings. Every string literal referenced by the source
+   (whether by `Op::PushStr` or `Pattern::Str` inside a `match`)
+   becomes one read-only data symbol in the object file, carrying
+   the UTF-8 bytes plus a trailing nul. `Op::PushStr` lowers to
+   `global_value` — the data's address, pushed on the compile-time
+   stack as `Ty::Str` (CLIF `i64`, the host pointer width). `Op::Add`
+   and `Op::Eq` now dispatch on operand types: integer pairs take the
+   pre-existing CLIF path, `Str Str` calls `plenty_concat` /
+   `plenty_str_eq` in the C runtime. `Display` prints strings via
+   `plenty_print_str` (matching Rust's `{:?}` escaping for printable
+   ASCII). `match` patterns of type `Str` compare via
+   `plenty_str_eq` + `brif`. The runtime's heap is append-only —
+   `plenty_concat` `malloc`s but never `free`s, mirroring the
+   interpreter's `Heap` (§12.1).
+
+   Every Plenty op lowers. The only remaining work is c.5 — packaging
+   the runtime so `--compile` produces an executable in one step
+   instead of writing an object the user has to link by hand.
 
    One semantic gap to be honest about: AOT arithmetic does *not*
    trap on overflow; it wraps. The interpreter checks with
    `checked_*` and errors. Adding overflow checks to the AOT path is
    a small, additive step (Cranelift has `*_overflow` instructions)
-   and is on the c.3+ list.
+   and is on the c.5+ list.
 4. **File-execution mode — implemented.** **(direction)** `plenty FILE`
    reads the whole file, lexes/compiles/checks/runs it on a fresh `Vm`,
    and exits — stdout is the program's, stderr is for diagnostics, and

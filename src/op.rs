@@ -149,8 +149,6 @@ pub enum Op {
     Display,
     /// Discard every value on the stack.
     Clear,
-    /// Print the names in the current directory.
-    ListDir,
     /// Define a function: bind `name` to an already-compiled body and docstring.
     ///
     /// The body is carved out of the token stream at compile time, so running
@@ -582,7 +580,6 @@ fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
         "not" => Op::Not,
         "." => Op::Display,
         ":clear" => Op::Clear,
-        ":listdir" => Op::ListDir,
         ":as-i8" => Op::Cast(Ty::I8),
         ":as-i16" => Op::Cast(Ty::I16),
         ":as-i32" => Op::Cast(Ty::I32),
@@ -758,7 +755,7 @@ fn step(
             }
             stack.push(Ty::Bool);
         }
-        Op::Display | Op::ListDir => {}
+        Op::Display => {}
         Op::Clear => stack.clear(),
         Op::LoadLocal(i) => {
             let ty = locals.get(*i as usize).copied().ok_or_else(|| {
