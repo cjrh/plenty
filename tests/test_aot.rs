@@ -1,11 +1,11 @@
-//! AOT integration tests (DESIGN.md §11.1, §12.3 — phase c.1).
+//! AOT integration tests (DESIGN.md §11.1, §12.3 — phases c.1, c.2).
 //!
 //! Each test runs a Plenty program two ways — once through the
 //! interpreter and once through the AOT pipeline (compile → link →
-//! execute) — and asserts that stdout matches. Anything c.1 lowers
-//! correctly should produce identical output; that is the strongest
-//! end-to-end check we can give the AOT path without re-deriving
-//! expected output by hand.
+//! execute) — and asserts that stdout matches. Anything the current
+//! AOT phase lowers correctly should produce identical output; that
+//! is the strongest end-to-end check we can give the AOT path without
+//! re-deriving expected output by hand.
 //!
 //! The tests are skipped automatically when a C compiler isn't on
 //! `PATH`; CI environments without `cc` shouldn't break the build.
@@ -146,18 +146,95 @@ aot_matches_interpreter!(
     "-1 :as-u8 1 :as-u8 < .\n-1 :as-u8 1 :as-u8 > .\n",
 );
 
+// --- c.2: functions, calls, locals, tail calls ---------------------------
+
+aot_matches_interpreter!(
+    single_arg_function,
+    "fn-single",
+    r#": double { x i64 -> i64 } "Double an int." x 2 * ;
+       5 :double ."#,
+);
+
+aot_matches_interpreter!(
+    multi_arg_function,
+    "fn-multi",
+    r#": addk { a i64 b i64 -> i64 } "Add two ints." a b + ;
+       3 4 :addk .
+       10 -2 :addk ."#,
+);
+
+aot_matches_interpreter!(
+    function_with_cast_in_body,
+    "fn-cast",
+    r#": clip { n i64 -> u8 } "Take low 8 bits as u8." n :as-u8 ;
+       300 :clip .
+       -1 :clip ."#,
+);
+
+aot_matches_interpreter!(
+    multi_return_function,
+    "fn-multi-return",
+    r#": split { x i64 -> i64 i64 } "Push x and x+1." x x 1 + ;
+       5 :split ."#,
+);
+
+aot_matches_interpreter!(
+    forward_reference_between_functions,
+    "fn-forward",
+    // `caller` is defined before `callee` and calls into it. The
+    // two-pass codegen has to declare every function before emitting
+    // any body, otherwise this would fail at link time.
+    r#": caller { x i64 -> i64 } "Calls callee defined later." x :callee 10 + ;
+       : callee { x i64 -> i64 } "Defined after caller." x 2 * ;
+       3 :caller ."#,
+);
+
+aot_matches_interpreter!(
+    chained_calls_use_tail_call,
+    "fn-chain-tail",
+    // Every call here sits at the end of its function's body and so is
+    // emitted as `return_call`. The chain runs all the way through
+    // without needing a base case (no `match` in c.2 yet — TCO under
+    // recursion lands once c.3 adds branching).
+    r#": a { x i64 -> i64 } "Add 1." x 1 + ;
+       : b { x i64 -> i64 } "Chain to a." x :a ;
+       : c { x i64 -> i64 } "Chain to b." x :b ;
+       5 :c ."#,
+);
+
+aot_matches_interpreter!(
+    non_tail_call_in_body,
+    "fn-nontail",
+    // `:f` is followed by `2 *`, so it is not in tail position and
+    // lowers to a regular `call`. The body must still return cleanly
+    // with the doubled result on the compile-time stack.
+    r#": f { x i64 -> i64 } "Add one." x 1 + ;
+       : g { x i64 -> i64 } "Call f, then double." x :f 2 * ;
+       7 :g ."#,
+);
+
+aot_matches_interpreter!(
+    nested_function_definition,
+    "fn-nested",
+    // A `:` inside a `: ... ;` body defines a nested function. AOT
+    // mode hoists every nested definition into the same module-level
+    // symbol table, so calls reach it from anywhere in the source.
+    r#": outer { x i64 -> i64 }
+         "Defines an inner helper and uses it."
+         : inner { y i64 -> i64 } "Inner helper." y 1 + ;
+         x :inner ;
+       4 :outer ."#,
+);
+
 #[test]
 fn unsupported_op_emits_a_helpful_error() {
+    // c.2 still rejects string literals (and `match` and `:listdir`).
+    // The error must name a later phase so users know it's intentional.
     let tmp = std::env::temp_dir();
     let n = nonce();
     let src = tmp.join(format!("plenty-aot-unsup-{n}.plenty"));
     let obj = tmp.join(format!("plenty-aot-unsup-{n}.o"));
-    std::fs::write(
-        &src,
-        r#": double { x i64 -> i64 } "Double an int." x 2 * ; 5 :double .
-"#,
-    )
-    .unwrap();
+    std::fs::write(&src, "\"hello\" .\n").unwrap();
     let out = Command::new(plenty_bin())
         .args(["--compile"])
         .arg(&src)
@@ -167,10 +244,10 @@ fn unsupported_op_emits_a_helpful_error() {
         .expect("spawn");
     let _ = std::fs::remove_file(&src);
     let _ = std::fs::remove_file(&obj);
-    assert!(!out.status.success(), "function defs should be rejected in c.1");
+    assert!(!out.status.success(), "strings should be rejected before c.4");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("not yet support") || stderr.contains("c.1"),
-        "error should mention c.1 limitations; got {stderr:?}"
+        stderr.contains("not yet support"),
+        "error should explain the limitation; got {stderr:?}"
     );
 }

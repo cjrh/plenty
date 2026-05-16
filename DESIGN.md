@@ -821,7 +821,9 @@ text ──lex──▶ Tok ──compile──▶ Op ──┬── Vm::exec �
   truly dynamic behaviour (e.g. defining a function whose body is not
   known at compile time). Those restrictions are part of the language
   contract for the AOT mode, not bugs. The current implementation is
-  **phase c.1**: only top-level integer programs lower (see §12.3).
+  at **phase c.2**: top-level integer programs plus user-defined
+  functions (including tail calls) lower; `match`, strings, and
+  `:listdir` are still pending (see §12.3).
 
 Architectural consequence: nothing below the `op` layer may depend on the
 `vm` layer. The `Op` stream must remain fully self-contained — that is what
@@ -1435,32 +1437,44 @@ open.
    runtime defence remain in place — they protect against direct VM
    construction outside the public `run` path, not against compiled
    source.
-3. **AOT backend — phase c.1.** **(direction)** §11.1 commits to one;
-   the first lowering pass is now in via Cranelift. `plenty --compile
-   FILE -o OUT.o` produces a native object that, linked with
-   `runtime/plenty_runtime.c`, runs as a standalone executable
-   reproducing the interpreter's output byte-for-byte (the integration
-   tests assert this directly). The compile-time stack is virtualised
-   into SSA values: each Plenty stack slot becomes a Cranelift `Value`,
-   threaded through `iadd`/`isub`/`imul`/`sdiv`/`udiv`/`icmp`/etc., so
-   the compiled code does no runtime push/pop. `Display` (`.`) lowers
-   to a sequence of calls into the C runtime's fixed-signature print
-   helpers — the runtime exists to sidestep variadic-ABI portability
-   issues with `printf`.
+3. **AOT backend — phases c.1, c.2.** **(direction)** §11.1 commits
+   to one; the first two lowering passes are now in via Cranelift.
+   `plenty --compile FILE -o OUT.o` produces a native object that,
+   linked with `runtime/plenty_runtime.c`, runs as a standalone
+   executable reproducing the interpreter's output byte-for-byte (the
+   integration tests assert this directly). The compile-time stack is
+   virtualised into SSA values: each Plenty stack slot becomes a
+   Cranelift `Value`, threaded through
+   `iadd`/`isub`/`imul`/`sdiv`/`udiv`/`icmp`/etc., so the compiled
+   code does no runtime push/pop. `Display` (`.`) lowers to a sequence
+   of calls into the C runtime's fixed-signature print helpers — the
+   runtime exists to sidestep variadic-ABI portability issues with
+   `printf`.
 
-   What c.1 *doesn't* lower: function definitions, calls (including
-   `LoadLocal`), `match`, anything that touches a `Str`. The lowering
-   returns a clear "not yet supported (c.1)" error for those; the
-   programs still run under the interpreter. The remaining phases
-   (c.2 functions/calls; c.3 `match`; c.4 strings + heap; c.5 linker
-   integration so `--compile` produces an executable in one step) reuse
-   the same scaffolding.
+   c.2 added user-defined functions: every `DefineFn` reachable from
+   the source (top-level, nested, or inside a match arm) is hoisted
+   into its own Cranelift function declared with `CallConv::Tail` and
+   `Linkage::Local`. A first pass declares every symbol up front, so
+   forward references and mutual recursion resolve cleanly; a second
+   pass emits each body. `Op::Call` lowers to a regular `call`,
+   `Op::TailCall` to `return_call` (Cranelift's native tail-call
+   instruction; the `Tail` convention is the only one that supports
+   it). `Op::LoadLocal` reads from a CLIF `Variable` defined once at
+   function entry from the matching block parameter. The closed-world
+   check (§11.1) rejects calls whose target is not in the source set.
 
-   One semantic gap to be honest about: c.1 arithmetic does *not* trap
-   on overflow; it wraps. The interpreter checks with `checked_*` and
-   errors. Adding overflow checks to the AOT path is a small, additive
-   step (Cranelift has `*_overflow` instructions) and is on the c.2+
-   list.
+   What the AOT path *doesn't* yet lower: `match`, anything that
+   touches a `Str`, `:listdir`. The lowering returns a clear "not yet
+   supported" error naming the next phase; those programs still run
+   under the interpreter. The remaining phases are c.3 (`match`),
+   c.4 (strings + heap), and c.5 (linker integration so `--compile`
+   produces an executable in one step).
+
+   One semantic gap to be honest about: AOT arithmetic does *not*
+   trap on overflow; it wraps. The interpreter checks with
+   `checked_*` and errors. Adding overflow checks to the AOT path is
+   a small, additive step (Cranelift has `*_overflow` instructions)
+   and is on the c.3+ list.
 4. **File-execution mode — implemented.** **(direction)** `plenty FILE`
    reads the whole file, lexes/compiles/checks/runs it on a fresh `Vm`,
    and exits — stdout is the program's, stderr is for diagnostics, and
