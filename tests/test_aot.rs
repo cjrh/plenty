@@ -20,11 +20,14 @@ fn cc_available() -> bool {
     Command::new("cc").arg("--version").output().is_ok()
 }
 
-fn nonce() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos()
+// Collision-free across parallel test threads: `process::id()` distinguishes
+// across processes, `COUNTER` across threads inside one process. Avoids the
+// `SystemTime::now().as_nanos()` foot-gun where two tests can land on the
+// same nanosecond under `cargo test --test-threads=N`.
+fn nonce() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    format!("{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Write `source` to a tempfile, compile to an executable via

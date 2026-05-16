@@ -3,6 +3,36 @@
 A precise reference for the implementation of the Plenty interpreter. This is a
 living document: when the interpreter changes, this file changes with it.
 
+<!--
+SECTION INDEX (regenerate when headings move: `grep -nE '^##? ' DESIGN.md`)
+
+  §1   Purpose and design north star ............. line   36
+  §2   Goals and non-goals ........................ line   68
+       §2.1 Goals .................................. line   75
+       §2.2 Non-goals .............................. line   95
+  §3   Architecture ............................... line  113
+  §4   Data layer — `value.rs` ................... line  157
+  §5   Syntax layer — `lexer.rs` ................. line  208
+  §6   Operation layer — `op.rs` ................. line  251
+  §7   Machine layer — `vm.rs` ................... line  475
+  §8   Language semantics ......................... line  594
+  §9   Error handling ............................. line  737
+  §10  Testing and documentation infrastructure ... line  778
+  §11  Design intent for future iterations ........ line  812
+       §11.1 Compilation targets ................... line  819
+       §11.2 Type system ........................... line  976
+       §11.3 Encapsulation as the primary tool ..... line 1105
+       §11.4 Complexity-is-the-enemy decision rule . line 1133
+       §11.5 Stack juggling and locals ............. line 1159
+       §11.6 Type checking — stack effects ......... line 1199
+       §11.7 Documentation and string literals ..... line 1256
+       §11.8 Control flow — one branching primitive  line 1313
+  §12  Known limitations and open questions ....... line 1440
+  §13  Invariants ................................. line 1643
+
+Source comments reference these sections as `§N` or `§N.M` (e.g., `§11.6`).
+-->
+
 ## 1. Purpose and design north star
 
 Plenty is a stack-based programming language. The current implementation is a

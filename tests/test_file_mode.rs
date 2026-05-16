@@ -13,11 +13,14 @@ fn plenty_bin() -> &'static str {
 
 /// Write `source` to a uniquely-named tempfile and return the path. The
 /// caller is responsible for deleting it.
+///
+/// The nonce combines `process::id()` with an in-process atomic counter
+/// rather than `SystemTime::now().as_nanos()` — two parallel test threads
+/// can otherwise observe the same nanosecond and collide on the path.
 fn write_tempfile(source: &str, label: &str) -> std::path::PathBuf {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nonce = format!("{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed));
     let path = std::env::temp_dir().join(format!("plenty-test-{label}-{nonce}.plenty"));
     let mut f = std::fs::File::create(&path).expect("create tempfile");
     f.write_all(source.as_bytes()).expect("write tempfile");

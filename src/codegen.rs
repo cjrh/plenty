@@ -69,6 +69,57 @@ use crate::lexer;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId};
 
+// ---- Cranelift API reference ----
+//
+// Cranelift's user-facing API is not indexed by context7; these notes
+// record gotchas paid for during phases c.2–c.5.5 so the next agent does
+// not pay for them again. Source under `~/.cargo/registry/src/.../cranelift-*-0.131.*/`.
+//
+// * **Crate split.** The `cranelift` umbrella crate's `module` and `object`
+//   sub-crates are opt-in features absent from its default feature set
+//   (`default = ["std", "frontend"]`). We depend on the five individual
+//   crates (`cranelift-codegen`, `-frontend`, `-module`, `-object`,
+//   `-native`) directly to avoid the feature trap.
+//
+// * **Tail calls.** `return_call` lives in the `cranelift-codegen-meta`
+//   crate (instruction definition), called as `builder.ins().return_call(
+//   func_ref, &args)`. It requires `CallConv::Tail` on **both** caller and
+//   callee, and on x86_64 it also requires `preserve_frame_pointers =
+//   "true"` in the ISA flags — otherwise emission panics at codegen time
+//   ("frame pointers aren't fundamentally required for tail calls, but
+//   the current implementation relies on them being present").
+//
+// * **Variables.** `Variable` is constructed by `bcx.declare_var(ty) ->
+//   Variable`, not `Variable::new(i)`. The entity macro provides
+//   `from_u32` / `from_bits` but no public `new`.
+//
+// * **`BlockArg`, not `Value`.** `jump` and `brif` take
+//   `impl IntoIterator<Item = &BlockArg>`, not `&[Value]`. Convert with
+//   `vals.iter().map(|v| BlockArg::Value(*v))`. `BlockArg` lives in
+//   `cranelift_codegen::ir`.
+//
+// * **Static data.** Pattern is: `DataDescription::new()`,
+//   `dd.define(bytes.into_boxed_slice())`, `module.define_data(id, &dd)`.
+//   `ObjectModule::declare_data(name, Linkage, writable, tls) -> DataId`
+//   (a single `DataId`, **not** a tuple — the inner `module.rs` returns
+//   `(DataId, Linkage)` but the public trait wraps that). To use the data
+//   inside a function body, call `module.declare_data_in_func(data_id,
+//   func) -> GlobalValue` and then `builder.ins().global_value(ty, gv)`.
+//
+// * **Checked arithmetic results.** The `*_overflow` instructions
+//   (`sadd_overflow`, `uadd_overflow`, `ssub_overflow`, `usub_overflow`,
+//   `smul_overflow`, `umul_overflow`) return `(Value, Value)` (result,
+//   overflow-flag) as a Rust tuple **directly** — they are not normal
+//   multi-result instructions and `inst_results` does not apply.
+//
+// * **Block-filling rule.** A block must be fully terminated (via
+//   `brif` / `jump` / `return` / `trap`) before calling
+//   `switch_to_block` on a different block. You cannot fill a target
+//   block's body while its predecessor is still open ("fill your block
+//   before switching"). Consequence: trap blocks shared across an entire
+//   function cannot be defined lazily; emit trap sequences inline at
+//   each call site (see `trap_if`).
+
 /// Read `source` and produce a native executable at `output` in one
 /// step (DESIGN.md §11.1, §12.3 — phase c.5). The source is lexed,
 /// compiled, and checked through the same pipeline the VM uses; the
