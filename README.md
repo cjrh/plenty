@@ -5,7 +5,8 @@ Stack-based Programming language
 
 Plenty is a stack language: a program is a stream of whitespace-separated
 words, and each word either pushes a value onto the stack or operates on the
-values already there. Start the REPL with `cargo run`.
+values already there. Start the REPL with `cargo run`, or run a file with
+`cargo run -- path/to/script.plenty`.
 
 Each example below shows a program followed by the stack it leaves behind —
 which is what the `.` word prints.

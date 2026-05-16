@@ -1370,9 +1370,14 @@ open.
 3. **No AOT backend yet.** **(direction)** §11.1 commits to one; only the
    tree-walking VM exists. No `Op`-to-IR lowering, no LLVM dependency, no
    `.plenty` file driver.
-4. **No file-execution mode.** The binary is REPL-only; there is no
-   `plenty path/to/file.plenty`. This is a prerequisite for AOT and likely
-   the next concrete step.
+4. **File-execution mode — implemented.** **(direction)** `plenty FILE`
+   reads the whole file, lexes/compiles/checks/runs it on a fresh `Vm`,
+   and exits — stdout is the program's, stderr is for diagnostics, and
+   the exit status is 0 on success and non-zero on any compile, type, or
+   runtime error. The REPL is the no-argument behaviour; `-h`/`--help`
+   prints usage. The binary is the only entry point that distinguishes
+   the two modes; the `Vm` itself is unchanged. AOT (§12.3) is the
+   remaining piece in the file-driven path.
 5. **No comment syntax.** **(direction)** §11.7 commits docstrings + the
    unified `"..."` string literal, and the implementation now lands them:
    `"..."` is the canonical string form, backtick literals are retired,

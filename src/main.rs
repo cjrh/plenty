@@ -17,8 +17,10 @@
 //!   content is what gets run. Useful for composing a long definition or
 //!   recovering one fished out of history.
 
+use std::error::Error;
 use std::ffi::OsString;
-use std::process::Command;
+use std::path::Path;
+use std::process::{Command, ExitCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -148,8 +150,57 @@ impl ConditionalEventHandler for EditorTrigger {
     }
 }
 
-fn main() -> rustyline::Result<()> {
+const USAGE: &str = "\
+Usage: plenty [FILE]
+       plenty -h | --help
+
+With no arguments, starts the interactive REPL. With a file path, lexes,
+compiles, type-checks, and runs the file, then exits — stdout is the
+program's, stderr is for diagnostics. Exit status is 0 on success and
+non-zero on any compile, type, or runtime error.
+";
+
+fn main() -> ExitCode {
     pretty_env_logger::init();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.as_slice() {
+        [] => match repl() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        [flag] if flag == "-h" || flag == "--help" => {
+            print!("{USAGE}");
+            ExitCode::SUCCESS
+        }
+        [path] if !path.starts_with('-') => match run_file(Path::new(path)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
+        _ => {
+            eprintln!("plenty: unrecognised arguments");
+            eprint!("{USAGE}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Read `path` as a single Plenty source and run it on a fresh [`Vm`].
+/// Used by the binary's file-execution mode (DESIGN.md §12.4); the REPL
+/// uses [`Vm::run`] directly so its state persists across inputs.
+fn run_file(path: &Path) -> Result<(), Box<dyn Error>> {
+    let source = std::fs::read_to_string(path)
+        .map_err(|e| -> Box<dyn Error> { format!("reading {}: {e}", path.display()).into() })?;
+    let mut vm = Vm::new();
+    vm.run(&source)
+}
+
+fn repl() -> Result<(), Box<dyn Error>> {
     println!("{BANNER}");
     println!("{HELP}");
 
