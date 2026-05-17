@@ -274,8 +274,79 @@ impl Vm {
             Op::LoadLocal(i) => self.load_local(i)?,
             Op::Match(arms) => self.do_match(arms)?,
             Op::Cast(target) => self.cast(target)?,
+            Op::ReadLine => self.readline()?,
+            Op::Contains => self.contains()?,
+            Op::PrintLn => self.println_word()?,
         }
         Ok(())
+    }
+
+    /// `:readline`: pull one line from stdin, strip the trailing `\n` /
+    /// `\r\n`, intern into the heap, push `(line, true)`. On EOF push
+    /// `("", false)`. The empty placeholder string keeps the data-stack
+    /// shape constant so the type checker can give `:readline` a single
+    /// stack effect (§11.6); pending sum types (§12.14), this is the
+    /// minimum-surface way to report success-or-EOF.
+    fn readline(&mut self) -> Result<()> {
+        use std::io::BufRead;
+        let mut buf = String::new();
+        let n = std::io::stdin().lock().read_line(&mut buf)?;
+        if n == 0 {
+            let id = self.heap.add_str(String::new());
+            self.stack.push(Value::Str(id));
+            self.stack.push(Value::Bool(false));
+        } else {
+            if buf.ends_with('\n') {
+                buf.pop();
+                if buf.ends_with('\r') {
+                    buf.pop();
+                }
+            }
+            let id = self.heap.add_str(buf);
+            self.stack.push(Value::Str(id));
+            self.stack.push(Value::Bool(true));
+        }
+        Ok(())
+    }
+
+    /// `:contains`: pop `haystack needle`, push whether `needle` occurs
+    /// in `haystack` as a contiguous byte substring. `str::contains` on
+    /// `&str` is the byte-level scan that matches the AOT runtime's
+    /// `strstr`.
+    fn contains(&mut self) -> Result<()> {
+        let needle = self.pop()?;
+        let hay = self.pop()?;
+        match (hay, needle) {
+            (Value::Str(h), Value::Str(n)) => {
+                let result = self.heap.str(h).contains(self.heap.str(n));
+                self.stack.push(Value::Bool(result));
+                Ok(())
+            }
+            (a, b) => Err(format!(
+                "`:contains` requires (Str Str), got ({} {})",
+                self.render(a),
+                self.render(b)
+            )
+            .into()),
+        }
+    }
+
+    /// `:println`: pop one string and write its bytes to stdout followed
+    /// by a `\n`. Unlike `.`, no quoting and no surrounding brackets —
+    /// this is the bare-text output primitive.
+    fn println_word(&mut self) -> Result<()> {
+        let v = self.pop()?;
+        match v {
+            Value::Str(id) => {
+                println!("{}", self.heap.str(id));
+                Ok(())
+            }
+            other => Err(format!(
+                "`:println` requires Str, got {}",
+                self.render(other)
+            )
+            .into()),
+        }
     }
 
     /// Push the `i`-th local of the active call's frame.

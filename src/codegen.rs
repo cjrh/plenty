@@ -234,18 +234,26 @@ fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
     // source of truth for the literal bytes.
     let str_data = declare_str_data(ops, heap, &mut module)?;
 
+    // One extra read-only data symbol holding a single `\0` byte — the
+    // empty-string placeholder `Op::ReadLine` substitutes for `NULL`
+    // on EOF so the value pushed as `Ty::Str` is always a valid C
+    // string. Always declared (one byte of `.rodata`, negligible)
+    // rather than conditionally so the Lowerer never has to track
+    // whether the module uses `:readline`.
+    let eof_empty_str = declare_eof_empty_str(&mut module)?;
+
     // Pass 2: emit each user function's body. Bodies can refer to each
     // other (forward references, mutual recursion) because every callee
     // is already declared.
     let names: Vec<String> = user_fns.keys().cloned().collect();
     for name in &names {
-        emit_user_function(name, &user_fns, &str_data, &runtime, &mut module)?;
+        emit_user_function(name, &user_fns, &str_data, eof_empty_str, &runtime, &mut module)?;
     }
 
     // Pass 3: emit `plenty_main`. Top-level `DefineFn`s are skipped
     // here — their bodies were emitted by Pass 2; at runtime a
     // definition is a no-op (it does not touch the data stack).
-    emit_main(ops, &user_fns, &str_data, &runtime, &mut module)?;
+    emit_main(ops, &user_fns, &str_data, eof_empty_str, &runtime, &mut module)?;
 
     let product = module.finish();
     let bytes = product.emit()?;
@@ -301,6 +309,20 @@ struct Runtime {
     /// to stderr and `exit(1)`s. Called from the zero-check branch of
     /// the `Div` lowering.
     trap_div_zero: FuncId,
+    /// `plenty_readline() -> *const u8` — read one newline-terminated
+    /// line from stdin, strip the trailing newline, return a malloc'd
+    /// nul-terminated buffer. Returns NULL on EOF. Owned (never freed)
+    /// to match the interpreter's append-only `Heap` (§12.1).
+    readline: FuncId,
+    /// `plenty_contains(*const u8 haystack, *const u8 needle) -> i8` —
+    /// returns 1 if `needle` is a byte-substring of `haystack`, 0
+    /// otherwise. Wraps `strstr`.
+    contains: FuncId,
+    /// `plenty_println(*const u8) -> ()` — write the string raw to
+    /// stdout, followed by a single `\n`. The bare-text output
+    /// primitive; `plenty_print_str` (the `.` path) escapes and
+    /// quotes, `plenty_println` does not.
+    println: FuncId,
 }
 
 fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
@@ -347,6 +369,14 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         str_eq: two_args_one_return(module, "plenty_str_eq", PTR_TY, PTR_TY, types::I8)?,
         trap_overflow: nullary(module, "plenty_trap_overflow")?,
         trap_div_zero: nullary(module, "plenty_trap_div_zero")?,
+        readline: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.returns.push(AbiParam::new(PTR_TY));
+            module.declare_function("plenty_readline", Linkage::Import, &sig)?
+        },
+        contains: two_args_one_return(module, "plenty_contains", PTR_TY, PTR_TY, types::I8)?,
+        println: one_arg(module, "plenty_println", PTR_TY)?,
     })
 }
 
@@ -389,6 +419,20 @@ fn declare_str_data(
         out.insert(id, data_id);
     }
     Ok(out)
+}
+
+/// One read-only data symbol holding a single nul byte — i.e. the C
+/// representation of `""`. [`Lowerer::lower_readline`] substitutes its
+/// address for the `NULL` returned by `plenty_readline` on EOF, so the
+/// value pushed onto the compile-time stack as `Ty::Str` is always a
+/// valid C string. Always declared (one byte of `.rodata`) so the
+/// Lowerer doesn't need to know whether the module uses `:readline`.
+fn declare_eof_empty_str(module: &mut ObjectModule) -> Result<DataId> {
+    let id = module.declare_data("plenty_readline_eof_empty", Linkage::Local, false, false)?;
+    let mut desc = DataDescription::new();
+    desc.define(vec![0u8].into_boxed_slice());
+    module.define_data(id, &desc)?;
+    Ok(id)
 }
 
 /// Recursive helper for [`declare_str_data`]: emits `StrId`s in
@@ -524,6 +568,7 @@ fn emit_user_function(
     name: &str,
     fns: &HashMap<String, UserFn>,
     str_data: &HashMap<StrId, DataId>,
+    eof_empty_str: DataId,
     runtime: &Runtime,
     module: &mut ObjectModule,
 ) -> Result<()> {
@@ -562,6 +607,7 @@ fn emit_user_function(
             runtime,
             user_fns: fns,
             str_data,
+            eof_empty_str,
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
@@ -598,6 +644,7 @@ fn emit_main(
     ops: &[Op],
     fns: &HashMap<String, UserFn>,
     str_data: &HashMap<StrId, DataId>,
+    eof_empty_str: DataId,
     runtime: &Runtime,
     module: &mut ObjectModule,
 ) -> Result<()> {
@@ -630,6 +677,7 @@ fn emit_main(
             runtime,
             user_fns: fns,
             str_data,
+            eof_empty_str,
             locals: &[],
             stack: Vec::new(),
             terminated: false,
@@ -714,6 +762,12 @@ struct Lowerer<'a, 'b> {
     /// compares in `Op::Match` use the same map for the `Pattern::Str`
     /// case. Populated once per module by `declare_str_data`.
     str_data: &'a HashMap<StrId, DataId>,
+    /// Read-only data symbol holding a single `\0` byte — i.e. `""`.
+    /// `Op::ReadLine` substitutes its address for `NULL` on EOF so
+    /// the value pushed onto the compile-time stack as `Ty::Str` is
+    /// always a valid C string. Declared once per module by
+    /// [`declare_eof_empty_str`].
+    eof_empty_str: DataId,
     /// The active function's input variables, indexed by the local
     /// slot `Op::LoadLocal` was emitted with. Empty when lowering
     /// `plenty_main` (top-level has no locals).
@@ -766,7 +820,71 @@ impl Lowerer<'_, '_> {
             // itself has no runtime effect.
             Op::DefineFn(_, _) => {}
             Op::Match(arms) => self.lower_match(arms)?,
+            Op::ReadLine => self.lower_readline()?,
+            Op::Contains => self.lower_contains()?,
+            Op::PrintLn => self.lower_println()?,
         }
+        Ok(())
+    }
+
+    /// Lower `Op::ReadLine`: call `plenty_readline`, which returns a
+    /// malloc'd nul-terminated buffer or `NULL` on EOF. We turn `NULL`
+    /// into the address of `plenty_readline_eof_empty` (the `""` data
+    /// symbol) so the `Ty::Str` we push is always dereferenceable; the
+    /// "got a line?" Bool is `ptr != 0`. The user discriminates via
+    /// `match` on the Bool — see DESIGN.md §11.8 for the surface.
+    fn lower_readline(&mut self) -> Result<()> {
+        let readline = self
+            .module
+            .declare_func_in_func(self.runtime.readline, self.bcx.func);
+        let inst = self.bcx.ins().call(readline, &[]);
+        let ptr = self.bcx.inst_results(inst)[0];
+        let zero = self.bcx.ins().iconst(PTR_TY, 0);
+        // got_line = (ptr != 0). Cranelift's `icmp` over a non-Bool
+        // operand still produces an `i1`-widened-to-`i8`, which is
+        // Plenty's Bool ABI.
+        let got_line = self.bcx.ins().icmp(IntCC::NotEqual, ptr, zero);
+        // The EOF empty-string fallback: a 1-byte `\0` data symbol
+        // emitted unconditionally per module. Substituting it for
+        // `NULL` keeps the pushed `Ty::Str` always pointing at a
+        // valid C string.
+        let eof_gv = self
+            .module
+            .declare_data_in_func(self.eof_empty_str, self.bcx.func);
+        let eof_addr = self.bcx.ins().global_value(PTR_TY, eof_gv);
+        let safe_ptr = self.bcx.ins().select(got_line, ptr, eof_addr);
+        self.stack.push((safe_ptr, Ty::Str));
+        self.stack.push((got_line, Ty::Bool));
+        Ok(())
+    }
+
+    /// Lower `Op::Contains`: pop `haystack needle`, call
+    /// `plenty_contains` (a thin wrapper over `strstr`), push the
+    /// returned `i8` as Plenty `Bool`.
+    fn lower_contains(&mut self) -> Result<()> {
+        let needle = self.stack.pop().ok_or("AOT: stack underflow on :contains")?;
+        let hay = self.stack.pop().ok_or("AOT: stack underflow on :contains")?;
+        debug_assert_eq!(hay.1, Ty::Str);
+        debug_assert_eq!(needle.1, Ty::Str);
+        let contains = self
+            .module
+            .declare_func_in_func(self.runtime.contains, self.bcx.func);
+        let inst = self.bcx.ins().call(contains, &[hay.0, needle.0]);
+        let v = self.bcx.inst_results(inst)[0];
+        self.stack.push((v, Ty::Bool));
+        Ok(())
+    }
+
+    /// Lower `Op::PrintLn`: pop one `Ty::Str` address and forward it
+    /// to `plenty_println`, which writes the bytes verbatim plus a
+    /// single `\n`.
+    fn lower_println(&mut self) -> Result<()> {
+        let (v, ty) = self.stack.pop().ok_or("AOT: stack underflow on :println")?;
+        debug_assert_eq!(ty, Ty::Str);
+        let println_fn = self
+            .module
+            .declare_func_in_func(self.runtime.println, self.bcx.func);
+        self.bcx.ins().call(println_fn, &[v]);
         Ok(())
     }
 

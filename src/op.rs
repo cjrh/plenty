@@ -177,6 +177,23 @@ pub enum Op {
     /// silently change a value's mathematical meaning are still allowed —
     /// that is the whole point of an explicit cast word.
     Cast(Ty),
+    /// Read one newline-terminated line from stdin into the heap and push
+    /// (line, got-line?). On EOF, line is the empty string and the Bool
+    /// is `false`; the user is expected to discriminate via `match` on
+    /// the Bool. The trailing `\n` (and `\r\n`) is stripped. Pending sum
+    /// types (§12.14), this two-output shape is the cleanest way to
+    /// report success-or-EOF on a stack-based surface.
+    ReadLine,
+    /// Pop two strings `haystack needle`; push `true` if `needle` is a
+    /// substring of `haystack`, `false` otherwise. Byte-level match
+    /// (`strstr` semantics in the AOT runtime, `str::contains` in the
+    /// interpreter — both byte-equivalent for valid UTF-8).
+    Contains,
+    /// Pop one string; write it to stdout followed by a `\n`. The bytes
+    /// go through verbatim — no quoting, no escaping, no surrounding
+    /// brackets. This is the bare-text output primitive; `.` remains
+    /// the introspection word that prints the whole stack.
+    PrintLn,
 }
 
 /// One arm of a [`Op::Match`]. The pattern is matched against the popped
@@ -588,6 +605,9 @@ fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
         ":as-u16" => Op::Cast(Ty::U16),
         ":as-u32" => Op::Cast(Ty::U32),
         ":as-u64" => Op::Cast(Ty::U64),
+        ":readline" => Op::ReadLine,
+        ":contains" => Op::Contains,
+        ":println" => Op::PrintLn,
         _ => match word.strip_prefix(':') {
             Some(name) => Op::Call(name.to_string()),
             None => Op::PushStr(heap.add_str(word.to_string())),
@@ -775,6 +795,26 @@ fn step(
                 .into());
             }
             stack.push(*target);
+        }
+        Op::ReadLine => {
+            stack.push(Ty::Str);
+            stack.push(Ty::Bool);
+        }
+        Op::Contains => {
+            let (a, b) = pop2(stack, ":contains")?;
+            if a != Ty::Str || b != Ty::Str {
+                return Err(format!(
+                    "`:contains` requires (Str Str), got ({a} {b})"
+                )
+                .into());
+            }
+            stack.push(Ty::Bool);
+        }
+        Op::PrintLn => {
+            let top = stack.pop().ok_or("stack underflow on `:println`")?;
+            if top != Ty::Str {
+                return Err(format!("`:println` requires Str, got {top}").into());
+            }
         }
     }
     Ok(())

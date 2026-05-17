@@ -117,3 +117,48 @@ _Noreturn void plenty_trap_div_zero(void) {
     fputs("error: division by zero\n", stderr);
     exit(1);
 }
+
+// I/O and substring helpers — the small surface added so AOT-compiled
+// programs can act as filters over newline-delimited stdin. See
+// DESIGN.md §8 "Built-in words summary" for the user-facing words.
+
+// Read one newline-terminated line from stdin, strip the trailing
+// `\n` (and a preceding `\r` if present), return a malloc'd
+// nul-terminated buffer with the line content. Returns NULL on EOF.
+//
+// The returned buffer is intentionally leaked — the runtime heap is
+// append-only (DESIGN.md §12.1), mirroring the interpreter's `Heap`.
+// `getline` allocates the buffer for us via `malloc`/`realloc`, which
+// is the same allocator `free` would call; we just don't.
+const char *plenty_readline(void) {
+    char *line = NULL;
+    size_t cap = 0;
+    ssize_t n = getline(&line, &cap, stdin);
+    if (n == -1) {
+        free(line);
+        return NULL;
+    }
+    if (n > 0 && line[n - 1] == '\n') {
+        line[--n] = '\0';
+        if (n > 0 && line[n - 1] == '\r') {
+            line[--n] = '\0';
+        }
+    }
+    return line;
+}
+
+// Byte-level substring test. `strstr` returns the address of the first
+// occurrence of `needle` inside `haystack`, or NULL if absent; we map
+// that to a Plenty `Bool` (`int8_t`).
+int8_t plenty_contains(const char *haystack, const char *needle) {
+    return (int8_t)(strstr(haystack, needle) != NULL);
+}
+
+// Bare-text output. Writes the bytes verbatim followed by a single
+// `\n` — no quoting, no escaping, no surrounding brackets.
+// `plenty_print_str` (used by `.`) is the introspection-friendly
+// version that escapes; this one is for programs that emit data.
+void plenty_println(const char *s) {
+    fputs(s, stdout);
+    fputc('\n', stdout);
+}

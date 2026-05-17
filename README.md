@@ -206,6 +206,64 @@ Numbers in source default to `i64`. To use a smaller — or unsigned — width, 
 
 <!-- END TUTORIAL -->
 
+## Example: an AOT-compiled stdin filter
+
+The `:readline`, `:contains`, and `:println` words are the small I/O surface
+Plenty exposes. With them and tail recursion (DESIGN.md §11.8), a complete
+stream-filter program fits in a handful of definitions. The program below
+reads newline-delimited strings from stdin and writes back only the lines
+containing the letter `m`.
+
+```forth
+: drop-line { line Str -> }
+    "Discard a line. Needed because Plenty has no polymorphic drop word,
+     so the caller hands the unwanted value into a typed locals frame
+     where it is torn down with the frame."
+    ;
+
+: handle-line { line Str -> }
+    "Print `line` to stdout if it contains the substring \"m\",
+     otherwise drop it. The decision happens here so the recursion
+     in :filter does not need to dup the line value."
+    line "m" :contains match
+        true  [ line :println ]
+        false [ ]
+    end ;
+
+: filter { -> }
+    "Read newline-delimited strings from stdin until EOF, printing
+     only those that contain the letter m. Iteration is recursion plus
+     mandatory TCO (DESIGN.md §11.8); the :readline match dispatches
+     on the got-a-line? bool and the recursive call sits at the tail
+     of the true arm."
+    :readline match
+        true  [ :handle-line :filter ]
+        false [ :drop-line ]
+    end ;
+
+:filter
+```
+
+Compile it to a native executable:
+
+```sh
+cargo run -- --compile examples/filter_m.plenty -o filter_m
+```
+
+Run it against a stream of lines:
+
+```sh
+printf 'apple\nbanana\nmango\ncherry\nmelon\nplum\norange\n' | ./filter_m
+```
+
+Output:
+
+```
+mango
+melon
+plum
+```
+
 ## Keeping the tutorial honest
 
 The tutorial section above is generated from `tests/tutorial.rs`, where every
