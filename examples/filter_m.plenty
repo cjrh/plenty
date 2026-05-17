@@ -1,0 +1,27 @@
+: drop-line { line Str -> }
+    "Discard a line. Needed because Plenty has no polymorphic drop word,
+     so the caller hands the unwanted value into a typed locals frame
+     where it is torn down with the frame."
+    ;
+
+: handle-line { line Str -> }
+    "Print `line` to stdout if it contains the substring \"m\",
+     otherwise drop it. The decision happens here so the recursion
+     in :filter does not need to dup the line value."
+    line "m" :contains match
+        true  [ line :println ]
+        false [ ]
+    end ;
+
+: filter { -> }
+    "Read newline-delimited strings from stdin until EOF, printing
+     only those that contain the letter m. Iteration is recursion plus
+     mandatory TCO (DESIGN.md §11.8); the :readline match dispatches
+     on the got-a-line? bool and the recursive call sits at the tail
+     of the true arm."
+    :readline match
+        true  [ :handle-line :filter ]
+        false [ :drop-line ]
+    end ;
+
+:filter

@@ -9,3 +9,19 @@ rstest = "0.23.0"
 [dependencies]
 log = "0.4.22"
 pretty_env_logger = "0.5.0"
+# Line editor for the REPL: Emacs-style bindings (ctrl-a/e/p/n/l/r, etc.),
+# pure Rust, cross-platform. No C `readline` dependency. `custom-bindings`
+# enables `bind_sequence` / `ConditionalEventHandler` for the editor hook;
+# `derive` enables the `#[derive(Helper, ...)]` macros for our completer.
+rustyline = { version = "18", default-features = false, features = ["custom-bindings", "derive"] }
+# AOT backend (§11.1, §12.3). Cranelift is pure-Rust, no system deps.
+# `cranelift-codegen` lowers Cranelift IR (CLIF) to machine code;
+# `cranelift-frontend` is the IR builder; `cranelift-module` manages a
+# dictionary of declared functions and data; `cranelift-object` lowers a
+# finished module to a native object file via the `object` crate.
+cranelift-codegen = "0.131"
+cranelift-frontend = "0.131"
+cranelift-module = "0.131"
+cranelift-object = "0.131"
+cranelift-native = "0.131"
+target-lexicon = "0.13"

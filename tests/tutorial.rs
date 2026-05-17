@@ -31,21 +31,21 @@ const EXAMPLES: &[Example] = &[
         prose: "A program is a stream of whitespace-separated words. A number \
                 is a word that pushes itself onto the stack.",
         program: "1 2 3",
-        stack: "[1 2 3]",
+        stack: "[1i64 2i64 3i64]",
     },
     Example {
         title: "Arithmetic",
         prose: "`+`, `-`, `*` and `/` each pop the top two values and push the \
                 result. They read in stack order, so `10 2 -` means `10 - 2`.",
         program: "10 2 -",
-        stack: "[8]",
+        stack: "[8i64]",
     },
     Example {
         title: "Operators consume only what they need",
         prose: "An operator touches just the top two values; everything below \
                 it on the stack is left alone.",
         program: "1 2 3 4 +",
-        stack: "[1 2 7]",
+        stack: "[1i64 2i64 7i64]",
     },
     Example {
         title: "Clearing the stack",
@@ -61,33 +61,129 @@ const EXAMPLES: &[Example] = &[
         stack: "[\"helloworld\"]",
     },
     Example {
-        title: "Quoting text",
-        prose: "Prefix a word with a backtick to push it as text even when it \
-                would otherwise be read as a number or an operator.",
-        program: "`+ `42 +",
-        stack: "[\"+42\"]",
-    },
-    Example {
-        title: "Literal runs",
-        prose: "A bare backtick starts a literal run and `~` ends it; every \
-                word between them is pushed as text.",
-        program: "` 2 + 2 ~",
-        stack: "[\"2\" \"+\" \"2\"]",
+        title: "Quoted strings",
+        prose: "Wrap text in double quotes to push it as a single string. \
+                Spaces, operators, and other special characters inside the \
+                quotes are taken verbatim.",
+        program: r#""hello world" " and goodbye" +"#,
+        stack: r#"["hello world and goodbye"]"#,
     },
     Example {
         title: "Functions",
-        prose: "Define a function with `: name body... ;`, and call it by \
-                prefixing its name with a colon. The body is compiled once, \
-                when the function is defined.",
-        program: ": double 2 * ;\n5 :double",
-        stack: "[10]",
+        prose: "Define a function with `: name { signature } \"docstring\" \
+                body... ;`. The signature lists inputs as `name Type` pairs, \
+                then `->`, then output types; `{ x i64 -> i64 }` reads as \
+                \"takes one `i64` named `x`, leaves one `i64`\". Inside the \
+                body, those input names refer to the values passed in — so \
+                the body can mention `x` instead of juggling the stack. The \
+                docstring describes what the function does. Both the \
+                signature and the docstring are mandatory — together they \
+                form the function's interface. Call the function by \
+                prefixing its name with a colon.",
+        program: ": double { x i64 -> i64 } \"Double an integer.\" x 2 * ;\n\
+                  5 :double",
+        stack: "[10i64]",
     },
     Example {
         title: "Functions calling functions",
         prose: "A function body may call other functions. Defining a function \
                 never disturbs the stack.",
-        program: ": double 2 * ;\n: quad :double :double ;\n3 :quad",
-        stack: "[12]",
+        program: ": double { x i64 -> i64 } \"Double an integer.\" x 2 * ;\n\
+                  : quad { x i64 -> i64 } \"Multiply by four.\" x :double :double ;\n\
+                  3 :quad",
+        stack: "[12i64]",
+    },
+    Example {
+        title: "Named inputs replace stack juggling",
+        prose: "Each input named in the signature is in scope for the whole \
+                body — write the name to load it. A function with several \
+                inputs can refer to each by name, in any order, as many times \
+                as it likes, without `dup`, `swap`, or `rot`.",
+        program: ": hypot-sq { a i64 b i64 -> i64 } \
+                  \"Square the hypotenuse: a*a + b*b.\" \
+                  a a * b b * + ;\n\
+                  3 4 :hypot-sq",
+        stack: "[25i64]",
+    },
+    Example {
+        title: "Booleans and comparisons",
+        prose: "`true` and `false` are the `Bool` literals. The comparison \
+                operators `=`, `<`, and `>` pop two values and push a `Bool`; \
+                `not` negates one. `=` accepts any two values of the same \
+                type (`i64`, `Str`, or `Bool`); `<` and `>` are integers \
+                only. A `Bool` is *not* an integer: there is no \"zero is \
+                false\" convention. The only way to get a `Bool` is to \
+                produce one.",
+        program: "1 2 <  3 3 =  true not",
+        stack: "[true true false]",
+    },
+    Example {
+        title: "Branching with `match`",
+        prose: "`match` is the only branching primitive. It pops the top-of-stack \
+                value and runs the bracketed body of the first arm whose \
+                pattern matches; `end` closes the construct. Every match must \
+                be exhaustive — for a `Bool`, that means both `true` and \
+                `false` arms (or a wildcard). There is no `if` and no `else`: \
+                `match` covers both jobs without privileging `Bool` over any \
+                other finite type.",
+        program: ": describe { flag Bool -> Str } \"Render a Bool as text.\"\n  \
+                    flag match\n    \
+                      true  [ \"yes\" ]\n    \
+                      false [ \"no\"  ]\n  \
+                    end ;\n\
+                  true :describe  false :describe",
+        stack: "[\"yes\" \"no\"]",
+    },
+    Example {
+        title: "Wildcards for the open cases",
+        prose: "`i64` and `Str` have unbounded value spaces, so a match on \
+                either must include a wildcard arm — `_` — that catches \
+                everything not named above. Patterns are tested in order, so \
+                specific arms first and `_` last. The arm body sees the \
+                surrounding stack and the surrounding function's locals; the \
+                brackets are syntactic structure, not a separate sub-stack.",
+        program: ": name-it { n i64 -> Str }\n  \
+                    \"Name a small integer; anything else is 'many'.\"\n  \
+                    n match\n    \
+                      0 [ \"zero\" ]\n    \
+                      1 [ \"one\"  ]\n    \
+                      2 [ \"two\"  ]\n    \
+                      _ [ \"many\" ]\n  \
+                    end ;\n\
+                  1 :name-it  7 :name-it",
+        stack: "[\"one\" \"many\"]",
+    },
+    Example {
+        title: "Iteration is recursion",
+        prose: "Plenty has no `for` or `while`. A function that needs to \
+                repeat calls itself, and the compiler detects when that \
+                recursive call sits in *tail* position — the last thing the \
+                function would do before returning — and reuses the current \
+                call's frame instead of stacking a new one. A million tail \
+                calls cost the same call-stack space as one. The pattern is \
+                always the same: thread the running total through an \
+                accumulator argument so the recursive call ends the body.",
+        program: ": sum-to { n i64 acc i64 -> i64 }\n  \
+                    \"Tail-recursive accumulator: 1 + 2 + ... + n + acc.\"\n  \
+                    n 0 = match\n    \
+                      true  [ acc ]\n    \
+                      false [ n 1 - acc n + :sum-to ]\n  \
+                    end ;\n\
+                  100 0 :sum-to",
+        stack: "[5050i64]",
+    },
+    Example {
+        title: "Picking a width",
+        prose: "Numbers in source default to `i64`. To use a smaller — or unsigned — \
+                width, write the explicit cast: `:as-i8`, `:as-u8`, `:as-i32`, and \
+                so on. Casts pop one integer and push it at the target width, with \
+                Rust's `as` semantics (sign-extend, zero-extend, truncate, \
+                reinterpret). Arithmetic is same-width — `i32 + i64` is a type \
+                error, by design — so the cast is where the width change is made \
+                visible. The width travels with the value: `[200u8]` is a `u8` \
+                whatever else is on the stack.",
+        program: "200 :as-u8 50 :as-u8 +",
+        stack: "[250u8]",
     },
 ];
 
