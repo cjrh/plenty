@@ -67,7 +67,7 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::lexer;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
-use crate::value::{Heap, StrId};
+use crate::value::{Heap, StrId, Value};
 
 // ---- Cranelift API reference ----
 //
@@ -208,11 +208,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// program runs to the end of `ops`.
 fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
     let isa = host_isa()?;
-    let builder = ObjectBuilder::new(
-        isa,
-        "plenty",
-        cranelift_module::default_libcall_names(),
-    )?;
+    let builder = ObjectBuilder::new(isa, "plenty", cranelift_module::default_libcall_names())?;
     let mut module = ObjectModule::new(builder);
 
     let runtime = declare_runtime(&mut module)?;
@@ -247,13 +243,27 @@ fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
     // is already declared.
     let names: Vec<String> = user_fns.keys().cloned().collect();
     for name in &names {
-        emit_user_function(name, &user_fns, &str_data, eof_empty_str, &runtime, &mut module)?;
+        emit_user_function(
+            name,
+            &user_fns,
+            &str_data,
+            eof_empty_str,
+            &runtime,
+            &mut module,
+        )?;
     }
 
     // Pass 3: emit `plenty_main`. Top-level `DefineFn`s are skipped
     // here — their bodies were emitted by Pass 2; at runtime a
     // definition is a no-op (it does not touch the data stack).
-    emit_main(ops, &user_fns, &str_data, eof_empty_str, &runtime, &mut module)?;
+    emit_main(
+        ops,
+        &user_fns,
+        &str_data,
+        eof_empty_str,
+        &runtime,
+        &mut module,
+    )?;
 
     let product = module.finish();
     let bytes = product.emit()?;
@@ -438,11 +448,7 @@ fn declare_eof_empty_str(module: &mut ObjectModule) -> Result<DataId> {
 /// Recursive helper for [`declare_str_data`]: emits `StrId`s in
 /// first-seen order, skipping duplicates so the same literal appearing
 /// in multiple places shares one data symbol.
-fn collect_str_ids(
-    ops: &[Op],
-    out: &mut Vec<StrId>,
-    seen: &mut HashMap<StrId, ()>,
-) {
+fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, ()>) {
     for op in ops {
         match op {
             Op::PushStr(id) if seen.insert(*id, ()).is_none() => out.push(*id),
@@ -515,7 +521,11 @@ fn collect_user_fns(
                 let id = module.declare_function(name, Linkage::Local, &cl_sig)?;
                 out.insert(
                     name.clone(),
-                    UserFn { id, sig: Rc::clone(&f.sig), body: Rc::clone(&f.body) },
+                    UserFn {
+                        id,
+                        sig: Rc::clone(&f.sig),
+                        body: Rc::clone(&f.body),
+                    },
                 );
                 collect_user_fns(&f.body, module, out)?;
             }
@@ -576,10 +586,7 @@ fn emit_user_function(
     let cl_sig = user_fn_signature(module, &decl.sig);
 
     let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(
-        UserFuncName::user(0, decl.id.as_u32()),
-        cl_sig,
-    );
+    ctx.func = Function::with_name_signature(UserFuncName::user(0, decl.id.as_u32()), cl_sig);
     let mut func_ctx = FunctionBuilderContext::new();
     {
         let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut func_ctx);
@@ -620,9 +627,9 @@ fn emit_user_function(
                 // tail), so this branch is defensive.
                 break;
             }
-            lower.lower(op).map_err(|e| -> Box<dyn Error> {
-                format!("in `{name}`: {e}").into()
-            })?;
+            lower
+                .lower(op)
+                .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         }
         if !lower.terminated {
             let returns: Vec<cranelift_codegen::ir::Value> =
@@ -659,10 +666,7 @@ fn emit_main(
     let main_id = module.declare_function("plenty_main", Linkage::Export, &main_sig)?;
 
     let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(
-        UserFuncName::user(0, main_id.as_u32()),
-        main_sig,
-    );
+    ctx.func = Function::with_name_signature(UserFuncName::user(0, main_id.as_u32()), main_sig);
     let mut func_ctx = FunctionBuilderContext::new();
     {
         let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut func_ctx);
@@ -709,6 +713,23 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::I32 | Ty::U32 => types::I32,
         Ty::I64 | Ty::U64 => types::I64,
         Ty::Str => PTR_TY,
+    }
+}
+
+/// Reinterpret an integer `Value` as the signed host integer Cranelift's
+/// `iconst` accepts. The destination CLIF type preserves the low bits, so this
+/// represents unsigned maxima such as `18446744073709551615u64` exactly.
+fn int_value_bits(value: Value) -> i64 {
+    match value {
+        Value::I8(n) => i64::from(n),
+        Value::I16(n) => i64::from(n),
+        Value::I32(n) => i64::from(n),
+        Value::I64(n) => n,
+        Value::U8(n) => i64::from(n),
+        Value::U16(n) => i64::from(n),
+        Value::U32(n) => i64::from(n),
+        Value::U64(n) => n as i64,
+        Value::Str(_) | Value::Bool(_) => panic!("non-integer literal in PushInt"),
     }
 }
 
@@ -782,9 +803,10 @@ struct Lowerer<'a, 'b> {
 impl Lowerer<'_, '_> {
     fn lower(&mut self, op: &Op) -> Result<()> {
         match op {
-            Op::PushInt(n) => {
-                let v = self.bcx.ins().iconst(types::I64, *n);
-                self.stack.push((v, Ty::I64));
+            Op::PushInt(value) => {
+                let ty = Ty::from(*value);
+                let v = self.bcx.ins().iconst(clif_type(ty), int_value_bits(*value));
+                self.stack.push((v, ty));
             }
             Op::PushBool(b) => {
                 let v = self.bcx.ins().iconst(types::I8, if *b { 1 } else { 0 });
@@ -803,6 +825,32 @@ impl Lowerer<'_, '_> {
                 let one = self.bcx.ins().iconst(types::I8, 1);
                 let neg = self.bcx.ins().bxor(v, one);
                 self.stack.push((neg, ty));
+            }
+            Op::Ne => self.lower_ne()?,
+            Op::Le => self.int_cmp(IntCC::SignedLessThanOrEqual, IntCC::UnsignedLessThanOrEqual)?,
+            Op::Ge => self.int_cmp(
+                IntCC::SignedGreaterThanOrEqual,
+                IntCC::UnsignedGreaterThanOrEqual,
+            )?,
+            Op::And => self.lower_bool_binop(true)?,
+            Op::Or => self.lower_bool_binop(false)?,
+            Op::Drop => {
+                self.stack.pop().ok_or("AOT: stack underflow on `drop`")?;
+            }
+            Op::Dup => {
+                let value = *self.stack.last().ok_or("AOT: stack underflow on `dup`")?;
+                self.stack.push(value);
+            }
+            Op::Swap => {
+                if self.stack.len() < 2 {
+                    return Err(format!(
+                        "AOT: stack underflow on `swap` (need 2 values, have {})",
+                        self.stack.len()
+                    )
+                    .into());
+                }
+                let len = self.stack.len();
+                self.stack.swap(len - 1, len - 2);
             }
             Op::Cast(target) => {
                 let (v, src) = self.stack.pop().ok_or("AOT: stack underflow on cast")?;
@@ -823,6 +871,7 @@ impl Lowerer<'_, '_> {
             Op::ReadLine => self.lower_readline()?,
             Op::Contains => self.lower_contains()?,
             Op::PrintLn => self.lower_println()?,
+            Op::Print => self.lower_print()?,
         }
         Ok(())
     }
@@ -862,8 +911,14 @@ impl Lowerer<'_, '_> {
     /// `plenty_contains` (a thin wrapper over `strstr`), push the
     /// returned `i8` as Plenty `Bool`.
     fn lower_contains(&mut self) -> Result<()> {
-        let needle = self.stack.pop().ok_or("AOT: stack underflow on :contains")?;
-        let hay = self.stack.pop().ok_or("AOT: stack underflow on :contains")?;
+        let needle = self
+            .stack
+            .pop()
+            .ok_or("AOT: stack underflow on :contains")?;
+        let hay = self
+            .stack
+            .pop()
+            .ok_or("AOT: stack underflow on :contains")?;
         debug_assert_eq!(hay.1, Ty::Str);
         debug_assert_eq!(needle.1, Ty::Str);
         let contains = self
@@ -885,6 +940,16 @@ impl Lowerer<'_, '_> {
             .module
             .declare_func_in_func(self.runtime.println, self.bcx.func);
         self.bcx.ins().call(println_fn, &[v]);
+        Ok(())
+    }
+
+    /// Lower `Op::Print`: pop and render one value with the same helper `.`
+    /// uses, but do not add brackets or a newline.
+    fn lower_print(&mut self) -> Result<()> {
+        let (value, ty) = self.stack.pop().ok_or("AOT: stack underflow on :print")?;
+        let printer = self.printer_for(ty);
+        let local = self.module.declare_func_in_func(printer, self.bcx.func);
+        self.bcx.ins().call(local, &[value]);
         Ok(())
     }
 
@@ -987,7 +1052,7 @@ impl Lowerer<'_, '_> {
         self.bcx.seal_block(after);
     }
 
-    /// Lower `<` / `>` with a signedness-aware `icmp` condition code.
+    /// Lower an integer ordering comparison with signedness-aware `icmp` codes.
     fn int_cmp(&mut self, signed: IntCC, unsigned: IntCC) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
         let cc = if is_signed(ty) { signed } else { unsigned };
@@ -1002,7 +1067,11 @@ impl Lowerer<'_, '_> {
     /// surfaces the bug loudly.
     fn pop_int_pair(
         &mut self,
-    ) -> Result<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value, Ty)> {
+    ) -> Result<(
+        cranelift_codegen::ir::Value,
+        cranelift_codegen::ir::Value,
+        Ty,
+    )> {
         let (b, b_ty) = self.stack.pop().ok_or("AOT: stack underflow")?;
         let (a, a_ty) = self.stack.pop().ok_or("AOT: stack underflow")?;
         if a_ty != b_ty || !a_ty.is_int() {
@@ -1014,7 +1083,11 @@ impl Lowerer<'_, '_> {
     /// Pop the top two values; their types must match but may be any.
     fn pop_pair(
         &mut self,
-    ) -> Result<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value, Ty)> {
+    ) -> Result<(
+        cranelift_codegen::ir::Value,
+        cranelift_codegen::ir::Value,
+        Ty,
+    )> {
         let (b, b_ty) = self.stack.pop().ok_or("AOT: stack underflow")?;
         let (a, a_ty) = self.stack.pop().ok_or("AOT: stack underflow")?;
         debug_assert_eq!(a_ty, b_ty);
@@ -1062,9 +1135,15 @@ impl Lowerer<'_, '_> {
         // Snapshot the stack so we don't iterate-and-mutate; printing
         // leaves the stack untouched (`.` doesn't pop in Plenty).
         let entries: Vec<StackEntry> = self.stack.clone();
-        let open = self.module.declare_func_in_func(self.runtime.print_open_bracket, self.bcx.func);
-        let close = self.module.declare_func_in_func(self.runtime.print_close_bracket, self.bcx.func);
-        let space = self.module.declare_func_in_func(self.runtime.print_space, self.bcx.func);
+        let open = self
+            .module
+            .declare_func_in_func(self.runtime.print_open_bracket, self.bcx.func);
+        let close = self
+            .module
+            .declare_func_in_func(self.runtime.print_close_bracket, self.bcx.func);
+        let space = self
+            .module
+            .declare_func_in_func(self.runtime.print_space, self.bcx.func);
         self.bcx.ins().call(open, &[]);
         for (i, (v, ty)) in entries.iter().enumerate() {
             if i > 0 {
@@ -1104,9 +1183,7 @@ impl Lowerer<'_, '_> {
             // walk missed an op variant.
             format!("AOT: PushStr({id:?}) without a declared data symbol").into()
         })?;
-        let gv = self
-            .module
-            .declare_data_in_func(data_id, self.bcx.func);
+        let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
         let addr = self.bcx.ins().global_value(PTR_TY, gv);
         self.stack.push((addr, Ty::Str));
         Ok(())
@@ -1135,11 +1212,17 @@ impl Lowerer<'_, '_> {
         self.lower_checked_arith(ArithKind::Add)
     }
 
-    /// Lower `Op::Eq`: same dispatch shape as [`lower_add`]. The
-    /// integer/Bool case uses `icmp eq` (already produces an `i8`);
-    /// the `Str Str` case calls `plenty_str_eq`, which returns an `i8`
-    /// 0/1 directly suitable as a Plenty Bool.
+    /// Lower equality and inequality. Strings use the runtime content
+    /// comparison; integers and Bools use CLIF's fixed-width `icmp`.
     fn lower_eq(&mut self) -> Result<()> {
+        self.lower_equality(IntCC::Equal, false)
+    }
+
+    fn lower_ne(&mut self) -> Result<()> {
+        self.lower_equality(IntCC::NotEqual, true)
+    }
+
+    fn lower_equality(&mut self, cc: IntCC, negate_string_result: bool) -> Result<()> {
         let len = self.stack.len();
         if len >= 2 && self.stack[len - 1].1 == Ty::Str && self.stack[len - 2].1 == Ty::Str {
             let b = self.stack.pop().expect("len >= 2").0;
@@ -1148,12 +1231,33 @@ impl Lowerer<'_, '_> {
                 .module
                 .declare_func_in_func(self.runtime.str_eq, self.bcx.func);
             let inst = self.bcx.ins().call(str_eq, &[a, b]);
-            let v = self.bcx.inst_results(inst)[0];
+            let eq = self.bcx.inst_results(inst)[0];
+            let v = if negate_string_result {
+                let one = self.bcx.ins().iconst(types::I8, 1);
+                self.bcx.ins().bxor(eq, one)
+            } else {
+                eq
+            };
             self.stack.push((v, Ty::Bool));
             return Ok(());
         }
         let (a, b, _) = self.pop_pair()?;
-        let v = self.bcx.ins().icmp(IntCC::Equal, a, b);
+        let v = self.bcx.ins().icmp(cc, a, b);
+        self.stack.push((v, Ty::Bool));
+        Ok(())
+    }
+
+    /// Lower strict Boolean `and` / `or`. Both values have already been
+    /// evaluated by the stack language, so these are bit operations rather
+    /// than short-circuit control flow.
+    fn lower_bool_binop(&mut self, and: bool) -> Result<()> {
+        let (b, _) = self.pop_typed(Ty::Bool)?;
+        let (a, _) = self.pop_typed(Ty::Bool)?;
+        let v = if and {
+            self.bcx.ins().band(a, b)
+        } else {
+            self.bcx.ins().bor(a, b)
+        };
         self.stack.push((v, Ty::Bool));
         Ok(())
     }
@@ -1178,15 +1282,15 @@ impl Lowerer<'_, '_> {
     /// Pop the inputs for a call to `name` from the compile-time stack,
     /// returning them in call order (deepest = position 0) along with
     /// the callee's declaration.
-    fn pop_call_args(&mut self, name: &str) -> Result<(&UserFn, Vec<cranelift_codegen::ir::Value>)> {
-        let decl = self
-            .user_fns
-            .get(name)
-            .ok_or_else(|| -> Box<dyn Error> {
-                // Should have been caught by `check_calls_resolve`; this
-                // is the defensive arm for direct-construction paths.
-                format!("AOT: undefined function `{name}`").into()
-            })?;
+    fn pop_call_args(
+        &mut self,
+        name: &str,
+    ) -> Result<(&UserFn, Vec<cranelift_codegen::ir::Value>)> {
+        let decl = self.user_fns.get(name).ok_or_else(|| -> Box<dyn Error> {
+            // Should have been caught by `check_calls_resolve`; this
+            // is the defensive arm for direct-construction paths.
+            format!("AOT: undefined function `{name}`").into()
+        })?;
         let n = decl.sig.inputs.len();
         if self.stack.len() < n {
             return Err(format!("AOT: stack underflow calling `{name}`").into());
@@ -1206,8 +1310,7 @@ impl Lowerer<'_, '_> {
         let func_id = decl.id;
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
         let inst = self.bcx.ins().call(funcref, &args);
-        let results: Vec<cranelift_codegen::ir::Value> =
-            self.bcx.inst_results(inst).to_vec();
+        let results: Vec<cranelift_codegen::ir::Value> = self.bcx.inst_results(inst).to_vec();
         debug_assert_eq!(results.len(), outputs.len());
         for (v, ty) in results.into_iter().zip(outputs) {
             self.stack.push((v, ty));
@@ -1251,8 +1354,7 @@ impl Lowerer<'_, '_> {
         // One block per arm body; arms are sealed once the dispatch
         // chain finishes emitting (each arm has exactly one predecessor,
         // the dispatch block that jumped to it).
-        let arm_blocks: Vec<Block> =
-            arms.iter().map(|_| self.bcx.create_block()).collect();
+        let arm_blocks: Vec<Block> = arms.iter().map(|_| self.bcx.create_block()).collect();
         let join_block = self.bcx.create_block();
 
         // --- Dispatch chain --------------------------------------------------
@@ -1280,15 +1382,15 @@ impl Lowerer<'_, '_> {
                     self.bcx.switch_to_block(next);
                     self.bcx.seal_block(next);
                 }
-                Pattern::Int(n) => {
-                    // Pattern literals are parsed as i64; `iconst` of a
-                    // smaller CLIF type truncates the upper bits — same
-                    // narrowing the interpreter's `pattern_matches` does
-                    // via `n as i8` / `as u8` / etc. The checker has
-                    // already rejected literals outside the scrutinee's
-                    // declared range, so truncation never changes the
-                    // user-intended value.
-                    let pat = self.bcx.ins().iconst(clif_type(scrut_ty), n);
+                Pattern::Int { value, .. } => {
+                    // The checker has already established that an untyped
+                    // pattern fits the scrutinee or that a typed pattern has
+                    // the same type. `iconst` therefore receives the exact
+                    // bit pattern to compare at the scrutinee's width.
+                    let pat = self
+                        .bcx
+                        .ins()
+                        .iconst(clif_type(scrut_ty), int_value_bits(value));
                     let eq = self.bcx.ins().icmp(IntCC::Equal, scrut, pat);
                     let next = self.bcx.create_block();
                     self.bcx.ins().brif(eq, arm_blocks[i], &[], next, &[]);
@@ -1300,14 +1402,14 @@ impl Lowerer<'_, '_> {
                     // does the byte-for-byte comparison and returns a
                     // Plenty Bool (`i8`). The data symbol for `id` was
                     // already declared by `declare_str_data`.
-                    let data_id =
-                        *self.str_data.get(&id).ok_or_else(|| -> Box<dyn Error> {
-                            format!("AOT: Pattern::Str({id:?}) without declared data").into()
-                        })?;
+                    let data_id = *self.str_data.get(&id).ok_or_else(|| -> Box<dyn Error> {
+                        format!("AOT: Pattern::Str({id:?}) without declared data").into()
+                    })?;
                     let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
                     let pat_addr = self.bcx.ins().global_value(PTR_TY, gv);
-                    let str_eq =
-                        self.module.declare_func_in_func(self.runtime.str_eq, self.bcx.func);
+                    let str_eq = self
+                        .module
+                        .declare_func_in_func(self.runtime.str_eq, self.bcx.func);
                     let call = self.bcx.ins().call(str_eq, &[scrut, pat_addr]);
                     let eq = self.bcx.inst_results(call)[0];
                     let next = self.bcx.create_block();
@@ -1323,9 +1425,7 @@ impl Lowerer<'_, '_> {
             // code under any well-formed source — emit a trap so
             // direct-VM-construction bugs surface loudly instead of
             // walking off the end of the function.
-            self.bcx
-                .ins()
-                .trap(TrapCode::unwrap_user(1));
+            self.bcx.ins().trap(TrapCode::unwrap_user(1));
         }
 
         // --- Arm bodies ------------------------------------------------------
@@ -1354,15 +1454,17 @@ impl Lowerer<'_, '_> {
             if join_param_types.is_none() {
                 let types: Vec<Ty> = self.stack.iter().map(|(_, t)| *t).collect();
                 for ty in &types {
-                    self.bcx
-                        .append_block_param(join_block, clif_type(*ty));
+                    self.bcx.append_block_param(join_block, clif_type(*ty));
                 }
                 join_param_types = Some(types);
             }
             // `jump` takes `&[BlockArg]`; every Plenty stack value is
             // an SSA `Value`, which converts via `BlockArg::Value(_)`.
-            let args: Vec<BlockArg> =
-                self.stack.iter().map(|(v, _)| BlockArg::Value(*v)).collect();
+            let args: Vec<BlockArg> = self
+                .stack
+                .iter()
+                .map(|(v, _)| BlockArg::Value(*v))
+                .collect();
             self.bcx.ins().jump(join_block, &args);
         }
 
@@ -1384,12 +1486,9 @@ impl Lowerer<'_, '_> {
             // Every arm tail-called; the join is unreachable. Emit a
             // trap to give the block a terminator and signal upward
             // that the surrounding context is also dead.
-            self.bcx
-                .ins()
-                .trap(TrapCode::unwrap_user(2));
+            self.bcx.ins().trap(TrapCode::unwrap_user(2));
             self.terminated = true;
         }
         Ok(())
     }
 }
-

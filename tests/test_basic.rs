@@ -92,7 +92,11 @@ fn cross_line_type_mismatches_are_still_caught_pre_execution() {
     vm.run("hello").unwrap();
     let before = vm.stack_repr();
     assert!(vm.run("+").is_err());
-    assert_eq!(vm.stack_repr(), before, "failed check must leave the stack untouched");
+    assert_eq!(
+        vm.stack_repr(),
+        before,
+        "failed check must leave the stack untouched"
+    );
 }
 
 #[test]
@@ -101,7 +105,8 @@ fn defining_a_function_leaves_the_stack_untouched() {
     // out at compile time, so values already on the stack are never disturbed.
     let mut vm = Vm::new();
     vm.run("99").unwrap();
-    vm.run(r#": double { x i64 -> i64 } "Double an int." x 2 * ;"#).unwrap();
+    vm.run(r#": double { x i64 -> i64 } "Double an int." x 2 * ;"#)
+        .unwrap();
     vm.run("21 :double").unwrap();
     assert_eq!(vm.stack_repr(), "[99i64 42i64]");
 }
@@ -121,7 +126,9 @@ fn function_sig_returns_the_captured_signature() {
     let mut vm = Vm::new();
     vm.run(r#": double { x i64 -> i64 } "Double an integer." x 2 * ;"#)
         .unwrap();
-    let sig = vm.function_sig("double").expect("function should be defined");
+    let sig = vm
+        .function_sig("double")
+        .expect("function should be defined");
     assert_eq!(sig.inputs, vec![("x".to_string(), Ty::I64)]);
     assert_eq!(sig.outputs, vec![Ty::I64]);
 }
@@ -129,17 +136,17 @@ fn function_sig_returns_the_captured_signature() {
 #[rstest]
 #[case(r#": noop { -> } "Does nothing." ;"#)] // empty inputs and outputs
 #[case(r#": zero { -> i64 } "Push zero." 0 ;"#)] // no inputs, one output
-#[case(r#": consume { x i64 -> } "Discard an int." ;"#)] // input, no outputs
+#[case(r#": consume { x i64 -> } "Discard an int." ;"#)]
+// input, no outputs
 // named outputs — placeholder body that produces two Ints (no `mod` op yet).
-#[case(
-    r#": divmod { a i64 b i64 -> q i64 r i64 } "Quot and rem (placeholder)." a b / a b / ;"#
-)]
-// Bool type — identity body, since there are no Bool literals or ops yet.
+#[case(r#": divmod { a i64 b i64 -> q i64 r i64 } "Quot and rem (placeholder)." a b / a b / ;"#)]
+// Bool type — identity body.
 #[case(r#": flip { x Bool -> Bool } "Identity, until ops exist." x ;"#)]
 #[case(r#": echo { s Str -> Str } "Identity for strings." s ;"#)] // Str type
 fn well_formed_type_headers_are_accepted(#[case] program: &str) {
     let mut vm = Vm::new();
-    vm.run(program).expect("header should parse and body should type-check");
+    vm.run(program)
+        .expect("header should parse and body should type-check");
 }
 
 #[rstest]
@@ -164,11 +171,87 @@ fn malformed_type_headers_are_rejected(#[case] program: &str) {
 }
 
 #[rstest]
-#[case(": double { x i64 -> i64 } 2 * ;")] // valid header, no docstring
-#[case(": double { x i64 -> i64 } ;")] // valid header, only ';' after
-fn missing_docstring_is_rejected(#[case] program: &str) {
+#[case(": double { x i64 -> i64 } x 2 * ; 21 :double", "[42i64]")] // no docstring
+#[case(": discard { x i64 -> } ; 7 :discard", "[]")] // no body either
+#[case(": literal { -> Str } \"\" \"value\" ; :literal", r#"["value"]"#)] // first body value is text
+fn docstrings_are_optional(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    assert!(vm.run(program).is_err());
+    vm.run(program).unwrap();
+    assert_eq!(vm.stack_repr(), expected);
+}
+
+#[test]
+fn an_absent_docstring_is_exposed_as_empty_metadata() {
+    let mut vm = Vm::new();
+    vm.run(": noop { -> } ;").unwrap();
+    assert_eq!(vm.function_doc("noop"), Some(""));
+}
+
+#[test]
+fn unknown_words_inside_function_bodies_are_rejected_but_quoted_text_is_allowed() {
+    let mut vm = Vm::new();
+    let err = vm
+        .run(r#": typo { -> Str } "A misspelled word." dlb ;"#)
+        .expect_err("bare words in function bodies must not silently become text");
+    assert!(err.to_string().contains("unknown word `dlb`"));
+
+    vm.run(r#": text { -> Str } "Returns text." "dlb" ; :text"#)
+        .unwrap();
+    assert_eq!(vm.stack_repr(), r#"["dlb"]"#);
+}
+
+#[test]
+fn reserved_function_names_and_invalid_input_names_are_rejected() {
+    let mut vm = Vm::new();
+    assert!(vm.run(r#": clear { -> } ;"#).is_err());
+    assert!(vm
+        .run(r#": bad { 2 i64 -> i64 } "Bad input name." 2 ;"#)
+        .is_err());
+    assert!(vm
+        .run(r#": bad { + i64 -> i64 } "Bad input name." + ;"#)
+        .is_err());
+    assert!(vm
+        .run(r#": bad { 1u8 i64 -> i64 } "Bad input name." 1u8 ;"#)
+        .is_err());
+    assert!(vm
+        .run(r#": bad { true Bool -> Bool } "Bad input name." true ;"#)
+        .is_err());
+}
+
+#[test]
+fn comments_dense_delimiters_and_optional_docs_work_together() {
+    let mut vm = Vm::new();
+    vm.run(
+        r#"
+        # Definitions can omit docstrings, and structural delimiters need no spaces.
+        : id{x i64 -> i64}x; # trailing comment
+        42 :id # comment to end of line
+        "#,
+    )
+    .unwrap();
+    assert_eq!(vm.stack_repr(), "[42i64]");
+
+    vm.run(r##""# not a comment""##).unwrap();
+    assert_eq!(vm.stack_repr(), r##"[42i64 "# not a comment"]"##);
+}
+
+#[test]
+fn stack_words_are_polymorphic() {
+    let mut vm = Vm::new();
+    vm.run(r#"1 true swap dup drop"#).unwrap();
+    assert_eq!(vm.stack_repr(), "[true 1i64]");
+}
+
+#[test]
+fn suffixed_integer_literals_preserve_their_width_and_range() {
+    let mut vm = Vm::new();
+    vm.run("255u8 -1i8 42i32 18446744073709551615u64").unwrap();
+    assert_eq!(
+        vm.stack_repr(),
+        "[255u8 -1i8 42i32 18446744073709551615u64]"
+    );
+    assert!(vm.run("256u8").is_err());
+    assert!(vm.run("-1u8").is_err());
 }
 
 #[rstest]
@@ -187,12 +270,6 @@ fn missing_docstring_is_rejected(#[case] program: &str) {
 #[case(
     r#": diff { a i64 b i64 -> i64 } "Subtract b from a." a b - ; 10 3 :diff"#,
     "[7i64]"
-)]
-// A bare word that doesn't match a local still pushes as text (§11's
-// existing fallback — locals just take precedence when the name matches).
-#[case(
-    r#": tag { n i64 -> Str } "Prefix n with a label." label ; 1 :tag"#,
-    r#"["label"]"#
 )]
 fn local_names_resolve_to_call_inputs(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
@@ -235,15 +312,19 @@ fn nested_calls_use_independent_locals_frames() {
 // Call to an undefined function — caught pre-execution.
 #[case(r#": bad { -> i64 } "Calls nothing." :no-such-fn ;"#)]
 // Call with wrong argument type.
-#[case(r#": id { x i64 -> i64 } "Identity." x ;
-          : bad { -> i64 } "Calls id with a Str." hello :id ;"#)]
+#[case(
+    r#": id { x i64 -> i64 } "Identity." x ;
+          : bad { -> i64 } "Calls id with a Str." hello :id ;"#
+)]
 // Top-level type error: `+` on mixed i64/Str.
 #[case(r#"1 hello +"#)]
 // Top-level type error: `*` on a Str.
 #[case(r#"hello 2 *"#)]
 fn type_errors_are_caught_before_execution(#[case] program: &str) {
     let mut vm = Vm::new();
-    let err = vm.run(program).expect_err("checker should reject this program");
+    let err = vm
+        .run(program)
+        .expect_err("checker should reject this program");
     // Smoke check that we got something usable — not a panic, not a runtime
     // surprise. Specific wording is tested elsewhere; here we only care
     // that the type pass rejected the source.
@@ -282,7 +363,11 @@ fn type_check_failure_leaves_the_vm_unchanged() {
         "#,
     );
     assert!(err.is_err(), "checker should reject the bad function");
-    assert_eq!(vm.stack_repr(), before, "stack must not change on a check failure");
+    assert_eq!(
+        vm.stack_repr(),
+        before,
+        "stack must not change on a check failure"
+    );
     assert_eq!(
         vm.function_names().len(),
         names_before,
@@ -303,12 +388,10 @@ fn type_check_failure_leaves_the_vm_unchanged() {
 #[case("-1 :as-i8 :as-u16 :as-i32", "[65535i32]")]
 // Cast literal directly to unsigned and add at the target width.
 #[case("100 :as-u8 100 :as-u8 +", "[200u8]")]
-fn cast_words_convert_integers_to_the_target_width(
-    #[case] program: &str,
-    #[case] expected: &str,
-) {
+fn cast_words_convert_integers_to_the_target_width(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).expect("cast program should type-check and run");
+    vm.run(program)
+        .expect("cast program should type-check and run");
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -323,7 +406,9 @@ fn cast_words_convert_integers_to_the_target_width(
 #[case("1 :as-i32 0 :as-i32 /")]
 fn checked_arithmetic_fires_at_the_target_width(#[case] program: &str) {
     let mut vm = Vm::new();
-    let err = vm.run(program).expect_err("arithmetic should fail at the target width");
+    let err = vm
+        .run(program)
+        .expect_err("arithmetic should fail at the target width");
     assert!(!err.to_string().is_empty());
 }
 
@@ -341,7 +426,9 @@ fn checked_arithmetic_fires_at_the_target_width(#[case] program: &str) {
 #[case("true :as-i8")]
 fn mixed_widths_are_rejected_at_check_time(#[case] program: &str) {
     let mut vm = Vm::new();
-    let err = vm.run(program).expect_err("checker should reject mixed widths or non-int casts");
+    let err = vm
+        .run(program)
+        .expect_err("checker should reject mixed widths or non-int casts");
     assert!(!err.to_string().is_empty());
 }
 
@@ -349,11 +436,11 @@ fn mixed_widths_are_rejected_at_check_time(#[case] program: &str) {
 fn function_signatures_can_use_any_integer_width() {
     use plenty::Ty;
     let mut vm = Vm::new();
-    vm.run(
-        r#": narrow { x i32 -> i8 } "Truncate to i8." x :as-i8 ; 300 :as-i32 :narrow"#,
-    )
-    .unwrap();
-    let sig = vm.function_sig("narrow").expect("function should be defined");
+    vm.run(r#": narrow { x i32 -> i8 } "Truncate to i8." x :as-i8 ; 300 :as-i32 :narrow"#)
+        .unwrap();
+    let sig = vm
+        .function_sig("narrow")
+        .expect("function should be defined");
     assert_eq!(sig.inputs, vec![("x".to_string(), Ty::I32)]);
     assert_eq!(sig.outputs, vec![Ty::I8]);
     assert_eq!(vm.stack_repr(), "[44i8]");

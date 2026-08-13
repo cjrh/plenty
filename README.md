@@ -87,7 +87,7 @@ Wrap text in double quotes to push it as a single string. Spaces, operators, and
 
 ### Functions
 
-Define a function with `: name { signature } "docstring" body... ;`. The signature lists inputs as `name Type` pairs, then `->`, then output types; `{ x i64 -> i64 }` reads as "takes one `i64` named `x`, leaves one `i64`". Inside the body, those input names refer to the values passed in — so the body can mention `x` instead of juggling the stack. The docstring describes what the function does. Both the signature and the docstring are mandatory — together they form the function's interface. Call the function by prefixing its name with a colon.
+Define a function with `: name { signature } ["docstring"] body... ;`. The signature lists inputs as `name Type` pairs, then `->`, then output types; `{ x i64 -> i64 }` reads as "takes one `i64` named `x`, leaves one `i64`". Inside the body, those input names refer to the values passed in — so the body can mention `x` instead of juggling the stack. A docstring is optional but, when present, must immediately follow the header. If a function starts by pushing text, write an empty docstring first: `"" "text"`. Call a function by prefixing its name with a colon.
 
 ```forth
 : double { x i64 -> i64 } "Double an integer." x 2 * ;
@@ -110,6 +110,20 @@ A function body may call other functions. Defining a function never disturbs the
 
 ```
 [12i64]
+```
+
+### Comments, compact delimiters, and small helpers
+
+`#` starts a comment through the next newline. `{`, `}`, `[`, `]`, and `;` do not need surrounding spaces. A function may omit its docstring. Inside a function, unknown bare words are errors, so write text as `"..."`.
+
+```forth
+# A compact definition with no docstring.
+: id{x i64 -> i64}x;
+42 :id
+```
+
+```
+[42i64]
 ```
 
 ### Named inputs replace stack juggling
@@ -194,33 +208,58 @@ Plenty has no `for` or `while`. A function that needs to repeat calls itself, an
 
 ### Picking a width
 
-Numbers in source default to `i64`. To use a smaller — or unsigned — width, write the explicit cast: `:as-i8`, `:as-u8`, `:as-i32`, and so on. Casts pop one integer and push it at the target width, with Rust's `as` semantics (sign-extend, zero-extend, truncate, reinterpret). Arithmetic is same-width — `i32 + i64` is a type error, by design — so the cast is where the width change is made visible. The width travels with the value: `[200u8]` is a `u8` whatever else is on the stack.
+Numbers in source default to `i64`. Add a suffix for a direct width: `200u8`, `-1i8`, or `42i32`. A suffixed literal must fit its type. Use an explicit cast — `:as-i8`, `:as-u8`, and so on — when you intentionally truncate or reinterpret a value. Arithmetic is same-width, so `i32 + i64` is a type error.
 
 ```forth
-200 :as-u8 50 :as-u8 +
+200u8 50u8 +
 ```
 
 ```
 [250u8]
 ```
 
+### Small stack operations
+
+`drop` discards the top value, `dup` copies it, and `swap` exchanges the top two values. They work on every type. Use them for small local adjustments; named function inputs stay clearer for larger work.
+
+```forth
+1 true swap dup drop
+```
+
+```
+[true 1i64]
+```
+
+### More comparisons and Boolean values
+
+`!=`, `<=`, and `>=` complete the comparison set. `and` and `or` combine already-evaluated `Bool` values; use `match` when one path must not run.
+
+```forth
+1 2 !=  2 2 <=  true false or
+```
+
+```
+[true true true]
+```
+
 <!-- END TUTORIAL -->
+
+### Output words
+
+- `.` prints the whole stack and leaves it unchanged. Use it to inspect state.
+- `:print` pops one value and renders it without a newline. For example,
+  `42 :print` writes `42i64`.
+- `:println` pops one `Str` and writes its raw bytes with a newline.
 
 ## Example: an AOT-compiled stdin filter
 
 The `:readline`, `:contains`, and `:println` words are the small I/O surface
-Plenty exposes. With them and tail recursion (DESIGN.md §11.8), a complete
-stream-filter program fits in a handful of definitions. The program below
-reads newline-delimited strings from stdin and writes back only the lines
+Plenty exposes. Together with `drop` and tail recursion (DESIGN.md §11.8), a
+complete stream-filter program fits in a handful of definitions. The program
+below reads newline-delimited strings from stdin and writes back only the lines
 containing the letter `m`.
 
 ```forth
-: drop-line { line Str -> }
-    "Discard a line. Needed because Plenty has no polymorphic drop word,
-     so the caller hands the unwanted value into a typed locals frame
-     where it is torn down with the frame."
-    ;
-
 : handle-line { line Str -> }
     "Print `line` to stdout if it contains the substring \"m\",
      otherwise drop it. The decision happens here so the recursion
@@ -238,7 +277,7 @@ containing the letter `m`.
      of the true arm."
     :readline match
         true  [ :handle-line :filter ]
-        false [ :drop-line ]
+        false [ drop ]
     end ;
 
 :filter

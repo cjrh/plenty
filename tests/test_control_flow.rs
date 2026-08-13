@@ -28,7 +28,8 @@ fn bool_literals_push_a_bool(#[case] program: &str, #[case] expected: &str) {
 #[test]
 fn a_function_can_return_a_bool_literal() {
     let mut vm = Vm::new();
-    vm.run(r#": yes { -> Bool } "Always true." true ;"#).unwrap();
+    vm.run(r#": yes { -> Bool } "Always true." true ;"#)
+        .unwrap();
     vm.run(":yes").unwrap();
     assert_eq!(vm.stack_repr(), "[true]");
 }
@@ -88,6 +89,24 @@ fn not_negates_a_bool(#[case] program: &str, #[case] expected: &str) {
     assert_eq!(vm.stack_repr(), expected);
 }
 
+#[rstest]
+#[case("1 2 !=", "[true]")]
+#[case("2 2 !=", "[false]")]
+#[case("1 2 <=", "[true]")]
+#[case("2 2 <=", "[true]")]
+#[case("3 2 <=", "[false]")]
+#[case("3 2 >=", "[true]")]
+#[case("2 2 >=", "[true]")]
+#[case("1 2 >=", "[false]")]
+#[case("true false and", "[false]")]
+#[case("true false or", "[true]")]
+#[case("true true and", "[true]")]
+fn additional_comparison_and_boolean_words_work(#[case] program: &str, #[case] expected: &str) {
+    let mut vm = Vm::new();
+    vm.run(program).unwrap();
+    assert_eq!(vm.stack_repr(), expected);
+}
+
 // --- Type errors on comparisons -------------------------------------------
 
 #[rstest]
@@ -100,9 +119,14 @@ fn not_negates_a_bool(#[case] program: &str, #[case] expected: &str) {
 #[case(r#""a" "b" <"#)]
 #[case("true false <")]
 #[case("1 true <")]
+#[case("1 true !=")]
+#[case("1 true <=")]
+#[case("1 true >=")]
 // `not` requires a Bool.
 #[case("1 not")]
 #[case(r#""x" not"#)]
+#[case("true 1 and")]
+#[case("true 1 or")]
 // Underflow on each.
 #[case("1 =")]
 #[case("1 <")]
@@ -185,6 +209,14 @@ fn match_on_int_uses_first_matching_arm() {
 }
 
 #[test]
+fn suffixed_integer_patterns_must_match_the_scrutinee_type() {
+    let mut vm = Vm::new();
+    vm.run("1u8 match 1u8 [ 42 ] _ [ 0 ] end").unwrap();
+    assert_eq!(vm.stack_repr(), "[42i64]");
+    assert!(vm.run("1u8 match 1i64 [ 42 ] _ [ 0 ] end").is_err());
+}
+
+#[test]
 fn match_on_int_without_wildcard_is_rejected() {
     let mut vm = Vm::new();
     let err = vm.run("3 match 0 [ 99 ] 1 [ 88 ] end").unwrap_err();
@@ -232,9 +264,7 @@ fn match_on_str_falls_through_to_wildcard() {
 #[test]
 fn match_on_str_without_wildcard_is_rejected() {
     let mut vm = Vm::new();
-    let err = vm
-        .run(r#""hi" match "hi" [ 1 ] end"#)
-        .unwrap_err();
+    let err = vm.run(r#""hi" match "hi" [ 1 ] end"#).unwrap_err();
     assert!(err.to_string().contains("non-exhaustive"));
 }
 

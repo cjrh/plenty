@@ -20,7 +20,11 @@ fn plenty_bin() -> &'static str {
 fn write_tempfile(source: &str, label: &str) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nonce = format!("{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed));
+    let nonce = format!(
+        "{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     let path = std::env::temp_dir().join(format!("plenty-test-{label}-{nonce}.plenty"));
     let mut f = std::fs::File::create(&path).expect("create tempfile");
     f.write_all(source.as_bytes()).expect("write tempfile");
@@ -30,7 +34,10 @@ fn write_tempfile(source: &str, label: &str) -> std::path::PathBuf {
 #[test]
 fn a_well_formed_program_runs_to_completion_and_prints_via_dot() {
     let path = write_tempfile("1 2 + .\n", "happy");
-    let out = Command::new(plenty_bin()).arg(&path).output().expect("spawn");
+    let out = Command::new(plenty_bin())
+        .arg(&path)
+        .output()
+        .expect("spawn");
     let _ = std::fs::remove_file(&path);
 
     assert!(
@@ -51,11 +58,35 @@ fn defining_and_calling_a_function_works_from_a_file() {
         "#,
         "fndef",
     );
-    let out = Command::new(plenty_bin()).arg(&path).output().expect("spawn");
+    let out = Command::new(plenty_bin())
+        .arg(&path)
+        .output()
+        .expect("spawn");
     let _ = std::fs::remove_file(&path);
 
-    assert!(out.status.success(), "stderr: {:?}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {:?}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[42i64]");
+}
+
+#[test]
+fn print_consumes_and_renders_one_value_without_a_newline() {
+    let path = write_tempfile(r#"1 :print "x" :print true :print"#, "print");
+    let out = Command::new(plenty_bin())
+        .arg(&path)
+        .output()
+        .expect("spawn");
+    let _ = std::fs::remove_file(&path);
+
+    assert!(
+        out.status.success(),
+        "stderr: {:?}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "1i64\"x\"true");
 }
 
 #[test]
@@ -63,7 +94,10 @@ fn a_type_error_exits_nonzero_with_a_diagnostic() {
     // `+` on mixed Int and Str is rejected by the type checker before any
     // op runs, so we expect no stdout output and an `error:` line.
     let path = write_tempfile("1 hello + .\n", "type-error");
-    let out = Command::new(plenty_bin()).arg(&path).output().expect("spawn");
+    let out = Command::new(plenty_bin())
+        .arg(&path)
+        .output()
+        .expect("spawn");
     let _ = std::fs::remove_file(&path);
 
     assert!(!out.status.success(), "type error should exit non-zero");
@@ -89,10 +123,16 @@ fn a_missing_file_exits_nonzero_with_a_diagnostic() {
 #[test]
 fn the_help_flag_prints_usage_and_exits_zero() {
     for flag in ["-h", "--help"] {
-        let out = Command::new(plenty_bin()).arg(flag).output().expect("spawn");
+        let out = Command::new(plenty_bin())
+            .arg(flag)
+            .output()
+            .expect("spawn");
         assert!(out.status.success(), "`{flag}` should exit zero");
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("Usage: plenty"), "{flag}: stdout was {stdout:?}");
+        assert!(
+            stdout.contains("Usage: plenty"),
+            "{flag}: stdout was {stdout:?}"
+        );
     }
 }
 

@@ -228,10 +228,13 @@ This keeps `Tok` `Copy` and the lexer allocation-free.
 pub fn lex(source: &str) -> Result<Vec<Tok<'_>>>;
 ```
 
-Whitespace separates words. A `"` opens a string literal that runs to the next
-unescaped `"`, capturing everything between verbatim — newlines, spaces, and
-operator characters all included. Inside the literal, `\X` consumes both
-characters without interpreting them, so `\"` does not close the string.
+Whitespace separates words. `#` starts a comment through the next newline.
+`{`, `}`, `[`, `]`, and `;` are standalone structural words even without
+surrounding whitespace. A `"` opens a string literal that runs to the next
+unescaped `"`, capturing everything between verbatim — newlines, spaces,
+comment markers, and operator characters all included. Inside the literal,
+`\X` consumes both characters without interpreting them, so `\"` does not
+close the string.
 
 The only lex error is an **unterminated string literal**: a `"` with no
 matching close quote before end of input. Every other source string is
@@ -242,6 +245,8 @@ Behaviour by source form:
 | Source                              | Emits                              |
 |--------------------------------------|------------------------------------|
 | `"..."`                              | `Tok::Text(inner_slice)`           |
+| `# ...`                              | nothing through the next newline   |
+| `{` `}` `[` `]` `;`                  | one `Tok::Word` each               |
 | any other whitespace-bounded run     | `Tok::Word(run)`                   |
 | `"` with no matching close quote     | error: unterminated string literal |
 
@@ -265,12 +270,13 @@ pub struct FnSig {
 }
 
 pub enum Op {
-    PushInt(i64),
+    PushInt(Value),                // always an integer; retains literal width
     PushStr(StrId),                // literal already interned into the heap
     PushBool(bool),                // `true` / `false` literal
     Add, Sub, Mul, Div,
-    Eq, Lt, Gt,                    // comparisons (Bool result)
-    Not,                           // boolean negation
+    Eq, Ne, Lt, Le, Gt, Ge,        // comparisons (Bool result)
+    Not, And, Or,                  // Boolean operations
+    Drop, Dup, Swap,               // polymorphic stack-shape operations
     Display,                       // the `.` word
     Clear,                         // the `:clear` word
     DefineFn(String, CompiledFn),  // bind name -> compiled function
@@ -279,6 +285,7 @@ pub enum Op {
     LoadLocal(u8),                 // push the i-th input of the active call
     Match(Rc<[MatchArm]>),         // structured branch (§11.8)
     Cast(Ty),                      // integer width conversion (§11.2)
+    ReadLine, Contains, PrintLn, Print,
 }
 
 pub struct MatchArm {
@@ -287,7 +294,7 @@ pub struct MatchArm {
 }
 
 pub enum Pattern {
-    Int(i64),
+    Int { value: Value, explicit_ty: bool },
     Str(StrId),
     Bool(bool),
     Wildcard,
@@ -361,17 +368,21 @@ enum Stop { EndOfInput, Semicolon }
   - `Text` → intern into the heap, emit `PushStr`.
   - end of input with `stop == Semicolon` → error: `':' has no matching ';'`.
 - `compile_definition(&mut self) -> Result<Op>` — called with `pos` on the name
-  token (just past `:`). The four parts, in order: **name**, **type header**,
-  **docstring**, **body**. Each is mandatory; missing or malformed parts are
-  compile errors with a name-bearing message.
-  - *Name.* A `Word` other than `:` or `;`. A `Text` literal or a missing
-    token is an error.
+  token (just past `:`). The parts, in order, are **name**, **type header**, an
+  optional **docstring**, and **body**. Malformed mandatory parts are compile
+  errors with a name-bearing message.
+  - *Name.* A non-reserved `Word` other than `:` or `;`. A `Text` literal or a
+    missing token is an error. Names such as `clear`, `as-u8`, `readline`,
+    `contains`, `println`, and `print` are reserved because their `:name`
+    spelling already selects a builtin.
   - *Type header.* `compile_sig` consumes `{ name Type ... -> Type ... }`
     (§11.2). The `->` is required; both sides may be empty. Output names
-    are accepted but discarded — outputs are stored as bare `Ty`s.
-  - *Docstring.* A `Tok::Text` immediately after the header. Escapes are
-    decoded via `unescape` and the result is stored as an `Rc<str>`.
-  - *Body.* `compile_seq(Stop::Semicolon)`.
+    are accepted but discarded — outputs are stored as bare `Ty`s. Input names
+    cannot be integers, operators, or `:`-prefixed words.
+  - *Docstring.* A `Tok::Text` immediately after the header is captured,
+    unescaped, as an `Rc<str>`. When absent, `doc` is the empty string.
+  - *Body.* `compile_seq(Stop::Semicolon)`. Inside a body, an unresolved bare
+    word is an error; write text as `"..."`.
   Returns `Op::DefineFn(name, CompiledFn { sig, doc, body })`.
 
 - `compile_sig(&mut self, fn_name: &str) -> Result<FnSig>` — parses one
@@ -397,13 +408,20 @@ A bare `Tok::Word` inside `compile_seq` is resolved in two steps:
 
    | Word form                       | Result                                    |
    |---------------------------------|-------------------------------------------|
-   | parses as `i64`                 | `Op::PushInt(n)`                          |
+   | integer literal, e.g. `42`, `255u8` | `Op::PushInt(Value)`                  |
    | `+` `-` `*` `/`                 | `Op::Add` / `Sub` / `Mul` / `Div`         |
+   | `=` `!=` `<` `<=` `>` `>=`      | comparison op                             |
+   | `not` `and` `or`                | Boolean op                                |
+   | `drop` `dup` `swap`             | polymorphic stack-shape op                |
    | `.`                             | `Op::Display`                             |
    | `:clear`                        | `Op::Clear`                               |
    | `:as-i8` ... `:as-u64`          | `Op::Cast(Ty::...)` — integer width cast  |
+   | `:readline` `:contains` `:println` `:print` | I/O op                      |
    | `:name` (any other `:`-prefix)  | `Op::Call(name)`                          |
-   | anything else                   | `Op::PushStr(intern(word))` — bare text   |
+   | anything else at top level      | `Op::PushStr(intern(word))` — bare text   |
+
+   The last fallback is unavailable inside function bodies: an unresolved
+   word there is a compile error, so text is always explicit.
 
 ### `compile_word` (private)
 
@@ -544,10 +562,13 @@ One op-dispatch:
 | `PushInt`/`PushStr`/`PushBool` | push the value                                                  |
 | `Add`              | `add` — polymorphic over `(T, T)` and `(Str, Str)`                      |
 | `Sub`/`Mul`/`Div`  | `int_binop` with `checked_*` arithmetic                                     |
-| `Eq`/`Lt`/`Gt`     | pop two, compare, push a `Bool` (`Eq` polymorphic; `Lt`/`Gt` integer-only)      |
-| `Not`              | pop a `Bool`, push its negation                                             |
+| `Eq`/`Ne`          | pop two same-typed values, compare, push a `Bool`                           |
+| `Lt`/`Le`/`Gt`/`Ge`| pop two same-width integers, compare, push a `Bool`                         |
+| `Not`/`And`/`Or`   | strict Boolean operations                                                   |
+| `Drop`/`Dup`/`Swap`| remove, copy, or exchange generic stack slots                               |
 | `Display`          | `println!` the `stack_repr`                                                 |
 | `Clear`            | clear the data stack                                                        |
+| `PrintLn`/`Print`  | raw newline-terminated String output / one rendered value                   |
 | `DefineFn(n,f)`    | `functions.insert(n.clone(), f.clone())` — **stack untouched**              |
 | `Call(n)`          | drain the callee's inputs into a new locals frame, push a Call frame        |
 | `TailCall(n)`      | pop block frames + the enclosing Call frame, then push the replacement      |
@@ -614,27 +635,30 @@ combination is an error. `-`, `*`, `/` are integer-only.
 
 ### Numbers
 
-The integer type is `i64`. Overflow is an **error**, not a panic or a wrap
-(all arithmetic uses `checked_*`). Division by zero is an error.
+An unsuffixed integer literal is `i64`. A literal may instead declare its
+width directly: `255u8`, `-1i8`, and `42i32`. A suffixed literal must fit its
+target type; use an explicit cast for intentional narrowing or reinterpretation.
+Overflow is an **error**, not a panic or a wrap (all arithmetic uses
+`checked_*`). Division by zero is an error.
 
 ### Text
 
-A bare word that is not a number, an operator, or a `:`-prefixed word is text.
-A double-quoted string `"..."` is also text, and is the only way to write text
-containing whitespace or characters that would otherwise be read as operators.
-Inside `"..."`, `\"` and `\\` are the only escape sequences recognised; any
-other `\X` is a compile error. `+` concatenates text.
+At top level, a bare word that is not a number, an operator, or a `:`-prefixed
+word is text. Inside a function body, unresolved bare words are errors, so all
+text must be quoted. A double-quoted string `"..."` is the only way to write
+text containing whitespace or characters that would otherwise be read as
+operators. Inside `"..."`, `\"` and `\\` are the only escape sequences
+recognised; any other `\X` is a compile error. `+` concatenates text.
 
 ### Functions
 
-- Defined with `: name { sig } "docstring" body... ;`. All four parts are
-  mandatory (§11.2 for the header, §11.7 for the docstring). The compiler
-  rejects any definition that omits or malforms one of them with a
+- Defined with `: name { sig } ["docstring"] body... ;`. The type header is
+  mandatory; the docstring is optional but, when present, must immediately
+  follow the header. The compiler rejects a malformed definition with a
   name-bearing error. Definition is a **compile-time** construct: the body
-  is carved out of the token stream and compiled to a nested `Rc<[Op]>`;
-  the signature is parsed into an `FnSig` and stored as an `Rc<FnSig>`;
-  the docstring is decoded once and stored as an `Rc<str>`. All three live
-  inside the `CompiledFn` that `Op::DefineFn` carries.
+  is carved out of the token stream and compiled to a nested `Rc<[Op]>`; the
+  signature is parsed into an `FnSig` and stored as an `Rc<FnSig>`; an optional
+  docstring is decoded once and stored as an `Rc<str>` (empty when absent).
   **Defining a function never touches the runtime stack.**
 - Definitions nest (`: outer { ... } "..." ... : inner { ... } "..." ... ; ... ;`),
   handled by the recursion in `compile_seq`/`compile_definition`.
@@ -660,9 +684,10 @@ corresponding value onto the data stack.
   as `1 2 :f` enters the body with no `a`/`b` on the data stack and with
   `locals = [..., 1, 2]`; `a` and `b` are how the body reaches them.
 - A bare word inside a body that *matches* an input name compiles to
-  `Op::LoadLocal(index)`. A bare word that does not match any input falls
-  through to the existing word resolution (§6) — numbers parse, operators
-  dispatch, `:name` calls, and unknown bare words still push as text.
+  `Op::LoadLocal(index)`. A bare word that does not match an input still may
+  be a number, builtin, operator, or `:name` call. Any other bare word is a
+  compile error; quote text explicitly. This prevents misspelled locals and
+  calls from silently becoming strings.
 - Scope is the *innermost* function body only. A nested `: ... ;` inside
   another definition has its own locals; the inner body cannot see the
   outer's. The compiler enforces this by only consulting the topmost entry
@@ -723,15 +748,20 @@ host ulimit. There are no `for`, `while`, or `do` words.
 | Word           | Effect                                                                 |
 |----------------|------------------------------------------------------------------------|
 | `+ - * /`      | binary arithmetic (`+` also concatenates text)                         |
-| `= < >`        | comparisons; push a `Bool` (`=` is polymorphic; `< >` are integer-only)    |
-| `not`          | pop a `Bool`, push its negation                                        |
+| `= != < <= > >=` | comparisons; `=`/`!=` are polymorphic; ordering is integer-only      |
+| `not` `and` `or` | strict Boolean operations                                             |
+| `drop` `dup` `swap` | remove, copy, or exchange stack values, of any type                 |
 | `true` `false` | push the `Bool` literal                                                |
 | `match … end`  | dispatch on the top-of-stack value (§11.8)                             |
 | `[ … ]`        | compile-time block — only valid as a match-arm body (§11.8)            |
 | `_`            | wildcard pattern (in match-arm position only)                          |
 | `.`            | print the whole stack (does **not** pop)                               |
+| `:print`       | pop and render one value, without a newline                            |
+| `:println`     | pop a `Str` and write it raw, with a newline                           |
+| `:readline`    | push `(Str Bool)`: line and got-a-line?                                |
+| `:contains`    | pop `(Str Str)`, push whether the first contains the second            |
 | `:clear`       | discard every value on the stack                                       |
-| `: name { sig } "doc" body ;` | define a function with mandatory header and docstring   |
+| `: name { sig } ["doc"] body ;` | define a function; docstring optional                 |
 | `:name`        | call the function `name`                                               |
 
 ## 9. Error handling
@@ -753,9 +783,10 @@ host ulimit. There are no `for`, `while`, or `do` words.
 - Error categories:
   - **Lexing**: unterminated string literal (`"` with no matching close
     quote).
-  - **Compilation**: malformed definitions (unmatched `:`/`;`, missing
-    or non-word function name, missing header, missing docstring),
-    invalid escape sequences inside `"..."`, function with more than
+  - **Compilation**: malformed definitions (unmatched `:`/`;`, missing or
+    reserved function name, missing header, invalid input name), invalid escape
+    sequences inside `"..."`, invalid or out-of-range suffixed integer
+    literals, unknown words inside function bodies, function with more than
     `u8::MAX` inputs.
   - **Type checking** (§11.6): stack underflow in a body, type mismatch
     on an op's inputs, mismatch between a body's actual end-of-body
@@ -780,8 +811,8 @@ host ulimit. There are no `for`, `while`, or `do` words.
 ### `tests/test_basic.rs`
 
 Representation-independent regression tests: arithmetic, `"..."` string
-literals, function definition with mandatory header and docstring,
-function-scoped named locals, type-error rejection (bodies that don't
+literals, comments, optional function docstrings, function-scoped named
+locals, type-error rejection (bodies that don't
 match their declared sigs, mismatched calls, mixed-type `+`), and the
 `size_of::<Value>() <= 16` invariant. Assertions are made against
 `stack_repr` / `function_names`, never against internal Debug output.
@@ -1049,11 +1080,12 @@ two places:
   silent-promotion class of bugs and matches what the AOT backend will
   emit at the IR level anyway.
 
-**Integer literals are `i64`.** Numbers written in source — `42`, `-7`,
-`0` — push as `i64`. Smaller widths are reached *only* via an explicit
-cast word: `255 :as-u8`, `-1 :as-i8`. The hard rule beats per-literal
-type suffixes (`42i8`, `0u32`) on the metric §11.2 cares about — one
-form to learn, no special syntax in the lexer.
+**Integer literals default to `i64`, with direct width suffixes.** Numbers
+written as `42`, `-7`, or `0` push as `i64`. A suffix selects another width:
+`255u8`, `-1i8`, `42i32`. A suffixed literal must fit the stated type; this
+makes accidental truncation impossible at the source site. Cast words remain
+for the distinct job of intentional truncation or signedness reinterpretation
+(e.g. `-1 :as-u8`).
 
 **Explicit casts.** Eight cast words convert between integer widths:
 `:as-i8`, `:as-i16`, `:as-i32`, `:as-i64`, `:as-u8`, `:as-u16`,
@@ -1071,9 +1103,12 @@ implicit conversion.
 - `+`, `-`, `*`, `/` require **same-width integers** (or `Str Str` for
   `+`, which concatenates). The output has the same width as the
   operands.
-- `<`, `>` require same-width integers, output `Bool`.
-- `=` accepts any pair of the same type (integer-of-any-width, `Str`,
-  `Bool`), output `Bool`.
+- `<`, `<=`, `>`, `>=` require same-width integers, output `Bool`.
+- `=` and `!=` accept any pair of the same type (integer-of-any-width,
+  `Str`, `Bool`), output `Bool`.
+- `not`, `and`, and `or` operate on `Bool`. `and` and `or` are strict:
+  both values have already been evaluated; use `match` for short-circuit
+  control flow.
 
 **Rendering.** Integer values print with their width suffix
 (`42i64`, `255u8`, `-1i8`); `Bool` prints as `true`/`false`; `Str` is
@@ -1090,11 +1125,11 @@ that clear.
   need to introspect.
 - **Monomorphic in user code.** Parametric polymorphism, row types,
   effects, and other rich features are non-goals for the first pass.
-  Polymorphic *builtins* (`dup`, `swap`, `drop`, `over`, `rot`) get their
-  stack effects from the compiler's builtin table — a side channel — so
-  the surface language stays free of type variables. If user-defined
-  polymorphism turns out to be necessary later, that decision reopens; it
-  does not need to be made now.
+  Polymorphic *builtins* (`drop`, `dup`, `swap`) get their stack effects
+  from the compiler's builtin table — a side channel — so the surface stays
+  free of type variables. `over` and `rot` remain deliberately absent. If
+  user-defined polymorphism becomes necessary later, that decision reopens;
+  it does not need to be made now.
 - **Inference where it pays for itself.** Inference is local to a body,
   not whole-program. The body need not be annotated; the header must be.
 
@@ -1255,9 +1290,9 @@ of truth, and the abstract stack is derived from it once per `run`.
 
 ### 11.7 Documentation and string literals
 
-A function's interface is its signature *and* its docstring. Tools — LSP
-hover, generated docs, REPL `help` — depend on both being present; §11.3's
-"type signatures double as interfaces" assumes the docstring half exists.
+A function's signature is its required interface. A docstring is optional
+metadata for LSP hover, generated docs, and REPL help. The signature remains
+useful on its own for short private helpers.
 
 **Surface syntax.** A new lexical form `"..."` is Plenty's string literal.
 Between an unescaped `"` and the next unescaped `"`, every character is
@@ -1277,13 +1312,10 @@ content.
 anywhere a string appears in source. There is no separate "docstring
 string" form versus "value string" form.
 
-**Three rules that hold without exception.**
+**Two rules hold without exception.**
 
-1. **Every function definition carries a docstring.** A function without
-   one is a compile error. The docstring is part of the interface; the
-   interface is mandatory.
-2. **The docstring's position is fixed.** It is the third part of every
-   definition, between the type header and the body:
+1. **A docstring, when present, has a fixed position.** It is immediately
+   after the type header and before the body:
 
    ```forth
    : hypot { a i64 b i64 -> ... }
@@ -1291,10 +1323,12 @@ string" form versus "value string" form.
        a a * b b * + sqrt ;
    ```
 
-   No other position is legal.
-3. **The docstring is captured into function metadata at compile time.**
-   It is consumed by the compiler as part of the function definition; it
-   does not appear on the runtime stack and does not execute.
+   A function may omit it entirely. Because the position is unambiguous, a
+   function whose first body value is text writes an empty docstring first:
+   `: f { -> Str } "" "value" ;`.
+2. **A docstring is captured into function metadata at compile time.** It is
+   consumed by the compiler; it does not appear on the runtime stack or
+   execute. A function without one has empty doc metadata.
 
 **Retiring the backtick literal forms.** Both the literal run
 `` ` ... ~ `` and the single-word prefix `` `word `` are superseded by
@@ -1303,12 +1337,12 @@ two forms for the same concept is the kind of fluidity §11 explicitly
 wants to avoid. The `~` word goes back to being an ordinary word, the
 same as any other.
 
-**Designed for the LSP, generated docs, and `help`.** All three want one
-thing: given a function name, return its signature and docstring. With
-this design, the docstring is one lexer token at one source position,
-captured by the compiler as one owned `String` per function. Tools that
-link the Plenty crate get it trivially; tools that re-implement parsing
-have only a few simple rules to mirror.
+**Designed for the LSP, generated docs, and `help`.** Tools can return a
+function signature and, when supplied, its docstring. The docstring is one
+lexer token at one fixed source position, captured as one owned `String` per
+function (empty when absent). Tools that link the Plenty crate get it
+trivially; tools that re-implement parsing have only a few simple rules to
+mirror.
 
 ### 11.8 Control flow — one branching primitive, recursion for iteration
 
@@ -1427,15 +1461,13 @@ them; the arm-body compilation path already inherits the enclosing
 function's locals scope, and pattern binders just push onto it for the
 arm's duration.
 
-**Comparison and Boolean vocabulary.** `=`, `<`, `>` are comparison
-ops; `not` is boolean negation. `=` is polymorphic over the equality
-types (`T T -> Bool (any integer width)`, `Str Str -> Bool`, `Bool Bool -> Bool`); `<`
-and `>` are `(T T -> Bool (any integer width))`. Additional comparisons (`!=`, `<=`,
-`>=`) and boolean operators (`and`, `or`) are open — not committed
-direction, not deliberately omitted, just not on the immediate path.
-There is no short-circuit semantics: both operands of `and`/`or` (if
-they land) are values already on the stack. Short-circuit dispatch is
-what `match` is for.
+**Comparison and Boolean vocabulary.** `=`, `!=`, `<`, `<=`, `>`, `>=`
+are comparison ops; `not`, `and`, and `or` are Boolean operations. `=` and
+`!=` are polymorphic over the equality types (`T T -> Bool (any integer
+width)`, `Str Str -> Bool`, `Bool Bool -> Bool`); ordering is `(T T -> Bool
+(any integer width))`. There is no short-circuit semantics: both operands of
+`and` and `or` are values already on the stack. Short-circuit dispatch is what
+`match` is for.
 
 ## 12. Known limitations and open questions
 
@@ -1548,14 +1580,10 @@ open.
    prints usage. The binary is the only entry point that distinguishes
    the two modes; the `Vm` itself is unchanged. AOT (§12.3) is the
    remaining piece in the file-driven path.
-5. **No comment syntax.** **(direction)** §11.7 commits docstrings + the
-   unified `"..."` string literal, and the implementation now lands them:
-   `"..."` is the canonical string form, backtick literals are retired,
-   docstrings are mandatory on every function definition, and the captured
-   doc is exposed via `Vm::function_doc`. A separate comment syntax —
-   throwaway text the compiler discards, e.g. `#` to end of line — is
-   still open. Until that lands, everything in a source file that is not
-   a docstring or a string value is significant.
+5. **Comments — implemented.** `#` starts a comment through the next
+   newline, except inside `"..."` strings. It is discarded by the lexer.
+   Docstrings are optional metadata; when present, they remain available
+   through `Vm::function_doc`.
 6. **Function-scoped named locals — implemented.** **(direction)** §11.5
    is in: every input declared in the header is in scope for the whole
    body and reached by writing its name. `Op::Call` drains the inputs into
@@ -1563,8 +1591,10 @@ open.
    back onto the data stack.
 7. **No arrays.** `Value` has design room for `Arr(ArrId)`, but arrays are not
    implemented. They need a real surface syntax and a heap-backed array store.
-8. **`.` semantics undecided.** Plenty's `.` prints the entire stack without
-   popping; classic Forth `.` pops and prints only the top. Pick one.
+8. **Output semantics — settled.** `.` prints the entire stack without
+   popping and is the inspection word. `:print` pops and renders one value
+   without a newline; `:println` remains the raw-string, newline-terminated
+   output word.
 9. **Function names are owned `String`s** in `Op::Call` and `Op::DefineFn`, and
    `String` keys in the dictionary. They could be interned (`StrId`) for
    compactness and faster lookup.
@@ -1583,17 +1613,10 @@ open.
     `i8`..`i64` and `u8`..`u64` as the integer vocabulary, with no
     polymorphic `Int`. Arithmetic, comparison, and equality require
     same-width operands; explicit cast words (`:as-i8` ... `:as-u64`)
-    convert between widths with Rust-`as` semantics. Integer literals
-    default to `i64`; other widths are reached only via a cast. The
-    deferred piece is **floating point** — `f32`/`f64` and their
-    arithmetic, equality (NaN handling), printing, and parsing — kept
-    out of this pass to bound the change.
-13. **Literal width suffixes.** Integer literals are always `i64`; you
-    cannot write `42u8` or `0i32` directly. The hard rule was chosen
-    over per-literal suffixes (one form to learn, no special lexer
-    syntax), but it makes short snippets verbose
-    (`255 :as-u8` for what could be `255u8`). Adding suffixes later is
-    a small, additive change if usage shows the cost is real.
+    convert between widths with Rust-`as` semantics. Unsuffixed literals
+    default to `i64`; suffixed literals such as `42u8` must fit their
+    declared width. The deferred piece is **floating point** — `f32`/`f64`
+    and their arithmetic, equality (NaN handling), printing, and parsing.
 13. **Embedding API is implicit.** Hosts get `Vm::new` / `Vm::run` /
     `Vm::stack_repr`, but there is no typed push/pop or way to register a host
     function. §11.1 implies this surface will grow; the shape is open.
@@ -1609,31 +1632,16 @@ open.
     `match` patterns with payload binders (`Ok x [ ... ]` binding `x`
     as a local scoped to the arm body) — both flagged by §11.8 as the
     natural next step.
-15. **Bare-word-as-text typo safety.** A bare word in body code that
-    isn't a builtin, operator, number, `:name` call, or local still
-    pushes as text (§6 word resolution). A typo like `dlb` (for `dbl`)
-    silently produces the string `"dlb"`; the type checker then
-    complains about a `Str` where some other type was expected —
-    technically correct, but misleading. The clean fix is to make an
-    unresolved name a compile error inside a function body. Not yet
-    committed; tracked here so the rough edge isn't forgotten.
-16. **Input-name slot accepts numbers and operators.** The header
-    parser binds whatever `Tok::Word` it finds in an input-name
-    position, so `{ 2 i64 -> i64 }` treats `2` as a name and the body
-    that mentions `2` would load that local instead of pushing two.
-    `{ + T T -> T (any integer width) }` is the same problem with an operator
-    character. The simple rule "input names must not parse as `i64`
-    and must not be one of `+ - * /`" would foreclose this with
-    almost no implementation cost.
-17. **Bool literals and comparison operators — implemented.**
-    **(direction)** §11.2 named `Bool` as a base type and §11.8
-    committed `match` as its consumer. Both have landed: `true` and
-    `false` are literals, `=`/`<`/`>` are the comparison ops, `not`
-    negates a `Bool`. `=` is polymorphic over the equality types
-    (`T T -> Bool (any integer width)`, `Str Str -> Bool`, `Bool Bool -> Bool`);
-    `<`/`>` are `(T T -> Bool (any integer width))`. Further comparisons (`!=`,
-    `<=`, `>=`) and boolean operators (`and`, `or`) are open per
-    §11.8's last paragraph — uncommitted but unblocked.
+15. **Bare-word typo safety — implemented.** In a function body, a word
+    that is not a builtin, operator, number, `:name` call, or local is a
+    compile error. Top-level bare words remain text for REPL convenience.
+16. **Input-name validation — implemented.** Input names cannot be integer
+    literals, builtins, operators, or `:`-prefixed words. This prevents
+    literals, calls, and keywords from being shadowed by locals.
+17. **Boolean and comparison vocabulary — implemented.** `true` and `false`
+    are literals; `=`/`!=` compare same-typed scalar values; `<`/`<=`/`>`/`>=`
+    compare same-width integers; `not`, `and`, and `or` operate on Bool.
+    `and` and `or` are strict, not short-circuiting.
 18. **Control flow — implemented.** **(direction)** §11.8 is in:
     `match` with bracketed arms is the single branching primitive,
     iteration is recursion plus mandatory TCO (see also §12.11),

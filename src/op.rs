@@ -121,8 +121,9 @@ pub struct FnSig {
 /// A single instruction for the Plenty VM.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
-    /// Push an integer literal onto the stack.
-    PushInt(i64),
+    /// Push an integer literal onto the stack. The payload is always an
+    /// integer `Value`; retaining its width makes suffixed literals direct.
+    PushInt(Value),
     /// Push a string literal — already stored in the heap — onto the stack.
     PushStr(StrId),
     /// Push a `Bool` literal onto the stack (`true` / `false`).
@@ -145,6 +146,22 @@ pub enum Op {
     Gt,
     /// Pop a `Bool`; push its negation.
     Not,
+    /// Pop two same-typed values; push whether they differ.
+    Ne,
+    /// Pop two same-width integers; push whether the first is at most the second.
+    Le,
+    /// Pop two same-width integers; push whether the first is at least the second.
+    Ge,
+    /// Pop two `Bool`s; push their strict conjunction.
+    And,
+    /// Pop two `Bool`s; push their strict disjunction.
+    Or,
+    /// Remove the top value, whatever its type.
+    Drop,
+    /// Copy the top value, whatever its type.
+    Dup,
+    /// Exchange the top two values, whatever their types.
+    Swap,
     /// Print the whole stack — the `.` word.
     Display,
     /// Discard every value on the stack.
@@ -189,11 +206,13 @@ pub enum Op {
     /// (`strstr` semantics in the AOT runtime, `str::contains` in the
     /// interpreter — both byte-equivalent for valid UTF-8).
     Contains,
-    /// Pop one string; write it to stdout followed by a `\n`. The bytes
-    /// go through verbatim — no quoting, no escaping, no surrounding
-    /// brackets. This is the bare-text output primitive; `.` remains
-    /// the introspection word that prints the whole stack.
+    /// Pop one string; write its bytes to stdout followed by a `\n`.
+    /// This is the bare-text output primitive; `.` remains the stack
+    /// introspection word.
     PrintLn,
+    /// Pop one value of any type and render it without a newline. The
+    /// rendering matches one entry in the `.` stack display.
+    Print,
 }
 
 /// One arm of a [`Op::Match`]. The pattern is matched against the popped
@@ -210,7 +229,13 @@ pub struct MatchArm {
 /// until sum types themselves land (§12.14).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Pattern {
-    Int(i64),
+    /// An integer pattern. Unsuffixed literals retain the historic `i64`
+    /// spelling and may match a narrower scrutinee when they fit; a suffixed
+    /// literal must have exactly the scrutinee's type.
+    Int {
+        value: Value,
+        explicit_ty: bool,
+    },
     Str(StrId),
     Bool(bool),
     Wildcard,
@@ -235,8 +260,13 @@ pub struct CompiledFn {
 /// source and, recursively, for function bodies, so it depends on nothing but
 /// the `Heap`.
 pub fn compile(toks: &[Tok], heap: &mut Heap) -> Result<Vec<Op>> {
-    Compiler { toks, pos: 0, heap, local_scopes: Vec::new() }
-        .compile_seq(Stop::EndOfInput)
+    Compiler {
+        toks,
+        pos: 0,
+        heap,
+        local_scopes: Vec::new(),
+    }
+    .compile_seq(Stop::EndOfInput)
 }
 
 /// What ends the run of tokens a [`Compiler::compile_seq`] call is reading.
@@ -288,7 +318,16 @@ impl Compiler<'_, '_> {
                 Tok::Word(":") => ops.push(self.compile_definition()?),
                 Tok::Word(w) => match self.lookup_local(w) {
                     Some(ix) => ops.push(Op::LoadLocal(ix)),
-                    None => ops.push(compile_word(w, self.heap)?),
+                    None => {
+                        let op = compile_word(w, self.heap)?;
+                        if !self.local_scopes.is_empty() && matches!(op, Op::PushStr(_)) {
+                            return Err(format!(
+                                "unknown word `{w}` in a function body; quote text as \"{w}\""
+                            )
+                            .into());
+                        }
+                        ops.push(op);
+                    }
                 },
                 Tok::Text(s) => ops.push(Op::PushStr(self.heap.add_str(unescape(s)?))),
             }
@@ -323,6 +362,9 @@ impl Compiler<'_, '_> {
             }
         };
         self.pos += 1;
+        if is_reserved_function_name(&name) {
+            return Err(format!("function name `{name}` is reserved for a builtin word").into());
+        }
         let sig: Rc<FnSig> = self.compile_sig(&name)?.into();
         if sig.inputs.len() > u8::MAX as usize {
             return Err(format!(
@@ -333,18 +375,14 @@ impl Compiler<'_, '_> {
             )
             .into());
         }
+        // A docstring is optional. When present, it must immediately follow
+        // the header, so tools can still identify it without parsing a body.
         let doc: Rc<str> = match self.toks.get(self.pos).copied() {
             Some(Tok::Text(s)) => {
                 self.pos += 1;
                 unescape(s)?.into()
             }
-            Some(_) | None => {
-                return Err(format!(
-                    "function `{name}` is missing a docstring \
-                     (expected \"...\" after the type header)"
-                )
-                .into())
-            }
+            Some(_) | None => "".into(),
         };
         // The input names are in scope for the duration of the body. Pushing
         // a fresh scope per definition is what gives nested definitions their
@@ -359,7 +397,14 @@ impl Compiler<'_, '_> {
         // we can identify "last op in body / last op in last match arm" purely
         // structurally.
         mark_tail_calls(&mut body);
-        Ok(Op::DefineFn(name, CompiledFn { sig, doc, body: body.into() }))
+        Ok(Op::DefineFn(
+            name,
+            CompiledFn {
+                sig,
+                doc,
+                body: body.into(),
+            },
+        ))
     }
 
     /// Compile a `match PATTERN [ BODY ] PATTERN [ BODY ] ... end` dispatch.
@@ -400,7 +445,10 @@ impl Compiler<'_, '_> {
             }
             // Body, up to the matching `]`. `compile_seq` consumes the `]`.
             let body = self.compile_seq(Stop::CloseBracket)?;
-            arms.push(MatchArm { pattern, body: body.into() });
+            arms.push(MatchArm {
+                pattern,
+                body: body.into(),
+            });
         }
         if arms.is_empty() {
             return Err("`match` requires at least one arm".into());
@@ -448,6 +496,12 @@ impl Compiler<'_, '_> {
                     .into())
                 }
                 Some(Tok::Word(w)) if !w.is_empty() => {
+                    if !is_valid_input_name(w) {
+                        return Err(format!(
+                            "function `{fn_name}` type header: `{w}` is not a valid input name"
+                        )
+                        .into());
+                    }
                     self.pos += 1;
                     let ty = self.consume_type(fn_name)?;
                     inputs.push((w.to_string(), ty));
@@ -533,6 +587,87 @@ fn parse_type(w: &str) -> Option<Ty> {
     }
 }
 
+/// A parsed integer literal. `explicit_ty` distinguishes `1` (which may
+/// match any integer type when in range) from `1i64` (which matches `i64`
+/// only). The distinction matters only in match patterns.
+#[derive(Clone, Copy)]
+struct IntLiteral {
+    value: Value,
+    explicit_ty: bool,
+}
+
+/// Parse an integer literal. Unsuffixed literals are `i64`; suffixed literals
+/// use their declared type and must fit it. This makes `255u8` direct while
+/// preserving `:as-u8` for explicit narrowing and reinterpretation.
+fn parse_integer_literal(word: &str) -> Result<Option<IntLiteral>> {
+    if let Ok(n) = word.parse::<i64>() {
+        return Ok(Some(IntLiteral {
+            value: Value::I64(n),
+            explicit_ty: false,
+        }));
+    }
+
+    for (suffix, ty) in [
+        ("i8", Ty::I8),
+        ("i16", Ty::I16),
+        ("i32", Ty::I32),
+        ("i64", Ty::I64),
+        ("u8", Ty::U8),
+        ("u16", Ty::U16),
+        ("u32", Ty::U32),
+        ("u64", Ty::U64),
+    ] {
+        let Some(digits) = word.strip_suffix(suffix) else {
+            continue;
+        };
+        let starts_numeric =
+            digits.starts_with('-') || digits.as_bytes().first().is_some_and(u8::is_ascii_digit);
+        if !starts_numeric {
+            continue;
+        }
+        let value = match ty {
+            Ty::I8 => digits
+                .parse::<i8>()
+                .map(Value::I8)
+                .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
+            Ty::I16 => digits
+                .parse::<i16>()
+                .map(Value::I16)
+                .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
+            Ty::I32 => digits
+                .parse::<i32>()
+                .map(Value::I32)
+                .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
+            Ty::I64 => digits
+                .parse::<i64>()
+                .map(Value::I64)
+                .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
+            Ty::U8 => digits
+                .parse::<u8>()
+                .map(Value::U8)
+                .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
+            Ty::U16 => digits
+                .parse::<u16>()
+                .map(Value::U16)
+                .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
+            Ty::U32 => digits
+                .parse::<u32>()
+                .map(Value::U32)
+                .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
+            Ty::U64 => digits
+                .parse::<u64>()
+                .map(Value::U64)
+                .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
+            Ty::Str | Ty::Bool => unreachable!("only integer suffixes are listed"),
+        };
+        return Ok(Some(IntLiteral {
+            value,
+            explicit_ty: true,
+        }));
+    }
+    Ok(None)
+}
+
 /// Parse a match-arm pattern from a bare word. Numbers parse as `Pattern::Int`,
 /// `true`/`false` as `Pattern::Bool`, `_` as `Pattern::Wildcard`. A pattern
 /// must be a literal or a wildcard — never an arbitrary word.
@@ -546,8 +681,11 @@ fn parse_pattern_word(w: &str) -> Result<Pattern> {
     if w == "false" {
         return Ok(Pattern::Bool(false));
     }
-    if let Ok(n) = w.parse::<i64>() {
-        return Ok(Pattern::Int(n));
+    if let Some(lit) = parse_integer_literal(w)? {
+        return Ok(Pattern::Int {
+            value: lit.value,
+            explicit_ty: lit.explicit_ty,
+        });
     }
     Err(format!(
         "match-arm pattern `{w}` is not a recognised literal \
@@ -579,10 +717,10 @@ fn unescape(raw: &str) -> Result<String> {
 }
 
 /// Resolve a single ordinary word — never `:` or `;`, which the caller handles
-/// — into a number, a built-in, a function call (`:name`), or bare text.
+/// — into a number, a builtin, a function call (`:name`), or top-level text.
 fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
-    if let Ok(n) = word.parse::<i64>() {
-        return Ok(Op::PushInt(n));
+    if let Some(lit) = parse_integer_literal(word)? {
+        return Ok(Op::PushInt(lit.value));
     }
     Ok(match word {
         "true" => Op::PushBool(true),
@@ -594,7 +732,15 @@ fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
         "=" => Op::Eq,
         "<" => Op::Lt,
         ">" => Op::Gt,
+        "!=" => Op::Ne,
+        "<=" => Op::Le,
+        ">=" => Op::Ge,
         "not" => Op::Not,
+        "and" => Op::And,
+        "or" => Op::Or,
+        "drop" => Op::Drop,
+        "dup" => Op::Dup,
+        "swap" => Op::Swap,
         "." => Op::Display,
         ":clear" => Op::Clear,
         ":as-i8" => Op::Cast(Ty::I8),
@@ -608,11 +754,65 @@ fn compile_word(word: &str, heap: &mut Heap) -> Result<Op> {
         ":readline" => Op::ReadLine,
         ":contains" => Op::Contains,
         ":println" => Op::PrintLn,
+        ":print" => Op::Print,
         _ => match word.strip_prefix(':') {
-            Some(name) => Op::Call(name.to_string()),
-            None => Op::PushStr(heap.add_str(word.to_string())),
+            Some(name) if !name.is_empty() => Op::Call(name.to_string()),
+            _ => Op::PushStr(heap.add_str(word.to_string())),
         },
     })
+}
+
+/// Names whose `:name` call spelling is already owned by a builtin. Rejecting
+/// matching definitions prevents a function that can never be called.
+fn is_reserved_function_name(name: &str) -> bool {
+    matches!(
+        name,
+        "clear"
+            | "as-i8"
+            | "as-i16"
+            | "as-i32"
+            | "as-i64"
+            | "as-u8"
+            | "as-u16"
+            | "as-u32"
+            | "as-u64"
+            | "readline"
+            | "contains"
+            | "println"
+            | "print"
+    )
+}
+
+/// Input names are ordinary identifiers, not literals, operators, or call
+/// spellings. This prevents `{ 2 i64 -> ... }` from turning `2` in a body
+/// into a local load instead of an integer literal.
+fn is_valid_input_name(name: &str) -> bool {
+    !matches!(parse_integer_literal(name), Ok(Some(_)) | Err(_))
+        && !matches!(
+            name,
+            "true"
+                | "false"
+                | "match"
+                | "end"
+                | "not"
+                | "and"
+                | "or"
+                | "drop"
+                | "dup"
+                | "swap"
+                | "+"
+                | "-"
+                | "*"
+                | "/"
+                | "="
+                | "!="
+                | "<"
+                | "<="
+                | ">"
+                | ">="
+                | "."
+        )
+        && !name.starts_with(':')
 }
 
 // --- tail-call detection (§11.8) -------------------------------------------
@@ -642,7 +842,10 @@ fn mark_tail_calls(body: &mut [Op]) {
                 .map(|arm| {
                     let mut new_body: Vec<Op> = arm.body.iter().cloned().collect();
                     mark_tail_calls(&mut new_body);
-                    MatchArm { pattern: arm.pattern, body: new_body.into() }
+                    MatchArm {
+                        pattern: arm.pattern,
+                        body: new_body.into(),
+                    }
                 })
                 .collect();
             *arms = new_arms.into();
@@ -732,11 +935,9 @@ fn step(
     sigs: &HashMap<String, Rc<FnSig>>,
 ) -> Result<()> {
     match op {
-        // Integer literals always start out as `i64`; widths other than
-        // that are reached via an explicit `:as-*` cast (§11.2). This is
-        // the hard rule chosen over per-literal type suffixes: one width
-        // for every number written in source, no special syntax to learn.
-        Op::PushInt(_) => stack.push(Ty::I64),
+        // Unsuffixed integer literals are `i64`; a suffix records its chosen
+        // width directly in the `Value` carried by the operation.
+        Op::PushInt(value) => stack.push(Ty::from(*value)),
         Op::PushStr(_) => stack.push(Ty::Str),
         Op::PushBool(_) => stack.push(Ty::Bool),
         Op::Add => {
@@ -759,10 +960,9 @@ fn step(
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;
             if a != b {
-                return Err(format!(
-                    "`=` requires both operands of the same type, got ({a} {b})"
-                )
-                .into());
+                return Err(
+                    format!("`=` requires both operands of the same type, got ({a} {b})").into(),
+                );
             }
             stack.push(Ty::Bool);
         }
@@ -774,6 +974,43 @@ fn step(
                 return Err(format!("`not` requires Bool, got {top}").into());
             }
             stack.push(Ty::Bool);
+        }
+        Op::Ne => {
+            let (a, b) = pop2(stack, "!=")?;
+            if a != b {
+                return Err(
+                    format!("`!=` requires both operands of the same type, got ({a} {b})").into(),
+                );
+            }
+            stack.push(Ty::Bool);
+        }
+        Op::Le => cmp_int(stack, "<=")?,
+        Op::Ge => cmp_int(stack, ">=")?,
+        Op::And | Op::Or => {
+            let label = if matches!(op, Op::And) { "and" } else { "or" };
+            let (a, b) = pop2(stack, label)?;
+            if a != Ty::Bool || b != Ty::Bool {
+                return Err(format!("`{label}` requires (Bool Bool), got ({a} {b})").into());
+            }
+            stack.push(Ty::Bool);
+        }
+        Op::Drop => {
+            stack.pop().ok_or("stack underflow on `drop`")?;
+        }
+        Op::Dup => {
+            let top = *stack.last().ok_or("stack underflow on `dup`")?;
+            stack.push(top);
+        }
+        Op::Swap => {
+            if stack.len() < 2 {
+                return Err(format!(
+                    "stack underflow on `swap` (need 2 values, have {})",
+                    stack.len()
+                )
+                .into());
+            }
+            let len = stack.len();
+            stack.swap(len - 1, len - 2);
         }
         Op::Display => {}
         Op::Clear => stack.clear(),
@@ -789,10 +1026,9 @@ fn step(
         Op::Cast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;
             if !top.is_int() {
-                return Err(format!(
-                    "cast `:as-{target}` requires an integer source, got {top}"
-                )
-                .into());
+                return Err(
+                    format!("cast `:as-{target}` requires an integer source, got {top}").into(),
+                );
             }
             stack.push(*target);
         }
@@ -803,10 +1039,7 @@ fn step(
         Op::Contains => {
             let (a, b) = pop2(stack, ":contains")?;
             if a != Ty::Str || b != Ty::Str {
-                return Err(format!(
-                    "`:contains` requires (Str Str), got ({a} {b})"
-                )
-                .into());
+                return Err(format!("`:contains` requires (Str Str), got ({a} {b})").into());
             }
             stack.push(Ty::Bool);
         }
@@ -815,6 +1048,9 @@ fn step(
             if top != Ty::Str {
                 return Err(format!("`:println` requires Str, got {top}").into());
             }
+        }
+        Op::Print => {
+            stack.pop().ok_or("stack underflow on `:print`")?;
         }
     }
     Ok(())
@@ -842,23 +1078,17 @@ fn pop2(stack: &mut Vec<Ty>, op_label: &str) -> Result<(Ty, Ty)> {
 fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
     if !a.is_int() || a != b {
-        return Err(format!(
-            "`{op_label}` requires same-width integers, got ({a} {b})"
-        )
-        .into());
+        return Err(format!("`{op_label}` requires same-width integers, got ({a} {b})").into());
     }
     stack.push(a);
     Ok(())
 }
 
-/// Stack effect for `<` / `>`: same-width integers in, Bool out.
+/// Stack effect for integer ordering: same-width integers in, Bool out.
 fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
     if !a.is_int() || a != b {
-        return Err(format!(
-            "`{op_label}` requires same-width integers, got ({a} {b})"
-        )
-        .into());
+        return Err(format!("`{op_label}` requires same-width integers, got ({a} {b})").into());
     }
     stack.push(Ty::Bool);
     Ok(())
@@ -867,11 +1097,7 @@ fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
 /// Stack effect for a `Call(name)`: verify the top of the stack matches
 /// the function's declared inputs in declaration order, then replace them
 /// with the declared outputs.
-fn check_call(
-    name: &str,
-    stack: &mut Vec<Ty>,
-    sigs: &HashMap<String, Rc<FnSig>>,
-) -> Result<()> {
+fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Rc<FnSig>>) -> Result<()> {
     let sig = sigs
         .get(name)
         .ok_or_else(|| format!("call to undefined function `{name}`"))?;
@@ -932,14 +1158,27 @@ fn check_match(
             (_, Pattern::Wildcard) => true,
             (Ty::Str, Pattern::Str(_)) => true,
             (Ty::Bool, Pattern::Bool(_)) => true,
-            (t, Pattern::Int(n)) if t.is_int() => {
-                let (lo, hi) = t.int_range().expect("integer types have a range");
-                let n = n as i128;
-                if n < lo || n >= hi {
-                    return Err(format!(
-                        "pattern literal {n} is out of range for {matched_ty}"
-                    )
-                    .into());
+            (t, Pattern::Int { value, explicit_ty }) if t.is_int() => {
+                let pattern_ty = Ty::from(value);
+                if explicit_ty {
+                    if pattern_ty != t {
+                        return Err(format!(
+                            "pattern literal has type {pattern_ty}, but the matched type is {matched_ty}"
+                        )
+                        .into());
+                    }
+                } else {
+                    let Value::I64(n) = value else {
+                        unreachable!("unsuffixed integer patterns are i64")
+                    };
+                    let (lo, hi) = t.int_range().expect("integer types have a range");
+                    let n = n as i128;
+                    if n < lo || n >= hi {
+                        return Err(format!(
+                            "pattern literal {n} is out of range for {matched_ty}"
+                        )
+                        .into());
+                    }
                 }
                 true
             }
@@ -962,16 +1201,19 @@ fn check_match(
     let exhaustive = match matched_ty {
         Ty::Bool => {
             has_wildcard
-                || (arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(true)))
-                    && arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(false))))
+                || (arms
+                    .iter()
+                    .any(|a| matches!(a.pattern, Pattern::Bool(true)))
+                    && arms
+                        .iter()
+                        .any(|a| matches!(a.pattern, Pattern::Bool(false))))
         }
         _ => has_wildcard,
     };
     if !exhaustive {
-        return Err(format!(
-            "non-exhaustive `match` on {matched_ty} (add the missing arm or `_`)"
-        )
-        .into());
+        return Err(
+            format!("non-exhaustive `match` on {matched_ty} (add the missing arm or `_`)").into(),
+        );
     }
 
     // Check every arm body against a fresh copy of the abstract stack;

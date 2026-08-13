@@ -1,9 +1,3 @@
-: drop-line { line Str -> }
-    "Discard a line. Needed because Plenty has no polymorphic drop word,
-     so the caller hands the unwanted value into a typed locals frame
-     where it is torn down with the frame."
-    ;
-
 : handle-line { line Str -> }
     "Print `line` to stdout if it contains the substring \"m\",
      otherwise drop it. The decision happens here so the recursion
@@ -21,7 +15,7 @@
      of the true arm."
     :readline match
         true  [ :handle-line :filter ]
-        false [ :drop-line ]
+        false [ drop ]
     end ;
 
 :filter

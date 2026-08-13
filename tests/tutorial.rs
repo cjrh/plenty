@@ -70,15 +70,15 @@ const EXAMPLES: &[Example] = &[
     },
     Example {
         title: "Functions",
-        prose: "Define a function with `: name { signature } \"docstring\" \
+        prose: "Define a function with `: name { signature } [\"docstring\"] \
                 body... ;`. The signature lists inputs as `name Type` pairs, \
                 then `->`, then output types; `{ x i64 -> i64 }` reads as \
                 \"takes one `i64` named `x`, leaves one `i64`\". Inside the \
                 body, those input names refer to the values passed in — so \
-                the body can mention `x` instead of juggling the stack. The \
-                docstring describes what the function does. Both the \
-                signature and the docstring are mandatory — together they \
-                form the function's interface. Call the function by \
+                the body can mention `x` instead of juggling the stack. A \
+                docstring is optional but, when present, must immediately \
+                follow the header. If a function starts by pushing text, write \
+                an empty docstring first: `\"\" \"text\"`. Call a function by \
                 prefixing its name with a colon.",
         program: ": double { x i64 -> i64 } \"Double an integer.\" x 2 * ;\n\
                   5 :double",
@@ -92,6 +92,17 @@ const EXAMPLES: &[Example] = &[
                   : quad { x i64 -> i64 } \"Multiply by four.\" x :double :double ;\n\
                   3 :quad",
         stack: "[12i64]",
+    },
+    Example {
+        title: "Comments, compact delimiters, and small helpers",
+        prose: "`#` starts a comment through the next newline. `{`, `}`, `[`, \
+                `]`, and `;` do not need surrounding spaces. A function may \
+                omit its docstring. Inside a function, unknown bare words are \
+                errors, so write text as `\"...\"`.",
+        program: "# A compact definition with no docstring.\n\
+                  : id{x i64 -> i64}x;\n\
+                  42 :id",
+        stack: "[42i64]",
     },
     Example {
         title: "Named inputs replace stack juggling",
@@ -174,16 +185,30 @@ const EXAMPLES: &[Example] = &[
     },
     Example {
         title: "Picking a width",
-        prose: "Numbers in source default to `i64`. To use a smaller — or unsigned — \
-                width, write the explicit cast: `:as-i8`, `:as-u8`, `:as-i32`, and \
-                so on. Casts pop one integer and push it at the target width, with \
-                Rust's `as` semantics (sign-extend, zero-extend, truncate, \
-                reinterpret). Arithmetic is same-width — `i32 + i64` is a type \
-                error, by design — so the cast is where the width change is made \
-                visible. The width travels with the value: `[200u8]` is a `u8` \
-                whatever else is on the stack.",
-        program: "200 :as-u8 50 :as-u8 +",
+        prose: "Numbers in source default to `i64`. Add a suffix for a direct \
+                width: `200u8`, `-1i8`, or `42i32`. A suffixed literal must fit \
+                its type. Use an explicit cast — `:as-i8`, `:as-u8`, and so on \
+                — when you intentionally truncate or reinterpret a value. \
+                Arithmetic is same-width, so `i32 + i64` is a type error.",
+        program: "200u8 50u8 +",
         stack: "[250u8]",
+    },
+    Example {
+        title: "Small stack operations",
+        prose: "`drop` discards the top value, `dup` copies it, and `swap` \
+                exchanges the top two values. They work on every type. Use \
+                them for small local adjustments; named function inputs stay \
+                clearer for larger work.",
+        program: "1 true swap dup drop",
+        stack: "[true 1i64]",
+    },
+    Example {
+        title: "More comparisons and Boolean values",
+        prose: "`!=`, `<=`, and `>=` complete the comparison set. `and` and \
+                `or` combine already-evaluated `Bool` values; use `match` when \
+                one path must not run.",
+        program: "1 2 !=  2 2 <=  true false or",
+        stack: "[true true true]",
     },
 ];
 
@@ -231,7 +256,12 @@ fn splice_tutorial(readme: &str, generated: &str) -> String {
         end >= after_begin_line,
         "README.md TUTORIAL markers are in the wrong order",
     );
-    format!("{}{}{}", &readme[..after_begin_line], generated, &readme[end..])
+    format!(
+        "{}{}{}",
+        &readme[..after_begin_line],
+        generated,
+        &readme[end..]
+    )
 }
 
 /// Verifies every tutorial example and keeps the README tutorial section in
