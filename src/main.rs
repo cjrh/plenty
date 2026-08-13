@@ -55,8 +55,52 @@ const PROMPT: &str = "---> ";
 /// Words to offer for tab completion that are *not* in the runtime
 /// function dictionary — builtins, operators, keywords, type names.
 const STATIC_WORDS: &[&str] = &[
-    "true", "false", "match", "end", "not", "Int", "Str", "Bool", ".", "+", "-", "*", "/", "=",
-    "<", ">", ":clear", "exit", "quit",
+    "true",
+    "false",
+    "match",
+    "end",
+    "not",
+    "and",
+    "or",
+    "drop",
+    "dup",
+    "swap",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "Str",
+    "Bool",
+    ".",
+    "+",
+    "-",
+    "*",
+    "/",
+    "=",
+    "!=",
+    "<",
+    ">",
+    "<=",
+    ">=",
+    ":clear",
+    ":as-i8",
+    ":as-i16",
+    ":as-i32",
+    ":as-i64",
+    ":as-u8",
+    ":as-u16",
+    ":as-u32",
+    ":as-u64",
+    ":readline",
+    ":contains",
+    ":println",
+    ":print",
+    "exit",
+    "quit",
 ];
 
 #[derive(Helper, Highlighter, Hinter)]
@@ -116,18 +160,27 @@ impl Completer for PlentyHelper {
             for name in &self.fn_names {
                 if name.starts_with(rest) {
                     let s = format!(":{name}");
-                    out.push(Pair { display: s.clone(), replacement: s });
+                    out.push(Pair {
+                        display: s.clone(),
+                        replacement: s,
+                    });
                 }
             }
             for w in STATIC_WORDS.iter().filter(|w| w.starts_with(':')) {
                 if w[1..].starts_with(rest) {
-                    out.push(Pair { display: (*w).into(), replacement: (*w).into() });
+                    out.push(Pair {
+                        display: (*w).into(),
+                        replacement: (*w).into(),
+                    });
                 }
             }
         } else if !prefix.is_empty() {
             for w in STATIC_WORDS.iter().filter(|w| !w.starts_with(':')) {
                 if w.starts_with(prefix) {
-                    out.push(Pair { display: (*w).into(), replacement: (*w).into() });
+                    out.push(Pair {
+                        display: (*w).into(),
+                        replacement: (*w).into(),
+                    });
                 }
             }
         }
@@ -221,7 +274,9 @@ fn repl() -> Result<(), Box<dyn Error>> {
 
     let mut vm = Vm::new();
     let mut rl: Editor<PlentyHelper, _> = Editor::new()?;
-    rl.set_helper(Some(PlentyHelper { fn_names: Vec::new() }));
+    rl.set_helper(Some(PlentyHelper {
+        fn_names: Vec::new(),
+    }));
 
     let editor_trigger = EditorTrigger::default();
     rl.bind_sequence(
@@ -246,7 +301,11 @@ fn repl() -> Result<(), Box<dyn Error>> {
         // Refresh the completer's view of the dictionary so functions
         // defined since the last prompt show up under Tab.
         if let Some(h) = rl.helper_mut() {
-            h.fn_names = vm.function_names().into_iter().map(str::to_string).collect();
+            h.fn_names = vm
+                .function_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect();
         }
 
         let raw = match rl.readline(PROMPT) {
@@ -290,14 +349,18 @@ fn repl() -> Result<(), Box<dyn Error>> {
 }
 
 /// Count `:` definition-openers minus `;` closers in `input`, ignoring
-/// any inside a `"..."` literal. Returns `None` if the input ends mid
-/// string literal, since the buffer is then known-incomplete regardless
+/// comments and anything inside a `"..."` literal. Returns `None` if the
+/// input ends mid-string, since the buffer is then known-incomplete regardless
 /// of bracket depth.
 ///
-/// This is a structural check, not a full parse — it does not validate
-/// that `:` is followed by a name, or that the closing `;` is in a sane
-/// place. The compiler catches those when the buffer is submitted.
+/// This is a structural check, not a full parse — it does not validate that
+/// `:` has a name or that a closer is otherwise well placed. The compiler
+/// handles those errors when the buffer is submitted.
 fn definition_depth(input: &str) -> Option<i32> {
+    fn structural(b: u8) -> bool {
+        matches!(b, b'{' | b'}' | b'[' | b']' | b';')
+    }
+
     let bytes = input.as_bytes();
     let mut i = 0;
     let mut depth = 0i32;
@@ -305,6 +368,12 @@ fn definition_depth(input: &str) -> Option<i32> {
         let b = bytes[i];
         if b.is_ascii_whitespace() {
             i += 1;
+            continue;
+        }
+        if b == b'#' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
             continue;
         }
         if b == b'"' {
@@ -329,14 +398,24 @@ fn definition_depth(input: &str) -> Option<i32> {
             }
             continue;
         }
+        if structural(b) {
+            if b == b';' {
+                depth -= 1;
+            }
+            i += 1;
+            continue;
+        }
         let start = i;
-        while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'"' {
+        while i < bytes.len()
+            && !bytes[i].is_ascii_whitespace()
+            && bytes[i] != b'"'
+            && bytes[i] != b'#'
+            && !structural(bytes[i])
+        {
             i += 1;
         }
-        match &input[start..i] {
-            ":" => depth += 1,
-            ";" => depth -= 1,
-            _ => {}
+        if &input[start..i] == ":" {
+            depth += 1;
         }
     }
     Some(depth)

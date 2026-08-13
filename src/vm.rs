@@ -51,9 +51,9 @@ macro_rules! checked_int_binop {
     }};
 }
 
-/// Dispatch `<` / `>` across every integer width. `$method` is `PartialOrd::lt`
-/// or `PartialOrd::gt` — same shape as the arithmetic dispatcher but
-/// always producing a `Bool`.
+/// Dispatch an ordering comparison across every integer width. `$method` is a
+/// `PartialOrd` method such as `lt`, `le`, `gt`, or `ge`; the result is always
+/// a `Bool`.
 macro_rules! int_cmp {
     ($self:expr, $method:ident) => {{
         let b = $self.pop()?;
@@ -251,9 +251,9 @@ impl Vm {
     /// Execute one op against the current frame.
     fn exec_op(&mut self, op: Op) -> Result<()> {
         match op {
-            // Integer literals enter the stack as `i64`; smaller widths
-            // are reached via `Op::Cast` (§11.2).
-            Op::PushInt(n) => self.stack.push(Value::I64(n)),
+            // Unsuffixed literals are `i64`; suffixed literals carry their
+            // chosen width in the operation payload.
+            Op::PushInt(n) => self.stack.push(n),
             Op::PushStr(id) => self.stack.push(Value::Str(id)),
             Op::PushBool(b) => self.stack.push(Value::Bool(b)),
             Op::Add => self.add()?,
@@ -264,6 +264,14 @@ impl Vm {
             Op::Lt => self.lt()?,
             Op::Gt => self.gt()?,
             Op::Not => self.not()?,
+            Op::Ne => self.ne()?,
+            Op::Le => self.le()?,
+            Op::Ge => self.ge()?,
+            Op::And => self.and()?,
+            Op::Or => self.or()?,
+            Op::Drop => self.drop()?,
+            Op::Dup => self.dup()?,
+            Op::Swap => self.swap()?,
             Op::Display => println!("{}", self.stack_repr()),
             Op::Clear => self.clear(),
             Op::DefineFn(name, func) => {
@@ -277,6 +285,7 @@ impl Vm {
             Op::ReadLine => self.readline()?,
             Op::Contains => self.contains()?,
             Op::PrintLn => self.println_word()?,
+            Op::Print => self.print_word()?,
         }
         Ok(())
     }
@@ -341,12 +350,42 @@ impl Vm {
                 println!("{}", self.heap.str(id));
                 Ok(())
             }
-            other => Err(format!(
-                "`:println` requires Str, got {}",
-                self.render(other)
-            )
-            .into()),
+            other => Err(format!("`:println` requires Str, got {}", self.render(other)).into()),
         }
+    }
+
+    /// `:print`: pop and render one value without a newline. Its rendering is
+    /// exactly the representation one value receives inside `.` output.
+    fn print_word(&mut self) -> Result<()> {
+        let value = self.pop()?;
+        print!("{}", self.render(value));
+        Ok(())
+    }
+
+    /// Stack-shape words are polymorphic because they only move or remove
+    /// slots; `Value` is `Copy`, so `dup` never clones heap-backed data.
+    fn drop(&mut self) -> Result<()> {
+        self.pop()?;
+        Ok(())
+    }
+
+    fn dup(&mut self) -> Result<()> {
+        let value = *self.stack.last().ok_or("stack underflow on `dup`")?;
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn swap(&mut self) -> Result<()> {
+        if self.stack.len() < 2 {
+            return Err(format!(
+                "stack underflow on `swap` (need 2 values, have {})",
+                self.stack.len()
+            )
+            .into());
+        }
+        let len = self.stack.len();
+        self.stack.swap(len - 1, len - 2);
+        Ok(())
     }
 
     /// Push the `i`-th local of the active call's frame.
@@ -487,12 +526,50 @@ impl Vm {
         Ok(())
     }
 
+    fn ne(&mut self) -> Result<()> {
+        self.eq()?;
+        self.not()
+    }
+
     fn lt(&mut self) -> Result<()> {
         int_cmp!(self, lt)
     }
 
     fn gt(&mut self) -> Result<()> {
         int_cmp!(self, gt)
+    }
+
+    fn le(&mut self) -> Result<()> {
+        int_cmp!(self, le)
+    }
+
+    fn ge(&mut self) -> Result<()> {
+        int_cmp!(self, ge)
+    }
+
+    fn and(&mut self) -> Result<()> {
+        self.bool_binop("and", |a, b| a && b)
+    }
+
+    fn or(&mut self) -> Result<()> {
+        self.bool_binop("or", |a, b| a || b)
+    }
+
+    fn bool_binop(&mut self, name: &str, op: impl FnOnce(bool, bool) -> bool) -> Result<()> {
+        let b = self.pop()?;
+        let a = self.pop()?;
+        match (a, b) {
+            (Value::Bool(a), Value::Bool(b)) => {
+                self.stack.push(Value::Bool(op(a, b)));
+                Ok(())
+            }
+            (a, b) => Err(format!(
+                "`{name}` requires (Bool Bool), got ({} {})",
+                self.render(a),
+                self.render(b)
+            )
+            .into()),
+        }
     }
 
     /// `:as-T`: pop any integer; push it reinterpreted/extended/truncated
@@ -619,11 +696,7 @@ impl Vm {
             if self.pattern_matches(arm.pattern, value) {
                 // Inherit the enclosing call's locals from the current
                 // frame (which is the one running this `Match` op).
-                let locals_start = self
-                    .frames
-                    .last()
-                    .map(|f| f.locals_start)
-                    .unwrap_or(0);
+                let locals_start = self.frames.last().map(|f| f.locals_start).unwrap_or(0);
                 self.frames.push(Frame {
                     body: Rc::clone(&arm.body),
                     pc: 0,
@@ -638,25 +711,77 @@ impl Vm {
 
     /// Match one pattern against one value. Pure: never modifies VM state.
     ///
-    /// Integer patterns are parsed as `i64` regardless of the scrutinee's
-    /// width. The compile-time check (`check_match`) verifies that the
-    /// parsed value fits in the scrutinee's range, so the narrowing `as`
-    /// casts below preserve the user's intended value — `300` against an
-    /// `i8` is rejected before reaching the runtime, not silently turned
-    /// into `44`.
+    /// The checker confirms each untyped integer pattern fits the scrutinee's
+    /// range. Typed patterns must already share the scrutinee's type, so a
+    /// direct `Value` comparison is sufficient for them.
     fn pattern_matches(&self, pat: Pattern, val: Value) -> bool {
         match (pat, val) {
             (Pattern::Wildcard, _) => true,
             (Pattern::Bool(a), Value::Bool(b)) => a == b,
             (Pattern::Str(a), Value::Str(b)) => self.heap.str(a) == self.heap.str(b),
-            (Pattern::Int(a), Value::I8(b)) => a as i8 == b,
-            (Pattern::Int(a), Value::I16(b)) => a as i16 == b,
-            (Pattern::Int(a), Value::I32(b)) => a as i32 == b,
-            (Pattern::Int(a), Value::I64(b)) => a == b,
-            (Pattern::Int(a), Value::U8(b)) => a as u8 == b,
-            (Pattern::Int(a), Value::U16(b)) => a as u16 == b,
-            (Pattern::Int(a), Value::U32(b)) => a as u32 == b,
-            (Pattern::Int(a), Value::U64(b)) => a as u64 == b,
+            (
+                Pattern::Int {
+                    value: a,
+                    explicit_ty: true,
+                },
+                b,
+            ) => a == b,
+            (
+                Pattern::Int {
+                    value: Value::I64(a),
+                    explicit_ty: false,
+                },
+                Value::I8(b),
+            ) => a as i8 == b,
+            (
+                Pattern::Int {
+                    value: Value::I64(a),
+                    explicit_ty: false,
+                },
+                Value::I16(b),
+            ) => a as i16 == b,
+            (
+                Pattern::Int {
+                    value: Value::I64(a),
+                    explicit_ty: false,
+                },
+                Value::I32(b),
+            ) => a as i32 == b,
+            (
+                Pattern::Int {
+                    value: Value::I64(a),
+                    explicit_ty: false,
+                },
+                Value::I64(b),
+            ) => a == b,
+            (
+                Pattern::Int {
+                    value: Value::I64(a),
+                    explicit_ty: false,
+                },
+                Value::U8(b),
+            ) => a as u8 == b,
+            (
+                Pattern::Int {
+                    value: Value::I64(a),
+                    explicit_ty: false,
+                },
+                Value::U16(b),
+            ) => a as u16 == b,
+            (
+                Pattern::Int {
+                    value: Value::I64(a),
+                    explicit_ty: false,
+                },
+                Value::U32(b),
+            ) => a as u32 == b,
+            (
+                Pattern::Int {
+                    value: Value::I64(a),
+                    explicit_ty: false,
+                },
+                Value::U64(b),
+            ) => a as u64 == b,
             _ => false,
         }
     }
@@ -698,4 +823,3 @@ impl Vm {
         }
     }
 }
-

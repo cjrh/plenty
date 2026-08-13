@@ -23,16 +23,35 @@ pub enum Tok<'a> {
 
 /// Split `source` into tokens.
 ///
-/// Whitespace separates words. A `"` opens a string literal that runs to the
-/// next unescaped `"`, capturing everything between verbatim — newlines, spaces,
-/// operator characters, all of it. Inside the literal, `\X` consumes both
-/// characters without interpreting them, so `\"` does not close the string.
-/// The only lex error is an unterminated string literal.
+/// Whitespace separates words. `#` starts a comment that runs to the next
+/// newline. `{`, `}`, `[`, `]`, and `;` are standalone structural words even
+/// without surrounding whitespace. A `"` opens a string literal that runs to
+/// the next unescaped `"`, capturing everything between verbatim — newlines,
+/// spaces, comment markers, and operator characters all included. Inside the
+/// literal, `\X` consumes both characters without interpreting them, so `\"`
+/// does not close the string. The only lex error is an unterminated string
+/// literal.
 pub fn lex(source: &str) -> Result<Vec<Tok<'_>>> {
+    fn is_structural(c: char) -> bool {
+        matches!(c, '{' | '}' | '[' | ']' | ';')
+    }
+
     let mut toks = Vec::new();
     let mut iter = source.char_indices().peekable();
     while let Some((i, c)) = iter.next() {
         if c.is_whitespace() {
+            continue;
+        }
+        if c == '#' {
+            for (_, c) in iter.by_ref() {
+                if c == '\n' {
+                    break;
+                }
+            }
+            continue;
+        }
+        if is_structural(c) {
+            toks.push(Tok::Word(&source[i..i + c.len_utf8()]));
             continue;
         }
         if c == '"' {
@@ -59,7 +78,9 @@ pub fn lex(source: &str) -> Result<Vec<Tok<'_>>> {
             let end;
             loop {
                 match iter.peek() {
-                    Some(&(j, c2)) if c2.is_whitespace() || c2 == '"' => {
+                    Some(&(j, c2))
+                        if c2.is_whitespace() || c2 == '"' || c2 == '#' || is_structural(c2) =>
+                    {
                         end = j;
                         break;
                     }

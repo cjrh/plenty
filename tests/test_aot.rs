@@ -27,7 +27,11 @@ fn cc_available() -> bool {
 fn nonce() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    format!("{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// Write `source` to a tempfile, compile to an executable via
@@ -67,7 +71,10 @@ fn run_aot(source: &str, label: &str) -> String {
 fn run_interpreter(source: &str, label: &str) -> String {
     let path = std::env::temp_dir().join(format!("plenty-interp-{label}-{}.plenty", nonce()));
     std::fs::write(&path, source).expect("write source");
-    let out = Command::new(plenty_bin()).arg(&path).output().expect("spawn plenty");
+    let out = Command::new(plenty_bin())
+        .arg(&path)
+        .output()
+        .expect("spawn plenty");
     let _ = std::fs::remove_file(&path);
     assert!(
         out.status.success(),
@@ -91,7 +98,10 @@ struct Outcome {
 fn run_interpreter_outcome(source: &str, label: &str) -> Outcome {
     let path = std::env::temp_dir().join(format!("plenty-interp-fail-{label}-{}.plenty", nonce()));
     std::fs::write(&path, source).expect("write source");
-    let out = Command::new(plenty_bin()).arg(&path).output().expect("spawn plenty");
+    let out = Command::new(plenty_bin())
+        .arg(&path)
+        .output()
+        .expect("spawn plenty");
     let _ = std::fs::remove_file(&path);
     Outcome {
         code: out.status.code().unwrap_or(-1),
@@ -169,14 +179,8 @@ macro_rules! aot_failure_matches_interpreter {
                 interp.code,
                 interp.stderr
             );
-            assert_eq!(
-                aot.code, interp.code,
-                "exit code disagrees for:\n{source}"
-            );
-            assert_eq!(
-                aot.stderr, interp.stderr,
-                "stderr disagrees for:\n{source}"
-            );
+            assert_eq!(aot.code, interp.code, "exit code disagrees for:\n{source}");
+            assert_eq!(aot.stderr, interp.stderr, "stderr disagrees for:\n{source}");
         }
     };
 }
@@ -202,10 +206,26 @@ aot_matches_interpreter!(
     "multistack",
     "1 2 3 4 .\n",
 );
+aot_matches_interpreter!(clear_empties_the_stack, "clear", "1 2 3 :clear .\n",);
 aot_matches_interpreter!(
-    clear_empties_the_stack,
-    "clear",
-    "1 2 3 :clear .\n",
+    stack_words_are_polymorphic,
+    "stack-words",
+    "1 true swap dup drop .\n",
+);
+aot_matches_interpreter!(
+    print_renders_one_value_without_a_newline,
+    "print",
+    "1 :print \"x\" :print true :print\n",
+);
+aot_matches_interpreter!(
+    extra_comparisons_and_boolean_ops,
+    "more-bools",
+    "1 2 != .\n1 2 <= .\n2 1 >= .\ntrue false and .\ntrue false or .\n",
+);
+aot_matches_interpreter!(
+    typed_integer_literals,
+    "typed-lits",
+    "255u8 .\n-1i8 .\n42i32 .\n18446744073709551615u64 .\n",
 );
 aot_matches_interpreter!(
     unsigned_comparison_uses_unsigned_predicate,
@@ -465,17 +485,9 @@ aot_matches_interpreter!(
 
 // --- c.4: strings + heap -------------------------------------------------
 
-aot_matches_interpreter!(
-    string_literal_prints,
-    "str-lit",
-    r#""hello" ."#,
-);
+aot_matches_interpreter!(string_literal_prints, "str-lit", r#""hello" ."#,);
 
-aot_matches_interpreter!(
-    string_concat,
-    "str-concat",
-    r#""hello" "world" + ."#,
-);
+aot_matches_interpreter!(string_concat, "str-concat", r#""hello" "world" + ."#,);
 
 aot_matches_interpreter!(
     string_concat_three_ways,
@@ -604,11 +616,7 @@ aot_failure_matches_interpreter!(
     "0 :as-u32 1 :as-u32 - .",
 );
 
-aot_failure_matches_interpreter!(
-    signed_div_by_zero,
-    "trap-sdiv-zero",
-    "10 0 / .",
-);
+aot_failure_matches_interpreter!(signed_div_by_zero, "trap-sdiv-zero", "10 0 / .",);
 
 aot_failure_matches_interpreter!(
     unsigned_div_by_zero,
