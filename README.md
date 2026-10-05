@@ -6,8 +6,8 @@ Cranelift. Fast compilation and a small, understandable language are primary
 design goals.
 
 This branch implements the typed AOT language, including collections, concrete
-enums, generators, explicit copying, and checked local/parameter references.
-Owned values clean up automatically; structs and custom destructors remain future work. The full contract and roadmap are in [DESIGN.md](DESIGN.md).
+enums, fixed-layout classes, generators, explicit copying, and checked references.
+Owned values clean up automatically, including custom `__del__` methods. The full contract and roadmap are in [DESIGN.md](DESIGN.md).
 
 Start with [TUTORIAL.md](TUTORIAL.md) to learn the language through runnable
 examples. Its code and expected diagnostics are tested as the compiler evolves.
@@ -71,7 +71,9 @@ Supported today:
   `Option[T]`. Assignment and calls move generators; invalid reuse is checked.
 - One immutable `str` with explicit lengths and embedded NUL support. Managed
   values are reclaimed automatically; `drop(value)` allows early cleanup.
-- `&T` and `&mut T` for named locals and parameters, with last-use borrow checking
+- `class` records with typed fields, generated field constructors or explicit
+  `__init__`, associated methods, and deterministic `__del__` cleanup.
+- `&T` and `&mut T` for named locals, parameters, and class fields, with last-use borrow checking
   across branches, loops, and reborrows. Stored/returned references are deferred.
 - `//` rounds toward negative infinity; `%` follows the divisor's sign. `/`
   is reserved for future floating-point support.

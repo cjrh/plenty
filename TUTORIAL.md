@@ -899,16 +899,17 @@ Breaking out of consuming iteration drops the suspended generator without
 executing the statements after its last yield. There are no generator expressions,
 `yield from`, `send`, or async operations. Yielded owned values transfer ownership; use `yield copy(value)` to retain an
 independent mutable value in the generator. A generator may yield strings,
-collections, and enums, but not another generator.
+collections, classes, and enums, but not another generator.
 
 ## 21. Understand which values copy and which move
 
 Integers and booleans copy cheaply. Strings share immutable storage without
 copying their bytes. Enums containing only these immutable values can share storage
-too. Collections, generators, and enums containing mutable collections move on
+too. Collections, classes, generators, and enums containing owned values move on
 assignment, owned argument passing, and return. Use `copy(value)` to duplicate
 collections or their enclosing enums. Nested mutable contents are copied too;
-immutable strings and enums can share storage. Generators cannot be copied.
+immutable strings and enums can share storage. Generators and values containing
+custom class cleanup cannot be copied.
 
 A generator owns a position in an advancing computation. Assignment transfers
 that owner instead of copying the position:
@@ -1019,8 +1020,9 @@ or exclusive access, but its conflicting access is suspended while that child
 borrow is live. Reference arguments automatically reborrow an existing reference;
 they do not transfer the referenced owner.
 
-This first subset borrows named bindings. Reference bindings must be initialized
-directly with `&name` or `&mut name` and cannot be reassigned. References cannot
+This subset borrows named bindings and their class fields. Reference bindings must
+be initialized directly with `&name` or `&mut name` (including field paths) and
+cannot be reassigned. References cannot
 be stored in collections, returned from functions, captured by generators, or
 remain live across `yield`. Element references such as `&items[0]` are not yet
 supported. Use `next` through an exclusive generator reference when borrowing
@@ -1061,14 +1063,184 @@ A borrow can end at its last use; that does not implicitly destroy its owner.
 
 Strings may share immutable storage. Dropping one string owner does not invalidate
 another. There is no tracing garbage collector. Fatal runtime traps terminate
-without unwinding scopes. User-defined cleanup methods will arrive with structs
-and associated methods; they are not part of this version.
+without unwinding scopes. Classes can provide custom cleanup with `__del__`, as
+the next lesson shows.
+
+## 24. Group fields and methods in a class
+
+A Plenty class is a record with a fixed set of typed fields. Use the familiar
+Python layout, without a decorator. If you omit `__init__`, the compiler generates
+a constructor taking the fields in their declaration order:
+
+```plenty
+class Point:
+    x: i64
+    y: i64
+
+    def squared_length(self) -> i64:
+        self.x * self.x + self.y * self.y
+
+    def shift(self: &mut Point, amount: i64) -> ():
+        self.x = self.x + amount
+        self.y = self.y + amount
+
+mut point = Point(3, 4)
+print(point.squared_length())
+point.shift(1)
+mut changed = copy(point)
+changed.x = 20
+print(point)
+print(changed)
+```
+
+```output
+25
+Point(x=4, y=5)
+Point(x=20, y=5)
+```
+
+Ordinary methods borrow `self` read-only by default: `self` is shorthand for
+`self: &Point` here. A method that changes fields declares `self: &mut Point`.
+Calling it requires a `mut` binding or an exclusive reference. Every other
+parameter and every return has an explicit type.
+
+Class instances move even when their fields are all integers. `other = point`
+transfers ownership; `copy(point)` requests independent fields. Reading an
+integer or string field is fine, but an owned field such as a list or another
+class must be borrowed, observed, or explicitly copied. Classes have structural
+equality and a generated printed representation.
+
+There is no inheritance, dynamic attribute creation, or class-variable syntax.
+Fields currently have no default values, and calls use positional arguments.
+
+## 25. Control construction with __init__
+
+Define `__init__` when construction needs calculations or checks. It replaces the
+generated field constructor. Its bare `self` is an exclusive reference, and it
+must return `()`:
+
+```plenty
+class Span:
+    start: i64
+    end: i64
+
+    def __init__(self, start: i64, length: i64) -> ():
+        self.start = start
+        self.end = self.start + length
+
+    def length(self) -> i64:
+        self.end - self.start
+
+span = Span(10, 5)
+print(span)
+print(span.length())
+```
+
+```output
+Span(start=10, end=15)
+5
+```
+
+Every field must be initialized on every path out of the constructor. You may
+read a field already initialized, but cannot pass the whole unfinished `self` to
+another function or method. A loop might never execute, so initializing a field
+only inside a loop is insufficient.
+
+```plenty-error
+class Pair:
+    first: i64
+    second: i64
+
+    def __init__(self, first: i64) -> ():
+        self.first = first
+```
+
+```error
+fields not initialized: second
+```
+
+## 26. Borrow fields and clean up resources
+
+Fields can be borrowed directly, including fields inside nested classes:
+
+```plenty
+class Basket:
+    count: i64
+    items: list[str]
+
+mut basket = Basket(0, [])
+count = &mut basket.count
+*count = 2
+basket.items.append("apple")
+basket.items.append("pear")
+print(basket)
+```
+
+```output
+Basket(count=2, items=["apple", "pear"])
+```
+
+The borrow ends after `count`'s last use. For now, a field loan protects the whole
+record: while `&basket.count` is live, changing `basket.items` also conflicts.
+Collection element references such as `&basket.items[0]` are still deferred.
+You can replace a class-valued field by assignment, but cannot replace a whole
+class through `*reference = new_instance` yet.
+
+Use `__del__` for cleanup that belongs to an owned instance. It runs automatically
+when the instance leaves scope, is replaced, or is explicitly dropped. Its bare
+`self` is an exclusive reference, like in `__init__`:
+
+```plenty
+class Resource:
+    name: str
+
+    def __del__(self) -> ():
+        print("release " + self.name)
+
+class Pair:
+    first: Resource
+    second: Resource
+
+    def __del__(self) -> ():
+        print("release pair")
+
+def work() -> ():
+    pair = Pair(Resource("first"), Resource("second"))
+    spare = Resource("spare")
+    print("working")
+
+work()
+print("done")
+```
+
+```output
+working
+release spare
+release pair
+release first
+release second
+done
+```
+
+Locals clean up in reverse declaration order. A class's `__del__` runs before
+automatic field cleanup; fields then clean up in declaration order. You do not
+need to destroy the fields yourself. Moving an instance transfers its cleanup
+responsibility and does not run the destructor.
+
+Lifecycle methods are not called directly. A class with custom cleanup, or one
+containing a value with custom cleanup, cannot be copied yet. That avoids
+duplicating ownership of a resource accidentally. A destructor cannot yield or
+return a recoverable error; an explicit closing method could return `Result`
+when reporting failure matters. Fatal traps do not run cleanup.
+
+Functions holding values with observable cleanup currently use ordinary calls
+in return position so that cleanup still happens after the called function.
+Numeric tail-recursive functions from the earlier lesson keep their tail calls.
 
 ## Where the language goes next
 
-This guide deliberately uses implemented features. Structs and methods, unit
-payloads, recursive enums, custom destructors, element references, and stored or
-returned references remain future work. Traits and generics are deferred; async/await is out of
+This guide deliberately uses implemented features. Unit payloads, recursive types,
+element references, and stored or returned references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 
 When a lesson feels awkward, that is useful feedback for the language design.
