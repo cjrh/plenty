@@ -725,6 +725,10 @@ Grace
 step, but never zero. The stop value is excluded. A range stores its bounds
 without building a list; `list(range(...))` materializes its values.
 
+Currently, range arguments and yielded elements are `i64`. A `list[u8]`
+annotation does not change a range's element type. Numeric suffixes such as
+`2u8` and `3.5f32` work for literals, but `range[u8](8)` is not implemented yet.
+
 The iterable is evaluated once. Iterating an owned collection transfers it into
 the loop; use `for item in &values` to preserve the owner. Borrowed iteration
 prevents conflicting mutation, and currently supports only copyable elements

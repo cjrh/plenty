@@ -85,6 +85,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
+| Typed ranges and contextual numeric inference | Proposed: `range[u8](8)` and expression-local constraints from annotations; ranges currently yield `i64` |
+| Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation and `with` context managers | Proposed; explicit matching and automatic destruction work today |
 | Recoverable allocation failure and custom allocators | Proposed; allocation failure is not reliably recoverable today |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
@@ -149,6 +151,13 @@ literals are `i64`; decimal/exponent literals default to `f64`. Suffixes select
 widths, including `1f32`, `1.5f32`, and `1e-3f64`. Decimal forms such as `.5`
 and `1.` are also accepted.
 No contextual numeric literal inference or implicit numeric widening.
+
+The [typed-range and inference proposal](docs/proposals/typed-ranges-and-expression-inference.md)
+recommends square-bracket function type arguments, deferred literal defaults,
+and context flowing through one initializer or return expression. It also records
+integer-family constraints, unsigned range boundary choices, and requirements
+for future multiline closures. These are design proposals; the numeric rules
+in this section continue to describe implemented behavior.
 
 Integer casts use truncation/sign-extension like the historical backend.
 Integer overflow and division by zero are runtime errors. `//` floors signed
