@@ -27,10 +27,10 @@ void plenty_retain(void *value) {
   if (object->refs == UINT64_MAX - 1) plenty_value_error("reference count overflow");
   ++object->refs;
 }
+static PlentyObject *pending;
+static int dropping;
 void plenty_release(void *value) {
   // Intrusive destruction queue avoids recursive native stack growth.
-  static PlentyObject *pending;
-  static int dropping;
   PlentyObject *object = value;
   if (!object || object->refs == UINT64_MAX) return;
   if (--object->refs != 0) return;

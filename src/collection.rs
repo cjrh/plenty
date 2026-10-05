@@ -12,6 +12,7 @@ pub enum CollectionOp {
     Get(Ty),
     Len(Ty),
     IterGet(Ty),
+    IterTake(Ty),
     Contains(Ty),
     Range,
     Values(Ty),
@@ -21,7 +22,7 @@ pub enum CollectionOp {
 
 impl Ty {
     pub fn uses_value_runtime(&self) -> bool {
-        self.is_collection() || matches!(self, Self::Enum(_) | Self::Generator(_))
+        self.is_collection() || matches!(self, Self::Enum(_) | Self::Class(_) | Self::Generator(_))
     }
     pub fn is_collection(&self) -> bool {
         matches!(
@@ -45,6 +46,18 @@ impl Ty {
     pub fn descriptor(&self) -> String {
         fn write(ty: &Ty, out: &mut String, enums: &mut std::collections::HashMap<String, usize>) {
             match ty {
+                Ty::Class(t) => {
+                    if let Some(id) = enums.get(&t.name) {
+                        out.push_str(&format!("@{id}:"));
+                        return;
+                    }
+                    enums.insert(t.name.clone(), enums.len());
+                    out.push_str(&format!("C{}:{}{}:", t.name.len(), t.name, t.fields.len()));
+                    for (name, field) in &t.fields {
+                        out.push_str(&format!("{}:{}", name.len(), name));
+                        write(field, out, enums);
+                    }
+                }
                 Ty::Enum(t) => {
                     if let Some(id) = enums.get(&t.name) {
                         out.push_str(&format!("@{id}:"));
@@ -132,7 +145,7 @@ impl CollectionOp {
                 _ => (vec![t.clone(), Ty::I64], t.element().unwrap()),
             },
             Len(t) => (vec![t.clone()], Ty::I64),
-            IterGet(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
+            IterGet(t) | IterTake(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
             Contains(t) => (vec![t.element().unwrap(), t.clone()], Ty::Bool),
             Range => (vec![Ty::I64, Ty::I64, Ty::I64], Ty::Range),
             Values(t) => {
@@ -152,6 +165,7 @@ impl CollectionOp {
             Self::Get(_) => 4,
             Self::Len(_) => 5,
             Self::IterGet(_) => 6,
+            Self::IterTake(_) => 15,
             Self::Contains(_) => 7,
             Self::Range => 10,
             Self::Values(_) => 11,

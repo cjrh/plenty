@@ -8,7 +8,7 @@ pub(super) struct EnumDecl {
 }
 pub(super) struct Case {
     at: Token,
-    pattern: Option<(TypeRef, String, Option<Vec<String>>)>,
+    pub(super) pattern: Option<(TypeRef, String, Option<Vec<String>>)>,
     pub(super) body: Vec<Stmt>,
 }
 
@@ -94,28 +94,36 @@ impl Parser {
 
 /// Resolve aliases and enum fields in one acyclic dependency graph. Each name
 /// finishes once; an explicit work list also handles long alias chains.
-pub(super) fn resolve_types(aliases: &[TypeAlias], enums: &[EnumDecl]) -> Result<TypeAliases> {
+pub(super) fn resolve_types(
+    aliases: &[TypeAlias],
+    enums: &[EnumDecl],
+    classes: &[classes::ClassDecl],
+) -> Result<TypeAliases> {
     enum Decl<'a> {
         Alias(&'a TypeAlias),
         Enum(&'a EnumDecl),
+        Class(&'a classes::ClassDecl),
     }
     impl Decl<'_> {
         fn name(&self) -> &str {
             match self {
                 Self::Alias(a) => &a.name,
                 Self::Enum(e) => &e.name,
+                Self::Class(c) => &c.name,
             }
         }
         fn at(&self) -> &Token {
             match self {
                 Self::Alias(a) => &a.at,
                 Self::Enum(e) => &e.at,
+                Self::Class(c) => &c.at,
             }
         }
         fn refs(&self) -> Vec<&TypeRef> {
             match self {
                 Self::Alias(a) => vec![&a.target],
                 Self::Enum(e) => e.variants.iter().flat_map(|(_, f)| f.iter()).collect(),
+                Self::Class(c) => c.fields.iter().map(|(_, t)| t).collect(),
             }
         }
     }
@@ -123,6 +131,7 @@ pub(super) fn resolve_types(aliases: &[TypeAlias], enums: &[EnumDecl]) -> Result
         .iter()
         .map(Decl::Alias)
         .chain(enums.iter().map(Decl::Enum))
+        .chain(classes.iter().map(Decl::Class))
         .collect();
     let mut names = HashMap::new();
     for (i, declaration) in declarations.iter().enumerate() {
@@ -151,6 +160,7 @@ pub(super) fn resolve_types(aliases: &[TypeAlias], enums: &[EnumDecl]) -> Result
             if finish {
                 let ty = match declaration {
                     Decl::Alias(a) => a.target.resolve(&resolved)?,
+                    Decl::Class(c) => Some(c.resolve(&resolved)?),
                     Decl::Enum(e) => {
                         let variants = e
                             .variants
@@ -178,6 +188,11 @@ pub(super) fn resolve_types(aliases: &[TypeAlias], enums: &[EnumDecl]) -> Result
                         Some(Ty::Enum(Rc::new(EnumType {
                             name: e.name.clone(),
                             affine: variants.iter().flat_map(|v| &v.fields).any(Ty::affine),
+                            copyable: variants.iter().flat_map(|v| &v.fields).all(Ty::can_copy),
+                            has_destructor: variants
+                                .iter()
+                                .flat_map(|v| &v.fields)
+                                .any(Ty::has_destructor),
                             depth: 1 + variants
                                 .iter()
                                 .flat_map(|v: &Variant| &v.fields)
@@ -275,12 +290,14 @@ impl Lower<'_> {
         tail: bool,
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
+        let temporary_start = self.expression_temps.len();
         let ty = self.value(value, ops)?;
         let Ty::Enum(t) = ty else {
             return Err(value.at.error("match currently requires an enum value"));
         };
         let source = self.slot(Ty::Enum(t.clone()), &value.at)?;
         ops.push(Op::StoreLocal(source));
+        self.finish_temporaries(temporary_start, ops);
         ops.push(Op::LoadLocal(source));
         ops.push(Op::Enum(EnumOp::Tag(t.clone())));
         let saved = self.names.clone();
@@ -340,7 +357,11 @@ impl Lower<'_> {
                     );
                     body.extend([
                         Op::LoadLocal(source),
-                        Op::Enum(EnumOp::Field(t.clone(), tag, field)),
+                        Op::Enum(if ty.affine() {
+                            EnumOp::Take(t.clone(), tag, field)
+                        } else {
+                            EnumOp::Field(t.clone(), tag, field)
+                        }),
                         Op::StoreLocal(slot),
                     ]);
                 }

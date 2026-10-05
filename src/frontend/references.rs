@@ -1,4 +1,4 @@
-//! Source places and explicit loans. References initially address whole bindings.
+//! Source places and explicit loans. Field loans conservatively protect their root.
 use super::*;
 
 impl Lower<'_> {
@@ -36,6 +36,23 @@ impl Lower<'_> {
         mutable: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        if let Expression::Member(base, name) = &ungroup(e).kind {
+            let (reference, loan) = self.borrow(base, mutable, ops)?;
+            let Ty::Ref(inner, _) = reference else {
+                unreachable!()
+            };
+            let Ty::Class(class) = &*inner else {
+                return Err(e.at.error("field borrowing requires a class"));
+            };
+            let index = classes::field_index(class, name, &e.at)?;
+            let result = Ty::Ref(Rc::new(class.fields[index].1.clone()), mutable);
+            ops.push(Op::Class(crate::record::ClassOp::FieldRef(
+                class.clone(),
+                index,
+                mutable,
+            )));
+            return Ok((result, loan));
+        }
         let local = self.named_place(e)?;
         let (ty, root, parent) = if let Ty::Ref(ty, writable) = &local.ty {
             if mutable && !writable {
@@ -48,7 +65,9 @@ impl Lower<'_> {
             ((**ty).clone(), self.loans[parent].root, Some(parent))
         } else {
             if mutable && !local.mutable {
-                return Err(e.at.error("mutable borrowing requires a mut binding"));
+                return Err(e
+                    .at
+                    .error("immutable binding: mutable borrowing requires a mut binding"));
             }
             (local.ty.clone(), local.slot, None)
         };
@@ -63,6 +82,18 @@ impl Lower<'_> {
     }
     /// Load for observation, preserving ownership and extending loans through the consumer.
     pub(super) fn observe(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
+        let result = self.observe_inner(e, ops)?;
+        // A temporary owner survives all observations in the containing full
+        // expression, including projections through a temporary collection.
+        if result.1.is_empty() && result.0.has_destructor() {
+            let slot = self.slot(result.0.clone(), &e.at)?;
+            ops.push(Op::StoreLocal(slot));
+            ops.push(Op::LoadLocal(slot));
+            self.expression_temps.push(slot);
+        }
+        Ok(result)
+    }
+    fn observe_inner(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
         match &e.kind {
             Expression::Group(inner) => self.observe(inner, ops),
             Expression::Name(_) => {
@@ -90,6 +121,9 @@ impl Lower<'_> {
                     ops.push(Op::LoadLocal(local.slot));
                     Ok((local.ty, vec![loan]))
                 }
+            }
+            Expression::Member(base, _) if self.qualified_type(base)?.is_none() => {
+                self.field(e, ops)
             }
             Expression::Index(base, index) => {
                 let (ty, loans) = self.observe(base, ops)?;
@@ -154,7 +188,7 @@ impl Lower<'_> {
             return Ok(None);
         }
         let (ty, loans) = self.observe(arg, ops)?;
-        if ty.restricted_storage() {
+        if !ty.can_copy() {
             return Err(at.error("this resource cannot be copied"));
         }
         if ty.affine() {
@@ -176,13 +210,6 @@ impl Lower<'_> {
             (local.ty.clone(), loan)
         }
     }
-    pub(super) fn finish_mutation(&self, local: &Local, loan: usize, ops: &mut Vec<Op>) {
-        // Mutation changes the object in place. The helper returns a retained operand,
-        // which is consumed here rather than rebinding the owner or reference.
-        ops.push(Op::Drop);
-        ops.push(Op::UseLoan(loan));
-        let _ = local;
-    }
     pub(super) fn write_reference(
         &mut self,
         target: &Expr,
@@ -201,6 +228,11 @@ impl Lower<'_> {
                 .at
                 .error("assignment requires an exclusive reference"));
         };
+        if matches!(&**ty, Ty::Class(_)) {
+            return Err(target.at.error(
+                "cannot replace a whole class through a reference; assign its fields instead",
+            ));
+        }
         let got = self.expr_expected(value, Some((**ty).clone()), ops)?;
         self.same(got, Some((**ty).clone()), &value.at)?;
         let loan = self.reference_locals[&local.slot];

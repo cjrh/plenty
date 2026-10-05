@@ -12,6 +12,7 @@ mod frontend;
 mod lexer;
 mod op;
 mod ownership;
+mod record;
 mod sum;
 mod value;
 

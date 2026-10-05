@@ -2,6 +2,43 @@ use super::*;
 use crate::sum::EnumOp;
 
 impl Lowerer<'_, '_> {
+    pub(super) fn lower_class(&mut self, op: &crate::record::ClassOp) -> Result<()> {
+        use crate::record::ClassOp;
+        let (inputs, output) = op.signature().ok_or("invalid class operation")?;
+        let result = match op {
+            ClassOp::New(t) => {
+                let callback = if let Some(name) = &t.destructor {
+                    let id = self.user_fns[name]
+                        .drop_callback
+                        .ok_or("missing destructor adapter")?;
+                    let reference = self.module.declare_func_in_func(id, self.bcx.func);
+                    self.bcx.ins().func_addr(PTR_TY, reference)
+                } else {
+                    self.bcx.ins().iconst(PTR_TY, 0)
+                };
+                self.collection_call(30, &[callback], Some(&output))?
+            }
+            ClassOp::Field(_, i) => {
+                let (owner, _) = self.pop_typed(inputs[0].clone())?;
+                let index = self.bcx.ins().iconst(types::I64, *i as i64);
+                let value = self.collection_call(31, &[owner, index], None)?;
+                self.release(owner, &inputs[0]);
+                self.unpack(value, &output)
+            }
+            ClassOp::FieldRef(_, i, _) => {
+                let (address, _) = self.pop_typed(inputs[0].clone())?;
+                let owner = self.bcx.ins().load(
+                    PTR_TY,
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    address,
+                    0,
+                );
+                self.bcx.ins().iadd_imm(owner, 32 + (*i as i64) * 8)
+            }
+        };
+        self.stack.push((result, output));
+        Ok(())
+    }
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
         let mut values = Vec::new();
@@ -21,10 +58,18 @@ impl Lowerer<'_, '_> {
                 result
             }
             EnumOp::Tag(_) => self.collection_call(22, &values, None)?,
-            EnumOp::Field(_, tag, field) => {
+            EnumOp::Field(_, tag, field) | EnumOp::Take(_, tag, field) => {
                 let tag = self.bcx.ins().iconst(types::I64, *tag as i64);
                 let field = self.bcx.ins().iconst(types::I64, *field as i64);
-                self.collection_call(23, &[values[0], field, tag], None)?
+                self.collection_call(
+                    if matches!(op, EnumOp::Take(..)) {
+                        25
+                    } else {
+                        23
+                    },
+                    &[values[0], field, tag],
+                    None,
+                )?
             }
         };
         for (value, ty) in values.iter().zip(&inputs) {

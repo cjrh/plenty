@@ -10,6 +10,8 @@ pub struct EnumType {
     pub variants: Vec<Variant>,
     pub depth: usize,
     pub affine: bool,
+    pub copyable: bool,
+    pub has_destructor: bool,
 }
 impl PartialEq for EnumType {
     fn eq(&self, other: &Self) -> bool {
@@ -33,6 +35,8 @@ pub fn option(element: Ty) -> Ty {
         name: format!("Option[{element}]"),
         depth: 1 + element.layout_depth(),
         affine: element.affine(),
+        copyable: element.can_copy(),
+        has_destructor: element.has_destructor(),
         variants: vec![
             Variant {
                 name: "Nothing".into(),
@@ -50,6 +54,8 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
         name: format!("Result[{ok}, {error}]"),
         depth: 1 + ok.layout_depth().max(error.layout_depth()),
         affine: ok.affine() || error.affine(),
+        copyable: ok.can_copy() && error.can_copy(),
+        has_destructor: ok.has_destructor() || error.has_destructor(),
         variants: vec![
             Variant {
                 name: "Ok".into(),
@@ -68,13 +74,14 @@ pub enum EnumOp {
     New(Rc<EnumType>, usize),
     Tag(Rc<EnumType>),
     Field(Rc<EnumType>, usize, usize),
+    Take(Rc<EnumType>, usize, usize),
 }
 impl EnumOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
             Self::New(t, tag) => (t.variants.get(*tag)?.fields.clone(), Ty::Enum(t.clone())),
             Self::Tag(t) => (vec![Ty::Enum(t.clone())], Ty::I64),
-            Self::Field(t, tag, field) => (
+            Self::Field(t, tag, field) | Self::Take(t, tag, field) => (
                 vec![Ty::Enum(t.clone())],
                 t.variants.get(*tag)?.fields.get(*field)?.clone(),
             ),

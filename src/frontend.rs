@@ -9,6 +9,7 @@ use std::rc::Rc;
 use crate::collection::CollectionOp;
 use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
+mod classes;
 mod collections;
 mod enums;
 mod generators;
@@ -289,6 +290,7 @@ struct Function {
     body: Vec<Stmt>,
 }
 
+#[derive(Clone)]
 struct TypeRef {
     at: Token,
     /// None denotes unit, spelled `()`.
@@ -457,6 +459,7 @@ struct Expr {
     kind: Expression,
 }
 enum Expression {
+    ClassNew(Rc<crate::record::ClassType>),
     Type(TypeRef),
     Member(Box<Expr>, String),
     Number(String),
@@ -597,9 +600,12 @@ impl Parser {
         Ok(TypeAlias { at, name, target })
     }
     fn function(&mut self) -> Result<Function> {
+        self.function_in(None)
+    }
+    fn function_in(&mut self, class: Option<&str>) -> Result<Function> {
         let at = self.take(); // def
         let name = self.name()?;
-        if builtin(&name) {
+        if class.is_none() && builtin(&name) {
             return Err(at.error("cannot redefine a builtin"));
         }
         self.expect("(")?;
@@ -609,8 +615,29 @@ impl Parser {
             if inputs.iter().any(|(n, _)| n == &param) {
                 return Err(self.peek().error("duplicate parameter"));
             }
-            self.expect(":")?;
-            let ty = self.ty()?;
+            let ty = if let Some(class) =
+                class.filter(|_| param == "self" && inputs.is_empty() && !self.peek().is(":"))
+            {
+                TypeRef {
+                    at: at.clone(),
+                    name: Some(
+                        if matches!(name.as_str(), "__init__" | "__del__") {
+                            "&mut"
+                        } else {
+                            "&"
+                        }
+                        .into(),
+                    ),
+                    args: vec![TypeRef {
+                        at: at.clone(),
+                        name: Some(class.into()),
+                        args: vec![],
+                    }],
+                }
+            } else {
+                self.expect(":")?;
+                self.ty()?
+            };
             inputs.push((param, ty));
             if self.eat(")") {
                 break;
@@ -1044,6 +1071,7 @@ struct Lower<'a> {
     yield_type: Type,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
+    expression_temps: Vec<u8>,
 }
 impl Lower<'_> {
     fn same(&self, got: Type, expected: Type, at: &Token) -> Result<()> {
@@ -1066,11 +1094,21 @@ impl Lower<'_> {
             Expression::Type(_) => {
                 return Err(e.at.error("a type is not a value; select a variant"))
             }
+            Expression::ClassNew(t) => {
+                ops.push(Op::Class(crate::record::ClassOp::New(t.clone())));
+                Some(Ty::Class(t.clone()))
+            }
             Expression::Member(base, name) => {
-                let ty = self
-                    .qualified_type(base)?
-                    .ok_or_else(|| e.at.error("unknown type qualifier"))?;
-                self.variant(ty, name, None, &e.at, ops)?
+                if let Some(ty) = self.qualified_type(base)? {
+                    self.variant(ty, name, None, &e.at, ops)?
+                } else {
+                    let (ty, loans) = self.field(e, ops)?;
+                    if ty.affine() {
+                        return Err(e.at.error("cannot move out of a field; use copy or borrow"));
+                    }
+                    Self::end_reads(loans, ops);
+                    Some(ty)
+                }
             }
             Expression::Collection { .. } => Some(self.collection(e, None, ops)?),
             Expression::Index(base, index) => Some(self.index(base, index, ops)?),
@@ -1273,6 +1311,14 @@ impl Lower<'_> {
                 if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
                     return self.builtin_collection(name, args, &e.at, ops).map(Some);
                 }
+                if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
+                    return self.call_named(
+                        &crate::record::method(&t.name, "__new__"),
+                        args,
+                        &e.at,
+                        ops,
+                    );
+                }
                 if let Some(target) = lookup_type(name, self.aliases) {
                     if let Some(target) = target.as_ref().filter(|t| t.is_collection()) {
                         return self.construct(target.clone(), args, &e.at, ops).map(Some);
@@ -1311,59 +1357,77 @@ impl Lower<'_> {
                     ops.push(Op::Contains);
                     Some(Ty::Bool)
                 } else {
-                    let sig = self
-                        .sigs
-                        .get(name)
-                        .ok_or_else(|| e.at.error(format!("unknown function `{name}`")))?;
-                    if sig.inputs.len() != args.len() {
-                        return Err(e.at.error(format!(
-                            "`{name}` expects {} arguments, got {}",
-                            sig.inputs.len(),
-                            args.len()
-                        )));
-                    }
-                    if sig.outputs.len() > 1 {
-                        return Err(e.at.error(
-                            "legacy multi-result functions cannot be called from modern Plenty",
-                        ));
-                    }
-                    let mut argument_loans = Vec::new();
-                    for (arg, (_, expected)) in args.iter().zip(&sig.inputs) {
-                        if let Ty::Ref(_, mutable) = expected {
-                            let base =
-                                match &ungroup(arg).kind {
-                                    Expression::Unary(op, base)
-                                        if op == if *mutable { "&mut" } else { "&" } =>
-                                    {
-                                        &**base
-                                    }
-                                    Expression::Name(name)
-                                        if self
-                                            .names
-                                            .get(name)
-                                            .is_some_and(|l| matches!(l.ty, Ty::Ref(..))) =>
-                                    {
-                                        arg
-                                    }
-                                    _ => return Err(arg.at.error(
-                                        "reference arguments require explicit & or &mut borrowing",
-                                    )),
-                                };
-                            let (ty, loan) = self.borrow(base, *mutable, ops)?;
-                            self.same(Some(ty), Some(expected.clone()), &arg.at)?;
-                            argument_loans.push(loan);
-                            continue;
-                        }
-                        let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
-                        self.same(ty, Some(expected.clone()), &arg.at)?;
-                    }
-                    ops.push(Op::Call(name.clone()));
-                    Self::end_reads(argument_loans, ops);
-                    sig.outputs.first().cloned()
+                    self.call_named(name, args, &e.at, ops)?
                 }
             }
         };
         Ok(ty)
+    }
+    fn call_named(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let sig = self
+            .sigs
+            .get(name)
+            .ok_or_else(|| at.error(format!("unknown function `{name}`")))?;
+        if sig.inputs.len() != args.len() {
+            return Err(at.error(format!(
+                "`{name}` expects {} arguments, got {}",
+                sig.inputs.len(),
+                args.len()
+            )));
+        }
+        if sig.outputs.len() > 1 {
+            return Err(
+                at.error("legacy multi-result functions cannot be called from modern Plenty")
+            );
+        }
+        let argument_loans = self.call_arguments(args, &sig.inputs, ops)?;
+        ops.push(Op::Call(name.to_owned()));
+        Self::end_reads(argument_loans, ops);
+        Ok(sig.outputs.first().cloned())
+    }
+    fn call_arguments(
+        &mut self,
+        args: &[Expr],
+        inputs: &[(String, Ty)],
+        ops: &mut Vec<Op>,
+    ) -> Result<Vec<usize>> {
+        let mut argument_loans = Vec::new();
+        for (arg, (_, expected)) in args.iter().zip(inputs) {
+            if let Ty::Ref(_, mutable) = expected {
+                let base = match &ungroup(arg).kind {
+                    Expression::Unary(op, base) if op == if *mutable { "&mut" } else { "&" } => {
+                        &**base
+                    }
+                    Expression::Name(name)
+                        if self
+                            .names
+                            .get(name)
+                            .is_some_and(|l| matches!(l.ty, Ty::Ref(..))) =>
+                    {
+                        arg
+                    }
+                    _ => {
+                        return Err(arg
+                            .at
+                            .error("reference arguments require explicit & or &mut borrowing"))
+                    }
+                };
+                let (ty, loan) = self.borrow(base, *mutable, ops)?;
+                self.same(Some(ty), Some(expected.clone()), &arg.at)?;
+                argument_loans.push(loan);
+                continue;
+            }
+            let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
+            self.same(ty, Some(expected.clone()), &arg.at)?;
+        }
+
+        Ok(argument_loans)
     }
     fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: bool) -> Result<BlockResult> {
         let start = self.locals.len();
@@ -1376,6 +1440,7 @@ impl Lower<'_> {
     fn block_inner(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: bool) -> Result<BlockResult> {
         let mut result = None;
         for (i, stmt) in body.iter().enumerate() {
+            let temporary_start = self.expression_temps.len();
             let last = tail && i + 1 == body.len();
             result = match &stmt.kind {
                 Statement::Yield(e) => {
@@ -1385,6 +1450,7 @@ impl Lower<'_> {
                     })?;
                     let actual = self.expr_expected(e, Some(expected.clone()), ops)?;
                     self.same(actual, Some(expected.clone()), &e.at)?;
+                    self.finish_temporaries(temporary_start, ops);
                     ops.push(Op::Yield(expected));
                     None
                 }
@@ -1417,6 +1483,7 @@ impl Lower<'_> {
                         None => None,
                     };
                     self.same(ty, expected, &stmt.at)?;
+                    self.finish_temporaries(temporary_start, &mut returned);
                     finish_return(&mut returned);
                     ops.extend(returned);
                     return exited_block(body, i);
@@ -1442,6 +1509,7 @@ impl Lower<'_> {
                     let mut test = Vec::new();
                     let ty = self.expr(condition, &mut test)?;
                     self.same(ty, Some(Ty::Bool), &condition.at)?;
+                    self.finish_temporaries(temporary_start, &mut test);
                     let saved = self.names.clone();
                     self.loop_steps.push(Vec::new());
                     self.loop_scopes.push(self.locals.len());
@@ -1468,6 +1536,8 @@ impl Lower<'_> {
                 Statement::SetIndex { target, value } => {
                     if matches!(&target.kind, Expression::Unary(op, _) if op == "*") {
                         self.write_reference(target, value, ops)?;
+                    } else if matches!(&target.kind, Expression::Member(..)) {
+                        self.set_field(target, value, ops)?;
                     } else {
                         self.set_index(target, value, ops)?;
                     }
@@ -1552,6 +1622,7 @@ impl Lower<'_> {
                 Statement::If { condition, yes, no } => {
                     let cond = self.expr(condition, ops)?;
                     self.same(cond, Some(Ty::Bool), &condition.at)?;
+                    self.finish_temporaries(temporary_start, ops);
                     let saved = self.names.clone();
                     let (mut a, mut b) = (Vec::new(), Vec::new());
                     let yes_result = self.block(yes, &mut a, last)?;
@@ -1578,6 +1649,7 @@ impl Lower<'_> {
                 }
                 result = None;
             }
+            self.finish_temporaries(temporary_start, ops);
         }
         Ok(BlockResult::Continues(result))
     }
@@ -1679,9 +1751,12 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
     let (mut functions, mut statements) = (Vec::new(), Vec::new());
     let mut declarations = Vec::new();
     let mut enums = Vec::new();
+    let mut classes = Vec::new();
     while parser.peek().kind != Kind::Eof {
         if parser.peek().is("def") {
             functions.push(parser.function()?);
+        } else if parser.peek().is("class") {
+            classes.push(parser.class_decl()?);
         } else if parser.peek().is("enum") {
             enums.push(parser.enum_decl()?);
         } else if parser.peek().is("type") {
@@ -1690,9 +1765,15 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             statements.push(parser.statement()?);
         }
     }
-    let aliases = enums::resolve_types(&declarations, &enums)?;
+    let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
+    functions.extend(classes::expand(classes, &aliases)?);
     let mut sigs = HashMap::new();
     for f in &functions {
+        if f.inputs.len() > 256 {
+            return Err(f
+                .at
+                .error("at most 256 parameter/local slots are supported"));
+        }
         if aliases.contains_key(&f.name) {
             return Err(f
                 .at
@@ -1748,6 +1829,7 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             yield_type: yield_type.clone(),
             loans: Vec::new(),
             reference_locals: HashMap::new(),
+            expression_temps: Vec::new(),
         };
         for (i, (name, ty)) in sig.inputs.iter().enumerate() {
             lower.names.insert(
@@ -1785,6 +1867,11 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
         if yield_type.is_none() {
             mark_tail_calls(&mut body);
         }
+        if sig.inputs.iter().any(|(_, t)| t.has_destructor())
+            || lower.locals.iter().any(Ty::has_destructor)
+        {
+            classes::preserve_drop_order(&mut body);
+        }
         ops.push(Op::DefineFn(
             f.name,
             CompiledFn {
@@ -1810,6 +1897,7 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             yield_type: None,
             loans: Vec::new(),
             reference_locals: HashMap::new(),
+            expression_temps: Vec::new(),
         };
         let mut body = Vec::new();
         let BlockResult::Continues(output) = lower.block(&statements, &mut body, true)? else {
@@ -1819,6 +1907,9 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             return Err("a reference cannot escape module scope".into());
         }
         mark_tail_calls(&mut body);
+        if lower.locals.iter().any(Ty::has_destructor) {
+            classes::preserve_drop_order(&mut body);
+        }
         ops.push(Op::DefineFn(
             ENTRY.into(),
             CompiledFn {

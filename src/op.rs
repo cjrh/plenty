@@ -35,6 +35,7 @@ pub enum Ty {
     Dict(Rc<Ty>, Rc<Ty>),
     Range,
     Enum(Rc<crate::sum::EnumType>),
+    Class(Rc<crate::record::ClassType>),
     Generator(Rc<Ty>),
     Ref(Rc<Ty>, bool),
 }
@@ -45,17 +46,38 @@ impl Ty {
             Self::List(t) | Self::Set(t) | Self::Generator(t) => 1 + t.layout_depth(),
             Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
             Self::Enum(t) => t.depth,
+            Self::Class(t) => t.depth,
             _ => 0,
         }
     }
     pub fn affine(&self) -> bool {
         matches!(
             self,
-            Self::List(_) | Self::Set(_) | Self::Dict(_, _) | Self::Generator(_)
+            Self::List(_) | Self::Set(_) | Self::Dict(_, _) | Self::Generator(_) | Self::Class(_)
         ) || matches!(self, Self::Enum(t) if t.affine)
     }
     pub fn restricted_storage(&self) -> bool {
         matches!(self, Self::Generator(_) | Self::Ref(..))
+    }
+    pub fn can_copy(&self) -> bool {
+        match self {
+            Self::Generator(_) | Self::Ref(..) => false,
+            Self::Class(t) => t.copyable,
+            Self::Enum(t) => t.copyable,
+            Self::List(t) | Self::Set(t) => t.can_copy(),
+            Self::Dict(k, v) => k.can_copy() && v.can_copy(),
+            _ => true,
+        }
+    }
+    pub fn has_destructor(&self) -> bool {
+        match self {
+            Self::Generator(_) => true,
+            Self::Class(t) => t.has_destructor,
+            Self::Enum(t) => t.has_destructor,
+            Self::List(t) | Self::Set(t) => t.has_destructor(),
+            Self::Dict(k, v) => k.has_destructor() || v.has_destructor(),
+            _ => false,
+        }
     }
     /// Heap values have one owner per operand/local; scalars are copied as bits.
     pub fn managed(&self) -> bool {
@@ -67,6 +89,7 @@ impl Ty {
                 | Self::Dict(_, _)
                 | Self::Range
                 | Self::Enum(_)
+                | Self::Class(_)
                 | Self::Generator(_)
         )
     }
@@ -119,6 +142,7 @@ impl fmt::Display for Ty {
             Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
             Ty::Range => "range",
             Ty::Enum(t) => return f.write_str(&t.name),
+            Ty::Class(t) => return f.write_str(&t.name),
             Ty::Generator(t) => return write!(f, "Generator[{t}]"),
             Ty::Ref(t, mutable) => return write!(f, "&{}{t}", if *mutable { "mut " } else { "" }),
         })
@@ -156,6 +180,7 @@ pub struct FnSig {
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    Class(crate::record::ClassOp),
     BorrowLocal(u8, bool),
     ReadRef(Ty),
     Reborrow(Ty),
@@ -1052,6 +1077,14 @@ fn step(
             let (inputs, output) = operation.signature();
             if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
                 return Err("collection operation type mismatch".into());
+            }
+            stack.truncate(stack.len() - inputs.len());
+            stack.push(output);
+        }
+        Op::Class(operation) => {
+            let (inputs, output) = operation.signature().ok_or("invalid class operation")?;
+            if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
+                return Err("class operation type mismatch".into());
             }
             stack.truncate(stack.len() - inputs.len());
             stack.push(output);

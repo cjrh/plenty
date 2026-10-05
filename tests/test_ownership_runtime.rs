@@ -89,6 +89,31 @@ mut finished = wrapper(captured(['one' + ' value']))
 next(finished)
 next(finished)
 next(finished)
+
+class Buffer:
+    contents: list[str]
+    def __del__(self) -> ():
+        self.contents.append("cleanup" + " value")
+class Pair:
+    first: Buffer
+    second: Buffer
+def buffers(a: Buffer, b: Buffer) -> Generator[Buffer]:
+    local = Buffer(["local" + " data"])
+    yield a
+    yield b
+for n in range(100):
+    drop(Pair(Buffer(["a" + " data"]), Buffer(["b" + " data"])))
+    mut iterator = buffers(Buffer(["x" + " data"]), Buffer(["y" + " data"]))
+    next(iterator)
+    drop(iterator)
+    drop(buffers(Buffer(["unstarted" + " data"]), Buffer(["unused" + " data"])))
+    for item in [Buffer(["first" + " data"]), Buffer(["second" + " data"])]:
+        drop(item)
+    match Option[Buffer].Some(Buffer(["matched" + " data"])):
+        case Option[Buffer].Some(value):
+            drop(value)
+        case Option[Buffer].Nothing:
+            pass
 "#,
     )
     .unwrap();

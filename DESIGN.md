@@ -26,7 +26,8 @@ without an obligation to support a second execution engine.
 
 Consequences:
 
-- Every function parameter and return type is declared. Infer types within a
+- Every function parameter and return type is declared (a method's class supplies
+  the type of its bare `self` receiver). Infer types within a
   function; never require whole-program inference to understand an interface.
 - Compile each concrete function once. Begin monomorphic. Defer trait solving,
   specialization, implicit coercion searches, and user-defined compile-time
@@ -55,10 +56,10 @@ Consequences:
 | Direct and mutual tail calls | Implemented in AOT |
 | Early returns and return-aware branch checking | Implemented in AOT |
 | Concrete enums, tagged payloads, exhaustive matching | Implemented |
-| Structs, associated methods | Planned |
+| Fixed-layout classes, constructors, methods, custom cleanup | Implemented |
 | `Option[T]`, `Result[T, E]` | Implemented for stored value payloads |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
-| Local/parameter references and last-use borrow checking | Implemented subset; projected/stored/returned references deferred |
+| Local/parameter references and last-use borrow checking | Implemented for bindings and class fields; element/stored/returned references deferred |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | While loops, break/continue | Implemented |
@@ -66,12 +67,12 @@ Consequences:
 | User generics, traits | Deferred |
 | Async/await | Out of scope |
 
-Collections, generators, and enums containing mutable collections transfer ownership.
+Collections, classes, generators, and enums containing owned values transfer ownership.
 `copy(value)` explicitly duplicates mutable contents; `drop(value)` consumes an
 owner early. Immutable strings and immutable enums may share storage. Collection
 updates operate in place. Named local and parameter references use `&T` / `&mut T`,
-with last-use loan checking over an access CFG. Resource-bearing structs, element
-references, stored references, and returned references are not implemented.
+with last-use loan checking over an access CFG. Class fields can also be borrowed;
+collection element references, stored references, and returned references are deferred.
 
 The four design proposals for this batch are in [docs/proposals](docs/proposals).
 They record the reasoning and suggested staging; this document describes the
@@ -202,7 +203,8 @@ def clamp_low(value: i64, minimum: i64) -> i64:
 Tail calls in final expressions, final branches, and explicit return
 expressions (including early guard clauses) become tail-call operations.
 Cranelift emits `return_call` with the Tail calling
-convention. Ordinary nested calls retain normal call semantics.
+convention. Functions with resource-bearing parameters or locals retain ordinary
+calls so observable cleanup happens after the callee returns.
 
 ### Collections and iteration
 
@@ -503,20 +505,85 @@ Frontend coverage lowers to the existing scalar-tag match with an invalid-tag
 trap fallback. The independent checker validates construction/projection types;
 the structured frontend places projections behind the corresponding tag tests.
 
+## Classes: fixed-layout records
+
+`class` declares a concrete record with typed fields and associated methods.
+It provides familiar Python-shaped organization without inheritance, dynamic
+attributes, class variables, properties, or runtime method lookup.
+
+```python
+class Point:
+    x: i64
+    y: i64
+
+    def squared_length(self) -> i64:
+        self.x * self.x + self.y * self.y
+
+    def shift(self: &mut Point, amount: i64) -> ():
+        self.x = self.x + amount
+        self.y = self.y + amount
+
+mut point = Point(3, 4)
+point.shift(2)
+```
+
+Without `__init__`, the compiler generates a positional constructor taking all
+fields in declaration order. An explicit `def __init__(self, ...) -> ()`
+overrides it. Every field must be definitely initialized on every normal exit;
+branches merge their initialization sets, and a loop alone cannot establish
+initialization because it may run zero times. Already initialized fields may be
+read. Passing or borrowing the whole partially initialized instance is rejected.
+Initialization cannot be delegated to another method. Field defaults, keyword
+arguments, static methods, and constructor overloading are deferred.
+
+A method's first parameter is `self`. Bare `self` means `self: &Class` in
+ordinary methods and `self: &mut Class` in `__init__` and `__del__`. Other
+parameters and every return require explicit types. Mutating ordinary methods
+declare `self: &mut Class`; calling them requires a mutable owner or exclusive
+reference. Calls borrow the receiver and reborrow reference arguments for the
+duration of the call. Temporary owned receivers are supported without permitting
+escaping references.
+
+Every class instance moves on assignment and owned argument passing, including
+records containing only integers. `copy(instance)` recursively duplicates owned
+fields, but is rejected if the class or any nested value has custom destruction.
+Field reads copy immutable values; owned fields must be observed, explicitly
+copied, or borrowed. Partial moves out of classes are deferred. Structural
+equality compares the nominal type and field values; printing produces
+`Point(x=3, y=4)`. These operations do not invoke user-defined magic methods.
+
+`&point.x` and `&mut point.x` borrow stable field slots, including nested
+class fields. Loans conservatively cover the whole root binding: borrowing
+`point.x` also prevents conflicting access to `point.y`. Collection-valued
+fields support in-place updates such as `record.items.append(value)`.
+Whole-instance replacement through `*reference = instance` is rejected for
+classes, including class-valued field references; assign an owning binding or
+a named field instead. This also prevents a destructor from replacing its dying
+receiver through an alias.
+
+Fields may contain classes, enums, and collections, but not references,
+generators, or unit. Acyclic forward declarations and aliases are supported;
+recursive layouts remain rejected. Methods become statically resolved native
+functions. Class instances currently use one owned heap allocation with a runtime
+header, concrete type metadata, an optional destructor adapter, and 64-bit field
+slots. This representation favors simple lowering and fast compilation; it is not
+a public FFI layout guarantee. The compiler caches nesting, copyability, and
+destructor flags on nominal metadata.
+
 ## Ownership and reclamation
 
-Mutable collections and aggregates containing them move on assignment and owned
+Classes, mutable collections, and aggregates containing them move on assignment and owned
 argument passing; independent duplication requires `copy(value)`. Immutable `str`
 and enums containing only immutable values may share storage. Copyability is
-cached on concrete enum metadata so shared type graphs are not traversed repeatedly.
+cached on concrete enum and class metadata so shared type graphs are not traversed repeatedly.
 
 Every managed expression operand, live local, stored field, and frame capture
-has one owner. Loading a copyable value retains its immutable storage. Moving a
+has one owner. Loading a copyable value retains its immutable storage. Moving
 an owned value clears the source ownership slot. Stores evaluate the RHS, release the
 old owner, then transfer the new one. Scope exits, loop exits, and function exits
 release locals; compiler-private temporaries are bounded by local slots.
-Tail-call arguments are owned before caller cleanup, preserving direct and mutual
-tail calls. Traps terminate the process without unwinding language scopes.
+Tail-call arguments are owned before caller cleanup. Observable resource cleanup
+prevents tail-call rewriting in functions with resource-bearing slots. Traps terminate the process without unwinding language scopes.
 
 Runtime objects share `{u64 refs, destroy_callback}`. Heap objects start with one
 reference; literal strings use an immortal count. Helpers borrow arguments and
@@ -527,7 +594,7 @@ Reference counts are non-atomic; the language has no concurrency. The current
 unique mutable ownership and restricted aggregate types prevent source-visible
 ownership cycles.
 
-Collections, generators, and enums with mutable payloads are affine. The independent
+Collections, classes, generators, and enums with owned payloads are affine. The independent
 ownership pass tracks
 definite availability of local slots through structured branches. Only continuing
 arms join. A move on one branch makes the binding unavailable at a later join
@@ -539,19 +606,18 @@ A generator cannot be copied or stored in an aggregate. Collection/enum payloads
 can be owned mutable values: construction transfers ownership, and consuming
 matches transfer their bound payloads. Enums with such payloads are also affine.
 
-## Deterministic destruction — accepted direction
+## Deterministic destruction
 
-Plenty will use ownership-driven destruction, without a tracing garbage collector.
+Plenty uses ownership-driven destruction, without a tracing garbage collector.
 The compiler inserts cleanup on ordinary control-flow exits. This applies to memory
-and, once resource-bearing types exist, resources such as files and foreign handles.
+and custom class cleanup. Files and foreign handles remain future library work.
 Reference-counted immutable string storage is compatible with this model: releasing
 a string owner decrements its count and frees dynamic storage at zero. Borrows do
 not acquire ownership or independently destroy their referents.
 
-The runtime reclaims built-in values and abandoned generator frames; public
-`drop(value)` now consumes an owner explicitly. Custom destructors and their
-observable nested destruction order remain a migration target. The current memory
-reclamation queue must not be mistaken for an implementation of custom Drop hooks.
+The runtime reclaims built-in values, classes, and abandoned generator frames;
+`drop(value)` optionally consumes an owner early. A class may implement
+`def __del__(self) -> ()` for custom cleanup; automatic field cleanup follows it.
 
 - A live owned local is dropped when its lexical scope exits, in reverse binding
   declaration order. Inner scopes clean up before outer scopes. This includes
@@ -572,15 +638,14 @@ reclamation queue must not be mistaken for an implementation of custom Drop hook
   transferred to another owner. A block's result is transferred before its other
   locals are dropped. Initially reject escaping borrows of temporaries rather than
   adding implicit temporary-lifetime extension rules.
+  Loop conditions and each comprehension iteration finish their own temporaries.
 
-Once structs and associated methods exist, provide a compiler-recognized destructor
-hook taking exclusive access to the value and returning `()`. A general trait system
-is not required for this hook; exact declaration syntax is deferred until methods
-are designed. The hook runs before automatic field cleanup. Struct fields and active
+`__del__` takes exclusive access to the value and returns `()`. A general trait
+system is not required. The hook runs before automatic field cleanup. Class fields and active
 enum payloads drop in declaration order; list elements drop in index order. Dictionary
 entries drop in insertion order, with each key before its value. A child finishes
 destruction before the next sibling begins. Types with custom destruction cannot be
-implicitly copied, and initially cannot be partially moved or have their destructor
+copied, even explicitly, and cannot be partially moved or have their destructor
 called directly as an ordinary method. The hook cannot let references to the dying
 value escape. Nested owned fields are cleaned automatically; hooks manage only the
 additional resource-specific work.
@@ -601,29 +666,32 @@ Drop order also constrains tail-call optimization. A normal call in tail positio
 must retain caller-owned resources through the call when their specified destruction
 occurs afterward. Do not move an observable destructor before a call merely to emit
 a native tail call. Initially disable that optimization when such cleanup remains,
-or when a callee borrows caller-local storage. Tail calls remain possible after
-explicit early drops or transfers where no conflicting cleanup remains.
+or when a callee borrows caller-local storage. The current conservative check
+uses parameter/local types, so it also disables tail calls after explicit early
+drops in a function with resource-bearing slots. More precise cleanup analysis
+could recover those tail calls later. Generators count as resource-bearing because
+their frames may capture classes regardless of their yield type.
 
-The local-reference implementation has typed binding places, loan liveness,
-initialized/moved state, and cleanup operations integrated with loan checking. The current
-iterative runtime destruction queue must be audited or replaced for observable
-custom hooks so it preserves the specified nested order. Reuse generated cleanup
-per concrete type, keep contracts local to function signatures, and avoid requiring
-whole-program analysis. Test exact cleanup traces, not only allocation counts,
-before exposing user-defined destructors.
+The destruction queue processes nested values in depth-first declaration order
+without recursive native stack growth through automatic field cleanup. A hook
+runs through a native ABI adapter before its fields are queued. Drops performed
+inside the hook drain synchronously, preserving their order relative to its other
+effects; temporarily suspending the outer queue prevents sibling cleanup from
+running early. Source-level recursive hook calls can still use the native stack.
+Exact cleanup traces, allocation accounting, and sanitizer tests cover this path.
 
 Reference: [Rust destructor scopes and field cleanup](https://doc.rust-lang.org/reference/destructors.html).
 These are Plenty's selected rules; they do not require copying every Rust feature.
 
-## Public borrowing — implemented local subset
+## Public borrowing — bindings and class fields
 
 [References and explicit copying](docs/proposals/references-and-copying.md) records
 the accepted ownership decision. References to named bindings and borrowed function
-parameters are implemented as `&T` and `&mut T`. `str` remains the sole string
+parameters and their class fields are implemented as `&T` and `&mut T`. `str` remains the sole string
 value type; `&mut str` permits replacement of a string binding, not byte mutation.
 
 Reference bindings are immutable and initialized by a direct `&name` or
-`&mut name`; reassignment and implicit reference aliases are rejected initially.
+`&mut name`, including field paths; reassignment and implicit reference aliases are rejected initially.
 Reborrowing an existing reference is supported. An exclusive parent may lend shared
 or exclusive access, with conflicting parent access prohibited while the child is
 live. Calls automatically reborrow reference arguments, using declared signatures
@@ -638,14 +706,15 @@ reborrows; access through a parent conflicts with a live child. Copies of immuta
 values finish their read immediately; observations of mutable collections hold
 temporary shared loans through the operation that consumes them.
 
-Native references address 64-bit local storage slots (or generator frame slots).
+Native references address 64-bit local storage slots, generator frame slots, or
+fixed class field slots.
 Functions taking addresses spill their locals; ordinary functions retain SSA locals.
 Borrowed parameters already carry an address. Internal retained operands protect
 temporary storage lifetime, but the static checker establishes access permissions.
 Reference calls retain the caller frame, so native tail calls do not invalidate it.
 
-Projected references, partial moves, stored references, and returned references
-remain rejected. A generator cannot capture reference parameters or retain a live
+Collection element references, partial moves, stored references, and returned
+references remain rejected. Class field loans conservatively overlap at the root. A generator cannot capture reference parameters or retain a live
 loan across `yield`; short borrows completed within one resume are permitted.
 No lifetime annotation syntax or general trait system is required for this subset.
 
@@ -718,8 +787,8 @@ allocation and optimizing frame liveness are later runtime improvements.
 
 1. First-class unit payloads, richer diagnostics, and measured compile-latency
    improvements; consider caching runtime compilation.
-2. Concrete structs and methods; recursive types with explicit layout rules.
-3. Projected places and stored/returned reference contracts, then evaluate
+2. Recursive types with explicit layout rules; constructor and method ergonomics.
+3. Disjoint field loans, element places, and stored/returned reference contracts, then evaluate
    Polonius-style precision against compilation cost.
 4. Narrowly scoped generics if examples require them. Traits remain a separate
    decision. Async/await remains out of scope.

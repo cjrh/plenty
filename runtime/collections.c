@@ -1,6 +1,5 @@
-// Native collection storage. All source-visible collections are immutable
-// values. Only compiler-private builders mutate in place. An update returns a
-// new value. Objects, entries, buffers, and type metadata have explicit owners.
+// Native owned collections, enums, and classes. Objects and metadata have
+// explicit owners; compiler-checked exclusive loans permit in-place mutation.
 #include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
@@ -49,9 +48,16 @@ typedef struct PlentyEnum {
   uint64_t fields[];
 } PlentyEnum;
 _Static_assert(offsetof(PlentyEnum, fields) == 32, "enum ABI");
+typedef struct PlentyClass {
+  PlentyObject object;
+  PlentyType *type;
+  void (*drop_hook)(void **);
+  uint64_t fields[];
+} PlentyClass;
+_Static_assert(offsetof(PlentyClass, fields) == 32, "class ABI");
 
 static int collection_managed(const PlentyType *t) {
-  return t && (t->kind == 's' || t->kind == 'L' || t->kind == 'S' || t->kind == 'D' || t->kind == 'R' || t->kind == 'E');
+  return t && (t->kind == 's' || t->kind == 'L' || t->kind == 'S' || t->kind == 'D' || t->kind == 'R' || t->kind == 'E' || t->kind == 'C');
 }
 static void collection_retain_value(uint64_t value, const PlentyType *t) {
   if (collection_managed(t)) plenty_retain((void *)(uintptr_t)value);
@@ -75,13 +81,13 @@ static void collection_type_destroy(void *ptr) {
 }
 static void collection_destroy(void *ptr) {
   PlentyCollection *c = ptr;
+  plenty_release(c->type);
   if (c->type->kind != 'R') {
-    for (size_t i = 0; i < c->len; ++i) {
-      collection_release_value(c->entries[i].key, c->type->key);
-      collection_release_value(c->entries[i].value, c->type->value);
+    for (size_t i = c->len; i > 0; --i) {
+      collection_release_value(c->entries[i - 1].value, c->type->value);
+      collection_release_value(c->entries[i - 1].key, c->type->key);
     }
   }
-  plenty_release(c->type);
   free(c->entries);
   free(c->table);
   free(c);
@@ -111,12 +117,12 @@ static PlentyType *parse_type(const char **text, TypeContext *context) {
   PlentyType *t = collection_alloc(1, sizeof(*t));
   t->object = (PlentyObject){1, collection_type_destroy};
   t->kind = *(*text)++;
-  t->affine = t->kind == 'L' || t->kind == 'S' || t->kind == 'D';
+  t->affine = t->kind == 'L' || t->kind == 'S' || t->kind == 'D' || t->kind == 'C';
   if (t->kind == 'L' || t->kind == 'S' || t->kind == 'D')
     t->key = parse_type(text, context);
   if (t->kind == 'D')
     t->value = parse_type(text, context);
-  if (t->kind == 'E') {
+  if (t->kind == 'E' || t->kind == 'C') {
     PlentyType **entries = collection_alloc(context->count + 1, sizeof(*entries));
     if (context->count) memcpy(entries, context->enums, context->count * sizeof(*entries));
     free(context->enums);
@@ -128,7 +134,7 @@ static PlentyType *parse_type(const char **text, TypeContext *context) {
     for (size_t i = 0; i < t->count; ++i) {
       PlentyVariant *v = &t->variants[i];
       v->name = descriptor_name(text);
-      v->count = descriptor_count(text);
+      v->count = t->kind == 'C' ? 1 : descriptor_count(text);
       v->fields = collection_alloc(v->count, sizeof(*v->fields));
       for (size_t j = 0; j < v->count; ++j) {
         v->fields[j] = parse_type(text, context);
@@ -169,6 +175,13 @@ static uint64_t collection_hash(uint64_t value, const PlentyType *t) {
 static int collection_equal(const PlentyCollection *, const PlentyCollection *);
 static int collection_value_equal(uint64_t a, uint64_t b, const PlentyType *t) {
   if (a == b) return 1;
+  if (t->kind == 'C') {
+    const PlentyClass *x = (const PlentyClass *)(uintptr_t)a, *y = (const PlentyClass *)(uintptr_t)b;
+    if (strcmp(x->type->name, y->type->name)) return 0;
+    for (size_t i = 0; i < t->count; ++i)
+      if (!collection_value_equal(x->fields[i], y->fields[i], t->variants[i].fields[0])) return 0;
+    return 1;
+  }
   if (t->kind == 'E') {
     const PlentyEnum *x = (const PlentyEnum *)(uintptr_t)a, *y = (const PlentyEnum *)(uintptr_t)b;
     if (strcmp(x->type->name, y->type->name) || x->tag != y->tag) return 0;
@@ -286,6 +299,17 @@ static int collection_equal(const PlentyCollection *a,
 }
 static void collection_print(const PlentyCollection *);
 static void collection_print_value(uint64_t value, const PlentyType *t) {
+  if (t->kind == 'C') {
+    const PlentyClass *c = (const PlentyClass *)(uintptr_t)value;
+    fputs(t->name, stdout); fputc('(', stdout);
+    for (size_t i = 0; i < t->count; ++i) {
+      if (i) fputs(", ", stdout);
+      fputs(t->variants[i].name, stdout); fputc('=', stdout);
+      collection_print_value(c->fields[i], t->variants[i].fields[0]);
+    }
+    fputc(')', stdout);
+    return;
+  }
   if (t->kind == 'E') {
     const PlentyEnum *e = (const PlentyEnum *)(uintptr_t)value;
     const PlentyVariant *v = &t->variants[e->tag];
@@ -346,14 +370,33 @@ static uint64_t collection_text_at(const PlentyStr *s, int64_t index) {
 static void enum_destroy(void *ptr) {
   PlentyEnum *e = ptr;
   PlentyVariant *v = &e->type->variants[e->tag];
-  for (size_t i = 0; i < v->count; ++i) collection_release_value(e->fields[i], v->fields[i]);
   plenty_release(e->type);
+  for (size_t i = v->count; i > 0; --i) collection_release_value(e->fields[i - 1], v->fields[i - 1]);
   free(e);
 }
 
+static void class_destroy(void *ptr) {
+  PlentyClass *c = ptr;
+  if (c->drop_hook) {
+    // The dying owner is temporarily observable through self, never resurrected.
+    c->object.refs = UINT64_MAX;
+    PlentyObject *saved_pending = pending;
+    int saved_dropping = dropping;
+    pending = NULL; dropping = 0;
+    void *owner = c;
+    c->drop_hook(&owner);
+    if (owner != c) collection_error("destructor replaced its receiver");
+    pending = saved_pending; dropping = saved_dropping;
+  }
+  plenty_release(c->type);
+  for (size_t i = c->type->count; i > 0; --i)
+    collection_release_value(c->fields[i - 1], c->type->variants[i - 1].fields[0]);
+  free(c);
+}
+
 static PlentyType *value_type(uint64_t value) {
-  // Both objects embed this pointer after PlentyObject. memcpy avoids C
-  // effective-type aliasing when the object is an enum rather than a collection.
+  // Managed aggregates embed this pointer after PlentyObject. memcpy avoids
+  // effective-type aliasing across class, enum, and collection layouts.
   PlentyType *type;
   memcpy(&type, (const unsigned char *)(uintptr_t)value + sizeof(PlentyObject), sizeof(type));
   return type;
@@ -363,6 +406,16 @@ static uint64_t value_copy(uint64_t value, const PlentyType *type) {
   if (!type->affine) {
     collection_retain_value(value, type);
     return value;
+  }
+  if (type->kind == 'C') {
+    PlentyClass *source = (PlentyClass *)(uintptr_t)value;
+    if (source->drop_hook) collection_error("cannot copy a class with custom cleanup");
+    PlentyClass *copy = collection_alloc(1, sizeof(*copy) + type->count * sizeof(uint64_t));
+    copy->object = (PlentyObject){1, class_destroy};
+    copy->type = source->type; plenty_retain(copy->type);
+    for (size_t i = 0; i < type->count; ++i)
+      copy->fields[i] = value_copy(source->fields[i], type->variants[i].fields[0]);
+    return (uint64_t)(uintptr_t)copy;
   }
   if (type->kind == 'E') {
     PlentyEnum *source = (PlentyEnum *)(uintptr_t)value;
@@ -446,6 +499,13 @@ uint64_t plenty_collection(int64_t op, uint64_t a, uint64_t b, uint64_t value,
     return collection_at(c, collection_index((int64_t)b, c->len));
   case 5:
     return c->len;
+  case 15: {
+    if (c->type->kind != 'L') collection_error("owned iteration requires a list");
+    size_t index = collection_index((int64_t)b, c->len);
+    uint64_t element = c->entries[index].key;
+    c->entries[index].key = 0;
+    return element;
+  }
   case 6:
     return collection_at(c, collection_index((int64_t)b, c->len));
   case 7: {
@@ -490,9 +550,29 @@ uint64_t plenty_collection(int64_t op, uint64_t a, uint64_t b, uint64_t value,
     *t = (PlentyType){.object = {1, collection_type_destroy}, .kind = 'L', .key = c->type->value};
     plenty_retain(t->key);
     PlentyCollection *out = collection_new(t);
-    for (size_t i = 0; i < c->len; ++i)
+    for (size_t i = 0; i < c->len; ++i) {
       collection_insert(out, c->entries[i].value, 0);
+      if (c->type->value->affine) {
+        // Owned payloads are only exposed from a consumed dictionary.
+        collection_release_value(c->entries[i].value, c->type->value);
+        c->entries[i].value = 0;
+      }
+    }
     return (uint64_t)(uintptr_t)out;
+  }
+  case 30: {
+    PlentyType *t = collection_type(&descriptor);
+    PlentyClass *instance = collection_alloc(1, sizeof(*instance) + t->count * sizeof(uint64_t));
+    instance->object = (PlentyObject){1, class_destroy};
+    instance->type = t;
+    instance->drop_hook = (void (*)(void **))(uintptr_t)a;
+    return (uint64_t)(uintptr_t)instance;
+  }
+  case 31: {
+    PlentyClass *instance = (PlentyClass *)(uintptr_t)a;
+    if (b >= instance->type->count) collection_error("invalid class field");
+    collection_retain_value(instance->fields[b], instance->type->variants[b].fields[0]);
+    return instance->fields[b];
   }
   case 20: {
     PlentyType *t = collection_type(&descriptor);
@@ -514,12 +594,15 @@ uint64_t plenty_collection(int64_t op, uint64_t a, uint64_t b, uint64_t value,
   }
   case 22:
     return ((PlentyEnum *)(uintptr_t)a)->tag;
-  case 23: {
+  case 23:
+  case 25: {
     PlentyEnum *e = (PlentyEnum *)(uintptr_t)a;
     PlentyVariant *v = &e->type->variants[e->tag];
     if (e->tag != value || b >= v->count) collection_error("invalid enum projection");
-    collection_retain_value(e->fields[b], v->fields[b]);
-    return e->fields[b];
+    uint64_t field = e->fields[b];
+    if (op == 25) e->fields[b] = 0;
+    else collection_retain_value(field, v->fields[b]);
+    return field;
   }
   case 24: {
     uint64_t item = 0;

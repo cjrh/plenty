@@ -9,9 +9,10 @@ typedef struct PlentyGenerator {
 } PlentyGenerator;
 _Static_assert(offsetof(PlentyGenerator, slots) == 56, "generator frame ABI");
 void plenty_generator_finish(PlentyGenerator *g) {
-  for (size_t i = g->count; i > 0; --i) {
-    if (g->managed[i - 1]) plenty_release((void *)(uintptr_t)g->slots[i - 1]);
-    g->slots[i - 1] = 0;
+  for (size_t n = 0; n < g->count; ++n) {
+    size_t i = dropping ? n : g->count - 1 - n;
+    if (g->managed[i]) plenty_release((void *)(uintptr_t)g->slots[i]);
+    g->slots[i] = 0;
   }
   g->state = UINT64_MAX;
 }

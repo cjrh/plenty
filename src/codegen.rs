@@ -188,7 +188,7 @@ const COLLECTION_RUNTIME_C: &str = concat!(
 /// Avoid compiling the collection runtime for programs that only use scalars.
 fn uses_collections(ops: &[Op]) -> bool {
     ops.iter().any(|op| match op {
-        Op::Collection(_) | Op::Enum(_) => true,
+        Op::Collection(_) | Op::Enum(_) | Op::Class(_) => true,
         Op::Loop { condition, body } => uses_collections(condition) || uses_collections(body),
         Op::Match(arms) => arms.iter().any(|arm| uses_collections(&arm.body)),
         Op::DefineFn(_, f) => {
@@ -525,6 +525,7 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
 /// allocates one of these per `DefineFn` reachable from the source set;
 /// Pass 2 reads it back when emitting bodies and resolving calls.
 struct UserFn {
+    drop_callback: Option<FuncId>,
     generator: Option<Ty>,
     resume: Option<FuncId>,
     id: FuncId,
@@ -579,6 +580,19 @@ fn collect_user_fns(
                 out.insert(
                     name.clone(),
                     UserFn {
+                        drop_callback: if name.starts_with("__plenty_class_")
+                            && name.ends_with(".__del__")
+                        {
+                            let mut signature = module.make_signature();
+                            signature.params.push(AbiParam::new(PTR_TY));
+                            Some(module.declare_function(
+                                &format!("__plenty_drop_{name}"),
+                                Linkage::Local,
+                                &signature,
+                            )?)
+                        } else {
+                            None
+                        },
                         id,
                         generator: f.generator.clone(),
                         resume: if f.generator.is_some() {
@@ -735,6 +749,24 @@ fn emit_user_function(
         bcx.finalize();
     }
     module.define_function(decl.id, &mut ctx)?;
+    if let Some(id) = decl.drop_callback {
+        let mut signature = module.make_signature();
+        signature.params.push(AbiParam::new(PTR_TY));
+        let mut ctx = Context::new();
+        ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+        let mut fc = FunctionBuilderContext::new();
+        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fc);
+        let block = b.create_block();
+        b.append_block_params_for_function_params(block);
+        b.switch_to_block(block);
+        b.seal_block(block);
+        let receiver = b.block_params(block)[0];
+        let callee = module.declare_func_in_func(decl.id, b.func);
+        b.ins().call(callee, &[receiver]);
+        b.ins().return_(&[]);
+        b.finalize();
+        module.define_function(id, &mut ctx)?;
+    }
     Ok(())
 }
 
@@ -816,6 +848,7 @@ fn clif_type(ty: Ty) -> types::Type {
         | Ty::Set(_)
         | Ty::Dict(_, _)
         | Ty::Range
+        | Ty::Class(_)
         | Ty::Enum(_)
         | Ty::Generator(_)
         | Ty::Ref(..) => PTR_TY,
@@ -1035,6 +1068,7 @@ impl Lowerer<'_, '_> {
                     .store(cranelift_codegen::ir::MemFlags::trusted(), value, ptr, 0);
             }
             Op::Collection(operation) => self.lower_collection(operation)?,
+            Op::Class(operation) => self.lower_class(operation)?,
             Op::Enum(operation) => self.lower_enum(operation)?,
             Op::Yield(ty) => self.lower_yield(ty)?,
             Op::Next(i, _) => self.lower_next(*i)?,

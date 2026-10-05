@@ -167,7 +167,9 @@ impl Lower<'_> {
                     step,
                     ..
                 } = self.iteration(name, iterable, ops)?;
+                let temporary_start = self.expression_temps.len();
                 self.comprehension(rest, entries, kind, result, ty, &mut body)?;
+                self.finish_temporaries(temporary_start, &mut body);
                 body.extend(step);
                 ops.push(Op::Loop {
                     condition: condition.into(),
@@ -177,8 +179,10 @@ impl Lower<'_> {
                 self.names = saved;
             }
             Some((Clause::If(condition), rest)) => {
+                let temporary_start = self.expression_temps.len();
                 let cond = self.expr(condition, ops)?;
                 self.same(cond, Some(Ty::Bool), &condition.at)?;
+                self.finish_temporaries(temporary_start, ops);
                 let mut body = Vec::new();
                 self.comprehension(rest, entries, kind, result, ty, &mut body)?;
                 ops.push(branch(body, Vec::new()));
@@ -232,6 +236,7 @@ impl Lower<'_> {
     }
 
     fn iteration(&mut self, name: &str, iterable: &Expr, ops: &mut Vec<Op>) -> Result<Iteration> {
+        let temporary_start = self.expression_temps.len();
         let iterable = ungroup(iterable);
         let borrowed = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(..))));
@@ -247,6 +252,7 @@ impl Lower<'_> {
             return Err(iterable.at.error("borrowed iteration of owned elements is not supported; iterate an owned collection or copy it"));
         }
         let mut plan = self.iteration_on_stack(ty.clone(), &iterable.at, ops)?;
+        self.finish_temporaries(temporary_start, ops);
         plan.condition
             .extend(loans.iter().copied().map(Op::UseLoan));
         plan.body.extend(loans.into_iter().map(Op::UseLoan));
@@ -269,7 +275,7 @@ impl Lower<'_> {
         let target = self.slot(element.clone(), at)?;
         ops.push(Op::StoreLocal(source));
         if ty.restricted_storage() {
-            let option = crate::sum::option(element);
+            let option = crate::sum::option(element.clone());
             let Ty::Enum(enum_type) = &option else {
                 unreachable!()
             };
@@ -285,11 +291,15 @@ impl Lower<'_> {
                 ],
                 body: vec![
                     Op::LoadLocal(item),
-                    Op::Enum(crate::sum::EnumOp::Field(enum_type.clone(), 1, 0)),
+                    Op::Enum(if element.affine() {
+                        crate::sum::EnumOp::Take(enum_type.clone(), 1, 0)
+                    } else {
+                        crate::sum::EnumOp::Field(enum_type.clone(), 1, 0)
+                    }),
                     Op::StoreLocal(target),
                     Op::DropLocal(item),
                 ],
-                step: vec![],
+                step: vec![Op::DropLocal(target)],
                 target,
             });
         }
@@ -312,7 +322,11 @@ impl Lower<'_> {
             Op::Collection(if text {
                 CollectionOp::TextAtByte
             } else {
-                CollectionOp::IterGet(ty)
+                if element.affine() {
+                    CollectionOp::IterTake(ty)
+                } else {
+                    CollectionOp::IterGet(ty)
+                }
             }),
             Op::StoreLocal(target),
         ];
@@ -327,6 +341,9 @@ impl Lower<'_> {
             ]);
         } else {
             increment(index, &mut step);
+        }
+        if element.managed() {
+            step.push(Op::DropLocal(target));
         }
         Ok(Iteration {
             condition,
@@ -389,20 +406,13 @@ impl Lower<'_> {
         Ok(value)
     }
 
-    fn mutable_collection(&self, base: &Expr) -> Result<Local> {
-        let Expression::Name(name) = &base.kind else {
-            return Err(base.at.error("collection mutation requires a named mutable binding; update nested values separately"));
+    fn mutation_place(&mut self, base: &Expr, ops: &mut Vec<Op>) -> Result<usize> {
+        let (reference, loan) = self.borrow(base, true, ops)?;
+        let Ty::Ref(ty, _) = reference else {
+            unreachable!()
         };
-        let local = self
-            .names
-            .get(name)
-            .ok_or_else(|| base.at.error(format!("unknown binding `{name}`")))?;
-        if !local.mutable && !matches!(local.ty, Ty::Ref(_, true)) {
-            return Err(base
-                .at
-                .error(format!("`{name}` is immutable; declare it with `mut`")));
-        }
-        Ok(local.clone())
+        ops.push(Op::ReadRef((*ty).clone()));
+        Ok(loan)
     }
 
     pub(super) fn set_index(
@@ -416,12 +426,10 @@ impl Lower<'_> {
                 .at
                 .error("assignment target must be a binding or an index"));
         };
-        let local = self.mutable_collection(base)?;
-        let target_ty = if let Ty::Ref(t, _) = &local.ty {
-            (**t).clone()
-        } else {
-            local.ty.clone()
-        };
+        let target_ty = self.place_type(base).ok_or_else(|| {
+            base.at
+                .error("mutation requires a named binding or class field")
+        })?;
         let (key, val) = match &target_ty {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
@@ -436,11 +444,12 @@ impl Lower<'_> {
         self.same(actual, Some(key.clone()), &index.at)?;
         let index_slot = self.slot(key, &index.at)?;
         ops.push(Op::StoreLocal(index_slot));
-        let (_, loan) = self.read_place(&local, ops);
+        let loan = self.mutation_place(base, ops)?;
         ops.push(Op::MoveLocal(index_slot, "mutation index".into()));
         ops.push(Op::LoadLocal(temp));
         ops.push(Op::Collection(CollectionOp::Put(target_ty)));
-        self.finish_mutation(&local, loan, ops);
+        ops.push(Op::Drop);
+        ops.push(Op::UseLoan(loan));
         ops.push(Op::DropLocal(temp));
         Ok(())
     }
@@ -455,13 +464,17 @@ impl Lower<'_> {
         if let Some(ty) = self.qualified_type(base)? {
             return self.variant(ty, name, Some(args), &base.at, ops);
         }
+        if let Some(Ty::Class(class)) = self.place_type(base) {
+            return self.class_method(base, class, name, args, ops);
+        }
+        if matches!(name, "__init__" | "__del__" | "__new__") {
+            return Err(base.at.error("lifecycle methods cannot be called directly"));
+        }
         if matches!(name, "append" | "add") {
-            let local = self.mutable_collection(base)?;
-            let target_ty = if let Ty::Ref(t, _) = &local.ty {
-                (**t).clone()
-            } else {
-                local.ty.clone()
-            };
+            let target_ty = self.place_type(base).ok_or_else(|| {
+                base.at
+                    .error("mutation requires a named binding or class field")
+            })?;
             if !matches!(
                 (&target_ty, name),
                 (Ty::List(_), "append") | (Ty::Set(_), "add")
@@ -476,13 +489,36 @@ impl Lower<'_> {
             self.same(actual, Some(expected.clone()), &args[0].at)?;
             let argument = self.slot(expected, &args[0].at)?;
             ops.push(Op::StoreLocal(argument));
-            let (_, loan) = self.read_place(&local, ops);
+            let loan = self.mutation_place(base, ops)?;
             ops.push(Op::MoveLocal(argument, "mutation argument".into()));
             ops.push(Op::Collection(CollectionOp::Append(target_ty)));
-            self.finish_mutation(&local, loan, ops);
+            ops.push(Op::Drop);
+            ops.push(Op::UseLoan(loan));
             return Ok(None);
         }
         let (ty, loans) = self.observe(base, ops)?;
+        if let Ty::Class(class) = &ty {
+            let slot = self.slot(ty.clone(), &base.at)?;
+            ops.push(Op::StoreLocal(slot));
+            let receiver = format!("__plenty_receiver_{slot}");
+            self.names.insert(
+                receiver.clone(),
+                Local {
+                    slot,
+                    ty: ty.clone(),
+                    mutable: loans.is_empty(),
+                },
+            );
+            let expr = Expr {
+                at: base.at.clone(),
+                kind: Expression::Name(receiver.clone()),
+            };
+            let result = self.class_method(&expr, class.clone(), name, args, ops)?;
+            self.names.remove(&receiver);
+            self.expression_temps.push(slot);
+            Self::end_reads(loans, ops);
+            return Ok(result);
+        }
         let Ty::Dict(k, v) = &ty else {
             return Err(base.at.error(format!("unsupported method `{name}`")));
         };
