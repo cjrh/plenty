@@ -474,14 +474,14 @@ and reports a failing exit status when the program fails.
 
 There is no interactive REPL or interpreter, and JIT compilation is out of scope.
 
-## 13. Lists and independent values
+## 13. Lists, moves, and explicit copies
 
 A list contains values of one type. Use `list[T]` in signatures and annotations.
 An empty list needs an annotation or a typed constructor such as `list[i64]()`.
 
 ```plenty
 mut original: list[i64] = [10, 20]
-mut changed = original
+mut changed = copy(original)
 changed.append(30)
 changed[0] = 99
 print(original)
@@ -497,14 +497,17 @@ print(len(changed))
 3
 ```
 
-Unlike Python, the two bindings are independent values. Updating `changed`
-does not update `original`. Both the binding and its contents are immutable
-unless you declare the binding with `mut`; function parameters are immutable.
+The explicit `copy(original)` creates independent contents. Without `copy`,
+assignment transfers ownership and the old binding cannot be used. Updates happen
+in place and require a `mut` owner or an exclusive reference (lesson 22).
+Owned function parameters are immutable bindings; reference parameters can grant
+permission to change the caller's value.
 Negative indices count from the end. Invalid indices stop the program with a
 runtime error.
 
-Collections can nest. To update an inner list, extract it into a mutable binding,
-update that binding, then assign it back into the outer list. Direct nested
+Collections can nest. To update an inner list while keeping the outer collection,
+use `mut child = copy(rows[0])`, update `child`, then assign it back with
+`rows[0] = child`. This last assignment transfers the child into the collection. Direct nested
 assignment such as `rows[0][0] = 1` is not implemented.
 
 ## 14. Dictionaries and sets
@@ -538,7 +541,9 @@ True
 ```
 
 A repeated dictionary key replaces its value and keeps its insertion position.
-`keys()` and `values()` return snapshot lists in insertion order. Sets remove
+`keys()` and `values()` return new lists in insertion order. When dictionary
+values contain mutable collections, use `copy(scores).values()` to request
+independent payloads explicitly. Sets remove
 duplicates and have no promised iteration order. `{}` is an empty dictionary;
 use an annotation with `set()` or write `set[str]()` for an empty set.
 
@@ -558,7 +563,7 @@ for n in range(1, 5):
 print(total)
 
 scores = {"Ada": 10, "Grace": 20}
-for name in scores:
+for name in &scores:
     print(name)
     print(scores[name])
 
@@ -580,8 +585,12 @@ Grace
 step, but never zero. The stop value is excluded. A range stores its bounds
 without building a list; `list(range(...))` materializes its values.
 
-The iterable is evaluated once. The loop visits that snapshot even if its
-binding is updated in the body. Loop variables and new body bindings do not
+The iterable is evaluated once. Iterating an owned collection transfers it into
+the loop; use `for item in &values` to preserve the owner. Borrowed iteration
+prevents conflicting mutation, and currently supports only copyable elements
+(scalars, strings, and enums without mutable payloads). To iterate a snapshot while
+mutating the original, request it explicitly with `for item in copy(values)`.
+Generators are consumed by iteration. Loop variables and new body bindings do not
 escape the loop; changes to enclosing `mut` bindings persist. A loop has unit
 result. `return` can exit a containing function from a loop. Lesson 17 covers
 `break` and `continue`. Tuple unpacking and `items()` are not implemented yet.
@@ -624,10 +633,10 @@ values = [1, True]
 expected list[i64]
 ```
 
-For now, prefer comprehensions to repeated `append` calls when building a
-collection. Comprehensions use a private growing buffer; ordinary mutations copy
-the outer collection storage. Storage is reclaimed automatically as owners are
-replaced or leave scope; you do not call `free` or manage reference counts.
+Both comprehensions and repeated `append` calls use growing storage in place.
+Assignment does not copy collections, and mutation does not secretly copy their
+contents. Use `copy` when duplication is intended. Storage is reclaimed as owners
+are replaced or leave scope; no `free` calls or reference-count management are needed.
 
 ## 17. Repeat until a condition changes
 
@@ -761,7 +770,8 @@ A final match produces a function's result, like a final `if`. Cases may also
 return early or break/continue an enclosing loop. Enum declarations can refer to
 other nonrecursive types and aliases. Enums with identical variants but different
 names remain different types. Payloads can contain strings, collections, and
-other enums; matching them gives independent values.
+other enums. Matching consumes enums containing mutable payloads and transfers
+the bound payloads; use `match copy(value)` to preserve such an owner.
 
 ## 19. Represent absence and failure explicitly
 
@@ -887,14 +897,18 @@ Option[str].Nothing
 
 Breaking out of consuming iteration drops the suspended generator without
 executing the statements after its last yield. There are no generator expressions,
-`yield from`, `send`, or async operations. Yielded values are independent;
-a generator may yield strings, collections, and enums, but not another generator.
+`yield from`, `send`, or async operations. Yielded owned values transfer ownership; use `yield copy(value)` to retain an
+independent mutable value in the generator. A generator may yield strings,
+collections, and enums, but not another generator.
 
 ## 21. Understand which values copy and which move
 
-Strings, collections, and current enums have independent values. Their immutable
-storage may be shared internally, and it is reclaimed automatically when no
-owner needs it. A collection update still changes only its target binding.
+Integers and booleans copy cheaply. Strings share immutable storage without
+copying their bytes. Enums containing only these immutable values can share storage
+too. Collections, generators, and enums containing mutable collections move on
+assignment, owned argument passing, and return. Use `copy(value)` to duplicate
+collections or their enclosing enums. Nested mutable contents are copied too;
+immutable strings and enums can share storage. Generators cannot be copied.
 
 A generator owns a position in an advancing computation. Assignment transfers
 that owner instead of copying the position:
@@ -924,7 +938,7 @@ list(first)
 ```
 
 ```error
-use of moved or possibly moved generator binding
+use of moved or possibly moved binding
 ```
 
 Arguments, returns, and `for` iteration also move generators. `next` is the
@@ -936,14 +950,125 @@ makes later reuse unsafe. Within a loop, an outer generator must be reinitialize
 before any path repeats the loop. These rules are intentionally conservative.
 Generators cannot be stored in collections or enum payloads yet.
 
-There is no public reference syntax or general borrow checker in this version.
-Automatic storage reclamation and checking generator moves are the current
-ownership features.
+Loans for local references and function arguments are checked before compilation.
+The next lesson explains how to use them.
+
+## 22. Borrow instead of transferring ownership
+
+A shared reference, `&T`, permits observation. An exclusive reference, `&mut T`,
+permits mutation. The owner remains responsible for cleanup. Function signatures
+state which access is needed:
+
+```plenty
+def total(values: &list[i64]) -> i64:
+    mut result = 0
+    for value in values:
+        result = result + value
+    result
+
+def add(values: &mut list[i64], value: i64) -> ():
+    values.append(value)
+
+mut numbers = [1, 2]
+print(total(&numbers))
+add(&mut numbers, 3)
+print(numbers)
+```
+
+```output
+3
+[1, 2, 3]
+```
+
+References can also be local bindings. They are immutable bindings themselves;
+`&mut` grants access to the target. Use `*reference` to read a scalar or replace
+the target. Collection operations such as `append`, indexing, and `len` work
+through references directly.
+
+```plenty
+mut score = 10
+reference = &mut score
+*reference = *reference + 5
+print(*reference)
+score = 20
+print(score)
+```
+
+```output
+15
+20
+```
+
+The exclusive borrow ends after the last use of `reference`, so assigning to
+`score` afterward is allowed. A reference that will be used later keeps its loan
+live, including across branches and loop iterations:
+
+```plenty-error
+mut numbers = [1, 2]
+view = &numbers
+numbers.append(3)
+print(view)
+```
+
+```error
+conflicting borrow
+```
+
+A reference can be reborrowed temporarily. An exclusive reference may lend shared
+or exclusive access, but its conflicting access is suspended while that child
+borrow is live. Reference arguments automatically reborrow an existing reference;
+they do not transfer the referenced owner.
+
+This first subset borrows named bindings. Reference bindings must be initialized
+directly with `&name` or `&mut name` and cannot be reassigned. References cannot
+be stored in collections, returned from functions, captured by generators, or
+remain live across `yield`. Element references such as `&items[0]` are not yet
+supported. Use `next` through an exclusive generator reference when borrowing
+a generator; generator iteration still consumes its owner.
+
+## 23. Cleanup and early drop
+
+Owned values clean up automatically when their scope exits, including through
+`return`, `break`, and `continue`. Moving a value transfers that responsibility.
+A borrow never becomes responsible for destroying the original value.
+
+Use `drop(value)` to release an owner earlier. The consumed binding becomes
+unavailable; a mutable binding may then receive another value:
+
+```plenty
+mut numbers = [1, 2, 3]
+drop(numbers)
+numbers = [4]
+print(numbers)
+
+def pending() -> Generator[i64]:
+    print("started")
+    yield 1
+
+task = pending()
+drop(task)
+print("done")
+```
+
+```output
+[4]
+done
+```
+
+Dropping a generator cleans its captured values without resuming its body.
+Borrow checking prevents dropping an owner while a reference still needs it.
+A borrow can end at its last use; that does not implicitly destroy its owner.
+
+Strings may share immutable storage. Dropping one string owner does not invalidate
+another. There is no tracing garbage collector. Fatal runtime traps terminate
+without unwinding scopes. User-defined cleanup methods will arrive with structs
+and associated methods; they are not part of this version.
 
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Structs and methods, unit
-payloads, recursive enums, and public borrowing remain future work. Traits and generics are deferred; async/await is out of
+payloads, recursive enums, custom destructors, element references, and stored or
+returned references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 
 When a lesson feels awkward, that is useful feedback for the language design.

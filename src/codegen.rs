@@ -614,6 +614,17 @@ fn collect_user_fns(
 /// through without a tail call, emit a `return` carrying the values
 /// remaining on the compile-time stack (the type checker has already
 /// ensured those values match the declared outputs).
+fn needs_local_addresses(ops: &[Op]) -> bool {
+    ops.iter().any(|op| match op {
+        Op::BorrowLocal(..) => true,
+        Op::Match(arms) => arms.iter().any(|a| needs_local_addresses(&a.body)),
+        Op::Loop { condition, body } => {
+            needs_local_addresses(condition) || needs_local_addresses(body)
+        }
+        _ => false,
+    })
+}
+
 fn emit_user_function(
     name: &str,
     fns: &HashMap<String, UserFn>,
@@ -660,6 +671,35 @@ fn emit_user_function(
             locals.push((var, ty.clone()));
         }
 
+        let local_frame = if needs_local_addresses(&decl.body) {
+            let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                (locals.len() * 8) as u32,
+                3,
+            ));
+            let frame = bcx.ins().stack_addr(PTR_TY, slot, 0);
+            for (i, (var, ty)) in locals.iter().enumerate() {
+                let value = if i < decl.sig.inputs.len() || ty.managed() {
+                    bcx.use_var(*var)
+                } else {
+                    bcx.ins().iconst(clif_type(ty.clone()), 0)
+                };
+                let packed = if clif_type(ty.clone()) != types::I64 {
+                    bcx.ins().uextend(types::I64, value)
+                } else {
+                    value
+                };
+                bcx.ins().store(
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    packed,
+                    frame,
+                    (i * 8) as i32,
+                );
+            }
+            Some(frame)
+        } else {
+            None
+        };
         let mut lower = Lowerer {
             bcx: &mut bcx,
             module,
@@ -672,6 +712,7 @@ fn emit_user_function(
             terminated: false,
             loop_targets: Vec::new(),
             generator: None,
+            local_frame,
         };
         for op in decl.body.iter() {
             if lower.terminated {
@@ -742,6 +783,7 @@ fn emit_main(
             terminated: false,
             loop_targets: Vec::new(),
             generator: None,
+            local_frame: None,
         };
         for op in ops {
             lower.lower(op)?;
@@ -775,7 +817,8 @@ fn clif_type(ty: Ty) -> types::Type {
         | Ty::Dict(_, _)
         | Ty::Range
         | Ty::Enum(_)
-        | Ty::Generator(_) => PTR_TY,
+        | Ty::Generator(_)
+        | Ty::Ref(..) => PTR_TY,
     }
 }
 
@@ -859,6 +902,7 @@ struct Lowerer<'a, 'b> {
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
     generator: Option<GeneratorContext>,
+    local_frame: Option<cranelift_codegen::ir::Value>,
 }
 
 impl Lowerer<'_, '_> {
@@ -893,6 +937,14 @@ impl Lowerer<'_, '_> {
                 56 + i32::from(i) * 8,
             );
             self.unpack(value, &ty)
+        } else if let Some(frame) = self.local_frame {
+            let value = self.bcx.ins().load(
+                types::I64,
+                cranelift_codegen::ir::MemFlags::trusted(),
+                frame,
+                i32::from(i) * 8,
+            );
+            self.unpack(value, &ty)
         } else {
             self.bcx.use_var(var)
         }
@@ -907,6 +959,14 @@ impl Lowerer<'_, '_> {
                 value,
                 frame,
                 56 + i32::from(i) * 8,
+            );
+        } else if let Some(frame) = self.local_frame {
+            let value = self.pack(value, &ty);
+            self.bcx.ins().store(
+                cranelift_codegen::ir::MemFlags::trusted(),
+                value,
+                frame,
+                i32::from(i) * 8,
             );
         } else {
             self.bcx.def_var(var, value);
@@ -928,6 +988,52 @@ impl Lowerer<'_, '_> {
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
         match op {
+            Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
+            Op::BorrowLocal(i, mutable) => {
+                let (frame, offset) = if let Some(g) = &self.generator {
+                    (g.frame, 56)
+                } else {
+                    (self.local_frame.expect("addressable locals"), 0)
+                };
+                let ptr = self.bcx.ins().iadd_imm(frame, offset + i64::from(*i) * 8);
+                self.stack.push((
+                    ptr,
+                    Ty::Ref(
+                        std::rc::Rc::new(self.locals[*i as usize].1.clone()),
+                        *mutable,
+                    ),
+                ));
+            }
+            Op::ReadRef(ty) => {
+                let (ptr, _) = self.stack.pop().ok_or("reference stack underflow")?;
+                let packed = self.bcx.ins().load(
+                    types::I64,
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    ptr,
+                    0,
+                );
+                let value = self.unpack(packed, ty);
+                self.retain(value, ty);
+                self.stack.push((value, ty.clone()));
+            }
+            Op::Reborrow(ty) => {
+                self.stack.last_mut().ok_or("reference stack underflow")?.1 = ty.clone();
+            }
+            Op::WriteRef(ty) => {
+                let (ptr, _) = self.stack.pop().ok_or("reference stack underflow")?;
+                let (value, _) = self.pop_typed(ty.clone())?;
+                let old = self.bcx.ins().load(
+                    types::I64,
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    ptr,
+                    0,
+                );
+                self.release(old, ty);
+                let value = self.pack(value, ty);
+                self.bcx
+                    .ins()
+                    .store(cranelift_codegen::ir::MemFlags::trusted(), value, ptr, 0);
+            }
             Op::Collection(operation) => self.lower_collection(operation)?,
             Op::Enum(operation) => self.lower_enum(operation)?,
             Op::Yield(ty) => self.lower_yield(ty)?,
@@ -936,7 +1042,7 @@ impl Lowerer<'_, '_> {
             Op::MoveLocal(i, _) => {
                 let value = self.read_local(*i);
                 let ty = self.locals[*i as usize].1.clone();
-                let zero = self.bcx.ins().iconst(PTR_TY, 0);
+                let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
                 self.write_local(*i, zero);
                 self.stack.push((value, ty));
             }

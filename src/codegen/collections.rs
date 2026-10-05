@@ -66,6 +66,7 @@ impl Lowerer<'_, '_> {
         }
         values.reverse();
         let descriptor = match operation {
+            CollectionOp::Next(_) => Some(&output),
             CollectionOp::New(ty) => Some(ty),
             CollectionOp::Len(Ty::Str)
             | CollectionOp::Get(Ty::Str)

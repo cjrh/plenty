@@ -29,7 +29,18 @@ impl Lower<'_> {
         let local = self
             .names
             .get(name)
-            .ok_or_else(|| at.error(format!("unknown binding `{name}`")))?;
+            .ok_or_else(|| at.error(format!("unknown binding `{name}`")))?
+            .clone();
+        if let Ty::Ref(inner, true) = &local.ty {
+            let Ty::Generator(element) = inner.as_ref() else {
+                return Err(at.error("next requires a generator"));
+            };
+            let output = crate::sum::option((**element).clone());
+            let (ty, loan) = self.read_place(&local, ops);
+            ops.push(Op::Collection(CollectionOp::Next(ty)));
+            ops.push(Op::UseLoan(loan));
+            return Ok(Some(output));
+        }
         let Ty::Generator(element) = &local.ty else {
             return Err(at.error("next requires a generator"));
         };

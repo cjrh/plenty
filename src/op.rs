@@ -36,6 +36,7 @@ pub enum Ty {
     Range,
     Enum(Rc<crate::sum::EnumType>),
     Generator(Rc<Ty>),
+    Ref(Rc<Ty>, bool),
 }
 
 impl Ty {
@@ -48,7 +49,13 @@ impl Ty {
         }
     }
     pub fn affine(&self) -> bool {
-        matches!(self, Self::Generator(_))
+        matches!(
+            self,
+            Self::List(_) | Self::Set(_) | Self::Dict(_, _) | Self::Generator(_)
+        ) || matches!(self, Self::Enum(t) if t.affine)
+    }
+    pub fn restricted_storage(&self) -> bool {
+        matches!(self, Self::Generator(_) | Self::Ref(..))
     }
     /// Heap values have one owner per operand/local; scalars are copied as bits.
     pub fn managed(&self) -> bool {
@@ -113,6 +120,7 @@ impl fmt::Display for Ty {
             Ty::Range => "range",
             Ty::Enum(t) => return f.write_str(&t.name),
             Ty::Generator(t) => return write!(f, "Generator[{t}]"),
+            Ty::Ref(t, mutable) => return write!(f, "&{}{t}", if *mutable { "mut " } else { "" }),
         })
     }
 }
@@ -148,6 +156,13 @@ pub struct FnSig {
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    BorrowLocal(u8, bool),
+    ReadRef(Ty),
+    Reborrow(Ty),
+    WriteRef(Ty),
+    Loan(crate::ownership::Loan),
+    UseLoan(usize),
+    Access(u8, bool, Option<usize>),
     Yield(Ty),
     Next(u8, String),
     MoveLocal(u8, String),
@@ -1003,6 +1018,36 @@ fn step(
     yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     match op {
+        Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
+        Op::BorrowLocal(i, mutable) => {
+            let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;
+            stack.push(Ty::Ref(Rc::new(ty.clone()), *mutable));
+        }
+        Op::ReadRef(ty) => {
+            if !matches!(stack.pop(), Some(Ty::Ref(t, _)) if t.as_ref() == ty) {
+                return Err("invalid reference read".into());
+            }
+            stack.push(ty.clone());
+        }
+        Op::Reborrow(target) => {
+            let Some(Ty::Ref(source, writable)) = stack.pop() else {
+                return Err("invalid reborrow".into());
+            };
+            let Ty::Ref(inner, mutable) = target else {
+                return Err("invalid reborrow target".into());
+            };
+            if source != *inner || (*mutable && !writable) {
+                return Err("invalid reborrow permissions".into());
+            }
+            stack.push(target.clone());
+        }
+        Op::WriteRef(ty) => {
+            if stack.pop() != Some(Ty::Ref(Rc::new(ty.clone()), true))
+                || stack.pop().as_ref() != Some(ty)
+            {
+                return Err("invalid reference write".into());
+            }
+        }
         Op::Collection(operation) => {
             let (inputs, output) = operation.signature();
             if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {

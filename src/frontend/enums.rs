@@ -164,7 +164,7 @@ pub(super) fn resolve_types(aliases: &[TypeAlias], enums: &[EnumDecl]) -> Result
                                         })
                                     })
                                     .collect::<Result<Vec<_>>>()?;
-                                if fields.iter().any(Ty::affine) {
+                                if fields.iter().any(Ty::restricted_storage) {
                                     return Err(e
                                         .at
                                         .error("generators cannot be stored in enum payloads"));
@@ -177,6 +177,7 @@ pub(super) fn resolve_types(aliases: &[TypeAlias], enums: &[EnumDecl]) -> Result
                             .collect::<Result<Vec<_>>>()?;
                         Some(Ty::Enum(Rc::new(EnumType {
                             name: e.name.clone(),
+                            affine: variants.iter().flat_map(|v| &v.fields).any(Ty::affine),
                             depth: 1 + variants
                                 .iter()
                                 .flat_map(|v: &Variant| &v.fields)

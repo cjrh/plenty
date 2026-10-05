@@ -122,6 +122,7 @@ pub(super) fn emit_generator(
             stack: Vec::new(),
             terminated: false,
             loop_targets: Vec::new(),
+            local_frame: None,
             generator: Some(GeneratorContext {
                 frame,
                 out,

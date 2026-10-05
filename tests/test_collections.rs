@@ -52,7 +52,7 @@ use rstest::rstest;
     "for x in [1, 2]:\n    for y in [3, 4]:\n        print(x + y)",
     "4\n5\n5\n6\n"
 )]
-#[case("d = {'a': 1, 'b': 2}\nfor key in d:\n    print(key)\n    print(d[key])\nprint(d.keys())\nprint(d.values())", "a\n1\nb\n2\n[\"a\", \"b\"]\n[1, 2]\n")]
+#[case("d = {'a': 1, 'b': 2}\nfor key in &d:\n    print(key)\n    print(d[key])\nprint(d.keys())\nprint(d.values())", "a\n1\nb\n2\n[\"a\", \"b\"]\n[1, 2]\n")]
 #[case(
     "for c in 'hé🙂':\n    print(c)\nprint(len('hé🙂'))\nprint('hé🙂'[-1])",
     "h\né\n🙂\n3\n🙂\n"
@@ -68,26 +68,26 @@ use rstest::rstest;
     "[\"h\", \"é\"]\n2\n[\"a\", \"b\"]\n"
 )]
 #[case(
-    "mut a = [1, 2]\nmut b = a\nb.append(3)\nb[0] = 9\nprint(a)\nprint(b)",
+    "mut a = [1, 2]\nmut b = copy(a)\nb.append(3)\nb[0] = 9\nprint(a)\nprint(b)",
     "[1, 2]\n[9, 2, 3]\n"
 )]
 #[case(
-    "mut a = {'a': [1]}\nmut b = a\nb['a'] = [2]\nb['b'] = [3]\nprint(a)\nprint(b)",
+    "mut a = {'a': [1]}\nmut b = copy(a)\nb['a'] = [2]\nb['b'] = [3]\nprint(a)\nprint(b)",
     "{\"a\": [1]}\n{\"a\": [2], \"b\": [3]}\n"
 )]
 #[case(
-    "mut a = {1}\nmut b = a\nb.add(2)\nprint(len(a))\nprint(len(b))",
+    "mut a = {1}\nmut b = copy(a)\nb.add(2)\nprint(len(a))\nprint(len(b))",
     "1\n2\n"
 )]
 #[case(
-    "mut xs = [1, 2]\nfor x in xs:\n    xs.append(x + 10)\nprint(xs)",
+    "mut xs = [1, 2]\nfor x in copy(xs):\n    xs.append(x + 10)\nprint(xs)",
     "[1, 2, 11, 12]\n"
 )]
 #[case(
-    "mut xs = [[1]]\nmut child = xs[0]\nchild.append(2)\nprint(xs)\nxs[0] = child\nprint(xs)",
+    "mut xs = [[1]]\nmut child = copy(xs[0])\nchild.append(2)\nprint(xs)\nxs[0] = child\nprint(xs)",
     "[[1]]\n[[1, 2]]\n"
 )]
-#[case("def changed(xs: list[i64]) -> list[i64]:\n    mut result = xs\n    result.append(2)\n    result\na = [1]\nprint(changed(a))\nprint(a)", "[1, 2]\n[1]\n")]
+#[case("def changed(xs: list[i64]) -> list[i64]:\n    mut result = xs\n    result.append(2)\n    result\na = [1]\nprint(changed(copy(a)))\nprint(a)", "[1, 2]\n[1]\n")]
 #[case("print([1, 2] == [1, 2])\nprint([[1]] != [[2]])\nprint({'a': 1, 'b': 2} == {'b': 2, 'a': 1})\nprint({1, 2} == {2, 1})", "True\nTrue\nTrue\nTrue\n")]
 #[case("print([1] in [[1], [2]])\nprint('é' in 'héllo')", "True\nTrue\n")]
 #[case("def find(xs: list[i64]) -> i64:\n    for x in xs:\n        if x > 2:\n            return x\n    -1\nprint(find([1, 3, 4]))\nprint(find([]))", "3\n-1\n")]
@@ -170,7 +170,7 @@ fn runtime_errors(#[case] source: &str, #[case] diagnostic: &str) {
 
 #[test]
 fn large_builders_and_hash_tables() {
-    let output = support::run("xs = [x for x in range(10_000)]\nd = {x: x + 1 for x in xs}\ns = set(xs)\nprint(len(xs))\nprint(d[9999])\nprint(9999 in s)");
+    let output = support::run("xs = [x for x in range(10_000)]\nd = {x: x + 1 for x in &xs}\ns = set(copy(xs))\nprint(len(xs))\nprint(d[9999])\nprint(9999 in s)");
     assert!(
         output.status.success(),
         "{}",

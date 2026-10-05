@@ -12,6 +12,7 @@ use crate::value::{Heap, Value};
 mod collections;
 mod enums;
 mod generators;
+mod references;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit has no runtime representation in this milestone.
@@ -214,7 +215,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                 });
             }
             '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ',' | '+' | '-' | '*' | '%' | '/'
-            | '=' | '!' | '<' | '>' => {
+            | '=' | '!' | '<' | '>' | '&' => {
                 let mut symbol = c.to_string();
                 if let Some(next) = chars.get(pos + 1) {
                     if matches!(
@@ -309,6 +310,15 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if matches!(name.as_str(), "&" | "&mut") {
+            let inner = self.args[0]
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("cannot borrow unit"))?;
+            if matches!(inner, Ty::Ref(..)) {
+                return Err(self.at.error("references to references are not supported"));
+            }
+            return Ok(Some(Ty::Ref(Rc::new(inner), name == "&mut")));
+        }
         if name == "Generator" {
             if self.args.len() != 1 {
                 return Err(self.at.error("Generator requires 1 type argument"));
@@ -316,7 +326,7 @@ impl TypeRef {
             let element = self.args[0]
                 .resolve(aliases)?
                 .ok_or_else(|| self.at.error("generator elements cannot be unit"))?;
-            if element.affine() {
+            if element.restricted_storage() {
                 return Err(self.at.error("generators cannot yield generators"));
             }
             return Ok(Some(Ty::Generator(Rc::new(element))));
@@ -341,7 +351,7 @@ impl TypeRef {
                     .at
                     .error("concrete type name exceeds the implementation limit"));
             }
-            if args.iter().any(Ty::affine) {
+            if args.iter().any(Ty::restricted_storage) {
                 return Err(self
                     .at
                     .error("generators cannot be stored in enum payloads"));
@@ -367,7 +377,7 @@ impl TypeRef {
                         .ok_or_else(|| t.at.error("collection elements cannot be unit"))
                 })
                 .collect::<Result<_>>()?;
-            if args.iter().any(Ty::affine) {
+            if args.iter().any(Ty::restricted_storage) {
                 return Err(self.at.error("generators cannot be stored in collections"));
             }
             return Ok(Some(match name.as_str() {
@@ -537,6 +547,14 @@ impl Parser {
     }
     fn ty_inner(&mut self) -> Result<TypeRef> {
         let at = self.peek().clone();
+        if self.eat("&") {
+            let name = if self.eat("mut") { "&mut" } else { "&" };
+            return Ok(TypeRef {
+                at,
+                name: Some(name.into()),
+                args: vec![self.ty()?],
+            });
+        }
         if self.eat("(") {
             self.expect(")")?;
             return Ok(TypeRef {
@@ -773,7 +791,11 @@ impl Parser {
             Kind::Text(s) => Expression::Text(s.clone()),
             Kind::Word(s) if s == "True" || s == "False" => Expression::Bool(s == "True"),
             Kind::Word(s) if s == "not" => Expression::Unary(s.clone(), Box::new(self.expr(3)?)),
-            Kind::Symbol(s) if s == "-" || s == "+" => {
+            Kind::Symbol(s) if s == "&" => {
+                let op = if self.eat("mut") { "&mut" } else { "&" };
+                Expression::Unary(op.into(), Box::new(self.expr(7)?))
+            }
+            Kind::Symbol(s) if s == "-" || s == "+" || s == "*" => {
                 Expression::Unary(s.clone(), Box::new(self.expr(7)?))
             }
             Kind::Symbol(s) if s == "(" => {
@@ -928,6 +950,8 @@ fn builtin(name: &str) -> bool {
                 | "Result"
                 | "Generator"
                 | "next"
+                | "copy"
+                | "drop"
         )
 }
 fn reserved(name: &str) -> bool {
@@ -1018,6 +1042,8 @@ struct Lower<'a> {
     loop_steps: Vec<Vec<Op>>,
     loop_scopes: Vec<usize>,
     yield_type: Type,
+    loans: Vec<crate::ownership::Loan>,
+    reference_locals: HashMap<u8, usize>,
 }
 impl Lower<'_> {
     fn same(&self, got: Type, expected: Type, at: &Token) -> Result<()> {
@@ -1073,17 +1099,49 @@ impl Lower<'_> {
                     .names
                     .get(name)
                     .ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
+                if let Some(loan) = self.reference_locals.get(&local.slot) {
+                    ops.push(Op::UseLoan(*loan));
+                }
                 if local.ty.affine() {
                     ops.push(Op::MoveLocal(
                         local.slot,
                         format!("{}:{}: `{name}`", e.at.line, e.at.column),
                     ));
                 } else {
+                    if !matches!(local.ty, Ty::Ref(..)) {
+                        ops.push(Op::Access(local.slot, false, None));
+                    }
                     ops.push(Op::LoadLocal(local.slot));
                 }
                 Some(local.ty.clone())
             }
             Expression::Unary(op, value) => {
+                if op == "&" || op == "&mut" {
+                    return self
+                        .borrow(value, op == "&mut", ops)
+                        .map(|(ty, _)| Some(ty));
+                }
+                if op == "*" {
+                    let reference = match &ungroup(value).kind {
+                        Expression::Name(n) => self
+                            .names
+                            .get(n)
+                            .is_some_and(|l| matches!(l.ty, Ty::Ref(..))),
+                        Expression::Unary(op, _) => op == "&" || op == "&mut",
+                        _ => false,
+                    };
+                    if !reference {
+                        return Err(value.at.error("dereference requires a reference"));
+                    }
+                    let (ty, loans) = self.observe(value, ops)?;
+                    if ty.affine() {
+                        return Err(e
+                            .at
+                            .error("cannot move out of a reference; use copy or borrow"));
+                    }
+                    Self::end_reads(loans, ops);
+                    return Ok(Some(ty));
+                }
                 if op == "-" {
                     if let Expression::Number(n) = &value.kind {
                         let v = integer(n, true, &e.at)?;
@@ -1112,9 +1170,10 @@ impl Lower<'_> {
                 Some(ty.clone())
             }
             Expression::Binary(op, left, right) if op == "in" || op == "not in" => {
-                let a = self.value(left, ops)?;
-                let b = self.value(right, ops)?;
-                if b.affine() {
+                let (a, mut loans) = self.observe(left, ops)?;
+                let (b, other_loans) = self.observe(right, ops)?;
+                loans.extend(other_loans);
+                if b.restricted_storage() {
                     return Err(e
                         .at
                         .error("membership does not consume generators; use a loop"));
@@ -1124,16 +1183,22 @@ impl Lower<'_> {
                     .ok_or_else(|| e.at.error("membership requires an iterable"))?;
                 self.same(Some(a), Some(element), &e.at)?;
                 ops.push(Op::Collection(CollectionOp::Contains(b)));
+                Self::end_reads(loans, ops);
                 if op == "not in" {
                     ops.push(Op::Not);
                 }
                 Some(Ty::Bool)
             }
             Expression::Binary(op, left, right) => {
-                let a = self.value(left, ops)?;
+                let (a, mut loans) = self.observe(left, ops)?;
                 let mut rhs = Vec::new();
-                let b = self.value(right, &mut rhs)?;
-                if a.affine() {
+                let (b, other_loans) = self.observe(right, &mut rhs)?;
+                if op == "and" || op == "or" {
+                    Self::end_reads(other_loans, &mut rhs);
+                } else {
+                    loans.extend(other_loans);
+                }
+                if a.restricted_storage() {
                     return Err(e.at.error("generators do not support binary operators"));
                 }
                 self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
@@ -1146,6 +1211,7 @@ impl Lower<'_> {
                         (constant, rhs)
                     };
                     ops.push(branch(yes, no));
+                    Self::end_reads(loans, ops);
                     Some(Ty::Bool)
                 } else {
                     if !a.is_int()
@@ -1176,6 +1242,7 @@ impl Lower<'_> {
                         ">=" => Op::Ge,
                         _ => unreachable!(),
                     });
+                    Self::end_reads(loans, ops);
                     if is_comparison(op) {
                         Some(Ty::Bool)
                     } else {
@@ -1196,6 +1263,9 @@ impl Lower<'_> {
             Expression::Call(name, args) => {
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));
+                }
+                if name == "copy" || name == "drop" {
+                    return self.copy_or_drop(name, args, &e.at, ops);
                 }
                 if name == "next" {
                     return self.next(args, &e.at, ops);
@@ -1223,10 +1293,12 @@ impl Lower<'_> {
                     if args.len() != 1 {
                         return Err(e.at.error("print takes one argument"));
                     }
-                    if self.value(&args[0], ops)?.affine() {
+                    let (ty, loans) = self.observe(&args[0], ops)?;
+                    if ty.restricted_storage() {
                         return Err(e.at.error("generators cannot be printed"));
                     }
                     ops.push(Op::PrintLine);
+                    Self::end_reads(loans, ops);
                     None
                 } else if name == "contains" {
                     if args.len() != 2 {
@@ -1255,11 +1327,38 @@ impl Lower<'_> {
                             "legacy multi-result functions cannot be called from modern Plenty",
                         ));
                     }
+                    let mut argument_loans = Vec::new();
                     for (arg, (_, expected)) in args.iter().zip(&sig.inputs) {
+                        if let Ty::Ref(_, mutable) = expected {
+                            let base =
+                                match &ungroup(arg).kind {
+                                    Expression::Unary(op, base)
+                                        if op == if *mutable { "&mut" } else { "&" } =>
+                                    {
+                                        &**base
+                                    }
+                                    Expression::Name(name)
+                                        if self
+                                            .names
+                                            .get(name)
+                                            .is_some_and(|l| matches!(l.ty, Ty::Ref(..))) =>
+                                    {
+                                        arg
+                                    }
+                                    _ => return Err(arg.at.error(
+                                        "reference arguments require explicit & or &mut borrowing",
+                                    )),
+                                };
+                            let (ty, loan) = self.borrow(base, *mutable, ops)?;
+                            self.same(Some(ty), Some(expected.clone()), &arg.at)?;
+                            argument_loans.push(loan);
+                            continue;
+                        }
                         let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
                         self.same(ty, Some(expected.clone()), &arg.at)?;
                     }
                     ops.push(Op::Call(name.clone()));
+                    Self::end_reads(argument_loans, ops);
                     sig.outputs.first().cloned()
                 }
             }
@@ -1367,7 +1466,11 @@ impl Lower<'_> {
                     None
                 }
                 Statement::SetIndex { target, value } => {
-                    self.set_index(target, value, ops)?;
+                    if matches!(&target.kind, Expression::Unary(op, _) if op == "*") {
+                        self.write_reference(target, value, ops)?;
+                    } else {
+                        self.set_index(target, value, ops)?;
+                    }
                     None
                 }
                 Statement::Assign {
@@ -1376,6 +1479,16 @@ impl Lower<'_> {
                     annotation,
                     value,
                 } => {
+                    if self
+                        .names
+                        .get(name)
+                        .is_some_and(|l| matches!(l.ty, Ty::Ref(..)))
+                    {
+                        return Err(stmt.at.error(
+                            "reference bindings cannot be reassigned; create a new borrow",
+                        ));
+                    }
+                    let loan_start = self.loans.len();
                     let context = if let Some(ann) = annotation {
                         ann.resolve(self.aliases)?
                     } else {
@@ -1389,6 +1502,15 @@ impl Lower<'_> {
                             expected.at.error("unit bindings are not supported yet")
                         })?;
                         self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
+                    }
+                    let reference = matches!(ty, Ty::Ref(..));
+                    if reference
+                        && (*mutable
+                            || !matches!(&ungroup(value).kind, Expression::Unary(op, _) if op == "&" || op == "&mut"))
+                    {
+                        return Err(stmt.at.error(
+                            "reference bindings require a direct borrow and cannot be mut",
+                        ));
                     }
                     let slot = if let Some(local) = self.names.get(name) {
                         if *mutable || annotation.is_some() {
@@ -1419,6 +1541,12 @@ impl Lower<'_> {
                         slot
                     };
                     ops.push(Op::StoreLocal(slot));
+                    if reference {
+                        if self.loans.len() != loan_start + 1 {
+                            return Err(stmt.at.error("reference origin unavailable"));
+                        }
+                        self.reference_locals.insert(slot, loan_start);
+                    }
                     None
                 }
                 Statement::If { condition, yes, no } => {
@@ -1453,6 +1581,13 @@ impl Lower<'_> {
         }
         Ok(BlockResult::Continues(result))
     }
+}
+
+fn ungroup(mut e: &Expr) -> &Expr {
+    while let Expression::Group(inner) = &e.kind {
+        e = inner;
+    }
+    e
 }
 
 fn type_name(ty: Type) -> String {
@@ -1576,7 +1711,11 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
                 .ok_or_else(|| ty.at.error("unit parameters are not supported yet"))?;
             inputs.push((name.clone(), resolved));
         }
-        let outputs = f.output.resolve(&aliases)?.into_iter().collect();
+        let output = f.output.resolve(&aliases)?;
+        if matches!(output, Some(Ty::Ref(..))) {
+            return Err(f.at.error("returned references are not supported yet"));
+        }
+        let outputs = output.into_iter().collect();
         sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
     }
     let mut ops = Vec::new();
@@ -1607,6 +1746,8 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             loop_steps: Vec::new(),
             loop_scopes: Vec::new(),
             yield_type: yield_type.clone(),
+            loans: Vec::new(),
+            reference_locals: HashMap::new(),
         };
         for (i, (name, ty)) in sig.inputs.iter().enumerate() {
             lower.names.insert(
@@ -1619,6 +1760,15 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             );
         }
         let mut body = Vec::new();
+        for (i, (_, ty)) in sig.inputs.iter().enumerate() {
+            if let Ty::Ref(_, mutable) = ty {
+                if yield_type.is_some() {
+                    return Err(f.at.error("generators cannot capture references"));
+                }
+                let loan = lower.new_loan(i as u8, *mutable, None, &mut body);
+                lower.reference_locals.insert(i as u8, loan);
+            }
+        }
         if let BlockResult::Continues(output) =
             lower.block(&f.body, &mut body, yield_type.is_none())?
         {
@@ -1658,11 +1808,16 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             loop_steps: Vec::new(),
             loop_scopes: Vec::new(),
             yield_type: None,
+            loans: Vec::new(),
+            reference_locals: HashMap::new(),
         };
         let mut body = Vec::new();
         let BlockResult::Continues(output) = lower.block(&statements, &mut body, true)? else {
             unreachable!("source returns are rejected at module scope")
         };
+        if matches!(output, Some(Ty::Ref(..))) {
+            return Err("a reference cannot escape module scope".into());
+        }
         mark_tail_calls(&mut body);
         ops.push(Op::DefineFn(
             ENTRY.into(),

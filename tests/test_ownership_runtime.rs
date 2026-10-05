@@ -57,6 +57,11 @@ next(it)
 next(it)
 print("__test_small_live_heap__")
 release_unstarted()
+owned = [n for n in range(10_000)]
+drop(owned)
+abandoned = captured(['drop' + ' capture' for n in range(100)])
+drop(abandoned)
+print("__test_small_live_heap__")
 print(early())
 for value in captured(['c' + 'd' for n in range(100)]):
     break
@@ -66,9 +71,9 @@ mut text = ""
 for n in range(500):
     text = text + "é\0"
     mut values = {text: [text]}
-    copy = values
+    saved = copy(values)
     values[text] = ['new' + ' value']
-    len(copy[text])
+    len(saved[text])
 
 def tail(n: i64, text: str) -> str:
     if n == 0:
@@ -99,6 +104,6 @@ next(finished)
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "__test_small_live_heap__\n__test_small_live_heap__\nxy\n__test_small_live_heap__\n1000\n"
+        "__test_small_live_heap__\n__test_small_live_heap__\n__test_small_live_heap__\nxy\n__test_small_live_heap__\n1000\n"
     );
 }

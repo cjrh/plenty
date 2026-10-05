@@ -9,6 +9,7 @@ pub struct EnumType {
     pub name: String,
     pub variants: Vec<Variant>,
     pub depth: usize,
+    pub affine: bool,
 }
 impl PartialEq for EnumType {
     fn eq(&self, other: &Self) -> bool {
@@ -31,6 +32,7 @@ pub fn option(element: Ty) -> Ty {
     Ty::Enum(Rc::new(EnumType {
         name: format!("Option[{element}]"),
         depth: 1 + element.layout_depth(),
+        affine: element.affine(),
         variants: vec![
             Variant {
                 name: "Nothing".into(),
@@ -47,6 +49,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
     Ty::Enum(Rc::new(EnumType {
         name: format!("Result[{ok}, {error}]"),
         depth: 1 + ok.layout_depth().max(error.layout_depth()),
+        affine: ok.affine() || error.affine(),
         variants: vec![
             Variant {
                 name: "Ok".into(),

@@ -6,8 +6,8 @@ Cranelift. Fast compilation and a small, understandable language are primary
 design goals.
 
 This branch implements the typed AOT language, including collections, concrete
-enums, generators, and automatic value reclamation. Structs and public borrowing
-remain future work. The full contract and roadmap are in [DESIGN.md](DESIGN.md).
+enums, generators, explicit copying, and checked local/parameter references.
+Owned values clean up automatically; structs and custom destructors remain future work. The full contract and roadmap are in [DESIGN.md](DESIGN.md).
 
 Start with [TUTORIAL.md](TUTORIAL.md) to learn the language through runnable
 examples. Its code and expected diagnostics are tested as the compiler evolves.
@@ -63,14 +63,16 @@ Supported today:
 - `print(value)` and `contains(haystack, needle)`. Strings support single,
   double, and triple quotes, UTF-8, and `\0`, `\n`, `\r`, `\t`, quote/backslash escapes.
 - Typed `list[T]`, `dict[K, V]`, and `set[T]`, including nested values, literals,
-  indexing, membership, and independent-value updates through `mut` bindings.
+  indexing, membership, moves, explicit `copy`, and in-place updates through `mut` owners.
 - `for` loops over collections, strings, ranges, and lazy generators; list, dict,
   and set comprehensions with multiple iteration and filter clauses.
 - Concrete `enum` types, exhaustive `match`/`case`, and typed `Option`/`Result`.
 - `Generator[T]` functions with `yield`, consuming iteration, and `next` returning
   `Option[T]`. Assignment and calls move generators; invalid reuse is checked.
 - One immutable `str` with explicit lengths and embedded NUL support. Managed
-  values are reclaimed automatically; public references are not implemented.
+  values are reclaimed automatically; `drop(value)` allows early cleanup.
+- `&T` and `&mut T` for named locals and parameters, with last-use borrow checking
+  across branches, loops, and reborrows. Stored/returned references are deferred.
 - `//` rounds toward negative infinity; `%` follows the divisor's sign. `/`
   is reserved for future floating-point support.
 
@@ -78,15 +80,17 @@ Collections and comprehensions use familiar syntax with fixed element types:
 
 ```python
 squares: list[i64] = [n * n for n in range(10) if n % 2 == 0]
-by_value: dict[i64, i64] = {n: n * n for n in squares}
-unique: set[i64] = set(squares)
-for n in squares:
+by_value: dict[i64, i64] = {n: n * n for n in &squares}
+unique: set[i64] = set(copy(squares))
+for n in &squares:
     print(n)
 ```
 
-Collections have independent values: changing a `mut` binding leaves copies
-unchanged. Updates currently copy outer storage; use comprehensions for bulk
-construction. Unused storage is released as owners are replaced or leave scope. General iterator protocols,
+Collection assignment transfers ownership. Use `copy(value)` for independent
+contents, `&value` for shared access, and `&mut value` for exclusive access.
+Updates happen in place. Owned iteration consumes collections; borrowed iteration
+currently supports copyable elements. Unused storage is released when owners are
+replaced, explicitly dropped, or leave scope. General iterator protocols,
 tuple unpacking, and `items()` are not implemented yet. `while` loops and
 `break`/`continue` in both loop forms are supported; loop `else` is not.
 

@@ -1,8 +1,9 @@
 # Ownership and reclamation proposal
 
-Status: design proposal for this batch, not a claim that the existing compiler
-has a borrow checker. This file records the contract and implementation plan for
-reconciliation into `DESIGN.md` by the integrating agent.
+Status: historical proposal for the first value-runtime implementation. Its
+implicit-copy collection semantics have been superseded by
+[references and explicit copying](references-and-copying.md). See `DESIGN.md`
+for the implemented move semantics, local borrow checker, and cleanup rules.
 
 ## Decisions
 

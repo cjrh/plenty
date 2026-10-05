@@ -25,14 +25,14 @@ fn run(source: &str) -> std::process::Output {
     "5\n😀\né\n\0\n😀\n"
 )]
 #[case(
-    "mut a = [['a' + 'b']]\nb = a\na[0] = ['new']\nprint(b)\nprint(a)\nprint([['x' + 'y']][0][0])",
+    "mut a = [['a' + 'b']]\nb = copy(a)\na[0] = ['new']\nprint(b)\nprint(a)\nprint([['x' + 'y']][0][0])",
     "[[\"ab\"]]\n[[\"new\"]]\nxy\n"
 )]
 #[case("def repeat(n: i64, s: str) -> str:\n    if n == 0:\n        s\n    else:\n        repeat(n - 1, s + '')\nprint(repeat(10_000, 'ok'))", "ok\n")]
 #[case("enum Color:\n    Red\n    Blue\nprint(Color.Red)\nprint(Color.Red == Color.Red)\nprint(Color.Red == Color.Blue)", "Color.Red\nTrue\nFalse\n")]
 #[case("enum Reading:\n    Missing\n    Value(i64)\n    Invalid(str)\ndef show(r: Reading) -> str:\n    match r:\n        case Reading.Missing:\n            'missing'\n        case Reading.Value(n):\n            'value' if n == 42 else 'other'\n        case Reading.Invalid(reason):\n            reason\nprint(show(Reading.Missing))\nprint(show(Reading.Value(42)))\nprint(show(Reading.Invalid('bad' + ' input')))", "missing\nvalue\nbad input\n")]
 #[case("enum Pair:\n    Value(i8, u64, str)\nx = Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b')\nmatch x:\n    case Pair.Value(a, b, c):\n        print(a)\n        print(b)\n        print(c)\nprint(x == Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b'))", "-128\n18446744073709551615\na\0b\nTrue\n")]
-#[case("type Input = Reading\nenum Reading:\n    Data(list[str])\nx = Input.Data(['a' + 'b'])\nmatch x:\n    case Reading.Data(items):\n        mut copy = items\n        copy.append('c')\n        print(copy)\nprint(x)", "[\"ab\", \"c\"]\nReading.Data([\"ab\"])\n")]
+#[case("type Input = Reading\nenum Reading:\n    Data(list[str])\nx = Input.Data(['a' + 'b'])\nmatch copy(x):\n    case Reading.Data(items):\n        mut copy = items\n        copy.append('c')\n        print(copy)\nprint(x)", "[\"ab\", \"c\"]\nReading.Data([\"ab\"])\n")]
 #[case("enum Outer:\n    Value(Inner)\nenum Inner:\n    Text(str)\nprint([Outer.Value(Inner.Text('hi'))] == [Outer.Value(Inner.Text('h' + 'i'))])\nprint({'x': Outer.Value(Inner.Text('hi'))})", "True\n{\"x\": Outer.Value(Inner.Text(\"hi\"))}\n")]
 #[case("def choose(n: i64) -> Option[i64]:\n    if n > 0:\n        Option[i64].Some(n)\n    else:\n        Option[i64].Nothing\nfor n in [-1, 2]:\n    match choose(n):\n        case Option[i64].Some(value):\n            print(value)\n        case Option[i64].Nothing:\n            print('nothing')", "nothing\n2\n")]
 #[case("type R = Result[i64, str]\ndef answer(ok: bool) -> R:\n    if ok:\n        R.Ok(42)\n    else:\n        R.Err('no')\nprint(answer(True))\nprint(answer(False))", "Result[i64, str].Ok(42)\nResult[i64, str].Err(\"no\")\n")]
@@ -155,13 +155,14 @@ fn shared_enum_dependencies_do_not_expand_exponentially() {
         source.push_str(&format!("x{n} = E{n}.Pair(x{}, x{})\n", n - 1, n - 1));
     }
     source.push_str("print(x39 == x39)\n");
+    source.push_str("items = [x39]\nother = copy(items)\nprint(items == other)\n");
     let output = run(&source);
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(output.stdout, b"E39.End\nTrue\n");
+    assert_eq!(output.stdout, b"E39.End\nTrue\nTrue\n");
 }
 
 #[test]

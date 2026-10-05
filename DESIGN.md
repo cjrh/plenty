@@ -57,8 +57,8 @@ Consequences:
 | Concrete enums, tagged payloads, exhaustive matching | Implemented |
 | Structs, associated methods | Planned |
 | `Option[T]`, `Result[T, E]` | Implemented for stored value payloads |
-| Value reclamation and affine generator moves | Implemented |
-| Public references and general borrow checking | Planned |
+| Value reclamation, owned moves, explicit copy/drop | Implemented |
+| Local/parameter references and last-use borrow checking | Implemented subset; projected/stored/returned references deferred |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | While loops, break/continue | Implemented |
@@ -66,13 +66,12 @@ Consequences:
 | User generics, traits | Deferred |
 | Async/await | Out of scope |
 
-Mutability checking and automatic reference counting are **not a borrow checker**.
-Strings, collections, and current enums have independent-value semantics, using
-immutable shared storage and automatic reclamation. Updating a collection replaces
-one binding. Generators instead own advancing state: assignment, calls, returns,
-and iteration move that state. A conservative definite-ownership pass rejects
-use after a possible move. Public references and resource-bearing structs are
-not implemented.
+Collections, generators, and enums containing mutable collections transfer ownership.
+`copy(value)` explicitly duplicates mutable contents; `drop(value)` consumes an
+owner early. Immutable strings and immutable enums may share storage. Collection
+updates operate in place. Named local and parameter references use `&T` / `&mut T`,
+with last-use loan checking over an access CFG. Resource-bearing structs, element
+references, stored references, and returned references are not implemented.
 
 The four design proposals for this batch are in [docs/proposals](docs/proposals).
 They record the reasoning and suggested staging; this document describes the
@@ -220,13 +219,15 @@ parameter, or return type; typed constructors such as `list[i64]()`,
 Nonempty literals infer their type from the first element; integer literals still
 default to i64 without implicit narrowing. Aliases may name collection types.
 
-Collections have independent-value semantics. Assignment and function arguments
-may share immutable storage. `xs.append(value)`, `members.add(value)`, and
-`mapping[key] = value` replace a named `mut` binding; `xs[index] = value` does
-likewise. Parameters remain immutable. Mutating one binding does not change
-another binding, an existing nested collection, or an iteration already in
-progress. Nested indexed mutation is not implemented: extract the inner value,
-update a mutable binding, then assign that value back to its parent explicitly.
+Assignment, owned arguments, and returns move collections. Independent duplication
+requires `copy(value)`, which recursively copies mutable contents while retaining
+immutable strings and enums. `append`, `add`, and indexed updates mutate in place
+through a named `mut` owner or an exclusive reference. Mutation arguments and
+indices are evaluated before exclusive access to the target is taken, supporting
+`xs.append(len(xs))` and `xs[len(xs) - 1] = value` without two-phase loans.
+Nested indexed mutation and element references are deferred: use
+`mut child = copy(parent[index])`, update it, and transfer it back to the parent.
+Owned values cannot be moved directly out of indexed storage.
 
 Lists preserve order and duplicates. Dictionaries preserve first insertion order;
 a repeated key replaces its value without moving the key. Sets remove duplicates
@@ -239,8 +240,10 @@ ranges support i64 indexing, including negative indices. Dictionaries index by
 their key type. Out-of-bounds indices and absent keys report a runtime error and
 exit with status 1; absence-returning dictionary lookup awaits `Option`.
 `list(iterable)` and `set(iterable)` convert supported iterables; `dict(d)`
-copies an existing dictionary value. Dictionary `keys()` and `values()` produce
-snapshot lists, not mutable views. Pair iterables and `items()` await tuples.
+transfers an existing dictionary value. Dictionary `keys()` and `values()` produce
+new lists. `values()` on mutable payloads requires an owned temporary such as
+`copy(d).values()` so a borrowed dictionary cannot expose mutable aliases.
+Pair iterables and `items()` await tuples.
 
 `range(stop)`, `range(start, stop)`, and `range(start, stop, step)` use i64
 arguments, exclude stop, and store only start/stop/step/length. A zero step or
@@ -249,10 +252,15 @@ are checked using wider intermediate arithmetic. Range membership is constant
 time. `%` uses the divisor's sign, like Python; division by zero is an error,
 while `INT_MIN % -1` is zero.
 
-`for name in iterable:` evaluates its iterable once and iterates a snapshot:
+`for name in iterable:` evaluates its iterable once and consumes owned collections
+and generators. `for name in &collection` borrows instead, initially for copyable
+elements only. Borrowed generator iteration is rejected; `next` accepts an
+exclusive generator reference. An explicit `copy(collection)` provides a snapshot
+when mutation of the original is needed during iteration. In each form,
 lists yield elements, dictionaries keys, sets elements, ranges integers, and
 strings Unicode scalar values as `str`. Loop variables and declarations are
-block-local and immutable; updates to enclosing mutable bindings persist. Even
+block-local; iteration bindings are immutable and explicit `mut` declarations
+remain permitted. Updates to enclosing mutable bindings persist. Even
 a body that always returns cannot prove a loop executes, so function return
 checking retains the zero-iteration path. Loops have unit value.
 
@@ -291,13 +299,15 @@ runtime; its C source is included only when operations or signatures require it.
 The C runtime uses growable list storage and hash tables with ordered entries for
 dictionaries and sets. Private builders append in place; literal and comprehension
 construction is amortized linear under ordinary hash distribution. Public updates
-copy the outer storage, so repeated `append` updates can be quadratic; prefer a
-comprehension for bulk construction. Nested immutable values are shared safely.
+also mutate in place; repeated `append` no longer copies existing contents.
+Only explicit `copy` duplicates owned contents. Runtime type metadata caches
+whether a type owns mutable contents, preventing copies from expanding shared
+immutable enum graphs.
 Managed values are reference counted. Replacing a local releases its previous
 value; scope/function exits release remaining owners. Collection buffers and
 type metadata are reclaimed along with objects. Private expression temporaries
-can remain until their enclosing scope exits. Uniqueness-aware updates remain
-an optimization to consider later.
+can remain until their enclosing scope exits. Retained helper operands are
+implementation details, not permission to create source-visible mutable aliases.
 
 String length is cached; scalar indexing scans UTF-8 boundaries. String iteration
 uses a private byte cursor and is linear in byte length. Keys/values lists are snapshots. Hashes are not randomized. These are
@@ -379,7 +389,8 @@ checked against the innermost loop's entry stack; function returns are checked
 against the function signature. The frontend emits the `for` increment before
 each continue. Native lowering tracks loop headers and exits and seals blocks
 after all incoming edges are known, giving mutable locals correct SSA joins.
-This does not complete the source CFG migration needed for public borrow analysis.
+Native lowering still consumes structured operations. Borrow analysis separately
+flattens typed access facts to an explicit source-level control-flow graph.
 
 Cranelift declares one SSA variable per slot; stores define
 variables and joins use Cranelift's SSA construction. All names and types are
@@ -401,16 +412,22 @@ five measured repetitions. Median parse/resolve/check was 1.112 ms; full AOT
 including checking, native emission, C runtime compilation, and linking was
 47.275 ms. This small synthetic workload is a starting measurement, not a
 release-performance guarantee or a bound for larger programs.
+After the ownership/reference migration, the same debug workload and repetitions
+measured 1.487 ms for parse/resolve/check and 53.140 ms for full AOT. These are
+single-session diagnostic measurements, not a controlled performance comparison.
+Functions without loan facts skip CFG loan analysis; no whole-program alias
+analysis or per-call body inspection is required.
 The legacy parser and explicit legacy entry points remain to exercise the
 mature arithmetic, branch, ABI, tail-call, and runtime tests during migration.
 There is no automatic syntax detection. These paths should be removed after
 the new tests cover their useful backend behaviors.
 
-Before implementing references, replace nested control-flow operations with
-a small typed CFG IR: basic blocks, explicit terminators, stable local/place
-IDs, source spans, and uses/definitions. Add definite-initialization, moves,
-drops, and loan facts there. Cranelift AOT should consume the checked CFG. Do not run borrow analysis on Cranelift IR: source-level
-ownership and place information would already have been lost.
+The checker now builds an access CFG from typed operations, with explicit loop
+backedges, branch successors, early exits, and stable binding-place IDs. Loan
+liveness is solved to a fixed point before native lowering. A future unified typed
+CFG with projected places and full source spans can replace the structured backend
+input; the current restricted reference subset does not depend on that migration.
+Borrow analysis never runs on Cranelift IR.
 
 ## One string type
 
@@ -462,7 +479,7 @@ Runtime descriptors refer back to previously encoded enums, so shared enum
 dependencies do not expand exponentially during compilation or metadata loading.
 
 `Option[T]` and `Result[T, E]` are compiler-known concrete enum constructors,
-without user generics or traits. All payloads must be stored, copyable values:
+without user generics or traits. Payloads must be stored values:
 integers, bool, str, collections, or other nonrecursive enums. Unit and generator
 payloads are rejected. Enums can be list elements and dictionary values, but are
 not dictionary keys or set elements in the initial closed hashable-type set.
@@ -488,9 +505,14 @@ the structured frontend places projections behind the corresponding tag tests.
 
 ## Ownership and reclamation
 
+Mutable collections and aggregates containing them move on assignment and owned
+argument passing; independent duplication requires `copy(value)`. Immutable `str`
+and enums containing only immutable values may share storage. Copyability is
+cached on concrete enum metadata so shared type graphs are not traversed repeatedly.
+
 Every managed expression operand, live local, stored field, and frame capture
 has one owner. Loading a copyable value retains its immutable storage. Moving a
-generator clears the source ownership slot. Stores evaluate the RHS, release the
+an owned value clears the source ownership slot. Stores evaluate the RHS, release the
 old owner, then transfer the new one. Scope exits, loop exits, and function exits
 release locals; compiler-private temporaries are bounded by local slots.
 Tail-call arguments are owned before caller cleanup, preserving direct and mutual
@@ -502,25 +524,130 @@ return owned managed results, including retained projections and builder aliases
 Buffers and recursive metadata have explicit owners too. Destruction uses an
 iterative queue, avoiding recursive C-stack growth through owned value graphs.
 Reference counts are non-atomic; the language has no concurrency. The current
-immutable-value/affine-frame restrictions prevent source-visible ownership cycles.
+unique mutable ownership and restricted aggregate types prevent source-visible
+ownership cycles.
 
-Generators are the first affine values. The independent ownership pass tracks
+Collections, generators, and enums with mutable payloads are affine. The independent
+ownership pass tracks
 definite availability of local slots through structured branches. Only continuing
 arms join. A move on one branch makes the binding unavailable at a later join
 unless reinitialized; exiting branches are excluded. Each loop backedge,
 including `continue`, must preserve availability of outer owners available at
 entry. A move followed by mutable reinitialization is accepted; a move reaching
 a backedge is conservatively rejected. Break paths join the zero-iteration path.
-No implicit generator copies or affine fields in copyable containers are allowed.
+A generator cannot be copied or stored in an aggregate. Collection/enum payloads
+can be owned mutable values: construction transfers ownership, and consuming
+matches transfer their bound payloads. Enums with such payloads are also affine.
 
-## Public borrowing — future work
+## Deterministic destruction — accepted direction
 
-Public references, resource-bearing structs, partial moves, and a general borrow
-checker remain future work. Proposed references are ordinary `&T` and `&mut T`;
-`str` remains the sole string value type. An exclusive reference to a string
-binding would permit replacement, not arbitrary byte mutation. Before references,
-introduce source-level places, a typed CFG, loan facts, and sound drop/borrow
-checking. The current ARC and affine analysis do not provide those features.
+Plenty will use ownership-driven destruction, without a tracing garbage collector.
+The compiler inserts cleanup on ordinary control-flow exits. This applies to memory
+and, once resource-bearing types exist, resources such as files and foreign handles.
+Reference-counted immutable string storage is compatible with this model: releasing
+a string owner decrements its count and frees dynamic storage at zero. Borrows do
+not acquire ownership or independently destroy their referents.
+
+The runtime reclaims built-in values and abandoned generator frames; public
+`drop(value)` now consumes an owner explicitly. Custom destructors and their
+observable nested destruction order remain a migration target. The current memory
+reclamation queue must not be mistaken for an implementation of custom Drop hooks.
+
+- A live owned local is dropped when its lexical scope exits, in reverse binding
+  declaration order. Inner scopes clean up before outer scopes. This includes
+  `return`, `break`, and `continue` for the scopes each exit crosses.
+- Moving a value transfers its cleanup obligation; the moved-from place is not
+  dropped. At a branch join, cleanup is conditional on whether the place still
+  holds a live value. Replacement evaluates the RHS first, destroys the previous
+  initialized value, then installs the new one.
+- The `drop(value) -> ()` builtin consumes an owned value and performs early
+  destruction. It cannot destroy a borrowed referent or consume an owner while a
+  conflicting loan is live. For a shared immutable string it releases that owner's
+  share; it cannot force other owners' storage to be freed.
+- Borrow lifetimes may end at last use. Observable destruction of owned resources
+  remains at the specified scope exit or explicit `drop`, not an optimizer-chosen
+  last use. Borrow checking treats destruction as an exclusive access to the owner
+  and everything its cleanup may access.
+- Owned expression temporaries clean up at the end of their full expression unless
+  transferred to another owner. A block's result is transferred before its other
+  locals are dropped. Initially reject escaping borrows of temporaries rather than
+  adding implicit temporary-lifetime extension rules.
+
+Once structs and associated methods exist, provide a compiler-recognized destructor
+hook taking exclusive access to the value and returning `()`. A general trait system
+is not required for this hook; exact declaration syntax is deferred until methods
+are designed. The hook runs before automatic field cleanup. Struct fields and active
+enum payloads drop in declaration order; list elements drop in index order. Dictionary
+entries drop in insertion order, with each key before its value. A child finishes
+destruction before the next sibling begins. Types with custom destruction cannot be
+implicitly copied, and initially cannot be partially moved or have their destructor
+called directly as an ordinary method. The hook cannot let references to the dying
+value escape. Nested owned fields are cleaned automatically; hooks manage only the
+additional resource-specific work.
+
+Drop hooks have no recoverable return value and cannot yield. Resources that need to
+report shutdown errors should also offer an explicit operation returning `Result`;
+their destructor provides fallback cleanup. An internal state records an already
+closed resource so explicit close followed by drop does not release it twice.
+Normal `Result` error paths still run scope cleanup. Fatal traps and process aborts
+do not unwind, so cleanup is not promised in those cases.
+
+A suspended generator retains its live owned locals until resumption, completion,
+or destruction. Destroying its frame cleans those values without resuming the body;
+code following a `yield` is not a cleanup hook. Observable cleanup must follow the
+same scope and field rules, including captures in a never-started frame.
+
+Drop order also constrains tail-call optimization. A normal call in tail position
+must retain caller-owned resources through the call when their specified destruction
+occurs afterward. Do not move an observable destructor before a call merely to emit
+a native tail call. Initially disable that optimization when such cleanup remains,
+or when a callee borrows caller-local storage. Tail calls remain possible after
+explicit early drops or transfers where no conflicting cleanup remains.
+
+The local-reference implementation has typed binding places, loan liveness,
+initialized/moved state, and cleanup operations integrated with loan checking. The current
+iterative runtime destruction queue must be audited or replaced for observable
+custom hooks so it preserves the specified nested order. Reuse generated cleanup
+per concrete type, keep contracts local to function signatures, and avoid requiring
+whole-program analysis. Test exact cleanup traces, not only allocation counts,
+before exposing user-defined destructors.
+
+Reference: [Rust destructor scopes and field cleanup](https://doc.rust-lang.org/reference/destructors.html).
+These are Plenty's selected rules; they do not require copying every Rust feature.
+
+## Public borrowing — implemented local subset
+
+[References and explicit copying](docs/proposals/references-and-copying.md) records
+the accepted ownership decision. References to named bindings and borrowed function
+parameters are implemented as `&T` and `&mut T`. `str` remains the sole string
+value type; `&mut str` permits replacement of a string binding, not byte mutation.
+
+Reference bindings are immutable and initialized by a direct `&name` or
+`&mut name`; reassignment and implicit reference aliases are rejected initially.
+Reborrowing an existing reference is supported. An exclusive parent may lend shared
+or exclusive access, with conflicting parent access prohibited while the child is
+live. Calls automatically reborrow reference arguments, using declared signatures
+only. Shared references cannot be upgraded to exclusive ones.
+
+The frontend records loan origins and reads/writes of whole binding places.
+The independent checker computes backward loan liveness over explicit control-flow
+edges to a fixed point, including backedges and early exits. A conflicting write,
+move, drop, or exclusive borrow is rejected while a loan remains live. Shared
+reads conflict with live exclusive loans. Parent origins are tracked through
+reborrows; access through a parent conflicts with a live child. Copies of immutable
+values finish their read immediately; observations of mutable collections hold
+temporary shared loans through the operation that consumes them.
+
+Native references address 64-bit local storage slots (or generator frame slots).
+Functions taking addresses spill their locals; ordinary functions retain SSA locals.
+Borrowed parameters already carry an address. Internal retained operands protect
+temporary storage lifetime, but the static checker establishes access permissions.
+Reference calls retain the caller frame, so native tail calls do not invalidate it.
+
+Projected references, partial moves, stored references, and returned references
+remain rejected. A generator cannot capture reference parameters or retain a live
+loan across `yield`; short borrows completed within one resume are permitted.
+No lifetime annotation syntax or general trait system is required for this subset.
 
 Prefer last-use/flow-sensitive loan checking over lexical-lifetime rules.
 Polonius is the relevant Rust work: it models relationships between reference
@@ -530,7 +657,8 @@ The old standalone Datalog engine is not automatically the current rustc
 implementation. We should reuse concepts and test cases, not assume that
 adding a crate supplies a sound checker for Plenty.
 
-Start with local borrows and no returned/stored references. Once source places,
+The first implementation supports local borrows without returned/stored references.
+Once projected source places,
 aliasing, moves, reborrows, joins, and drop points are modeled, add a restricted
 reference-return rule whose origin is unambiguous from the signature. Reject
 ambiguous cases before introducing lifetime syntax. Never infer cross-function
@@ -540,7 +668,8 @@ preferable to a permissive checker with gaps.
 Correctness gates include use-after-move, conflicting shared/exclusive loans,
 mutation during a live shared borrow, branch-dependent loans, reborrows,
 returning local references, partial moves, and ownership across control-flow
-joins. No memory-safety claim until these rules and destruction are implemented.
+joins. Extend regression coverage and cleanup checks whenever the supported
+reference subset grows; the current checker is not a complete Polonius implementation.
 
 Sources informing this design:
 
@@ -553,11 +682,13 @@ Sources informing this design:
 A function containing `yield` declares `Generator[T]`. Calls evaluate arguments
 and create an owned frame without running the body. Each resume executes native
 code until a statement-only `yield value`, bare `return`, or fallthrough.
-Yield types are exact and copyable; nested generator yield types and unit are
+Yield types are exact; owned payloads transfer into the yielded value.
+Nested generator yield types, reference yields, and unit are
 rejected. Generator functions cannot return a value. An ordinary factory without
 `yield` may return another generator by moving it.
 
-`next(g)` requires a named mutable generator binding and returns `Option[T]`.
+`next(g)` requires a named mutable generator binding or an exclusive reference
+to a generator, and returns `Option[T]`.
 This compiler-known operation borrows the owner only for the call. Exhaustion
 is stable. `for`, comprehensions, and iterable collection constructors consume
 generators; `break` destroys their hidden iterator owner without executing later
@@ -588,7 +719,7 @@ allocation and optimizing frame liveness are later runtime improvements.
 1. First-class unit payloads, richer diagnostics, and measured compile-latency
    improvements; consider caching runtime compilation.
 2. Concrete structs and methods; recursive types with explicit layout rules.
-3. Typed source CFG/places and a sound local public-borrow subset, then evaluate
+3. Projected places and stored/returned reference contracts, then evaluate
    Polonius-style precision against compilation cost.
 4. Narrowly scoped generics if examples require them. Traits remain a separate
    decision. Async/await remains out of scope.

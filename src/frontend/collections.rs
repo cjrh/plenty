@@ -217,8 +217,8 @@ impl Lower<'_> {
                     if let Some(expected) = ty {
                         self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
                     }
-                    if inferred.element().is_some_and(|t| t.affine())
-                        || matches!(&inferred, Ty::Dict(_, v) if v.affine())
+                    if inferred.element().is_some_and(|t| t.restricted_storage())
+                        || matches!(&inferred, Ty::Dict(_, v) if v.restricted_storage())
                     {
                         return Err(key.at.error("generators cannot be stored in collections"));
                     }
@@ -232,8 +232,24 @@ impl Lower<'_> {
     }
 
     fn iteration(&mut self, name: &str, iterable: &Expr, ops: &mut Vec<Op>) -> Result<Iteration> {
-        let ty = self.value(iterable, ops)?;
-        let plan = self.iteration_on_stack(ty.clone(), &iterable.at, ops)?;
+        let iterable = ungroup(iterable);
+        let borrowed = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
+            || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(..))));
+        let (ty, loans) = if borrowed {
+            self.observe(iterable, ops)?
+        } else {
+            (self.value(iterable, ops)?, vec![])
+        };
+        if borrowed && matches!(ty, Ty::Generator(_)) {
+            return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
+        }
+        if borrowed && ty.element().is_some_and(|t| t.affine()) {
+            return Err(iterable.at.error("borrowed iteration of owned elements is not supported; iterate an owned collection or copy it"));
+        }
+        let mut plan = self.iteration_on_stack(ty.clone(), &iterable.at, ops)?;
+        plan.condition
+            .extend(loans.iter().copied().map(Op::UseLoan));
+        plan.body.extend(loans.into_iter().map(Op::UseLoan));
         self.names.insert(
             name.into(),
             Local {
@@ -252,7 +268,7 @@ impl Lower<'_> {
         let source = self.slot(ty.clone(), at)?;
         let target = self.slot(element.clone(), at)?;
         ops.push(Op::StoreLocal(source));
-        if ty.affine() {
+        if ty.restricted_storage() {
             let option = crate::sum::option(element);
             let Ty::Enum(enum_type) = &option else {
                 unreachable!()
@@ -353,7 +369,7 @@ impl Lower<'_> {
     }
 
     pub(super) fn index(&mut self, base: &Expr, index: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
-        let ty = self.value(base, ops)?;
+        let (ty, loans) = self.observe(base, ops)?;
         let (key, value) = match &ty {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
@@ -361,9 +377,15 @@ impl Lower<'_> {
             Ty::Range => (Ty::I64, Ty::I64),
             _ => return Err(base.at.error("indexing requires list, dict, str, or range")),
         };
+        if value.affine() {
+            return Err(base
+                .at
+                .error("cannot move out of indexed storage; use copy(collection[index])"));
+        }
         let got = self.expr_expected(index, Some(key.clone()), ops)?;
         self.same(got, Some(key), &index.at)?;
         ops.push(Op::Collection(CollectionOp::Get(ty)));
+        Self::end_reads(loans, ops);
         Ok(value)
     }
 
@@ -375,7 +397,7 @@ impl Lower<'_> {
             .names
             .get(name)
             .ok_or_else(|| base.at.error(format!("unknown binding `{name}`")))?;
-        if !local.mutable {
+        if !local.mutable && !matches!(local.ty, Ty::Ref(_, true)) {
             return Err(base
                 .at
                 .error(format!("`{name}` is immutable; declare it with `mut`")));
@@ -395,7 +417,12 @@ impl Lower<'_> {
                 .error("assignment target must be a binding or an index"));
         };
         let local = self.mutable_collection(base)?;
-        let (key, val) = match &local.ty {
+        let target_ty = if let Ty::Ref(t, _) = &local.ty {
+            (**t).clone()
+        } else {
+            local.ty.clone()
+        };
+        let (key, val) = match &target_ty {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
             _ => return Err(base.at.error("indexed assignment requires list or dict")),
@@ -405,12 +432,15 @@ impl Lower<'_> {
         self.same(actual, Some(val.clone()), &value.at)?;
         let temp = self.slot(val, &value.at)?;
         ops.push(Op::StoreLocal(temp));
-        ops.push(Op::LoadLocal(local.slot));
         let actual = self.expr_expected(index, Some(key.clone()), ops)?;
-        self.same(actual, Some(key), &index.at)?;
+        self.same(actual, Some(key.clone()), &index.at)?;
+        let index_slot = self.slot(key, &index.at)?;
+        ops.push(Op::StoreLocal(index_slot));
+        let (_, loan) = self.read_place(&local, ops);
+        ops.push(Op::MoveLocal(index_slot, "mutation index".into()));
         ops.push(Op::LoadLocal(temp));
-        ops.push(Op::Collection(CollectionOp::Put(local.ty)));
-        ops.push(Op::StoreLocal(local.slot));
+        ops.push(Op::Collection(CollectionOp::Put(target_ty)));
+        self.finish_mutation(&local, loan, ops);
         ops.push(Op::DropLocal(temp));
         Ok(())
     }
@@ -427,8 +457,13 @@ impl Lower<'_> {
         }
         if matches!(name, "append" | "add") {
             let local = self.mutable_collection(base)?;
+            let target_ty = if let Ty::Ref(t, _) = &local.ty {
+                (**t).clone()
+            } else {
+                local.ty.clone()
+            };
             if !matches!(
-                (&local.ty, name),
+                (&target_ty, name),
                 (Ty::List(_), "append") | (Ty::Set(_), "add")
             ) || args.len() != 1
             {
@@ -436,15 +471,18 @@ impl Lower<'_> {
                     .at
                     .error("append takes one list element; add takes one set element"));
             }
-            ops.push(Op::LoadLocal(local.slot));
-            let expected = local.ty.element().unwrap();
+            let expected = target_ty.element().unwrap();
             let actual = self.expr_expected(&args[0], Some(expected.clone()), ops)?;
-            self.same(actual, Some(expected), &args[0].at)?;
-            ops.push(Op::Collection(CollectionOp::Append(local.ty)));
-            ops.push(Op::StoreLocal(local.slot));
+            self.same(actual, Some(expected.clone()), &args[0].at)?;
+            let argument = self.slot(expected, &args[0].at)?;
+            ops.push(Op::StoreLocal(argument));
+            let (_, loan) = self.read_place(&local, ops);
+            ops.push(Op::MoveLocal(argument, "mutation argument".into()));
+            ops.push(Op::Collection(CollectionOp::Append(target_ty)));
+            self.finish_mutation(&local, loan, ops);
             return Ok(None);
         }
-        let ty = self.value(base, ops)?;
+        let (ty, loans) = self.observe(base, ops)?;
         let Ty::Dict(k, v) = &ty else {
             return Err(base.at.error(format!("unsupported method `{name}`")));
         };
@@ -452,13 +490,20 @@ impl Lower<'_> {
             return Err(base.at.error("keys and values take no arguments"));
         }
         if name == "values" {
+            if v.affine() && !loans.is_empty() {
+                return Err(base
+                    .at
+                    .error("values with owned payloads require copy(dictionary).values()"));
+            }
             let out = Ty::List(v.clone());
             ops.push(Op::Collection(CollectionOp::Values(ty)));
+            Self::end_reads(loans, ops);
             Ok(Some(out))
         } else if name == "keys" {
             // Dictionaries already iterate over their keys.
             let out = Ty::List(k.clone());
             self.convert_on_stack(ty, out.clone(), &base.at, ops)?;
+            Self::end_reads(loans, ops);
             Ok(Some(out))
         } else {
             Err(base.at.error(format!(
@@ -494,14 +539,16 @@ impl Lower<'_> {
         if args.len() != 1 {
             return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
         }
-        let ty = self.value(&args[0], ops)?;
         if name == "len" {
-            if ty.element().is_none() || ty.affine() {
+            let (ty, loans) = self.observe(&args[0], ops)?;
+            if ty.element().is_none() || ty.restricted_storage() {
                 return Err(at.error("len requires an iterable"));
             }
             ops.push(Op::Collection(CollectionOp::Len(ty)));
+            Self::end_reads(loans, ops);
             return Ok(Ty::I64);
         }
+        let ty = self.value(&args[0], ops)?;
         let element = ty
             .element()
             .ok_or_else(|| at.error("collection constructor requires an iterable"))?;

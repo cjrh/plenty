@@ -24,6 +24,7 @@ typedef struct PlentyVariant {
 struct PlentyType {
   PlentyObject object;
   char kind;
+  int affine;
   struct PlentyType *key, *value;
   char *name;
   size_t count;
@@ -110,6 +111,7 @@ static PlentyType *parse_type(const char **text, TypeContext *context) {
   PlentyType *t = collection_alloc(1, sizeof(*t));
   t->object = (PlentyObject){1, collection_type_destroy};
   t->kind = *(*text)++;
+  t->affine = t->kind == 'L' || t->kind == 'S' || t->kind == 'D';
   if (t->kind == 'L' || t->kind == 'S' || t->kind == 'D')
     t->key = parse_type(text, context);
   if (t->kind == 'D')
@@ -128,7 +130,10 @@ static PlentyType *parse_type(const char **text, TypeContext *context) {
       v->name = descriptor_name(text);
       v->count = descriptor_count(text);
       v->fields = collection_alloc(v->count, sizeof(*v->fields));
-      for (size_t j = 0; j < v->count; ++j) v->fields[j] = parse_type(text, context);
+      for (size_t j = 0; j < v->count; ++j) {
+        v->fields[j] = parse_type(text, context);
+        t->affine |= v->fields[j]->affine;
+      }
     }
   }
   return t;
@@ -239,13 +244,6 @@ static void collection_insert(PlentyCollection *c, uint64_t key,
   if (c->type->kind != 'L')
     c->table[collection_bucket(c, key)] = c->len + 1;
   ++c->len;
-}
-static PlentyCollection *collection_copy(const PlentyCollection *source) {
-  plenty_retain(source->type);
-  PlentyCollection *c = collection_new(source->type);
-  for (size_t i = 0; i < source->len; ++i)
-    collection_insert(c, source->entries[i].key, source->entries[i].value);
-  return c;
 }
 static size_t collection_index(int64_t index, size_t len) {
   if (index < 0)
@@ -361,9 +359,43 @@ static PlentyType *value_type(uint64_t value) {
   return type;
 }
 
+static uint64_t value_copy(uint64_t value, const PlentyType *type) {
+  if (!type->affine) {
+    collection_retain_value(value, type);
+    return value;
+  }
+  if (type->kind == 'E') {
+    PlentyEnum *source = (PlentyEnum *)(uintptr_t)value;
+    PlentyVariant *variant = &source->type->variants[source->tag];
+    PlentyEnum *copy = collection_alloc(1, sizeof(*copy) + variant->count * sizeof(uint64_t));
+    copy->object = (PlentyObject){1, enum_destroy};
+    copy->type = source->type;
+    plenty_retain(copy->type);
+    copy->tag = source->tag;
+    for (size_t i = 0; i < variant->count; ++i) copy->fields[i] = value_copy(source->fields[i], variant->fields[i]);
+    return (uint64_t)(uintptr_t)copy;
+  }
+  if (type->kind == 'L' || type->kind == 'S' || type->kind == 'D') {
+    PlentyCollection *source = (PlentyCollection *)(uintptr_t)value;
+    plenty_retain(source->type);
+    PlentyCollection *copy = collection_new(source->type);
+    for (size_t i = 0; i < source->len; ++i) {
+      uint64_t key = value_copy(source->entries[i].key, type->key);
+      uint64_t item = type->value ? value_copy(source->entries[i].value, type->value) : 0;
+      collection_insert(copy, key, item);
+      collection_release_value(key, type->key);
+      collection_release_value(item, type->value);
+    }
+    return (uint64_t)(uintptr_t)copy;
+  }
+  collection_retain_value(value, type);
+  return value;
+}
+
 // Single fixed ABI; static typing determines each operation's inputs/results.
 uint64_t plenty_collection(int64_t op, uint64_t a, uint64_t b, uint64_t value,
                            const char *descriptor) {
+  if (op == 14) return value_copy(a, value_type(a));
   if (descriptor && *descriptor == 's') {
     const PlentyStr *text = (const PlentyStr *)(uintptr_t)a;
     if (op == 5)
@@ -390,11 +422,11 @@ uint64_t plenty_collection(int64_t op, uint64_t a, uint64_t b, uint64_t value,
     plenty_retain(c);
     return a;
   case 2:
-    c = collection_copy(c);
+    plenty_retain(c);
     collection_insert(c, b, value);
     return (uint64_t)(uintptr_t)c;
   case 3:
-    c = collection_copy(c);
+    plenty_retain(c);
     if (c->type->kind == 'L') {
       size_t i = collection_index((int64_t)b, c->len);
       collection_retain_value(value, c->type->key);

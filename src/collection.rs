@@ -3,10 +3,12 @@ use crate::op::Ty;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
+    Copy(Ty),
+    Next(Ty),
     New(Ty),
     Insert(Ty), // private builder: collection, element (or key, value) -> collection
-    Append(Ty), // persistent update of a list or set
-    Put(Ty),    // persistent indexed update of a list or dictionary
+    Append(Ty), // exclusive in-place update of a list or set
+    Put(Ty),    // exclusive in-place indexed update
     Get(Ty),
     Len(Ty),
     IterGet(Ty),
@@ -105,6 +107,11 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
+            Copy(t) => (vec![t.clone()], t.clone()),
+            Next(t) => (
+                vec![t.clone()],
+                crate::sum::option(t.element().expect("generator element")),
+            ),
             TextByteLen => (vec![Ty::Str], Ty::I64),
             TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
             New(t) => (vec![], t.clone()),
@@ -136,6 +143,8 @@ impl CollectionOp {
     }
     pub fn opcode(&self) -> i64 {
         match self {
+            Self::Copy(_) => 14,
+            Self::Next(_) => 24,
             Self::New(_) => 0,
             Self::Insert(_) => 1,
             Self::Append(_) => 2,
