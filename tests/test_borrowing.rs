@@ -1,3 +1,4 @@
+mod support;
 use rstest::rstest;
 use std::process::Command;
 
@@ -59,7 +60,7 @@ use std::process::Command;
 fn native(#[case] source: &str, #[case] expected: &str) {
     let temp = tempfile::tempdir().unwrap();
     let executable = temp.path().join("program");
-    plenty::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(source, &executable)
         .unwrap_or_else(|e| panic!("{source}\n{e}"));
     let output = Command::new(executable).output().unwrap();
     assert!(
@@ -110,7 +111,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
     "def f(x: &list[i64], y: list[i64]) -> ():\n    pass\na = [1]\nf(&a, a)",
     "conflicting borrow"
 )]
-#[case("x = 1\n&x", "escape module")]
+#[case("def main() -> ():\n    x = 1\n    &x", "expected (), got &i64")]
 #[case("x = 1\nprint(*x)", "dereference requires")]
 #[case("a = [1]\nx = [&a]", "cannot be stored")]
 #[case(
@@ -129,7 +130,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 #[case("n = 1\nwhile n > 0:\n    drop(n)", "loop backedge")]
 #[case("s = 'a' + 'b'\ndrop((s))\nprint(s)", "moved")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
-    let error = plenty::check_source(source).unwrap_err().to_string();
+    let error = support::check_source(source).unwrap_err().to_string();
     assert!(
         error.contains(expected),
         "{source}\nexpected {expected}, got {error}"

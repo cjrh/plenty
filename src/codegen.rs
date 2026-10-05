@@ -119,9 +119,9 @@ use generators::GeneratorContext;
 //   function cannot be defined lazily; emit trap sequences inline at
 //   each call site (see `trap_if`).
 
-/// Read `source` and produce a native executable at `output` in one
-/// step (DESIGN.md §11.1, §12.3 — phase c.5). The source is lexed,
-/// lowered to typed operations, and checked; the
+/// Compile a complete modern binary program to a native executable at `output`.
+/// A parameterless `main` returning `()` or `i32` is required. The source is
+/// lexed, lowered to typed operations, and checked; the
 /// resulting op stream is lowered to a temp object file; the embedded
 /// Rust runtime archive is written alongside it; `cc` links the pair into the
 /// final executable and the temps are removed.
@@ -132,8 +132,8 @@ use generators::GeneratorContext;
 /// compiler as `cc`.
 pub fn compile_source_to_executable(source: &str, output: &Path) -> Result<()> {
     let mut heap = Heap::default();
-    let ops = crate::frontend::compile(source, &mut heap)?;
-    compile_ops_to_executable(&ops, &heap, output)
+    let program = crate::frontend::compile(source, &mut heap)?;
+    compile_ops_to_executable(&program.ops, &heap, output, program.returns_status)
 }
 
 /// Historical stack syntax, retained for backend regression tests.
@@ -141,16 +141,21 @@ pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Resul
     let toks = lexer::lex(source)?;
     let mut heap = Heap::default();
     let ops = op::compile(&toks, &mut heap)?;
-    compile_ops_to_executable(&ops, &heap, output)
+    compile_ops_to_executable(&ops, &heap, output, false)
 }
 
-fn compile_ops_to_executable(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
+fn compile_ops_to_executable(
+    ops: &[Op],
+    heap: &Heap,
+    output: &Path,
+    returns_status: bool,
+) -> Result<()> {
     op::check(ops)?;
 
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
     let rt_path = workspace.path().join("libplenty_runtime.a");
-    compile_to_object(ops, heap, &obj_path)?;
+    compile_to_object(ops, heap, &obj_path, returns_status)?;
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
     link_with_cc(&obj_path, &rt_path, output)
 }
@@ -193,9 +198,9 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// symbol per user-defined Plenty function, plus one read-only data
 /// symbol per source-level string literal whose bytes come from `heap`.
 /// Link the object with the packaged `plenty-runtime` archive to produce an
-/// executable; the exit status of the final binary is 0 when the
-/// program runs to the end of `ops`.
-fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
+/// executable. With `returns_status`, the final `i32` operand is the process
+/// status; unit entrypoints and legacy programs return zero on completion.
+fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path, returns_status: bool) -> Result<()> {
     let isa = host_isa()?;
     let builder = ObjectBuilder::new(isa, "plenty", cranelift_module::default_libcall_names())?;
     let mut module = ObjectModule::new(builder);
@@ -239,6 +244,7 @@ fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
     // definition is a no-op (it does not touch the data stack).
     emit_main(
         ops,
+        returns_status,
         &user_fns,
         &str_data,
         eof_empty_str,
@@ -734,6 +740,7 @@ fn emit_user_function(
 /// in scope.
 fn emit_main(
     ops: &[Op],
+    returns_status: bool,
     fns: &HashMap<String, UserFn>,
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
@@ -779,9 +786,13 @@ fn emit_main(
         }
         // `plenty_main` never tail-calls (its convention doesn't
         // support it), so `lower.terminated` is always false here.
+        let status = if returns_status {
+            lower.pop_typed(Ty::I32)?.0
+        } else {
+            lower.bcx.ins().iconst(types::I32, 0)
+        };
         lower.release_stack();
-        let zero = lower.bcx.ins().iconst(types::I32, 0);
-        lower.bcx.ins().return_(&[zero]);
+        lower.bcx.ins().return_(&[status]);
         bcx.finalize();
     }
     module.define_function(main_id, &mut ctx)?;

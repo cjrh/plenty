@@ -9,11 +9,6 @@ class Point:
         self.x = self.x + amount
         self.y = self.y + amount
 
-mut point = Point(3, 4)
-print(point.squared_length())
-point.shift(1)
-print(point)
-
 class Resource:
     name: str
 
@@ -24,4 +19,10 @@ def work() -> ():
     resource = Resource("example")
     print(resource)
 
-work()
+def main() -> ():
+    mut point = Point(3, 4)
+    print(point.squared_length())
+    point.shift(1)
+    print(point)
+
+    work()

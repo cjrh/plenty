@@ -1,11 +1,12 @@
 //! Counted strings, owned values, and exhaustive sum types through native code.
+mod support;
 use rstest::rstest;
 use std::process::Command;
 
 fn run(source: &str) -> std::process::Output {
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("program");
-    plenty::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(source, &executable)
         .unwrap_or_else(|e| panic!("{source}\n{e}"));
     Command::new(executable).output().unwrap()
 }
@@ -95,7 +96,7 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
 #[case("enum E:\n    A\nE = 1\nprint(E.A)", "shadows a type qualifier")]
 #[case("enum E:\n    A\n    B\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            1\n        case E.B:\n            True", "expected i64, got bool")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
-    let error = plenty::check_source(source).unwrap_err().to_string();
+    let error = support::check_source(source).unwrap_err().to_string();
     assert!(
         error.contains(expected),
         "{source}\nexpected {expected:?}, got {error:?}"
@@ -173,7 +174,7 @@ fn excessive_type_depth_is_diagnosed() {
     }
     let nested = format!("type Deep = {}i64{}", "list[".repeat(65), "]".repeat(65));
     for source in [source, nested] {
-        let error = plenty::check_source(&source).unwrap_err().to_string();
+        let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains("type nesting exceeds"), "{error}");
     }
 }
@@ -184,6 +185,6 @@ fn excessive_builtin_type_names_are_diagnosed() {
     for n in 1..20 {
         source.push_str(&format!("type T{n} = Result[T{}, T{}]\n", n - 1, n - 1));
     }
-    let error = plenty::check_source(&source).unwrap_err().to_string();
+    let error = support::check_source(&source).unwrap_err().to_string();
     assert!(error.contains("concrete type name exceeds"), "{error}");
 }

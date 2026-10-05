@@ -146,7 +146,7 @@ fn collections_preserve_typed_function_results() {
 #[case("xs = [1}", "mismatched")]
 #[case("print(len(1))", "requires an iterable")]
 fn invalid_collections(#[case] source: &str, #[case] diagnostic: &str) {
-    let error = plenty::check_source(source).unwrap_err().to_string();
+    let error = support::check_source(source).unwrap_err().to_string();
     assert!(
         error.contains(diagnostic),
         "{source}\nexpected {diagnostic:?}, got {error:?}"
@@ -204,7 +204,7 @@ fn native_collection_edges(#[case] source: &str, #[case] expected: &str) {
 
 #[test]
 fn collection_context_does_not_bypass_name_shadowing() {
-    let error = plenty::check_source("list = 1\nxs: list[i64] = list()").unwrap_err();
+    let error = support::check_source("list = 1\nxs: list[i64] = list()").unwrap_err();
     assert!(error.to_string().contains("not callable"));
 }
 

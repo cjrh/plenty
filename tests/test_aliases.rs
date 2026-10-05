@@ -1,8 +1,8 @@
 mod support;
-use plenty::{check_source, compile_source_to_executable};
 use rstest::rstest;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use support::{check_source, compile_source_to_executable};
 
 #[rstest]
 #[case("type int = i32\nx: int = 42i32\nx", "i32", "42\n")]
@@ -131,7 +131,7 @@ fn native_aliases_have_the_same_abi_and_cast_behavior_as_their_targets() {
     ));
     let file = base.with_extension("plenty");
     let executable = base.with_extension("exe");
-    std::fs::write(&file, source).unwrap();
+    std::fs::write(&file, support::program(source)).unwrap();
     let run_output = Command::new(env!("CARGO_BIN_EXE_plenty"))
         .arg(&file)
         .output();

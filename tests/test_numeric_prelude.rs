@@ -1,4 +1,5 @@
 //! Native float ABI, IEEE semantics, and locally inferred prelude constructors.
+mod support;
 use rstest::rstest;
 use std::process::Command;
 
@@ -29,7 +30,7 @@ fn decimal_forms_unit_payloads_and_prelude_shadowing() {
 fn native(#[case] source: &str, #[case] expected: &str) {
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("program");
-    plenty::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(source, &executable)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = Command::new(executable).output().unwrap();
     assert!(
@@ -81,7 +82,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 #[case("x = 42\ny = Some(&x)", "references and generators cannot be stored")]
 #[case("mut xs = [1.0]\nr = &xs\nxs.append(2.0)\nprint(r)", "borrow")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
-    let error = plenty::check_source(source).unwrap_err().to_string();
+    let error = support::check_source(source).unwrap_err().to_string();
     assert!(
         error.contains(expected),
         "{source}\nexpected {expected:?}, got {error:?}"

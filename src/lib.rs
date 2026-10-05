@@ -18,10 +18,11 @@ mod value;
 
 pub use codegen::{compile_legacy_source_to_executable, compile_source_to_executable};
 
-/// Parse and type-check a standalone modern Plenty module without executing
-/// it or generating native code. Useful for tooling and compile-time baselines.
+/// Parse and type-check a standalone modern Plenty binary without executing
+/// it or generating native code. Requires a parameterless `main` returning
+/// `()` or `i32`, just like [`compile_source_to_executable`].
 pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
-    let ops = frontend::compile(source, &mut heap)?;
-    op::check(&ops)
+    let program = frontend::compile(source, &mut heap)?;
+    op::check(&program.ops)
 }

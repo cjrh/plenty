@@ -32,7 +32,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             "def f{i}(x: i64) -> i64:\n    y = x + {i}\n    y if y > 0 else 0\n\n"
         ));
     }
-    source.push_str(&format!("print(f{}(1))\n", count - 1));
+    source.push_str(&format!(
+        "def main() -> ():\n    print(f{}(1))\n",
+        count - 1
+    ));
     let checking = measure(|| plenty::check_source(&source), repetitions)?;
     println!(
         "profile={} target={}-{} functions={} bytes={} repetitions={}",

@@ -20,9 +20,10 @@ def sum_to(n: i64, total: i64) -> i64:
     else:
         sum_to(n - 1, total + n)
 
-mut answer = sum_to(100, 0)
-answer = answer + 1
-print(answer)
+def main() -> ():
+    mut answer = sum_to(100, 0)
+    answer = answer + 1
+    print(answer)
 ```
 
 Run and compile the example:
@@ -45,6 +46,9 @@ There is no interpreter, REPL, or planned JIT backend.
 
 Supported today:
 
+- An explicit, parameterless `main` returning `()` for success or `i32` for a
+  process exit status. Module scope contains declarations only; executable
+  statements belong inside functions.
 - `def name(parameter: type, ...) -> type:` with required types, optional
   docstrings, forward references, and direct/mutual tail-call optimization.
 - `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool`, `str`, and `()`
@@ -84,11 +88,12 @@ Supported today:
 Collections and comprehensions use familiar syntax with fixed element types:
 
 ```python
-squares: list[i64] = [n * n for n in range(10) if n % 2 == 0]
-by_value: dict[i64, i64] = {n: n * n for n in &squares}
-unique: set[i64] = set(copy(squares))
-for n in &squares:
-    print(n)
+def main() -> ():
+    squares: list[i64] = [n * n for n in range(10) if n % 2 == 0]
+    by_value: dict[i64, i64] = {n: n * n for n in &squares}
+    unique: set[i64] = set(copy(squares))
+    for n in &squares:
+        print(n)
 ```
 
 Collection assignment transfers ownership. Use `copy(value)` for independent
@@ -122,7 +127,8 @@ regressions remain useful. It also uses AOT. Its [tutorial](docs/legacy-tutorial
 and [design](docs/legacy-design.md) are historical archives; they do not define
 the new language or current execution modes.
 The modern library entry points are `compile_source_to_executable` and
-`check_source`; `check_source` and `--check` validate without executing code.
+`check_source`; both require a complete binary program with `main`.
+`check_source` and `--check` validate without executing code.
 
 To measure compiler latency without adding a benchmark dependency:
 

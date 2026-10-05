@@ -1,8 +1,9 @@
 //! Early exits are checked before native code generation.
-use plenty::{check_source, compile_source_to_executable};
+mod support;
 use rstest::rstest;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use support::{check_source, compile_source_to_executable};
 
 /// Exercise return values and caller-frame cleanup in native code.
 fn assert_result(source: &str, expression: &str, printed: &str) {
@@ -154,7 +155,10 @@ fn short_circuit_return_terminates_each_path() {
     "def f() -> ():\n    if True:\n        return\n        pass",
     "4:9: unreachable statement"
 )]
-#[case("if True:\n    return 1", "return outside a function")]
+#[case(
+    "def main() -> ():\n    if True:\n        return 1",
+    "expected (), got i64"
+)]
 fn invalid_returns_are_rejected_before_execution(#[case] source: &str, #[case] expected: &str) {
     let error = check_source(source).unwrap_err().to_string();
     assert!(

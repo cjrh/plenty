@@ -10,6 +10,7 @@ Usage: plenty FILE
        plenty -h | --help
 
 FILE: compile to a temporary executable and run it.
+Programs require def main() -> () or def main() -> i32.
 --check: parse and type-check without executing the program.
 --compile: emit a native executable with Cranelift and the system cc linker.
 Running and compiling require the system linker driver cc on PATH.

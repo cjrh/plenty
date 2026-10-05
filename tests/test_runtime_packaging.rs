@@ -62,8 +62,10 @@ class Resource:
         print(self.name)
 def values() -> Generator[str]:
     yield "é\0🦀"
-print(list(values()))
-drop(Resource("done"))
+
+def main() -> ():
+    print(list(values()))
+    drop(Resource("done"))
 "#,
     )
     .unwrap();

@@ -163,8 +163,11 @@ fn no_arguments_print_help_without_starting_an_interactive_session() {
 }
 
 #[test]
-fn module_results_are_discarded_unless_printed() {
-    let path = write_tempfile("40 + 2", "discard-result");
+fn expression_statements_are_discarded_unless_printed() {
+    let path = write_tempfile(
+        "def main() -> ():\n    40 + 2\n    pass\n",
+        "discard-result",
+    );
     let out = Command::new(plenty_bin()).arg(&path).output().unwrap();
     let _ = std::fs::remove_file(path);
     assert!(out.status.success());
@@ -208,10 +211,15 @@ fn run_command_cleans_temporary_files_after_success_and_failure() {
     std::fs::create_dir(&scratch).unwrap();
     let source = workspace.path().join("program.plenty");
     for (program, code, stdout, diagnostic) in [
-        ("print(42)", 0, "42\n", ""),
-        ("print(42)\n1 // 0", 1, "42\n", "division by zero"),
+        ("def main() -> ():\n    print(42)\n", 0, "42\n", ""),
         (
-            "print('must not execute')\nmissing()",
+            "def main() -> ():\n    print(42)\n    1 // 0\n    pass\n",
+            1,
+            "42\n",
+            "division by zero",
+        ),
+        (
+            "def main() -> ():\n    print('must not execute')\n    missing()\n",
             1,
             "",
             "unknown function",
@@ -244,7 +252,7 @@ fn checking_needs_no_linker_and_missing_linker_failure_cleans_up() {
     std::fs::create_dir(&empty_path).unwrap();
     std::fs::create_dir(&scratch).unwrap();
     let source = workspace.path().join("program.plenty");
-    std::fs::write(&source, "print(42)").unwrap();
+    std::fs::write(&source, "def main() -> ():\n    print(42)\n").unwrap();
     let checked = Command::new(plenty_bin())
         .arg("--check")
         .arg(&source)

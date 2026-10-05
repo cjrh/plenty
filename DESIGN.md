@@ -62,6 +62,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Floating-point types and arithmetic (`f32`, `f64`, `/`) | Implemented with IEEE arithmetic and explicit numeric casts |
 | Transparent module-level type aliases | Implemented |
 | Cranelift AOT and compile-and-run file command | Implemented |
+| Explicit binary `main` entry point | Implemented: parameterless `main` returns `()` or an `i32` process status; module scope contains declarations only |
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
 | Direct and mutual tail calls | Implemented where borrowing and observable cleanup permit |
 | Early returns and return-aware branch checking | Implemented in AOT |
@@ -79,11 +80,15 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
-| Modules/imports and multi-file programs | Not implemented |
+| Absolute module imports and `pub` visibility | Proposed; no imports or visibility checking implemented yet |
 | Modern program input, file I/O, and command-line argument APIs | Not implemented; modern programs currently expose output through `print` |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
-| User generics, traits | Deferred |
+| User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
+| `?` error propagation and `with` context managers | Proposed; explicit matching and automatic destruction work today |
+| Recoverable allocation failure and custom allocators | Proposed; allocation failure is not reliably recoverable today |
+| Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
+| Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
 | Async/await | Out of scope |
 
 Collections, classes, generators, and enums containing owned values transfer ownership.
@@ -96,6 +101,12 @@ collection element references, stored references, and returned references are de
 The original four feature proposals are in [docs/proposals](docs/proposals).
 They record the reasoning and suggested staging; this document describes the
 implemented result, including integration choices that differ from those proposals.
+
+The [next-phase design review](docs/proposals/next-language-phase.md) captures the
+new entrypoint, module, FFI, protocol, memory, parallelism, SIMD, and documentation
+directions. Its syntax is provisional. Rows marked proposed above are not usable
+language features; the current contract below continues to describe implemented
+behavior.
 
 ## Current language contract
 
@@ -111,9 +122,10 @@ def countdown(n: i64) -> ():
         print(n)
         countdown(n - 1)
 
-mut answer: i64 = choose(True, 40, 0)
-answer = answer + 2
-print(answer)
+def main() -> ():
+    mut answer: i64 = choose(True, 40, 0)
+    answer = answer + 2
+    print(answer)
 ```
 
 ### Syntax and values
@@ -362,10 +374,22 @@ mutable locals do persist across branch joins. There are no uninitialized
 declarations. Parameters plus locals are currently limited to 256 slots per
 function, a checked implementation limit inherited from the compact IR.
 
-Top-level bindings are locals of a generated entry function. A module's final
-value is discarded; use `print` for observable output. Compilation and type
-errors execute nothing. Runtime errors can leave effects that have already
-occurred.
+Binary applications require exactly one module-level `main` function with no
+parameters and a return type of `()` or `i32` (transparent aliases are accepted).
+The native wrapper calls it once: `()` maps to status zero and `i32` is returned
+as the process status. The operating system may truncate that status; small
+nonnegative values are portable. `main` follows ordinary function return typing,
+borrow checking, and deterministic cleanup, including early/nonzero returns.
+It cannot be a generator. Other functions, including forward declarations, are
+ordinary callable functions and have no startup effects just by being declared.
+
+Module scope accepts only `def`, `class`, `enum`, and `type` declarations.
+Executable statements and bindings belong inside functions. `main` locals are
+not globals. Missing or invalid entrypoints are diagnosed by both checking and
+compilation before running code or creating an output artifact. Compilation and
+type errors execute nothing. Runtime errors can leave effects that have already
+occurred. Imported modules without an entrypoint and library compilation await
+the module system; the current public APIs validate complete binary programs.
 
 ## Execution commands
 
@@ -612,8 +636,9 @@ class Point:
         self.x = self.x + amount
         self.y = self.y + amount
 
-mut point = Point(3, 4)
-point.shift(2)
+def main() -> ():
+    mut point = Point(3, 4)
+    point.shift(2)
 ```
 
 Without `__init__`, the compiler generates a positional constructor taking all
@@ -878,22 +903,38 @@ For a useful basic feature set, prioritize these capabilities. This is a propose
 sequence; API syntax and the reference contracts still require design work.
 
 Floating-point types, unit payloads, and the standard sum-type prelude are now
-implemented. The next priorities are:
+implemented. The new design review changes the recommended priority:
 
-1. Add a small practical library: text conversion/parsing and splitting/joining,
-   safe dictionary lookup, collection removal, standard input, file I/O, and
-   program arguments. Use explicit `Option`/`Result` outcomes; choose borrowing
-   or ownership explicitly when a lookup returns an owned element.
-2. Support multi-file programs with a simple module/import and visibility model.
-   Avoid a package manager or general trait system as prerequisites.
-3. Make common collection code possible without consuming or copying its inputs:
-   element borrowing and borrowed iteration over owned values, disjoint class
-   field loans, and then restricted reference returns whose origins are explicit
-   in function signatures. Stored references are a separate, later extension.
-4. Add tuples and unpacking to support multiple results and dictionary `items()`.
-   Then evaluate recursive types with explicit layout/ownership rules and narrow
-   user generics against concrete tutorial examples. Traits remain a separate
-   decision; async/await remains out of scope.
+1. Explicit binary `main` is implemented. Next add absolute module imports and module-private
+   declarations with `pub`, and migrate the tutorial examples. Give declarations
+   stable module-qualified identities before adding generic instantiations or
+   interface modules. A package manager is not a prerequisite.
+2. Add `?` for `Result` and `Option`, with explicit error types and ordinary scope
+   cleanup. Design allocation-free error construction/propagation and immutable
+   runtime metadata before promising recoverable OOM. Current heap-backed sums
+   cannot supply that guarantee merely by changing method signatures.
+3. Implement fallible allocation and allocator provenance, then expand text,
+   collection, input/file, and argument APIs under those rules. Add allocation
+   failure injection and checks for valid state/cleanup on every failure path.
+4. Broaden borrowing for elements, owned-element iteration, disjoint class fields,
+   and restricted returned references. Add concrete context managers using the
+   same cleanup machinery; stored references remain a later extension.
+5. Add explicit generic functions and structural protocol constraints, with direct
+   inherent-method lookup and measured instantiation caching. No import-sensitive
+   method activation, specialization search, or implicit dynamic interface values.
+6. Introduce C ABI adapters and trusted interface declarations, then library output
+   and typed runtime loading. Reserve these boundaries during steps 1–3; do not
+   expose current internal object layouts as a public foreign ABI.
+
+Move the tutorial to independently runnable literate sources and generated
+Markdown alongside the entrypoint migration if convenient, retaining reviewed
+expected results. Tuples/unpacking, recursive types, and richer standard-library
+APIs remain useful follow-on work. Threads and explicit parallel operations need
+thread-transfer rules and a compatible runtime before automatic parallelization
+is considered. SIMD needs a target/portable-lowering design of its own. Async/await
+remains out of scope. See the linked proposals for scope, tradeoffs, and open
+decisions; this ordering does not mean the future features are already approved
+down to their syntax.
 
 Improve diagnostics and measure compilation latency throughout these steps,
 including archive extraction and native linking. Extend ownership regression,

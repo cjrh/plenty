@@ -14,8 +14,9 @@ but values have fixed types and function interfaces always declare their types.
 Save this in `hello.plenty`:
 
 ```plenty
-print("Hello, Plenty!")
-print(6 * 7)
+def main() -> ():
+    print("Hello, Plenty!")
+    print(6 * 7)
 ```
 
 Output:
@@ -45,11 +46,59 @@ and compiling require the system linker driver `cc` on PATH. Checking does not.
 The Rust runtime is already packaged with Plenty; you do not need `cargo` or
 `rustc` to compile Plenty programs.
 
+Execution starts by calling `main` once. Every binary application must declare
+`def main() -> ()` or `def main() -> i32`, with no parameters. The `()` form
+finishes successfully with exit status zero. The `i32` form returns a process
+exit status: zero means success, and nonzero means failure. Use an `i32` literal
+such as `0i32` or `1i32`; an unsuffixed integer is an `i64`.
+
+Keep executable statements inside functions. Only `def`, `class`, `enum`, and
+`type` declarations belong at module scope. Bindings inside `main` are local to
+it, so other functions receive values through typed parameters. Imports and
+`pub` visibility are still being designed.
+
+Like other functions, `main` may return early, use a final expression, or call
+functions declared later in the file. Its owned locals are dropped before the
+program exits, including when it returns a nonzero status. Operating systems
+limit the range of observable exit statuses; use small nonnegative codes for
+portable command-line programs.
+
+Here is a complete program that explicitly returns success:
+
+```plenty
+def main() -> i32:
+    print("ready")
+    0i32
+```
+
+```output
+ready
+```
+
+Calling a function at module scope is an error, even if `main` is also declared:
+
+```plenty-error
+def main() -> ():
+    print("ready")
+
+main()
+```
+
+```error
+executable statements are not allowed at module scope
+```
+
 Use `--compile` when you want to keep the executable and run it repeatedly
 without compiling again. The executable does not need Plenty installed.
 
 Every Plenty example in this guide is a separate, complete program. You can
 copy any example into a file without first running the earlier examples.
+
+The tutorial test extracts every `plenty` and `plenty-error` block directly from
+this document. It checks successful output through both compile-and-run and an
+explicitly compiled executable, and checks rejected examples for the expected
+diagnostic without executing their effects. Standalone lesson sources and
+generated Markdown are a proposed improvement to the authoring workflow.
 
 ## 2. Name values
 
@@ -57,11 +106,12 @@ Use `=` to create a binding. Plenty infers the type of a local value, so you
 usually do not need an annotation:
 
 ```plenty
-# Comments begin with a hash.
-price = 20
-quantity = 3
-total = price * quantity
-print(total)
+def main() -> ():
+    # Comments begin with a hash.
+    price = 20
+    quantity = 3
+    total = price * quantity
+    print(total)
 ```
 
 ```output
@@ -72,8 +122,9 @@ Bindings are immutable by default. Assignment is not a way to silently change
 an existing value or its type:
 
 ```plenty-error
-score = 10
-score = 11
+def main() -> ():
+    score = 10
+    score = 11
 ```
 
 The diagnostic includes:
@@ -85,9 +136,10 @@ The diagnostic includes:
 Use `mut` when a value needs to change. Write it once, at the declaration:
 
 ```plenty
-mut score: i64 = 10
-score = score + 5
-print(score)
+def main() -> ():
+    mut score: i64 = 10
+    score = score + 5
+    print(score)
 ```
 
 ```output
@@ -115,12 +167,13 @@ A whole-number literal without a suffix, such as `42`, has type `i64`.
 Append a built-in integer type to choose another width:
 
 ```plenty
-small: u8 = 200u8
-offset: i32 = -12i32
-large: u64 = 1_000_000u64
-print(small)
-print(offset)
-print(large)
+def main() -> ():
+    small: u8 = 200u8
+    offset: i32 = -12i32
+    large: u64 = 1_000_000u64
+    print(small)
+    print(offset)
+    print(large)
 ```
 
 ```output
@@ -135,8 +188,9 @@ An annotation checks a type; it does not convert the initializer. For example,
 Arithmetic requires matching types:
 
 ```plenty-error
-small = 7u8
-print(small + 1)
+def main() -> ():
+    small = 7u8
+    print(small + 1)
 ```
 
 ```error
@@ -146,9 +200,10 @@ expected u8, got i64
 Choose a matching literal or explicitly convert a value:
 
 ```plenty
-small = 7u8
-print(small + 1u8)
-print(i64(small) + 1)
+def main() -> ():
+    small = 7u8
+    print(small + 1u8)
+    print(i64(small) + 1)
 ```
 
 ```output
@@ -166,9 +221,10 @@ Use casts deliberately; they are not range-validation functions.
 and rounds down, including for negative values:
 
 ```plenty
-print(1 + 2 * 3)
-print((1 + 2) * 3)
-print(-7 // 3)
+def main() -> ():
+    print(1 + 2 * 3)
+    print((1 + 2) * 3)
+    print(-7 // 3)
 ```
 
 ```output
@@ -185,13 +241,14 @@ A decimal or exponent literal defaults to `f64`. Use an `f32` suffix when you
 want 32-bit arithmetic. Both operands must have the same type; casts are explicit:
 
 ```plenty
-distance: f64 = 7.5
-time: f64 = 2.0
-print(distance / time)
-print(1.25f32 + 0.5f32)
-print(2.5e-2)
-print(f64(3) / 2.0)
-print(i32(-2.75))
+def main() -> ():
+    distance: f64 = 7.5
+    time: f64 = 2.0
+    print(distance / time)
+    print(1.25f32 + 0.5f32)
+    print(2.5e-2)
+    print(f64(3) / 2.0)
+    print(i32(-2.75))
 ```
 
 ```output
@@ -207,7 +264,8 @@ outside the integer's range; NaN converts to zero. Integer-to-float casts and
 `f64` to `f32` casts may round. There is no implicit widening or narrowing:
 
 ```plenty-error
-small: f32 = 1.5
+def main() -> ():
+    small: f32 = 1.5
 ```
 
 ```error
@@ -220,11 +278,12 @@ NaN is unequal to everything, including itself; ordered comparisons with it are
 false. The same comparison rules apply inside collections and enum payloads.
 
 ```plenty
-zero = 0.0
-print(1.0 / zero)
-unknown = zero / zero
-print(unknown == unknown)
-print(unknown != unknown)
+def main() -> ():
+    zero = 0.0
+    print(1.0 / zero)
+    unknown = zero / zero
+    print(unknown == unknown)
+    print(unknown != unknown)
 ```
 
 ```output
@@ -247,7 +306,8 @@ def double(value: i64) -> i64:
     """Return twice the supplied value."""
     value * 2
 
-print(double(21))
+def main() -> ():
+    print(double(21))
 ```
 
 ```output
@@ -283,7 +343,8 @@ def maximum(first: i64, second: i64) -> i64:
     else:
         second
 
-print(maximum(7, 12))
+def main() -> ():
+    print(maximum(7, 12))
 ```
 
 ```output
@@ -294,9 +355,10 @@ Both continuing branches need the same type. Use `elif` for additional cases.
 For a short choice, Python's conditional expression is also supported:
 
 ```plenty
-age = 20
-category = "adult" if age >= 18 else "child"
-print(category)
+def main() -> ():
+    age = 20
+    category = "adult" if age >= 18 else "child"
+    print(category)
 ```
 
 ```output
@@ -307,10 +369,11 @@ adult
 `not` negates a boolean. All three require boolean operands:
 
 ```plenty
-divisor = 0
-safe = divisor != 0 and 10 // divisor > 1
-print(safe)
-print(not safe)
+def main() -> ():
+    divisor = 0
+    safe = divisor != 0 and 10 // divisor > 1
+    print(safe)
+    print(not safe)
 ```
 
 ```output
@@ -331,8 +394,9 @@ def clamp_low(value: i64, minimum: i64) -> i64:
         return minimum
     value
 
-print(clamp_low(3, 10))
-print(clamp_low(12, 10))
+def main() -> ():
+    print(clamp_low(3, 10))
+    print(clamp_low(12, 10))
 ```
 
 ```output
@@ -349,6 +413,9 @@ result; handling just one branch is not enough:
 def incomplete(flag: bool) -> i64:
     if flag:
         return 42
+
+def main() -> ():
+    pass
 ```
 
 ```error
@@ -369,8 +436,9 @@ def greet_if(enabled: bool, name: str) -> ():
         return
     greet(name)
 
-greet_if(False, "Ada")
-greet_if(True, "Ada")
+def main() -> ():
+    greet_if(False, "Ada")
+    greet_if(True, "Ada")
 ```
 
 ```output
@@ -394,8 +462,9 @@ type int = i32
 def increment(value: int) -> int:
     value + int(1)
 
-answer: int = increment(int(41))
-print(answer)
+def main() -> ():
+    answer: int = increment(int(41))
+    print(answer)
 ```
 
 ```output
@@ -417,7 +486,8 @@ type ItemCount = Count
 def add_one(count: ItemCount) -> ItemCount:
     count + 1u32
 
-print(add_one(41u32))
+def main() -> ():
+    print(add_one(41u32))
 ```
 
 ```output
@@ -440,12 +510,13 @@ Assignments to an existing mutable binding survive a branch. New names declared
 inside a branch belong to that branch:
 
 ```plenty
-mut price = 100
-discounted = True
-if discounted:
-    discount = 20
-    price = price - discount
-print(price)
+def main() -> ():
+    mut price = 100
+    discounted = True
+    if discounted:
+        discount = 20
+        price = price - discount
+    print(price)
 ```
 
 ```output
@@ -463,9 +534,10 @@ physical newlines. Common escapes include `\n`, `\r`, `\t`, escaped quotes,
 and `\\`. Strings support UTF-8 and embedded NUL using `\0`.
 
 ```plenty
-message = 'Hello, ' + "Plenty!"
-print(message)
-print(contains(message, "Plenty"))
+def main() -> ():
+    message = 'Hello, ' + "Plenty!"
+    print(message)
+    print(contains(message, "Plenty"))
 ```
 
 ```output
@@ -482,11 +554,12 @@ so an embedded NUL does not end a string. Interpolation and general conversion
 to strings are not available yet.
 
 ```plenty
-text = "é\0😀"
-print(len(text))
-print(text[-1])
-print("\0" in text)
-print([text])
+def main() -> ():
+    text = "é\0😀"
+    print(len(text))
+    print(text[-1])
+    print("\0" in text)
+    print([text])
 ```
 
 ```output
@@ -507,7 +580,8 @@ def sum_to(n: i64, total: i64) -> i64:
         return total
     sum_to(n - 1, total + n)
 
-print(sum_to(100, 0))
+def main() -> ():
+    print(sum_to(100, 0))
 ```
 
 ```output
@@ -526,8 +600,9 @@ Save an example in a file, edit it, and run it again with `plenty example.plenty
 complete file and starts a fresh process. Use `--check` for feedback without
 running your program.
 
-A final expression at module scope is evaluated but not displayed. Use
-`print(value)` to see its value. Parse/type errors run no code. Runtime errors
+Use `print(value)` inside `main` to see a value. A final expression is the
+function's return value and must match its declared type; `main() -> ()` cannot
+end with a bare integer. Parse/type errors run no code. Runtime errors
 can occur after earlier effects, such as printing, have already happened.
 The run command preserves the program's input, output, and working directory,
 and reports a failing exit status when the program fails.
@@ -540,14 +615,15 @@ A list contains values of one type. Use `list[T]` in signatures and annotations.
 An empty list needs an annotation or a typed constructor such as `list[i64]()`.
 
 ```plenty
-mut original: list[i64] = [10, 20]
-mut changed = copy(original)
-changed.append(30)
-changed[0] = 99
-print(original)
-print(changed)
-print(changed[-1])
-print(len(changed))
+def main() -> ():
+    mut original: list[i64] = [10, 20]
+    mut changed = copy(original)
+    changed.append(30)
+    changed[0] = 99
+    print(original)
+    print(changed)
+    print(changed[-1])
+    print(len(changed))
 ```
 
 ```output
@@ -576,19 +652,20 @@ Dictionaries map a single key type to a single value type. Keys and set elements
 may be integers, booleans, or strings. Dictionary values can include collections.
 
 ```plenty
-mut scores: dict[str, i64] = {"Ada": 10, "Grace": 20}
-scores["Ada"] = 12
-scores["Lin"] = 30
-print(scores["Ada"])
-print("Grace" in scores)
-print(scores.keys())
-print(scores.values())
+def main() -> ():
+    mut scores: dict[str, i64] = {"Ada": 10, "Grace": 20}
+    scores["Ada"] = 12
+    scores["Lin"] = 30
+    print(scores["Ada"])
+    print("Grace" in scores)
+    print(scores.keys())
+    print(scores.values())
 
-mut names: set[str] = set()
-names.add("Ada")
-names.add("Ada")
-print(len(names))
-print("Ada" in names)
+    mut names: set[str] = set()
+    names.add("Ada")
+    names.add("Ada")
+    print(len(names))
+    print("Ada" in names)
 ```
 
 ```output
@@ -617,18 +694,19 @@ Collection equality compares contents; dictionary and set order do not matter.
 characters of a string. A character is a one-character `str`.
 
 ```plenty
-mut total = 0
-for n in range(1, 5):
-    total = total + n
-print(total)
+def main() -> ():
+    mut total = 0
+    for n in range(1, 5):
+        total = total + n
+    print(total)
 
-scores = {"Ada": 10, "Grace": 20}
-for name in &scores:
-    print(name)
-    print(scores[name])
+    scores = {"Ada": 10, "Grace": 20}
+    for name in &scores:
+        print(name)
+        print(scores[name])
 
-print(list(range(5, 0, -2)))
-print(list("hé"))
+    print(list(range(5, 0, -2)))
+    print(list("hé"))
 ```
 
 ```output
@@ -661,11 +739,12 @@ A comprehension produces a new collection from an iterable and optional filters.
 The element expression runs only after the filters pass.
 
 ```plenty
-squares = [n * n for n in range(8) if n % 2 == 0]
-print(squares)
-print({n: n * n for n in [2, 3]})
-print(len({n // 2 for n in range(8)}))
-print([x * 10 + y for x in range(3) for y in range(x)])
+def main() -> ():
+    squares = [n * n for n in range(8) if n % 2 == 0]
+    print(squares)
+    print({n: n * n for n in [2, 3]})
+    print(len({n // 2 for n in range(8)}))
+    print([x * 10 + y for x in range(3) for y in range(x)])
 ```
 
 ```output
@@ -686,7 +765,8 @@ Both operands must have the same integer type.
 Every element must have the same type; there is no implicit numeric widening:
 
 ```plenty-error
-values = [1, True]
+def main() -> ():
+    values = [1, True]
 ```
 
 ```error
@@ -704,11 +784,12 @@ Use `while` when a condition determines how long to repeat. The condition must
 be `bool`, and it is checked before every iteration, including the first:
 
 ```plenty
-mut remaining = 3
-while remaining > 0:
-    print(remaining)
-    remaining = remaining - 1
-print("go")
+def main() -> ():
+    mut remaining = 3
+    while remaining > 0:
+        print(remaining)
+        remaining = remaining - 1
+    print("go")
 ```
 
 ```output
@@ -721,14 +802,15 @@ go
 `continue` skips the rest of the current iteration. `break` exits the loop:
 
 ```plenty
-mut n = 0
-while True:
-    n = n + 1
-    if n % 2 == 0:
-        continue
-    if n > 5:
-        break
-    print(n)
+def main() -> ():
+    mut n = 0
+    while True:
+        n = n + 1
+        if n % 2 == 0:
+            continue
+        if n > 5:
+            break
+        print(n)
 ```
 
 ```output
@@ -742,12 +824,13 @@ Update the condition's inputs before a `continue` when needed; otherwise a
 advances to the next element:
 
 ```plenty
-for n in range(6):
-    if n == 1:
-        continue
-    if n == 4:
-        break
-    print(n)
+def main() -> ():
+    for n in range(6):
+        if n == 1:
+            continue
+        if n == 4:
+            break
+        print(n)
 ```
 
 ```output
@@ -767,9 +850,10 @@ A function returning a value therefore still needs a result after the loop.
 Statements directly after an unconditional exit are rejected:
 
 ```plenty-error
-while True:
-    break
-    print("unreachable")
+def main() -> ():
+    while True:
+        break
+        print("unreachable")
 ```
 
 ```error
@@ -796,9 +880,10 @@ def describe(reading: Reading) -> str:
         case Reading.Invalid(reason):
             reason
 
-print(describe(Reading.Missing))
-print(describe(Reading.Value(42)))
-print(describe(Reading.Invalid("sensor offline")))
+def main() -> ():
+    print(describe(Reading.Missing))
+    print(describe(Reading.Value(42)))
+    print(describe(Reading.Invalid("sensor offline")))
 ```
 
 ```output
@@ -817,9 +902,10 @@ enum Switch:
     On
     Off
 
-match Switch.On:
-    case Switch.On:
-        print("on")
+def main() -> ():
+    match Switch.On:
+        case Switch.On:
+            print("on")
 ```
 
 ```error
@@ -846,12 +932,13 @@ def first_positive(values: list[i64]) -> Option[i64]:
             return Some(value)
     Nothing
 
-for values in [[-1, 0], [-1, 42]]:
-    match first_positive(values):
-        case Some(value):
-            print(value)
-        case Nothing:
-            print("not found")
+def main() -> ():
+    for values in [[-1, 0], [-1, 42]]:
+        match first_positive(values):
+            case Some(value):
+                print(value)
+            case Nothing:
+                print("not found")
 ```
 
 ```output
@@ -868,12 +955,13 @@ def divide(left: i64, right: i64) -> Result[i64, str]:
         return Err("division by zero")
     Ok(left // right)
 
-for result in [divide(8, 2), divide(8, 0)]:
-    match result:
-        case Ok(value):
-            print(value)
-        case Err(message):
-            print(message)
+def main() -> ():
+    for result in [divide(8, 2), divide(8, 0)]:
+        match result:
+            case Ok(value):
+                print(value)
+            case Err(message):
+                print(message)
 ```
 
 ```output
@@ -888,17 +976,18 @@ information from a binding annotation, function parameter, or return signature.
 variant's type from context:
 
 ```plenty
-found = Some(42)
-missing: Option[i64] = Nothing
-success: Result[i64, str] = Ok(42)
-failure: Result[i64, str] = Err("not ready")
-print(found == Some(42))
-print(missing == Option[i64].Nothing)
-match failure:
-    case Ok(value):
-        print(value)
-    case Err(message):
-        print(message)
+def main() -> ():
+    found = Some(42)
+    missing: Option[i64] = Nothing
+    success: Result[i64, str] = Ok(42)
+    failure: Result[i64, str] = Err("not ready")
+    print(found == Some(42))
+    print(missing == Option[i64].Nothing)
+    match failure:
+        case Ok(value):
+            print(value)
+        case Err(message):
+            print(message)
 ```
 
 ```output
@@ -912,7 +1001,8 @@ construction site. A type alias works as well. Without sufficient context, the
 compiler asks for a type instead of guessing:
 
 ```plenty-error
-answer = Ok(42)
+def main() -> ():
+    answer = Ok(42)
 ```
 
 ```error
@@ -928,12 +1018,13 @@ def validate(name: str) -> Result[(), str]:
         return Err("name is empty")
     Ok(())
 
-for result in [validate("Plenty"), validate("")]:
-    match result:
-        case Ok(_):
-            print("valid")
-        case Err(message):
-            print(message)
+def main() -> ():
+    for result in [validate("Plenty"), validate("")]:
+        match result:
+            case Ok(_):
+                print("valid")
+            case Err(message):
+                print(message)
 ```
 
 ```output
@@ -958,10 +1049,11 @@ def countdown(start: i64) -> Generator[i64]:
         yield remaining
         remaining = remaining - 1
 
-numbers = countdown(3)
-print("created")
-for number in numbers:
-    print(number)
+def main() -> ():
+    numbers = countdown(3)
+    print("created")
+    for number in numbers:
+        print(number)
 ```
 
 ```output
@@ -984,8 +1076,9 @@ def numbers(limit: i64) -> Generator[i64]:
     for n in range(limit):
         yield n
 
-print([n * n for n in numbers(6) if n % 2 == 1])
-print(list(numbers(3)))
+def main() -> ():
+    print([n * n for n in numbers(6) if n % 2 == 1])
+    print(list(numbers(3)))
 ```
 
 ```output
@@ -1000,10 +1093,11 @@ It returns `Some(value)` or `Nothing`; exhaustion stays exhausted:
 def once() -> Generator[str]:
     yield "hello"
 
-mut messages = once()
-print(next(messages))
-print(next(messages))
-print(next(messages))
+def main() -> ():
+    mut messages = once()
+    print(next(messages))
+    print(next(messages))
+    print(next(messages))
 ```
 
 ```output
@@ -1035,9 +1129,10 @@ that owner instead of copying the position:
 def once() -> Generator[i64]:
     yield 42
 
-first = once()
-second = first
-print(list(second))
+def main() -> ():
+    first = once()
+    second = first
+    print(list(second))
 ```
 
 ```output
@@ -1050,9 +1145,11 @@ After a move, the old binding cannot be used:
 def once() -> Generator[i64]:
     yield 42
 
-first = once()
-second = first
-list(first)
+def main() -> ():
+    first = once()
+    second = first
+    list(first)
+    pass
 ```
 
 ```error
@@ -1087,10 +1184,11 @@ def total(values: &list[i64]) -> i64:
 def add(values: &mut list[i64], value: i64) -> ():
     values.append(value)
 
-mut numbers = [1, 2]
-print(total(&numbers))
-add(&mut numbers, 3)
-print(numbers)
+def main() -> ():
+    mut numbers = [1, 2]
+    print(total(&numbers))
+    add(&mut numbers, 3)
+    print(numbers)
 ```
 
 ```output
@@ -1104,12 +1202,13 @@ the target. Collection operations such as `append`, indexing, and `len` work
 through references directly.
 
 ```plenty
-mut score = 10
-reference = &mut score
-*reference = *reference + 5
-print(*reference)
-score = 20
-print(score)
+def main() -> ():
+    mut score = 10
+    reference = &mut score
+    *reference = *reference + 5
+    print(*reference)
+    score = 20
+    print(score)
 ```
 
 ```output
@@ -1122,10 +1221,11 @@ The exclusive borrow ends after the last use of `reference`, so assigning to
 live, including across branches and loop iterations:
 
 ```plenty-error
-mut numbers = [1, 2]
-view = &numbers
-numbers.append(3)
-print(view)
+def main() -> ():
+    mut numbers = [1, 2]
+    view = &numbers
+    numbers.append(3)
+    print(view)
 ```
 
 ```error
@@ -1155,18 +1255,19 @@ Use `drop(value)` to release an owner earlier. The consumed binding becomes
 unavailable; a mutable binding may then receive another value:
 
 ```plenty
-mut numbers = [1, 2, 3]
-drop(numbers)
-numbers = [4]
-print(numbers)
-
 def pending() -> Generator[i64]:
     print("started")
     yield 1
 
-task = pending()
-drop(task)
-print("done")
+def main() -> ():
+    mut numbers = [1, 2, 3]
+    drop(numbers)
+    numbers = [4]
+    print(numbers)
+
+    task = pending()
+    drop(task)
+    print("done")
 ```
 
 ```output
@@ -1201,13 +1302,14 @@ class Point:
         self.x = self.x + amount
         self.y = self.y + amount
 
-mut point = Point(3, 4)
-print(point.squared_length())
-point.shift(1)
-mut changed = copy(point)
-changed.x = 20
-print(point)
-print(changed)
+def main() -> ():
+    mut point = Point(3, 4)
+    print(point.squared_length())
+    point.shift(1)
+    mut changed = copy(point)
+    changed.x = 20
+    print(point)
+    print(changed)
 ```
 
 ```output
@@ -1248,9 +1350,10 @@ class Span:
     def length(self) -> i64:
         self.end - self.start
 
-span = Span(10, 5)
-print(span)
-print(span.length())
+def main() -> ():
+    span = Span(10, 5)
+    print(span)
+    print(span.length())
 ```
 
 ```output
@@ -1270,6 +1373,9 @@ class Pair:
 
     def __init__(self, first: i64) -> ():
         self.first = first
+
+def main() -> ():
+    pass
 ```
 
 ```error
@@ -1285,12 +1391,13 @@ class Basket:
     count: i64
     items: list[str]
 
-mut basket = Basket(0, [])
-count = &mut basket.count
-*count = 2
-basket.items.append("apple")
-basket.items.append("pear")
-print(basket)
+def main() -> ():
+    mut basket = Basket(0, [])
+    count = &mut basket.count
+    *count = 2
+    basket.items.append("apple")
+    basket.items.append("pear")
+    print(basket)
 ```
 
 ```output
@@ -1326,8 +1433,9 @@ def work() -> ():
     spare = Resource("spare")
     print("working")
 
-work()
-print("done")
+def main() -> ():
+    work()
+    print("done")
 ```
 
 ```output

@@ -18,7 +18,12 @@ mod references;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit expressions have no operand; enum slots use Ty::Unit.
 pub(crate) type TypeAliases = HashMap<String, Type>;
-pub(crate) const ENTRY: &str = "__plenty_entry";
+
+/// A checked binary's source entrypoint determines the native process result.
+pub(crate) struct Program {
+    pub(crate) ops: Vec<Op>,
+    pub(crate) returns_status: bool,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
@@ -1834,13 +1839,13 @@ fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
     })
 }
 
-pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
+pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
     let mut parser = Parser {
         tokens: lex(source)?,
         pos: 0,
         type_depth: 0,
     };
-    let (mut functions, mut statements) = (Vec::new(), Vec::new());
+    let mut functions = Vec::new();
     let mut declarations = Vec::new();
     let mut enums = Vec::new();
     let mut classes = Vec::new();
@@ -1854,7 +1859,9 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
         } else if parser.peek().is("type") {
             declarations.push(parser.alias()?);
         } else {
-            statements.push(parser.statement()?);
+            return Err(parser.peek().error(
+                "executable statements are not allowed at module scope; put them inside `def main() -> ():`",
+            ));
         }
     }
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
@@ -1891,6 +1898,21 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
         let outputs = output.into_iter().collect();
         sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
     }
+    let entry = functions.iter().find(|f| f.name == "main").ok_or_else(|| {
+        parser
+            .peek()
+            .error("binary application requires `def main() -> ()` or `def main() -> i32`")
+    })?;
+    let entry_sig = &sigs["main"];
+    if !entry_sig.inputs.is_empty()
+        || !matches!(entry_sig.outputs.as_slice(), [] | [Ty::I32])
+        || generators::yields(&entry.body)
+    {
+        return Err(entry
+            .at
+            .error("main must take no parameters and return () or i32; it cannot be a generator"));
+    }
+    let returns_status = !entry_sig.outputs.is_empty();
     let mut ops = Vec::new();
     for f in functions {
         let sig = Rc::clone(&sigs[&f.name]);
@@ -1975,47 +1997,9 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             },
         ));
     }
-    if !statements.is_empty() {
-        let mut lower = Lower {
-            heap,
-            sigs: &sigs,
-            aliases: &aliases,
-            names: HashMap::new(),
-            locals: Vec::new(),
-            parameters: 0,
-            return_type: None,
-            loop_steps: Vec::new(),
-            loop_scopes: Vec::new(),
-            yield_type: None,
-            loans: Vec::new(),
-            reference_locals: HashMap::new(),
-            expression_temps: Vec::new(),
-        };
-        let mut body = Vec::new();
-        let BlockResult::Continues(output) = lower.block(&statements, &mut body, true)? else {
-            unreachable!("source returns are rejected at module scope")
-        };
-        if matches!(output, Some(Ty::Ref(..))) {
-            return Err("a reference cannot escape module scope".into());
-        }
-        mark_tail_calls(&mut body);
-        if lower.locals.iter().any(Ty::has_destructor) {
-            classes::preserve_drop_order(&mut body);
-        }
-        ops.push(Op::DefineFn(
-            ENTRY.into(),
-            CompiledFn {
-                generator: None,
-                sig: Rc::new(FnSig {
-                    inputs: Vec::new(),
-                    outputs: output.into_iter().collect(),
-                }),
-                doc: "".into(),
-                body: body.into(),
-                locals: lower.locals.into(),
-            },
-        ));
-        ops.push(Op::Call(ENTRY.into()));
-    }
-    Ok(ops)
+    ops.push(Op::Call("main".into()));
+    Ok(Program {
+        ops,
+        returns_status,
+    })
 }

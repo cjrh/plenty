@@ -1,11 +1,12 @@
 //! Native loop exits, SSA joins, scope, and source diagnostics.
+mod support;
 use rstest::rstest;
 use std::process::Command;
 
 fn run(source: &str) -> std::process::Output {
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("program");
-    plenty::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(source, &executable)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     Command::new(executable).output().unwrap()
 }
@@ -88,14 +89,14 @@ fn native_loops(#[case] source: &str, #[case] expected: &str) {
     "continue outside a loop"
 )]
 #[case("while 1:\n    pass", "expected bool")]
-#[case("while True:\n    break\n    print(42)", "3:5: unreachable statement")]
+#[case("while True:\n    break\n    print(42)", "5:9: unreachable statement")]
 #[case(
     "for n in range(3):\n    continue\n    print(n)",
-    "3:5: unreachable statement"
+    "5:9: unreachable statement"
 )]
 #[case(
     "while True:\n    if True:\n        break\n    else:\n        continue\n    pass",
-    "6:5: unreachable statement"
+    "8:9: unreachable statement"
 )]
 #[case("while False:\n    local = 1\nprint(local)", "unknown binding")]
 #[case("mut n = 0\nwhile n < 1:\n    n = True", "expected i64")]
@@ -120,7 +121,7 @@ fn native_loops(#[case] source: &str, #[case] expected: &str) {
     "loop else is not supported"
 )]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
-    let error = plenty::check_source(source).unwrap_err().to_string();
+    let error = support::check_source(source).unwrap_err().to_string();
     assert!(
         error.contains(expected),
         "{source}\nexpected {expected:?}, got {error:?}"

@@ -69,9 +69,15 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
     "def f() -> i64:\n    if True:\n        return False\n    2",
     "expected i64, got bool"
 )]
-#[case("return 1", "return outside")]
-#[case("if True:\n    1\nelse:\n    False", "expected i64, got bool")]
-#[case("if True:\n    1", "expected i64, got ()")]
+#[case("def main() -> ():\n    return 1", "expected (), got i64")]
+#[case(
+    "def main() -> i32:\n    if True:\n        1i32\n    else:\n        False",
+    "expected i32, got bool"
+)]
+#[case(
+    "def main() -> i32:\n    if True:\n        1i32",
+    "expected i32, got ()"
+)]
 #[case("if 1:\n    pass", "expected bool")]
 #[case("1 and 2", "expected bool")]
 #[case("True + False", "does not accept bool")]
@@ -107,14 +113,14 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("128i8", "out of range")]
 #[case("-1u8", "out of range")]
 #[case("1__0", "invalid integer separator")]
-#[case("'hello", "unterminated string")]
+#[case("def main() -> ():\n    'hello", "unterminated string")]
 #[case("'\\q'", "unsupported escape")]
 #[case("(1 + 2", "unclosed parenthesis")]
 #[case("1 + 2)", "unmatched")]
 #[case("print()", "print takes one")]
 #[case("contains('a', 1)", "expected str")]
 fn diagnostics(#[case] source: &str, #[case] message: &str) {
-    let error = plenty::check_source(source).expect_err(source).to_string();
+    let error = support::check_source(source).expect_err(source).to_string();
     assert!(
         error.contains(message),
         "{source}\nexpected {message:?}, got {error:?}"
@@ -130,7 +136,7 @@ fn local_slot_limit_is_a_diagnostic() {
     let source = (0..257)
         .map(|i| format!("x{i} = {i}\n"))
         .collect::<String>();
-    assert!(plenty::check_source(&source)
+    assert!(support::check_source(&source)
         .unwrap_err()
         .to_string()
         .contains("256"));
@@ -152,7 +158,7 @@ impl Artifact {
             source: base.with_extension("plenty"),
             executable: base.with_extension("exe"),
         };
-        std::fs::write(&artifact.source, source).unwrap();
+        std::fs::write(&artifact.source, support::program(source)).unwrap();
         artifact
     }
     fn run_file(&self) -> Output {
@@ -261,7 +267,7 @@ fn rejected_program_has_no_effects_or_output_artifact() {
 #[test]
 fn modern_library_aot_entry_point_uses_modern_syntax() {
     let artifact = Artifact::new("");
-    plenty::compile_source_to_executable("print(40 + 2)", &artifact.executable).unwrap();
+    support::compile_source_to_executable("print(40 + 2)", &artifact.executable).unwrap();
     let output = Command::new(&artifact.executable).output().unwrap();
     assert_eq!(output.stdout, b"42\n");
 }
@@ -269,7 +275,7 @@ fn modern_library_aot_entry_point_uses_modern_syntax() {
 #[test]
 fn check_mode_does_not_execute_valid_programs() {
     let source = "print('must not print')\n1 // 0";
-    plenty::check_source(source).unwrap();
+    support::check_source(source).unwrap();
     let artifact = Artifact::new(source);
     let checked = Command::new(env!("CARGO_BIN_EXE_plenty"))
         .arg("--check")
@@ -279,5 +285,5 @@ fn check_mode_does_not_execute_valid_programs() {
     assert!(checked.status.success());
     assert!(checked.stdout.is_empty());
     assert!(checked.stderr.is_empty());
-    assert!(plenty::check_source("mut x = True\nx = 1").is_err());
+    assert!(support::check_source("mut x = True\nx = 1").is_err());
 }

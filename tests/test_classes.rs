@@ -1,9 +1,10 @@
+mod support;
 use std::process::Command;
 
 fn run(source: &str, expected: &str) {
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("program");
-    plenty::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(source, &executable)
         .unwrap_or_else(|e| panic!("{source}\n{e}"));
     let output = Command::new(executable).output().unwrap();
     assert!(
@@ -20,7 +21,7 @@ fn run(source: &str, expected: &str) {
 
 fn reject(source: &str, expected: &str) {
     let directory = tempfile::tempdir().unwrap();
-    let error = plenty::compile_source_to_executable(source, &directory.path().join("program"))
+    let error = support::compile_source_to_executable(source, &directory.path().join("program"))
         .unwrap_err()
         .to_string();
     assert!(

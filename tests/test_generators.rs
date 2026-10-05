@@ -1,4 +1,5 @@
 //! Laziness, suspension, affine ownership and destruction through native code.
+mod support;
 use rstest::rstest;
 use std::process::Command;
 
@@ -6,7 +7,7 @@ const COUNT: &str = "def count(n: i64) -> Generator[i64]:\n    mut i = 0\n    wh
 fn run(source: &str) -> std::process::Output {
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("program");
-    plenty::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(source, &executable)
         .unwrap_or_else(|e| panic!("{source}\n{e}"));
     Command::new(executable).output().unwrap()
 }
@@ -67,7 +68,7 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
 }
 
 #[rstest]
-#[case("yield 1", "yield requires")]
+#[case("yield 1", "cannot be a generator")]
 #[case("def g() -> i64:\n    yield 1", "yield requires")]
 #[case("def g() -> Generator[i64]:\n    yield True", "expected i64, got bool")]
 #[case("def g() -> Generator[i64]:\n    yield 1\n    return 2", "bare return")]
@@ -116,7 +117,7 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
 #[case("a = count(2)\n[x for n in range(2) for x in a]", "loop backedge")]
 #[case("def condition(g: Generator[i64]) -> bool:\n    True\na = count(2)\nwhile condition(a):\n    pass", "loop backedge")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
-    let error = plenty::check_source(&format!("{COUNT}{source}"))
+    let error = support::check_source(&format!("{COUNT}{source}"))
         .unwrap_err()
         .to_string();
     assert!(

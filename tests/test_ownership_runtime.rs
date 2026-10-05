@@ -34,47 +34,13 @@ def early() -> str:
         return value
     "empty"
 
-mut it = suspended()
-next(it)
-print("__test_small_live_heap__")
-next(it)
-next(it)
-next(it)
-print("__test_small_live_heap__")
-release_unstarted()
-owned = [n for n in range(10_000)]
-drop(owned)
-abandoned = captured(['drop' + ' capture' for n in range(100)])
-drop(abandoned)
-print("__test_small_live_heap__")
-print(early())
-for value in captured(['c' + 'd' for n in range(100)]):
-    break
-print("__test_small_live_heap__")
-
-mut text = ""
-for n in range(500):
-    text = text + "é\0"
-    mut values = {text: [text]}
-    saved = copy(values)
-    values[text] = ['new' + ' value']
-    len(saved[text])
-
 def tail(n: i64, text: str) -> str:
     if n == 0:
         return text
     tail(n - 1, text + "")
-print(len(tail(10_000, text)))
-
 def wrapper(child: Generator[str]) -> Generator[str]:
     for value in child:
         yield value
-wrapper(captured(['nested' + ' frame']))
-mut finished = wrapper(captured(['one' + ' value']))
-next(finished)
-next(finished)
-next(finished)
-
 class Buffer:
     contents: list[str]
     def __del__(self) -> ():
@@ -86,19 +52,55 @@ def buffers(a: Buffer, b: Buffer) -> Generator[Buffer]:
     local = Buffer(["local" + " data"])
     yield a
     yield b
-for n in range(100):
-    drop(Pair(Buffer(["a" + " data"]), Buffer(["b" + " data"])))
-    mut iterator = buffers(Buffer(["x" + " data"]), Buffer(["y" + " data"]))
-    next(iterator)
-    drop(iterator)
-    drop(buffers(Buffer(["unstarted" + " data"]), Buffer(["unused" + " data"])))
-    for item in [Buffer(["first" + " data"]), Buffer(["second" + " data"])]:
-        drop(item)
-    match Option[Buffer].Some(Buffer(["matched" + " data"])):
-        case Option[Buffer].Some(value):
-            drop(value)
-        case Option[Buffer].Nothing:
-            pass
+
+def main() -> ():
+    mut it = suspended()
+    next(it)
+    print("__test_small_live_heap__")
+    next(it)
+    next(it)
+    next(it)
+    print("__test_small_live_heap__")
+    release_unstarted()
+    owned = [n for n in range(10_000)]
+    drop(owned)
+    abandoned = captured(['drop' + ' capture' for n in range(100)])
+    drop(abandoned)
+    print("__test_small_live_heap__")
+    print(early())
+    for value in captured(['c' + 'd' for n in range(100)]):
+        break
+    print("__test_small_live_heap__")
+
+    mut text = ""
+    for n in range(500):
+        text = text + "é\0"
+        mut values = {text: [text]}
+        saved = copy(values)
+        values[text] = ['new' + ' value']
+        len(saved[text])
+
+    print(len(tail(10_000, text)))
+
+    wrapper(captured(['nested' + ' frame']))
+    mut finished = wrapper(captured(['one' + ' value']))
+    next(finished)
+    next(finished)
+    next(finished)
+
+    for n in range(100):
+        drop(Pair(Buffer(["a" + " data"]), Buffer(["b" + " data"])))
+        mut iterator = buffers(Buffer(["x" + " data"]), Buffer(["y" + " data"]))
+        next(iterator)
+        drop(iterator)
+        drop(buffers(Buffer(["unstarted" + " data"]), Buffer(["unused" + " data"])))
+        for item in [Buffer(["first" + " data"]), Buffer(["second" + " data"])]:
+            drop(item)
+        match Option[Buffer].Some(Buffer(["matched" + " data"])):
+            case Option[Buffer].Some(value):
+                drop(value)
+            case Option[Buffer].Nothing:
+                pass
 "#,
     )
     .unwrap();
