@@ -125,6 +125,29 @@ impl Vm {
         Vm::default()
     }
 
+    /// Check and evaluate modern Plenty. See [`Self::eval`].
+    pub fn run(&mut self, source: &str) -> Result<()> {
+        self.eval(source)
+    }
+
+    /// Evaluate modern Plenty. Definitions persist between submissions;
+    /// local bindings belong to the current submission. The last expression
+    /// is left on the inspection stack. Compilation errors have no effects.
+    pub fn eval(&mut self, source: &str) -> Result<()> {
+        let prior_sigs = self
+            .functions
+            .iter()
+            .filter(|(name, _)| name.as_str() != crate::frontend::ENTRY)
+            .map(|(name, f)| (name.clone(), Rc::clone(&f.sig)))
+            .collect();
+        let ops = crate::frontend::compile(source, &mut self.heap, &prior_sigs)?;
+        op::check(&ops, Vec::new(), &prior_sigs)?;
+        self.stack.clear();
+        let result = self.execute(ops);
+        self.functions.remove(crate::frontend::ENTRY);
+        result
+    }
+
     /// Lex, compile, type-check, and execute `source`.
     ///
     /// The flow is **lex → compile → check → exec** (§7, §9, §11.6, §11.8).
@@ -140,7 +163,7 @@ impl Vm {
     /// and their locals are always torn down before `run` returns, whether
     /// by success or by error: subsequent `run` calls always start with an
     /// empty `frames` stack.
-    pub fn run(&mut self, source: &str) -> Result<()> {
+    pub fn run_legacy(&mut self, source: &str) -> Result<()> {
         debug!("run: {source:?}");
         let toks = lexer::lex(source)?;
         let ops = op::compile(&toks, &mut self.heap)?;
@@ -159,6 +182,10 @@ impl Vm {
         let initial_stack: Vec<Ty> = self.stack.iter().map(|&v| Ty::from(v)).collect();
         op::check(&ops, initial_stack, &prior_sigs)?;
 
+        self.execute(ops)
+    }
+
+    fn execute(&mut self, ops: Vec<Op>) -> Result<()> {
         // Push the top-level frame and run the interpreter loop. The
         // top-level frame is a "borrowing" frame (no locals of its own,
         // `locals_start = 0`); the compiler never emits `LoadLocal` here,
@@ -260,6 +287,7 @@ impl Vm {
             Op::Sub => self.sub()?,
             Op::Mul => self.mul()?,
             Op::Div => self.div()?,
+            Op::FloorDiv => self.floor_div()?,
             Op::Eq => self.eq()?,
             Op::Lt => self.lt()?,
             Op::Gt => self.gt()?,
@@ -280,12 +308,39 @@ impl Vm {
             Op::Call(name) => self.do_call(&name)?,
             Op::TailCall(name) => self.do_tail_call(&name)?,
             Op::LoadLocal(i) => self.load_local(i)?,
+            Op::StoreLocal(i) => {
+                let value = self.pop()?;
+                let start = self
+                    .frames
+                    .last()
+                    .ok_or("local store outside function")?
+                    .locals_start;
+                *self
+                    .locals
+                    .get_mut(start + i as usize)
+                    .ok_or("invalid local slot")? = value;
+            }
             Op::Match(arms) => self.do_match(arms)?,
             Op::Cast(target) => self.cast(target)?,
             Op::ReadLine => self.readline()?,
             Op::Contains => self.contains()?,
             Op::PrintLn => self.println_word()?,
             Op::Print => self.print_word()?,
+            Op::PrintLine => {
+                let value = self.pop()?;
+                match value {
+                    Value::Str(id) => println!("{}", self.heap.str(id)),
+                    Value::Bool(v) => println!("{}", if v { "True" } else { "False" }),
+                    Value::I8(v) => println!("{v}"),
+                    Value::I16(v) => println!("{v}"),
+                    Value::I32(v) => println!("{v}"),
+                    Value::I64(v) => println!("{v}"),
+                    Value::U8(v) => println!("{v}"),
+                    Value::U16(v) => println!("{v}"),
+                    Value::U32(v) => println!("{v}"),
+                    Value::U64(v) => println!("{v}"),
+                }
+            }
         }
         Ok(())
     }
@@ -314,6 +369,36 @@ impl Vm {
             let id = self.heap.add_str(buf);
             self.stack.push(Value::Str(id));
             self.stack.push(Value::Bool(true));
+        }
+        Ok(())
+    }
+
+    fn floor_div(&mut self) -> Result<()> {
+        fn signed(value: Value) -> Option<i128> {
+            match value {
+                Value::I8(v) => Some(v as i128),
+                Value::I16(v) => Some(v as i128),
+                Value::I32(v) => Some(v as i128),
+                Value::I64(v) => Some(v as i128),
+                _ => None,
+            }
+        }
+        let n = self.stack.len();
+        if n < 2 {
+            return Err("stack underflow on //".into());
+        }
+        let pair = (signed(self.stack[n - 2]), signed(self.stack[n - 1]));
+        self.div()?; // checks zero and width-specific overflow first
+        if let (Some(a), Some(b)) = pair {
+            if a % b != 0 && (a < 0) != (b < 0) {
+                match self.stack.last_mut().unwrap() {
+                    Value::I8(v) => *v -= 1,
+                    Value::I16(v) => *v -= 1,
+                    Value::I32(v) => *v -= 1,
+                    Value::I64(v) => *v -= 1,
+                    _ => unreachable!(),
+                }
+            }
         }
         Ok(())
     }
@@ -639,6 +724,10 @@ impl Vm {
         // assumes when it emits `LoadLocal(0)` for that name.
         let drained_from = self.stack.len() - n;
         self.locals.extend(self.stack.drain(drained_from..));
+        self.locals.extend(std::iter::repeat_n(
+            Value::I64(0),
+            self.functions[name].locals.len(),
+        ));
         self.frames.push(Frame {
             body,
             pc: 0,
@@ -675,6 +764,10 @@ impl Vm {
                 self.locals.truncate(frame.locals_start);
                 let locals_start = self.locals.len();
                 self.locals.extend(new_args);
+                self.locals.extend(std::iter::repeat_n(
+                    Value::I64(0),
+                    self.functions[name].locals.len(),
+                ));
                 self.frames.push(Frame {
                     body,
                     pc: 0,

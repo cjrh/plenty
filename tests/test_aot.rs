@@ -47,6 +47,7 @@ fn run_aot(source: &str, label: &str) -> String {
     std::fs::write(&src_path, source).expect("write source");
 
     let compile = Command::new(plenty_bin())
+        .arg("--legacy")
         .args(["--compile"])
         .arg(&src_path)
         .args(["-o"])
@@ -72,6 +73,7 @@ fn run_interpreter(source: &str, label: &str) -> String {
     let path = std::env::temp_dir().join(format!("plenty-interp-{label}-{}.plenty", nonce()));
     std::fs::write(&path, source).expect("write source");
     let out = Command::new(plenty_bin())
+        .arg("--legacy")
         .arg(&path)
         .output()
         .expect("spawn plenty");
@@ -99,6 +101,7 @@ fn run_interpreter_outcome(source: &str, label: &str) -> Outcome {
     let path = std::env::temp_dir().join(format!("plenty-interp-fail-{label}-{}.plenty", nonce()));
     std::fs::write(&path, source).expect("write source");
     let out = Command::new(plenty_bin())
+        .arg("--legacy")
         .arg(&path)
         .output()
         .expect("spawn plenty");
@@ -119,6 +122,7 @@ fn run_aot_outcome(source: &str, label: &str) -> Outcome {
     std::fs::write(&src_path, source).expect("write source");
 
     let compile = Command::new(plenty_bin())
+        .arg("--legacy")
         .args(["--compile"])
         .arg(&src_path)
         .args(["-o"])

@@ -35,6 +35,7 @@ fn write_tempfile(source: &str, label: &str) -> std::path::PathBuf {
 fn a_well_formed_program_runs_to_completion_and_prints_via_dot() {
     let path = write_tempfile("1 2 + .\n", "happy");
     let out = Command::new(plenty_bin())
+        .arg("--legacy")
         .arg(&path)
         .output()
         .expect("spawn");
@@ -59,6 +60,7 @@ fn defining_and_calling_a_function_works_from_a_file() {
         "fndef",
     );
     let out = Command::new(plenty_bin())
+        .arg("--legacy")
         .arg(&path)
         .output()
         .expect("spawn");
@@ -76,6 +78,7 @@ fn defining_and_calling_a_function_works_from_a_file() {
 fn print_consumes_and_renders_one_value_without_a_newline() {
     let path = write_tempfile(r#"1 :print "x" :print true :print"#, "print");
     let out = Command::new(plenty_bin())
+        .arg("--legacy")
         .arg(&path)
         .output()
         .expect("spawn");
@@ -95,6 +98,7 @@ fn a_type_error_exits_nonzero_with_a_diagnostic() {
     // op runs, so we expect no stdout output and an `error:` line.
     let path = write_tempfile("1 hello + .\n", "type-error");
     let out = Command::new(plenty_bin())
+        .arg("--legacy")
         .arg(&path)
         .output()
         .expect("spawn");
@@ -112,6 +116,7 @@ fn a_type_error_exits_nonzero_with_a_diagnostic() {
 #[test]
 fn a_missing_file_exits_nonzero_with_a_diagnostic() {
     let out = Command::new(plenty_bin())
+        .arg("--legacy")
         .arg("/nonexistent/plenty/path/that/should/not/exist.plenty")
         .output()
         .expect("spawn");
@@ -124,6 +129,7 @@ fn a_missing_file_exits_nonzero_with_a_diagnostic() {
 fn the_help_flag_prints_usage_and_exits_zero() {
     for flag in ["-h", "--help"] {
         let out = Command::new(plenty_bin())
+            .arg("--legacy")
             .arg(flag)
             .output()
             .expect("spawn");
@@ -139,6 +145,7 @@ fn the_help_flag_prints_usage_and_exits_zero() {
 #[test]
 fn unrecognised_arguments_exit_nonzero() {
     let out = Command::new(plenty_bin())
+        .arg("--legacy")
         .args(["foo.plenty", "bar.plenty"])
         .output()
         .expect("spawn");

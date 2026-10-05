@@ -136,6 +136,8 @@ pub enum Op {
     Mul,
     /// Pop two integers `a b`; push `a / b`.
     Div,
+    /// Integer division rounded toward negative infinity (modern `//`).
+    FloorDiv,
     /// Pop two values; push `true` if they are equal, `false` otherwise.
     /// Polymorphic over Int/Str/Bool (§11.8); mixed-type pairs are rejected
     /// by the type checker, never reached at runtime by a compiled source.
@@ -181,6 +183,8 @@ pub enum Op {
     /// (§11.5). Only emitted inside function bodies, so the VM always has at
     /// least one frame on its frame stack when it runs one.
     LoadLocal(u8),
+    /// Pop a value into an already allocated, statically typed local slot.
+    StoreLocal(u8),
     /// Pop the top of the stack and dispatch on it (§11.8). The first arm
     /// whose pattern matches runs; the value itself is *consumed* by the
     /// match. Exhaustiveness has been checked at compile time, so on a
@@ -213,6 +217,8 @@ pub enum Op {
     /// Pop one value of any type and render it without a newline. The
     /// rendering matches one entry in the `.` stack display.
     Print,
+    /// Print one value naturally, followed by a newline (modern `print`).
+    PrintLine,
 }
 
 /// One arm of a [`Op::Match`]. The pattern is matched against the popped
@@ -252,6 +258,8 @@ pub struct CompiledFn {
     pub sig: Rc<FnSig>,
     pub doc: Rc<str>,
     pub body: Rc<[Op]>,
+    /// Types of local slots after the parameters. Allocated once per call.
+    pub locals: Rc<[Ty]>,
 }
 
 /// Compile lexed words into ops, interning string literals into `heap`.
@@ -403,6 +411,7 @@ impl Compiler<'_, '_> {
                 sig,
                 doc,
                 body: body.into(),
+                locals: Rc::from([]),
             },
         ))
     }
@@ -827,7 +836,7 @@ fn is_valid_input_name(name: &str) -> bool {
 /// non-tail calls anywhere else stay `Call`. Match arms are stored as
 /// `Rc<[Op]>`, so mutating an arm body means rebuilding it; we only do that
 /// for arms that actually contain a tail call.
-fn mark_tail_calls(body: &mut [Op]) {
+pub(crate) fn mark_tail_calls(body: &mut [Op]) {
     let Some(last) = body.last_mut() else {
         return;
     };
@@ -956,7 +965,7 @@ fn step(
         }
         Op::Sub => arith(stack, "-")?,
         Op::Mul => arith(stack, "*")?,
-        Op::Div => arith(stack, "/")?,
+        Op::Div | Op::FloorDiv => arith(stack, "/")?,
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;
             if a != b {
@@ -1020,7 +1029,13 @@ fn step(
             })?;
             stack.push(ty);
         }
-        Op::DefineFn(name, f) => check_body(name, &f.sig, &f.body, sigs)?,
+        Op::StoreLocal(i) => {
+            let expected = locals.get(*i as usize).ok_or("invalid local slot")?;
+            if stack.pop().as_ref() != Some(expected) {
+                return Err("local assignment type mismatch".into());
+            }
+        }
+        Op::DefineFn(name, f) => check_body(name, &f.sig, &f.body, &f.locals, sigs)?,
         Op::Call(name) | Op::TailCall(name) => check_call(name, stack, sigs)?,
         Op::Match(arms) => check_match(arms, stack, locals, sigs)?,
         Op::Cast(target) => {
@@ -1049,7 +1064,7 @@ fn step(
                 return Err(format!("`:println` requires Str, got {top}").into());
             }
         }
-        Op::Print => {
+        Op::Print | Op::PrintLine => {
             stack.pop().ok_or("stack underflow on `:print`")?;
         }
     }
@@ -1255,9 +1270,15 @@ fn check_body(
     fn_name: &str,
     sig: &FnSig,
     body: &[Op],
+    extra_locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
 ) -> Result<()> {
-    let locals: Vec<Ty> = sig.inputs.iter().map(|(_, t)| *t).collect();
+    let locals: Vec<Ty> = sig
+        .inputs
+        .iter()
+        .map(|(_, t)| *t)
+        .chain(extra_locals.iter().copied())
+        .collect();
     let mut stack: Vec<Ty> = Vec::new();
     for op in body {
         step(op, &mut stack, &locals, sigs)

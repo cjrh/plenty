@@ -1,3 +1,5 @@
+# Historical stack syntax: run with `plenty --legacy examples/filter_m.plenty`.
+# The modern language example is examples/sum.plenty.
 : handle-line { line Str -> }
     "Print `line` to stdout if it contains the substring \"m\",
      otherwise drop it. The decision happens here so the recursion

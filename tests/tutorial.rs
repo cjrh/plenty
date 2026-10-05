@@ -2,10 +2,10 @@
 //!
 //! Each [`Example`] is a real test: its program is run through the interpreter
 //! and the resulting stack is checked against the recorded value. The very same
-//! examples are rendered into the "Tutorial" section of `README.md`, between
+//! examples are rendered into the "Tutorial" section of `docs/legacy-tutorial.md`, between
 //! the `BEGIN TUTORIAL` / `END TUTORIAL` markers.
 //!
-//! * `cargo test` — verifies every example, and fails if README.md is stale.
+//! * `cargo test` — verifies every example, and fails if docs/legacy-tutorial.md is stale.
 //! * `UPDATE_README=1 cargo test` — regenerates the README tutorial section.
 //!
 //! Because the rendered output is the *checked* output, the tutorial cannot
@@ -222,7 +222,7 @@ fn verify_and_render() -> String {
     let mut out = String::from("\n");
     for ex in EXAMPLES {
         let mut vm = Vm::new();
-        vm.run(ex.program)
+        vm.run_legacy(ex.program)
             .unwrap_or_else(|e| panic!("tutorial example {:?} failed to run: {e}", ex.title));
         let actual = vm.stack_repr();
         assert_eq!(
@@ -242,19 +242,19 @@ fn verify_and_render() -> String {
 /// Replace the text between the tutorial markers in `readme` with `generated`,
 /// leaving the markers themselves and all hand-written prose in place.
 fn splice_tutorial(readme: &str, generated: &str) -> String {
-    let begin = readme
-        .find(BEGIN_MARKER)
-        .unwrap_or_else(|| panic!("README.md is missing a line containing `{BEGIN_MARKER}`"));
+    let begin = readme.find(BEGIN_MARKER).unwrap_or_else(|| {
+        panic!("docs/legacy-tutorial.md is missing a line containing `{BEGIN_MARKER}`")
+    });
     let after_begin_line = readme[begin..]
         .find('\n')
         .map(|nl| begin + nl + 1)
-        .expect("README.md BEGIN TUTORIAL marker must be on its own line");
-    let end = readme
-        .find(END_MARKER)
-        .unwrap_or_else(|| panic!("README.md is missing a line containing `{END_MARKER}`"));
+        .expect("docs/legacy-tutorial.md BEGIN TUTORIAL marker must be on its own line");
+    let end = readme.find(END_MARKER).unwrap_or_else(|| {
+        panic!("docs/legacy-tutorial.md is missing a line containing `{END_MARKER}`")
+    });
     assert!(
         end >= after_begin_line,
-        "README.md TUTORIAL markers are in the wrong order",
+        "docs/legacy-tutorial.md TUTORIAL markers are in the wrong order",
     );
     format!(
         "{}{}{}",
@@ -269,19 +269,20 @@ fn splice_tutorial(readme: &str, generated: &str) -> String {
 #[test]
 fn readme_tutorial_stays_in_sync() {
     let generated = verify_and_render();
-    let current =
-        std::fs::read_to_string("README.md").expect("README.md should exist at the package root");
+    let current = std::fs::read_to_string("docs/legacy-tutorial.md")
+        .expect("docs/legacy-tutorial.md should exist at the package root");
     let updated = splice_tutorial(&current, &generated);
 
     if std::env::var_os("UPDATE_README").is_some() {
         if updated != current {
-            std::fs::write("README.md", &updated).expect("failed to write README.md");
-            eprintln!("README.md tutorial section regenerated.");
+            std::fs::write("docs/legacy-tutorial.md", &updated)
+                .expect("failed to write docs/legacy-tutorial.md");
+            eprintln!("docs/legacy-tutorial.md tutorial section regenerated.");
         }
     } else {
         assert_eq!(
             current, updated,
-            "\nREADME.md tutorial section is out of date — \
+            "\ndocs/legacy-tutorial.md tutorial section is out of date — \
              run `UPDATE_README=1 cargo test` to regenerate it.\n",
         );
     }

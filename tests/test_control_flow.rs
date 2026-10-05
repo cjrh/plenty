@@ -21,16 +21,16 @@ use rstest::rstest;
 #[case("true false", "[true false]")]
 fn bool_literals_push_a_bool(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
 #[test]
 fn a_function_can_return_a_bool_literal() {
     let mut vm = Vm::new();
-    vm.run(r#": yes { -> Bool } "Always true." true ;"#)
+    vm.run_legacy(r#": yes { -> Bool } "Always true." true ;"#)
         .unwrap();
-    vm.run(":yes").unwrap();
+    vm.run_legacy(":yes").unwrap();
     assert_eq!(vm.stack_repr(), "[true]");
 }
 
@@ -43,7 +43,7 @@ fn a_function_can_return_a_bool_literal() {
 #[case("-5 -5 =", "[true]")]
 fn integer_equality_pushes_bool(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -53,7 +53,7 @@ fn integer_equality_pushes_bool(#[case] program: &str, #[case] expected: &str) {
 #[case("false false =", "[true]")]
 fn bool_equality_pushes_bool(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -63,7 +63,7 @@ fn bool_equality_pushes_bool(#[case] program: &str, #[case] expected: &str) {
 #[case(r#""" "" ="#, "[true]")]
 fn string_equality_compares_contents(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -76,7 +76,7 @@ fn string_equality_compares_contents(#[case] program: &str, #[case] expected: &s
 #[case("5 5 >", "[false]")]
 fn integer_inequality_pushes_bool(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -85,7 +85,7 @@ fn integer_inequality_pushes_bool(#[case] program: &str, #[case] expected: &str)
 #[case("false not", "[true]")]
 fn not_negates_a_bool(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -103,7 +103,7 @@ fn not_negates_a_bool(#[case] program: &str, #[case] expected: &str) {
 #[case("true true and", "[true]")]
 fn additional_comparison_and_boolean_words_work(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -133,7 +133,7 @@ fn additional_comparison_and_boolean_words_work(#[case] program: &str, #[case] e
 #[case("not")]
 fn comparison_type_errors_are_caught_before_execution(#[case] program: &str) {
     let mut vm = Vm::new();
-    assert!(vm.run(program).is_err());
+    assert!(vm.run_legacy(program).is_err());
 }
 
 // --- Match on Bool --------------------------------------------------------
@@ -141,7 +141,7 @@ fn comparison_type_errors_are_caught_before_execution(#[case] program: &str) {
 #[test]
 fn match_on_bool_dispatches_to_the_true_arm() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#"true match
              true  [ 1 ]
              false [ 0 ]
@@ -154,7 +154,7 @@ fn match_on_bool_dispatches_to_the_true_arm() {
 #[test]
 fn match_on_bool_dispatches_to_the_false_arm() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#"false match
              true  [ 1 ]
              false [ 0 ]
@@ -168,7 +168,7 @@ fn match_on_bool_dispatches_to_the_false_arm() {
 fn match_on_bool_accepts_a_wildcard_arm_for_exhaustiveness() {
     // Only one named arm + wildcard is exhaustive too.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#"true match
              true [ 42 ]
              _    [ 0  ]
@@ -185,7 +185,7 @@ fn match_on_bool_accepts_a_wildcard_arm_for_exhaustiveness() {
 #[case(r#"false match false [ 0 ] end"#)]
 fn non_exhaustive_bool_match_is_rejected(#[case] program: &str) {
     let mut vm = Vm::new();
-    assert!(vm.run(program).is_err());
+    assert!(vm.run_legacy(program).is_err());
 }
 
 // --- Match on i64 ---------------------------------------------------------
@@ -196,7 +196,7 @@ fn non_exhaustive_bool_match_is_rejected(#[case] program: &str) {
 #[case("7 match  0 [ 99 ] 7 [ 77 ] _ [ 0 ] end", "[77i64]")]
 fn match_on_int_dispatches_on_value(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -204,22 +204,23 @@ fn match_on_int_dispatches_on_value(#[case] program: &str, #[case] expected: &st
 fn match_on_int_uses_first_matching_arm() {
     // Even with redundant patterns, the first matching arm wins.
     let mut vm = Vm::new();
-    vm.run("5 match 5 [ 99 ] 5 [ 88 ] _ [ 0 ] end").unwrap();
+    vm.run_legacy("5 match 5 [ 99 ] 5 [ 88 ] _ [ 0 ] end")
+        .unwrap();
     assert_eq!(vm.stack_repr(), "[99i64]");
 }
 
 #[test]
 fn suffixed_integer_patterns_must_match_the_scrutinee_type() {
     let mut vm = Vm::new();
-    vm.run("1u8 match 1u8 [ 42 ] _ [ 0 ] end").unwrap();
+    vm.run_legacy("1u8 match 1u8 [ 42 ] _ [ 0 ] end").unwrap();
     assert_eq!(vm.stack_repr(), "[42i64]");
-    assert!(vm.run("1u8 match 1i64 [ 42 ] _ [ 0 ] end").is_err());
+    assert!(vm.run_legacy("1u8 match 1i64 [ 42 ] _ [ 0 ] end").is_err());
 }
 
 #[test]
 fn match_on_int_without_wildcard_is_rejected() {
     let mut vm = Vm::new();
-    let err = vm.run("3 match 0 [ 99 ] 1 [ 88 ] end").unwrap_err();
+    let err = vm.run_legacy("3 match 0 [ 99 ] 1 [ 88 ] end").unwrap_err();
     assert!(err.to_string().contains("non-exhaustive"));
 }
 
@@ -230,7 +231,7 @@ fn match_on_int_without_wildcard_is_rejected() {
 #[case(r#"1 match "hi" [ 0 ] _ [ 0 ] end"#)]
 fn pattern_type_must_match_value_type(#[case] program: &str) {
     let mut vm = Vm::new();
-    assert!(vm.run(program).is_err());
+    assert!(vm.run_legacy(program).is_err());
 }
 
 // --- Match on Str ---------------------------------------------------------
@@ -238,7 +239,7 @@ fn pattern_type_must_match_value_type(#[case] program: &str) {
 #[test]
 fn match_on_str_dispatches_on_contents() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#""hello" match
              "hello" [ 1 ]
              _       [ 0 ]
@@ -251,7 +252,7 @@ fn match_on_str_dispatches_on_contents() {
 #[test]
 fn match_on_str_falls_through_to_wildcard() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#""xyz" match
              "hello" [ 1 ]
              _       [ 0 ]
@@ -264,7 +265,7 @@ fn match_on_str_falls_through_to_wildcard() {
 #[test]
 fn match_on_str_without_wildcard_is_rejected() {
     let mut vm = Vm::new();
-    let err = vm.run(r#""hi" match "hi" [ 1 ] end"#).unwrap_err();
+    let err = vm.run_legacy(r#""hi" match "hi" [ 1 ] end"#).unwrap_err();
     assert!(err.to_string().contains("non-exhaustive"));
 }
 
@@ -274,7 +275,7 @@ fn match_on_str_without_wildcard_is_rejected() {
 fn match_consumes_the_matched_value() {
     // The matched value is popped before the arm body runs: only `99` remains.
     let mut vm = Vm::new();
-    vm.run("7 match 7 [ 99 ] _ [ 0 ] end").unwrap();
+    vm.run_legacy("7 match 7 [ 99 ] _ [ 0 ] end").unwrap();
     assert_eq!(vm.stack_repr(), "[99i64]");
 }
 
@@ -283,7 +284,7 @@ fn arm_body_operates_on_the_surrounding_stack() {
     // The values 10 and 20 sit on the stack from before the match; the arm
     // body adds them. Match arms are not isolated sub-stacks (§11.8).
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#"10 20 true match
              true  [ + ]
              false [ * ]
@@ -296,7 +297,7 @@ fn arm_body_operates_on_the_surrounding_stack() {
 #[test]
 fn arm_body_sees_function_locals() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": pick { x i64 y i64 flag Bool -> i64 }
              "Return x if flag is true, otherwise y."
              flag match
@@ -313,7 +314,7 @@ fn arm_body_sees_function_locals() {
 #[test]
 fn empty_match_is_rejected() {
     let mut vm = Vm::new();
-    assert!(vm.run("1 match end").is_err());
+    assert!(vm.run_legacy("1 match end").is_err());
 }
 
 #[rstest]
@@ -333,7 +334,7 @@ fn empty_match_is_rejected() {
 #[case("end")]
 fn malformed_match_syntax_is_rejected(#[case] program: &str) {
     let mut vm = Vm::new();
-    assert!(vm.run(program).is_err());
+    assert!(vm.run_legacy(program).is_err());
 }
 
 // --- Branch joins ---------------------------------------------------------
@@ -344,7 +345,7 @@ fn arms_that_disagree_on_stack_effect_are_rejected() {
     // both arms to produce the same shape.
     let mut vm = Vm::new();
     let err = vm
-        .run(
+        .run_legacy(
             r#"true match
                  true  [ 1 ]
                  false [ ]
@@ -358,7 +359,7 @@ fn arms_that_disagree_on_stack_effect_are_rejected() {
 fn arms_that_disagree_on_output_type_are_rejected() {
     let mut vm = Vm::new();
     let err = vm
-        .run(
+        .run_legacy(
             r#"true match
                  true  [ 1 ]
                  false [ "no" ]
@@ -372,7 +373,7 @@ fn arms_that_disagree_on_output_type_are_rejected() {
 fn arms_may_take_different_paths_if_they_agree_at_the_end() {
     // Wildly different bodies are fine so long as they leave the same shape.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#"true match
              true  [ 1 2 + ]
              false [ 10 7 - ]
@@ -387,7 +388,7 @@ fn arms_may_take_different_paths_if_they_agree_at_the_end() {
 #[test]
 fn nested_match_dispatches_correctly() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": classify { n i64 -> Str }
              "Return zero/positive/negative for a sign classification."
              n 0 = match
@@ -411,7 +412,7 @@ fn nested_match_branch_join_works_independently_of_outer() {
     // error even if the outer arms happen to be uniform.
     let mut vm = Vm::new();
     let err = vm
-        .run(
+        .run_legacy(
             r#": bad { n i64 -> i64 }
                  "Inner arms disagree."
                  n 0 = match
@@ -431,7 +432,7 @@ fn nested_match_branch_join_works_independently_of_outer() {
 #[test]
 fn simple_tail_recursion_works() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": countdown { n i64 -> i64 }
              "Recurse down to zero, returning zero."
              n 0 = match
@@ -448,7 +449,7 @@ fn simple_tail_recursion_works() {
 fn tail_recursive_accumulator_works() {
     // Classic tail-recursive sum-to-n.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": sum-to { n i64 acc i64 -> i64 }
              "Tail-recursive accumulator: 1+2+...+n + acc."
              n 0 = match
@@ -469,7 +470,7 @@ fn deep_tail_recursion_does_not_overflow_the_call_stack() {
     // on the host; under TCO the explicit frames vec stays at a small
     // constant size for the entire run.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": sum-to { n i64 acc i64 -> i64 }
              "Tail-recursive accumulator over a deep recursion."
              n 0 = match
@@ -488,7 +489,7 @@ fn mutual_tail_recursion_works() {
     // even? and odd? tail-call each other; both must be optimised for this
     // to run without growing the call stack.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": even? { n i64 -> Bool }
              "True if n is even (mutually recursive with odd?)."
              n 0 = match
@@ -515,7 +516,7 @@ fn non_tail_recursion_works_for_moderate_depth() {
     // heap rather than by the host ulimit, but we only test moderate depth
     // here to avoid huge integer outputs.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": fact { n i64 -> i64 }
              "Non-tail-recursive factorial."
              n 1 = match
@@ -535,7 +536,7 @@ fn tail_call_inside_outer_match_is_optimised() {
     // which is inside an outer match arm, which is the last op of the body.
     // The compiler's tail-call detection must recurse through both matches.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": squeeze { n i64 -> i64 }
              "Recurse until n hits 0, branching via two nested matches."
              n 0 = match
@@ -556,7 +557,7 @@ fn tail_call_inside_outer_match_is_optimised() {
 #[test]
 fn a_function_returning_bool_via_comparison_type_checks() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": positive? { n i64 -> Bool } "True if n > 0." n 0 > ;
            5 :positive?
            -1 :positive?"#,
@@ -568,7 +569,7 @@ fn a_function_returning_bool_via_comparison_type_checks() {
 #[test]
 fn a_function_taking_a_bool_uses_it_in_match() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": describe { flag Bool -> Str }
              "Render a Bool as text."
              flag match
@@ -587,7 +588,7 @@ fn fibonacci_via_match_and_recursion() {
     // The cleanest non-tail recursive function in the test suite: each call
     // splits into two recursive sub-calls. fib(12) = 144.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#": fib { n i64 -> i64 }
              "Fibonacci, demonstrating two-arm match plus double recursion."
              n 2 < match
@@ -605,13 +606,13 @@ fn fibonacci_via_match_and_recursion() {
 #[test]
 fn a_type_failing_match_does_not_register_its_definition() {
     let mut vm = Vm::new();
-    vm.run("42").unwrap();
+    vm.run_legacy("42").unwrap();
     let before = vm.stack_repr();
     let names_before = vm.function_names().len();
 
     // The body type-checks except that arms disagree; the whole `run` is
     // rejected pre-execution and the VM is left unchanged.
-    let err = vm.run(
+    let err = vm.run_legacy(
         r#": bad { n i64 -> i64 }
              "Arms disagree."
              n 0 = match

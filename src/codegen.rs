@@ -132,10 +132,21 @@ use crate::value::{Heap, StrId, Value};
 /// site so users can install a C toolchain or wrap an alternative
 /// compiler as `cc`.
 pub fn compile_source_to_executable(source: &str, output: &Path) -> Result<()> {
+    let mut heap = Heap::default();
+    let ops = crate::frontend::compile(source, &mut heap, &HashMap::new())?;
+    compile_ops_to_executable(&ops, &heap, output)
+}
+
+/// Historical stack syntax, retained for backend regression tests.
+pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Result<()> {
     let toks = lexer::lex(source)?;
     let mut heap = Heap::default();
     let ops = op::compile(&toks, &mut heap)?;
-    op::check(&ops, Vec::new(), &HashMap::new())?;
+    compile_ops_to_executable(&ops, &heap, output)
+}
+
+fn compile_ops_to_executable(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
+    op::check(ops, Vec::new(), &HashMap::new())?;
 
     // Tempfile names blend the process id and a nanosecond timestamp:
     // unique across concurrent `plenty --compile` invocations without
@@ -151,7 +162,7 @@ pub fn compile_source_to_executable(source: &str, output: &Path) -> Result<()> {
     let rt_path = tmp.join(format!("plenty-{pid}-{nonce}-runtime.c"));
 
     let result = (|| -> Result<()> {
-        compile_to_object(&ops, &heap, &obj_path)?;
+        compile_to_object(ops, heap, &obj_path)?;
         std::fs::write(&rt_path, RUNTIME_C)?;
         link_with_cc(&obj_path, &rt_path, output)
     })();
@@ -333,6 +344,9 @@ struct Runtime {
     /// primitive; `plenty_print_str` (the `.` path) escapes and
     /// quotes, `plenty_println` does not.
     println: FuncId,
+    println_signed: FuncId,
+    println_unsigned: FuncId,
+    println_bool: FuncId,
 }
 
 fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
@@ -387,6 +401,9 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         },
         contains: two_args_one_return(module, "plenty_contains", PTR_TY, PTR_TY, types::I8)?,
         println: one_arg(module, "plenty_println", PTR_TY)?,
+        println_signed: one_arg(module, "plenty_println_signed", types::I64)?,
+        println_unsigned: one_arg(module, "plenty_println_unsigned", types::I64)?,
+        println_bool: one_arg(module, "plenty_println_bool", types::I8)?,
     })
 }
 
@@ -475,6 +492,7 @@ struct UserFn {
     id: FuncId,
     sig: Rc<FnSig>,
     body: Rc<[Op]>,
+    locals: Rc<[Ty]>,
 }
 
 /// Build a Cranelift `Signature` from a Plenty `FnSig`. User functions
@@ -518,13 +536,17 @@ fn collect_user_fns(
                     .into());
                 }
                 let cl_sig = user_fn_signature(module, &f.sig);
-                let id = module.declare_function(name, Linkage::Local, &cl_sig)?;
+                // Source names must never alias runtime helpers or the C entry
+                // point (a user may legitimately define `plenty_main`).
+                let symbol = format!("__plenty_fn_{name}");
+                let id = module.declare_function(&symbol, Linkage::Local, &cl_sig)?;
                 out.insert(
                     name.clone(),
                     UserFn {
                         id,
                         sig: Rc::clone(&f.sig),
                         body: Rc::clone(&f.body),
+                        locals: Rc::clone(&f.locals),
                     },
                 );
                 collect_user_fns(&f.body, module, out)?;
@@ -605,6 +627,11 @@ fn emit_user_function(
             let var = bcx.declare_var(clif_type(*ty));
             let param = bcx.block_params(entry)[i];
             bcx.def_var(var, param);
+            locals.push((var, *ty));
+        }
+        for ty in decl.locals.iter() {
+            let var = bcx.declare_var(clif_type(*ty));
+            // The frontend enforces definite initialization before every read.
             locals.push((var, *ty));
         }
 
@@ -816,7 +843,8 @@ impl Lowerer<'_, '_> {
             Op::Add => self.lower_add()?,
             Op::Sub => self.lower_checked_arith(ArithKind::Sub)?,
             Op::Mul => self.lower_checked_arith(ArithKind::Mul)?,
-            Op::Div => self.lower_div()?,
+            Op::Div => self.lower_div(false)?,
+            Op::FloorDiv => self.lower_div(true)?,
             Op::Eq => self.lower_eq()?,
             Op::Lt => self.int_cmp(IntCC::SignedLessThan, IntCC::UnsignedLessThan)?,
             Op::Gt => self.int_cmp(IntCC::SignedGreaterThan, IntCC::UnsignedGreaterThan)?,
@@ -860,6 +888,11 @@ impl Lowerer<'_, '_> {
             Op::Display => self.lower_display()?,
             Op::Clear => self.stack.clear(),
             Op::LoadLocal(i) => self.lower_load_local(*i)?,
+            Op::StoreLocal(i) => {
+                let (var, ty) = self.locals[*i as usize];
+                let (value, _) = self.pop_typed(ty)?;
+                self.bcx.def_var(var, value);
+            }
             Op::Call(name) => self.lower_call(name)?,
             Op::TailCall(name) => self.lower_tail_call(name)?,
             // `DefineFn` is hoisted into a top-level Cranelift function by
@@ -872,6 +905,23 @@ impl Lowerer<'_, '_> {
             Op::Contains => self.lower_contains()?,
             Op::PrintLn => self.lower_println()?,
             Op::Print => self.lower_print()?,
+            Op::PrintLine => {
+                let (mut value, ty) = self.stack.pop().ok_or("empty print")?;
+                let helper = match ty {
+                    Ty::Str => self.runtime.println,
+                    Ty::Bool => self.runtime.println_bool,
+                    ty if is_signed(ty) => {
+                        value = self.cast(value, ty, Ty::I64);
+                        self.runtime.println_signed
+                    }
+                    ty => {
+                        value = self.cast(value, ty, Ty::U64);
+                        self.runtime.println_unsigned
+                    }
+                };
+                let f = self.module.declare_func_in_func(helper, self.bcx.func);
+                self.bcx.ins().call(f, &[value]);
+            }
         }
         Ok(())
     }
@@ -983,7 +1033,7 @@ impl Lowerer<'_, '_> {
     /// non-zero divisor for which `sdiv` traps inside Cranelift —
     /// catching it ourselves lets us emit the same `"integer overflow"`
     /// message the interpreter does), then the bare `sdiv`/`udiv`.
-    fn lower_div(&mut self) -> Result<()> {
+    fn lower_div(&mut self, floor: bool) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
         let cty = clif_type(ty);
 
@@ -1009,11 +1059,20 @@ impl Lowerer<'_, '_> {
             self.trap_if(overflow, TrapKind::Overflow);
         }
 
-        let v = if is_signed(ty) {
+        let mut v = if is_signed(ty) {
             self.bcx.ins().sdiv(a, b)
         } else {
             self.bcx.ins().udiv(a, b)
         };
+        if floor && is_signed(ty) {
+            let remainder = self.bcx.ins().srem(a, b);
+            let nonzero = self.bcx.ins().icmp_imm(IntCC::NotEqual, remainder, 0);
+            let signs = self.bcx.ins().bxor(a, b);
+            let different = self.bcx.ins().icmp_imm(IntCC::SignedLessThan, signs, 0);
+            let round_down = self.bcx.ins().band(nonzero, different);
+            let below = self.bcx.ins().iadd_imm(v, -1);
+            v = self.bcx.ins().select(round_down, below, v);
+        }
         self.stack.push((v, ty));
         Ok(())
     }

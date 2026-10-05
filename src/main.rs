@@ -1,22 +1,4 @@
-//! The Plenty REPL.
-//!
-//! Line editing is delegated to `rustyline`: pure-Rust, cross-platform,
-//! Emacs-style bindings (ctrl-a/e for line ends, ctrl-p/n for history,
-//! ctrl-l to clear, ctrl-r reverse-search). On top of that, this file
-//! adds three things:
-//!
-//! * **Multi-line input.** Enter always inserts a newline; the buffer is
-//!   submitted only when a function definition closes with a balanced `;`,
-//!   or when the user presses a force-submit key.
-//! * **Force-submit keys.** Shift-Enter, Alt-Enter, and Ctrl-J all bypass
-//!   the validator. The first two depend on the terminal sending a
-//!   distinguishable sequence (modern terminals usually do); Ctrl-J always
-//!   works because it is the literal LF byte.
-//! * **Ctrl-G to edit in `$EDITOR`.** The current buffer is written to a
-//!   tempfile, `$EDITOR` (or `$VISUAL`) is spawned on it, and the saved
-//!   content is what gets run. Useful for composing a long definition or
-//!   recovering one fished out of history.
-
+//! Plenty file runner, native compiler, and multiline REPL.
 use std::error::Error;
 use std::ffi::OsString;
 use std::path::Path;
@@ -29,173 +11,79 @@ use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{
-    Cmd, ConditionalEventHandler, Context, Editor, Event, EventContext, EventHandler, KeyCode,
-    KeyEvent, Modifiers, RepeatCount,
+    Cmd, ConditionalEventHandler, Context, Editor, Event, EventContext, EventHandler, Helper,
+    Highlighter, Hinter, KeyCode, KeyEvent, Modifiers, RepeatCount,
 };
-use rustyline::{Helper, Highlighter, Hinter};
 
-const BANNER: &str = r#"
-:::::::::  :::        :::::::::: ::::    ::: ::::::::::: :::   :::
-:+:    :+: :+:        :+:        :+:+:   :+:     :+:     :+:   :+:
-+:+    +:+ +:+        +:+        :+:+:+  +:+     +:+      +:+ +:+
-+#++:++#+  +#+        +#++:++#   +#+ +:+ +#+     +#+       +#++:
-+#+        +#+        +#+        +#+  +#+#+#     +#+        +#+
-#+#        #+#        #+#        #+#   #+#+#     #+#        #+#
-###        ########## ########## ###    ####     ###        ###
-"#;
+const USAGE: &str = "\
+Usage: plenty [FILE]
+       plenty --check FILE
+       plenty --compile FILE -o OUT
+       plenty -h | --help
 
-const HELP: &str = "\
-Enter wraps. `;` (after a balanced `:`) submits. Ctrl-J (or Shift/Alt-Enter)
-force-submits. Ctrl-G edits the buffer in $EDITOR. Tab completes function
-names and builtins. `quit` or Ctrl-D exits.
+No arguments: start the REPL. FILE: check and run modern Plenty.
+--check: parse and type-check without executing the program.
+--compile: emit a native executable with Cranelift and the system cc linker.
+--legacy before FILE or --compile selects the historical stack syntax.
 ";
 
-const PROMPT: &str = "---> ";
-
-/// Words to offer for tab completion that are *not* in the runtime
-/// function dictionary — builtins, operators, keywords, type names.
-const STATIC_WORDS: &[&str] = &[
-    "true",
-    "false",
-    "match",
-    "end",
-    "not",
-    "and",
-    "or",
-    "drop",
-    "dup",
-    "swap",
-    "i8",
-    "i16",
-    "i32",
-    "i64",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
-    "Str",
-    "Bool",
-    ".",
-    "+",
-    "-",
-    "*",
-    "/",
-    "=",
-    "!=",
-    "<",
-    ">",
-    "<=",
-    ">=",
-    ":clear",
-    ":as-i8",
-    ":as-i16",
-    ":as-i32",
-    ":as-i64",
-    ":as-u8",
-    ":as-u16",
-    ":as-u32",
-    ":as-u64",
-    ":readline",
-    ":contains",
-    ":println",
-    ":print",
-    "exit",
-    "quit",
+const WORDS: &[&str] = &[
+    "def", "return", "if", "elif", "else", "mut", "pass", "True", "False", "and", "or", "not",
+    "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "int", "bool", "str", "print",
+    "contains", "quit",
 ];
 
 #[derive(Helper, Highlighter, Hinter)]
 struct PlentyHelper {
-    /// Function names from the VM dictionary, refreshed before each
-    /// `readline` so newly-defined functions show up in completion.
-    fn_names: Vec<String>,
+    functions: Vec<String>,
 }
 
 impl Validator for PlentyHelper {
-    /// Submit only when the input is *structurally* complete — empty,
-    /// or all `:` definitions closed by `;`. Anything inside an open
-    /// `:` or an unterminated `"..."` keeps editing. A force-submit key
-    /// (Ctrl-J etc.) bypasses this entirely via `Cmd::AcceptLine`.
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        let input = ctx.input();
-        if input.trim().is_empty() {
-            return Ok(ValidationResult::Valid(None));
-        }
-        let depth = match definition_depth(input) {
-            Some(d) => d,
-            // Mid-string: definitely not done.
-            None => return Ok(ValidationResult::Incomplete),
-        };
-        if depth > 0 {
-            return Ok(ValidationResult::Incomplete);
-        }
-        if input.trim_end().ends_with(';') {
-            return Ok(ValidationResult::Valid(None));
-        }
-        Ok(ValidationResult::Incomplete)
+        Ok(if plenty::input_complete(ctx.input()) {
+            ValidationResult::Valid(None)
+        } else {
+            ValidationResult::Incomplete
+        })
     }
 }
 
 impl Completer for PlentyHelper {
     type Candidate = Pair;
-
-    /// Complete the word immediately before the cursor. A leading `:`
-    /// flips us into "function call" mode and we only offer dictionary
-    /// names (and the `:clear` builtin). Otherwise we offer
-    /// the static word list. We only consider the word the cursor sits
-    /// in; everything left of the previous whitespace is preserved.
     fn complete(
         &self,
         line: &str,
         pos: usize,
-        _ctx: &Context<'_>,
+        _: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Pair>)> {
         let start = line[..pos]
-            .rfind(char::is_whitespace)
-            .map(|i| i + 1)
+            .rfind(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .map(|i| i + line[i..].chars().next().unwrap().len_utf8())
             .unwrap_or(0);
         let prefix = &line[start..pos];
-
-        let mut out: Vec<Pair> = Vec::new();
-        if let Some(rest) = prefix.strip_prefix(':') {
-            for name in &self.fn_names {
-                if name.starts_with(rest) {
-                    let s = format!(":{name}");
-                    out.push(Pair {
-                        display: s.clone(),
-                        replacement: s,
-                    });
-                }
-            }
-            for w in STATIC_WORDS.iter().filter(|w| w.starts_with(':')) {
-                if w[1..].starts_with(rest) {
-                    out.push(Pair {
-                        display: (*w).into(),
-                        replacement: (*w).into(),
-                    });
-                }
-            }
-        } else if !prefix.is_empty() {
-            for w in STATIC_WORDS.iter().filter(|w| !w.starts_with(':')) {
-                if w.starts_with(prefix) {
-                    out.push(Pair {
-                        display: (*w).into(),
-                        replacement: (*w).into(),
-                    });
-                }
-            }
-        }
-        Ok((start, out))
+        let mut names: Vec<&str> = WORDS
+            .iter()
+            .copied()
+            .chain(self.functions.iter().map(String::as_str))
+            .filter(|name| !prefix.is_empty() && name.starts_with(prefix))
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        Ok((
+            start,
+            names
+                .into_iter()
+                .map(|s| Pair {
+                    display: s.into(),
+                    replacement: s.into(),
+                })
+                .collect(),
+        ))
     }
 }
 
-/// Shared flag set when the user presses Ctrl-G. The event handler runs
-/// inside rustyline's input loop and cannot itself spawn `$EDITOR` (the
-/// terminal is in raw mode); instead it flips the flag and force-submits
-/// the buffer, and the main loop — back in cooked mode — handles the
-/// editor invocation.
 #[derive(Clone, Default)]
 struct EditorTrigger(Arc<AtomicBool>);
-
 impl ConditionalEventHandler for EditorTrigger {
     fn handle(&self, _: &Event, _: RepeatCount, _: bool, _: &EventContext) -> Option<Cmd> {
         self.0.store(true, Ordering::Relaxed);
@@ -203,244 +91,134 @@ impl ConditionalEventHandler for EditorTrigger {
     }
 }
 
-const USAGE: &str = "\
-Usage: plenty [FILE]
-       plenty --compile FILE -o OUT
-       plenty -h | --help
-
-With no arguments, starts the interactive REPL. With a file path, lexes,
-compiles, type-checks, and runs the file, then exits — stdout is the
-program's, stderr is for diagnostics. Exit status is 0 on success and
-non-zero on any compile, type, or runtime error.
-
-`--compile FILE -o OUT` produces a native executable at OUT (AOT, §11.1).
-The C compiler `cc` must be on PATH; the embedded runtime is linked
-automatically. The AOT path covers every Plenty op.
-";
-
 fn main() -> ExitCode {
     pretty_env_logger::init();
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let outcome = match args.as_slice() {
-        [] => repl(),
-        [flag] if flag == "-h" || flag == "--help" => {
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let legacy = args.first().is_some_and(|s| s == "--legacy");
+    if legacy {
+        args.remove(0);
+    }
+    let result = match args.as_slice() {
+        [] if !legacy => repl(),
+        [flag] if flag == "--help" || flag == "-h" => {
             print!("{USAGE}");
-            return ExitCode::SUCCESS;
+            Ok(())
         }
-        [flag, source, dash_o, out]
-            if flag == "--compile" && (dash_o == "-o" || dash_o == "--output") =>
+        [flag, source] if flag == "--check" && !legacy => {
+            read_source(source).and_then(|source| plenty::check_source(&source))
+        }
+        [flag, source, option, output]
+            if flag == "--compile" && (option == "-o" || option == "--output") =>
         {
-            compile_file(Path::new(source), Path::new(out))
+            read_source(source).and_then(|source| {
+                if legacy {
+                    plenty::compile_legacy_source_to_executable(&source, Path::new(output))
+                } else {
+                    plenty::compile_source_to_executable(&source, Path::new(output))
+                }
+            })
         }
-        [path] if !path.starts_with('-') => run_file(Path::new(path)),
-        _ => {
-            eprintln!("plenty: unrecognised arguments");
-            eprint!("{USAGE}");
-            return ExitCode::FAILURE;
-        }
+        [source] if !source.starts_with('-') => read_source(source).and_then(|source| {
+            let mut vm = Vm::new();
+            if legacy {
+                vm.run_legacy(&source)
+            } else {
+                vm.run(&source)
+            }
+        }),
+        _ => Err(format!("unrecognised arguments\n{USAGE}").into()),
     };
-    match outcome {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e}");
+        Err(error) => {
+            eprintln!("error: {error}");
             ExitCode::FAILURE
         }
     }
 }
 
-/// Read `path` as a single Plenty source and run it on a fresh [`Vm`].
-/// Used by the binary's file-execution mode (DESIGN.md §12.4); the REPL
-/// uses [`Vm::run`] directly so its state persists across inputs.
-fn run_file(path: &Path) -> Result<(), Box<dyn Error>> {
-    let source = std::fs::read_to_string(path)
-        .map_err(|e| -> Box<dyn Error> { format!("reading {}: {e}", path.display()).into() })?;
-    let mut vm = Vm::new();
-    vm.run(&source)
-}
-
-/// Read `source` and produce a native executable at `output` (DESIGN.md
-/// §11.1, §12.3 — every Plenty op now lowers). Internally writes a
-/// temp object, links it with the embedded C runtime via `cc`, and
-/// deletes the temp; the user sees only `output`.
-fn compile_file(source: &Path, output: &Path) -> Result<(), Box<dyn Error>> {
-    let text = std::fs::read_to_string(source)
-        .map_err(|e| -> Box<dyn Error> { format!("reading {}: {e}", source.display()).into() })?;
-    plenty::compile_source_to_executable(&text, output)
+fn read_source(path: &str) -> Result<String, Box<dyn Error>> {
+    std::fs::read_to_string(path).map_err(|error| format!("reading {path}: {error}").into())
 }
 
 fn repl() -> Result<(), Box<dyn Error>> {
-    println!("{BANNER}");
-    println!("{HELP}");
-
+    println!("Plenty — typed expressions, Cranelift native compilation");
+    println!("Enter submits expressions. A blank line finishes a block. Ctrl-J force-submits.");
+    println!("Ctrl-G edits in $EDITOR. Tab completes. `quit` or Ctrl-D exits.");
     let mut vm = Vm::new();
-    let mut rl: Editor<PlentyHelper, _> = Editor::new()?;
-    rl.set_helper(Some(PlentyHelper {
-        fn_names: Vec::new(),
+    let mut editor: Editor<PlentyHelper, _> = Editor::new()?;
+    editor.set_helper(Some(PlentyHelper {
+        functions: Vec::new(),
     }));
-
-    let editor_trigger = EditorTrigger::default();
-    rl.bind_sequence(
+    let trigger = EditorTrigger::default();
+    editor.bind_sequence(
         KeyEvent::ctrl('G'),
-        EventHandler::Conditional(Box::new(editor_trigger.clone())),
+        EventHandler::Conditional(Box::new(trigger.clone())),
     );
-    // Force-submit keys. Ctrl-J is the universal one (it is the literal
-    // LF byte; every terminal emits it for Ctrl-J). Shift-Enter and
-    // Alt-Enter need terminal cooperation — kitty/wezterm/iTerm2 send
-    // distinct sequences; xterm needs modifyOtherKeys=2.
-    rl.bind_sequence(KeyEvent::ctrl('J'), EventHandler::Simple(Cmd::AcceptLine));
-    rl.bind_sequence(
-        KeyEvent(KeyCode::Enter, Modifiers::SHIFT),
-        EventHandler::Simple(Cmd::AcceptLine),
-    );
-    rl.bind_sequence(
-        KeyEvent(KeyCode::Enter, Modifiers::ALT),
-        EventHandler::Simple(Cmd::AcceptLine),
-    );
-
+    editor.bind_sequence(KeyEvent::ctrl('J'), EventHandler::Simple(Cmd::AcceptLine));
+    for modifier in [Modifiers::SHIFT, Modifiers::ALT] {
+        editor.bind_sequence(
+            KeyEvent(KeyCode::Enter, modifier),
+            EventHandler::Simple(Cmd::AcceptLine),
+        );
+    }
     loop {
-        // Refresh the completer's view of the dictionary so functions
-        // defined since the last prompt show up under Tab.
-        if let Some(h) = rl.helper_mut() {
-            h.fn_names = vm
-                .function_names()
-                .into_iter()
-                .map(str::to_string)
-                .collect();
+        if let Some(helper) = editor.helper_mut() {
+            helper.functions = vm.function_names().into_iter().map(str::to_owned).collect();
         }
-
-        let raw = match rl.readline(PROMPT) {
+        let raw = match editor.readline(">>> ") {
             Ok(line) => line,
-            // Ctrl-C: drop the current line, keep the session — matches
-            // Python and most other REPLs. Quitting on a single Ctrl-C
-            // would be a surprise.
             Err(ReadlineError::Interrupted) => continue,
             Err(ReadlineError::Eof) => break,
-            Err(e) => {
-                eprintln!("readline error: {e}");
-                break;
-            }
+            Err(error) => return Err(error.into()),
         };
-
-        let source = if editor_trigger.0.swap(false, Ordering::Relaxed) {
+        let source = if trigger.0.swap(false, Ordering::Relaxed) {
             match open_in_editor(&raw) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("editor: {e}");
+                Ok(source) => source,
+                Err(error) => {
+                    eprintln!("editor: {error}");
                     continue;
                 }
             }
         } else {
             raw
         };
-
-        let trimmed = source.trim();
-        if trimmed.is_empty() {
+        if source.trim().is_empty() {
             continue;
         }
-        if matches!(trimmed, "exit" | "q" | "quit") {
+        if matches!(source.trim(), "quit" | "exit" | "q") {
             break;
         }
-        rl.add_history_entry(source.as_str())?;
-        if let Err(e) = vm.run(&source) {
-            eprintln!("error: {e}");
+        editor.add_history_entry(source.as_str())?;
+        match vm.eval(&source) {
+            Ok(()) => {
+                let value = vm.stack_repr();
+                if value != "[]" {
+                    println!("{}", &value[1..value.len() - 1]);
+                }
+            }
+            Err(error) => eprintln!("error: {error}"),
         }
     }
     Ok(())
 }
 
-/// Count `:` definition-openers minus `;` closers in `input`, ignoring
-/// comments and anything inside a `"..."` literal. Returns `None` if the
-/// input ends mid-string, since the buffer is then known-incomplete regardless
-/// of bracket depth.
-///
-/// This is a structural check, not a full parse — it does not validate that
-/// `:` has a name or that a closer is otherwise well placed. The compiler
-/// handles those errors when the buffer is submitted.
-fn definition_depth(input: &str) -> Option<i32> {
-    fn structural(b: u8) -> bool {
-        matches!(b, b'{' | b'}' | b'[' | b']' | b';')
-    }
-
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    let mut depth = 0i32;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b.is_ascii_whitespace() {
-            i += 1;
-            continue;
-        }
-        if b == b'#' {
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if b == b'"' {
-            i += 1;
-            loop {
-                if i >= bytes.len() {
-                    return None;
-                }
-                match bytes[i] {
-                    b'\\' => {
-                        if i + 1 >= bytes.len() {
-                            return None;
-                        }
-                        i += 2;
-                    }
-                    b'"' => {
-                        i += 1;
-                        break;
-                    }
-                    _ => i += 1,
-                }
-            }
-            continue;
-        }
-        if structural(b) {
-            if b == b';' {
-                depth -= 1;
-            }
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < bytes.len()
-            && !bytes[i].is_ascii_whitespace()
-            && bytes[i] != b'"'
-            && bytes[i] != b'#'
-            && !structural(bytes[i])
-        {
-            i += 1;
-        }
-        if &input[start..i] == ":" {
-            depth += 1;
-        }
-    }
-    Some(depth)
-}
-
-/// Open `initial` in `$EDITOR` (or `$VISUAL`, or a platform default),
-/// wait for the editor to exit, and return whatever was saved. The
-/// tempfile is named `.plenty` so an editor with syntax-aware modes can
-/// pick the right one if you ever add a Plenty mode.
 fn open_in_editor(initial: &str) -> std::io::Result<String> {
     let editor = std::env::var_os("VISUAL")
         .or_else(|| std::env::var_os("EDITOR"))
         .unwrap_or_else(|| OsString::from(if cfg!(windows) { "notepad" } else { "vi" }));
-
     let path = std::env::temp_dir().join(format!("plenty-{}.plenty", std::process::id()));
     std::fs::write(&path, initial)?;
-    let status = Command::new(&editor).arg(&path).status()?;
-    let edited = std::fs::read_to_string(&path);
+    let result = (|| {
+        let status = Command::new(&editor).arg(&path).status()?;
+        if !status.success() {
+            return Err(std::io::Error::other(format!(
+                "{} exited with {status}",
+                editor.to_string_lossy()
+            )));
+        }
+        std::fs::read_to_string(&path)
+    })();
     let _ = std::fs::remove_file(&path);
-    if !status.success() {
-        return Err(std::io::Error::other(format!(
-            "{} exited with {}",
-            editor.to_string_lossy(),
-            status
-        )));
-    }
-    edited
+    result
 }

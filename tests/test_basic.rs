@@ -13,7 +13,7 @@ use rstest::rstest;
 #[case("1 2 +\n3 +", "[6i64]")]
 fn arithmetic_leaves_expected_stack(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -24,7 +24,7 @@ fn arithmetic_leaves_expected_stack(#[case] program: &str, #[case] expected: &st
 #[case(r#""a\\b""#, r#"["a\\b"]"#)]
 fn a_quoted_string_pushes_text(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -33,14 +33,14 @@ fn a_quoted_string_pushes_text(#[case] program: &str, #[case] expected: &str) {
 #[case(r#""bad \z escape""#)] // unrecognised escape sequence
 fn malformed_string_literals_are_rejected(#[case] program: &str) {
     let mut vm = Vm::new();
-    assert!(vm.run(program).is_err());
+    assert!(vm.run_legacy(program).is_err());
 }
 
 #[rstest]
 #[case(r#": add { a i64 b i64 -> i64 } "Sum two values." a b + ;"#, vec!["add"])]
 fn defining_a_function_registers_its_name(#[case] program: &str, #[case] expected: Vec<&str>) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.function_names(), expected);
 }
 
@@ -65,7 +65,7 @@ fn defining_a_function_registers_its_name(#[case] program: &str, #[case] expecte
 )]
 fn calling_a_function_runs_its_body(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -76,9 +76,9 @@ fn an_operator_alone_on_a_line_consumes_the_prior_lines_values() {
     // only `+` on it must operate on whatever was left behind, exactly as
     // if it appeared inline.
     let mut vm = Vm::new();
-    vm.run("1").unwrap();
-    vm.run("2").unwrap();
-    vm.run("+").unwrap();
+    vm.run_legacy("1").unwrap();
+    vm.run_legacy("2").unwrap();
+    vm.run_legacy("+").unwrap();
     assert_eq!(vm.stack_repr(), "[3i64]");
 }
 
@@ -88,10 +88,10 @@ fn cross_line_type_mismatches_are_still_caught_pre_execution() {
     // values must not weaken the checker. `1` then `hello` then `+` is
     // still a type error, caught before any op runs.
     let mut vm = Vm::new();
-    vm.run("1").unwrap();
-    vm.run("hello").unwrap();
+    vm.run_legacy("1").unwrap();
+    vm.run_legacy("hello").unwrap();
     let before = vm.stack_repr();
-    assert!(vm.run("+").is_err());
+    assert!(vm.run_legacy("+").is_err());
     assert_eq!(
         vm.stack_repr(),
         before,
@@ -104,17 +104,17 @@ fn defining_a_function_leaves_the_stack_untouched() {
     // The whole point of the `: name ... ;` redesign: a definition is carved
     // out at compile time, so values already on the stack are never disturbed.
     let mut vm = Vm::new();
-    vm.run("99").unwrap();
-    vm.run(r#": double { x i64 -> i64 } "Double an int." x 2 * ;"#)
+    vm.run_legacy("99").unwrap();
+    vm.run_legacy(r#": double { x i64 -> i64 } "Double an int." x 2 * ;"#)
         .unwrap();
-    vm.run("21 :double").unwrap();
+    vm.run_legacy("21 :double").unwrap();
     assert_eq!(vm.stack_repr(), "[99i64 42i64]");
 }
 
 #[test]
 fn function_doc_returns_the_captured_docstring() {
     let mut vm = Vm::new();
-    vm.run(r#": double { x i64 -> i64 } "Double an integer." x 2 * ;"#)
+    vm.run_legacy(r#": double { x i64 -> i64 } "Double an integer." x 2 * ;"#)
         .unwrap();
     assert_eq!(vm.function_doc("double"), Some("Double an integer."));
     assert_eq!(vm.function_doc("nonexistent"), None);
@@ -124,7 +124,7 @@ fn function_doc_returns_the_captured_docstring() {
 fn function_sig_returns_the_captured_signature() {
     use plenty::Ty;
     let mut vm = Vm::new();
-    vm.run(r#": double { x i64 -> i64 } "Double an integer." x 2 * ;"#)
+    vm.run_legacy(r#": double { x i64 -> i64 } "Double an integer." x 2 * ;"#)
         .unwrap();
     let sig = vm
         .function_sig("double")
@@ -145,7 +145,7 @@ fn function_sig_returns_the_captured_signature() {
 #[case(r#": echo { s Str -> Str } "Identity for strings." s ;"#)] // Str type
 fn well_formed_type_headers_are_accepted(#[case] program: &str) {
     let mut vm = Vm::new();
-    vm.run(program)
+    vm.run_legacy(program)
         .expect("header should parse and body should type-check");
 }
 
@@ -155,7 +155,7 @@ fn well_formed_type_headers_are_accepted(#[case] program: &str) {
 #[case(r#": add { a i64 b i64 -> i64 } "doc" +"#)] // ':' with no closing ';'
 fn malformed_definitions_are_rejected(#[case] program: &str) {
     let mut vm = Vm::new();
-    assert!(vm.run(program).is_err());
+    assert!(vm.run_legacy(program).is_err());
 }
 
 #[rstest]
@@ -167,7 +167,7 @@ fn malformed_definitions_are_rejected(#[case] program: &str) {
 #[case(r#": double { a i64 -> Bogus } "doc" ;"#)] // unknown output type
 fn malformed_type_headers_are_rejected(#[case] program: &str) {
     let mut vm = Vm::new();
-    assert!(vm.run(program).is_err());
+    assert!(vm.run_legacy(program).is_err());
 }
 
 #[rstest]
@@ -176,14 +176,14 @@ fn malformed_type_headers_are_rejected(#[case] program: &str) {
 #[case(": literal { -> Str } \"\" \"value\" ; :literal", r#"["value"]"#)] // first body value is text
 fn docstrings_are_optional(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
 #[test]
 fn an_absent_docstring_is_exposed_as_empty_metadata() {
     let mut vm = Vm::new();
-    vm.run(": noop { -> } ;").unwrap();
+    vm.run_legacy(": noop { -> } ;").unwrap();
     assert_eq!(vm.function_doc("noop"), Some(""));
 }
 
@@ -191,11 +191,11 @@ fn an_absent_docstring_is_exposed_as_empty_metadata() {
 fn unknown_words_inside_function_bodies_are_rejected_but_quoted_text_is_allowed() {
     let mut vm = Vm::new();
     let err = vm
-        .run(r#": typo { -> Str } "A misspelled word." dlb ;"#)
+        .run_legacy(r#": typo { -> Str } "A misspelled word." dlb ;"#)
         .expect_err("bare words in function bodies must not silently become text");
     assert!(err.to_string().contains("unknown word `dlb`"));
 
-    vm.run(r#": text { -> Str } "Returns text." "dlb" ; :text"#)
+    vm.run_legacy(r#": text { -> Str } "Returns text." "dlb" ; :text"#)
         .unwrap();
     assert_eq!(vm.stack_repr(), r#"["dlb"]"#);
 }
@@ -203,25 +203,25 @@ fn unknown_words_inside_function_bodies_are_rejected_but_quoted_text_is_allowed(
 #[test]
 fn reserved_function_names_and_invalid_input_names_are_rejected() {
     let mut vm = Vm::new();
-    assert!(vm.run(r#": clear { -> } ;"#).is_err());
+    assert!(vm.run_legacy(r#": clear { -> } ;"#).is_err());
     assert!(vm
-        .run(r#": bad { 2 i64 -> i64 } "Bad input name." 2 ;"#)
+        .run_legacy(r#": bad { 2 i64 -> i64 } "Bad input name." 2 ;"#)
         .is_err());
     assert!(vm
-        .run(r#": bad { + i64 -> i64 } "Bad input name." + ;"#)
+        .run_legacy(r#": bad { + i64 -> i64 } "Bad input name." + ;"#)
         .is_err());
     assert!(vm
-        .run(r#": bad { 1u8 i64 -> i64 } "Bad input name." 1u8 ;"#)
+        .run_legacy(r#": bad { 1u8 i64 -> i64 } "Bad input name." 1u8 ;"#)
         .is_err());
     assert!(vm
-        .run(r#": bad { true Bool -> Bool } "Bad input name." true ;"#)
+        .run_legacy(r#": bad { true Bool -> Bool } "Bad input name." true ;"#)
         .is_err());
 }
 
 #[test]
 fn comments_dense_delimiters_and_optional_docs_work_together() {
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#"
         # Definitions can omit docstrings, and structural delimiters need no spaces.
         : id{x i64 -> i64}x; # trailing comment
@@ -231,27 +231,28 @@ fn comments_dense_delimiters_and_optional_docs_work_together() {
     .unwrap();
     assert_eq!(vm.stack_repr(), "[42i64]");
 
-    vm.run(r##""# not a comment""##).unwrap();
+    vm.run_legacy(r##""# not a comment""##).unwrap();
     assert_eq!(vm.stack_repr(), r##"[42i64 "# not a comment"]"##);
 }
 
 #[test]
 fn stack_words_are_polymorphic() {
     let mut vm = Vm::new();
-    vm.run(r#"1 true swap dup drop"#).unwrap();
+    vm.run_legacy(r#"1 true swap dup drop"#).unwrap();
     assert_eq!(vm.stack_repr(), "[true 1i64]");
 }
 
 #[test]
 fn suffixed_integer_literals_preserve_their_width_and_range() {
     let mut vm = Vm::new();
-    vm.run("255u8 -1i8 42i32 18446744073709551615u64").unwrap();
+    vm.run_legacy("255u8 -1i8 42i32 18446744073709551615u64")
+        .unwrap();
     assert_eq!(
         vm.stack_repr(),
         "[255u8 -1i8 42i32 18446744073709551615u64]"
     );
-    assert!(vm.run("256u8").is_err());
-    assert!(vm.run("-1u8").is_err());
+    assert!(vm.run_legacy("256u8").is_err());
+    assert!(vm.run_legacy("-1u8").is_err());
 }
 
 #[rstest]
@@ -273,7 +274,7 @@ fn suffixed_integer_literals_preserve_their_width_and_range() {
 )]
 fn local_names_resolve_to_call_inputs(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program).unwrap();
+    vm.run_legacy(program).unwrap();
     assert_eq!(vm.stack_repr(), expected);
 }
 
@@ -282,7 +283,7 @@ fn nested_calls_use_independent_locals_frames() {
     // The outer call's `a` must survive an inner call's full frame setup and
     // teardown — otherwise the second load of `a` would see the wrong value.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#"
         : id { v i64 -> i64 } "Identity, but goes through a call."  v ;
         : add-via-id { a i64 b i64 -> i64 }
@@ -323,7 +324,7 @@ fn nested_calls_use_independent_locals_frames() {
 fn type_errors_are_caught_before_execution(#[case] program: &str) {
     let mut vm = Vm::new();
     let err = vm
-        .run(program)
+        .run_legacy(program)
         .expect_err("checker should reject this program");
     // Smoke check that we got something usable — not a panic, not a runtime
     // surprise. Specific wording is tested elsewhere; here we only care
@@ -336,7 +337,7 @@ fn forward_reference_within_one_source_type_checks() {
     // `caller` is defined before `callee` in source order, but the checker
     // sees both before any op runs and resolves the forward reference.
     let mut vm = Vm::new();
-    vm.run(
+    vm.run_legacy(
         r#"
         : caller { -> i64 } "Calls callee, defined below." :callee ;
         : callee { -> i64 } "Pushes 42." 42 ;
@@ -352,11 +353,11 @@ fn type_check_failure_leaves_the_vm_unchanged() {
     // Atomicity: a check failure must not partially register definitions
     // or push partially-evaluated values onto the stack.
     let mut vm = Vm::new();
-    vm.run("99").unwrap();
+    vm.run_legacy("99").unwrap();
     let before = vm.stack_repr();
     let names_before = vm.function_names().len();
 
-    let err = vm.run(
+    let err = vm.run_legacy(
         r#"
         : good { -> i64 } "Type-correct." 7 ;
         : bad { -> i64 } "Wrong output type." hello ;
@@ -390,7 +391,7 @@ fn type_check_failure_leaves_the_vm_unchanged() {
 #[case("100 :as-u8 100 :as-u8 +", "[200u8]")]
 fn cast_words_convert_integers_to_the_target_width(#[case] program: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
-    vm.run(program)
+    vm.run_legacy(program)
         .expect("cast program should type-check and run");
     assert_eq!(vm.stack_repr(), expected);
 }
@@ -407,7 +408,7 @@ fn cast_words_convert_integers_to_the_target_width(#[case] program: &str, #[case
 fn checked_arithmetic_fires_at_the_target_width(#[case] program: &str) {
     let mut vm = Vm::new();
     let err = vm
-        .run(program)
+        .run_legacy(program)
         .expect_err("arithmetic should fail at the target width");
     assert!(!err.to_string().is_empty());
 }
@@ -427,7 +428,7 @@ fn checked_arithmetic_fires_at_the_target_width(#[case] program: &str) {
 fn mixed_widths_are_rejected_at_check_time(#[case] program: &str) {
     let mut vm = Vm::new();
     let err = vm
-        .run(program)
+        .run_legacy(program)
         .expect_err("checker should reject mixed widths or non-int casts");
     assert!(!err.to_string().is_empty());
 }
@@ -436,7 +437,7 @@ fn mixed_widths_are_rejected_at_check_time(#[case] program: &str) {
 fn function_signatures_can_use_any_integer_width() {
     use plenty::Ty;
     let mut vm = Vm::new();
-    vm.run(r#": narrow { x i32 -> i8 } "Truncate to i8." x :as-i8 ; 300 :as-i32 :narrow"#)
+    vm.run_legacy(r#": narrow { x i32 -> i8 } "Truncate to i8." x :as-i8 ; 300 :as-i32 :narrow"#)
         .unwrap();
     let sig = vm
         .function_sig("narrow")
@@ -452,7 +453,7 @@ fn match_against_a_narrow_int_requires_in_range_patterns() {
     // 300 cannot fit in i8 — must be rejected at check time, not silently
     // narrowed to 44.
     let err = vm
-        .run("100 :as-i8 match 300 [ 1 ] _ [ 0 ] end")
+        .run_legacy("100 :as-i8 match 300 [ 1 ] _ [ 0 ] end")
         .expect_err("pattern out of range should be rejected");
     assert!(err.to_string().contains("out of range"));
 }

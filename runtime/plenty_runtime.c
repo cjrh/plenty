@@ -20,6 +20,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Modern Plenty's print(value): no quotes or integer-width suffixes.
+void plenty_println_signed(int64_t n) { printf("%lld\n", (long long)n); }
+void plenty_println_unsigned(uint64_t n) { printf("%llu\n", (unsigned long long)n); }
+void plenty_println_bool(int8_t b) { puts(b ? "True" : "False"); }
+
 extern int32_t plenty_main(void);
 
 int main(int argc, char **argv) {

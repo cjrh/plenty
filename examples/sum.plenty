@@ -1,0 +1,10 @@
+def sum_to(n: int, total: int) -> int:
+    """Sum the integers from 1 through n without growing the call stack."""
+    if n == 0:
+        total
+    else:
+        sum_to(n - 1, total + n)
+
+mut answer = sum_to(100, 0)
+answer = answer + 1
+print(answer)
