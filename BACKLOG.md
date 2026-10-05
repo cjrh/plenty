@@ -1,13 +1,8 @@
 # Backlog
 
-Items left open after the AOT compiler reached parity with the
-interpreter (phases c.1–c.5 + the c.5.5 overflow-trap work). Each
-entry is scoped, has a known-good approach, and is *not* on a
-milestone — they exist as a record so a future session can pick one
-up without re-discovering the design.
-
-For the language-level shape, see [`DESIGN.md`](DESIGN.md) §11.1 and
-§12.3.
+Implementation work for the AOT-only compiler. These are candidate approaches,
+not committed milestones. The language contract and roadmap are in
+[`DESIGN.md`](DESIGN.md).
 
 ---
 
@@ -34,15 +29,9 @@ None of these are demanded by current users. Each is a local change.
 ### Heap reclamation
 
 `plenty_concat` in `runtime/plenty_runtime.c` `malloc`s a fresh
-buffer per call and never `free`s. This mirrors the interpreter's
-append-only `Heap` (DESIGN.md §12.1) and is fine for short programs
-or batch processing, but a long-running AOT binary that builds many
-strings will leak indefinitely.
-
-Cheapest first step: a bump allocator with a single
-`plenty_arena_reset` for REPL-style use cases. A real tracing or
-ref-counted scheme is a much bigger commitment and tied to language
-decisions about ownership.
+buffer per call and never `free`s. A long-running native binary that builds
+many strings retains them until exit. Resolve string ownership and view types
+alongside the move/drop design, then implement reclamation in the native runtime.
 
 ### Fat-pointer strings
 
@@ -67,8 +56,10 @@ the table block.
 ### Precompiled-runtime archive
 
 `compile_source_to_executable` writes the embedded runtime C source
-to a tempfile per invocation and lets `cc` recompile it. Costs
-~50ms per `plenty --compile`. If that becomes annoying, the path is:
+to a tempfile per invocation and lets `cc` recompile it. Both `plenty FILE`
+and `plenty --compile` pay this cost. Measure runtime compilation and linking
+separately before optimizing; the baseline in DESIGN.md measures the complete
+AOT pipeline, not runtime compilation alone. A candidate approach is:
 a `build.rs` that compiles `plenty_runtime.c` into
 `libplenty_runtime.a` at crate build time, an `include_bytes!` of
 the archive bytes into the binary, write the archive at link time

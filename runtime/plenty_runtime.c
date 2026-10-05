@@ -3,8 +3,7 @@
 // Cranelift-emitted code can call it through a single declared signature,
 // without depending on the host ABI's variadic conventions.
 //
-// The stack-print helpers reproduce the interpreter's `Vm::render` /
-// `Vm::stack_repr` output exactly: integers carry their width suffix,
+// Legacy stack-print helpers render integers with their width suffix;
 // values are space-separated, and the whole stack is bracket-wrapped with
 // a trailing newline. The compiled program emits a sequence of these
 // calls for each `.` (Display) word.
@@ -50,11 +49,9 @@ void plenty_print_space(void)         { fputc(' ',  stdout); }
 // String runtime — c.4. Strings are nul-terminated `const char *`s; the
 // compiler emits one static-data symbol per source string literal, and
 // runtime concatenation mallocs a fresh buffer. The heap is append-only
-// (no free) to mirror the interpreter's `Heap` (DESIGN.md §12.1) — a
-// real allocator and reclamation are a later concern.
+// (no free); ownership and reclamation are a later milestone.
 
-// Print a string with the same escaping the interpreter's `Vm::render`
-// uses (Rust's `{:?}` for `&str`): wrapped in double quotes, with `\`,
+// Print a legacy string wrapped in double quotes. Backslashes, quotes,
 // `"`, and the common control chars (`\t`, `\n`, `\r`) backslash-escaped.
 // Non-printable bytes outside that set are emitted as `\u{XX}` in
 // lowercase hex — enough to match Rust for any ASCII string. Full
@@ -85,7 +82,7 @@ void plenty_print_str(const char *s) {
 
 // Concatenate two strings into a fresh malloc'd buffer with a trailing
 // nul. The returned pointer is owned by the program and intentionally
-// leaked — mirrors the interpreter's `Heap` which never reclaims.
+// retained until process exit.
 const char *plenty_concat(const char *a, const char *b) {
     size_t la = strlen(a);
     size_t lb = strlen(b);
@@ -108,9 +105,8 @@ int8_t plenty_str_eq(const char *a, const char *b) {
 }
 
 // Trap helpers — c.5.5. Compiled programs branch here when an
-// arithmetic operation would have errored in the interpreter. Both
-// helpers print the same stderr line the interpreter's `main.rs`
-// would have (`error: <msg>`) and `exit(1)`. They never return; the
+// arithmetic operation overflows or divides by zero. Both helpers print
+// a diagnostic (`error: <msg>`) and exit with status 1. They never return; the
 // caller in generated code follows the call with a CLIF `trap` to
 // satisfy the verifier's block-terminator requirement.
 _Noreturn void plenty_trap_overflow(void) {
@@ -132,7 +128,7 @@ _Noreturn void plenty_trap_div_zero(void) {
 // nul-terminated buffer with the line content. Returns NULL on EOF.
 //
 // The returned buffer is intentionally leaked — the runtime heap is
-// append-only (DESIGN.md §12.1), mirroring the interpreter's `Heap`.
+// append-only until ownership and reclamation are implemented.
 // `getline` allocates the buffer for us via `malloc`/`realloc`, which
 // is the same allocator `free` would call; we just don't.
 const char *plenty_readline(void) {

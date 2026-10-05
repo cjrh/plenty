@@ -81,7 +81,7 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
             source.line
         );
         std::fs::write(&source_path, &source.body).unwrap();
-        let interpreted = Command::new(binary).arg(&source_path).output().unwrap();
+        let run_output = Command::new(binary).arg(&source_path).output().unwrap();
         let executable = workspace.0.join(format!("lesson-{examples}"));
         let compiled = Command::new(binary)
             .arg("--compile")
@@ -92,10 +92,10 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
             .unwrap();
         if valid {
             assert!(
-                interpreted.status.success(),
-                "TUTORIAL.md:{} interpreter: {}",
+                run_output.status.success(),
+                "TUTORIAL.md:{} run command: {}",
                 source.line,
-                String::from_utf8_lossy(&interpreted.stderr)
+                String::from_utf8_lossy(&run_output.stderr)
             );
             assert!(
                 compiled.status.success(),
@@ -111,20 +111,20 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
                 String::from_utf8_lossy(&native.stderr)
             );
             assert_eq!(
-                String::from_utf8_lossy(&interpreted.stdout),
+                String::from_utf8_lossy(&run_output.stdout),
                 expected.body,
-                "TUTORIAL.md:{} interpreter output",
+                "TUTORIAL.md:{} run command output",
                 source.line
             );
             assert_eq!(
-                native.stdout, interpreted.stdout,
+                native.stdout, run_output.stdout,
                 "TUTORIAL.md:{} native output",
                 source.line
             );
         } else {
             let message = expected.body.trim();
             assert!(!message.is_empty());
-            for (backend, output) in [("interpreter", interpreted), ("compiler", compiled)] {
+            for (backend, output) in [("run command", run_output), ("compiler", compiled)] {
                 assert!(
                     !output.status.success(),
                     "TUTORIAL.md:{} {backend} accepted an invalid program",

@@ -1,9 +1,5 @@
-//! The operation layer: the instruction set the VM executes, and the step that
-//! turns lexed words into instructions.
-//!
-//! An [`Op`] is fully resolved — numbers parsed, string literals already in the
-//! heap, function bodies compiled to nested `Op` sequences. A compiled program
-//! is just a `Vec<Op>`, run without ever re-lexing its source.
+//! Typed operations and independent checking before native code generation.
+//! Also contains the historical stack-syntax lowering used by backend tests.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -85,10 +81,7 @@ impl fmt::Display for Ty {
     }
 }
 
-/// Every `Value` has an unambiguous `Ty` — the value's runtime tag and the
-/// checker's type lattice line up one-to-one. This lets the REPL seed the
-/// checker's abstract stack from the live runtime stack, so a line containing
-/// only `+` sees the values left by the previous line (§11.6).
+/// The concrete type of a sized integer literal.
 impl From<Value> for Ty {
     fn from(v: Value) -> Ty {
         match v {
@@ -100,8 +93,6 @@ impl From<Value> for Ty {
             Value::U16(_) => Ty::U16,
             Value::U32(_) => Ty::U32,
             Value::U64(_) => Ty::U64,
-            Value::Str(_) => Ty::Str,
-            Value::Bool(_) => Ty::Bool,
         }
     }
 }
@@ -118,7 +109,7 @@ pub struct FnSig {
     pub outputs: Vec<Ty>,
 }
 
-/// A single instruction for the Plenty VM.
+/// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
     /// Push an integer literal onto the stack. The payload is always an
@@ -170,21 +161,18 @@ pub enum Op {
     Clear,
     /// Define a function: bind `name` to an already-compiled body and docstring.
     ///
-    /// The body is carved out of the token stream at compile time, so running
-    /// this op never touches the runtime stack — whatever is on it stays put.
+    /// This declaration emits a native function without affecting operand values.
     DefineFn(String, CompiledFn),
     /// Invoke a user-defined function by name. Non-tail position.
     Call(String),
     /// Invoke a user-defined function by name from tail position (§11.8).
-    /// The interpreter reuses the enclosing call's locals frame; the call
-    /// stack does not grow. Emitted only by the post-compile tail-call pass.
+    /// Native lowering reuses the caller's frame. Emitted by tail-call marking.
     TailCall(String),
     /// Leave the current function with its declared results on the stack.
     /// Unlike the end of a match arm, this exits the entire call frame.
     Return,
     /// Push the value of the `i`-th input local of the enclosing call's frame
-    /// (§11.5). Only emitted inside function bodies, so the VM always has at
-    /// least one frame on its frame stack when it runs one.
+    /// Only emitted inside function bodies.
     LoadLocal(u8),
     /// Pop a value into an already allocated, statically typed local slot.
     StoreLocal(u8),
@@ -210,8 +198,7 @@ pub enum Op {
     ReadLine,
     /// Pop two strings `haystack needle`; push `true` if `needle` is a
     /// substring of `haystack`, `false` otherwise. Byte-level match
-    /// (`strstr` semantics in the AOT runtime, `str::contains` in the
-    /// interpreter — both byte-equivalent for valid UTF-8).
+    /// using `strstr` semantics in the native runtime.
     Contains,
     /// Pop one string; write its bytes to stdout followed by a `\n`.
     /// This is the bare-text output primitive; `.` remains the stack
@@ -253,9 +240,7 @@ pub enum Pattern {
 /// A compiled function: the signature (§11.2), the docstring (§11.7), and
 /// the body.
 ///
-/// All three fields are `Rc`-shared so that defining a function — at either
-/// compile time (`Op::DefineFn` carries one) or run time (the VM stores it
-/// in the dictionary) — never copies the body, the docstring, or the sig.
+/// Shared fields avoid copying bodies and signatures during compiler passes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledFn {
     pub sig: Rc<FnSig>,
@@ -868,42 +853,14 @@ pub(crate) fn mark_tail_calls(body: &mut [Op]) {
 
 // --- type checking (§11.6) -------------------------------------------------
 
-/// Type-check a compiled op stream against a side table of function sigs.
-///
-/// Forward abstract interpretation of `ops` over a tiny type lattice
-/// (§11.6). Each op is treated as a stack effect: pop its declared inputs,
-/// error on underflow or mismatch, push its outputs. Every function body
-/// inside `ops` is recursively checked against its declared sig; top-level
-/// ops have no declared sig, so they are checked op-by-op without an
-/// end-of-stream invariant (the REPL case).
-///
-/// `initial_stack` seeds the abstract stack the checker starts with — for
-/// the REPL, the types of the values already on the runtime stack from
-/// previous `run` calls. This makes `+` on a line by itself well-typed
-/// when the previous line left two compatible values; without it, the
-/// checker would treat every line as if the stack were empty.
-///
-/// `prior_sigs` is the caller's already-known dictionary — typically the
-/// VM's `functions` map. The checker also collects sigs from every
-/// `DefineFn` reachable from `ops` (top-level and nested) into a single
-/// table, so forward references *within* this source resolve cleanly.
-/// References to functions that are neither in `prior_sigs` nor defined
-/// in `ops` are rejected here, before any op executes.
-///
-/// Returns `Ok(())` if the program is well-typed; otherwise a stringly
-/// error per §12.10. Error messages are name-bearing where they can be —
-/// stack-language errors are hard to localise, so anchoring them to a
-/// function name helps.
-pub fn check(
-    ops: &[Op],
-    initial_stack: Vec<Ty>,
-    prior_sigs: &HashMap<String, Rc<FnSig>>,
-) -> Result<()> {
-    let mut sigs = prior_sigs.clone();
+/// Independently check a complete module's operations and function signatures.
+/// Abstract operand stacks track concrete types without executing the program.
+pub fn check(ops: &[Op]) -> Result<()> {
+    let mut sigs = HashMap::new();
     collect_sigs(ops, &mut sigs);
     // Top-level: locals are empty (the compiler will never have emitted a
     // `LoadLocal` here either), and there is no end-of-stream invariant.
-    let mut stack = initial_stack;
+    let mut stack = Vec::new();
     check_sequence(ops, &mut stack, &[], &sigs, None)?;
     Ok(())
 }
@@ -1168,9 +1125,7 @@ fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Rc<FnSig>>
         )
         .into());
     }
-    // `inputs[0]` is the deepest value on the stack at call time — same
-    // direction as the runtime drain in `Vm::call`. So the type at
-    // `stack[split + i]` must match `inputs[i]`.
+    // Inputs appear in declaration order, deepest operand first.
     let split = stack.len() - n;
     for (i, (param, expected)) in sig.inputs.iter().enumerate() {
         let actual = stack[split + i];

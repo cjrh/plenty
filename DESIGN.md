@@ -17,8 +17,12 @@ and is not an attempt to reproduce Rust. Prefer a small language with explicit
 interfaces over dynamic flexibility or elaborate compile-time machinery.
 
 **Fast compilation is a primary goal**, including at the expense of language
-features. Native execution, REPL feedback, simple semantics, and predictable
+features. Native execution, quick edit/check/run cycles, simple semantics, and predictable
 memory use matter. Cranelift is the native backend; work with its strengths.
+
+Plenty supports **AOT only**. There is no interpreter or REPL, and JIT support
+is out of scope. Language features and runtime layouts target native compilation
+without an obligation to support a second execution engine.
 
 Consequences:
 
@@ -46,14 +50,14 @@ Consequences:
 | Infix expressions, conditional expressions and blocks | Implemented |
 | Immutable bindings and explicit `mut` reassignment | Implemented |
 | Checked sized integers, booleans, strings, unit returns | Implemented |
-| Transparent type aliases, including persistent REPL aliases | Implemented |
-| Cranelift AOT, interpreter, multiline REPL | Implemented |
-| Direct and mutual tail calls | Implemented in interpreter and AOT |
-| Early returns and return-aware branch checking | Implemented in interpreter and AOT |
+| Transparent module-level type aliases | Implemented |
+| Cranelift AOT and compile-and-run file command | Implemented |
+| Direct and mutual tail calls | Implemented in AOT |
+| Early returns and return-aware branch checking | Implemented in AOT |
 | Structs, associated methods, tagged unions, exhaustive payload matching | Planned |
 | `Option[T]`, `Result[T, E]` | Planned with sum types |
 | Ownership, references, borrow checking | Planned; no current memory-safety claim |
-| JIT | Not present in this checkout; future backend |
+| Interpreter, REPL, JIT | Out of scope |
 | Loops, generators | Planned |
 | User generics, traits | Deferred |
 | Async/await | Out of scope |
@@ -102,7 +106,7 @@ no built-in `int`. Future floating-point types should use `f32`/`f64`; neither
 is implemented yet. Unsuffixed integer literals are `i64`; suffixes
 select widths. No contextual integer inference or implicit numeric widening.
 Integer casts use truncation/sign-extension like the historical backend.
-Overflow and division by zero are runtime errors in both execution paths.
+Overflow and division by zero are runtime errors.
 `//` floors signed quotients, including negative operands; `/` is rejected
 until a floating-point type is implemented. Comparisons require equal types,
 and ordering requires integers. Chained comparisons are rejected explicitly.
@@ -144,12 +148,7 @@ above, `x: int = 42` fails because the unsuffixed literal is still `i64`; write
 `x: int = 42i32` or `x: int = int(42)`. `42int` is not a valid suffix. Current
 examples use explicit numeric widths unless they are teaching aliases.
 
-REPL aliases persist across submissions and participate in completion. An alias
-cannot be redefined, so checked functions cannot change meaning later. Failed
-parsing/checking installs neither aliases nor functions; a successfully checked
-submission installs declarations before execution, and runtime errors preserve
-those declarations, matching existing function behavior. Separate sessions can
-choose different definitions of `int`. Type lookup uses a separate namespace
+Aliases belong to their source module. Type lookup uses a separate namespace
 from local bindings; a local may shadow a callable cast name without changing
 the meaning of type annotations.
 
@@ -158,8 +157,8 @@ the meaning of type annotations.
 All declarations are top-level, with complete signatures. There are no nested
 functions, closures, default/keyword arguments, overloads, or redefinitions.
 Signatures are collected before any body is checked, allowing forward calls
-and mutual recursion. Top-level definitions are installed before executable
-statements run, in both execution modes.
+and mutual recursion. All declarations and statements are checked before any
+native code is emitted or executed.
 
 A suite's last expression is its value. Continuing branches of a value-producing
 `if`/`elif`/`else` must agree. A non-final expression is evaluated and discarded;
@@ -190,8 +189,8 @@ def clamp_low(value: i64, minimum: i64) -> i64:
 
 Loops, break/continue, and arbitrary control-flow joins still need the next IR
 milestone. Tail calls in final expressions, final branches, and explicit return
-expressions (including early guard clauses) become tail-call operations. The interpreter
-replaces its call frame and Cranelift emits `return_call` with the Tail calling
+expressions (including early guard clauses) become tail-call operations.
+Cranelift emits `return_call` with the Tail calling
 convention. Ordinary nested calls retain normal call semantics.
 
 ### Bindings and mutation
@@ -208,12 +207,26 @@ mutable locals do persist across branch joins. There are no uninitialized
 declarations. Parameters plus locals are currently limited to 256 slots per
 function, a checked implementation limit inherited from the compact IR.
 
-Top-level bindings are locals of a generated entry function. In the REPL,
-functions and type aliases persist, but bindings currently last only for one submission.
-Separate submissions do not consume earlier expression results. Compilation
-and type errors execute nothing and preserve prior definitions/results.
-Runtime errors can leave effects that have already occurred. Function
-redefinition is rejected to keep previously checked callers valid.
+Top-level bindings are locals of a generated entry function. A module's final
+value is discarded; use `print` for observable output. Compilation and type
+errors execute nothing. Runtime errors can leave effects that have already
+occurred.
+
+## Execution commands
+
+- `plenty FILE` compiles into a private temporary directory, executes the native
+  binary, then removes the directory. The child inherits standard input/output,
+  the environment, and the current working directory. Its exit code is propagated;
+  on Unix, signal termination is reported as 128 plus the signal number.
+- `plenty --compile FILE -o OUT` produces a standalone executable.
+- `plenty --check FILE` validates without native emission, linking, or execution.
+- `plenty` with no arguments displays help.
+
+Both execution commands use the same compiler and embedded runtime. Running
+and compiling require a system C compiler named `cc`; checking does not.
+Temporary object/runtime files are also removed after success or failure.
+Compile-and-run adds compilation and linking to startup time; benchmark both
+as part of the edit/run workflow.
 
 ## Compiler architecture
 
@@ -221,8 +234,8 @@ redefinition is rejected to keep previously checked callers valid.
 source → lexer → AST → alias resolution → signatures → local type checking
                                                        ↓
                                               typed operation IR
-                                               ↙             ↘
-                                         interpreter      Cranelift → object → cc
+                                                       ↓
+                                             Cranelift → object → cc → executable
 ```
 
 `frontend.rs` owns modern syntax, name resolution, local inference, mutability,
@@ -232,9 +245,8 @@ signatures, the frontend resolves aliases with an iterative chain walk and
 caches each concrete result. For the current single-target aliases this is
 linear in the number of declarations/references, with no Rust recursion on
 long alias chains. All signatures and annotations normalize to existing `Ty`
-values before the backend runs. A compilation result carries operations and a
-compile-time alias table; aliases produce no runtime operations. The VM adopts
-the table only after the independent IR check succeeds.
+values before the backend runs. The frontend returns operations only; aliases
+produce no runtime operations or persistent session state.
 `op.rs` remains a backend-neutral operation IR and an independent type checker.
 Its compile-time operand stack is an implementation detail, not a language
 feature. `CompiledFn` carries a signature, documentation, body, and local-slot
@@ -245,9 +257,7 @@ Early returns add an explicit `Return` terminator. The frontend distinguishes
 continuing blocks (with a result type) from blocks that exit the function.
 The independent IR checker validates `Return` and `TailCall` against the
 enclosing signature, rejects operations after a guaranteed exit, and joins
-only continuing arms. The interpreter unwinds branch frames through the
-nearest call frame, releases that call's locals, and preserves the caller's
-pending operands plus the result. Cranelift emits `return`; terminated arms
+only continuing arms. Cranelift emits `return`; terminated arms
 do not jump to the branch join. Explicit return expressions are lowered so
 each conditional path returns or tail-calls, preserving tail-call optimization.
 
@@ -255,15 +265,14 @@ This uses the existing structured IR, which already models terminated arms
 for tail calls; it does not claim the typed CFG migration is complete. Loops
 and source-level ownership analysis remain reasons to introduce that CFG.
 
-The interpreter allocates local slots per call and releases the frame on
-return/tail call. Cranelift declares one SSA variable per slot; stores define
+Cranelift declares one SSA variable per slot; stores define
 variables and joins use Cranelift's SSA construction. All names and types are
 resolved before native emission. `PrintLine` formats modern values naturally,
 and `FloorDiv` adds Python-compatible floor semantics without changing legacy
 backend regressions. Strings reject NUL because the inherited AOT runtime uses
 C strings. UTF-8 strings otherwise work with raw modern output.
 
-The public `Vm::run`/`eval` and `compile_source_to_executable` use modern syntax.
+The public `compile_source_to_executable` uses modern syntax.
 `check_source` and `--check` validate without execution or native emission.
 `examples/compile_bench.rs` generates a repeatable function workload and reports
 median checking time, optionally including full AOT compilation and linking.
@@ -284,8 +293,7 @@ the new tests cover their useful backend behaviors.
 Before implementing references, replace nested control-flow operations with
 a small typed CFG IR: basic blocks, explicit terminators, stable local/place
 IDs, source spans, and uses/definitions. Add definite-initialization, moves,
-drops, and loan facts there. Both Cranelift AOT and a future JIT should consume
-the same checked CFG. Do not run borrow analysis on Cranelift IR: source-level
+drops, and loan facts there. Cranelift AOT should consume the checked CFG. Do not run borrow analysis on Cranelift IR: source-level
 ownership and place information would already have been lost.
 
 ## Structs and sum types — proposed next milestone
@@ -310,7 +318,7 @@ enum Reading:
 
 Decide aggregate layout and calling conventions explicitly. Begin with tagged
 unions (tag plus payload) and exhaustive `match`/`case`; postpone niche layout
-optimization. Shared layouts must work in the interpreter and AOT/JIT. Struct
+optimization. Layouts must support Cranelift's native calling conventions. Struct
 construction must initialize every field. Pattern coverage is checked on the
 known finite variant set; payload binding is statically typed.
 
@@ -373,29 +381,29 @@ arbitrary calls become tail calls merely because they occur near a return.
 
 Implementation order:
 
-1. Current typed-expression vertical slice, native parity, and compile-latency
+1. Current typed-expression vertical slice, native execution tests, and compile-latency
    measurement harness. Establish useful small/large-program baselines.
-2. Typed CFG, loops, richer source diagnostics, persistent
-   REPL bindings, and shared module-independent backend lowering.
+2. Typed CFG, loops, richer source diagnostics, and module-independent
+   native lowering.
 3. Concrete structs, methods, enums, exhaustive matching, `Option`/`Result`.
 4. Ownership, destruction, and a sound local borrow subset; then evaluate
    Polonius-style precision versus compile-time cost on real Plenty programs.
-5. Cranelift JIT with compatible runtime ownership and session symbol rules.
-6. Owned generators, then narrowly scoped generics if needed. Traits remain
+5. Owned generators, then narrowly scoped generics if needed. Traits remain
    an independent decision, not a prerequisite imposed on the first language.
 
 Tests must distinguish proposed syntax from executable examples. Every current
-example should run. Native parity tests exercise output, errors, side-effect
+example should run. Native execution tests exercise output, errors, side-effect
 ordering, branch-local mutation, integer widths, and deep tail recursion.
 Early-return tests also cover guard fallthrough, all-path returns, mixed
 explicit/implicit results, unit returns, nested-frame cleanup, skipped side
 effects/errors, unreachable code, and explicit direct/mutual tail calls.
 `tests/test_tutorial.rs` reads `TUTORIAL.md` directly: every `plenty` fence must
-have a following `output` fence and runs through both interpreter and AOT;
-every `plenty-error` fence has an `error` substring and must fail in both paths
+have a following `output` fence and runs through compile-and-run and an explicitly
+compiled binary; every `plenty-error` fence has an `error` substring and must fail
+in both commands
 without executing effects. Do not maintain a separate copy of tutorial source
 in tests. Update the guide as part of each learner-visible language change.
-The archived stack-language tutorial has its own historical tests and is not
-the learning guide for modern Plenty.
+The stack-language tutorial is an unmaintained historical archive; native legacy
+regression tests specify their expected output independently.
 Performance results must name the build mode, machine, input size, and whether
 linking/runtime compilation is included; no latency claim without measurement.

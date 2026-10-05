@@ -39,9 +39,12 @@ cargo run -- --compile hello.plenty -o /tmp/hello-plenty
 /tmp/hello-plenty
 ```
 
-Native linking requires a C compiler named `cc` on PATH. File execution uses
-the interpreter; native compilation uses Cranelift. Both follow the same
-language rules. This branch does not yet provide a JIT.
+Plenty always compiles ahead of time with Cranelift. Running a file compiles a
+temporary native executable, runs it, and removes it afterward. Both running
+and compiling require a C compiler named `cc` on PATH. Checking does not.
+
+Use `--compile` when you want to keep the executable and run it repeatedly
+without compiling again. The executable does not need Plenty installed.
 
 Every Plenty example in this guide is a separate, complete program. You can
 copy any example into a file without first running the earlier examples.
@@ -435,31 +438,29 @@ print(sum_to(100, 0))
 ```
 
 The recursive call is the last operation on that path. Plenty reuses its call
-frame in both the interpreter and native code. An explicit
+frame in native code. An explicit
 `return sum_to(n - 1, total + n)` works too. In contrast, `1 + recurse(...)`
 still has addition to do after the call and is not a tail call.
 
-## 12. Explore in the REPL
+## 12. Explore with small programs
 
-Start the REPL with `cargo run`. Enter submits an expression. Finish an indented
-definition with a blank line, or press Ctrl-J to submit a whole buffer.
-Ctrl-G opens the buffer in your editor; Tab completes built-ins, function names,
-and declared type aliases. `quit` or Ctrl-D exits.
+Save an example in a file, edit it, and run it again with `plenty example.plenty`
+(or `cargo run -- example.plenty` from this repository). Each run compiles the
+complete file and starts a fresh process. Use `--check` for feedback without
+running your program.
 
-Functions and type aliases persist across submissions. Local bindings currently
-last only for one submission, so enter a declaration and its uses together in
-a multiline buffer or save the program to a file. Function and alias
-redefinition is rejected; restart the session to change an existing definition.
+A final expression at module scope is evaluated but not displayed. Use
+`print(value)` to see its value. Parse/type errors run no code. Runtime errors
+can occur after earlier effects, such as printing, have already happened.
+The run command preserves the program's input, output, and working directory,
+and reports a failing exit status when the program fails.
 
-The REPL displays the value of a final expression. Its inspection format may
-show width suffixes or quotes; use `print(value)` when you want ordinary output
-like the examples above. Parse/type errors run no code. Runtime errors can
-occur after earlier effects, such as printing, have already happened.
+There is no interactive REPL or interpreter, and JIT compilation is out of scope.
 
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Structs and methods, sum
-types, ownership and borrowing, loops, persistent REPL variables, and generators
+types, ownership and borrowing, loops, and generators
 remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 

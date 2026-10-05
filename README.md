@@ -32,18 +32,14 @@ cargo run -- examples/sum.plenty
 cargo run -- --check examples/sum.plenty
 cargo run -- --compile examples/sum.plenty -o /tmp/plenty-sum
 /tmp/plenty-sum
-cargo run
 ```
 
-Native linking requires `cc` on PATH. File execution and the REPL currently
-use the interpreter; AOT compilation uses Cranelift. This checkout does not
-contain a JIT backend.
+Plenty uses Cranelift AOT exclusively. Running a file compiles it into a
+temporary executable, runs it, and removes it when execution finishes. Both
+running and compiling require a C compiler named `cc` on PATH; `--check`
+does not. Running with no arguments prints help.
 
-The REPL accepts expressions with Enter and indented definitions with a blank
-line. Ctrl-J (or Shift/Alt-Enter) forces submission; Ctrl-G opens `$EDITOR`;
-Tab completes names. Functions and type aliases persist across submissions.
-Local bindings currently last for one submission; redefinition of functions
-and aliases is rejected.
+There is no interpreter, REPL, or planned JIT backend.
 
 Supported today:
 
@@ -81,18 +77,18 @@ def clamp_low(value: i64, minimum: i64) -> i64:
 There is no `None` or implicit nullable type. `()` describes successful
 completion without a value; it is not a marker for a missing value.
 
-Run `cargo test` for frontend diagnostics, interpreter/native parity, deep
+Run `cargo test` for frontend diagnostics, native execution, deep
 tail recursion, executable tutorial lessons, and historical backend regressions.
 `cargo test --test test_tutorial` checks the learning guide specifically.
 `cargo clippy --all-targets -- -D warnings` checks the Rust implementation.
 
 The old stack syntax is available only through `--legacy` (before a filename
-or `--compile`) and the explicit `Vm::run_legacy` library API while backend
-regressions remain useful. Its [tutorial](docs/legacy-tutorial.md) and
-[design](docs/legacy-design.md) are archived; they do not define the new language.
-The modern library entry points are `Vm::run` and
-`compile_source_to_executable`; `check_source` and `--check` validate without
-executing code.
+or `--compile`) and `compile_legacy_source_to_executable` while backend
+regressions remain useful. It also uses AOT. Its [tutorial](docs/legacy-tutorial.md)
+and [design](docs/legacy-design.md) are historical archives; they do not define
+the new language or current execution modes.
+The modern library entry points are `compile_source_to_executable` and
+`check_source`; `check_source` and `--check` validate without executing code.
 
 To measure compiler latency without adding a benchmark dependency:
 

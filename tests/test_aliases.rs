@@ -1,45 +1,68 @@
-use plenty::{check_source, compile_source_to_executable, input_complete, Ty, Vm};
+mod support;
+use plenty::{check_source, compile_source_to_executable};
 use rstest::rstest;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[rstest]
-#[case("type int = i32\nx: int = 42i32\nx", "[42i32]")]
-#[case("type int = i64\ndef f(x: int) -> int:\n    x + 1\nf(41)", "[42i64]")]
+#[case("type int = i32\nx: int = 42i32\nx", "i32", "42\n")]
+#[case(
+    "type int = i64\ndef f(x: int) -> int:\n    x + 1\nf(41)",
+    "i64",
+    "42\n"
+)]
 #[case(
     "type int = i32\ndef f(x: int) -> int:\n    x + int(1)\nf(int(41))",
-    "[42i32]"
+    "i32",
+    "42\n"
 )]
-#[case("x: Count = 42u16\ntype Count = Word\ntype Word = u16\nx", "[42u16]")]
-#[case("def f(x: Count) -> Count:\n    x\ntype Count = u8\nf(42u8)", "[42u8]")]
-#[case("type Byte = u8\nByte(257)", "[1u8]")]
-#[case("Count(42)\ntype Count = u16", "[42u16]")]
-#[case("type Count = i32\nCount = 42i32\nx: Count = Count\nx", "[42i32]")]
-#[case("type Signed = i64\nSigned(-2i8)", "[-2i64]")]
-#[case("type Flag = bool\ndef yes() -> Flag:\n    True\nyes()", "[true]")]
+#[case(
+    "x: Count = 42u16\ntype Count = Word\ntype Word = u16\nx",
+    "u16",
+    "42\n"
+)]
+#[case(
+    "def f(x: Count) -> Count:\n    x\ntype Count = u8\nf(42u8)",
+    "u8",
+    "42\n"
+)]
+#[case("type Byte = u8\nByte(257)", "u8", "1\n")]
+#[case("Count(42)\ntype Count = u16", "u16", "42\n")]
+#[case("type Count = i32\nCount = 42i32\nx: Count = Count\nx", "i32", "42\n")]
+#[case("type Signed = i64\nSigned(-2i8)", "i64", "-2\n")]
+#[case(
+    "type Flag = bool\ndef yes() -> Flag:\n    True\nyes()",
+    "bool",
+    "True\n"
+)]
 #[case(
     "type Text = str\ndef greet() -> Text:\n    return 'hello'\ngreet()",
-    "[\"hello\"]"
+    "str",
+    "hello\n"
 )]
-#[case("type Done = ()\ndef done() -> Done:\n    return\ndone()", "[]")]
+#[case("type Done = ()\ndef done() -> Done:\n    return\ndone()", "()", "")]
 #[case(
     "type First = Done\ntype Done = ()\ndef done() -> First:\n    pass\ndone()",
-    "[]"
+    "()",
+    ""
 )]
-#[case("type Count = u32\nmut x: Count = 1u32\nx = Count(42)\nx", "[42u32]")]
+#[case(
+    "type Count = u32\nmut x: Count = 1u32\nx = Count(42)\nx",
+    "u32",
+    "42\n"
+)]
 #[case(
     "type Metres = i64\ntype Seconds = i64\nx: Metres = 20\ny: Seconds = 22\nx + y",
-    "[42i64]"
+    "i64",
+    "42\n"
 )]
 #[case(
     "type Count = i32\ndef f() -> Count:\n    local: Count = 42i32\n    return local\nf()",
-    "[42i32]"
+    "i32",
+    "42\n"
 )]
-fn aliases_are_transparent(#[case] source: &str, #[case] expected: &str) {
-    let mut vm = Vm::new();
-    vm.run(source)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    assert_eq!(vm.stack_repr(), expected);
+fn aliases_are_transparent(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
+    support::assert_value(source, ty, expected);
 }
 
 #[rstest]
@@ -89,69 +112,12 @@ fn invalid_aliases_are_diagnosed(#[case] source: &str, #[case] expected: &str) {
 }
 
 #[test]
-fn aliases_persist_in_the_repl_without_redefinition_or_partial_updates() {
-    let mut vm = Vm::new();
-    vm.run("type int = i32").unwrap();
-    vm.run("type Count = int\ndef f(x: Count) -> int:\n    x + 1i32")
-        .unwrap();
-    assert_eq!(vm.type_alias_names(), ["Count", "int"]);
-    assert_eq!(vm.function_sig("f").unwrap().outputs, [Ty::I32]);
-    vm.run("f(int(41))").unwrap();
-    assert_eq!(vm.stack_repr(), "[42i32]");
-    for source in [
-        "type int = i64",
-        "type Added = i16\ntype Invalid = Missing",
-        "type Added = i16\nunknown()",
-        "type Added = i16\ndef wrong() -> bool:\n    42",
-        "type f = i64",
-        "def int() -> i64:\n    1",
-    ] {
-        assert!(vm.run(source).is_err(), "unexpectedly accepted {source}");
-        assert_eq!(vm.type_alias_names(), ["Count", "int"]);
-        assert_eq!(vm.function_names(), ["f"]);
-        assert_eq!(vm.stack_repr(), "[42i32]");
-    }
-    vm.run("f(0i32)").unwrap();
-    assert_eq!(vm.stack_repr(), "[1i32]");
-    assert!(input_complete("type int = i32"));
-}
-
-#[test]
-fn aliases_are_session_local_and_do_not_change_literal_defaults() {
-    let mut first = Vm::new();
-    let mut second = Vm::new();
-    first.run("type int = i32").unwrap();
-    second.run("type int = i64").unwrap();
-    first.run("int(42)").unwrap();
-    second.run("int(42)").unwrap();
-    assert_eq!(first.stack_repr(), "[42i32]");
-    assert_eq!(second.stack_repr(), "[42i64]");
-    first.run("42").unwrap();
-    assert_eq!(first.stack_repr(), "[42i64]");
-    first.clear();
-    assert_eq!(first.type_alias_names(), ["int"]);
-}
-
-#[test]
-fn successful_declarations_survive_runtime_errors_like_functions() {
-    let mut vm = Vm::new();
-    assert!(vm
-        .run("type Count = i32\ndef f() -> Count:\n    42i32\n1 // 0")
-        .is_err());
-    assert_eq!(vm.type_alias_names(), ["Count"]);
-    vm.run("Count(f())").unwrap();
-    assert_eq!(vm.stack_repr(), "[42i32]");
-}
-
-#[test]
 fn long_forward_alias_chains_do_not_require_recursive_resolution() {
     let mut source = (0..10_000)
         .map(|i| format!("type T{i} = T{}\n", i + 1))
         .collect::<String>();
     source.push_str("type T10000 = u8\nx: T0 = 42u8\nx");
-    let mut vm = Vm::new();
-    vm.run(&source).unwrap();
-    assert_eq!(vm.stack_repr(), "[42u8]");
+    support::assert_value(&source, "u8", "42\n");
 }
 
 #[test]
@@ -166,7 +132,7 @@ fn native_aliases_have_the_same_abi_and_cast_behavior_as_their_targets() {
     let file = base.with_extension("plenty");
     let executable = base.with_extension("exe");
     std::fs::write(&file, source).unwrap();
-    let interpreted = Command::new(env!("CARGO_BIN_EXE_plenty"))
+    let run_output = Command::new(env!("CARGO_BIN_EXE_plenty"))
         .arg(&file)
         .output();
     let compiled = compile_source_to_executable(source, &executable);
@@ -177,10 +143,10 @@ fn native_aliases_have_the_same_abi_and_cast_behavior_as_their_targets() {
     let _ = std::fs::remove_file(file);
     let _ = std::fs::remove_file(executable);
     compiled.unwrap();
-    let interpreted = interpreted.unwrap();
+    let run_output = run_output.unwrap();
     let native = native.unwrap().unwrap();
-    assert!(interpreted.status.success());
+    assert!(run_output.status.success());
     assert!(native.status.success());
-    assert_eq!(interpreted.stdout, b"42\n1\nhello\nTrue\n");
-    assert_eq!(native.stdout, interpreted.stdout);
+    assert_eq!(run_output.stdout, b"42\n1\nhello\nTrue\n");
+    assert_eq!(native.stdout, run_output.stdout);
 }

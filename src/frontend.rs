@@ -14,12 +14,6 @@ type Type = Option<Ty>; // Unit has no runtime representation in this milestone.
 pub(crate) type TypeAliases = HashMap<String, Type>;
 pub(crate) const ENTRY: &str = "__plenty_entry";
 
-/// Aliases are compile-time declarations and never enter the operation IR.
-pub(crate) struct Compilation {
-    pub ops: Vec<Op>,
-    pub aliases: TypeAliases,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
     Word(String),
@@ -656,11 +650,7 @@ fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
 /// Every alias has one target in this language slice. Follow each chain once,
 /// caching its concrete type. Iteration avoids growing the Rust call stack for
 /// long chains, and the active path detects cycles without graph-wide scans.
-fn resolve_aliases(
-    declarations: &[TypeAlias],
-    prior: &TypeAliases,
-    functions: &HashMap<String, Rc<FnSig>>,
-) -> Result<TypeAliases> {
+fn resolve_aliases(declarations: &[TypeAlias]) -> Result<TypeAliases> {
     let mut definitions = HashMap::new();
     for alias in declarations {
         if builtin(&alias.name) {
@@ -669,21 +659,13 @@ fn resolve_aliases(
                 alias.name
             )));
         }
-        if prior.contains_key(&alias.name)
-            || definitions.insert(alias.name.as_str(), alias).is_some()
-        {
+        if definitions.insert(alias.name.as_str(), alias).is_some() {
             return Err(alias
                 .at
                 .error(format!("type alias `{}` is already defined", alias.name)));
         }
-        if functions.contains_key(&alias.name) {
-            return Err(alias.at.error(format!(
-                "type alias `{}` conflicts with a function",
-                alias.name
-            )));
-        }
     }
-    let mut resolved = prior.clone();
+    let mut resolved = TypeAliases::new();
     for declaration in declarations {
         let mut current = declaration;
         let mut path = Vec::new();
@@ -1171,12 +1153,7 @@ fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
     })
 }
 
-pub(crate) fn compile(
-    source: &str,
-    heap: &mut Heap,
-    prior: &HashMap<String, Rc<FnSig>>,
-    prior_aliases: &TypeAliases,
-) -> Result<Compilation> {
+pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
     let mut parser = Parser {
         tokens: lex(source)?,
         pos: 0,
@@ -1192,8 +1169,8 @@ pub(crate) fn compile(
             statements.push(parser.statement()?);
         }
     }
-    let aliases = resolve_aliases(&declarations, prior_aliases, prior)?;
-    let mut sigs = prior.clone();
+    let aliases = resolve_aliases(&declarations)?;
+    let mut sigs = HashMap::new();
     for f in &functions {
         if aliases.contains_key(&f.name) {
             return Err(f
@@ -1282,32 +1259,5 @@ pub(crate) fn compile(
         ));
         ops.push(Op::Call(ENTRY.into()));
     }
-    Ok(Compilation { ops, aliases })
-}
-
-/// REPL input: a blank line submits a compound suite; single expressions
-/// submit immediately. Syntax errors are submitted for normal diagnostics.
-pub fn input_complete(source: &str) -> bool {
-    let tokens = match lex(source) {
-        Ok(tokens) => tokens,
-        Err(error) => {
-            return !(error.to_string().contains("unterminated")
-                || error.to_string().contains("unclosed parenthesis"))
-        }
-    };
-    let compound = tokens.iter().enumerate().any(|(i, t)| {
-        t.is("def")
-            || (t.is("if")
-                && (i == 0
-                    || matches!(
-                        tokens[i - 1].kind,
-                        Kind::Newline | Kind::Indent | Kind::Dedent
-                    )))
-    });
-    !compound
-        || source.ends_with("\n\n")
-        || source
-            .lines()
-            .last()
-            .is_some_and(|line| line.trim().is_empty())
+    Ok(ops)
 }

@@ -1,54 +1,60 @@
 //! Contract tests for modern Plenty, independent of the historical stack syntax.
-use plenty::{input_complete, Vm};
+mod support;
 use rstest::rstest;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[rstest]
-#[case("1 + 2 * 3", "[7i64]")]
-#[case("(1 + 2) * 3", "[9i64]")]
-#[case("(1 < 2) == True", "[true]")]
-#[case("not (1 > 2)", "[true]")]
-#[case("10 - 3 - 2", "[5i64]")]
-#[case("-7 // 3", "[-3i64]")]
-#[case("7 // -3", "[-3i64]")]
-#[case("-7 // -3", "[2i64]")]
-#[case("-6 // 3", "[-2i64]")]
-#[case("-128i8 // 3i8", "[-43i8]")]
-#[case("18446744073709551615u64 // 2u64", "[9223372036854775807u64]")]
-#[case("-9223372036854775808", "[-9223372036854775808i64]")]
-#[case("i8(257)", "[1i8]")]
-#[case("i64(-2i8)", "[-2i64]")]
-#[case("not 1 == 2 and True", "[true]")]
-#[case("True or False and False", "[true]")]
-#[case("False and 1 // 0 == 0", "[false]")]
-#[case("True or 1 // 0 == 0", "[true]")]
-#[case("42 if True else 1 // 0", "[42i64]")]
-#[case("0 if False else 42 if True else 3", "[42i64]")]
-#[case("'hello' + \" world\"", "[\"hello world\"]")]
-#[case("contains('héllo', 'é')", "[true]")]
-#[case("1_000 + 20", "[1020i64]")]
-#[case("()", "[]")]
-#[case("# a comment\n\n42 # trailing comment", "[42i64]")]
-#[case("(1 +\n    # ignored indentation\n 2)", "[3i64]")]
-#[case("x: i64 = 40\nx + 2", "[42i64]")]
-#[case("mut x = 1\nx = x + 2\nx", "[3i64]")]
-#[case("mut x = 0\nif True:\n    x = 42\nelse:\n    x = 7\nx", "[42i64]")]
-#[case("if False:\n    1\nelif True:\n    42\nelse:\n    3", "[42i64]")]
-#[case("if True:\n    x = 40\n    x + 2\nelse:\n    x = 1\n    x", "[42i64]")]
-#[case("if True:\n    pass", "[]")]
-#[case("if True:\n    99\n42", "[42i64]")]
-#[case("def double(x: i64) -> i64:\n    x * 2\ndouble(21)", "[42i64]")]
-#[case("double(21)\ndef double(x: i64) -> i64:\n    return x * 2", "[42i64]")]
-#[case("def unit() -> ():\n    return\nunit()", "[]")]
-#[case("def text() -> str:\n    return 'hello'\ntext()", "[\"hello\"]")]
-#[case("def f(\n    x: i64,\n) -> i64:\n    x\nf(42,)", "[42i64]")]
-#[case("def f(x: i64) -> i64:\r\n    x + 1\r\nf(41)\r\n", "[42i64]")]
-fn expressions(#[case] source: &str, #[case] expected: &str) {
-    let mut vm = Vm::new();
-    vm.run(source).unwrap_or_else(|e| panic!("{source}\n{e}"));
-    assert_eq!(vm.stack_repr(), expected);
+#[case("1 + 2 * 3", "i64", "7\n")]
+#[case("(1 + 2) * 3", "i64", "9\n")]
+#[case("(1 < 2) == True", "bool", "True\n")]
+#[case("not (1 > 2)", "bool", "True\n")]
+#[case("10 - 3 - 2", "i64", "5\n")]
+#[case("-7 // 3", "i64", "-3\n")]
+#[case("7 // -3", "i64", "-3\n")]
+#[case("-7 // -3", "i64", "2\n")]
+#[case("-6 // 3", "i64", "-2\n")]
+#[case("-128i8 // 3i8", "i8", "-43\n")]
+#[case("18446744073709551615u64 // 2u64", "u64", "9223372036854775807\n")]
+#[case("-9223372036854775808", "i64", "-9223372036854775808\n")]
+#[case("i8(257)", "i8", "1\n")]
+#[case("i64(-2i8)", "i64", "-2\n")]
+#[case("not 1 == 2 and True", "bool", "True\n")]
+#[case("True or False and False", "bool", "True\n")]
+#[case("False and 1 // 0 == 0", "bool", "False\n")]
+#[case("True or 1 // 0 == 0", "bool", "True\n")]
+#[case("42 if True else 1 // 0", "i64", "42\n")]
+#[case("0 if False else 42 if True else 3", "i64", "42\n")]
+#[case("'hello' + \" world\"", "str", "hello world\n")]
+#[case("contains('héllo', 'é')", "bool", "True\n")]
+#[case("1_000 + 20", "i64", "1020\n")]
+#[case("()", "()", "")]
+#[case("# a comment\n\n42 # trailing comment", "i64", "42\n")]
+#[case("(1 +\n    # ignored indentation\n 2)", "i64", "3\n")]
+#[case("x: i64 = 40\nx + 2", "i64", "42\n")]
+#[case("mut x = 1\nx = x + 2\nx", "i64", "3\n")]
+#[case("mut x = 0\nif True:\n    x = 42\nelse:\n    x = 7\nx", "i64", "42\n")]
+#[case("if False:\n    1\nelif True:\n    42\nelse:\n    3", "i64", "42\n")]
+#[case(
+    "if True:\n    x = 40\n    x + 2\nelse:\n    x = 1\n    x",
+    "i64",
+    "42\n"
+)]
+#[case("if True:\n    pass", "()", "")]
+#[case("if True:\n    99\n42", "i64", "42\n")]
+#[case("def double(x: i64) -> i64:\n    x * 2\ndouble(21)", "i64", "42\n")]
+#[case(
+    "double(21)\ndef double(x: i64) -> i64:\n    return x * 2",
+    "i64",
+    "42\n"
+)]
+#[case("def unit() -> ():\n    return\nunit()", "()", "")]
+#[case("def text() -> str:\n    return 'hello'\ntext()", "str", "hello\n")]
+#[case("def f(\n    x: i64,\n) -> i64:\n    x\nf(42,)", "i64", "42\n")]
+#[case("def f(x: i64) -> i64:\r\n    x + 1\r\nf(41)\r\n", "i64", "42\n")]
+fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
+    support::assert_value(source, ty, expected);
 }
 
 #[rstest]
@@ -109,7 +115,7 @@ fn expressions(#[case] source: &str, #[case] expected: &str) {
 #[case("print()", "print takes one")]
 #[case("contains('a', 1)", "expected str")]
 fn diagnostics(#[case] source: &str, #[case] message: &str) {
-    let error = Vm::new().run(source).expect_err(source).to_string();
+    let error = plenty::check_source(source).expect_err(source).to_string();
     assert!(
         error.contains(message),
         "{source}\nexpected {message:?}, got {error:?}"
@@ -121,51 +127,14 @@ fn diagnostics(#[case] source: &str, #[case] message: &str) {
 }
 
 #[test]
-fn repl_state_is_checked_before_effects_and_definitions_persist() {
-    let mut vm = Vm::new();
-    vm.run("def f(x: i64) -> i64:\n    \"\"\"A rich\n    docstring.\"\"\"\n    x + 1")
-        .unwrap();
-    assert_eq!(vm.function_doc("f"), Some("A rich\n    docstring."));
-    vm.run("f(41)").unwrap();
-    assert_eq!(vm.stack_repr(), "[42i64]");
-    assert!(vm.run("print('must not print')\nmissing()").is_err());
-    assert_eq!(vm.stack_repr(), "[42i64]");
-    assert!(vm.run("def bad() -> i64:\n    False").is_err());
-    assert_eq!(vm.function_names(), vec!["f"]);
-    assert!(vm.run("def f() -> bool:\n    True").is_err());
-    vm.run("f(9)").unwrap();
-    assert_eq!(vm.stack_repr(), "[10i64]");
-    assert!(vm.run("1 // 0").is_err());
-    vm.run("f(20)").unwrap();
-    assert_eq!(vm.stack_repr(), "[21i64]");
-    vm.run("local = 1").unwrap();
-    assert!(vm.run("local").is_err()); // current submission scope is intentional
-}
-
-#[test]
 fn local_slot_limit_is_a_diagnostic() {
     let source = (0..257)
         .map(|i| format!("x{i} = {i}\n"))
         .collect::<String>();
-    assert!(Vm::new()
-        .run(&source)
+    assert!(plenty::check_source(&source)
         .unwrap_err()
         .to_string()
         .contains("256"));
-}
-
-#[rstest]
-#[case("1 + 2", true)]
-#[case("1 if True else 2", true)]
-#[case("'if def'", true)]
-#[case("def f() -> i64:\n    1", false)]
-#[case("def f() -> i64:\n    1\n\n", true)]
-#[case("def f() -> i64:\n    1\n    ", true)]
-#[case("(1 +", false)]
-#[case("'''hello", false)]
-#[case("1 + )", true)]
-fn repl_completion(#[case] source: &str, #[case] complete: bool) {
-    assert_eq!(input_complete(source), complete);
 }
 
 struct Artifact {
@@ -187,7 +156,7 @@ impl Artifact {
         std::fs::write(&artifact.source, source).unwrap();
         artifact
     }
-    fn interpret(&self) -> Output {
+    fn run_file(&self) -> Output {
         Command::new(env!("CARGO_BIN_EXE_plenty"))
             .arg(&self.source)
             .output()
@@ -234,15 +203,15 @@ impl Drop for Artifact {
     "print(42 if True else 1 // 0)\nprint(False and 1 // 0 == 0)",
     "42\nFalse\n"
 )]
-fn native_and_interpreter_agree(#[case] source: &str, #[case] expected: &str) {
+fn run_command_matches_explicit_compilation(#[case] source: &str, #[case] expected: &str) {
     let artifact = Artifact::new(source);
-    let interpreted = artifact.interpret();
+    let run_output = artifact.run_file();
     assert!(
-        interpreted.status.success(),
-        "interpreter: {}",
-        String::from_utf8_lossy(&interpreted.stderr)
+        run_output.status.success(),
+        "run command: {}",
+        String::from_utf8_lossy(&run_output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&interpreted.stdout), expected);
+    assert_eq!(String::from_utf8_lossy(&run_output.stdout), expected);
     let compiled = artifact.compile();
     assert!(
         compiled.status.success(),
@@ -255,7 +224,7 @@ fn native_and_interpreter_agree(#[case] source: &str, #[case] expected: &str) {
         "native: {}",
         String::from_utf8_lossy(&native.stderr)
     );
-    assert_eq!(native.stdout, interpreted.stdout);
+    assert_eq!(native.stdout, run_output.stdout);
 }
 
 #[rstest]
@@ -264,7 +233,7 @@ fn native_and_interpreter_agree(#[case] source: &str, #[case] expected: &str) {
 #[case("print(1 // 0)", "division by zero")]
 fn runtime_errors_agree(#[case] source: &str, #[case] expected: &str) {
     let artifact = Artifact::new(source);
-    let interpreted = artifact.interpret();
+    let run_output = artifact.run_file();
     let compiled = artifact.compile();
     assert!(
         compiled.status.success(),
@@ -272,22 +241,22 @@ fn runtime_errors_agree(#[case] source: &str, #[case] expected: &str) {
         String::from_utf8_lossy(&compiled.stderr)
     );
     let native = Command::new(&artifact.executable).output().unwrap();
-    assert_eq!(interpreted.status.code(), Some(1));
+    assert_eq!(run_output.status.code(), Some(1));
     assert_eq!(native.status.code(), Some(1));
-    assert_eq!(native.stderr, interpreted.stderr);
+    assert_eq!(native.stderr, run_output.stderr);
     assert!(String::from_utf8_lossy(&native.stderr).contains(expected));
 }
 
 #[test]
 fn rejected_program_has_no_effects_or_output_artifact() {
     let artifact = Artifact::new("print('must not execute')\nx = 1\nx = False");
-    let interpreted = artifact.interpret();
+    let run_output = artifact.run_file();
     let compiled = artifact.compile();
-    assert!(!interpreted.status.success());
+    assert!(!run_output.status.success());
     assert!(!compiled.status.success());
-    assert!(interpreted.stdout.is_empty());
+    assert!(run_output.stdout.is_empty());
     assert!(!artifact.executable.exists());
-    assert_eq!(interpreted.stderr, compiled.stderr);
+    assert_eq!(run_output.stderr, compiled.stderr);
 }
 
 #[test]

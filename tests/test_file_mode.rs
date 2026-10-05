@@ -153,3 +153,116 @@ fn unrecognised_arguments_exit_nonzero() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("unrecognised"), "stderr was {stderr:?}");
 }
+
+#[test]
+fn no_arguments_print_help_without_starting_an_interactive_session() {
+    let out = Command::new(plenty_bin()).output().unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Usage: plenty FILE"));
+    assert!(out.stderr.is_empty());
+}
+
+#[test]
+fn module_results_are_discarded_unless_printed() {
+    let path = write_tempfile("40 + 2", "discard-result");
+    let out = Command::new(plenty_bin()).arg(&path).output().unwrap();
+    let _ = std::fs::remove_file(path);
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    assert!(out.stderr.is_empty());
+}
+
+#[test]
+fn run_command_inherits_stdin() {
+    use std::process::Stdio;
+    let path = write_tempfile(":readline drop :println", "stdin");
+    let mut child = Command::new(plenty_bin())
+        .arg("--legacy")
+        .arg(&path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"hello native input\n")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    let _ = std::fs::remove_file(path);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.stdout, b"hello native input\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_command_cleans_temporary_files_after_success_and_failure() {
+    let workspace = tempfile::tempdir().unwrap();
+    let scratch = workspace.path().join("scratch");
+    std::fs::create_dir(&scratch).unwrap();
+    let source = workspace.path().join("program.plenty");
+    for (program, code, stdout, diagnostic) in [
+        ("print(42)", 0, "42\n", ""),
+        ("print(42)\n1 // 0", 1, "42\n", "division by zero"),
+        (
+            "print('must not execute')\nmissing()",
+            1,
+            "",
+            "unknown function",
+        ),
+    ] {
+        std::fs::write(&source, program).unwrap();
+        let out = Command::new(plenty_bin())
+            .arg("program.plenty")
+            .current_dir(workspace.path())
+            .env("TMPDIR", &scratch)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(code));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), stdout);
+        if diagnostic.is_empty() {
+            assert!(out.stderr.is_empty());
+        } else {
+            assert!(String::from_utf8_lossy(&out.stderr).contains(diagnostic));
+        }
+        assert_eq!(std::fs::read_dir(&scratch).unwrap().count(), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn checking_needs_no_linker_and_missing_linker_failure_cleans_up() {
+    let workspace = tempfile::tempdir().unwrap();
+    let empty_path = workspace.path().join("empty-path");
+    let scratch = workspace.path().join("scratch");
+    std::fs::create_dir(&empty_path).unwrap();
+    std::fs::create_dir(&scratch).unwrap();
+    let source = workspace.path().join("program.plenty");
+    std::fs::write(&source, "print(42)").unwrap();
+    let checked = Command::new(plenty_bin())
+        .arg("--check")
+        .arg(&source)
+        .env("PATH", &empty_path)
+        .output()
+        .unwrap();
+    assert!(checked.status.success());
+    assert!(checked.stdout.is_empty());
+    assert!(checked.stderr.is_empty());
+
+    let run = Command::new(plenty_bin())
+        .arg(&source)
+        .env("PATH", &empty_path)
+        .env("TMPDIR", &scratch)
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(1));
+    assert!(run.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&run.stderr).contains("failed to invoke `cc`"));
+    assert_eq!(std::fs::read_dir(&scratch).unwrap().count(), 0);
+}

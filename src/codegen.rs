@@ -9,8 +9,7 @@
 //! The lowering threads a *compile-time stack* of `(cranelift::Value, Ty)`
 //! pairs through the op stream. Each Plenty op becomes a small CLIF
 //! sequence that pops its inputs from this stack and pushes its result:
-//! the runtime data stack the interpreter manages is virtualised into
-//! SSA values, so the compiled code does no in-memory pushing or popping.
+//! operand values become SSA values, with no runtime operand stack.
 //! The `Ty` tag travels alongside each SSA value so cast lowering,
 //! signed/unsigned arithmetic dispatch, and `Display` formatting can pick
 //! the right CLIF instruction without re-doing the type checker's work.
@@ -122,7 +121,7 @@ use crate::value::{Heap, StrId, Value};
 
 /// Read `source` and produce a native executable at `output` in one
 /// step (DESIGN.md §11.1, §12.3 — phase c.5). The source is lexed,
-/// compiled, and checked through the same pipeline the VM uses; the
+/// lowered to typed operations, and checked; the
 /// resulting op stream is lowered to a temp object file; the embedded
 /// C runtime is written alongside it; `cc` links the pair into the
 /// final executable and the temps are removed.
@@ -133,8 +132,8 @@ use crate::value::{Heap, StrId, Value};
 /// compiler as `cc`.
 pub fn compile_source_to_executable(source: &str, output: &Path) -> Result<()> {
     let mut heap = Heap::default();
-    let compiled = crate::frontend::compile(source, &mut heap, &HashMap::new(), &HashMap::new())?;
-    compile_ops_to_executable(&compiled.ops, &heap, output)
+    let ops = crate::frontend::compile(source, &mut heap)?;
+    compile_ops_to_executable(&ops, &heap, output)
 }
 
 /// Historical stack syntax, retained for backend regression tests.
@@ -146,32 +145,14 @@ pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Resul
 }
 
 fn compile_ops_to_executable(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
-    op::check(ops, Vec::new(), &HashMap::new())?;
+    op::check(ops)?;
 
-    // Tempfile names blend the process id and a nanosecond timestamp:
-    // unique across concurrent `plenty --compile` invocations without
-    // pulling in a tempfile crate. Both temps live in the same dir as
-    // the system tempdir to inherit OS-level cleanup as a fallback.
-    let tmp = std::env::temp_dir();
-    let pid = std::process::id();
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let obj_path = tmp.join(format!("plenty-{pid}-{nonce}.o"));
-    let rt_path = tmp.join(format!("plenty-{pid}-{nonce}-runtime.c"));
-
-    let result = (|| -> Result<()> {
-        compile_to_object(ops, heap, &obj_path)?;
-        std::fs::write(&rt_path, RUNTIME_C)?;
-        link_with_cc(&obj_path, &rt_path, output)
-    })();
-
-    // Best-effort cleanup; never override a primary error with a
-    // missing-file error from `remove_file`.
-    let _ = std::fs::remove_file(&obj_path);
-    let _ = std::fs::remove_file(&rt_path);
-    result
+    let workspace = tempfile::tempdir()?;
+    let obj_path = workspace.path().join("program.o");
+    let rt_path = workspace.path().join("runtime.c");
+    compile_to_object(ops, heap, &obj_path)?;
+    std::fs::write(&rt_path, RUNTIME_C)?;
+    link_with_cc(&obj_path, &rt_path, output)
 }
 
 /// Plenty's C runtime, embedded at build time. Writing this to a tempfile
@@ -184,7 +165,7 @@ const RUNTIME_C: &[u8] = include_bytes!("../runtime/plenty_runtime.c");
 /// runtime source `runtime_src` into the executable at `output`. The
 /// runtime is passed as a `.c` file rather than a precompiled archive
 /// so the build pipeline stays one-step (no `build.rs`); the runtime
-/// is small enough that the per-compile recompilation cost is invisible.
+/// is recompiled for each executable; benchmark that cost along with linking.
 fn link_with_cc(obj: &Path, runtime_src: &Path, output: &Path) -> Result<()> {
     let out = std::process::Command::new("cc")
         .arg(obj)
@@ -230,14 +211,11 @@ fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
     // convention so its body can `return_call` other user functions.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
     collect_user_fns(ops, &mut module, &mut user_fns)?;
-    // AOT mode is closed-world: every `Call`/`TailCall` in `ops` must
-    // resolve to a definition collected above (§11.1).
-    check_calls_resolve(ops, &user_fns)?;
 
     // Pass 1b: emit one read-only data symbol per source string literal.
     // We walk the ops (recursing into bodies and match arms) collecting
     // every `StrId` referenced by `PushStr` or `Pattern::Str`, then
-    // declare and define each one. The interpreter's `Heap` is the
+    // declare and define each one. The compiler's string pool is the
     // source of truth for the literal bytes.
     let str_data = declare_str_data(ops, heap, &mut module)?;
 
@@ -333,7 +311,7 @@ struct Runtime {
     /// `plenty_readline() -> *const u8` — read one newline-terminated
     /// line from stdin, strip the trailing newline, return a malloc'd
     /// nul-terminated buffer. Returns NULL on EOF. Owned (never freed)
-    /// to match the interpreter's append-only `Heap` (§12.1).
+    /// using the runtime's append-only string allocation.
     readline: FuncId,
     /// `plenty_contains(*const u8 haystack, *const u8 needle) -> i8` —
     /// returns 1 if `needle` is a byte-substring of `haystack`, 0
@@ -529,11 +507,9 @@ fn collect_user_fns(
         match op {
             Op::DefineFn(name, f) => {
                 if out.contains_key(name) {
-                    return Err(format!(
-                        "AOT compilation does not allow redefining `{name}` \
-                         (the REPL allows it; compiled programs do not)"
-                    )
-                    .into());
+                    return Err(
+                        format!("AOT compilation does not allow redefining `{name}`").into(),
+                    );
                 }
                 let cl_sig = user_fn_signature(module, &f.sig);
                 // Source names must never alias runtime helpers or the C entry
@@ -554,34 +530,6 @@ fn collect_user_fns(
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     collect_user_fns(&arm.body, module, out)?;
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-/// Reject any `Call`/`TailCall` in `ops` whose target was not collected
-/// by [`collect_user_fns`]. The type checker already catches this for
-/// most programs; the AOT-specific check exists because the checker
-/// also accepts calls into the VM's pre-existing dictionary, which is
-/// not available in compiled code (§11.1, closed-world).
-fn check_calls_resolve(ops: &[Op], fns: &HashMap<String, UserFn>) -> Result<()> {
-    for op in ops {
-        match op {
-            Op::Call(name) | Op::TailCall(name) if !fns.contains_key(name) => {
-                return Err(format!(
-                    "AOT compilation cannot resolve call to `{name}` \
-                     (compiled programs are closed-world; every called \
-                     function must be defined in the same source)"
-                )
-                .into());
-            }
-            Op::DefineFn(_, f) => check_calls_resolve(&f.body, fns)?,
-            Op::Match(arms) => {
-                for arm in arms.iter() {
-                    check_calls_resolve(&arm.body, fns)?;
                 }
             }
             _ => {}
@@ -756,7 +704,6 @@ fn int_value_bits(value: Value) -> i64 {
         Value::U16(n) => i64::from(n),
         Value::U32(n) => i64::from(n),
         Value::U64(n) => n as i64,
-        Value::Str(_) | Value::Bool(_) => panic!("non-integer literal in PushInt"),
     }
 }
 
@@ -790,7 +737,7 @@ enum ArithKind {
 
 /// Which shared trap block to branch into on a failed check. The two
 /// kinds map one-to-one to the two runtime helpers and the two
-/// possible interpreter error messages.
+/// runtime arithmetic diagnostics.
 #[derive(Clone, Copy)]
 enum TrapKind {
     Overflow,
@@ -1012,10 +959,8 @@ impl Lowerer<'_, '_> {
     /// Emits the matching Cranelift `*_overflow` instruction, branches
     /// on the overflow flag to the shared overflow-trap block, and
     /// switches to a fresh successor block with the result on the
-    /// compile-time stack. The interpreter calls `checked_*` and
-    /// errors with `"integer overflow"` on `None`; we match by exit
-    /// status (1) and stderr line (`"error: integer overflow"`) via
-    /// the runtime helper `plenty_trap_overflow`.
+    /// compile-time stack. Overflow exits with status 1 and a diagnostic
+    /// through the runtime helper `plenty_trap_overflow`.
     fn lower_checked_arith(&mut self, kind: ArithKind) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
         let signed = is_signed(ty);
@@ -1032,12 +977,8 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Lower `Op::Div`: explicit divisor-zero check (interpreter
-    /// distinguishes `"division by zero"` from `"integer overflow"`),
-    /// then for signed types an explicit INT_MIN/-1 check (the only
-    /// non-zero divisor for which `sdiv` traps inside Cranelift —
-    /// catching it ourselves lets us emit the same `"integer overflow"`
-    /// message the interpreter does), then the bare `sdiv`/`udiv`.
+    /// Check divisor zero and signed INT_MIN/-1 before emitting division,
+    /// so both failures produce runtime diagnostics instead of hardware traps.
     fn lower_div(&mut self, floor: bool) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
         let cty = clif_type(ty);
@@ -1192,7 +1133,7 @@ impl Lowerer<'_, '_> {
     }
 
     /// Emit the calls that print the current compile-time stack — the
-    /// AOT analogue of `Vm::stack_repr` plus `println!`. The print
+    /// Render the legacy operand stack. The print
     /// helpers all have fixed signatures, so we can resolve each
     /// `FuncId` to a local `FuncRef` once at the top and reuse it.
     fn lower_display(&mut self) -> Result<()> {
@@ -1351,7 +1292,7 @@ impl Lowerer<'_, '_> {
         name: &str,
     ) -> Result<(&UserFn, Vec<cranelift_codegen::ir::Value>)> {
         let decl = self.user_fns.get(name).ok_or_else(|| -> Box<dyn Error> {
-            // Should have been caught by `check_calls_resolve`; this
+            // Should have been caught by the operation checker; this
             // is the defensive arm for direct-construction paths.
             format!("AOT: undefined function `{name}`").into()
         })?;
@@ -1360,7 +1301,7 @@ impl Lowerer<'_, '_> {
             return Err(format!("AOT: stack underflow calling `{name}`").into());
         }
         // Drain in stack order: the deepest popped value is `inputs[0]`,
-        // matching `Vm::do_call`'s drain orientation.
+        // in function parameter order.
         let split = self.stack.len() - n;
         let args: Vec<_> = self.stack.drain(split..).map(|(v, _)| v).collect();
         Ok((decl, args))
@@ -1487,7 +1428,7 @@ impl Lowerer<'_, '_> {
             // No wildcard arm matched the chain's fall-through path.
             // The checker enforces exhaustiveness, so this is dead
             // code under any well-formed source — emit a trap so
-            // direct-VM-construction bugs surface loudly instead of
+            // compiler construction bugs surface loudly instead of
             // walking off the end of the function.
             self.bcx.ins().trap(TrapCode::unwrap_user(1));
         }
