@@ -6,12 +6,15 @@ use std::process::{Command, ExitCode, ExitStatus};
 const USAGE: &str = "\
 Usage: plenty FILE
        plenty --check FILE
+       plenty --check-module FILE
        plenty --compile FILE -o OUT
        plenty -h | --help
 
 FILE: compile to a temporary executable and run it.
 Programs require def main() -> () or def main() -> i32.
+--module-root DIR: resolve absolute imports here (default: FILE's directory).
 --check: parse and type-check without executing the program.
+--check-module: check a library module without requiring main.
 --compile: emit a native executable with Cranelift and the system cc linker.
 Running and compiling require the system linker driver cc on PATH.
 --legacy before FILE or --compile selects the historical stack syntax.
@@ -34,6 +37,18 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     if legacy {
         args.remove(0);
     }
+    let root = if let Some(index) = args.iter().position(|a| a == "--module-root") {
+        if legacy {
+            return Err("--module-root is not supported with --legacy".into());
+        }
+        args.remove(index);
+        if index == args.len() {
+            return Err("--module-root requires a directory".into());
+        }
+        Some(std::path::PathBuf::from(args.remove(index)))
+    } else {
+        None
+    };
     match args.as_slice() {
         [] if !legacy => {
             print!("{USAGE}");
@@ -42,20 +57,27 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
             print!("{USAGE}");
         }
         [flag, source] if flag == "--check" && !legacy => {
-            plenty::check_source(&read_source(source)?)?;
+            plenty::check_file(Path::new(source), root.as_deref())?;
+        }
+        [flag, source] if flag == "--check-module" && !legacy => {
+            plenty::check_module_file(Path::new(source), root.as_deref())?;
         }
         [flag, source, option, output]
             if flag == "--compile" && (option == "-o" || option == "--output") =>
         {
-            compile(&read_source(source)?, Path::new(output), legacy)?;
+            compile(
+                Path::new(source),
+                Path::new(output),
+                legacy,
+                root.as_deref(),
+            )?;
         }
         [source] if !source.starts_with('-') => {
-            let source = read_source(source)?;
             let workspace = tempfile::tempdir()?;
             let executable = workspace
                 .path()
                 .join(format!("program{}", std::env::consts::EXE_SUFFIX));
-            compile(&source, &executable, legacy)?;
+            compile(Path::new(source), &executable, legacy, root.as_deref())?;
             // Inherit stdin, stdout, stderr, environment, and working directory.
             // Keep the temporary directory alive until the child has exited.
             let status = Command::new(&executable).status()?;
@@ -66,16 +88,22 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn compile(source: &str, output: &Path, legacy: bool) -> Result<(), Box<dyn Error>> {
+fn compile(
+    source: &Path,
+    output: &Path,
+    legacy: bool,
+    root: Option<&Path>,
+) -> Result<(), Box<dyn Error>> {
     if legacy {
-        plenty::compile_legacy_source_to_executable(source, output)
+        plenty::compile_legacy_source_to_executable(&read_source(source)?, output)
     } else {
-        plenty::compile_source_to_executable(source, output)
+        plenty::compile_file_to_executable(source, output, root)
     }
 }
 
-fn read_source(path: &str) -> Result<String, Box<dyn Error>> {
-    std::fs::read_to_string(path).map_err(|error| format!("reading {path}: {error}").into())
+fn read_source(path: &Path) -> Result<String, Box<dyn Error>> {
+    std::fs::read_to_string(path)
+        .map_err(|error| format!("reading {}: {error}", path.display()).into())
 }
 
 fn exit_code(status: ExitStatus) -> ExitCode {

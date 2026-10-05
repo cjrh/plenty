@@ -1,8 +1,9 @@
 # Explicit applications, modules, and executable lessons
 
 Status: the explicit binary entrypoint is implemented: parameterless `main`
-returns `()` or `i32`, and module scope contains declarations only. Imports,
-`pub`, library checking, and generated lessons below remain proposals.
+returns `()` or `i32`. Absolute imports, aliases, `pub` visibility, and library
+checking are also implemented. Module scope contains declarations and imports.
+Multi-file Markdown examples are executable; generated lessons remain proposed.
 See [DESIGN.md](../../DESIGN.md) for the implemented contract.
 
 ## Current behavior and the proposed entry point

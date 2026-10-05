@@ -13,6 +13,7 @@ mod classes;
 mod collections;
 mod enums;
 mod generators;
+mod modules;
 mod references;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -42,6 +43,7 @@ struct Token {
     kind: Kind,
     line: usize,
     column: usize,
+    source: Option<Rc<str>>,
 }
 
 impl Token {
@@ -50,7 +52,12 @@ impl Token {
     }
 
     fn error(&self, message: impl std::fmt::Display) -> Box<dyn Error> {
-        format!("{}:{}: {message}", self.line, self.column).into()
+        let source = self
+            .source
+            .as_ref()
+            .map(|s| format!("{s}:"))
+            .unwrap_or_default();
+        format!("{source}{}:{}: {message}", self.line, self.column).into()
     }
 }
 
@@ -83,6 +90,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                         kind: Kind::Indent,
                         line,
                         column,
+                        source: None,
                     });
                 } else {
                     while spaces < *indents.last().unwrap() {
@@ -91,6 +99,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                             kind: Kind::Dedent,
                             line,
                             column,
+                            source: None,
                         });
                     }
                     if spaces != *indents.last().unwrap() {
@@ -110,6 +119,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
             kind: Kind::Eof,
             line,
             column,
+            source: None,
         };
         let c = chars[pos];
         match c {
@@ -299,6 +309,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
             kind: Kind::Newline,
             line,
             column,
+            source: None,
         });
     }
     for _ in 1..indents.len() {
@@ -306,12 +317,14 @@ fn lex(source: &str) -> Result<Vec<Token>> {
             kind: Kind::Dedent,
             line,
             column,
+            source: None,
         });
     }
     out.push(Token {
         kind: Kind::Eof,
         line,
         column,
+        source: None,
     });
     Ok(out)
 }
@@ -601,9 +614,14 @@ impl Parser {
         let t = self.take();
         if let Kind::Word(ref name) = t.kind {
             if !reserved(name) {
+                let mut name = name.clone();
+                while self.eat(".") {
+                    name.push('.');
+                    name.push_str(&self.name()?);
+                }
                 return Ok(TypeRef {
                     at,
-                    name: Some(name.clone()),
+                    name: Some(name),
                     args: self.type_arguments()?,
                 });
             }
@@ -1051,6 +1069,9 @@ fn reserved(name: &str) -> bool {
             | "break"
             | "continue"
             | "import"
+            | "from"
+            | "as"
+            | "pub"
     )
 }
 fn is_comparison(op: &str) -> bool {
@@ -1098,6 +1119,7 @@ struct Lower<'a> {
     heap: &'a mut Heap,
     sigs: &'a HashMap<String, Rc<FnSig>>,
     aliases: &'a TypeAliases,
+    access: &'a modules::AccessMap,
     names: HashMap<String, Local>,
     locals: Vec<Ty>,
     parameters: usize,
@@ -1409,6 +1431,7 @@ impl Lower<'_> {
                     return self.builtin_collection(name, args, &e.at, ops).map(Some);
                 }
                 if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
+                    modules::check_member(self.access, &t.name, "__new__", &e.at)?;
                     return self.call_named(
                         &crate::record::method(&t.name, "__new__"),
                         args,
@@ -1840,31 +1863,31 @@ fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
 }
 
 pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
-    let mut parser = Parser {
-        tokens: lex(source)?,
-        pos: 0,
-        type_depth: 0,
-    };
-    let mut functions = Vec::new();
-    let mut declarations = Vec::new();
-    let mut enums = Vec::new();
-    let mut classes = Vec::new();
-    while parser.peek().kind != Kind::Eof {
-        if parser.peek().is("def") {
-            functions.push(parser.function()?);
-        } else if parser.peek().is("class") {
-            classes.push(parser.class_decl()?);
-        } else if parser.peek().is("enum") {
-            enums.push(parser.enum_decl()?);
-        } else if parser.peek().is("type") {
-            declarations.push(parser.alias()?);
-        } else {
-            return Err(parser.peek().error(
-                "executable statements are not allowed at module scope; put them inside `def main() -> ():`",
-            ));
-        }
-    }
+    lower(modules::single(source)?, heap)
+}
+
+pub(crate) fn compile_file(
+    path: &std::path::Path,
+    root: Option<&std::path::Path>,
+    require_main: bool,
+    heap: &mut Heap,
+) -> Result<Program> {
+    lower(modules::load(path, root, require_main)?, heap)
+}
+
+fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
+    let modules::Resolved {
+        mut functions,
+        declarations,
+        enums,
+        classes,
+        access,
+        public_api,
+        at,
+        require_main,
+    } = resolved;
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
+    modules::check_api(&public_api, &aliases, &access)?;
     functions.extend(classes::expand(classes, &aliases)?);
     let mut sigs = HashMap::new();
     for f in &functions {
@@ -1898,21 +1921,23 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
         let outputs = output.into_iter().collect();
         sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
     }
-    let entry = functions.iter().find(|f| f.name == "main").ok_or_else(|| {
-        parser
-            .peek()
-            .error("binary application requires `def main() -> ()` or `def main() -> i32`")
-    })?;
-    let entry_sig = &sigs["main"];
-    if !entry_sig.inputs.is_empty()
-        || !matches!(entry_sig.outputs.as_slice(), [] | [Ty::I32])
-        || generators::yields(&entry.body)
-    {
-        return Err(entry
-            .at
-            .error("main must take no parameters and return () or i32; it cannot be a generator"));
-    }
-    let returns_status = !entry_sig.outputs.is_empty();
+    let returns_status = if require_main {
+        let entry = functions.iter().find(|f| f.name == "main").ok_or_else(|| {
+            at.error("binary application requires `def main() -> ()` or `def main() -> i32`")
+        })?;
+        let entry_sig = &sigs["main"];
+        if !entry_sig.inputs.is_empty()
+            || !matches!(entry_sig.outputs.as_slice(), [] | [Ty::I32])
+            || generators::yields(&entry.body)
+        {
+            return Err(entry.at.error(
+                "main must take no parameters and return () or i32; it cannot be a generator",
+            ));
+        }
+        !entry_sig.outputs.is_empty()
+    } else {
+        false
+    };
     let mut ops = Vec::new();
     for f in functions {
         let sig = Rc::clone(&sigs[&f.name]);
@@ -1930,6 +1955,7 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
             heap,
             sigs: &sigs,
             aliases: &aliases,
+            access: &access,
             names: HashMap::new(),
             locals: Vec::new(),
             parameters: sig.inputs.len(),
@@ -1989,6 +2015,11 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
         ops.push(Op::DefineFn(
             f.name,
             CompiledFn {
+                location: f
+                    .at
+                    .source
+                    .as_ref()
+                    .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
                 generator: yield_type,
                 sig,
                 doc: f.doc.into(),
@@ -1997,7 +2028,9 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
             },
         ));
     }
-    ops.push(Op::Call("main".into()));
+    if require_main {
+        ops.push(Op::Call("main".into()));
+    }
     Ok(Program {
         ops,
         returns_status,

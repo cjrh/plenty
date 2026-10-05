@@ -352,6 +352,8 @@ pub enum Pattern {
 /// Shared fields avoid copying bodies and signatures during compiler passes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledFn {
+    /// Source location for diagnostics from the independent IR/ownership checker.
+    pub location: Option<Rc<str>>,
     pub generator: Option<Ty>,
     pub sig: Rc<FnSig>,
     pub doc: Rc<str>,
@@ -506,6 +508,7 @@ impl Compiler<'_, '_> {
         Ok(Op::DefineFn(
             name,
             CompiledFn {
+                location: None,
                 sig,
                 doc,
                 generator: None,
@@ -1267,7 +1270,14 @@ fn step(
             }
         }
         Op::DefineFn(name, f) => {
-            check_body(name, &f.sig, &f.body, &f.locals, sigs, f.generator.as_ref())?
+            check_body(name, &f.sig, &f.body, &f.locals, sigs, f.generator.as_ref()).map_err(
+                |e| -> Box<dyn std::error::Error> {
+                    match &f.location {
+                        Some(at) => format!("{at}: {e}").into(),
+                        None => e,
+                    }
+                },
+            )?
         }
         Op::Call(name) => check_call(name, stack, sigs)?,
         Op::TailCall(name) => {

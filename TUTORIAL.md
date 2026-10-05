@@ -52,10 +52,10 @@ finishes successfully with exit status zero. The `i32` form returns a process
 exit status: zero means success, and nonzero means failure. Use an `i32` literal
 such as `0i32` or `1i32`; an unsuffixed integer is an `i64`.
 
-Keep executable statements inside functions. Only `def`, `class`, `enum`, and
-`type` declarations belong at module scope. Bindings inside `main` are local to
-it, so other functions receive values through typed parameters. Imports and
-`pub` visibility are still being designed.
+Keep executable statements inside functions. Module scope contains `def`,
+`class`, `enum`, and `type` declarations, plus imports. Bindings inside `main`
+are local to it, so other functions receive values through typed parameters.
+The modules chapter below explains imports and `pub` visibility.
 
 Like other functions, `main` may return early, use a final expression, or call
 functions declared later in the file. Its owned locals are dropped before the
@@ -92,10 +92,12 @@ Use `--compile` when you want to keep the executable and run it repeatedly
 without compiling again. The executable does not need Plenty installed.
 
 Every Plenty example in this guide is a separate, complete program. You can
-copy any example into a file without first running the earlier examples.
+copy any example into a file without first running the earlier examples. In the
+modules chapter, also save the companion files labelled with their filenames.
 
-The tutorial test extracts every `plenty` and `plenty-error` block directly from
-this document. It checks successful output through both compile-and-run and an
+The tutorial test extracts every `plenty` and `plenty-error` block and its
+preceding `plenty-file` companion modules directly from this document. It checks
+successful output through both compile-and-run and an
 explicitly compiled executable, and checks rejected examples for the expected
 diagnostic without executing their effects. Standalone lesson sources and
 generated Markdown are a proposed improvement to the authoring workflow.
@@ -1462,9 +1464,142 @@ Functions holding values with observable cleanup currently use ordinary calls
 in return position so that cleanup still happens after the called function.
 Numeric tail-recursive functions from the earlier lesson keep their tail calls.
 
+## 27. Split a program into modules
+
+An import names a source file. It does not execute that file. A library module
+contains declarations and imports; only the application's `main` starts the
+program. Names are private to their defining module unless marked `pub`.
+
+Save this companion file as `geometry.plenty`:
+
+```plenty-file geometry.plenty
+pub class Point:
+    pub x: i64
+    pub y: i64
+
+    pub def squared_length(self) -> i64:
+        self.x * self.x + self.y * self.y
+
+pub def make_point() -> Point:
+    Point(3, 4)
+```
+
+Save the application beside it, for example as `main.plenty`:
+
+```plenty
+import geometry
+from geometry import Point as Position
+
+def main() -> ():
+    point: Position = geometry.make_point()
+    print(point.squared_length())
+    print(point.x)
+```
+
+```output
+25
+3
+```
+
+`import geometry` makes declarations reachable through `geometry.Name`.
+`from geometry import Point as Position` binds just that type under a local name.
+You can also write `import geometry as geo`, then use `geo.Point`. These aliases
+refer to the same declarations, not copies or new types. Two separate modules
+may each define `Point`; those are distinct types.
+
+Imports are absolute. `import tools.geometry` reads `tools/geometry.plenty`
+under the source root. Directories provide namespaces and need no `__init__`
+file. The root defaults to the entry file's directory. If the entry file is
+deeper in the tree, select the root explicitly:
+
+```sh
+plenty --module-root src src/app/main.plenty
+plenty --module-root src --compile src/app/main.plenty -o app
+plenty --module-root src --check-module src/tools/geometry.plenty
+```
+
+`--check` checks a complete application and requires `main`. `--check-module`
+checks a library and its imports without that requirement. An imported function
+named `main` is an ordinary function; importing it does not call it.
+
+Public classes do not automatically expose their fields or methods. Mark each
+part of the public API explicitly. Without `__init__`, the generated field
+constructor is public only when the class and every field are public. To keep
+fields private while allowing construction, declare `pub def __init__`:
+
+Save this example's companion file as `counter.plenty`:
+
+```plenty-file counter.plenty
+pub class Counter:
+    value: i64
+
+    pub def __init__(self, start: i64) -> ():
+        self.value = start
+
+    pub def increment(self: &mut Counter) -> ():
+        self.value = self.value + 1
+
+    pub def read(self) -> i64:
+        self.value
+
+    def __del__(self) -> ():
+        print("counter closed")
+```
+
+Application:
+
+```plenty
+from counter import Counter
+
+def main() -> ():
+    mut count = Counter(41)
+    count.increment()
+    print(count.read())
+```
+
+```output
+42
+counter closed
+```
+
+The private destructor still runs automatically. Private fields and methods are
+accessible throughout their defining module, including from helper functions,
+but not from another module. Direct reads, writes, and borrows all enforce this.
+Here is a rejected example with its own companion file, `secret.plenty`:
+
+```plenty-file secret.plenty
+pub class Secret:
+    value: i64
+
+    pub def __init__(self, value: i64) -> ():
+        self.value = value
+```
+
+```plenty-error
+from secret import Secret
+
+def main() -> ():
+    item = Secret(42)
+    print(item.value)
+```
+
+```error
+secret.Secret.value` is private
+```
+
+`pub` also applies to functions, enums, and type aliases. A public enum exposes
+all its variants. Public signatures cannot mention private classes or enums,
+even through aliases or containers. Ordinary imports are private bindings;
+importing a name does not re-export it. Relative imports, wildcards, circular
+imports, and `pub import` are not supported yet.
+
+Privacy controls direct access, not secrecy: automatic printing and equality
+still inspect a class's complete structural value, including private fields.
+`pub` does not export a C symbol or change the native calling convention.
+
 ## Where the language goes next
 
-This guide deliberately uses implemented features. Modules, input/file APIs,
+This guide deliberately uses implemented features. Input/file APIs,
 recursive types, element references, and stored or returned references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 

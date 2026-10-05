@@ -49,7 +49,7 @@ The core language can compile substantial single-file programs: typed functions,
 control flow, collections, classes, sum types, generators, ownership, and automatic
 cleanup are implemented. It is still an early language implementation, with a
 small built-in library and important limits on borrowing. The main gaps for
-everyday programs are modules/imports, input and file APIs,
+everyday programs are input and file APIs,
 and richer text/collection operations. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
@@ -62,7 +62,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Floating-point types and arithmetic (`f32`, `f64`, `/`) | Implemented with IEEE arithmetic and explicit numeric casts |
 | Transparent module-level type aliases | Implemented |
 | Cranelift AOT and compile-and-run file command | Implemented |
-| Explicit binary `main` entry point | Implemented: parameterless `main` returns `()` or an `i32` process status; module scope contains declarations only |
+| Explicit binary `main` entry point | Implemented: parameterless `main` returns `()` or an `i32` process status; module scope contains declarations and imports |
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
 | Direct and mutual tail calls | Implemented where borrowing and observable cleanup permit |
 | Early returns and return-aware branch checking | Implemented in AOT |
@@ -80,7 +80,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
-| Absolute module imports and `pub` visibility | Proposed; no imports or visibility checking implemented yet |
+| Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
 | Modern program input, file I/O, and command-line argument APIs | Not implemented; modern programs currently expose output through `print` |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
@@ -383,13 +383,54 @@ borrow checking, and deterministic cleanup, including early/nonzero returns.
 It cannot be a generator. Other functions, including forward declarations, are
 ordinary callable functions and have no startup effects just by being declared.
 
-Module scope accepts only `def`, `class`, `enum`, and `type` declarations.
+Module scope accepts `def`, `class`, `enum`, and `type` declarations, plus imports.
 Executable statements and bindings belong inside functions. `main` locals are
 not globals. Missing or invalid entrypoints are diagnosed by both checking and
 compilation before running code or creating an output artifact. Compilation and
 type errors execute nothing. Runtime errors can leave effects that have already
-occurred. Imported modules without an entrypoint and library compilation await
-the module system; the current public APIs validate complete binary programs.
+occurred. Imported modules require no entrypoint, and their `main` declarations
+are ordinary functions. Library checking is available; library object/shared
+library output remains future work.
+
+## Modules and visibility
+
+`import package.module`, `import package.module as alias`, and
+`from package.module import Name as Alias` bind explicit names. Comma-separated
+imports are supported. Imports exist only at module scope and do not execute
+initializers. There are no globals, implicit transitive imports, relative paths,
+wildcards, or re-exports. A module's imported names are private bindings.
+
+One source root defaults to the entry file's canonical directory and can be set
+with `--module-root DIR`. `a.b` resolves to `<root>/a/b.plenty`; directories are
+namespaces, without `__init__` execution. File/directory name collisions are
+errors. Canonical paths deduplicate imports and cannot escape the selected root.
+Imported canonical filenames and directories must have identifier components
+and a `.plenty` extension. Cycles report the actual file dependency chain. The
+initial implementation caps graph depth at 128 and loaded modules at 4096.
+
+`pub` exposes top-level functions, aliases, classes, and enums. Private names
+are accessible only within their defining module; directory ancestry adds no
+privileges. Class fields and methods require their own `pub`. Generated field
+constructors are public only for public classes with all-public fields; an
+explicit `__init__` has its own visibility. Public factories can construct
+otherwise private constructors within their defining module. Automatic `__del__`
+invocation is unaffected by privacy; direct lifecycle calls remain prohibited.
+
+Public enums expose every variant. Resolved public signatures, public fields,
+enum payloads, and public aliases cannot expose private nominal types, including
+through transparent aliases and nested containers. Access checks cover field
+reads, writes, borrows, method calls, and construction through aliases. Generated
+structural printing and equality still include private fields; privacy is not
+data secrecy. `pub` has no C ABI or binary-export meaning.
+
+The compilation session loads each canonical file once, resolves explicit
+bindings and lexical shadows, and assigns imported declarations qualified names
+before type resolution. These names preserve nominal identity across import
+aliases and diamond dependencies. Entry-module declarations retain their local
+names; dependency declarations use canonical dotted module prefixes. All reachable
+modules are checked and emitted into one object. Source paths accompany frontend
+and independent IR/ownership diagnostics. Separate compilation and persistent
+module caching are not implemented yet.
 
 ## Execution commands
 
@@ -399,6 +440,8 @@ the module system; the current public APIs validate complete binary programs.
   on Unix, signal termination is reported as 128 plus the signal number.
 - `plenty --compile FILE -o OUT` produces a standalone executable.
 - `plenty --check FILE` validates without native emission, linking, or execution.
+- `plenty --check-module FILE` checks a library and its imports without requiring `main`.
+- `--module-root DIR` selects the source root for modern file commands.
 - `plenty` with no arguments displays help.
 
 Both execution commands use the same compiler and embedded runtime. Running
@@ -462,7 +505,11 @@ backend regressions. Strings use explicit byte/scalar lengths, including embedde
 NUL; raw modern output writes exactly the stored byte length.
 
 The public `compile_source_to_executable` uses modern syntax.
-`check_source` and `--check` validate without execution or native emission.
+`check_source` validates an isolated binary source string; both string APIs
+reject imports instead of implicitly searching the filesystem.
+`compile_file_to_executable(path, output, root)`, `check_file(path, root)`, and
+`check_module_file(path, root)` resolve imports from an explicit optional root.
+Checking performs no execution or native emission.
 `examples/compile_bench.rs` generates a repeatable function workload and reports
 median checking time, optionally including full AOT compilation and linking.
 It reports build mode, target, source size, function count, and repetitions;
@@ -905,10 +952,10 @@ sequence; API syntax and the reference contracts still require design work.
 Floating-point types, unit payloads, and the standard sum-type prelude are now
 implemented. The new design review changes the recommended priority:
 
-1. Explicit binary `main` is implemented. Next add absolute module imports and module-private
-   declarations with `pub`, and migrate the tutorial examples. Give declarations
-   stable module-qualified identities before adding generic instantiations or
-   interface modules. A package manager is not a prerequisite.
+1. Explicit binary `main`, absolute imports, module-private declarations with
+   `pub`, qualified dependency identities, and multi-file tutorial examples are
+   implemented. Package management and separately cached module objects remain
+   future work; neither is required for the next language features.
 2. Add `?` for `Result` and `Option`, with explicit error types and ordinary scope
    cleanup. Design allocation-free error construction/propagation and immutable
    runtime metadata before promising recoverable OOM. Current heap-backed sums

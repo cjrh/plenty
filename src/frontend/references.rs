@@ -51,6 +51,7 @@ impl Lower<'_> {
                 return Err(e.at.error("field borrowing requires a class"));
             };
             let index = classes::field_index(class, name, &e.at)?;
+            modules::check_member(self.access, &class.name, name, &e.at)?;
             let result = Ty::Ref(Rc::new(class.fields[index].1.clone()), mutable);
             ops.push(Op::Class(crate::record::ClassOp::FieldRef(
                 class.clone(),

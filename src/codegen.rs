@@ -136,6 +136,14 @@ pub fn compile_source_to_executable(source: &str, output: &Path) -> Result<()> {
     compile_ops_to_executable(&program.ops, &heap, output, program.returns_status)
 }
 
+/// Compile a file and its absolute imports. The source root defaults to the
+/// entry file's directory; in-memory source compilation never reads imports.
+pub fn compile_file_to_executable(path: &Path, output: &Path, root: Option<&Path>) -> Result<()> {
+    let mut heap = Heap::default();
+    let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
+    compile_ops_to_executable(&program.ops, &heap, output, program.returns_status)
+}
+
 /// Historical stack syntax, retained for backend regression tests.
 pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Result<()> {
     let toks = lexer::lex(source)?;

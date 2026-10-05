@@ -6,7 +6,8 @@ pub(super) struct ClassDecl {
     pub(super) at: Token,
     pub(super) name: String,
     pub(super) fields: Vec<(String, TypeRef)>,
-    methods: Vec<Function>,
+    pub(super) methods: Vec<Function>,
+    pub(super) public_members: HashSet<String>,
 }
 
 impl Parser {
@@ -19,13 +20,18 @@ impl Parser {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         let mut names = HashSet::new();
+        let mut public_members = HashSet::new();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
+            let public = self.eat("pub");
             let member = if self.peek().is("def") {
                 let f = self.function_in(Some(&name))?;
                 let member = f.name.clone();
                 methods.push(f);
                 member
             } else if self.eat("pass") {
+                if public {
+                    return Err(at.error("pub requires a field or method declaration"));
+                }
                 self.kind(Kind::Newline, "the end of pass")?;
                 continue;
             } else {
@@ -42,6 +48,9 @@ impl Parser {
             if !names.insert(member.clone()) {
                 return Err(at.error(format!("duplicate class member `{member}`")));
             }
+            if public {
+                public_members.insert(member.clone());
+            }
             if member == "__new__" || member == "self" {
                 return Err(at.error(format!("reserved class member `{member}`")));
             }
@@ -52,6 +61,7 @@ impl Parser {
             name,
             fields,
             methods,
+            public_members,
         })
     }
 }
@@ -418,6 +428,7 @@ impl Lower<'_> {
             return Err(e.at.error("field access requires a class instance"));
         };
         let index = field_index(&class, name, &e.at)?;
+        modules::check_member(self.access, &class.name, name, &e.at)?;
         let ty = class.fields[index].1.clone();
         ops.push(Op::Class(ClassOp::Field(class, index)));
         Ok((ty, loans))
@@ -471,6 +482,7 @@ impl Lower<'_> {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }
         let callee = method(&class.name, name);
+        modules::check_member(self.access, &class.name, name, &base.at)?;
         let sig = self
             .sigs
             .get(&callee)

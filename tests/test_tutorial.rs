@@ -1,5 +1,6 @@
 //! Execute the learner's guide: `plenty` fences require `output` fences;
-//! `plenty-error` fences require an `error` diagnostic substring.
+//! `plenty-error` fences require an `error` diagnostic substring. Preceding
+//! `plenty-file path.plenty` fences supply modules for that one example.
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -50,12 +51,32 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
     let workspace =
         Workspace(std::env::temp_dir().join(format!("plenty-tutorial-{}", std::process::id())));
     std::fs::create_dir(&workspace.0).unwrap();
-    let source_path = workspace.0.join("lesson.plenty");
     let binary = env!("CARGO_BIN_EXE_plenty");
     let mut examples = 0;
     let mut index = 0;
+    let mut modules = Vec::new();
     while index < fences.len() {
         let source = &fences[index];
+        if let Some(path) = source.language.strip_prefix("plenty-file ") {
+            let path = PathBuf::from(path);
+            assert!(
+                !path.as_os_str().is_empty()
+                    && path
+                        .components()
+                        .all(|c| matches!(c, std::path::Component::Normal(_)))
+                    && path.extension().is_some_and(|e| e == "plenty")
+                    && path != std::path::Path::new("lesson.plenty"),
+                "invalid module path at TUTORIAL.md:{}",
+                source.line
+            );
+            assert!(
+                !modules.iter().any(|(p, _)| p == &path),
+                "duplicate tutorial module"
+            );
+            modules.push((path, source.body.clone()));
+            index += 1;
+            continue;
+        }
         if !matches!(source.language.as_str(), "plenty" | "plenty-error") {
             assert!(
                 !source.language.starts_with("plenty"),
@@ -80,6 +101,14 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
             "TUTORIAL.md:{}",
             source.line
         );
+        let example_dir = workspace.0.join(format!("example-{examples}"));
+        std::fs::create_dir(&example_dir).unwrap();
+        for (path, body) in modules.drain(..) {
+            let path = example_dir.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let source_path = example_dir.join("lesson.plenty");
         std::fs::write(&source_path, &source.body).unwrap();
         let run_output = Command::new(binary).arg(&source_path).output().unwrap();
         let executable = workspace.0.join(format!("lesson-{examples}"));
@@ -146,5 +175,9 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
     assert!(
         examples > 0,
         "the tutorial must teach with executable examples"
+    );
+    assert!(
+        modules.is_empty(),
+        "orphan tutorial module without an example"
     );
 }

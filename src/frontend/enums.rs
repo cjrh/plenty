@@ -2,9 +2,9 @@ use super::*;
 use crate::sum::{EnumOp, EnumType, Variant};
 
 pub(super) struct EnumDecl {
-    at: Token,
-    name: String,
-    variants: Vec<(String, Vec<TypeRef>)>,
+    pub(super) at: Token,
+    pub(super) name: String,
+    pub(super) variants: Vec<(String, Vec<TypeRef>)>,
 }
 pub(super) struct Case {
     at: Token,
@@ -60,9 +60,14 @@ impl Parser {
             let pattern = if self.eat("_") {
                 None
             } else {
-                let ty = self.ty()?;
+                let mut ty = self.ty()?;
                 let (owner, variant) = if self.eat(".") {
                     (Some(ty), self.name()?)
+                } else if ty.args.is_empty() && ty.name.as_ref().is_some_and(|n| n.contains('.')) {
+                    let name = ty.name.take().unwrap();
+                    let (owner, variant) = name.rsplit_once('.').unwrap();
+                    ty.name = Some(owner.into());
+                    (Some(ty), variant.into())
                 } else if ty.args.is_empty() && ty.name.as_deref().is_some_and(prelude_variant) {
                     (None, ty.name.unwrap())
                 } else {

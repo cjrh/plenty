@@ -47,8 +47,12 @@ There is no interpreter, REPL, or planned JIT backend.
 Supported today:
 
 - An explicit, parameterless `main` returning `()` for success or `i32` for a
-  process exit status. Module scope contains declarations only; executable
+  process exit status. Module scope contains declarations and imports; executable
   statements belong inside functions.
+- Absolute imports (`import package.module`, `from package.module import Name`),
+  aliases, and private-by-default declarations and class members with `pub`.
+  Use `--module-root DIR` for a project source root, or the entry file's directory
+  by default. `--check-module FILE` checks libraries without requiring `main`.
 - `def name(parameter: type, ...) -> type:` with required types, optional
   docstrings, forward references, and direct/mutual tail-call optimization.
 - `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool`, `str`, and `()`
@@ -126,9 +130,11 @@ or `--compile`) and `compile_legacy_source_to_executable` while backend
 regressions remain useful. It also uses AOT. Its [tutorial](docs/legacy-tutorial.md)
 and [design](docs/legacy-design.md) are historical archives; they do not define
 the new language or current execution modes.
-The modern library entry points are `compile_source_to_executable` and
-`check_source`; both require a complete binary program with `main`.
-`check_source` and `--check` validate without executing code.
+`compile_source_to_executable` and `check_source` accept isolated binary source
+strings with `main` and reject filesystem imports. For projects, use
+`compile_file_to_executable(path, output, root)` and `check_file(path, root)`;
+`check_module_file(path, root)` checks libraries without requiring `main`.
+Checking validates without executing code or invoking the linker.
 
 To measure compiler latency without adding a benchmark dependency:
 

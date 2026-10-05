@@ -6,9 +6,10 @@ implementation baseline is `b690afe`; [DESIGN.md](../../DESIGN.md) remains the
 reference for what programs can use today. Syntax and sequencing below are
 recommendations for review.
 
-Progress since that baseline: explicit binary `main` and the migration of
-runnable examples are implemented. Imports, `pub`, and the other proposals
-remain future work. Follow `DESIGN.md` for the current implementation status.
+Progress since that baseline: explicit binary `main`, absolute imports,
+`pub` visibility, library checking, and multi-file runnable examples are
+implemented. The remaining proposals below are future work. Follow `DESIGN.md`
+for the current implementation status.
 
 The proposed direction fits Plenty: explicit names, structural interfaces, native
 ownership and cleanup, and predictable ahead-of-time compilation. The biggest
