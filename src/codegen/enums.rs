@@ -1,13 +1,16 @@
 use super::*;
 use crate::sum::EnumOp;
 
-/// All runtime slots carry 64 raw bits, including float fields and frame locals.
+/// Runtime slots carry 128 bits: a scalar/pointer payload and binary sum tags.
 pub(super) fn pack_value(
     b: &mut FunctionBuilder<'_>,
     value: cranelift_codegen::ir::Value,
     ty: &Ty,
 ) -> cranelift_codegen::ir::Value {
-    if ty.is_float() {
+    if ty.inline_sum() {
+        return value;
+    }
+    let word = if ty.is_float() {
         let bits = b.ins().bitcast(
             if *ty == Ty::F32 {
                 types::I32
@@ -28,7 +31,8 @@ pub(super) fn pack_value(
         b.ins().sextend(types::I64, value)
     } else {
         b.ins().uextend(types::I64, value)
-    }
+    };
+    b.ins().uextend(types::I128, word)
 }
 
 impl Lowerer<'_, '_> {
@@ -53,7 +57,7 @@ impl Lowerer<'_, '_> {
                 let index = self.bcx.ins().iconst(types::I64, *i as i64);
                 let value = self.collection_call(31, &[owner, index], None)?;
                 self.release(owner, &inputs[0]);
-                self.unpack(value, &output)
+                value
             }
             ClassOp::FieldRef(_, i, _) => {
                 let (address, _) = self.pop_typed(inputs[0].clone())?;
@@ -63,14 +67,49 @@ impl Lowerer<'_, '_> {
                     address,
                     0,
                 );
-                self.bcx.ins().iadd_imm(owner, 32 + (*i as i64) * 8)
+                self.bcx.ins().iadd_imm(owner, 32 + (*i as i64) * 16)
             }
         };
+        let result = self.unpack(result, &output);
         self.stack.push((result, output));
         Ok(())
     }
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
+        let t = match op {
+            EnumOp::New(t, _) | EnumOp::Tag(t) | EnumOp::Field(t, _, _) | EnumOp::Take(t, _, _) => {
+                t
+            }
+        };
+        if t.inline() {
+            let result = match op {
+                EnumOp::New(_, tag) => {
+                    let payload = if let Some(ty) = inputs.first() {
+                        let (v, _) = self.pop_typed(ty.clone())?;
+                        self.pack(v, ty)
+                    } else {
+                        let zero = self.bcx.ins().iconst(types::I64, 0);
+                        self.bcx.ins().uextend(types::I128, zero)
+                    };
+                    self.wrap_sum(payload, *tag)
+                }
+                EnumOp::Tag(_) => {
+                    let (value, _) = self.pop_typed(inputs[0].clone())?;
+                    let tag = self.sum_tag(value);
+                    self.release(value, &inputs[0]);
+                    tag
+                }
+                EnumOp::Field(..) | EnumOp::Take(..) => {
+                    // Single-payload inline projection transfers this operand's
+                    // ownership. Any remaining source binding owns its own retain.
+                    let (value, _) = self.pop_typed(inputs[0].clone())?;
+                    self.sum_payload(value)
+                }
+            };
+            let result = self.unpack(result, &output);
+            self.stack.push((result, output));
+            return Ok(());
+        }
         let mut values = Vec::new();
         for ty in inputs.iter().rev() {
             let (value, _) = self.pop_typed(ty.clone())?;
@@ -123,6 +162,14 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
         let target = clif_type(ty.clone());
+        if ty.inline_sum() {
+            return if self.bcx.func.dfg.value_type(value) == types::I128 {
+                value
+            } else {
+                self.bcx.ins().uextend(types::I128, value)
+            };
+        }
+        let value = self.raw_word(value);
         if ty.is_float() {
             let bits = if *ty == Ty::F32 {
                 self.bcx.ins().ireduce(types::I32, value)
@@ -139,5 +186,75 @@ impl Lowerer<'_, '_> {
         } else {
             self.bcx.ins().ireduce(target, value)
         }
+    }
+
+    pub(super) fn raw_word(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+    ) -> cranelift_codegen::ir::Value {
+        if self.bcx.func.dfg.value_type(value) == types::I128 {
+            self.bcx.ins().ireduce(types::I64, value)
+        } else {
+            value
+        }
+    }
+    fn sum_tag(&mut self, value: cranelift_codegen::ir::Value) -> cranelift_codegen::ir::Value {
+        let tags = self.bcx.ins().ushr_imm(value, 64);
+        let tags = self.raw_word(tags);
+        self.bcx.ins().band_imm(tags, 1)
+    }
+    fn sum_payload(&mut self, value: cranelift_codegen::ir::Value) -> cranelift_codegen::ir::Value {
+        let word = self.raw_word(value);
+        let word = self.bcx.ins().uextend(types::I128, word);
+        let tags = self.bcx.ins().ushr_imm(value, 65);
+        let tags = self.bcx.ins().ishl_imm(tags, 64);
+        self.bcx.ins().bor(word, tags)
+    }
+    fn wrap_sum(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+        tag: usize,
+    ) -> cranelift_codegen::ir::Value {
+        let word = self.raw_word(value);
+        let word = self.bcx.ins().uextend(types::I128, word);
+        let tags = self.bcx.ins().ushr_imm(value, 64);
+        let tags = self.bcx.ins().ishl_imm(tags, 1);
+        let tags = self.bcx.ins().bor_imm(tags, tag as i64);
+        let tags = self.bcx.ins().ishl_imm(tags, 64);
+        self.bcx.ins().bor(word, tags)
+    }
+    pub(super) fn lower_try(
+        &mut self,
+        source: &std::rc::Rc<crate::sum::EnumType>,
+        target: &std::rc::Rc<crate::sum::EnumType>,
+    ) -> Result<()> {
+        let (value, _) = self.pop_typed(Ty::Enum(source.clone()))?;
+        let tag = self.sum_tag(value);
+        let payload = self.sum_payload(value);
+        let success_tag = usize::from(source.is_option());
+        let success = self.bcx.create_block();
+        let failure = self.bcx.create_block();
+        let ready = self
+            .bcx
+            .ins()
+            .icmp_imm(IntCC::Equal, tag, success_tag as i64);
+        self.bcx.ins().brif(ready, success, &[], failure, &[]);
+        self.bcx.switch_to_block(failure);
+        self.bcx.seal_block(failure);
+        let residual = self.wrap_sum(payload, 1 - success_tag);
+        // The error operand has transferred into residual. Earlier operands and
+        // every initialized local still need normal early-return cleanup.
+        let pending = self.stack.clone();
+        self.release_stack();
+        self.release_locals();
+        self.bcx.ins().return_(&[residual]);
+        self.stack = pending;
+        self.bcx.switch_to_block(success);
+        self.bcx.seal_block(success);
+        let ty = source.variants[success_tag].fields[0].clone();
+        let payload = self.unpack(payload, &ty);
+        self.stack.push((payload, ty));
+        debug_assert!(target.inline());
+        Ok(())
     }
 }

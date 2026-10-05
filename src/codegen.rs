@@ -64,6 +64,7 @@ use crate::lexer;
 mod collections;
 mod enums;
 mod generators;
+mod metadata;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
@@ -275,6 +276,7 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     // executable, which is what every modern Linux/macOS toolchain
     // produces by default.
     flags.set("is_pic", "true")?;
+    flags.set("enable_llvm_abi_extensions", "true")?;
     // Frame pointers must be preserved for `return_call` emission on
     // x86_64: the backend hooks the tail-call stack-arg fixup off the
     // frame-pointer prologue/epilogue. Without this, lowering any
@@ -381,8 +383,7 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         collection: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
-            sig.params.extend([AbiParam::new(types::I64); 5]);
-            sig.returns.push(AbiParam::new(types::I64));
+            sig.params.extend([AbiParam::new(PTR_TY); 4]);
             module.declare_function("plenty_collection", Linkage::Import, &sig)?
         },
         print_i8: one_arg(module, "plenty_print_i8", types::I8)?,
@@ -654,7 +655,12 @@ fn emit_user_function(
             let var = bcx.declare_var(clif_type(ty.clone()));
             // Null denotes an uninitialized ownership slot, never a source value.
             if ty.managed() {
-                let zero = bcx.ins().iconst(PTR_TY, 0);
+                let zero = bcx.ins().iconst(types::I64, 0);
+                let zero = if ty.inline_sum() {
+                    bcx.ins().uextend(types::I128, zero)
+                } else {
+                    zero
+                };
                 bcx.def_var(var, zero);
             }
             locals.push((var, ty.clone()));
@@ -663,8 +669,8 @@ fn emit_user_function(
         let local_frame = if needs_local_addresses(&decl.body) {
             let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
                 cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                (locals.len() * 8) as u32,
-                3,
+                (locals.len() * 16) as u32,
+                4,
             ));
             let frame = bcx.ins().stack_addr(PTR_TY, slot, 0);
             for (i, (var, ty)) in locals.iter().enumerate() {
@@ -672,13 +678,14 @@ fn emit_user_function(
                     let value = bcx.use_var(*var);
                     enums::pack_value(&mut bcx, value, ty)
                 } else {
-                    bcx.ins().iconst(types::I64, 0)
+                    let zero = bcx.ins().iconst(types::I64, 0);
+                    bcx.ins().uextend(types::I128, zero)
                 };
                 bcx.ins().store(
                     cranelift_codegen::ir::MemFlags::trusted(),
                     packed,
                     frame,
-                    (i * 8) as i32,
+                    (i * 16) as i32,
                 );
             }
             Some(frame)
@@ -698,6 +705,7 @@ fn emit_user_function(
             loop_targets: Vec::new(),
             generator: None,
             local_frame,
+            collection_scratch: None,
         };
         for op in decl.body.iter() {
             if lower.terminated {
@@ -719,7 +727,9 @@ fn emit_user_function(
         }
         bcx.finalize();
     }
-    module.define_function(decl.id, &mut ctx)?;
+    module
+        .define_function(decl.id, &mut ctx)
+        .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e:?}").into() })?;
     if let Some(id) = decl.drop_callback {
         let mut signature = module.make_signature();
         signature.params.push(AbiParam::new(PTR_TY));
@@ -788,6 +798,7 @@ fn emit_main(
             loop_targets: Vec::new(),
             generator: None,
             local_frame: None,
+            collection_scratch: None,
         };
         for op in ops {
             lower.lower(op)?;
@@ -814,6 +825,9 @@ fn emit_main(
 /// interpretation. `Str` is a host pointer (`PTR_TY`), the address of
 /// a counted immutable object in read-only data or the managed runtime heap.
 fn clif_type(ty: Ty) -> types::Type {
+    if ty.inline_sum() {
+        return types::I128;
+    }
     match ty {
         Ty::I8 | Ty::U8 | Ty::Bool => types::I8,
         Ty::I16 | Ty::U16 => types::I16,
@@ -914,10 +928,20 @@ struct Lowerer<'a, 'b> {
     loop_targets: Vec<(Block, Block)>,
     generator: Option<GeneratorContext>,
     local_frame: Option<cranelift_codegen::ir::Value>,
+    /// Reused across non-overlapping runtime calls; callbacks have their own frame.
+    collection_scratch: Option<cranelift_codegen::ir::StackSlot>,
 }
 
 impl Lowerer<'_, '_> {
     fn retain(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
+        if ty.inline_sum() {
+            if ty.managed() {
+                self.collection_call(26, &[value], Some(ty))
+                    .expect("sum metadata");
+            }
+            return;
+        }
+        let value = self.raw_word(value);
         if ty.managed() {
             let f = self
                 .module
@@ -926,6 +950,14 @@ impl Lowerer<'_, '_> {
         }
     }
     fn release(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
+        if ty.inline_sum() {
+            if ty.managed() {
+                self.collection_call(27, &[value], Some(ty))
+                    .expect("sum metadata");
+            }
+            return;
+        }
+        let value = self.raw_word(value);
         if ty.managed() {
             let f = self
                 .module
@@ -942,18 +974,18 @@ impl Lowerer<'_, '_> {
         let (var, ty) = self.locals[i as usize].clone();
         if let Some(g) = &self.generator {
             let value = self.bcx.ins().load(
-                types::I64,
+                types::I128,
                 cranelift_codegen::ir::MemFlags::trusted(),
                 g.frame,
-                56 + i32::from(i) * 8,
+                64 + i32::from(i) * 16,
             );
             self.unpack(value, &ty)
         } else if let Some(frame) = self.local_frame {
             let value = self.bcx.ins().load(
-                types::I64,
+                types::I128,
                 cranelift_codegen::ir::MemFlags::trusted(),
                 frame,
-                i32::from(i) * 8,
+                i32::from(i) * 16,
             );
             self.unpack(value, &ty)
         } else {
@@ -969,7 +1001,7 @@ impl Lowerer<'_, '_> {
                 cranelift_codegen::ir::MemFlags::trusted(),
                 value,
                 frame,
-                56 + i32::from(i) * 8,
+                64 + i32::from(i) * 16,
             );
         } else if let Some(frame) = self.local_frame {
             let value = self.pack(value, &ty);
@@ -977,7 +1009,7 @@ impl Lowerer<'_, '_> {
                 cranelift_codegen::ir::MemFlags::trusted(),
                 value,
                 frame,
-                i32::from(i) * 8,
+                i32::from(i) * 16,
             );
         } else {
             self.bcx.def_var(var, value);
@@ -988,7 +1020,8 @@ impl Lowerer<'_, '_> {
         if ty.managed() {
             let value = self.read_local(i);
             self.release(value, &ty);
-            let zero = self.bcx.ins().iconst(PTR_TY, 0);
+            let zero = self.bcx.ins().iconst(types::I64, 0);
+            let zero = self.unpack(zero, &ty);
             self.write_local(i, zero);
         }
     }
@@ -999,14 +1032,15 @@ impl Lowerer<'_, '_> {
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
         match op {
+            Op::Try { source, target } => self.lower_try(source, target)?,
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
             Op::BorrowLocal(i, mutable) => {
                 let (frame, offset) = if let Some(g) = &self.generator {
-                    (g.frame, 56)
+                    (g.frame, 64)
                 } else {
                     (self.local_frame.expect("addressable locals"), 0)
                 };
-                let ptr = self.bcx.ins().iadd_imm(frame, offset + i64::from(*i) * 8);
+                let ptr = self.bcx.ins().iadd_imm(frame, offset + i64::from(*i) * 16);
                 self.stack.push((
                     ptr,
                     Ty::Ref(
@@ -1018,7 +1052,7 @@ impl Lowerer<'_, '_> {
             Op::ReadRef(ty) => {
                 let (ptr, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let packed = self.bcx.ins().load(
-                    types::I64,
+                    types::I128,
                     cranelift_codegen::ir::MemFlags::trusted(),
                     ptr,
                     0,
@@ -1034,7 +1068,7 @@ impl Lowerer<'_, '_> {
                 let (ptr, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let (value, _) = self.pop_typed(ty.clone())?;
                 let old = self.bcx.ins().load(
-                    types::I64,
+                    types::I128,
                     cranelift_codegen::ir::MemFlags::trusted(),
                     ptr,
                     0,
@@ -1208,7 +1242,7 @@ impl Lowerer<'_, '_> {
                     Ty::F32 => self.runtime.println_f32,
                     Ty::F64 => self.runtime.println_f64,
                     ty if ty.uses_value_runtime() => {
-                        self.collection_call(9, &[value], None)?;
+                        self.collection_call(9, &[value], Some(&ty))?;
                         self.release(value, &ty);
                         return Ok(());
                     }
@@ -1682,7 +1716,7 @@ impl Lowerer<'_, '_> {
             .is_some_and(|(_, ty)| ty.uses_value_runtime())
         {
             let (a, b, ty) = self.pop_pair()?;
-            let eq = self.collection_call(8, &[a, b], None)?;
+            let eq = self.collection_call(8, &[a, b], Some(&ty))?;
             self.release(a, &ty);
             self.release(b, &ty);
             let mut value = self.bcx.ins().ireduce(types::I8, eq);

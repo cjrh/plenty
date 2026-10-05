@@ -486,9 +486,10 @@ impl Scope {
                     self.expr(arg, locals)?;
                 }
             }
-            Expression::Member(base, _) | Expression::Group(base) | Expression::Unary(_, base) => {
-                self.expr(base, locals)?
-            }
+            Expression::Member(base, _)
+            | Expression::Group(base)
+            | Expression::Unary(_, base)
+            | Expression::Try(base) => self.expr(base, locals)?,
             Expression::Method(base, _, args) => {
                 self.expr(base, locals)?;
                 for arg in args {

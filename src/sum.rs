@@ -12,6 +12,7 @@ pub struct EnumType {
     pub affine: bool,
     pub copyable: bool,
     pub has_destructor: bool,
+    pub managed: bool,
 }
 impl PartialEq for EnumType {
     fn eq(&self, other: &Self) -> bool {
@@ -22,6 +23,15 @@ impl Eq for EnumType {}
 impl Hash for EnumType {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state);
+    }
+}
+impl EnumType {
+    /// Builtin sums have one payload and a binary discriminant at each level.
+    pub fn inline(&self) -> bool {
+        self.name.starts_with("Option[") || self.name.starts_with("Result[")
+    }
+    pub fn is_option(&self) -> bool {
+        self.name.starts_with("Option[")
     }
 }
 #[derive(Clone, Debug)]
@@ -37,6 +47,7 @@ pub fn option(element: Ty) -> Ty {
         affine: element.affine(),
         copyable: element.can_copy(),
         has_destructor: element.has_destructor(),
+        managed: element.managed(),
         variants: vec![
             Variant {
                 name: "Nothing".into(),
@@ -56,6 +67,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
         affine: ok.affine() || error.affine(),
         copyable: ok.can_copy() && error.can_copy(),
         has_destructor: ok.has_destructor() || error.has_destructor(),
+        managed: ok.managed() || error.managed(),
         variants: vec![
             Variant {
                 name: "Ok".into(),

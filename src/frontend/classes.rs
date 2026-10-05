@@ -265,9 +265,10 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                         return Err(e.at.error(format!("field `{field}` is not initialized")));
                     }
                 }
-                Expression::Member(a, _) | Expression::Group(a) | Expression::Unary(_, a) => {
-                    self.expr(a, initialized)?
-                }
+                Expression::Member(a, _)
+                | Expression::Group(a)
+                | Expression::Unary(_, a)
+                | Expression::Try(a) => self.expr(a, initialized)?,
                 Expression::Method(a, _, args) => {
                     self.expr(a, initialized)?;
                     for arg in args {

@@ -41,14 +41,13 @@ pub(super) fn emit_generator(
         false,
     )?;
     let mut mask = DataDescription::new();
-    mask.define(
-        slot_types
-            .iter()
-            .map(|t| u8::from(t.managed()))
-            .chain(std::iter::once(0))
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-    );
+    mask.define(vec![0; slot_types.len().max(1) * 8].into_boxed_slice());
+    mask.set_align(8);
+    for (i, ty) in slot_types.iter().enumerate() {
+        let id = metadata::declare(module, runtime, ty)?;
+        let reference = module.declare_data_in_data(id, &mut mask);
+        mask.write_data_addr((i * 8) as u32, reference, 0);
+    }
     module.define_data(mask_id, &mask)?;
 
     // Constructor: transfer arguments into zero-initialized frame slots. No
@@ -77,7 +76,7 @@ pub(super) fn emit_generator(
             let value = b.block_params(entry)[i];
             let value = enums::pack_value(&mut b, value, ty);
             b.ins()
-                .store(MemFlags::trusted(), value, frame, 56 + i as i32 * 8);
+                .store(MemFlags::trusted(), value, frame, 64 + i as i32 * 16);
         }
         b.ins().return_(&[frame]);
         b.finalize();
@@ -117,6 +116,7 @@ pub(super) fn emit_generator(
             terminated: false,
             loop_targets: Vec::new(),
             local_frame: None,
+            collection_scratch: None,
             generator: Some(GeneratorContext {
                 frame,
                 out,

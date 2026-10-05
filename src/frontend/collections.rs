@@ -300,7 +300,7 @@ impl Lower<'_> {
                     Op::Eq,
                 ],
                 body: vec![
-                    Op::LoadLocal(item),
+                    Op::MoveLocal(item, format!("{}:{}: yielded payload", at.line, at.column)),
                     Op::Enum(if element.affine() {
                         crate::sum::EnumOp::Take(enum_type.clone(), 1, 0)
                     } else {

@@ -11,40 +11,51 @@ impl Lowerer<'_, '_> {
         let zero = self.bcx.ins().iconst(types::I64, 0);
         let code = self.bcx.ins().iconst(types::I64, opcode);
         let descriptor = if let Some(ty) = ty {
-            let existing = self.runtime.type_data.borrow().get(ty).copied();
-            let id = if let Some(id) = existing {
-                id
-            } else {
-                let encoding = ty.descriptor();
-                let id = self.module.declare_data(
-                    &format!("__plenty_type_{encoding}"),
-                    Linkage::Local,
-                    false,
-                    false,
-                )?;
-                let mut data = DataDescription::new();
-                data.define(format!("{encoding}\0").into_bytes().into_boxed_slice());
-                self.module.define_data(id, &data)?;
-                self.runtime.type_data.borrow_mut().insert(ty.clone(), id);
-                id
-            };
+            let id = metadata::declare(self.module, self.runtime, ty)?;
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
             self.bcx.ins().global_value(PTR_TY, gv)
         } else {
             zero
         };
-        let args = [
-            code,
-            values.first().copied().unwrap_or(zero),
-            values.get(1).copied().unwrap_or(zero),
-            values.get(2).copied().unwrap_or(zero),
-            descriptor,
-        ];
+        let slot = if let Some(slot) = self.collection_scratch {
+            slot
+        } else {
+            let slot = self
+                .bcx
+                .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    64,
+                    4,
+                ));
+            self.collection_scratch = Some(slot);
+            slot
+        };
+        let args = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
+        for i in 0..3 {
+            let value = values.get(i).copied().unwrap_or(zero);
+            let value = if self.bcx.func.dfg.value_type(value) == types::I128 {
+                value
+            } else {
+                self.bcx.ins().uextend(types::I128, value)
+            };
+            self.bcx.ins().store(
+                cranelift_codegen::ir::MemFlags::trusted(),
+                value,
+                args,
+                (i * 16) as i32,
+            );
+        }
+        let out = self.bcx.ins().iadd_imm(args, 48);
         let f = self
             .module
             .declare_func_in_func(self.runtime.collection, self.bcx.func);
-        let call = self.bcx.ins().call(f, &args);
-        Ok(self.bcx.inst_results(call)[0])
+        self.bcx.ins().call(f, &[code, args, descriptor, out]);
+        Ok(self.bcx.ins().load(
+            types::I128,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            out,
+            0,
+        ))
     }
 
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
@@ -56,7 +67,8 @@ impl Lowerer<'_, '_> {
         }
         values.reverse();
         let descriptor = match operation {
-            CollectionOp::Next(_) => Some(&output),
+            CollectionOp::Next(_) | CollectionOp::Values(_) | CollectionOp::Range => Some(&output),
+            CollectionOp::Copy(ty) => Some(ty),
             CollectionOp::New(ty) => Some(ty),
             CollectionOp::Len(Ty::Str)
             | CollectionOp::Get(Ty::Str)

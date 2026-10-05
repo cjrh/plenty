@@ -45,6 +45,9 @@ pub enum Ty {
 }
 
 impl Ty {
+    pub fn inline_sum(&self) -> bool {
+        matches!(self, Self::Enum(t) if t.inline())
+    }
     pub fn is_float(&self) -> bool {
         matches!(self, Self::F32 | Self::F64)
     }
@@ -91,6 +94,11 @@ impl Ty {
     }
     /// Heap values have one owner per operand/local; scalars are copied as bits.
     pub fn managed(&self) -> bool {
+        if let Self::Enum(t) = self {
+            if t.inline() {
+                return t.managed;
+            }
+        }
         matches!(
             self,
             Self::Str
@@ -190,6 +198,11 @@ pub struct FnSig {
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    /// Unwrap a standard sum or return its residual, releasing pending operands.
+    Try {
+        source: Rc<crate::sum::EnumType>,
+        target: Rc<crate::sum::EnumType>,
+    },
     Class(crate::record::ClassOp),
     BorrowLocal(u8, bool),
     ReadRef(Ty),
@@ -1062,6 +1075,19 @@ fn step(
     yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     match op {
+        Op::Try { source, target } => {
+            if !source.inline()
+                || !target.inline()
+                || source.is_option() != target.is_option()
+                || (!source.is_option() && source.variants[1].fields != target.variants[1].fields)
+                || yield_ty.is_some()
+                || returns != Some(&[Ty::Enum(target.clone())][..])
+                || stack.pop() != Some(Ty::Enum(source.clone()))
+            {
+                return Err("invalid Result/Option propagation".into());
+            }
+            stack.push(source.variants[usize::from(source.is_option())].fields[0].clone());
+        }
         Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;

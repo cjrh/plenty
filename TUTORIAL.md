@@ -1043,6 +1043,81 @@ Unit is a real success payload, distinct from the absence represented by
 remain unsupported. User-defined enum variants still use their enum's prefix,
 even if a variant happens to be named `Ok` or `Some`.
 
+### Pass a failure back with `?`
+
+Put `?` after a `Result` expression to extract its `Ok` payload or return its
+`Err` immediately. This keeps a sequence of fallible operations easy to read:
+
+```plenty
+def validate(name: str) -> Result[(), str]:
+    if len(name) == 0:
+        return Err("name is empty")
+    Ok(())
+
+def greeting(name: str) -> Result[str, str]:
+    validate(name)?
+    Ok("Hello, " + name)
+
+def main() -> ():
+    print(greeting("Plenty"))
+    print(greeting(""))
+```
+
+```output
+Result[str, str].Ok("Hello, Plenty")
+Result[str, str].Err("name is empty")
+```
+
+Here `validate(name)?` has a unit success value, so it can stand alone. On
+failure, the string concatenation never runs. Live local values and previously
+evaluated expression temporaries are cleaned up automatically, just as for
+an explicit `return`.
+
+`?` works with `Option` too: it extracts `Some` or immediately returns `Nothing`.
+
+```plenty
+def positive(n: i64) -> Option[i64]:
+    Some(n) if n > 0 else Nothing
+
+def doubled(n: i64) -> Option[i64]:
+    Some(positive(n)? * 2)
+
+def main() -> ():
+    print(doubled(21))
+    print(doubled(-1))
+```
+
+```output
+Option[i64].Some(42)
+Option[i64].Nothing
+```
+
+The enclosing function must return the same family: `Result` for a `Result`
+operand or `Option` for an `Option` operand. Success payload types can differ,
+but `Result` error types must match exactly. Convert errors explicitly with
+`match` when needed. `?` is not supported inside generators.
+
+```plenty-error
+def read_number() -> Result[i64, str]:
+    Err("not a number")
+
+def checked() -> Result[i64, i64]:
+    Ok(read_number()?)
+
+def main() -> ():
+    print(checked())
+```
+
+```error
+`?` requires identical Result error types
+```
+
+`Option` and `Result` wrappers do not allocate on the heap, including when
+nested. Their payloads keep their usual behavior: `Some([1, 2])` allocates the
+list, but adds no wrapper allocation. Returning or propagating an existing sum
+does not allocate a wrapper either. Printing and operations on the payload can
+still allocate; recoverable out-of-memory handling is not implemented yet.
+
 ## 20. Produce values lazily with generators
 
 A generator function declares `Generator[T]` and uses `yield` statements:

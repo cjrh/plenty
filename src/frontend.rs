@@ -261,7 +261,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                 });
             }
             '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ',' | '+' | '-' | '*' | '%' | '/'
-            | '=' | '!' | '<' | '>' | '&' => {
+            | '=' | '!' | '<' | '>' | '&' | '?' => {
                 let mut symbol = c.to_string();
                 if let Some(next) = chars.get(pos + 1) {
                     if matches!(
@@ -504,6 +504,7 @@ struct Expr {
     kind: Expression,
 }
 enum Expression {
+    Try(Box<Expr>),
     ClassNew(Rc<crate::record::ClassType>),
     Type(TypeRef),
     Member(Box<Expr>, String),
@@ -912,6 +913,14 @@ impl Parser {
         };
         let mut left = Expr { at, kind };
         loop {
+            if self.peek().is("?") {
+                let at = self.take();
+                left = Expr {
+                    at,
+                    kind: Expression::Try(Box::new(left)),
+                };
+                continue;
+            }
             if self.eat("[") {
                 let index = self.expr(0)?;
                 self.expect("]")?;
@@ -1192,6 +1201,45 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
+            Expression::Try(value) => {
+                if self.yield_type.is_some() {
+                    return Err(e
+                        .at
+                        .error("`?` is not supported in generators; match the result explicitly"));
+                }
+                let Some(Some(Ty::Enum(target))) = self.return_type.clone() else {
+                    return Err(e
+                        .at
+                        .error("`?` requires a function returning Result or Option"));
+                };
+                if !target.inline() {
+                    return Err(e
+                        .at
+                        .error("`?` requires a function returning Result or Option"));
+                }
+                let Ty::Enum(source) = self.value(value, ops)? else {
+                    return Err(e.at.error("`?` requires a Result or Option operand"));
+                };
+                if !source.inline() || source.is_option() != target.is_option() {
+                    return Err(e.at.error(
+                        "`?` operand and function return must use the same Result or Option family",
+                    ));
+                }
+                if !source.is_option() && source.variants[1].fields != target.variants[1].fields {
+                    return Err(e.at.error(
+                        "`?` requires identical Result error types; convert the error explicitly",
+                    ));
+                }
+                let success = usize::from(source.is_option());
+                let payload = source.variants[success].fields[0].clone();
+                ops.push(Op::Try { source, target });
+                if payload == Ty::Unit {
+                    ops.push(Op::Drop);
+                    None
+                } else {
+                    Some(payload)
+                }
+            }
             Expression::Type(_) => {
                 return Err(e.at.error("a type is not a value; select a variant"))
             }

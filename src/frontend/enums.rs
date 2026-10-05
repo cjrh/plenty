@@ -193,6 +193,7 @@ pub(super) fn resolve_types(
                             .collect::<Result<Vec<_>>>()?;
                         Some(Ty::Enum(Rc::new(EnumType {
                             name: e.name.clone(),
+                            managed: true,
                             affine: variants.iter().flat_map(|v| &v.fields).any(Ty::affine),
                             copyable: variants.iter().flat_map(|v| &v.fields).all(Ty::can_copy),
                             has_destructor: variants
@@ -423,7 +424,14 @@ impl Lower<'_> {
                         },
                     );
                     body.extend([
-                        Op::LoadLocal(source),
+                        if t.inline() {
+                            Op::MoveLocal(
+                                source,
+                                format!("{}:{}: matched payload", case.at.line, case.at.column),
+                            )
+                        } else {
+                            Op::LoadLocal(source)
+                        },
                         Op::Enum(if ty.affine() {
                             EnumOp::Take(t.clone(), tag, field)
                         } else {

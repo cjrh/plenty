@@ -43,6 +43,12 @@ pub(crate) unsafe extern "C" fn plenty_println(text: *const Text) {
     if unsafe { strings::bytes(text) } == b"__test_small_live_heap__" {
         crate::accounting::checkpoint();
     }
+    #[cfg(feature = "allocation-checks")]
+    match unsafe { strings::bytes(text) } {
+        b"__test_begin_no_allocations__" => crate::accounting::begin_no_allocations(),
+        b"__test_end_no_allocations__" => crate::accounting::end_no_allocations(),
+        _ => {}
+    }
     unsafe {
         output(strings::bytes(text));
     }

@@ -1,28 +1,158 @@
 //! Exercise raw ABI boundaries without generated machine code, also under Miri.
-use crate::aggregates::plenty_collection as collection;
+use crate::aggregates::collection;
+use crate::aggregates::{Type, Variant};
 use crate::generators::{plenty_generator_new, Generator};
 use crate::memory::{plenty_release, plenty_retain, Header};
 use crate::strings::{self, plenty_concat, plenty_contains, plenty_str_eq};
 use std::cell::RefCell;
-use std::ffi::CStr;
 use std::ptr;
 
-thread_local! { static TRACE: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) }; }
-const GUARD: &CStr = c"C5:Guard1:2:id4";
+thread_local! { static TRACE: RefCell<Vec<u128>> = const { RefCell::new(Vec::new()) }; }
+const fn scalar(kind: u8) -> Type {
+    Type {
+        kind,
+        affine: false,
+        reflexive: kind != b'f' && kind != b'd',
+        key: None,
+        value: None,
+        name: "",
+        variants: &[],
+    }
+}
+const fn list(key: &'static Type) -> Type {
+    Type {
+        kind: b'L',
+        affine: true,
+        reflexive: key.reflexive,
+        key: Some(key),
+        ..scalar(b'L')
+    }
+}
+static INTEGER: Type = scalar(b'4');
+static UNIT: Type = scalar(b'v');
+static FLOAT32: Type = scalar(b'f');
+static FLOAT64: Type = scalar(b'd');
+static LIST_F32: Type = list(&FLOAT32);
+static LIST_F64: Type = list(&FLOAT64);
+static LIST_INT: Type = list(&INTEGER);
+static LIST_LIST: Type = list(&LIST_INT);
+static GUARD: Type = Type {
+    affine: true,
+    name: "Guard",
+    variants: &[Variant {
+        name: "id",
+        fields: &[&INTEGER],
+    }],
+    ..scalar(b'C')
+};
+static LIST_GUARD: Type = list(&GUARD);
+static DONE: Type = Type {
+    name: "Done",
+    variants: &[Variant {
+        name: "Ok",
+        fields: &[&UNIT],
+    }],
+    ..scalar(b'E')
+};
+static POINT: Type = Type {
+    affine: true,
+    name: "Point",
+    variants: &[Variant {
+        name: "x",
+        fields: &[&INTEGER],
+    }],
+    ..scalar(b'C')
+};
+static PAIR: Type = Type {
+    affine: true,
+    name: "Pair",
+    variants: &[
+        Variant {
+            name: "a",
+            fields: &[&POINT],
+        },
+        Variant {
+            name: "b",
+            fields: &[&POINT],
+        },
+    ],
+    ..scalar(b'C')
+};
+static DICT: Type = Type {
+    affine: true,
+    key: Some(&INTEGER),
+    value: Some(&LIST_INT),
+    ..scalar(b'D')
+};
+static GENERATOR: Type = scalar(b'G');
+static OPTION_GUARD: Type = Type {
+    affine: true,
+    name: "Option[Guard]",
+    variants: &[
+        Variant {
+            name: "Nothing",
+            fields: &[],
+        },
+        Variant {
+            name: "Some",
+            fields: &[&GUARD],
+        },
+    ],
+    ..scalar(b'B')
+};
+static RESULT_OPTION: Type = Type {
+    affine: true,
+    name: "Result[Option[Guard], i64]",
+    variants: &[
+        Variant {
+            name: "Ok",
+            fields: &[&OPTION_GUARD],
+        },
+        Variant {
+            name: "Err",
+            fields: &[&INTEGER],
+        },
+    ],
+    ..scalar(b'B')
+};
+static LIST_RESULT: Type = list(&RESULT_OPTION);
+
+#[test]
+fn inline_payloads_retain_and_drop_through_runtime_slots() {
+    use crate::aggregates::{release, wrap};
+    unsafe {
+        let first = wrap(wrap(guard(42), 1), 0);
+        let list = collection(0, 0, 0, 0, &LIST_RESULT);
+        plenty_release(collection(1, list, first, 0, ptr::null()) as *mut Header);
+        release(first, &RESULT_OPTION);
+        let moved = collection(15, list, 0, 0, ptr::null());
+        plenty_release(list as *mut Header);
+        assert!(trace().is_empty());
+        release(moved, &RESULT_OPTION);
+        assert_eq!(trace(), [42]);
+        // These inactive branches must never interpret scalar data as pointers.
+        release(wrap(u64::MAX as u128, 1), &RESULT_OPTION);
+        release(wrap(wrap(0, 0), 0), &RESULT_OPTION);
+    }
+}
 
 #[test]
 fn float_slots_preserve_bits_and_ieee_equality_and_unit_payloads() {
     unsafe {
         for (descriptor, negative_zero, nan) in [
             (
-                c"Lf",
-                u64::from((-0.0f32).to_bits()),
-                u64::from(f32::NAN.to_bits()),
+                &LIST_F32,
+                u128::from((-0.0f32).to_bits()),
+                u128::from(f32::NAN.to_bits()),
             ),
-            (c"Ld", (-0.0f64).to_bits(), f64::NAN.to_bits()),
+            (
+                &LIST_F64,
+                u128::from((-0.0f64).to_bits()),
+                u128::from(f64::NAN.to_bits()),
+            ),
         ] {
-            let a = collection(0, 0, 0, 0, descriptor.as_ptr());
-            let b = collection(0, 0, 0, 0, descriptor.as_ptr());
+            let a = collection(0, 0, 0, 0, descriptor);
+            let b = collection(0, 0, 0, 0, descriptor);
             plenty_release(collection(1, a, negative_zero, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, b, 0, 0, ptr::null()) as *mut Header);
             assert_eq!(collection(4, a, 0, 0, ptr::null()), negative_zero);
@@ -33,34 +163,35 @@ fn float_slots_preserve_bits_and_ieee_equality_and_unit_payloads() {
             plenty_release(a as *mut Header);
             plenty_release(b as *mut Header);
         }
-        let done = collection(20, 0, 0, 0, c"E4:Done1:2:Ok1:v".as_ptr());
+        let done = collection(20, 0, 0, 0, &DONE);
         collection(21, done, 0, 0, ptr::null());
         assert_eq!(collection(23, done, 0, 0, ptr::null()), 0);
         plenty_release(done as *mut Header);
     }
 }
 
-unsafe fn guard(id: u64) -> u64 {
+unsafe fn guard(id: u128) -> u128 {
     unsafe {
-        let value = collection(30, hook as *const () as u64, 0, 0, GUARD.as_ptr());
-        *((value as *mut u8).add(32).cast::<u64>()) = id;
+        let value = collection(30, hook as *const () as u128, 0, 0, &GUARD);
+        *((value as *mut u8).add(32).cast::<u128>()) = id;
         value
     }
 }
-unsafe extern "C" fn hook(owner: *mut *mut u8) {
+unsafe extern "C" fn hook(owner: *mut u128) {
     unsafe {
-        let id = *(*owner).add(32).cast::<u64>();
+        let object = *owner as *mut u8;
+        let id = *object.add(32).cast::<u128>();
         TRACE.with(|trace| trace.borrow_mut().push(id));
         // Reading the dying receiver may retain/release its immortalized header.
-        plenty_retain((*owner).cast());
-        plenty_release((*owner).cast());
+        plenty_retain(object.cast());
+        plenty_release(object.cast());
         if id == 9 {
             plenty_release(guard(77) as *mut Header);
             TRACE.with(|trace| trace.borrow_mut().push(99));
         }
     }
 }
-fn trace() -> Vec<u64> {
+fn trace() -> Vec<u128> {
     TRACE.with(|trace| std::mem::take(&mut *trace.borrow_mut()))
 }
 
@@ -114,7 +245,7 @@ fn compiler_literal_prefix_is_read_only_and_immortal() {
 #[test]
 fn destruction_queue_preserves_children_and_nested_drops() {
     unsafe {
-        let list = collection(0, 0, 0, 0, c"LC5:Guard1:2:id4".as_ptr());
+        let list = collection(0, 0, 0, 0, &LIST_GUARD);
         for id in [9, 2, 3] {
             let value = guard(id);
             let retained = collection(1, list, value, 0, ptr::null());
@@ -129,7 +260,7 @@ fn destruction_queue_preserves_children_and_nested_drops() {
 #[test]
 fn owned_iteration_removes_the_source_owner() {
     unsafe {
-        let list = collection(0, 0, 0, 0, c"LC5:Guard1:2:id4".as_ptr());
+        let list = collection(0, 0, 0, 0, &LIST_GUARD);
         let value = guard(5);
         let retained = collection(1, list, value, 0, ptr::null());
         plenty_release(retained as *mut Header);
@@ -145,17 +276,17 @@ fn owned_iteration_removes_the_source_owner() {
 #[test]
 fn shared_descriptor_graphs_and_recursive_copies() {
     unsafe {
-        // Pair contains two Points; the second uses the descriptor's backreference.
-        let pair = collection(30, 0, 0, 0, c"C4:Pair2:1:aC5:Point1:1:x41:b@1:".as_ptr());
-        let a = collection(30, 0, 0, 0, c"C5:Point1:1:x4".as_ptr());
-        let b = collection(30, 0, 0, 0, c"C5:Point1:1:x4".as_ptr());
-        *((a as *mut u8).add(32).cast::<u64>()) = 3;
-        *((b as *mut u8).add(32).cast::<u64>()) = 4;
-        *((pair as *mut u8).add(32).cast::<u64>()) = a;
-        *((pair as *mut u8).add(40).cast::<u64>()) = b;
+        // Pair contains two Points; both fields reference the same immutable metadata.
+        let pair = collection(30, 0, 0, 0, &PAIR);
+        let a = collection(30, 0, 0, 0, &POINT);
+        let b = collection(30, 0, 0, 0, &POINT);
+        *((a as *mut u8).add(32).cast::<u128>()) = 3;
+        *((b as *mut u8).add(32).cast::<u128>()) = 4;
+        *((pair as *mut u8).add(32).cast::<u128>()) = a;
+        *((pair as *mut u8).add(48).cast::<u128>()) = b;
         let copy = collection(14, pair, 0, 0, ptr::null());
         assert_eq!(collection(8, pair, copy, 0, ptr::null()), 1);
-        *((a as *mut u8).add(32).cast::<u64>()) = 10;
+        *((a as *mut u8).add(32).cast::<u128>()) = 10;
         assert_eq!(collection(8, pair, copy, 0, ptr::null()), 0);
         plenty_release(pair as *mut Header);
         plenty_release(copy as *mut Header);
@@ -165,14 +296,14 @@ fn shared_descriptor_graphs_and_recursive_copies() {
 #[test]
 fn dictionaries_preserve_order_and_copy_owned_contents() {
     unsafe {
-        let dict = collection(0, 0, 0, 0, c"D4L4".as_ptr());
-        let list = collection(0, 0, 0, 0, c"L4".as_ptr());
+        let dict = collection(0, 0, 0, 0, &DICT);
+        let list = collection(0, 0, 0, 0, &LIST_INT);
         plenty_release(collection(1, list, 42, 0, ptr::null()) as *mut Header);
         plenty_release(collection(1, dict, 1, list, ptr::null()) as *mut Header);
         plenty_release(list as *mut Header);
         let independent = collection(14, dict, 0, 0, ptr::null());
         assert_eq!(collection(8, dict, independent, 0, ptr::null()), 1);
-        let values = collection(11, dict, 0, 0, ptr::null());
+        let values = collection(11, dict, 0, 0, &LIST_LIST);
         let copied_values = collection(14, values, 0, 0, ptr::null());
         let item = collection(15, values, 0, 0, ptr::null());
         plenty_release(collection(2, item, 7, 0, ptr::null()) as *mut Header);
@@ -184,18 +315,18 @@ fn dictionaries_preserve_order_and_copy_owned_contents() {
     }
 }
 
-unsafe extern "C" fn never_resume(_: *mut Generator, _: *mut u64) -> u8 {
+unsafe extern "C" fn never_resume(_: *mut Generator, _: *mut u128) -> u8 {
     panic!("dropping must not resume a generator")
 }
 #[test]
 fn deeply_nested_generator_frames_drop_iteratively() {
-    static MANAGED: [u8; 1] = [1];
+    static MANAGED: [&Type; 1] = [&GENERATOR];
     unsafe {
         let mut child = guard(1);
         for _ in 0..1000 {
-            let frame = plenty_generator_new(never_resume, 1, MANAGED.as_ptr());
-            *frame.cast::<u8>().add(56).cast::<u64>() = child;
-            child = frame as u64;
+            let frame = plenty_generator_new(never_resume, 1, MANAGED.as_ptr().cast());
+            *frame.cast::<u8>().add(64).cast::<u128>() = child;
+            child = frame as u128;
         }
         plenty_release(child as *mut Header);
         assert_eq!(trace(), [1]);

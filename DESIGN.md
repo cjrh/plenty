@@ -68,7 +68,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Early returns and return-aware branch checking | Implemented in AOT |
 | Concrete enums, tagged payloads, exhaustive matching | Implemented |
 | Fixed-layout classes, constructors, methods, custom cleanup | Implemented |
-| `Option[T]`, `Result[T, E]` | Implemented, including unit payloads and unqualified `Some`, `Nothing`, `Ok`, `Err` |
+| `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
 | Unit values | Expressions, function returns, and enum payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
 | Local/parameter references and last-use borrow checking | Implemented for bindings and class fields; element/stored/returned references deferred |
@@ -87,7 +87,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
 | Typed ranges and contextual numeric inference | Proposed: `range[u8](8)` and expression-local constraints from annotations; ranges currently yield `i64` |
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
-| `?` error propagation and `with` context managers | Proposed; explicit matching and automatic destruction work today |
+| `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
+| `with` context managers | Proposed; automatic destruction works today |
 | Recoverable allocation failure and custom allocators | Proposed; allocation failure is not reliably recoverable today |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
 | Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
@@ -345,8 +346,8 @@ block-local loop variables, and fixed element types are deliberate Plenty choice
 
 `collection.rs` gives each operation one static signature. The frontend lowers
 loops and comprehensions into typed locals and structured loops. Cranelift calls
-a fixed native collection ABI with 64-bit slots; descriptors encode the already
-known element types. Descriptors support native storage/equality/printing, not
+a fixed native collection ABI with 128-bit slots; immutable metadata encodes the
+already known element types. Metadata supports native storage/equality/printing, not
 dynamic type inference. No per-element compilation or trait instantiation occurs.
 Every program links the same precompiled Rust runtime archive; no runtime source
 is compiled for individual programs.
@@ -355,12 +356,14 @@ The Rust runtime uses `Vec` storage and hash tables with ordered entries for
 dictionaries and sets. Private builders append in place; literal and comprehension
 construction is amortized linear under ordinary hash distribution. Public updates
 also mutate in place; repeated `append` no longer copies existing contents.
-Only explicit `copy` duplicates owned contents. Runtime type metadata caches
+Only explicit `copy` duplicates owned contents. Compiler-emitted type metadata caches
 whether a type owns mutable contents, preventing copies from expanding shared
 immutable enum graphs.
-Managed values are reference counted. Replacing a local releases its previous
-value; scope/function exits release remaining owners. Collection buffers and
-type metadata are reclaimed along with objects. Private expression temporaries
+Heap payloads are reference counted. Standard sum wrappers live inline and
+retain/release only their active payload. Replacing a local releases its previous
+value; scope/function exits release remaining owners. Collection buffers are
+reclaimed along with objects; type metadata lives in immutable program data.
+Private expression temporaries
 can remain until their enclosing scope exits. Retained helper operands are
 implementation details, not permission to create source-visible mutable aliases.
 
@@ -550,8 +553,8 @@ Borrow analysis never runs on Cranelift IR.
 ## Rust runtime packaging
 
 `plenty-runtime` is a separate dependency-free workspace crate implemented in Rust.
-Its C ABI exports preserve the existing native signatures and fixed object
-prefixes. Rust owns buffers and metadata; narrowly scoped unsafe operations handle
+Its internal C ABI exports use scalar arguments and pointers to fixed-layout
+storage. Rust owns buffers; the compiler emits immutable type metadata. Narrowly scoped unsafe operations handle
 generated-code pointers, flexible allocations, reference counts, and callbacks.
 Plenty's static borrow checker still establishes source-level access permissions.
 
@@ -568,7 +571,9 @@ The public signatures and memory layouts are checked by native regression tests
 and compile-time layout assertions. Standalone runtime tests also run under Miri
 with exposed-provenance semantics for the ABI's packed pointer slots. The
 `runtime-checks` compiler feature enables a counting Rust allocator for native
-integration tests, covering buffers and metadata as well as raw object storage.
+integration tests, covering buffers, raw object storage, and temporary allocations.
+Allocation-free test regions count allocation attempts, including allocations
+that have already been freed by the end of the region.
 The relocated-compiler test rejects any runtime C/Rust compilation at link time.
 See [plenty-runtime/README.md](plenty-runtime/README.md) for the boundary invariants
 and validation commands.
@@ -626,8 +631,8 @@ diagnosed rather than silently selecting different behavior.
 
 Type nesting is limited to 64 levels, and expanded builtin type argument names
 to 16,384 bytes, with diagnostics when these implementation limits are exceeded.
-Runtime descriptors refer back to previously encoded enums, so shared enum
-dependencies do not expand exponentially during compilation or metadata loading.
+Compiler-emitted metadata links shared type nodes, so shared enum dependencies
+do not expand exponentially. There is no runtime metadata parsing or allocation.
 
 `Option[T]` and `Result[T, E]` are compiler-known concrete enum constructors,
 without user generics or traits. Payloads may be integers, floats, bool, str,
@@ -647,7 +652,7 @@ denote the standard variants and get their type from the scrutinee. User-defined
 variants still require qualification.
 
 Unit payloads evaluate their argument for effects, then store a zero marker in
-the ordinary 64-bit field slot. Matching may ignore or bind that payload; reading
+the ordinary runtime field slot. Matching may ignore or bind that payload; reading
 a unit pattern binding yields the no-register unit expression, so it can be
 returned from a unit-returning function. It does not introduce nullability.
 
@@ -661,9 +666,9 @@ may shadow outer bindings. Continuing arms agree on result type; arms ending in
 return/break/continue do not contribute a join value. A function-tail match
 produces its final arm expression, like the existing statement-form `if`.
 
-Native enum values are immutable pointer-sized handles to tagged records.
-The record contains a managed header, concrete type metadata, tag, and one
-64-bit slot per active payload field. Equality compares nominal type, tag, and
+Native user-defined enum values are immutable pointer-sized handles to tagged
+records. A record contains a managed header, immutable type metadata pointer,
+tag, and one 128-bit slot per active payload field. Equality compares nominal type, tag, and
 payload contents, using IEEE comparisons for floats. Runtime metadata records
 whether equality is reflexive; float-containing values cannot use pointer identity
 as an equality shortcut because of NaN. Aggregate pairs are memoized during a
@@ -673,6 +678,50 @@ stable external layout, or per-instantiation code generation is required.
 Frontend coverage lowers to the existing scalar-tag match with an invalid-tag
 trap fallback. The independent checker validates construction/projection types;
 the structured frontend places projections behind the corresponding tag tests.
+
+### Allocation-free standard sums and propagation
+
+`Option` and `Result` use an inline 128-bit representation: one 64-bit terminal
+payload and one 64-bit path of binary tags, outermost tag first. Nested standard
+sums add tag bits without boxing; the existing 64-level type limit bounds the path.
+The terminal payload is scalar bits or a handle to an independently owned heap
+value. This representation preserves all integer and float bit patterns; it does
+not reserve a null pointer or numeric sentinel as a source-level value.
+
+Construction, passing, returning, matching, and `?` do not allocate a standard
+sum wrapper. Copies of scalar-only sums and their equality comparisons are also
+allocation-free. Payload operations retain their existing costs: creating a list,
+concatenating strings, copying mutable contents, constructing a user-defined enum,
+or formatting output can allocate. Cleanup may execute user code that allocates.
+This is a wrapper guarantee, not yet a guarantee of recoverable allocation failure.
+
+Native calls carry standard sums as integer pairs through Cranelift's internal
+calling convention. Addressable locals, collection entries, record fields, and
+generator slots use 16-byte storage, including scalar slots in this initial
+uniform representation. This increases aggregate storage costs relative to the
+previous 8-byte slots; compact per-type storage is a later optimization. The
+runtime aggregate helper takes pointers to aligned input/output slots rather than
+depending on a platform's C ABI for `u128`. Neither representation is a public FFI ABI.
+
+Postfix `value?` evaluates its operand exactly once. `Ok(value)` and `Some(value)`
+produce the payload. `Err(error)` returns `Err(error)` from the enclosing function;
+`Nothing` returns `Nothing`. The enclosing function must return the same sum
+family, and `Result` error types must be identical after alias resolution. Success
+types can differ. There are no implicit error conversions or Result/Option
+conversions. `?` on a unit success payload is a unit expression.
+
+Propagation is an expression and can appear in calls, conditions, loops, and
+comprehensions. It binds with other postfix operations, so `values?[0]` indexes
+the unwrapped value. An early exit drops already-evaluated pending operands and
+initialized locals, including hidden iterators/builders, in the normal cleanup
+order. Later operands and statements do not run. The error payload transfers
+ownership to the caller. Generators reject `?` because their declared return type
+is `Generator[T]`, not a propagatable sum; explicit matching remains available.
+
+The frontend emits a checked propagation operation with concrete source and
+return types. The independent checker verifies family/error compatibility and the
+enclosing signature. Native lowering branches before evaluating later operations,
+returns the residual after cleanup, and continues with the success payload.
 
 ## Classes: fixed-layout records
 
@@ -735,7 +784,7 @@ Fields may contain classes, enums, and collections, but not references,
 generators, or unit. Acyclic forward declarations and aliases are supported;
 recursive layouts remain rejected. Methods become statically resolved native
 functions. Class instances currently use one owned heap allocation with a runtime
-header, concrete type metadata, an optional destructor adapter, and 64-bit field
+header, concrete type metadata, an optional destructor adapter, and 128-bit field
 slots. This representation favors simple lowering and fast compilation; it is not
 a public FFI layout guarantee. The compiler caches nesting, copyability, and
 destructor flags on nominal metadata.
@@ -758,7 +807,7 @@ prevents tail-call rewriting in functions with resource-bearing slots. Traps ter
 Runtime objects share `{u64 refs, destroy_callback}`. Heap objects start with one
 reference; literal strings use an immortal count. Helpers borrow arguments and
 return owned managed results, including retained projections and builder aliases.
-Buffers and recursive metadata have explicit owners too. Destruction uses an
+Buffers have explicit owners too; type metadata is immutable program data. Destruction uses an
 iterative queue, avoiding recursive C-stack growth through owned value graphs.
 Reference counts are non-atomic; the language has no concurrency. The current
 unique mutable ownership and restricted aggregate types prevent source-visible
@@ -876,7 +925,7 @@ reborrows; access through a parent conflicts with a live child. Copies of immuta
 values finish their read immediately; observations of mutable collections hold
 temporary shared loans through the operation that consumes them.
 
-Native references address 64-bit local storage slots, generator frame slots, or
+Native references address 128-bit local storage slots, generator frame slots, or
 fixed class field slots.
 Functions taking addresses spill their locals; ordinary functions retain SSA locals.
 Borrowed parameters already carry an address. Internal retained operands protect
@@ -937,7 +986,7 @@ There is no yield-from, send/throw, generator expression, public reference acros
 suspension, or async/await.
 
 Each generator has a concrete constructor and native resume function. The frame
-owns parameters and all locals in fixed 64-bit slots, plus a managed-slot mask,
+owns parameters and all locals in fixed 128-bit slots, plus immutable slot-type metadata,
 resume callback, continuation state, and reentrancy guard. Resume has the internal
 C ABI `(frame, out_slot) -> ready`; successful yields transfer an owned value.
 Completion clears owned slots and marks exhaustion. Dropping any state frees
@@ -950,8 +999,8 @@ blocks; all generator locals are frame-backed, so no SSA value needs to survive
 between invocations. Cranelift verifies the resulting CFG. This is native
 state-machine lowering, with no interpreter, C-stack suspension, or eager yield
 collection. The initial state dispatch is a linear comparison chain.
-Iteration currently wraps each resume result in an `Option`; avoiding that
-allocation and optimizing frame liveness are later runtime improvements.
+Iteration wraps each resume result in an allocation-free inline `Option`.
+Optimizing frame liveness remains a later runtime improvement.
 
 ## Next milestones
 
@@ -965,10 +1014,11 @@ implemented. The new design review changes the recommended priority:
    `pub`, qualified dependency identities, and multi-file tutorial examples are
    implemented. Package management and separately cached module objects remain
    future work; neither is required for the next language features.
-2. Add `?` for `Result` and `Option`, with explicit error types and ordinary scope
-   cleanup. Design allocation-free error construction/propagation and immutable
-   runtime metadata before promising recoverable OOM. Current heap-backed sums
-   cannot supply that guarantee merely by changing method signatures.
+2. `?` for `Result` and `Option`, allocation-free standard sum wrappers, and
+   immutable runtime metadata are implemented. Error payload construction still
+   matters: scalar error codes need no allocation, while user-defined enum
+   records currently do. Recoverable OOM needs allocation-free error payloads
+   as well as fallible runtime operations; wrapper layout alone does not promise it.
 3. Implement fallible allocation and allocator provenance, then expand text,
    collection, input/file, and argument APIs under those rules. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.

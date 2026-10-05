@@ -25,9 +25,12 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   Rust collection and enum layouts do not cross this boundary.
 - All object prefixes use `repr(C)`. Compile-time assertions preserve the layout
   expected by generated code: a 16-byte ownership header, string bytes and record
-  fields at byte 32, and generator frame slots at byte 56.
-- Runtime slots carry 64 raw bits: floats use their IEEE bit patterns (`f32` in
-  the low 32 bits), and unit enum payloads use zero. Float equality follows IEEE
+  fields at byte 32, and generator frame slots at byte 64.
+- Runtime slots carry 128 raw bits: the low word is a scalar or pointer payload,
+  and the high word stores the tag path for inline `Option`/`Result` wrappers.
+  Floats use their IEEE bit patterns (`f32` in the low 32 bits), and unit payloads
+  use zero. Aggregate calls pass aligned input/output slot pointers, avoiding a
+  dependency on the platform's C ABI for 128-bit integers. Float equality follows IEEE
   rules even inside shared aggregates; memoized comparisons preserve linear
   traversal of shared payload graphs rather than expanding them into trees.
 - Generated code supplies valid typed pointers, initialized fields, bounded type
@@ -35,7 +38,11 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   uninitialized values; they are never source-level nullable references.
 - Every helper borrows its operands and returns owned managed results, except
   explicit retain/release operations. Static string literals are immortal.
-- Rust `Vec`, `String`, and `Rc` own collection buffers and acyclic type metadata.
+- Rust `Vec` owns collection buffers. Shared acyclic type metadata, names, and
+  variant/field tables are emitted by the compiler as immutable program data;
+  the runtime neither parses nor allocates metadata. Standard sum wrappers
+  require no allocation, including during construction, projection, and propagation.
+  Heap payload construction, explicit deep copies, and rendering can still allocate.
   Variable-size strings, records, and frames use checked allocation layouts and
   raw field addresses. Their destruction callbacks deallocate matching layouts.
 - Destruction is queued iteratively, preserving child order. User drop hooks may
@@ -56,13 +63,15 @@ MIRIFLAGS=-Zmiri-permissive-provenance cargo +nightly miri test -p plenty-runtim
 `runtime-checks` builds the compiler's archive with a counting Rust allocator.
 After warming process-owned standard I/O buffers, it checks that program exit
 returns to the baseline and that integration-test checkpoints keep live memory
-bounded. It counts object allocations, buffers, metadata, and temporary renderings.
-This instrumentation and its checkpoint marker are absent from normal builds.
+bounded. Allocation-free regions additionally count every allocation attempt,
+including temporary allocations freed before the region ends. A negative control
+checks that the instrumentation detects a temporary string allocation.
+This instrumentation and its checkpoint markers are absent from normal builds.
 
 Miri covers raw layouts, flexible allocations, metadata sharing, float bit patterns
 and unit payloads, deep generator destruction, field copies, and reentrant hooks.
 The native ABI deliberately carries
-pointer addresses in 64-bit slots, requiring exposed-provenance semantics; this
+pointer addresses in the low 64 bits of value slots, requiring exposed-provenance semantics; this
 mode does not establish strict-provenance correctness.
 
 For instrumented archive builds, `PLENTY_RUNTIME_RUSTFLAGS` supplies additional
