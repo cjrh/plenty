@@ -259,13 +259,15 @@ impl Lower<'_> {
     ) -> Result<()> {
         let saved = self.names.clone();
         let (condition, mut body, index) = self.iteration(name, iterable, ops)?;
-        if matches!(
-            self.block(statements, &mut body, false)?,
-            BlockResult::Continues(_)
-        ) {
-            increment(index, &mut body);
-        }
+        let mut step = Vec::new();
+        increment(index, &mut step);
+        self.loop_steps.push(step.clone());
+        let result = self.block(statements, &mut body, false);
+        self.loop_steps.pop();
         self.names = saved;
+        if matches!(result?, BlockResult::Continues(_)) {
+            body.extend(step);
+        }
         ops.push(Op::Loop {
             condition: condition.into(),
             body: body.into(),

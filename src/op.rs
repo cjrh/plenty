@@ -186,6 +186,9 @@ pub enum Op {
     /// Leave the current function with its declared results on the stack.
     /// Unlike the end of a match arm, this exits the entire call frame.
     Return,
+    /// Transfer control to the innermost loop's exit or condition.
+    Break,
+    Continue,
     /// Push the value of the `i`-th input local of the enclosing call's frame
     /// Only emitted inside function bodies.
     LoadLocal(u8),
@@ -876,7 +879,7 @@ pub fn check(ops: &[Op]) -> Result<()> {
     // Top-level: locals are empty (the compiler will never have emitted a
     // `LoadLocal` here either), and there is no end-of-stream invariant.
     let mut stack = Vec::new();
-    check_sequence(ops, &mut stack, &[], &sigs, None)?;
+    check_sequence(ops, &mut stack, &[], &sigs, None, None)?;
     Ok(())
 }
 
@@ -884,7 +887,7 @@ pub fn check(ops: &[Op]) -> Result<()> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Flow {
     Continues,
-    Returns,
+    Exits,
 }
 
 fn check_sequence(
@@ -893,13 +896,14 @@ fn check_sequence(
     locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
     returns: Option<&[Ty]>,
+    loop_stack: Option<&[Ty]>,
 ) -> Result<Flow> {
     let mut flow = Flow::Continues;
     for op in ops {
-        if flow == Flow::Returns {
-            return Err("unreachable operation after a function exit".into());
+        if flow == Flow::Exits {
+            return Err("unreachable operation after a control-flow exit".into());
         }
-        flow = step(op, stack, locals, sigs, returns)?;
+        flow = step(op, stack, locals, sigs, returns, loop_stack)?;
     }
     Ok(flow)
 }
@@ -914,7 +918,7 @@ fn check_return(stack: &[Ty], returns: Option<&[Ty]>) -> Result<Flow> {
         )
         .into());
     }
-    Ok(Flow::Returns)
+    Ok(Flow::Exits)
 }
 
 /// Add the sig of every `DefineFn` reachable from `ops` — top-level and
@@ -957,6 +961,7 @@ fn step(
     locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
     returns: Option<&[Ty]>,
+    loop_stack: Option<&[Ty]>,
 ) -> Result<Flow> {
     match op {
         Op::Collection(operation) => {
@@ -970,14 +975,15 @@ fn step(
         Op::Loop { condition, body } => {
             let initial = stack.clone();
             let mut cond = initial.clone();
-            if check_sequence(condition, &mut cond, locals, sigs, returns)? != Flow::Continues
+            if check_sequence(condition, &mut cond, locals, sigs, returns, None)? != Flow::Continues
                 || cond.pop() != Some(Ty::Bool)
                 || cond != initial
             {
                 return Err("loop condition must produce bool".into());
             }
             let mut iter = initial.clone();
-            if check_sequence(body, &mut iter, locals, sigs, returns)? == Flow::Continues
+            if check_sequence(body, &mut iter, locals, sigs, returns, Some(&initial))?
+                == Flow::Continues
                 && iter != initial
             {
                 return Err("loop body must preserve operand types".into());
@@ -1081,7 +1087,14 @@ fn step(
             return check_return(stack, returns);
         }
         Op::Return => return check_return(stack, returns),
-        Op::Match(arms) => return check_match(arms, stack, locals, sigs, returns),
+        Op::Break | Op::Continue => {
+            let expected = loop_stack.ok_or("loop control outside a loop")?;
+            if stack != expected {
+                return Err("loop control must preserve operand types".into());
+            }
+            return Ok(Flow::Exits);
+        }
+        Op::Match(arms) => return check_match(arms, stack, locals, sigs, returns, loop_stack),
         Op::Cast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;
             if !top.is_int() {
@@ -1199,6 +1212,7 @@ fn check_match(
     locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
     returns: Option<&[Ty]>,
+    loop_stack: Option<&[Ty]>,
 ) -> Result<Flow> {
     let matched_ty = stack
         .pop()
@@ -1281,7 +1295,9 @@ fn check_match(
     let mut joined: Option<Vec<Ty>> = None;
     for (i, arm) in arms.iter().enumerate() {
         let mut arm_stack = snapshot.clone();
-        if check_sequence(&arm.body, &mut arm_stack, locals, sigs, returns)? == Flow::Returns {
+        if check_sequence(&arm.body, &mut arm_stack, locals, sigs, returns, loop_stack)?
+            == Flow::Exits
+        {
             continue;
         }
         match &joined {
@@ -1304,7 +1320,7 @@ fn check_match(
             *stack = joined;
             Ok(Flow::Continues)
         }
-        None => Ok(Flow::Returns),
+        None => Ok(Flow::Exits),
     }
 }
 
@@ -1329,7 +1345,7 @@ fn check_body(
         .chain(extra_locals.iter().cloned())
         .collect();
     let mut stack: Vec<Ty> = Vec::new();
-    let flow = check_sequence(body, &mut stack, &locals, sigs, Some(&sig.outputs))
+    let flow = check_sequence(body, &mut stack, &locals, sigs, Some(&sig.outputs), None)
         .map_err(|e| -> Box<dyn Error> { format!("in `{fn_name}`: {e}").into() })?;
     if flow == Flow::Continues && stack != sig.outputs {
         return Err(format!(

@@ -566,8 +566,8 @@ without building a list; `list(range(...))` materializes its values.
 The iterable is evaluated once. The loop visits that snapshot even if its
 binding is updated in the body. Loop variables and new body bindings do not
 escape the loop; changes to enclosing `mut` bindings persist. A loop has unit
-result. `return` can exit a containing function from a loop. `break`,
-`continue`, tuple unpacking, and `items()` are not implemented yet.
+result. `return` can exit a containing function from a loop. Lesson 17 covers
+`break` and `continue`. Tuple unpacking and `items()` are not implemented yet.
 
 ## 16. Build collections with comprehensions
 
@@ -612,10 +612,88 @@ collection. Comprehensions use a private growing buffer; ordinary mutations copy
 the outer collection storage. Allocations currently remain until process exit.
 These costs will improve as ownership and reclamation are implemented.
 
+## 17. Repeat until a condition changes
+
+Use `while` when a condition determines how long to repeat. The condition must
+be `bool`, and it is checked before every iteration, including the first:
+
+```plenty
+mut remaining = 3
+while remaining > 0:
+    print(remaining)
+    remaining = remaining - 1
+print("go")
+```
+
+```output
+3
+2
+1
+go
+```
+
+`continue` skips the rest of the current iteration. `break` exits the loop:
+
+```plenty
+mut n = 0
+while True:
+    n = n + 1
+    if n % 2 == 0:
+        continue
+    if n > 5:
+        break
+    print(n)
+```
+
+```output
+1
+3
+5
+```
+
+Update the condition's inputs before a `continue` when needed; otherwise a
+`while` loop can repeat forever. In a `for` loop, `continue` automatically
+advances to the next element:
+
+```plenty
+for n in range(6):
+    if n == 1:
+        continue
+    if n == 4:
+        break
+    print(n)
+```
+
+```output
+0
+2
+3
+```
+
+Both statements affect only the innermost loop. Use `return` to leave a
+function from inside any depth of loops. New bindings in a loop body stay
+inside that body, while updates to enclosing `mut` bindings persist. Loops
+have unit result; `break` cannot carry a value. Python's loop `else` clauses
+are not supported.
+
+The compiler conservatively assumes every loop can finish, even `while True`.
+A function returning a value therefore still needs a result after the loop.
+Statements directly after an unconditional exit are rejected:
+
+```plenty-error
+while True:
+    break
+    print("unreachable")
+```
+
+```error
+unreachable statement after a control-flow exit
+```
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Structs and methods, sum
-types, ownership and borrowing, richer loop control, and generators
+types, ownership and borrowing, and generators
 remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 

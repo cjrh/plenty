@@ -82,7 +82,8 @@ for n in squares:
 Collections have independent values: changing a `mut` binding leaves copies
 unchanged. Current updates copy outer storage and allocations last until process
 exit; use comprehensions for bulk construction. General iterator protocols,
-tuple unpacking, `items()`, and `break`/`continue` are not implemented yet.
+tuple unpacking, and `items()` are not implemented yet. `while` loops and
+`break`/`continue` in both loop forms are supported; loop `else` is not.
 
 Guard clauses can return early while the main path uses an implicit result:
 

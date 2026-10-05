@@ -96,12 +96,14 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().brif(test, iteration, &[], exit, &[]);
         self.bcx.switch_to_block(iteration);
         self.bcx.seal_block(iteration);
+        self.loop_targets.push((header, exit));
         for op in body {
             if self.terminated {
                 break;
             }
             self.lower(op)?;
         }
+        self.loop_targets.pop();
         if !self.terminated {
             self.bcx.ins().jump(header, &[]);
         }

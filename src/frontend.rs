@@ -365,6 +365,12 @@ enum Statement {
         no: Vec<Stmt>,
     },
     Pass,
+    Break,
+    Continue,
+    While {
+        condition: Expr,
+        body: Vec<Stmt>,
+    },
     For {
         name: String,
         iterable: Expr,
@@ -598,12 +604,27 @@ impl Parser {
         if self.peek().is("if") {
             return self.conditional_statement();
         }
+        if self.peek().is("while") {
+            let at = self.take();
+            let condition = self.expr(0)?;
+            let body = self.suite()?;
+            if self.peek().is("else") {
+                return Err(self.peek().error("loop else is not supported"));
+            }
+            return Ok(Stmt {
+                at,
+                kind: Statement::While { condition, body },
+            });
+        }
         if self.peek().is("for") {
             let at = self.take();
             let name = self.name()?;
             self.expect("in")?;
             let iterable = self.expr(0)?;
             let body = self.suite()?;
+            if self.peek().is("else") {
+                return Err(self.peek().error("loop else is not supported"));
+            }
             return Ok(Stmt {
                 at,
                 kind: Statement::For {
@@ -620,6 +641,10 @@ impl Parser {
             } else {
                 Some(self.expr(0)?)
             })
+        } else if self.eat("break") {
+            Statement::Break
+        } else if self.eat("continue") {
+            Statement::Continue
         } else if self.eat("pass") {
             Statement::Pass
         } else {
@@ -920,14 +945,16 @@ struct Local {
 /// An exited branch has no value to unify with paths that continue.
 enum BlockResult {
     Continues(Type),
-    Returns,
+    Exits,
 }
 
-fn returned_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
+fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
     if let Some(next) = body.get(index + 1) {
-        return Err(next.at.error("unreachable statement after a function exit"));
+        return Err(next
+            .at
+            .error("unreachable statement after a control-flow exit"));
     }
-    Ok(BlockResult::Returns)
+    Ok(BlockResult::Exits)
 }
 
 struct Lower<'a> {
@@ -939,6 +966,8 @@ struct Lower<'a> {
     parameters: usize,
     /// None at module scope; Some(None) for a unit-returning function.
     return_type: Option<Type>,
+    /// Code executed before continuing the innermost loop (for-loop increment).
+    loop_steps: Vec<Vec<Op>>,
 }
 impl Lower<'_> {
     fn same(&self, got: Type, expected: Type, at: &Token) -> Result<()> {
@@ -1185,9 +1214,41 @@ impl Lower<'_> {
                     self.same(ty, expected, &stmt.at)?;
                     finish_return(&mut returned);
                     ops.extend(returned);
-                    return returned_block(body, i);
+                    return exited_block(body, i);
                 }
                 Statement::Pass => None,
+                Statement::Break | Statement::Continue => {
+                    let is_continue = matches!(stmt.kind, Statement::Continue);
+                    let step = self.loop_steps.last().ok_or_else(|| {
+                        stmt.at.error(if is_continue {
+                            "continue outside a loop"
+                        } else {
+                            "break outside a loop"
+                        })
+                    })?;
+                    if is_continue {
+                        ops.extend(step.iter().cloned());
+                    }
+                    ops.push(if is_continue { Op::Continue } else { Op::Break });
+                    return exited_block(body, i);
+                }
+                Statement::While { condition, body } => {
+                    let mut test = Vec::new();
+                    let ty = self.expr(condition, &mut test)?;
+                    self.same(ty, Some(Ty::Bool), &condition.at)?;
+                    let saved = self.names.clone();
+                    self.loop_steps.push(Vec::new());
+                    let mut lowered = Vec::new();
+                    let result = self.block(body, &mut lowered, false);
+                    self.loop_steps.pop();
+                    self.names = saved;
+                    result?;
+                    ops.push(Op::Loop {
+                        condition: test.into(),
+                        body: lowered.into(),
+                    });
+                    None
+                }
                 Statement::For {
                     name,
                     iterable,
@@ -1266,10 +1327,10 @@ impl Lower<'_> {
                             self.same(other, ty.clone(), &stmt.at)?;
                             ty
                         }
-                        (BlockResult::Continues(ty), BlockResult::Returns)
-                        | (BlockResult::Returns, BlockResult::Continues(ty)) => ty,
-                        (BlockResult::Returns, BlockResult::Returns) => {
-                            return returned_block(body, i);
+                        (BlockResult::Continues(ty), BlockResult::Exits)
+                        | (BlockResult::Exits, BlockResult::Continues(ty)) => ty,
+                        (BlockResult::Exits, BlockResult::Exits) => {
+                            return exited_block(body, i);
                         }
                     }
                 }
@@ -1416,6 +1477,7 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             locals: Vec::new(),
             parameters: sig.inputs.len(),
             return_type: Some(sig.outputs.first().cloned()),
+            loop_steps: Vec::new(),
         };
         for (i, (name, ty)) in sig.inputs.iter().enumerate() {
             lower.names.insert(
@@ -1451,6 +1513,7 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             locals: Vec::new(),
             parameters: 0,
             return_type: None,
+            loop_steps: Vec::new(),
         };
         let mut body = Vec::new();
         let BlockResult::Continues(output) = lower.block(&statements, &mut body, true)? else {

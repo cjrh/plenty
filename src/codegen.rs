@@ -634,6 +634,7 @@ fn emit_user_function(
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
+            loop_targets: Vec::new(),
         };
         for op in decl.body.iter() {
             if lower.terminated {
@@ -701,6 +702,7 @@ fn emit_main(
             locals: &[],
             stack: Vec::new(),
             terminated: false,
+            loop_targets: Vec::new(),
         };
         for op in ops {
             lower.lower(op)?;
@@ -813,6 +815,8 @@ struct Lowerer<'a, 'b> {
     /// Once set, the outer loop in
     /// [`emit_user_function`] stops feeding ops to this lowerer.
     terminated: bool,
+    /// The last entry is the innermost loop: (continue target, break target).
+    loop_targets: Vec<(Block, Block)>,
 }
 
 impl Lowerer<'_, '_> {
@@ -893,6 +897,21 @@ impl Lowerer<'_, '_> {
             }
             Op::Call(name) => self.lower_call(name)?,
             Op::TailCall(name) => self.lower_tail_call(name)?,
+            Op::Break | Op::Continue => {
+                let &(header, exit) = self
+                    .loop_targets
+                    .last()
+                    .ok_or("loop control outside a loop")?;
+                self.bcx.ins().jump(
+                    if matches!(op, Op::Break) {
+                        exit
+                    } else {
+                        header
+                    },
+                    &[],
+                );
+                self.terminated = true;
+            }
             Op::Return => {
                 let values: Vec<_> = self.stack.iter().map(|(value, _)| *value).collect();
                 self.bcx.ins().return_(&values);

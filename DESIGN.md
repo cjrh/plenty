@@ -59,7 +59,8 @@ Consequences:
 | Ownership, references, borrow checking | Planned; no current memory-safety claim |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
-| While loops, break/continue, generators | Planned |
+| While loops, break/continue | Implemented |
+| Generators | Planned; separate state-machine milestone |
 | User generics, traits | Deferred |
 | Async/await | Out of scope |
 
@@ -191,8 +192,8 @@ def clamp_low(value: i64, minimum: i64) -> i64:
     value
 ```
 
-`for` loops are implemented. While loops, break/continue, and arbitrary
-control-flow joins remain deferred. Tail calls in final expressions, final branches, and explicit return
+`for` and `while` loops, including `break` and `continue`, are implemented.
+Tail calls in final expressions, final branches, and explicit return
 expressions (including early guard clauses) become tail-call operations.
 Cranelift emits `return_call` with the Tail calling
 convention. Ordinary nested calls retain normal call semantics.
@@ -246,6 +247,15 @@ strings Unicode scalar values as `str`. Loop variables and declarations are
 block-local and immutable; updates to enclosing mutable bindings persist. Even
 a body that always returns cannot prove a loop executes, so function return
 checking retains the zero-iteration path. Loops have unit value.
+
+`while condition:` checks a Boolean condition before each iteration. Its body
+has the same binding scope as a `for` body. `break` exits the innermost loop;
+`continue` skips the rest of that iteration. In a `for`, continuing advances
+the iterator exactly once; in a `while`, it reevaluates the condition. Neither
+accepts a value or may cross a function boundary. Statements after an
+unconditional control-flow exit are rejected. Loop `else` clauses are not
+supported. Return checking conservatively retains a fallthrough path even for
+`while True`; value-returning functions need a result after the loop.
 
 List, set, and dictionary comprehensions accept multiple `for` and `if`
 clauses. Clauses nest left to right; each iterable is evaluated when its enclosing
@@ -345,7 +355,7 @@ types. `LoadLocal`/`StoreLocal` address typed slots; conditional expressions
 use exhaustive Boolean branches. Unit is represented by zero stack values.
 
 Early returns add an explicit `Return` terminator. The frontend distinguishes
-continuing blocks (with a result type) from blocks that exit the function.
+continuing blocks (with a result type) from blocks that exit the current path.
 The independent IR checker validates `Return` and `TailCall` against the
 enclosing signature, rejects operations after a guaranteed exit, and joins
 only continuing arms. Cranelift emits `return`; terminated arms
@@ -355,10 +365,12 @@ each conditional path returns or tail-calls, preserving tail-call optimization.
 This uses the existing structured IR, which already models terminated arms
 for tail calls. Structured loops now extend it with a condition and body, lowered
 to a Cranelift header, body, and exit. The checker requires a Boolean condition
-and a stack-preserving continuing body. Early exits remain checked against the
-function signature. Header sealing occurs after the back edge so mutable locals
-receive correct SSA joins. This does not complete the source CFG migration;
-break/continue and ownership analysis remain reasons to introduce that CFG.
+and a stack-preserving continuing body. `Break` and `Continue` are terminators
+checked against the innermost loop's entry stack; function returns are checked
+against the function signature. The frontend emits the `for` increment before
+each continue. Native lowering tracks loop headers and exits and seals blocks
+after all incoming edges are known, giving mutable locals correct SSA joins.
+This does not complete the source CFG migration needed for ownership analysis.
 
 Cranelift declares one SSA variable per slot; stores define
 variables and joins use Cranelift's SSA construction. All names and types are
@@ -464,7 +476,9 @@ Sources informing this design:
 
 ## Generators and later work
 
-Generators are desirable; async/await remains out of scope. Lower a generator
+Generators are a separate milestone from ordinary loop control: a loop runs
+within one function invocation, whereas a generator preserves locals and its
+execution position between calls. Async/await remains out of scope. Lower a generator
 to an explicit state machine with a concrete frame type and a resume operation
 returning `Option[T]`. Initially allow only owned yields and prohibit borrows
 across suspension. Destruction must handle every suspension state. This needs
@@ -480,7 +494,7 @@ Implementation order:
 
 1. Current typed-expression vertical slice, native execution tests, and compile-latency
    measurement harness. Establish useful small/large-program baselines.
-2. Typed CFG, while/break/continue, richer source diagnostics, and module-independent
+2. Typed CFG, richer source diagnostics, and module-independent
    native lowering.
 3. Concrete structs, methods, enums, exhaustive matching, `Option`/`Result`.
 4. Ownership, destruction, and a sound local borrow subset; then evaluate
