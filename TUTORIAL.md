@@ -108,8 +108,8 @@ The built-in integer names specify their sizes:
 | `u8`, `u16`, `u32`, `u64` | Unsigned integers of those widths |
 
 For example, `i8` can hold -128 through 127, and `u8` can hold 0 through 255.
-The other built-in value types currently available are `bool` and `str`.
-Floating-point types such as `f32` and `f64` are not implemented yet.
+Floating-point numbers use `f32` or `f64`; other primitive value types include
+`bool` and `str`.
 
 A whole-number literal without a suffix, such as `42`, has type `i64`.
 Append a built-in integer type to choose another width:
@@ -177,8 +177,66 @@ print(-7 // 3)
 -3
 ```
 
-Division by zero is a runtime error. `/` is reserved for future floating-point
-division and is currently rejected.
+Integer division by zero is a runtime error. Use `/` for floating-point division.
+
+### Work with floating-point numbers
+
+A decimal or exponent literal defaults to `f64`. Use an `f32` suffix when you
+want 32-bit arithmetic. Both operands must have the same type; casts are explicit:
+
+```plenty
+distance: f64 = 7.5
+time: f64 = 2.0
+print(distance / time)
+print(1.25f32 + 0.5f32)
+print(2.5e-2)
+print(f64(3) / 2.0)
+print(i32(-2.75))
+```
+
+```output
+3.75
+1.75
+0.025
+1.5
+-2
+```
+
+Float-to-integer casts discard the fractional part toward zero and clamp results
+outside the integer's range; NaN converts to zero. Integer-to-float casts and
+`f64` to `f32` casts may round. There is no implicit widening or narrowing:
+
+```plenty-error
+small: f32 = 1.5
+```
+
+```error
+expected f32, got f64
+```
+
+Write `1.5f32` or `f32(1.5)` instead. Floats follow IEEE arithmetic: division by
+zero can produce infinity or NaN, and arithmetic overflow can produce infinity.
+NaN is unequal to everything, including itself; ordered comparisons with it are
+false. The same comparison rules apply inside collections and enum payloads.
+
+```plenty
+zero = 0.0
+print(1.0 / zero)
+unknown = zero / zero
+print(unknown == unknown)
+print(unknown != unknown)
+```
+
+```output
+inf
+False
+True
+```
+
+Floats support `+`, `-`, `*`, `/`, unary signs, and comparisons.
+`//` and `%` currently require integers. Floats can be list elements, dictionary
+values, class fields, and enum payloads, but cannot be dictionary keys or set
+elements. Float literals that overflow their declared width are compile errors.
 
 ## 4. Define functions with clear interfaces
 
@@ -371,7 +429,7 @@ are interchangeable here; an alias does not create a distinct type, enforce
 units of measurement, or add runtime overhead.
 
 Aliases can name integers, booleans, strings, collections, unit, or other aliases.
-Integer aliases support casts; collection aliases support collection constructors. Declare aliases at module scope; they are
+Numeric aliases support casts; collection aliases support collection constructors. Declare aliases at module scope; they are
 visible throughout that file, including before their declaration. Alias chains
 must eventually reach a concrete type; cycles and unknown targets are errors.
 An alias cannot redefine a built-in name, another alias, or a function name.
@@ -778,22 +836,21 @@ the bound payloads; use `match copy(value)` to preserve such an owner.
 ## 19. Represent absence and failure explicitly
 
 `Option[T]` has two variants: `Some(T)` and `Nothing`.
+`Some`, `Nothing`, `Ok`, and `Err` are built in and need no type prefix.
 `Nothing` belongs to one concrete option type; it is not a universal null.
 
 ```plenty
-type Found = Option[i64]
-
-def first_positive(values: list[i64]) -> Found:
+def first_positive(values: list[i64]) -> Option[i64]:
     for value in values:
         if value > 0:
-            return Found.Some(value)
-    Found.Nothing
+            return Some(value)
+    Nothing
 
 for values in [[-1, 0], [-1, 42]]:
     match first_positive(values):
-        case Found.Some(value):
+        case Some(value):
             print(value)
-        case Found.Nothing:
+        case Nothing:
             print("not found")
 ```
 
@@ -803,21 +860,19 @@ not found
 ```
 
 Use `Result[T, E]` when the absent result has an explanation. Its variants
-are `Ok(T)` and `Err(E)`. A type alias makes repeated qualification shorter:
+are `Ok(T)` and `Err(E)`. The return signature supplies both types:
 
 ```plenty
-type Division = Result[i64, str]
-
-def divide(left: i64, right: i64) -> Division:
+def divide(left: i64, right: i64) -> Result[i64, str]:
     if right == 0:
-        return Division.Err("division by zero")
-    Division.Ok(left // right)
+        return Err("division by zero")
+    Ok(left // right)
 
 for result in [divide(8, 2), divide(8, 0)]:
     match result:
-        case Division.Ok(value):
+        case Ok(value):
             print(value)
-        case Division.Err(message):
+        case Err(message):
             print(message)
 ```
 
@@ -826,10 +881,70 @@ for result in [divide(8, 2), divide(8, 0)]:
 division by zero
 ```
 
-Both type arguments are explicit; there is no implicit unwrapping or exception.
-Unit payloads such as `Result[(), str]` are not implemented yet. For an operation
-without a success value, declare an enum with a nullary success variant and a
-payload-bearing failure variant.
+There is no implicit unwrapping or exception. Constructors get missing type
+information from a binding annotation, function parameter, or return signature.
+`Some(42)` already contains enough information to infer `Option[i64]`.
+`Nothing` has no payload to infer from; `Ok` and `Err` each need the other
+variant's type from context:
+
+```plenty
+found = Some(42)
+missing: Option[i64] = Nothing
+success: Result[i64, str] = Ok(42)
+failure: Result[i64, str] = Err("not ready")
+print(found == Some(42))
+print(missing == Option[i64].Nothing)
+match failure:
+    case Ok(value):
+        print(value)
+    case Err(message):
+        print(message)
+```
+
+```output
+True
+True
+not ready
+```
+
+Qualified forms remain available when you want to state all types at the
+construction site. A type alias works as well. Without sufficient context, the
+compiler asks for a type instead of guessing:
+
+```plenty-error
+answer = Ok(42)
+```
+
+```error
+cannot infer `Ok`
+```
+
+For an operation that can fail but has no success data, return `Result[(), E]`
+and construct success with `Ok(())`:
+
+```plenty
+def validate(name: str) -> Result[(), str]:
+    if len(name) == 0:
+        return Err("name is empty")
+    Ok(())
+
+for result in [validate("Plenty"), validate("")]:
+    match result:
+        case Ok(_):
+            print("valid")
+        case Err(message):
+            print(message)
+```
+
+```output
+valid
+name is empty
+```
+
+Unit is a real success payload, distinct from the absence represented by
+`Nothing`. `Option[()]` also works. Standalone unit bindings and unit parameters
+remain unsupported. User-defined enum variants still use their enum's prefix,
+even if a variant happens to be named `Ok` or `Some`.
 
 ## 20. Produce values lazily with generators
 
@@ -1241,8 +1356,8 @@ Numeric tail-recursive functions from the earlier lesson keep their tail calls.
 
 ## Where the language goes next
 
-This guide deliberately uses implemented features. Unit payloads, recursive types,
-element references, and stored or returned references remain future work. Traits and generics are deferred; async/await is out of
+This guide deliberately uses implemented features. Modules, input/file APIs,
+recursive types, element references, and stored or returned references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 
 When a lesson feels awkward, that is useful feedback for the language design.

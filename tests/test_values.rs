@@ -91,7 +91,7 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
 #[case("enum E:\n    A\nx: set[E] = set()", "set elements must")]
 #[case("x = Option[i64, str].Nothing", "Option requires 1")]
 #[case("x = Result[i64].Ok(1)", "Result requires 2")]
-#[case("x = Result[(), str].Ok(())", "payloads cannot be unit")]
+#[case("x = Result[(), str].Ok(1)", "expected (), got i64")]
 #[case("enum E:\n    A\nE = 1\nprint(E.A)", "shadows a type qualifier")]
 #[case("enum E:\n    A\n    B\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            1\n        case E.B:\n            True", "expected i64, got bool")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {

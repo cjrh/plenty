@@ -8,7 +8,7 @@ pub(super) struct EnumDecl {
 }
 pub(super) struct Case {
     at: Token,
-    pub(super) pattern: Option<(TypeRef, String, Option<Vec<String>>)>,
+    pub(super) pattern: Option<(Option<TypeRef>, String, Option<Vec<String>>)>,
     pub(super) body: Vec<Stmt>,
 }
 
@@ -61,8 +61,13 @@ impl Parser {
                 None
             } else {
                 let ty = self.ty()?;
-                self.expect(".")?;
-                let variant = self.name()?;
+                let (owner, variant) = if self.eat(".") {
+                    (Some(ty), self.name()?)
+                } else if ty.args.is_empty() && ty.name.as_deref().is_some_and(prelude_variant) {
+                    (None, ty.name.unwrap())
+                } else {
+                    return Err(at.error("qualify user-defined variants with their enum type"));
+                };
                 let bindings = if self.eat("(") {
                     let mut bindings = Vec::new();
                     while !self.eat(")") {
@@ -76,7 +81,7 @@ impl Parser {
                 } else {
                     None
                 };
-                Some((ty, variant, bindings))
+                Some((owner, variant, bindings))
             };
             let body = self.suite()?;
             cases.push(Case { at, pattern, body });
@@ -168,11 +173,7 @@ pub(super) fn resolve_types(
                             .map(|(name, fields)| {
                                 let fields = fields
                                     .iter()
-                                    .map(|field| {
-                                        field.resolve(&resolved)?.ok_or_else(|| {
-                                            field.at.error("enum payloads cannot be unit")
-                                        })
-                                    })
+                                    .map(|field| Ok(field.resolve(&resolved)?.unwrap_or(Ty::Unit)))
                                     .collect::<Result<Vec<_>>>()?;
                                 if fields.iter().any(Ty::restricted_storage) {
                                     return Err(e
@@ -235,6 +236,52 @@ pub(super) fn resolve_types(
 }
 
 impl Lower<'_> {
+    pub(super) fn prelude_constructor(
+        &mut self,
+        name: &str,
+        args: Option<&[Expr]>,
+        expected: Type,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if name == "Nothing" && args.is_some() {
+            return Err(at.error("nullary variants do not take parentheses"));
+        }
+        if name != "Nothing" && !args.is_some_and(|a| a.len() == 1) {
+            return Err(at.error(format!("variant `{name}` requires 1 payload argument")));
+        }
+        if let Some(ty) = expected {
+            if !prelude_owner(name, &ty) {
+                return Err(at.error(format!(
+                    "`{name}` requires a {} context",
+                    prelude_family(name)
+                )));
+            }
+            return self.variant(ty, name, args, at, ops);
+        }
+        if name == "Some" && args.is_some_and(|a| a.len() == 1) {
+            let arg = &args.unwrap()[0];
+            let ty = self.expr(arg, ops)?.unwrap_or(Ty::Unit);
+            if ty.restricted_storage() {
+                return Err(at.error("references and generators cannot be stored in enum payloads"));
+            }
+            if ty == Ty::Unit {
+                ops.push(Op::PushUnit);
+            }
+            if ty.layout_depth() >= 64 {
+                return Err(at.error("type nesting exceeds the implementation limit of 64"));
+            }
+            let Ty::Enum(t) = crate::sum::option(ty) else {
+                unreachable!()
+            };
+            ops.push(Op::Enum(EnumOp::New(t.clone(), 1)));
+            return Ok(Some(Ty::Enum(t)));
+        }
+        Err(at.error(format!(
+            "cannot infer `{name}`; provide an {} annotation, parameter, or return type",
+            prelude_family(name)
+        )))
+    }
     pub(super) fn qualified_type(&self, base: &Expr) -> Result<Type> {
         match &base.kind {
             Expression::Type(ty) => ty.resolve(self.aliases),
@@ -276,8 +323,16 @@ impl Lower<'_> {
             )));
         }
         for (arg, field) in args.unwrap_or(&[]).iter().zip(fields) {
-            let actual = self.expr_expected(arg, Some(field.clone()), ops)?;
-            self.same(actual, Some(field.clone()), &arg.at)?;
+            let expected = if *field == Ty::Unit {
+                None
+            } else {
+                Some(field.clone())
+            };
+            let actual = self.expr_expected(arg, expected.clone(), ops)?;
+            self.same(actual, expected, &arg.at)?;
+            if *field == Ty::Unit {
+                ops.push(Op::PushUnit);
+            }
         }
         ops.push(Op::Enum(EnumOp::New(t.clone(), tag)));
         Ok(Some(Ty::Enum(t)))
@@ -313,11 +368,18 @@ impl Lower<'_> {
             let case_start = self.locals.len();
             let mut body = Vec::new();
             let pattern = if let Some((owner, name, bindings)) = &case.pattern {
-                self.same(
-                    owner.resolve(self.aliases)?,
-                    Some(Ty::Enum(t.clone())),
-                    &owner.at,
-                )?;
+                if let Some(owner) = owner {
+                    self.same(
+                        owner.resolve(self.aliases)?,
+                        Some(Ty::Enum(t.clone())),
+                        &owner.at,
+                    )?;
+                } else if !prelude_owner(name, &Ty::Enum(t.clone())) {
+                    return Err(case.at.error(format!(
+                        "`{name}` matches only {} values; qualify user-defined variants",
+                        prelude_family(name)
+                    )));
+                }
                 let tag = t
                     .variants
                     .iter()
@@ -414,4 +476,18 @@ impl Lower<'_> {
         }
         Ok(joined.map_or(BlockResult::Exits, BlockResult::Continues))
     }
+}
+
+pub(super) fn prelude_variant(name: &str) -> bool {
+    matches!(name, "Ok" | "Err" | "Some" | "Nothing")
+}
+fn prelude_family(name: &str) -> &'static str {
+    if matches!(name, "Some" | "Nothing") {
+        "Option"
+    } else {
+        "Result"
+    }
+}
+fn prelude_owner(name: &str, ty: &Ty) -> bool {
+    matches!(ty, Ty::Enum(t) if t.name.starts_with(&format!("{}[", prelude_family(name))))
 }

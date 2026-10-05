@@ -49,10 +49,10 @@ Supported today:
   docstrings, forward references, and direct/mutual tail-call optimization.
 - `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool`, `str`, and `()`
   for no return value. Sized literals such as `42u8` and explicit casts such
-  as `i64(value)`. Arithmetic is checked; there are no implicit conversions.
+  as `i64(value)`. Integer arithmetic is checked; there are no implicit conversions.
 - Transparent type aliases, such as `type Count = u32`. There is no built-in
   `int`; users may explicitly choose `type int = i32` or `type int = i64`.
-  Floating-point types such as `f32` and `f64` are not implemented yet.
+  `f32` and `f64` support IEEE arithmetic and explicit numeric casts.
 - Infix arithmetic and comparisons, `True`/`False`, short-circuit `and`/`or`,
   `not`, parentheses, and Python's `a if condition else b` expression.
 - Indented `if`/`elif`/`else` blocks. A final expression supplies a block's
@@ -68,7 +68,8 @@ Supported today:
   indexing, membership, moves, explicit `copy`, and in-place updates through `mut` owners.
 - `for` loops over collections, strings, ranges, and lazy generators; list, dict,
   and set comprehensions with multiple iteration and filter clauses.
-- Concrete `enum` types, exhaustive `match`/`case`, and typed `Option`/`Result`.
+- Concrete `enum` types, exhaustive `match`/`case`, and typed `Option`/`Result`,
+  including `Result[(), E]` and built-in `Some`, `Nothing`, `Ok`, and `Err`.
 - `Generator[T]` functions with `yield`, consuming iteration, and `next` returning
   `Option[T]`. Assignment and calls move generators; invalid reuse is checked.
 - One immutable `str` with explicit lengths and embedded NUL support. Managed
@@ -77,8 +78,8 @@ Supported today:
   `__init__`, associated methods, and deterministic `__del__` cleanup.
 - `&T` and `&mut T` for named locals, parameters, and class fields, with last-use borrow checking
   across branches, loops, and reborrows. Stored/returned references are deferred.
-- `//` rounds toward negative infinity; `%` follows the divisor's sign. `/`
-  is reserved for future floating-point support.
+- Integer `//` rounds toward negative infinity; `%` follows the divisor's sign.
+  `/` divides same-width floating-point operands.
 
 Collections and comprehensions use familiar syntax with fixed element types:
 

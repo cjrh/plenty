@@ -1,6 +1,36 @@
 use super::*;
 use crate::sum::EnumOp;
 
+/// All runtime slots carry 64 raw bits, including float fields and frame locals.
+pub(super) fn pack_value(
+    b: &mut FunctionBuilder<'_>,
+    value: cranelift_codegen::ir::Value,
+    ty: &Ty,
+) -> cranelift_codegen::ir::Value {
+    if ty.is_float() {
+        let bits = b.ins().bitcast(
+            if *ty == Ty::F32 {
+                types::I32
+            } else {
+                types::I64
+            },
+            cranelift_codegen::ir::MemFlags::new(),
+            value,
+        );
+        if *ty == Ty::F32 {
+            b.ins().uextend(types::I64, bits)
+        } else {
+            bits
+        }
+    } else if clif_type(ty.clone()) == types::I64 {
+        value
+    } else if is_signed(ty.clone()) {
+        b.ins().sextend(types::I64, value)
+    } else {
+        b.ins().uextend(types::I64, value)
+    }
+}
+
 impl Lowerer<'_, '_> {
     pub(super) fn lower_class(&mut self, op: &crate::record::ClassOp) -> Result<()> {
         use crate::record::ClassOp;
@@ -85,13 +115,7 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
-        if clif_type(ty.clone()) == types::I64 {
-            value
-        } else if is_signed(ty.clone()) {
-            self.bcx.ins().sextend(types::I64, value)
-        } else {
-            self.bcx.ins().uextend(types::I64, value)
-        }
+        pack_value(self.bcx, value, ty)
     }
     pub(super) fn unpack(
         &mut self,
@@ -99,6 +123,17 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
         let target = clif_type(ty.clone());
+        if ty.is_float() {
+            let bits = if *ty == Ty::F32 {
+                self.bcx.ins().ireduce(types::I32, value)
+            } else {
+                value
+            };
+            return self
+                .bcx
+                .ins()
+                .bitcast(target, cranelift_codegen::ir::MemFlags::new(), bits);
+        }
         if target == types::I64 {
             value
         } else {

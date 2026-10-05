@@ -16,7 +16,7 @@ mod generators;
 mod references;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-type Type = Option<Ty>; // Unit has no runtime representation in this milestone.
+type Type = Option<Ty>; // Unit expressions have no operand; enum slots use Ty::Unit.
 pub(crate) type TypeAliases = HashMap<String, Type>;
 pub(crate) const ENTRY: &str = "__plenty_entry";
 
@@ -201,15 +201,45 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                     ..start
                 });
             }
-            c if c.is_ascii_digit() => {
+            c if c.is_ascii_digit()
+                || (c == '.' && chars.get(pos + 1).is_some_and(char::is_ascii_digit)) =>
+            {
                 let begin = pos;
+                while chars
+                    .get(pos)
+                    .is_some_and(|c| c.is_ascii_digit() || *c == '_')
+                {
+                    pos += 1;
+                }
+                if chars.get(pos) == Some(&'.') {
+                    pos += 1;
+                    while chars
+                        .get(pos)
+                        .is_some_and(|c| c.is_ascii_digit() || *c == '_')
+                    {
+                        pos += 1;
+                    }
+                }
+                if matches!(chars.get(pos), Some('e' | 'E')) {
+                    pos += 1;
+                    if matches!(chars.get(pos), Some('+' | '-')) {
+                        pos += 1;
+                    }
+                    while chars
+                        .get(pos)
+                        .is_some_and(|c| c.is_ascii_digit() || *c == '_')
+                    {
+                        pos += 1;
+                    }
+                }
+                // Keep a suffix (including malformed suffixes) in the same token.
                 while chars
                     .get(pos)
                     .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
                 {
                     pos += 1;
-                    column += 1;
                 }
+                column += pos - begin;
                 out.push(Token {
                     kind: Kind::Number(chars[begin..pos].iter().collect()),
                     ..start
@@ -343,10 +373,7 @@ impl TypeRef {
             let args = self
                 .args
                 .iter()
-                .map(|t| {
-                    t.resolve(aliases)?
-                        .ok_or_else(|| t.at.error("enum payloads cannot be unit"))
-                })
+                .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<Vec<_>>>()?;
             if args.iter().map(|t| t.to_string().len()).sum::<usize>() > 16_384 {
                 return Err(self
@@ -950,6 +977,8 @@ fn named_type(name: &str) -> Type {
         "u16" => Ty::U16,
         "u32" => Ty::U32,
         "u64" => Ty::U64,
+        "f32" => Ty::F32,
+        "f64" => Ty::F64,
         "bool" => Ty::Bool,
         "str" => Ty::Str,
         "range" => Ty::Range,
@@ -973,6 +1002,10 @@ fn builtin(name: &str) -> bool {
                 | "set"
                 | "len"
                 | "range"
+                | "Ok"
+                | "Err"
+                | "Some"
+                | "Nothing"
                 | "Option"
                 | "Result"
                 | "Generator"
@@ -1074,6 +1107,47 @@ struct Lower<'a> {
     expression_temps: Vec<u8>,
 }
 impl Lower<'_> {
+    fn number(&self, text: &str, negative: bool, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
+        if text.contains(['.', 'e', 'E']) || text.ends_with("f32") || text.ends_with("f64") {
+            let (digits, ty) = if let Some(s) = text.strip_suffix("f32") {
+                (s, Ty::F32)
+            } else {
+                (text.strip_suffix("f64").unwrap_or(text), Ty::F64)
+            };
+            let digits = digits.replace('_', "");
+            let digits = if negative {
+                format!("-{digits}")
+            } else {
+                digits
+            };
+            let bits = if ty == Ty::F32 {
+                let value: f32 = digits
+                    .parse()
+                    .map_err(|_| at.error("invalid f32 literal"))?;
+                if !value.is_finite() {
+                    return Err(at.error("f32 literal is out of range"));
+                }
+                u64::from(value.to_bits())
+            } else {
+                let value: f64 = digits
+                    .parse()
+                    .map_err(|_| at.error("invalid f64 literal"))?;
+                if !value.is_finite() {
+                    return Err(at.error("f64 literal is out of range"));
+                }
+                value.to_bits()
+            };
+            ops.push(Op::PushFloat {
+                bits,
+                ty: ty.clone(),
+            });
+            Ok(ty)
+        } else {
+            let value = integer(text, negative, at)?;
+            ops.push(Op::PushInt(value));
+            Ok(Ty::from(value))
+        }
+    }
     fn same(&self, got: Type, expected: Type, at: &Token) -> Result<()> {
         if got == expected {
             Ok(())
@@ -1117,11 +1191,7 @@ impl Lower<'_> {
                 let ty = ty.resolve(self.aliases)?.unwrap();
                 Some(self.construct(ty, args, &e.at, ops)?)
             }
-            Expression::Number(n) => {
-                let v = integer(n, false, &e.at)?;
-                ops.push(Op::PushInt(v));
-                Some(Ty::from(v))
-            }
+            Expression::Number(n) => Some(self.number(n, false, &e.at, ops)?),
             Expression::Text(s) => {
                 ops.push(Op::PushStr(self.heap.add_str(s.clone())));
                 Some(Ty::Str)
@@ -1133,6 +1203,9 @@ impl Lower<'_> {
             Expression::Unit => None,
             Expression::Group(inner) => self.expr(inner, ops)?,
             Expression::Name(name) => {
+                if enums::prelude_variant(name) && !self.names.contains_key(name) {
+                    return self.prelude_constructor(name, None, None, &e.at, ops);
+                }
                 let local = self
                     .names
                     .get(name)
@@ -1151,7 +1224,12 @@ impl Lower<'_> {
                     }
                     ops.push(Op::LoadLocal(local.slot));
                 }
-                Some(local.ty.clone())
+                if local.ty == Ty::Unit {
+                    ops.push(Op::Drop);
+                    None
+                } else {
+                    Some(local.ty.clone())
+                }
             }
             Expression::Unary(op, value) => {
                 if op == "&" || op == "&mut" {
@@ -1182,9 +1260,7 @@ impl Lower<'_> {
                 }
                 if op == "-" {
                     if let Expression::Number(n) = &value.kind {
-                        let v = integer(n, true, &e.at)?;
-                        ops.push(Op::PushInt(v));
-                        return Ok(Some(Ty::from(v)));
+                        return self.number(n, true, &e.at, ops).map(Some);
                     }
                 }
                 let mut body = Vec::new();
@@ -1194,8 +1270,15 @@ impl Lower<'_> {
                     ops.extend(body);
                     ops.push(Op::Not);
                 } else {
-                    if !ty.is_int() {
-                        return Err(e.at.error("unary arithmetic requires an integer"));
+                    if !ty.is_numeric() {
+                        return Err(e.at.error("unary arithmetic requires a number"));
+                    }
+                    if ty.is_float() {
+                        ops.extend(body);
+                        if op == "-" {
+                            ops.push(Op::FloatNeg);
+                        }
+                        return Ok(Some(ty));
                     }
                     if op == "-" {
                         ops.push(Op::PushInt(integer(&format!("0{ty}"), false, &e.at)?));
@@ -1252,7 +1335,7 @@ impl Lower<'_> {
                     Self::end_reads(loans, ops);
                     Some(Ty::Bool)
                 } else {
-                    if !a.is_int()
+                    if !a.is_numeric()
                         && !(matches!(op.as_str(), "==" | "!=") || (op == "+" && a == Ty::Str))
                     {
                         return Err(e.at.error(format!(
@@ -1260,16 +1343,22 @@ impl Lower<'_> {
                             type_name(Some(a.clone()))
                         )));
                     }
-                    if op == "/" {
-                        return Err(e.at.error(
-                            "use `//` for integer division; floating-point `/` is not implemented",
-                        ));
+                    if op == "/" && !a.is_float() {
+                        return Err(e
+                            .at
+                            .error("use `//` for integer division; `/` requires floats"));
+                    }
+                    if matches!(op.as_str(), "//" | "%") && a.is_float() {
+                        return Err(e
+                            .at
+                            .error("floor division and modulo currently require integers"));
                     }
                     ops.extend(rhs);
                     ops.push(match op.as_str() {
                         "+" => Op::Add,
                         "-" => Op::Sub,
                         "*" => Op::Mul,
+                        "/" => Op::Div,
                         "//" => Op::FloorDiv,
                         "%" => Op::Modulo,
                         "==" => Op::Eq,
@@ -1302,6 +1391,9 @@ impl Lower<'_> {
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));
                 }
+                if enums::prelude_variant(name) {
+                    return self.prelude_constructor(name, Some(args), None, &e.at, ops);
+                }
                 if name == "copy" || name == "drop" {
                     return self.copy_or_drop(name, args, &e.at, ops);
                 }
@@ -1324,14 +1416,14 @@ impl Lower<'_> {
                         return self.construct(target.clone(), args, &e.at, ops).map(Some);
                     }
                     let target = target
-                        .filter(|ty| ty.is_int())
-                        .ok_or_else(|| e.at.error("only integer types support cast syntax"))?;
+                        .filter(|ty| ty.is_numeric())
+                        .ok_or_else(|| e.at.error("only numeric types support cast syntax"))?;
                     if args.len() != 1 {
-                        return Err(e.at.error("integer casts take one argument"));
+                        return Err(e.at.error("numeric casts take one argument"));
                     }
                     let source = self.value(&args[0], ops)?;
-                    if !source.is_int() {
-                        return Err(e.at.error("integer casts require an integer"));
+                    if !source.is_numeric() {
+                        return Err(e.at.error("numeric casts require a number"));
                     }
                     ops.push(Op::Cast(target.clone()));
                     Some(target)

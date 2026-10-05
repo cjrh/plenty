@@ -74,14 +74,8 @@ pub(super) fn emit_generator(
         let call = b.ins().call(new, &[callback, count, mask]);
         let frame = b.inst_results(call)[0];
         for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
-            let mut value = b.block_params(entry)[i];
-            if clif_type(ty.clone()) != types::I64 {
-                value = if is_signed(ty.clone()) {
-                    b.ins().sextend(types::I64, value)
-                } else {
-                    b.ins().uextend(types::I64, value)
-                };
-            }
+            let value = b.block_params(entry)[i];
+            let value = enums::pack_value(&mut b, value, ty);
             b.ins()
                 .store(MemFlags::trusted(), value, frame, 56 + i as i32 * 8);
         }

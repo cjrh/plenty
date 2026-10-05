@@ -51,18 +51,8 @@ impl Lowerer<'_, '_> {
         let (inputs, output) = operation.signature();
         let mut values = Vec::new();
         for input in inputs.iter().rev() {
-            let (mut value, _) = self.pop_typed(input.clone())?;
-            if input.is_int() || *input == Ty::Bool {
-                let actual = clif_type(input.clone());
-                if actual != types::I64 {
-                    value = if is_signed(input.clone()) {
-                        self.bcx.ins().sextend(types::I64, value)
-                    } else {
-                        self.bcx.ins().uextend(types::I64, value)
-                    };
-                }
-            }
-            values.push(value);
+            let (value, _) = self.pop_typed(input.clone())?;
+            values.push(self.pack(value, input));
         }
         values.reverse();
         let descriptor = match operation {
@@ -75,14 +65,11 @@ impl Lowerer<'_, '_> {
             CollectionOp::TextByteLen | CollectionOp::TextAtByte => Some(&Ty::Str),
             _ => None,
         };
-        let mut result = self.collection_call(operation.opcode(), &values, descriptor)?;
+        let result = self.collection_call(operation.opcode(), &values, descriptor)?;
         for (value, ty) in values.iter().zip(&inputs) {
             self.release(*value, ty);
         }
-        let result_type = clif_type(output.clone());
-        if result_type != types::I64 {
-            result = self.bcx.ins().ireduce(result_type, result);
-        }
+        let result = self.unpack(result, &output);
         self.stack.push((result, output));
         Ok(())
     }

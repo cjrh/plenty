@@ -58,6 +58,8 @@ macro_rules! printer {
 }
 printer!(plenty_println_signed, i64, "{}\n");
 printer!(plenty_println_unsigned, u64, "{}\n");
+printer!(plenty_println_f32, f32, "{:?}\n");
+printer!(plenty_println_f64, f64, "{:?}\n");
 printer!(plenty_print_i8, i8, "{}i8");
 printer!(plenty_print_i16, i16, "{}i16");
 printer!(plenty_print_i32, i32, "{}i32");

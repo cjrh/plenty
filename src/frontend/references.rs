@@ -26,7 +26,13 @@ impl Lower<'_> {
     fn named_place(&self, e: &Expr) -> Result<Local> {
         match &e.kind {
             Expression::Group(e) => self.named_place(e),
-            Expression::Name(name) => self.names.get(name).cloned().ok_or_else(|| e.at.error(format!("unknown binding `{name}`"))),
+            Expression::Name(name) => {
+                let local = self.names.get(name).cloned().ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
+                if local.ty == Ty::Unit {
+                    return Err(e.at.error("expected a value, got ()"));
+                }
+                Ok(local)
+            }
             _ => Err(e.at.error("borrowing requires a named binding; element and temporary references are not supported yet")),
         }
     }
@@ -96,7 +102,10 @@ impl Lower<'_> {
     fn observe_inner(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
         match &e.kind {
             Expression::Group(inner) => self.observe(inner, ops),
-            Expression::Name(_) => {
+            Expression::Name(name) => {
+                if enums::prelude_variant(name) && !self.names.contains_key(name) {
+                    return self.value(e, ops).map(|ty| (ty, vec![]));
+                }
                 let local = self.named_place(e)?;
                 if let Ty::Ref(ty, _) = &local.ty {
                     let parent = self.reference_locals[&local.slot];

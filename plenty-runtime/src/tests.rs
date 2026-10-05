@@ -10,6 +10,36 @@ use std::ptr;
 thread_local! { static TRACE: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) }; }
 const GUARD: &CStr = c"C5:Guard1:2:id4";
 
+#[test]
+fn float_slots_preserve_bits_and_ieee_equality_and_unit_payloads() {
+    unsafe {
+        for (descriptor, negative_zero, nan) in [
+            (
+                c"Lf",
+                u64::from((-0.0f32).to_bits()),
+                u64::from(f32::NAN.to_bits()),
+            ),
+            (c"Ld", (-0.0f64).to_bits(), f64::NAN.to_bits()),
+        ] {
+            let a = collection(0, 0, 0, 0, descriptor.as_ptr());
+            let b = collection(0, 0, 0, 0, descriptor.as_ptr());
+            plenty_release(collection(1, a, negative_zero, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, b, 0, 0, ptr::null()) as *mut Header);
+            assert_eq!(collection(4, a, 0, 0, ptr::null()), negative_zero);
+            assert_eq!(collection(8, a, b, 0, ptr::null()), 1);
+            plenty_release(collection(3, a, 0, nan, ptr::null()) as *mut Header);
+            assert_eq!(collection(8, a, a, 0, ptr::null()), 0);
+            assert_eq!(collection(7, nan, a, 0, ptr::null()), 0);
+            plenty_release(a as *mut Header);
+            plenty_release(b as *mut Header);
+        }
+        let done = collection(20, 0, 0, 0, c"E4:Done1:2:Ok1:v".as_ptr());
+        collection(21, done, 0, 0, ptr::null());
+        assert_eq!(collection(23, done, 0, 0, ptr::null()), 0);
+        plenty_release(done as *mut Header);
+    }
+}
+
 unsafe fn guard(id: u64) -> u64 {
     unsafe {
         let value = collection(30, hook as *const () as u64, 0, 0, GUARD.as_ptr());

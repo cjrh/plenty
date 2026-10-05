@@ -45,25 +45,44 @@ Consequences:
 
 ## Implementation status
 
+The core language can compile substantial single-file programs: typed functions,
+control flow, collections, classes, sum types, generators, ownership, and automatic
+cleanup are implemented. It is still an early language implementation, with a
+small built-in library and important limits on borrowing. The main gaps for
+everyday programs are modules/imports, input and file APIs,
+and richer text/collection operations. An implemented row below describes the
+supported subset, not Python's full API or Rust's full ownership system.
+
 | Area | Status on this branch |
 | --- | --- |
 | Python-shaped lexer/parser, typed function declarations | Implemented |
 | Infix expressions, conditional expressions and blocks | Implemented |
 | Immutable bindings and explicit `mut` reassignment | Implemented |
 | Checked sized integers, booleans, strings, unit returns | Implemented |
+| Floating-point types and arithmetic (`f32`, `f64`, `/`) | Implemented with IEEE arithmetic and explicit numeric casts |
 | Transparent module-level type aliases | Implemented |
 | Cranelift AOT and compile-and-run file command | Implemented |
-| Direct and mutual tail calls | Implemented in AOT |
+| Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
+| Direct and mutual tail calls | Implemented where borrowing and observable cleanup permit |
 | Early returns and return-aware branch checking | Implemented in AOT |
 | Concrete enums, tagged payloads, exhaustive matching | Implemented |
 | Fixed-layout classes, constructors, methods, custom cleanup | Implemented |
-| `Option[T]`, `Result[T, E]` | Implemented for stored value payloads |
+| `Option[T]`, `Result[T, E]` | Implemented, including unit payloads and unqualified `Some`, `Nothing`, `Ok`, `Err` |
+| Unit values | Expressions, function returns, and enum payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
 | Local/parameter references and last-use borrow checking | Implemented for bindings and class fields; element/stored/returned references deferred |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
+| Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
+| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values; safe dictionary lookup, removal, and slicing are missing |
+| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership; formatting, splitting/joining, and numeric parsing are missing |
+| Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
+| Modules/imports and multi-file programs | Not implemented |
+| Modern program input, file I/O, and command-line argument APIs | Not implemented; modern programs currently expose output through `print` |
+| Recursive class/enum types | Not implemented; acyclic forward declarations work |
+| Native FFI / shared-library loading | Not implemented |
 | User generics, traits | Deferred |
 | Async/await | Out of scope |
 
@@ -74,7 +93,7 @@ updates operate in place. Named local and parameter references use `&T` / `&mut 
 with last-use loan checking over an access CFG. Class fields can also be borrowed;
 collection element references, stored references, and returned references are deferred.
 
-The four design proposals for this batch are in [docs/proposals](docs/proposals).
+The original four feature proposals are in [docs/proposals](docs/proposals).
 They record the reasoning and suggested staging; this document describes the
 implemented result, including integration choices that differ from those proposals.
 
@@ -113,23 +132,35 @@ To return a string directly without a docstring, use `return "text"`.
 
 The current primitive types are `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`,
 `u64`, `bool`, and `str`. Numeric built-ins use explicit-width names; there is
-no built-in `int`. Future floating-point types should use `f32`/`f64`; neither
-is implemented yet. Unsuffixed integer literals are `i64`; suffixes
-select widths. No contextual integer inference or implicit numeric widening.
+no built-in `int`. Floating-point types are `f32` and `f64`. Unsuffixed integer
+literals are `i64`; decimal/exponent literals default to `f64`. Suffixes select
+widths, including `1f32`, `1.5f32`, and `1e-3f64`. Decimal forms such as `.5`
+and `1.` are also accepted.
+No contextual numeric literal inference or implicit numeric widening.
+
 Integer casts use truncation/sign-extension like the historical backend.
-Overflow and division by zero are runtime errors.
-`//` floors signed quotients, including negative operands; `/` is rejected
-until a floating-point type is implemented. Comparisons require equal types,
-and ordering requires integers. Chained comparisons are rejected explicitly.
+Integer overflow and division by zero are runtime errors. `//` floors signed
+integer quotients, including negative operands; `%` is also integer-only.
+`/` accepts same-width floats. Floating-point arithmetic uses IEEE semantics:
+signed zero, infinities, NaN, and ordinary rounding, without fast-math rewrites.
+Float literals must fit their width; runtime arithmetic can overflow to infinity.
+Underflow follows the target's IEEE behavior. Float-to-integer casts truncate
+toward zero and saturate to the target range; NaN becomes zero. Integer-to-float
+casts and narrowing floats may round; widening `f32` to `f64` is exact.
+Comparisons require equal types; ordering accepts integers and floats. NaN
+compares unequal to every value, including itself, and all ordered comparisons
+with NaN are false. These rules also apply to structural equality and membership.
+Float printing uses shortest round-trip Rust debug formatting, including a decimal
+point for whole finite values and `inf`, `-inf`, and `NaN`.
+Floats cannot be dictionary keys or set elements. Chained comparisons remain rejected.
 
 There is **no `None` type or value**. The unit type `()` means a computation
 completed without producing data, and lowers to no result register. It is
-currently supported for expressions and function returns, not stored bindings
-or parameters. Absence and recoverable failure use explicit sum types:
-`Option[T].Some(value)` / `Option[T].Nothing` and
-`Result[T, E].Ok(value)` / `Result[T, E].Err(error)`. Unit payloads, including
-`Result[(), E]`, remain unsupported; a concrete enum with a nullary success
-variant expresses that outcome.
+supported for expressions, function returns, and enum payloads, including
+`Result[(), E]` and `Option[()]`. Standalone unit bindings, parameters, collection
+elements, and class fields remain unsupported. Absence and recoverable failure
+use explicit sum types: `Some(value)` / `Nothing` and `Ok(value)` / `Err(error)`.
+`Ok(())` means success without data, not absence.
 
 ### Type aliases
 
@@ -149,7 +180,7 @@ names are rejected, including unused aliases. Local aliases are not supported.
 An alias creates no new nominal identity, validation rule, layout, or runtime
 wrapper; two aliases for `i32` are interchangeable with each other and `i32`.
 
-Use aliases in parameter/return types and local annotations. Integer aliases
+Use aliases in parameter/return types and local annotations. Numeric aliases
 also support the same explicit cast syntax as their target: with `type int =
 i32`, `int(42)` is exactly `i32(42)`, including truncation semantics. Boolean,
 string, and unit aliases do not introduce constructors or conversions. Existing
@@ -240,7 +271,8 @@ dictionary insertion order and set order do not. There are no identity tests.
 Generators support consuming iteration, not length or membership. Lists, strings, and
 ranges support i64 indexing, including negative indices. Dictionaries index by
 their key type. Out-of-bounds indices and absent keys report a runtime error and
-exit with status 1; absence-returning dictionary lookup awaits `Option`.
+exit with status 1; absence-returning dictionary lookup is not implemented yet,
+although `Option` is now available to express its result.
 `list(iterable)` and `set(iterable)` convert supported iterables; `dict(d)`
 transfers an existing dictionary value. Dictionary `keys()` and `values()` produce
 new lists. `values()` on mutable payloads requires an owned temporary such as
@@ -518,10 +550,26 @@ Runtime descriptors refer back to previously encoded enums, so shared enum
 dependencies do not expand exponentially during compilation or metadata loading.
 
 `Option[T]` and `Result[T, E]` are compiler-known concrete enum constructors,
-without user generics or traits. Payloads must be stored values:
-integers, bool, str, collections, or other nonrecursive enums. Unit and generator
-payloads are rejected. Enums can be list elements and dictionary values, but are
+without user generics or traits. Payloads may be integers, floats, bool, str,
+collections, classes, other nonrecursive enums, or unit. References and generators
+cannot be payloads. Enums can be list elements and dictionary values, but are
 not dictionary keys or set elements in the initial closed hashable-type set.
+
+`Some`, `Nothing`, `Ok`, and `Err` are compiler-known prelude names. Constructors
+use the expected type from an annotation, argument, return, or enclosing typed
+constructor/collection. `Some(value)` can infer its complete type from its payload;
+`Ok`, `Err`, and `Nothing` require context because their missing type arguments
+cannot be guessed. Inference is local and left-to-right, not a search across
+later statements or other functions. Qualified forms and aliases remain supported.
+Prelude names follow other built-ins: top-level function/type redefinitions are
+rejected; local bindings can shadow expression names. Unqualified patterns always
+denote the standard variants and get their type from the scrutinee. User-defined
+variants still require qualification.
+
+Unit payloads evaluate their argument for effects, then store a zero marker in
+the ordinary 64-bit field slot. Matching may ignore or bind that payload; reading
+a unit pattern binding yields the no-register unit expression, so it can be
+returned from a unit-returning function. It does not introduce nullability.
 
 `match` currently accepts enums. Each `case` names a variant and binds payload
 positions to immutable locals or `_`; a whole-value `_` covers the remaining
@@ -536,7 +584,11 @@ produces its final arm expression, like the existing statement-form `if`.
 Native enum values are immutable pointer-sized handles to tagged records.
 The record contains a managed header, concrete type metadata, tag, and one
 64-bit slot per active payload field. Equality compares nominal type, tag, and
-payload contents. Printing uses qualified variant names. No niche optimization,
+payload contents, using IEEE comparisons for floats. Runtime metadata records
+whether equality is reflexive; float-containing values cannot use pointer identity
+as an equality shortcut because of NaN. Aggregate pairs are memoized during a
+structural comparison to avoid expanding shared payload graphs exponentially.
+Printing uses qualified variant names. No niche optimization,
 stable external layout, or per-instantiation code generation is required.
 Frontend coverage lowers to the existing scalar-tag match with an invalid-tag
 trap fallback. The independent checker validates construction/projection types;
@@ -822,13 +874,32 @@ allocation and optimizing frame liveness are later runtime improvements.
 
 ## Next milestones
 
-1. First-class unit payloads, richer diagnostics, and measured compile-latency
-   improvements; measure archive extraction and native linking costs.
-2. Recursive types with explicit layout rules; constructor and method ergonomics.
-3. Disjoint field loans, element places, and stored/returned reference contracts, then evaluate
-   Polonius-style precision against compilation cost.
-4. Narrowly scoped generics if examples require them. Traits remain a separate
-   decision. Async/await remains out of scope.
+For a useful basic feature set, prioritize these capabilities. This is a proposed
+sequence; API syntax and the reference contracts still require design work.
+
+Floating-point types, unit payloads, and the standard sum-type prelude are now
+implemented. The next priorities are:
+
+1. Add a small practical library: text conversion/parsing and splitting/joining,
+   safe dictionary lookup, collection removal, standard input, file I/O, and
+   program arguments. Use explicit `Option`/`Result` outcomes; choose borrowing
+   or ownership explicitly when a lookup returns an owned element.
+2. Support multi-file programs with a simple module/import and visibility model.
+   Avoid a package manager or general trait system as prerequisites.
+3. Make common collection code possible without consuming or copying its inputs:
+   element borrowing and borrowed iteration over owned values, disjoint class
+   field loans, and then restricted reference returns whose origins are explicit
+   in function signatures. Stored references are a separate, later extension.
+4. Add tuples and unpacking to support multiple results and dictionary `items()`.
+   Then evaluate recursive types with explicit layout/ownership rules and narrow
+   user generics against concrete tutorial examples. Traits remain a separate
+   decision; async/await remains out of scope.
+
+Improve diagnostics and measure compilation latency throughout these steps,
+including archive extraction and native linking. Extend ownership regression,
+allocation, and sanitizer checks as reference support grows. Evaluate additional
+Polonius-style precision against compilation cost rather than treating a complete
+Rust-like borrow checker as a prerequisite for a usable first version.
 
 Tests must distinguish proposed syntax from executable examples. Every current
 example should run. Native execution tests exercise output, errors, side-effect

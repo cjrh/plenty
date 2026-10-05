@@ -96,9 +96,9 @@ fn aliases_are_transparent(#[case] source: &str, #[case] ty: &str, #[case] expec
 #[case("type Done = ()\nx: Done = 42", "unit bindings")]
 #[case(
     "type Text = str\nText('hello')",
-    "only integer types support cast syntax"
+    "only numeric types support cast syntax"
 )]
-#[case("type Done = ()\nDone()", "only integer types support cast syntax")]
+#[case("type Done = ()\nDone()", "only numeric types support cast syntax")]
 fn invalid_aliases_are_diagnosed(#[case] source: &str, #[case] expected: &str) {
     let error = check_source(source).unwrap_err().to_string();
     assert!(

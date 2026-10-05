@@ -89,6 +89,16 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         match &e.kind {
+            Expression::Call(name, args)
+                if enums::prelude_variant(name) && !self.names.contains_key(name) =>
+            {
+                self.prelude_constructor(name, Some(args), expected, &e.at, ops)
+            }
+            Expression::Name(name)
+                if enums::prelude_variant(name) && !self.names.contains_key(name) =>
+            {
+                self.prelude_constructor(name, None, expected, &e.at, ops)
+            }
             Expression::Collection { .. } => self.collection(e, expected, ops).map(Some),
             Expression::Call(name, args)
                 if matches!(name.as_str(), "list" | "dict" | "set")

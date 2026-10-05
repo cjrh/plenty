@@ -13,6 +13,8 @@ struct Variant {
 struct Type {
     kind: u8,
     affine: bool,
+    /// Float-containing values must be compared even when storage is shared (NaN).
+    reflexive: bool,
     key: Option<Rc<Type>>,
     value: Option<Rc<Type>>,
     name: String,
@@ -86,6 +88,7 @@ impl Descriptor<'_> {
         let mut ty = Type {
             kind,
             affine: matches!(kind, b'L' | b'S' | b'D' | b'C'),
+            reflexive: !matches!(kind, b'f' | b'd'),
             key: None,
             value: None,
             name: String::new(),
@@ -119,10 +122,27 @@ impl Descriptor<'_> {
         };
         if !matches!(
             kind,
-            b'1'..=b'8' | b'b' | b's' | b'L' | b'S' | b'D' | b'R' | b'E' | b'C'
+            b'1'..=b'8'
+                | b'f'
+                | b'd'
+                | b'v'
+                | b'b'
+                | b's'
+                | b'L'
+                | b'S'
+                | b'D'
+                | b'R'
+                | b'E'
+                | b'C'
         ) {
             crate::fail("invalid type descriptor");
         }
+        ty.reflexive &= ty
+            .key
+            .iter()
+            .chain(&ty.value)
+            .chain(ty.variants.iter().flat_map(|v| &v.fields))
+            .all(|t| t.reflexive);
         let ty = Rc::new(ty);
         if let Some(id) = named {
             self.named[id] = Some(ty.clone());
@@ -402,11 +422,26 @@ impl Collection {
 }
 
 unsafe fn equal(a: u64, b: u64, ty: &Type) -> bool {
+    // Immutable payloads can form shared DAGs. Memoize aggregate pairs so IEEE
+    // comparisons do not turn a shared float-containing graph into exponential work.
+    unsafe { equal_inner(a, b, ty, &mut std::collections::HashSet::new()) }
+}
+unsafe fn equal_inner(
+    a: u64,
+    b: u64,
+    ty: &Type,
+    seen: &mut std::collections::HashSet<(u64, u64)>,
+) -> bool {
     unsafe {
-        if a == b {
+        if a == b && ty.reflexive {
+            return true;
+        }
+        if matches!(ty.kind, b'C' | b'E' | b'L' | b'D') && !seen.insert((a, b)) {
             return true;
         }
         match ty.kind {
+            b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
+            b'd' => f64::from_bits(a) == f64::from_bits(b),
             b's' => strings::bytes(a as *const Text) == strings::bytes(b as *const Text),
             b'C' | b'E' => {
                 let (a, b) = (a as *const Record, b as *const Record);
@@ -417,10 +452,11 @@ unsafe fn equal(a: u64, b: u64, ty: &Type) -> bool {
                     return false;
                 }
                 (0..record_count(ty, (*a).tag_or_hook)).all(|i| {
-                    equal(
+                    equal_inner(
                         *std::ptr::addr_of!((*a).fields).cast::<u64>().add(i),
                         *std::ptr::addr_of!((*b).fields).cast::<u64>().add(i),
                         field_type(ty, (*a).tag_or_hook, i),
+                        seen,
                     )
                 })
             }
@@ -435,21 +471,23 @@ unsafe fn equal(a: u64, b: u64, ty: &Type) -> bool {
                 }
                 for (i, entry) in a.entries.iter().enumerate() {
                     if ty.kind == b'L' {
-                        if !equal(entry.key, b.entries[i].key, ty.key()) {
+                        if !equal_inner(entry.key, b.entries[i].key, ty.key(), seen) {
                             return false;
                         }
                     } else {
                         let Some(j) = b.find(entry.key) else {
                             return false;
                         };
-                        if ty.kind == b'D' && !equal(entry.value, b.entries[j].value, ty.value()) {
+                        if ty.kind == b'D'
+                            && !equal_inner(entry.value, b.entries[j].value, ty.value(), seen)
+                        {
                             return false;
                         }
                     }
                 }
                 true
             }
-            _ => false,
+            _ => a == b,
         }
     }
 }
@@ -503,6 +541,9 @@ unsafe fn render(value: u64, ty: &Type, out: &mut Vec<u8>) {
         match ty.kind {
             b'1'..=b'4' => write!(out, "{}", value as i64).unwrap(),
             b'5'..=b'8' => write!(out, "{value}").unwrap(),
+            b'f' => write!(out, "{:?}", f32::from_bits(value as u32)).unwrap(),
+            b'd' => write!(out, "{:?}", f64::from_bits(value)).unwrap(),
+            b'v' => out.extend_from_slice(b"()"),
             b'b' => out.extend_from_slice(if value == 0 { b"False" } else { b"True" }),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'C' | b'E' => {
@@ -653,6 +694,7 @@ pub(crate) unsafe extern "C" fn plenty_collection(
                 let ty = Rc::new(Type {
                     kind: b'R',
                     affine: false,
+                    reflexive: true,
                     key: None,
                     value: None,
                     name: String::new(),
@@ -688,6 +730,7 @@ pub(crate) unsafe extern "C" fn plenty_collection(
                 let ty = Rc::new(Type {
                     kind: b'L',
                     affine: true,
+                    reflexive: element.reflexive,
                     key: Some(element.clone()),
                     value: None,
                     name: String::new(),

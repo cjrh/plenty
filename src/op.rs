@@ -17,7 +17,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// unsigned, so the program's memory footprint and overflow semantics are
 /// declared on the surface rather than hidden behind a polymorphic "Int".
 /// Collections, enums, and generators carry resolved concrete type metadata;
-/// user generics and floating-point types remain deferred.
+/// user generics remain deferred.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     I8,
@@ -28,6 +28,10 @@ pub enum Ty {
     U16,
     U32,
     U64,
+    F32,
+    F64,
+    /// Stored enum payload marker; source-level unit expressions have no operand.
+    Unit,
     Str,
     Bool,
     List(Rc<Ty>),
@@ -41,6 +45,12 @@ pub enum Ty {
 }
 
 impl Ty {
+    pub fn is_float(&self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
+    }
+    pub fn is_numeric(&self) -> bool {
+        self.is_int() || self.is_float()
+    }
     pub fn layout_depth(&self) -> usize {
         match self {
             Self::List(t) | Self::Set(t) | Self::Generator(t) => 1 + t.layout_depth(),
@@ -93,10 +103,7 @@ impl Ty {
                 | Self::Generator(_)
         )
     }
-    /// `true` for every integer width. The two non-integer types (`Str`,
-    /// `Bool`) return `false`. Used by the checker to enforce the
-    /// "arithmetic and ordering work on same-width integers only" rule
-    /// without naming each width in eight places.
+    /// True for the eight explicit-width integer types.
     pub fn is_int(&self) -> bool {
         matches!(
             self,
@@ -135,6 +142,9 @@ impl fmt::Display for Ty {
             Ty::U16 => "u16",
             Ty::U32 => "u32",
             Ty::U64 => "u64",
+            Ty::F32 => "f32",
+            Ty::F64 => "f64",
+            Ty::Unit => "()",
             Ty::Str => "str",
             Ty::Bool => "bool",
             Ty::List(t) => return write!(f, "list[{t}]"),
@@ -204,17 +214,23 @@ pub enum Op {
     /// Push an integer literal onto the stack. The payload is always an
     /// integer `Value`; retaining its width makes suffixed literals direct.
     PushInt(Value),
+    PushFloat {
+        bits: u64,
+        ty: Ty,
+    },
+    PushUnit,
+    FloatNeg,
     /// Push a string literal — already stored in the heap — onto the stack.
     PushStr(StrId),
     /// Push a `Bool` literal onto the stack (`true` / `false`).
     PushBool(bool),
     /// Pop two values; push their sum (integers) or concatenation (text).
     Add,
-    /// Pop two integers `a b`; push `a - b`.
+    /// Pop two same-typed numbers `a b`; push `a - b`.
     Sub,
-    /// Pop two integers `a b`; push `a * b`.
+    /// Pop two same-typed numbers `a b`; push `a * b`.
     Mul,
-    /// Pop two integers `a b`; push `a / b`.
+    /// Divide same-typed numbers (legacy integer division truncates).
     Div,
     /// Integer division rounded toward negative infinity (modern `//`).
     FloorDiv,
@@ -223,17 +239,17 @@ pub enum Op {
     /// Polymorphic over Int/Str/Bool (§11.8); mixed-type pairs are rejected
     /// by the type checker, never reached at runtime by a compiled source.
     Eq,
-    /// Pop two integers `a b`; push `a < b`.
+    /// Pop two same-typed numbers `a b`; push `a < b`.
     Lt,
-    /// Pop two integers `a b`; push `a > b`.
+    /// Pop two same-typed numbers `a b`; push `a > b`.
     Gt,
     /// Pop a `Bool`; push its negation.
     Not,
     /// Pop two same-typed values; push whether they differ.
     Ne,
-    /// Pop two same-width integers; push whether the first is at most the second.
+    /// Pop two same-typed numbers; push whether the first is at most the second.
     Le,
-    /// Pop two same-width integers; push whether the first is at least the second.
+    /// Pop two same-typed numbers; push whether the first is at least the second.
     Ge,
     /// Pop two `Bool`s; push their strict conjunction.
     And,
@@ -1143,16 +1159,29 @@ fn step(
         // Unsuffixed integer literals are `i64`; a suffix records its chosen
         // width directly in the `Value` carried by the operation.
         Op::PushInt(value) => stack.push(Ty::from(*value)),
+        Op::PushFloat { ty, .. } => {
+            if !ty.is_float() {
+                return Err("float literal requires a float type".into());
+            }
+            stack.push(ty.clone());
+        }
+        Op::PushUnit => stack.push(Ty::Unit),
+        Op::FloatNeg => {
+            let ty = stack.last().ok_or("stack underflow on float negation")?;
+            if !ty.is_float() {
+                return Err("float negation requires a float".into());
+            }
+        }
         Op::PushStr(_) => stack.push(Ty::Str),
         Op::PushBool(_) => stack.push(Ty::Bool),
         Op::Add => {
             let (a, b) = pop2(stack, "+")?;
             let out = match (a.clone(), b.clone()) {
                 (Ty::Str, Ty::Str) => Ty::Str,
-                (a, b) if a == b && a.is_int() => a,
+                (a, b) if a == b && a.is_numeric() => a,
                 _ => {
                     return Err(format!(
-                        "`+` requires same-width integers or (Str Str), got ({a} {b})"
+                        "`+` requires same-typed numbers or (Str Str), got ({a} {b})"
                     )
                     .into())
                 }
@@ -1161,7 +1190,13 @@ fn step(
         }
         Op::Sub => arith(stack, "-")?,
         Op::Mul => arith(stack, "*")?,
-        Op::Div | Op::FloorDiv | Op::Modulo => arith(stack, "/")?,
+        Op::Div => arith(stack, "/")?,
+        Op::FloorDiv | Op::Modulo => {
+            if !stack.last().is_some_and(Ty::is_int) {
+                return Err("floor division and modulo require integers".into());
+            }
+            arith(stack, "// or %")?;
+        }
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;
             if a != b {
@@ -1252,10 +1287,11 @@ fn step(
         }
         Op::Cast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;
-            if !top.is_int() {
-                return Err(
-                    format!("cast `:as-{target}` requires an integer source, got {top}").into(),
-                );
+            if !top.is_numeric() || !target.is_numeric() {
+                return Err(format!(
+                    "cast `:as-{target}` requires numeric source and target types, got {top}"
+                )
+                .into());
             }
             stack.push(target.clone());
         }
@@ -1298,24 +1334,24 @@ fn pop2(stack: &mut Vec<Ty>, op_label: &str) -> Result<(Ty, Ty)> {
     Ok((a, b))
 }
 
-/// Stack effect for `-`, `*`, `/`: same-width integers in, same width out.
+/// Stack effect for `-`, `*`, `/`: same-typed numbers in, same type out.
 /// No implicit widening — the operands' types must match exactly, which is
 /// the hard rule §11.2 commits to over the convenience of mixed-width
 /// arithmetic.
 fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if !a.is_int() || a != b {
-        return Err(format!("`{op_label}` requires same-width integers, got ({a} {b})").into());
+    if !a.is_numeric() || a != b {
+        return Err(format!("`{op_label}` requires same-typed numbers, got ({a} {b})").into());
     }
     stack.push(a);
     Ok(())
 }
 
-/// Stack effect for integer ordering: same-width integers in, Bool out.
+/// Stack effect for numeric ordering: same-typed numbers in, Bool out.
 fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if !a.is_int() || a != b {
-        return Err(format!("`{op_label}` requires same-width integers, got ({a} {b})").into());
+    if !a.is_numeric() || a != b {
+        return Err(format!("`{op_label}` requires same-typed numbers, got ({a} {b})").into());
     }
     stack.push(Ty::Bool);
     Ok(())

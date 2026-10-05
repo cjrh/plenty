@@ -26,6 +26,10 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
 - All object prefixes use `repr(C)`. Compile-time assertions preserve the layout
   expected by generated code: a 16-byte ownership header, string bytes and record
   fields at byte 32, and generator frame slots at byte 56.
+- Runtime slots carry 64 raw bits: floats use their IEEE bit patterns (`f32` in
+  the low 32 bits), and unit enum payloads use zero. Float equality follows IEEE
+  rules even inside shared aggregates; memoized comparisons preserve linear
+  traversal of shared payload graphs rather than expanding them into trees.
 - Generated code supplies valid typed pointers, initialized fields, bounded type
   descriptors, and ownership transfers. Internal zero slots represent moved or
   uninitialized values; they are never source-level nullable references.
@@ -55,8 +59,9 @@ returns to the baseline and that integration-test checkpoints keep live memory
 bounded. It counts object allocations, buffers, metadata, and temporary renderings.
 This instrumentation and its checkpoint marker are absent from normal builds.
 
-Miri covers raw layouts, flexible allocations, metadata sharing, deep generator
-destruction, field copies, and reentrant hooks. The native ABI deliberately carries
+Miri covers raw layouts, flexible allocations, metadata sharing, float bit patterns
+and unit payloads, deep generator destruction, field copies, and reentrant hooks.
+The native ABI deliberately carries
 pointer addresses in 64-bit slots, requiring exposed-provenance semantics; this
 mode does not establish strict-provenance correctness.
 

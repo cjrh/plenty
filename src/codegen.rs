@@ -49,7 +49,7 @@ use std::error::Error;
 use std::path::Path;
 use std::rc::Rc;
 
-use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{
     types, AbiParam, Block, BlockArg, Function, InstBuilder, Signature, TrapCode, UserFuncName,
 };
@@ -322,6 +322,8 @@ struct Runtime {
     println_signed: FuncId,
     println_unsigned: FuncId,
     println_bool: FuncId,
+    println_f32: FuncId,
+    println_f64: FuncId,
 }
 
 fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
@@ -397,6 +399,8 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         println_signed: one_arg(module, "plenty_println_signed", types::I64)?,
         println_unsigned: one_arg(module, "plenty_println_unsigned", types::I64)?,
         println_bool: one_arg(module, "plenty_println_bool", types::I8)?,
+        println_f32: one_arg(module, "plenty_println_f32", types::F32)?,
+        println_f64: one_arg(module, "plenty_println_f64", types::F64)?,
     })
 }
 
@@ -650,15 +654,11 @@ fn emit_user_function(
             ));
             let frame = bcx.ins().stack_addr(PTR_TY, slot, 0);
             for (i, (var, ty)) in locals.iter().enumerate() {
-                let value = if i < decl.sig.inputs.len() || ty.managed() {
-                    bcx.use_var(*var)
+                let packed = if i < decl.sig.inputs.len() || ty.managed() {
+                    let value = bcx.use_var(*var);
+                    enums::pack_value(&mut bcx, value, ty)
                 } else {
-                    bcx.ins().iconst(clif_type(ty.clone()), 0)
-                };
-                let packed = if clif_type(ty.clone()) != types::I64 {
-                    bcx.ins().uextend(types::I64, value)
-                } else {
-                    value
+                    bcx.ins().iconst(types::I64, 0)
                 };
                 bcx.ins().store(
                     cranelift_codegen::ir::MemFlags::trusted(),
@@ -799,7 +799,9 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::I8 | Ty::U8 | Ty::Bool => types::I8,
         Ty::I16 | Ty::U16 => types::I16,
         Ty::I32 | Ty::U32 => types::I32,
-        Ty::I64 | Ty::U64 => types::I64,
+        Ty::I64 | Ty::U64 | Ty::Unit => types::I64,
+        Ty::F32 => types::F32,
+        Ty::F64 => types::F64,
         Ty::Str
         | Ty::List(_)
         | Ty::Set(_)
@@ -1033,7 +1035,8 @@ impl Lowerer<'_, '_> {
             Op::MoveLocal(i, _) => {
                 let value = self.read_local(*i);
                 let ty = self.locals[*i as usize].1.clone();
-                let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
+                let zero = self.bcx.ins().iconst(types::I64, 0);
+                let zero = self.unpack(zero, &ty);
                 self.write_local(*i, zero);
                 self.stack.push((value, ty));
             }
@@ -1049,6 +1052,28 @@ impl Lowerer<'_, '_> {
                     .ins()
                     .iconst(clif_type(ty.clone()), int_value_bits(*value));
                 self.stack.push((v, ty));
+            }
+            Op::PushFloat { bits, ty } => {
+                let value =
+                    if *ty == Ty::F32 {
+                        self.bcx.ins().f32const(
+                            cranelift_codegen::ir::immediates::Ieee32::with_bits(*bits as u32),
+                        )
+                    } else {
+                        self.bcx
+                            .ins()
+                            .f64const(cranelift_codegen::ir::immediates::Ieee64::with_bits(*bits))
+                    };
+                self.stack.push((value, ty.clone()));
+            }
+            Op::PushUnit => {
+                let value = self.bcx.ins().iconst(types::I64, 0);
+                self.stack.push((value, Ty::Unit));
+            }
+            Op::FloatNeg => {
+                let (value, ty) = self.stack.pop().ok_or("empty float negation")?;
+                let value = self.bcx.ins().fneg(value);
+                self.stack.push((value, ty));
             }
             Op::PushBool(b) => {
                 let v = self.bcx.ins().iconst(types::I8, if *b { 1 } else { 0 });
@@ -1161,6 +1186,8 @@ impl Lowerer<'_, '_> {
                 let helper = match ty.clone() {
                     Ty::Str => self.runtime.println,
                     Ty::Bool => self.runtime.println_bool,
+                    Ty::F32 => self.runtime.println_f32,
+                    Ty::F64 => self.runtime.println_f64,
                     ty if ty.uses_value_runtime() => {
                         self.collection_call(9, &[value], None)?;
                         self.release(value, &ty);
@@ -1261,14 +1288,23 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Lower a signed-or-unsigned checked arithmetic op (add/sub/mul).
+    /// Lower add/sub/mul: IEEE float operations or checked integer arithmetic.
     /// Emits the matching Cranelift `*_overflow` instruction, branches
     /// on the overflow flag to the shared overflow-trap block, and
     /// switches to a fresh successor block with the result on the
     /// compile-time stack. Overflow exits with status 1 and a diagnostic
     /// through the runtime helper `plenty_trap_overflow`.
     fn lower_checked_arith(&mut self, kind: ArithKind) -> Result<()> {
-        let (a, b, ty) = self.pop_int_pair()?;
+        let (a, b, ty) = self.pop_pair()?;
+        if ty.is_float() {
+            let result = match kind {
+                ArithKind::Add => self.bcx.ins().fadd(a, b),
+                ArithKind::Sub => self.bcx.ins().fsub(a, b),
+                ArithKind::Mul => self.bcx.ins().fmul(a, b),
+            };
+            self.stack.push((result, ty));
+            return Ok(());
+        }
         let signed = is_signed(ty.clone());
         let (result, of) = match (kind, signed) {
             (ArithKind::Add, true) => self.bcx.ins().sadd_overflow(a, b),
@@ -1286,7 +1322,12 @@ impl Lowerer<'_, '_> {
     /// Check divisor zero and signed INT_MIN/-1 before emitting division,
     /// so both failures produce runtime diagnostics instead of hardware traps.
     fn lower_div(&mut self, floor: bool) -> Result<()> {
-        let (a, b, ty) = self.pop_int_pair()?;
+        let (a, b, ty) = self.pop_pair()?;
+        if ty.is_float() {
+            let value = self.bcx.ins().fdiv(a, b);
+            self.stack.push((value, ty));
+            return Ok(());
+        }
         let cty = clif_type(ty.clone());
 
         let zero = self.bcx.ins().iconst(cty, 0);
@@ -1388,9 +1429,21 @@ impl Lowerer<'_, '_> {
         self.bcx.seal_block(after);
     }
 
-    /// Lower an integer ordering comparison with signedness-aware `icmp` codes.
+    /// Lower numeric ordering with IEEE float or signedness-aware integer comparisons.
     fn int_cmp(&mut self, signed: IntCC, unsigned: IntCC) -> Result<()> {
-        let (a, b, ty) = self.pop_int_pair()?;
+        let (a, b, ty) = self.pop_pair()?;
+        if ty.is_float() {
+            let cc = match signed {
+                IntCC::SignedLessThan => FloatCC::LessThan,
+                IntCC::SignedLessThanOrEqual => FloatCC::LessThanOrEqual,
+                IntCC::SignedGreaterThan => FloatCC::GreaterThan,
+                IntCC::SignedGreaterThanOrEqual => FloatCC::GreaterThanOrEqual,
+                _ => unreachable!(),
+            };
+            let value = self.bcx.ins().fcmp(cc, a, b);
+            self.stack.push((value, Ty::Bool));
+            return Ok(());
+        }
         let cc = if is_signed(ty.clone()) {
             signed
         } else {
@@ -1450,6 +1503,49 @@ impl Lowerer<'_, '_> {
         from: Ty,
         to: Ty,
     ) -> cranelift_codegen::ir::Value {
+        if from == to {
+            return v;
+        }
+        let target = clif_type(to.clone());
+        if from.is_float() && to.is_float() {
+            return if to == Ty::F64 {
+                self.bcx.ins().fpromote(target, v)
+            } else {
+                self.bcx.ins().fdemote(target, v)
+            };
+        }
+        if to.is_float() {
+            return if is_signed(from) {
+                self.bcx.ins().fcvt_from_sint(target, v)
+            } else {
+                self.bcx.ins().fcvt_from_uint(target, v)
+            };
+        }
+        if from.is_float() {
+            let wide = if target.bits() < 32 {
+                types::I32
+            } else {
+                target
+            };
+            let mut value = if is_signed(to.clone()) {
+                self.bcx.ins().fcvt_to_sint_sat(wide, v)
+            } else {
+                self.bcx.ins().fcvt_to_uint_sat(wide, v)
+            };
+            if target != wide {
+                let (min, end) = to.int_range().unwrap();
+                let max = self.bcx.ins().iconst(wide, (end - 1) as i64);
+                value = if is_signed(to) {
+                    let min = self.bcx.ins().iconst(wide, min as i64);
+                    let above = self.bcx.ins().smax(value, min);
+                    self.bcx.ins().smin(above, max)
+                } else {
+                    self.bcx.ins().umin(value, max)
+                };
+                value = self.bcx.ins().ireduce(target, value);
+            }
+            return value;
+        }
         let from_bits = width_bits(from.clone());
         let to_bits = width_bits(to.clone());
         if from_bits == to_bits {
@@ -1530,13 +1626,8 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Lower `Op::Add`: integers go through the checked-overflow
-    /// arithmetic path; the `Str Str` case calls into the runtime's
-    /// `plenty_concat`, which allocates a fresh counted string
-    /// and returns its address. The polymorphic `+` is the only op
-    /// that mixes these two backends — every other arithmetic op
-    /// stays integer-only (`check::arith` rejects `Str Str` for `-`,
-    /// `*`, `/`).
+    /// Add numbers with checked integer or IEEE float arithmetic; concatenate
+    /// strings through the counted-string runtime.
     fn lower_add(&mut self) -> Result<()> {
         let len = self.stack.len();
         if len >= 2 && self.stack[len - 1].1 == Ty::Str && self.stack[len - 2].1 == Ty::Str {
@@ -1602,8 +1693,20 @@ impl Lowerer<'_, '_> {
             self.stack.push((v, Ty::Bool));
             return Ok(());
         }
-        let (a, b, _) = self.pop_pair()?;
-        let v = self.bcx.ins().icmp(cc, a, b);
+        let (a, b, ty) = self.pop_pair()?;
+        let v = if ty.is_float() {
+            self.bcx.ins().fcmp(
+                if negate_string_result {
+                    FloatCC::NotEqual
+                } else {
+                    FloatCC::Equal
+                },
+                a,
+                b,
+            )
+        } else {
+            self.bcx.ins().icmp(cc, a, b)
+        };
         self.stack.push((v, Ty::Bool));
         Ok(())
     }
