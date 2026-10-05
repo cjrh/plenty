@@ -26,6 +26,11 @@ pub use vm::Vm;
 /// it or generating native code. Useful for tooling and compile-time baselines.
 pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
-    let ops = frontend::compile(source, &mut heap, &std::collections::HashMap::new())?;
-    op::check(&ops, Vec::new(), &std::collections::HashMap::new())
+    let compiled = frontend::compile(
+        source,
+        &mut heap,
+        &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+    )?;
+    op::check(&compiled.ops, Vec::new(), &std::collections::HashMap::new())
 }

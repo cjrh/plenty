@@ -133,8 +133,8 @@ use crate::value::{Heap, StrId, Value};
 /// compiler as `cc`.
 pub fn compile_source_to_executable(source: &str, output: &Path) -> Result<()> {
     let mut heap = Heap::default();
-    let ops = crate::frontend::compile(source, &mut heap, &HashMap::new())?;
-    compile_ops_to_executable(&ops, &heap, output)
+    let compiled = crate::frontend::compile(source, &mut heap, &HashMap::new(), &HashMap::new())?;
+    compile_ops_to_executable(&compiled.ops, &heap, output)
 }
 
 /// Historical stack syntax, retained for backend regression tests.
@@ -821,8 +821,8 @@ struct Lowerer<'a, 'b> {
     /// `plenty_main` (top-level has no locals).
     locals: &'a [(Variable, Ty)],
     stack: Vec<StackEntry>,
-    /// Set after a `TailCall` lowers to `return_call`, which is a
-    /// block terminator. Once set, the outer loop in
+    /// Set after a return, tail call, or branch whose paths all exit.
+    /// Once set, the outer loop in
     /// [`emit_user_function`] stops feeding ops to this lowerer.
     terminated: bool,
 }
@@ -895,6 +895,11 @@ impl Lowerer<'_, '_> {
             }
             Op::Call(name) => self.lower_call(name)?,
             Op::TailCall(name) => self.lower_tail_call(name)?,
+            Op::Return => {
+                let values: Vec<_> = self.stack.iter().map(|(value, _)| *value).collect();
+                self.bcx.ins().return_(&values);
+                self.terminated = true;
+            }
             // `DefineFn` is hoisted into a top-level Cranelift function by
             // Pass 1 + Pass 2; at the point this lowerer sees one, the
             // body is already being emitted elsewhere and the definition
@@ -1398,8 +1403,8 @@ impl Lowerer<'_, '_> {
     /// the lowerer only has to mirror that structure — no runtime
     /// shape-checking is needed.
     ///
-    /// An arm whose tail op is a `TailCall` does *not* jump to the
-    /// join block: `return_call` is itself a block terminator and the
+    /// An arm that returns or tail-calls does *not* jump to the
+    /// join block: both instructions are block terminators and the
     /// arm leaves the function entirely. If *every* arm terminates,
     /// the whole match terminates the surrounding context and the join
     /// block is unreachable — we still need a terminator so Cranelift
@@ -1542,7 +1547,7 @@ impl Lowerer<'_, '_> {
             self.stack = params.into_iter().zip(types).collect();
             self.terminated = false;
         } else {
-            // Every arm tail-called; the join is unreachable. Emit a
+            // Every arm exited the function; the join is unreachable. Emit a
             // trap to give the block a terminator and signal upward
             // that the surrounding context is also dead.
             self.bcx.ins().trap(TrapCode::unwrap_user(2));

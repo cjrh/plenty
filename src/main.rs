@@ -28,14 +28,14 @@ No arguments: start the REPL. FILE: check and run modern Plenty.
 ";
 
 const WORDS: &[&str] = &[
-    "def", "return", "if", "elif", "else", "mut", "pass", "True", "False", "and", "or", "not",
-    "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "int", "bool", "str", "print",
+    "def", "type", "return", "if", "elif", "else", "mut", "pass", "True", "False", "and", "or",
+    "not", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "bool", "str", "print",
     "contains", "quit",
 ];
 
 #[derive(Helper, Highlighter, Hinter)]
 struct PlentyHelper {
-    functions: Vec<String>,
+    names: Vec<String>,
 }
 
 impl Validator for PlentyHelper {
@@ -64,7 +64,7 @@ impl Completer for PlentyHelper {
         let mut names: Vec<&str> = WORDS
             .iter()
             .copied()
-            .chain(self.functions.iter().map(String::as_str))
+            .chain(self.names.iter().map(String::as_str))
             .filter(|name| !prefix.is_empty() && name.starts_with(prefix))
             .collect();
         names.sort_unstable();
@@ -147,9 +147,7 @@ fn repl() -> Result<(), Box<dyn Error>> {
     println!("Ctrl-G edits in $EDITOR. Tab completes. `quit` or Ctrl-D exits.");
     let mut vm = Vm::new();
     let mut editor: Editor<PlentyHelper, _> = Editor::new()?;
-    editor.set_helper(Some(PlentyHelper {
-        functions: Vec::new(),
-    }));
+    editor.set_helper(Some(PlentyHelper { names: Vec::new() }));
     let trigger = EditorTrigger::default();
     editor.bind_sequence(
         KeyEvent::ctrl('G'),
@@ -164,7 +162,12 @@ fn repl() -> Result<(), Box<dyn Error>> {
     }
     loop {
         if let Some(helper) = editor.helper_mut() {
-            helper.functions = vm.function_names().into_iter().map(str::to_owned).collect();
+            helper.names = vm
+                .function_names()
+                .into_iter()
+                .chain(vm.type_alias_names())
+                .map(str::to_owned)
+                .collect();
         }
         let raw = match editor.readline(">>> ") {
             Ok(line) => line,

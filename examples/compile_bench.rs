@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut source = String::new();
     for i in 0..count {
         source.push_str(&format!(
-            "def f{i}(x: int) -> int:\n    y = x + {i}\n    y if y > 0 else 0\n\n"
+            "def f{i}(x: i64) -> i64:\n    y = x + {i}\n    y if y > 0 else 0\n\n"
         ));
     }
     source.push_str(&format!("print(f{}(1))\n", count - 1));

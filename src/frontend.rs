@@ -2,7 +2,7 @@
 //!
 //! Signatures are collected before bodies. Inference is local, expressions
 //! have zero (unit) or one result, and no backend participates in inference.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::rc::Rc;
 
@@ -11,7 +11,14 @@ use crate::value::{Heap, Value};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit has no runtime representation in this milestone.
+pub(crate) type TypeAliases = HashMap<String, Type>;
 pub(crate) const ENTRY: &str = "__plenty_entry";
+
+/// Aliases are compile-time declarations and never enter the operation IR.
+pub(crate) struct Compilation {
+    pub ops: Vec<Op>,
+    pub aliases: TypeAliases,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
@@ -270,9 +277,32 @@ fn lex(source: &str) -> Result<Vec<Token>> {
 struct Function {
     name: String,
     at: Token,
-    sig: FnSig,
+    inputs: Vec<(String, TypeRef)>,
+    output: TypeRef,
     doc: String,
     body: Vec<Stmt>,
+}
+
+struct TypeRef {
+    at: Token,
+    /// None denotes unit, spelled `()`.
+    name: Option<String>,
+}
+
+impl TypeRef {
+    fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
+        match &self.name {
+            None => Ok(None),
+            Some(name) => lookup_type(name, aliases)
+                .ok_or_else(|| self.at.error(format!("unknown type `{name}`"))),
+        }
+    }
+}
+
+struct TypeAlias {
+    at: Token,
+    name: String,
+    target: TypeRef,
 }
 
 struct Stmt {
@@ -284,7 +314,7 @@ enum Statement {
     Assign {
         name: String,
         mutable: bool,
-        annotation: Type,
+        annotation: Option<TypeRef>,
         value: Expr,
     },
     Return(Option<Expr>),
@@ -362,18 +392,30 @@ impl Parser {
         }
         Err(t.error("expected an identifier (keywords and __plenty_ names are reserved)"))
     }
-    fn ty(&mut self) -> Result<Type> {
+    fn ty(&mut self) -> Result<TypeRef> {
+        let at = self.peek().clone();
         if self.eat("(") {
             self.expect(")")?;
-            return Ok(None);
+            return Ok(TypeRef { at, name: None });
         }
         let t = self.take();
         if let Kind::Word(ref name) = t.kind {
-            if let Some(ty) = named_type(name) {
-                return Ok(Some(ty));
+            if !reserved(name) {
+                return Ok(TypeRef {
+                    at,
+                    name: Some(name.clone()),
+                });
             }
         }
-        Err(t.error("expected a type: i8…i64, u8…u64, int, bool, str, or ()"))
+        Err(t.error("expected a type name or ()"))
+    }
+    fn alias(&mut self) -> Result<TypeAlias> {
+        let at = self.take(); // type
+        let name = self.name()?;
+        self.expect("=")?;
+        let target = self.ty()?;
+        self.kind(Kind::Newline, "the end of the type alias declaration")?;
+        Ok(TypeAlias { at, name, target })
     }
     fn function(&mut self) -> Result<Function> {
         let at = self.take(); // def
@@ -389,9 +431,7 @@ impl Parser {
                 return Err(self.peek().error("duplicate parameter"));
             }
             self.expect(":")?;
-            let ty = self
-                .ty()?
-                .ok_or_else(|| at.error("unit parameters are not supported yet"))?;
+            let ty = self.ty()?;
             inputs.push((param, ty));
             if self.eat(")") {
                 break;
@@ -432,10 +472,8 @@ impl Parser {
         Ok(Function {
             name,
             at,
-            sig: FnSig {
-                inputs,
-                outputs: output.into_iter().collect(),
-            },
+            inputs,
+            output,
             doc,
             body,
         })
@@ -471,6 +509,11 @@ impl Parser {
         })
     }
     fn statement(&mut self) -> Result<Stmt> {
+        if self.peek().is("type") {
+            return Err(self
+                .peek()
+                .error("type aliases must be declared at module scope"));
+        }
         if self.peek().is("if") {
             return self.conditional_statement();
         }
@@ -494,10 +537,7 @@ impl Parser {
             if assignment {
                 let name = self.name()?;
                 let annotation = if self.eat(":") {
-                    Some(
-                        self.ty()?
-                            .ok_or_else(|| at.error("unit bindings are not supported yet"))?,
-                    )
+                    Some(self.ty()?)
                 } else {
                     None
                 };
@@ -597,7 +637,7 @@ fn named_type(name: &str) -> Type {
         "i8" => Ty::I8,
         "i16" => Ty::I16,
         "i32" => Ty::I32,
-        "i64" | "int" => Ty::I64,
+        "i64" => Ty::I64,
         "u8" => Ty::U8,
         "u16" => Ty::U16,
         "u32" => Ty::U32,
@@ -607,6 +647,74 @@ fn named_type(name: &str) -> Type {
         _ => return None,
     })
 }
+fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
+    named_type(name)
+        .map(Some)
+        .or_else(|| aliases.get(name).copied())
+}
+
+/// Every alias has one target in this language slice. Follow each chain once,
+/// caching its concrete type. Iteration avoids growing the Rust call stack for
+/// long chains, and the active path detects cycles without graph-wide scans.
+fn resolve_aliases(
+    declarations: &[TypeAlias],
+    prior: &TypeAliases,
+    functions: &HashMap<String, Rc<FnSig>>,
+) -> Result<TypeAliases> {
+    let mut definitions = HashMap::new();
+    for alias in declarations {
+        if builtin(&alias.name) {
+            return Err(alias.at.error(format!(
+                "cannot redefine builtin `{}` as a type alias",
+                alias.name
+            )));
+        }
+        if prior.contains_key(&alias.name)
+            || definitions.insert(alias.name.as_str(), alias).is_some()
+        {
+            return Err(alias
+                .at
+                .error(format!("type alias `{}` is already defined", alias.name)));
+        }
+        if functions.contains_key(&alias.name) {
+            return Err(alias.at.error(format!(
+                "type alias `{}` conflicts with a function",
+                alias.name
+            )));
+        }
+    }
+    let mut resolved = prior.clone();
+    for declaration in declarations {
+        let mut current = declaration;
+        let mut path = Vec::new();
+        let mut visiting = HashSet::new();
+        let ty = loop {
+            if let Some(ty) = resolved.get(&current.name) {
+                break *ty;
+            }
+            if !visiting.insert(current.name.as_str()) {
+                return Err(current
+                    .at
+                    .error(format!("cyclic type alias involving `{}`", current.name)));
+            }
+            path.push(current);
+            let Some(name) = &current.target.name else {
+                break None;
+            };
+            if let Some(ty) = lookup_type(name, &resolved) {
+                break ty;
+            }
+            current = definitions
+                .get(name.as_str())
+                .copied()
+                .ok_or_else(|| current.target.at.error(format!("unknown type `{name}`")))?;
+        };
+        for alias in path {
+            resolved.insert(alias.name.clone(), ty);
+        }
+    }
+    Ok(resolved)
+}
 fn builtin(name: &str) -> bool {
     named_type(name).is_some() || matches!(name, "print" | "contains")
 }
@@ -614,6 +722,7 @@ fn reserved(name: &str) -> bool {
     matches!(
         name,
         "def"
+            | "type"
             | "return"
             | "if"
             | "elif"
@@ -668,12 +777,29 @@ struct Local {
     ty: Ty,
     mutable: bool,
 }
+
+/// An exited branch has no value to unify with paths that continue.
+enum BlockResult {
+    Continues(Type),
+    Returns,
+}
+
+fn returned_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
+    if let Some(next) = body.get(index + 1) {
+        return Err(next.at.error("unreachable statement after a function exit"));
+    }
+    Ok(BlockResult::Returns)
+}
+
 struct Lower<'a> {
     heap: &'a mut Heap,
     sigs: &'a HashMap<String, Rc<FnSig>>,
+    aliases: &'a TypeAliases,
     names: HashMap<String, Local>,
     locals: Vec<Ty>,
     parameters: usize,
+    /// None at module scope; Some(None) for a unit-returning function.
+    return_type: Option<Type>,
 }
 impl Lower<'_> {
     fn same(&self, got: Type, expected: Type, at: &Token) -> Result<()> {
@@ -808,7 +934,10 @@ impl Lower<'_> {
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));
                 }
-                if let Some(target) = named_type(name).filter(|ty| ty.is_int()) {
+                if let Some(target) = lookup_type(name, self.aliases) {
+                    let target = target
+                        .filter(|ty| ty.is_int())
+                        .ok_or_else(|| e.at.error("only integer types support cast syntax"))?;
                     if args.len() != 1 {
                         return Err(e.at.error("integer casts take one argument"));
                     }
@@ -863,29 +992,25 @@ impl Lower<'_> {
         };
         Ok(ty)
     }
-    fn block(
-        &mut self,
-        body: &[Stmt],
-        ops: &mut Vec<Op>,
-        tail: bool,
-        in_function: bool,
-    ) -> Result<Type> {
+    fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: bool) -> Result<BlockResult> {
         let mut result = None;
         for (i, stmt) in body.iter().enumerate() {
             let last = tail && i + 1 == body.len();
             result = match &stmt.kind {
                 Statement::Expr(e) => self.expr(e, ops)?,
                 Statement::Return(e) => {
-                    if !in_function {
-                        return Err(stmt.at.error("return outside a function"));
-                    }
-                    if !last {
-                        return Err(stmt.at.error("early return is not supported yet; put return in the final expression or final if/else"));
-                    }
-                    match e {
-                        Some(e) => self.expr(e, ops)?,
+                    let expected = self
+                        .return_type
+                        .ok_or_else(|| stmt.at.error("return outside a function"))?;
+                    let mut returned = Vec::new();
+                    let ty = match e {
+                        Some(e) => self.expr(e, &mut returned)?,
                         None => None,
-                    }
+                    };
+                    self.same(ty, expected, &stmt.at)?;
+                    finish_return(&mut returned);
+                    ops.extend(returned);
+                    return returned_block(body, i);
                 }
                 Statement::Pass => None,
                 Statement::Assign {
@@ -896,7 +1021,10 @@ impl Lower<'_> {
                 } => {
                     let ty = self.value(value, ops)?;
                     if let Some(expected) = annotation {
-                        self.same(Some(ty), Some(*expected), &stmt.at)?;
+                        let expected = expected.resolve(self.aliases)?.ok_or_else(|| {
+                            expected.at.error("unit bindings are not supported yet")
+                        })?;
+                        self.same(Some(ty), Some(expected), &stmt.at)?;
                     }
                     let slot = if let Some(local) = self.names.get(name) {
                         if *mutable || annotation.is_some() {
@@ -934,13 +1062,22 @@ impl Lower<'_> {
                     self.same(cond, Some(Ty::Bool), &condition.at)?;
                     let saved = self.names.clone();
                     let (mut a, mut b) = (Vec::new(), Vec::new());
-                    let ty = self.block(yes, &mut a, last, in_function)?;
+                    let yes_result = self.block(yes, &mut a, last)?;
                     self.names = saved.clone();
-                    let other = self.block(no, &mut b, last, in_function)?;
+                    let no_result = self.block(no, &mut b, last)?;
                     self.names = saved;
-                    self.same(other, ty, &stmt.at)?;
                     ops.push(branch(a, b));
-                    ty
+                    match (yes_result, no_result) {
+                        (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
+                            self.same(other, ty, &stmt.at)?;
+                            ty
+                        }
+                        (BlockResult::Continues(ty), BlockResult::Returns)
+                        | (BlockResult::Returns, BlockResult::Continues(ty)) => ty,
+                        (BlockResult::Returns, BlockResult::Returns) => {
+                            return returned_block(body, i);
+                        }
+                    }
                 }
             };
             if !last {
@@ -950,7 +1087,7 @@ impl Lower<'_> {
                 result = None;
             }
         }
-        Ok(result)
+        Ok(BlockResult::Continues(result))
     }
 }
 
@@ -976,6 +1113,25 @@ fn branch(yes: Vec<Op>, no: Vec<Op>) -> Op {
         ]
         .into(),
     )
+}
+
+/// Return expressions are tail positions even inside a guard branch. Make
+/// every path exit, using a tail call where the last operation is a call.
+fn finish_return(body: &mut Vec<Op>) {
+    match body.last_mut() {
+        Some(last @ Op::Call(_)) => {
+            let Op::Call(name) = last else { unreachable!() };
+            *last = Op::TailCall(std::mem::take(name));
+        }
+        Some(Op::Match(arms)) => {
+            for arm in Rc::make_mut(arms) {
+                let mut body = arm.body.to_vec();
+                finish_return(&mut body);
+                arm.body = body.into();
+            }
+        }
+        _ => body.push(Op::Return),
+    }
 }
 
 fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
@@ -1019,39 +1175,60 @@ pub(crate) fn compile(
     source: &str,
     heap: &mut Heap,
     prior: &HashMap<String, Rc<FnSig>>,
-) -> Result<Vec<Op>> {
+    prior_aliases: &TypeAliases,
+) -> Result<Compilation> {
     let mut parser = Parser {
         tokens: lex(source)?,
         pos: 0,
     };
     let (mut functions, mut statements) = (Vec::new(), Vec::new());
+    let mut declarations = Vec::new();
     while parser.peek().kind != Kind::Eof {
         if parser.peek().is("def") {
             functions.push(parser.function()?);
+        } else if parser.peek().is("type") {
+            declarations.push(parser.alias()?);
         } else {
             statements.push(parser.statement()?);
         }
     }
+    let aliases = resolve_aliases(&declarations, prior_aliases, prior)?;
     let mut sigs = prior.clone();
     for f in &functions {
+        if aliases.contains_key(&f.name) {
+            return Err(f
+                .at
+                .error(format!("function `{}` conflicts with a type alias", f.name)));
+        }
         if sigs.contains_key(&f.name) {
             return Err(f.at.error(format!(
                 "function `{}` is already defined; redefinition is not supported",
                 f.name
             )));
         }
-        sigs.insert(f.name.clone(), Rc::new(f.sig.clone()));
+        let mut inputs = Vec::with_capacity(f.inputs.len());
+        for (name, ty) in &f.inputs {
+            let resolved = ty
+                .resolve(&aliases)?
+                .ok_or_else(|| ty.at.error("unit parameters are not supported yet"))?;
+            inputs.push((name.clone(), resolved));
+        }
+        let outputs = f.output.resolve(&aliases)?.into_iter().collect();
+        sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
     }
     let mut ops = Vec::new();
     for f in functions {
+        let sig = Rc::clone(&sigs[&f.name]);
         let mut lower = Lower {
             heap,
             sigs: &sigs,
+            aliases: &aliases,
             names: HashMap::new(),
             locals: Vec::new(),
-            parameters: f.sig.inputs.len(),
+            parameters: sig.inputs.len(),
+            return_type: Some(sig.outputs.first().copied()),
         };
-        for (i, (name, ty)) in f.sig.inputs.iter().enumerate() {
+        for (i, (name, ty)) in sig.inputs.iter().enumerate() {
             lower.names.insert(
                 name.clone(),
                 Local {
@@ -1062,13 +1239,14 @@ pub(crate) fn compile(
             );
         }
         let mut body = Vec::new();
-        let output = lower.block(&f.body, &mut body, true, true)?;
-        lower.same(output, f.sig.outputs.first().copied(), &f.at)?;
+        if let BlockResult::Continues(output) = lower.block(&f.body, &mut body, true)? {
+            lower.same(output, sig.outputs.first().copied(), &f.at)?;
+        }
         mark_tail_calls(&mut body);
         ops.push(Op::DefineFn(
             f.name,
             CompiledFn {
-                sig: Rc::new(f.sig),
+                sig,
                 doc: f.doc.into(),
                 body: body.into(),
                 locals: lower.locals.into(),
@@ -1079,12 +1257,16 @@ pub(crate) fn compile(
         let mut lower = Lower {
             heap,
             sigs: &sigs,
+            aliases: &aliases,
             names: HashMap::new(),
             locals: Vec::new(),
             parameters: 0,
+            return_type: None,
         };
         let mut body = Vec::new();
-        let output = lower.block(&statements, &mut body, true, false)?;
+        let BlockResult::Continues(output) = lower.block(&statements, &mut body, true)? else {
+            unreachable!("source returns are rejected at module scope")
+        };
         mark_tail_calls(&mut body);
         ops.push(Op::DefineFn(
             ENTRY.into(),
@@ -1100,7 +1282,7 @@ pub(crate) fn compile(
         ));
         ops.push(Op::Call(ENTRY.into()));
     }
-    Ok(ops)
+    Ok(Compilation { ops, aliases })
 }
 
 /// REPL input: a blank line submits a compound suite; single expressions

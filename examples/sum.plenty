@@ -1,4 +1,4 @@
-def sum_to(n: int, total: int) -> int:
+def sum_to(n: i64, total: i64) -> i64:
     """Sum the integers from 1 through n without growing the call stack."""
     if n == 0:
         total

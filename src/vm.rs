@@ -110,6 +110,8 @@ pub struct Vm {
     /// `CompiledFn`) so a call need not copy either and so a function can
     /// safely call itself.
     functions: HashMap<String, CompiledFn>,
+    /// Normalized compile-time aliases retained between modern submissions.
+    aliases: crate::frontend::TypeAliases,
     /// Per-call locals, all calls' frames packed end-to-end into one `Vec`.
     /// The active call's `i`-th input lives at `locals[frame.locals_start + i]`.
     /// One backing allocation amortises across nested and recursive calls.
@@ -130,7 +132,7 @@ impl Vm {
         self.eval(source)
     }
 
-    /// Evaluate modern Plenty. Definitions persist between submissions;
+    /// Evaluate modern Plenty. Functions and aliases persist between submissions;
     /// local bindings belong to the current submission. The last expression
     /// is left on the inspection stack. Compilation errors have no effects.
     pub fn eval(&mut self, source: &str) -> Result<()> {
@@ -140,10 +142,12 @@ impl Vm {
             .filter(|(name, _)| name.as_str() != crate::frontend::ENTRY)
             .map(|(name, f)| (name.clone(), Rc::clone(&f.sig)))
             .collect();
-        let ops = crate::frontend::compile(source, &mut self.heap, &prior_sigs)?;
-        op::check(&ops, Vec::new(), &prior_sigs)?;
+        let compiled =
+            crate::frontend::compile(source, &mut self.heap, &prior_sigs, &self.aliases)?;
+        op::check(&compiled.ops, Vec::new(), &prior_sigs)?;
+        self.aliases = compiled.aliases;
         self.stack.clear();
-        let result = self.execute(ops);
+        let result = self.execute(compiled.ops);
         self.functions.remove(crate::frontend::ENTRY);
         result
     }
@@ -226,6 +230,13 @@ impl Vm {
         names
     }
 
+    /// Type aliases visible to subsequent modern submissions, sorted by name.
+    pub fn type_alias_names(&self) -> Vec<&str> {
+        let mut names: Vec<_> = self.aliases.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        names
+    }
+
     /// The docstring of a defined function, or `None` if no such function
     /// exists. The docstring is captured at compile time (§11.7) and is the
     /// single thing tools — LSP hover, generated docs, REPL `help` — display
@@ -241,7 +252,7 @@ impl Vm {
         self.functions.get(name).map(|f| f.sig.as_ref())
     }
 
-    /// Discard every value on the stack. Defined functions are kept.
+    /// Discard every value on the stack. Functions and type aliases are kept.
     pub fn clear(&mut self) {
         self.stack.clear();
     }
@@ -307,6 +318,7 @@ impl Vm {
             }
             Op::Call(name) => self.do_call(&name)?,
             Op::TailCall(name) => self.do_tail_call(&name)?,
+            Op::Return => self.do_return()?,
             Op::LoadLocal(i) => self.load_local(i)?,
             Op::StoreLocal(i) => {
                 let value = self.pop()?;
@@ -735,6 +747,18 @@ impl Vm {
             owns_locals: true,
         });
         Ok(())
+    }
+
+    /// Return from the enclosing call, including any active branch frames.
+    /// Checked results remain above the caller's operands on the value stack.
+    fn do_return(&mut self) -> Result<()> {
+        while let Some(frame) = self.frames.pop() {
+            if frame.owns_locals {
+                self.locals.truncate(frame.locals_start);
+                return Ok(());
+            }
+        }
+        Err("return outside a function".into())
     }
 
     /// Tail call (§11.8). Drain the new args, then pop the enclosing call

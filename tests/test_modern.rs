@@ -32,19 +32,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[case("()", "[]")]
 #[case("# a comment\n\n42 # trailing comment", "[42i64]")]
 #[case("(1 +\n    # ignored indentation\n 2)", "[3i64]")]
-#[case("x: int = 40\nx + 2", "[42i64]")]
+#[case("x: i64 = 40\nx + 2", "[42i64]")]
 #[case("mut x = 1\nx = x + 2\nx", "[3i64]")]
 #[case("mut x = 0\nif True:\n    x = 42\nelse:\n    x = 7\nx", "[42i64]")]
 #[case("if False:\n    1\nelif True:\n    42\nelse:\n    3", "[42i64]")]
 #[case("if True:\n    x = 40\n    x + 2\nelse:\n    x = 1\n    x", "[42i64]")]
 #[case("if True:\n    pass", "[]")]
 #[case("if True:\n    99\n42", "[42i64]")]
-#[case("def double(x: int) -> int:\n    x * 2\ndouble(21)", "[42i64]")]
-#[case("double(21)\ndef double(x: int) -> int:\n    return x * 2", "[42i64]")]
+#[case("def double(x: i64) -> i64:\n    x * 2\ndouble(21)", "[42i64]")]
+#[case("double(21)\ndef double(x: i64) -> i64:\n    return x * 2", "[42i64]")]
 #[case("def unit() -> ():\n    return\nunit()", "[]")]
 #[case("def text() -> str:\n    return 'hello'\ntext()", "[\"hello\"]")]
-#[case("def f(\n    x: int,\n) -> int:\n    x\nf(42,)", "[42i64]")]
-#[case("def f(x: int) -> int:\r\n    x + 1\r\nf(41)\r\n", "[42i64]")]
+#[case("def f(\n    x: i64,\n) -> i64:\n    x\nf(42,)", "[42i64]")]
+#[case("def f(x: i64) -> i64:\r\n    x + 1\r\nf(41)\r\n", "[42i64]")]
 fn expressions(#[case] source: &str, #[case] expected: &str) {
     let mut vm = Vm::new();
     vm.run(source).unwrap_or_else(|e| panic!("{source}\n{e}"));
@@ -52,16 +52,16 @@ fn expressions(#[case] source: &str, #[case] expected: &str) {
 }
 
 #[rstest]
-#[case("def f(x) -> int:\n    x", "expected `:`")]
-#[case("def f(x: int):\n    x", "expected `->`")]
-#[case("def f(x: int) -> str:\n    x", "expected str, got i64")]
-#[case("def f(x: int, x: int) -> int:\n    x", "duplicate parameter")]
-#[case("def f() -> int:\n    pass", "expected i64, got ()")]
+#[case("def f(x) -> i64:\n    x", "expected `:`")]
+#[case("def f(x: i64):\n    x", "expected `->`")]
+#[case("def f(x: i64) -> str:\n    x", "expected str, got i64")]
+#[case("def f(x: i64, x: i64) -> i64:\n    x", "duplicate parameter")]
+#[case("def f() -> i64:\n    pass", "expected i64, got ()")]
 #[case("def f() -> ():\n    42", "expected (), got i64")]
-#[case("def f() -> int:\n    return 1\n    2", "early return")]
+#[case("def f() -> i64:\n    return 1\n    2", "unreachable statement")]
 #[case(
-    "def f() -> int:\n    if True:\n        return 1\n    2",
-    "early return"
+    "def f() -> i64:\n    if True:\n        return False\n    2",
+    "expected i64, got bool"
 )]
 #[case("return 1", "return outside")]
 #[case("if True:\n    1\nelse:\n    False", "expected i64, got bool")]
@@ -77,15 +77,15 @@ fn expressions(#[case] source: &str, #[case] expected: &str) {
 #[case("None", "expected an expression")]
 #[case("missing", "unknown binding")]
 #[case("missing()", "unknown function")]
-#[case("def f(x: int) -> int:\n    x\nf()", "expects 1 arguments")]
-#[case("def f(x: int) -> int:\n    x\nf(False)", "expected i64, got bool")]
+#[case("def f(x: i64) -> i64:\n    x\nf()", "expects 1 arguments")]
+#[case("def f(x: i64) -> i64:\n    x\nf(False)", "expected i64, got bool")]
 #[case("x = 1\nx = 2", "immutable")]
 #[case("mut x = 1\nx = False", "expected i64, got bool")]
 #[case("x: bool = 1", "expected bool")]
 #[case("x = x + 1", "unknown binding")]
 #[case("x = 1\nmut x = 2", "duplicate binding")]
 #[case("if True:\n    x = 1\nx", "unknown binding")]
-#[case("def f(x: int) -> int:\n    x = 2\n    x", "immutable")]
+#[case("def f(x: i64) -> i64:\n    x = 2\n    x", "immutable")]
 #[case("x = ()", "expected a value")]
 #[case("def f(x: ()) -> ():\n    pass", "unit parameters")]
 #[case("def print() -> ():\n    pass", "cannot redefine a builtin")]
@@ -123,14 +123,14 @@ fn diagnostics(#[case] source: &str, #[case] message: &str) {
 #[test]
 fn repl_state_is_checked_before_effects_and_definitions_persist() {
     let mut vm = Vm::new();
-    vm.run("def f(x: int) -> int:\n    \"\"\"A rich\n    docstring.\"\"\"\n    x + 1")
+    vm.run("def f(x: i64) -> i64:\n    \"\"\"A rich\n    docstring.\"\"\"\n    x + 1")
         .unwrap();
     assert_eq!(vm.function_doc("f"), Some("A rich\n    docstring."));
     vm.run("f(41)").unwrap();
     assert_eq!(vm.stack_repr(), "[42i64]");
     assert!(vm.run("print('must not print')\nmissing()").is_err());
     assert_eq!(vm.stack_repr(), "[42i64]");
-    assert!(vm.run("def bad() -> int:\n    False").is_err());
+    assert!(vm.run("def bad() -> i64:\n    False").is_err());
     assert_eq!(vm.function_names(), vec!["f"]);
     assert!(vm.run("def f() -> bool:\n    True").is_err());
     vm.run("f(9)").unwrap();
@@ -158,9 +158,9 @@ fn local_slot_limit_is_a_diagnostic() {
 #[case("1 + 2", true)]
 #[case("1 if True else 2", true)]
 #[case("'if def'", true)]
-#[case("def f() -> int:\n    1", false)]
-#[case("def f() -> int:\n    1\n\n", true)]
-#[case("def f() -> int:\n    1\n    ", true)]
+#[case("def f() -> i64:\n    1", false)]
+#[case("def f() -> i64:\n    1\n\n", true)]
+#[case("def f() -> i64:\n    1\n    ", true)]
 #[case("(1 +", false)]
 #[case("'''hello", false)]
 #[case("1 + )", true)]
@@ -212,21 +212,21 @@ impl Drop for Artifact {
 
 #[rstest]
 #[case(include_str!("../examples/sum.plenty"), "5051\n")]
-#[case("def plenty_main() -> int:\n    42\ndef plenty_println() -> str:\n    return 'safe'\nprint(plenty_main())\nprint(plenty_println())", "42\nsafe\n")]
+#[case("def plenty_main() -> i64:\n    42\ndef plenty_println() -> str:\n    return 'safe'\nprint(plenty_main())\nprint(plenty_println())", "42\nsafe\n")]
 #[case("print('héllo\\nworld')\nprint(True)\nprint(False)\nprint(-128i8)\nprint(18446744073709551615u64)", "héllo\nworld\nTrue\nFalse\n-128\n18446744073709551615\n")]
 #[case(
     "mut x = 1\nif True:\n    x = 40\nelse:\n    x = 0\nx = x + 2\nprint(x)",
     "42\n"
 )]
 #[case("mut x = 1\nif False:\n    x = 40\nelse:\n    x = 2\nprint(x)", "2\n")]
-#[case("def f(flag: bool) -> int:\n    if flag:\n        a = 42\n        a\n    else:\n        b = 7\n        b\nprint(f(True))\nprint(f(False))", "42\n7\n")]
-#[case("def count(n: int, total: int) -> int:\n    if n == 0:\n        total\n    else:\n        x = total + 1\n        count(n - 1, x)\nprint(count(100_000, 0))", "100000\n")]
-#[case("def even(n: int) -> bool:\n    True if n == 0 else odd(n - 1)\ndef odd(n: int) -> bool:\n    False if n == 0 else even(n - 1)\nprint(even(100_000))", "True\n")]
-#[case("def unit(n: int) -> ():\n    if n == 0:\n        pass\n    else:\n        unit(n - 1)\nunit(100_000)\nprint(42)", "42\n")]
-#[case("def f(n: int) -> int:\n    if n == 0:\n        0\n    else:\n        1 + f(n - 1)\nprint(f(30))", "30\n")]
+#[case("def f(flag: bool) -> i64:\n    if flag:\n        a = 42\n        a\n    else:\n        b = 7\n        b\nprint(f(True))\nprint(f(False))", "42\n7\n")]
+#[case("def count(n: i64, total: i64) -> i64:\n    if n == 0:\n        total\n    else:\n        x = total + 1\n        count(n - 1, x)\nprint(count(100_000, 0))", "100000\n")]
+#[case("def even(n: i64) -> bool:\n    True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    False if n == 0 else even(n - 1)\nprint(even(100_000))", "True\n")]
+#[case("def unit(n: i64) -> ():\n    if n == 0:\n        pass\n    else:\n        unit(n - 1)\nunit(100_000)\nprint(42)", "42\n")]
+#[case("def f(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        1 + f(n - 1)\nprint(f(30))", "30\n")]
 #[case("def side() -> bool:\n    print('side')\n    True\nprint(False and side())\nprint(True or side())\nprint(True and side())", "False\nTrue\nside\nTrue\n")]
 #[case(
-    "def value(n: int) -> int:\n    print(n)\n    n\nprint(value(1) + value(2))",
+    "def value(n: i64) -> i64:\n    print(n)\n    n\nprint(value(1) + value(2))",
     "1\n2\n3\n"
 )]
 #[case("print(-7 // 3)\nprint(7 // -3)\nprint(-7 // -3)\nprint(-128i8 // 3i8)\nprint(-9223372036854775808 // 1)", "-3\n-3\n2\n-43\n-9223372036854775808\n")]

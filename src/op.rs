@@ -179,6 +179,9 @@ pub enum Op {
     /// The interpreter reuses the enclosing call's locals frame; the call
     /// stack does not grow. Emitted only by the post-compile tail-call pass.
     TailCall(String),
+    /// Leave the current function with its declared results on the stack.
+    /// Unlike the end of a match arm, this exits the entire call frame.
+    Return,
     /// Push the value of the `i`-th input local of the enclosing call's frame
     /// (§11.5). Only emitted inside function bodies, so the VM always has at
     /// least one frame on its frame stack when it runs one.
@@ -901,10 +904,45 @@ pub fn check(
     // Top-level: locals are empty (the compiler will never have emitted a
     // `LoadLocal` here either), and there is no end-of-stream invariant.
     let mut stack = initial_stack;
-    for op in ops {
-        step(op, &mut stack, &[], &sigs)?;
-    }
+    check_sequence(ops, &mut stack, &[], &sigs, None)?;
     Ok(())
+}
+
+/// Only paths that continue participate in a branch's stack-shape join.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Flow {
+    Continues,
+    Returns,
+}
+
+fn check_sequence(
+    ops: &[Op],
+    stack: &mut Vec<Ty>,
+    locals: &[Ty],
+    sigs: &HashMap<String, Rc<FnSig>>,
+    returns: Option<&[Ty]>,
+) -> Result<Flow> {
+    let mut flow = Flow::Continues;
+    for op in ops {
+        if flow == Flow::Returns {
+            return Err("unreachable operation after a function exit".into());
+        }
+        flow = step(op, stack, locals, sigs, returns)?;
+    }
+    Ok(flow)
+}
+
+fn check_return(stack: &[Ty], returns: Option<&[Ty]>) -> Result<Flow> {
+    let expected = returns.ok_or("return outside a function")?;
+    if stack != expected {
+        return Err(format!(
+            "function exit leaves [{}], but signature declares outputs [{}]",
+            fmt_types(stack),
+            fmt_types(expected),
+        )
+        .into());
+    }
+    Ok(Flow::Returns)
 }
 
 /// Add the sig of every `DefineFn` reachable from `ops` — top-level and
@@ -942,7 +980,8 @@ fn step(
     stack: &mut Vec<Ty>,
     locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
-) -> Result<()> {
+    returns: Option<&[Ty]>,
+) -> Result<Flow> {
     match op {
         // Unsuffixed integer literals are `i64`; a suffix records its chosen
         // width directly in the `Value` carried by the operation.
@@ -1036,8 +1075,13 @@ fn step(
             }
         }
         Op::DefineFn(name, f) => check_body(name, &f.sig, &f.body, &f.locals, sigs)?,
-        Op::Call(name) | Op::TailCall(name) => check_call(name, stack, sigs)?,
-        Op::Match(arms) => check_match(arms, stack, locals, sigs)?,
+        Op::Call(name) => check_call(name, stack, sigs)?,
+        Op::TailCall(name) => {
+            check_call(name, stack, sigs)?;
+            return check_return(stack, returns);
+        }
+        Op::Return => return check_return(stack, returns),
+        Op::Match(arms) => return check_match(arms, stack, locals, sigs, returns),
         Op::Cast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;
             if !top.is_int() {
@@ -1068,7 +1112,7 @@ fn step(
             stack.pop().ok_or("stack underflow on `:print`")?;
         }
     }
-    Ok(())
+    Ok(Flow::Continues)
 }
 
 /// Pop two values off the abstract stack; produce a uniform underflow
@@ -1146,8 +1190,9 @@ fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Rc<FnSig>>
 }
 
 /// Stack effect for `match`: pop the matched value's type, type-check
-/// every arm body against a copy of the abstract stack, require all arm
-/// results to agree pointwise, and require exhaustiveness (§11.8).
+/// every arm body against a copy of the abstract stack, require continuing
+/// arms to agree pointwise, and require exhaustiveness (§11.8). Exiting arms
+/// are checked against the enclosing function's return signature instead.
 ///
 /// The agreed-on shape becomes the post-match stack.
 fn check_match(
@@ -1155,7 +1200,8 @@ fn check_match(
     stack: &mut Vec<Ty>,
     locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
-) -> Result<()> {
+    returns: Option<&[Ty]>,
+) -> Result<Flow> {
     let matched_ty = stack
         .pop()
         .ok_or("stack underflow on `match` (no value to match against)")?;
@@ -1232,21 +1278,21 @@ fn check_match(
     }
 
     // Check every arm body against a fresh copy of the abstract stack;
-    // require all arms to leave the stack in the same shape.
+    // require all continuing arms to leave the stack in the same shape.
     let snapshot = stack.clone();
     let mut joined: Option<Vec<Ty>> = None;
     for (i, arm) in arms.iter().enumerate() {
         let mut arm_stack = snapshot.clone();
-        for op in arm.body.iter() {
-            step(op, &mut arm_stack, locals, sigs)?;
+        if check_sequence(&arm.body, &mut arm_stack, locals, sigs, returns)? == Flow::Returns {
+            continue;
         }
         match &joined {
             None => joined = Some(arm_stack),
             Some(expected) => {
                 if &arm_stack != expected {
                     return Err(format!(
-                        "match arm {i} leaves [{}], but the first arm leaves [{}] \
-                         (every arm must produce the same stack effect)",
+                        "match arm {i} leaves [{}], but the first continuing arm leaves [{}] \
+                         (every continuing arm must produce the same stack effect)",
                         fmt_types(&arm_stack),
                         fmt_types(expected),
                     )
@@ -1255,8 +1301,13 @@ fn check_match(
             }
         }
     }
-    *stack = joined.expect("arms.is_empty() is rejected above");
-    Ok(())
+    match joined {
+        Some(joined) => {
+            *stack = joined;
+            Ok(Flow::Continues)
+        }
+        None => Ok(Flow::Returns),
+    }
 }
 
 /// Check one function body against its declared sig.
@@ -1280,11 +1331,9 @@ fn check_body(
         .chain(extra_locals.iter().copied())
         .collect();
     let mut stack: Vec<Ty> = Vec::new();
-    for op in body {
-        step(op, &mut stack, &locals, sigs)
-            .map_err(|e| -> Box<dyn Error> { format!("in `{fn_name}`: {e}").into() })?;
-    }
-    if stack != sig.outputs {
+    let flow = check_sequence(body, &mut stack, &locals, sigs, Some(&sig.outputs))
+        .map_err(|e| -> Box<dyn Error> { format!("in `{fn_name}`: {e}").into() })?;
+    if flow == Flow::Continues && stack != sig.outputs {
         return Err(format!(
             "function `{fn_name}` body leaves [{}], but signature declares outputs [{}]",
             fmt_types(&stack),

@@ -4,6 +4,11 @@ This document replaces the stack-language design. It is the current contract
 for this branch. The [historical design](docs/legacy-design.md) remains useful
 for backend implementation details; its language decisions are superseded.
 
+[TUTORIAL.md](TUTORIAL.md) is the learner-facing companion. Build it alongside
+the implementation: teaching a feature and addressing awkward examples is part
+of designing that feature. The tutorial teaches implemented behavior; this
+document also records future design decisions.
+
 ## Direction
 
 Plenty should feel familiar to a Python programmer while being a conventional,
@@ -41,13 +46,15 @@ Consequences:
 | Infix expressions, conditional expressions and blocks | Implemented |
 | Immutable bindings and explicit `mut` reassignment | Implemented |
 | Checked sized integers, booleans, strings, unit returns | Implemented |
+| Transparent type aliases, including persistent REPL aliases | Implemented |
 | Cranelift AOT, interpreter, multiline REPL | Implemented |
 | Direct and mutual tail calls | Implemented in interpreter and AOT |
+| Early returns and return-aware branch checking | Implemented in interpreter and AOT |
 | Structs, associated methods, tagged unions, exhaustive payload matching | Planned |
 | `Option[T]`, `Result[T, E]` | Planned with sum types |
 | Ownership, references, borrow checking | Planned; no current memory-safety claim |
 | JIT | Not present in this checkout; future backend |
-| Loops, early return, generators | Planned |
+| Loops, generators | Planned |
 | User generics, traits | Deferred |
 | Async/await | Out of scope |
 
@@ -59,18 +66,18 @@ move/drop/borrow rules can be checked and lowered consistently.
 ## Current language contract
 
 ```python
-def choose(flag: bool, first: int, second: int) -> int:
+def choose(flag: bool, first: i64, second: i64) -> i64:
     """Choose one of two integers."""
     first if flag else second
 
-def countdown(n: int) -> ():
+def countdown(n: i64) -> ():
     if n == 0:
         pass
     else:
         print(n)
         countdown(n - 1)
 
-mut answer: int = choose(True, 40, 0)
+mut answer: i64 = choose(True, 40, 0)
 answer = answer + 2
 print(answer)
 ```
@@ -90,8 +97,9 @@ newlines. The first standalone string in a function is its documentation.
 To return a string directly without a docstring, use `return "text"`.
 
 The current primitive types are `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`,
-`u64`, `bool`, and `str`. `int` is exactly `i64`, not a Python arbitrary-precision
-integer or a target-dependent word. Unsuffixed literals are `i64`; suffixes
+`u64`, `bool`, and `str`. Numeric built-ins use explicit-width names; there is
+no built-in `int`. Future floating-point types should use `f32`/`f64`; neither
+is implemented yet. Unsuffixed integer literals are `i64`; suffixes
 select widths. No contextual integer inference or implicit numeric widening.
 Integer casts use truncation/sign-extension like the historical backend.
 Overflow and division by zero are runtime errors in both execution paths.
@@ -107,6 +115,44 @@ or parameters. Absence and recoverable failure will be explicit sum types.
 to any other type. `Result[T, E]` distinguishes success from failure and does
 not replace `Option[T]` or unit.
 
+### Type aliases
+
+```python
+type int = i32
+type Count = int
+
+def increment(value: Count) -> Count:
+    value + Count(1)
+```
+
+`type Name = Type` declares a transparent, non-generic alias at module scope.
+Aliases may target any supported primitive, `()`, or another alias. They are
+visible throughout the module and may refer to later declarations. Cycles,
+unknown targets, duplicate aliases, and collisions with built-ins or function
+names are rejected, including unused aliases. Local aliases are not supported.
+An alias creates no new nominal identity, validation rule, layout, or runtime
+wrapper; two aliases for `i32` are interchangeable with each other and `i32`.
+
+Use aliases in parameter/return types and local annotations. Integer aliases
+also support the same explicit cast syntax as their target: with `type int =
+i32`, `int(42)` is exactly `i32(42)`, including truncation semantics. Boolean,
+string, and unit aliases do not introduce constructors or conversions. Existing
+restrictions on storing or passing unit still apply through aliases.
+
+Aliases never change literal defaults or add literal suffixes. With the alias
+above, `x: int = 42` fails because the unsuffixed literal is still `i64`; write
+`x: int = 42i32` or `x: int = int(42)`. `42int` is not a valid suffix. Current
+examples use explicit numeric widths unless they are teaching aliases.
+
+REPL aliases persist across submissions and participate in completion. An alias
+cannot be redefined, so checked functions cannot change meaning later. Failed
+parsing/checking installs neither aliases nor functions; a successfully checked
+submission installs declarations before execution, and runtime errors preserve
+those declarations, matching existing function behavior. Separate sessions can
+choose different definitions of `int`. Type lookup uses a separate namespace
+from local bindings; a local may shadow a callable cast name without changing
+the meaning of type annotations.
+
 ### Functions, expressions, and control flow
 
 All declarations are top-level, with complete signatures. There are no nested
@@ -115,7 +161,7 @@ Signatures are collected before any body is checked, allowing forward calls
 and mutual recursion. Top-level definitions are installed before executable
 statements run, in both execution modes.
 
-A suite's last expression is its value. Both sides of a value-producing
+A suite's last expression is its value. Continuing branches of a value-producing
 `if`/`elif`/`else` must agree. A non-final expression is evaluated and discarded;
 a non-final conditional discards its branches' results. An `if` without an
 `else` can only have unit result. The inline conditional uses Python order:
@@ -125,11 +171,26 @@ Conditions and Boolean operators accept only `bool`; there is no truthiness.
 `and` and `or` short-circuit. Arguments and ordinary binary operands evaluate
 left to right. Each expression is evaluated once.
 
-`return` is currently allowed only at the end of a function suite or a branch
-in its final conditional. Early return, loops, break/continue, and arbitrary
-control-flow joins need the next IR milestone; they are rejected rather than
-silently compiled with different behavior. Tail calls in final expressions
-and final branches are rewritten to tail-call operations. The interpreter
+`return value` exits the enclosing function from any suite; bare `return`
+returns unit. Every explicit return is checked against the declared return
+type, even inside a non-final or statically unchosen branch. A returning branch
+does not participate in the type join of paths that continue. A function with
+any continuing path must still produce its declared result on that path; an
+`if` without `else` cannot prove that all paths return. This analysis is
+structural, without constant-condition folding. Statements after an explicit
+return or an exhaustive conditional whose branches all return are rejected
+as unreachable at their source position.
+
+```python
+def clamp_low(value: i64, minimum: i64) -> i64:
+    if value < minimum:
+        return minimum
+    value
+```
+
+Loops, break/continue, and arbitrary control-flow joins still need the next IR
+milestone. Tail calls in final expressions, final branches, and explicit return
+expressions (including early guard clauses) become tail-call operations. The interpreter
 replaces its call frame and Cranelift emits `return_call` with the Tail calling
 convention. Ordinary nested calls retain normal call semantics.
 
@@ -148,7 +209,7 @@ declarations. Parameters plus locals are currently limited to 256 slots per
 function, a checked implementation limit inherited from the compact IR.
 
 Top-level bindings are locals of a generated entry function. In the REPL,
-functions persist, but bindings currently last only for one submission.
+functions and type aliases persist, but bindings currently last only for one submission.
 Separate submissions do not consume earlier expression results. Compilation
 and type errors execute nothing and preserve prior definitions/results.
 Runtime errors can leave effects that have already occurred. Function
@@ -157,8 +218,8 @@ redefinition is rejected to keep previously checked callers valid.
 ## Compiler architecture
 
 ```text
-source → indentation lexer → AST → signature collection → local type checking
-                                                        ↓
+source → lexer → AST → alias resolution → signatures → local type checking
+                                                       ↓
                                               typed operation IR
                                                ↙             ↘
                                          interpreter      Cranelift → object → cc
@@ -166,11 +227,33 @@ source → indentation lexer → AST → signature collection → local type che
 
 `frontend.rs` owns modern syntax, name resolution, local inference, mutability,
 and lowering. It emits operations directly, never translated legacy source.
+The parser retains type references with source positions. Before collecting
+signatures, the frontend resolves aliases with an iterative chain walk and
+caches each concrete result. For the current single-target aliases this is
+linear in the number of declarations/references, with no Rust recursion on
+long alias chains. All signatures and annotations normalize to existing `Ty`
+values before the backend runs. A compilation result carries operations and a
+compile-time alias table; aliases produce no runtime operations. The VM adopts
+the table only after the independent IR check succeeds.
 `op.rs` remains a backend-neutral operation IR and an independent type checker.
 Its compile-time operand stack is an implementation detail, not a language
 feature. `CompiledFn` carries a signature, documentation, body, and local-slot
 types. `LoadLocal`/`StoreLocal` address typed slots; conditional expressions
 use exhaustive Boolean branches. Unit is represented by zero stack values.
+
+Early returns add an explicit `Return` terminator. The frontend distinguishes
+continuing blocks (with a result type) from blocks that exit the function.
+The independent IR checker validates `Return` and `TailCall` against the
+enclosing signature, rejects operations after a guaranteed exit, and joins
+only continuing arms. The interpreter unwinds branch frames through the
+nearest call frame, releases that call's locals, and preserves the caller's
+pending operands plus the result. Cranelift emits `return`; terminated arms
+do not jump to the branch join. Explicit return expressions are lowered so
+each conditional path returns or tail-calls, preserving tail-call optimization.
+
+This uses the existing structured IR, which already models terminated arms
+for tail calls; it does not claim the typed CFG migration is complete. Loops
+and source-level ownership analysis remain reasons to introduce that CFG.
 
 The interpreter allocates local slots per call and releases the frame on
 return/tail call. Cranelift declares one SSA variable per slot; stores define
@@ -292,7 +375,7 @@ Implementation order:
 
 1. Current typed-expression vertical slice, native parity, and compile-latency
    measurement harness. Establish useful small/large-program baselines.
-2. Typed CFG, loops and early returns, richer source diagnostics, persistent
+2. Typed CFG, loops, richer source diagnostics, persistent
    REPL bindings, and shared module-independent backend lowering.
 3. Concrete structs, methods, enums, exhaustive matching, `Option`/`Result`.
 4. Ownership, destruction, and a sound local borrow subset; then evaluate
@@ -304,5 +387,15 @@ Implementation order:
 Tests must distinguish proposed syntax from executable examples. Every current
 example should run. Native parity tests exercise output, errors, side-effect
 ordering, branch-local mutation, integer widths, and deep tail recursion.
+Early-return tests also cover guard fallthrough, all-path returns, mixed
+explicit/implicit results, unit returns, nested-frame cleanup, skipped side
+effects/errors, unreachable code, and explicit direct/mutual tail calls.
+`tests/test_tutorial.rs` reads `TUTORIAL.md` directly: every `plenty` fence must
+have a following `output` fence and runs through both interpreter and AOT;
+every `plenty-error` fence has an `error` substring and must fail in both paths
+without executing effects. Do not maintain a separate copy of tutorial source
+in tests. Update the guide as part of each learner-visible language change.
+The archived stack-language tutorial has its own historical tests and is not
+the learning guide for modern Plenty.
 Performance results must name the build mode, machine, input size, and whether
 linking/runtime compilation is included; no latency claim without measurement.
