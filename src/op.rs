@@ -16,9 +16,9 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// Sized integers (§11.2): the user picks an exact bit width, signed or
 /// unsigned, so the program's memory footprint and overflow semantics are
 /// declared on the surface rather than hidden behind a polymorphic "Int".
-/// `Str` and `Bool` round out the vocabulary. Arrays and sum types are
-/// deferred (§12.7, §12.14); so are floating-point types (§12).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// Collection types share recursive descriptors; user generics, sum types,
+/// and floating-point types remain deferred.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     I8,
     I16,
@@ -30,6 +30,10 @@ pub enum Ty {
     U64,
     Str,
     Bool,
+    List(Rc<Ty>),
+    Set(Rc<Ty>),
+    Dict(Rc<Ty>, Rc<Ty>),
+    Range,
 }
 
 impl Ty {
@@ -37,7 +41,7 @@ impl Ty {
     /// `Bool`) return `false`. Used by the checker to enforce the
     /// "arithmetic and ordering work on same-width integers only" rule
     /// without naming each width in eight places.
-    pub fn is_int(self) -> bool {
+    pub fn is_int(&self) -> bool {
         matches!(
             self,
             Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64 | Ty::U8 | Ty::U16 | Ty::U32 | Ty::U64
@@ -48,7 +52,7 @@ impl Ty {
     /// this integer type, or `None` for non-integer types. Used to check
     /// that pattern literals (parsed as `i64`) fit the scrutinee's type
     /// at compile time, before the runtime narrowing of `pattern_matches`.
-    pub fn int_range(self) -> Option<(i128, i128)> {
+    pub fn int_range(&self) -> Option<(i128, i128)> {
         let r = match self {
             Ty::I8 => (i8::MIN as i128, i8::MAX as i128 + 1),
             Ty::I16 => (i16::MIN as i128, i16::MAX as i128 + 1),
@@ -58,7 +62,7 @@ impl Ty {
             Ty::U16 => (0, u16::MAX as i128 + 1),
             Ty::U32 => (0, u32::MAX as i128 + 1),
             Ty::U64 => (0, u64::MAX as i128 + 1),
-            Ty::Str | Ty::Bool => return None,
+            _ => return None,
         };
         Some(r)
     }
@@ -75,8 +79,12 @@ impl fmt::Display for Ty {
             Ty::U16 => "u16",
             Ty::U32 => "u32",
             Ty::U64 => "u64",
-            Ty::Str => "Str",
-            Ty::Bool => "Bool",
+            Ty::Str => "str",
+            Ty::Bool => "bool",
+            Ty::List(t) => return write!(f, "list[{t}]"),
+            Ty::Set(t) => return write!(f, "set[{t}]"),
+            Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
+            Ty::Range => "range",
         })
     }
 }
@@ -112,6 +120,12 @@ pub struct FnSig {
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    Collection(crate::collection::CollectionOp),
+    /// The condition leaves bool; a continuing body preserves the operand stack.
+    Loop {
+        condition: Rc<[Op]>,
+        body: Rc<[Op]>,
+    },
     /// Push an integer literal onto the stack. The payload is always an
     /// integer `Value`; retaining its width makes suffixed literals direct.
     PushInt(Value),
@@ -129,6 +143,7 @@ pub enum Op {
     Div,
     /// Integer division rounded toward negative infinity (modern `//`).
     FloorDiv,
+    Modulo,
     /// Pop two values; push `true` if they are equal, `false` otherwise.
     /// Polymorphic over Int/Str/Bool (§11.8); mixed-type pairs are rejected
     /// by the type checker, never reached at runtime by a compiled source.
@@ -301,7 +316,7 @@ impl Compiler<'_, '_> {
     /// consuming the terminating delimiter where there is one.
     fn compile_seq(&mut self, stop: Stop) -> Result<Vec<Op>> {
         let mut ops = Vec::new();
-        while let Some(tok) = self.toks.get(self.pos).copied() {
+        while let Some(tok) = self.toks.get(self.pos).cloned() {
             self.pos += 1;
             match tok {
                 Tok::Word(";") if stop == Stop::Semicolon => return Ok(ops),
@@ -348,7 +363,7 @@ impl Compiler<'_, '_> {
     /// inside the body is handled by the recursive `compile_seq` call, so
     /// definitions nest.
     fn compile_definition(&mut self) -> Result<Op> {
-        let name = match self.toks.get(self.pos).copied() {
+        let name = match self.toks.get(self.pos).cloned() {
             Some(Tok::Word(w)) if w != ":" && w != ";" => w.to_string(),
             Some(Tok::Word(_)) | None => {
                 return Err("':' must be followed by a function name".into())
@@ -373,7 +388,7 @@ impl Compiler<'_, '_> {
         }
         // A docstring is optional. When present, it must immediately follow
         // the header, so tools can still identify it without parsing a body.
-        let doc: Rc<str> = match self.toks.get(self.pos).copied() {
+        let doc: Rc<str> = match self.toks.get(self.pos).cloned() {
             Some(Tok::Text(s)) => {
                 self.pos += 1;
                 unescape(s)?.into()
@@ -411,7 +426,7 @@ impl Compiler<'_, '_> {
         let mut arms: Vec<MatchArm> = Vec::new();
         loop {
             // Pattern or end-of-match.
-            let pattern = match self.toks.get(self.pos).copied() {
+            let pattern = match self.toks.get(self.pos).cloned() {
                 Some(Tok::Word("end")) => {
                     self.pos += 1;
                     break;
@@ -432,7 +447,7 @@ impl Compiler<'_, '_> {
                 }
             };
             // Opening bracket — patterns are followed *only* by `[`.
-            match self.toks.get(self.pos).copied() {
+            match self.toks.get(self.pos).cloned() {
                 Some(Tok::Word("[")) => self.pos += 1,
                 _ => {
                     return Err(
@@ -460,7 +475,7 @@ impl Compiler<'_, '_> {
     /// The `->` is mandatory; both sides may be empty. `fn_name` is used for
     /// error messages only.
     fn compile_sig(&mut self, fn_name: &str) -> Result<FnSig> {
-        match self.toks.get(self.pos).copied() {
+        match self.toks.get(self.pos).cloned() {
             Some(Tok::Word("{")) => self.pos += 1,
             _ => {
                 return Err(format!(
@@ -473,7 +488,7 @@ impl Compiler<'_, '_> {
 
         let mut inputs = Vec::new();
         loop {
-            match self.toks.get(self.pos).copied() {
+            match self.toks.get(self.pos).cloned() {
                 Some(Tok::Word("->")) => {
                     self.pos += 1;
                     break;
@@ -515,7 +530,7 @@ impl Compiler<'_, '_> {
 
         let mut outputs = Vec::new();
         loop {
-            match self.toks.get(self.pos).copied() {
+            match self.toks.get(self.pos).cloned() {
                 Some(Tok::Word("}")) => {
                     self.pos += 1;
                     break;
@@ -545,7 +560,7 @@ impl Compiler<'_, '_> {
 
     /// Consume one token and require it to name a Plenty type.
     fn consume_type(&mut self, fn_name: &str) -> Result<Ty> {
-        match self.toks.get(self.pos).copied() {
+        match self.toks.get(self.pos).cloned() {
             Some(Tok::Word(w)) => match parse_type(w) {
                 Some(ty) => {
                     self.pos += 1;
@@ -655,7 +670,7 @@ fn parse_integer_literal(word: &str) -> Result<Option<IntLiteral>> {
                 .parse::<u64>()
                 .map(Value::U64)
                 .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
-            Ty::Str | Ty::Bool => unreachable!("only integer suffixes are listed"),
+            _ => unreachable!("only integer suffixes are listed"),
         };
         return Ok(Some(IntLiteral {
             value,
@@ -917,6 +932,10 @@ fn collect_sigs(ops: &[Op], out: &mut HashMap<String, Rc<FnSig>>) {
                 out.insert(name.clone(), Rc::clone(&f.sig));
                 collect_sigs(&f.body, out);
             }
+            Op::Loop { condition, body } => {
+                collect_sigs(condition, out);
+                collect_sigs(body, out);
+            }
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     collect_sigs(&arm.body, out);
@@ -940,6 +959,30 @@ fn step(
     returns: Option<&[Ty]>,
 ) -> Result<Flow> {
     match op {
+        Op::Collection(operation) => {
+            let (inputs, output) = operation.signature();
+            if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
+                return Err("collection operation type mismatch".into());
+            }
+            stack.truncate(stack.len() - inputs.len());
+            stack.push(output);
+        }
+        Op::Loop { condition, body } => {
+            let initial = stack.clone();
+            let mut cond = initial.clone();
+            if check_sequence(condition, &mut cond, locals, sigs, returns)? != Flow::Continues
+                || cond.pop() != Some(Ty::Bool)
+                || cond != initial
+            {
+                return Err("loop condition must produce bool".into());
+            }
+            let mut iter = initial.clone();
+            if check_sequence(body, &mut iter, locals, sigs, returns)? == Flow::Continues
+                && iter != initial
+            {
+                return Err("loop body must preserve operand types".into());
+            }
+        }
         // Unsuffixed integer literals are `i64`; a suffix records its chosen
         // width directly in the `Value` carried by the operation.
         Op::PushInt(value) => stack.push(Ty::from(*value)),
@@ -947,7 +990,7 @@ fn step(
         Op::PushBool(_) => stack.push(Ty::Bool),
         Op::Add => {
             let (a, b) = pop2(stack, "+")?;
-            let out = match (a, b) {
+            let out = match (a.clone(), b.clone()) {
                 (Ty::Str, Ty::Str) => Ty::Str,
                 (a, b) if a == b && a.is_int() => a,
                 _ => {
@@ -961,7 +1004,7 @@ fn step(
         }
         Op::Sub => arith(stack, "-")?,
         Op::Mul => arith(stack, "*")?,
-        Op::Div | Op::FloorDiv => arith(stack, "/")?,
+        Op::Div | Op::FloorDiv | Op::Modulo => arith(stack, "/")?,
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;
             if a != b {
@@ -1003,7 +1046,7 @@ fn step(
             stack.pop().ok_or("stack underflow on `drop`")?;
         }
         Op::Dup => {
-            let top = *stack.last().ok_or("stack underflow on `dup`")?;
+            let top = stack.last().ok_or("stack underflow on `dup`")?.clone();
             stack.push(top);
         }
         Op::Swap => {
@@ -1020,7 +1063,7 @@ fn step(
         Op::Display => {}
         Op::Clear => stack.clear(),
         Op::LoadLocal(i) => {
-            let ty = locals.get(*i as usize).copied().ok_or_else(|| {
+            let ty = locals.get(*i as usize).cloned().ok_or_else(|| {
                 format!("LoadLocal({i}) has no matching input in the enclosing function")
             })?;
             stack.push(ty);
@@ -1046,7 +1089,7 @@ fn step(
                     format!("cast `:as-{target}` requires an integer source, got {top}").into(),
                 );
             }
-            stack.push(*target);
+            stack.push(target.clone());
         }
         Op::ReadLine => {
             stack.push(Ty::Str);
@@ -1128,7 +1171,7 @@ fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Rc<FnSig>>
     // Inputs appear in declaration order, deepest operand first.
     let split = stack.len() - n;
     for (i, (param, expected)) in sig.inputs.iter().enumerate() {
-        let actual = stack[split + i];
+        let actual = stack[split + i].clone();
         if actual != *expected {
             return Err(format!(
                 "calling `{name}`: argument `{param}` (position {i}) \
@@ -1139,7 +1182,7 @@ fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Rc<FnSig>>
     }
     stack.truncate(split);
     for out in &sig.outputs {
-        stack.push(*out);
+        stack.push(out.clone());
     }
     Ok(())
 }
@@ -1170,7 +1213,7 @@ fn check_match(
     // the arm could never fire after the runtime narrowing in
     // `pattern_matches`).
     for arm in arms {
-        let compatible = match (matched_ty, arm.pattern) {
+        let compatible = match (matched_ty.clone(), arm.pattern) {
             (_, Pattern::Wildcard) => true,
             (Ty::Str, Pattern::Str(_)) => true,
             (Ty::Bool, Pattern::Bool(_)) => true,
@@ -1282,8 +1325,8 @@ fn check_body(
     let locals: Vec<Ty> = sig
         .inputs
         .iter()
-        .map(|(_, t)| *t)
-        .chain(extra_locals.iter().copied())
+        .map(|(_, t)| t.clone())
+        .chain(extra_locals.iter().cloned())
         .collect();
     let mut stack: Vec<Ty> = Vec::new();
     let flow = check_sequence(body, &mut stack, &locals, sigs, Some(&sig.outputs))

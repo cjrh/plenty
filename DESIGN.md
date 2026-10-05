@@ -58,14 +58,18 @@ Consequences:
 | `Option[T]`, `Result[T, E]` | Planned with sum types |
 | Ownership, references, borrow checking | Planned; no current memory-safety claim |
 | Interpreter, REPL, JIT | Out of scope |
-| Loops, generators | Planned |
+| Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
+| While loops, break/continue, generators | Planned |
 | User generics, traits | Deferred |
 | Async/await | Out of scope |
 
 Mutability checking alone is **not a borrow checker**. The current runtime
-uses copyable scalar values and immutable, append-only strings. It does not
-reclaim strings. Do not introduce references or owned aggregates before their
-move/drop/borrow rules can be checked and lowered consistently.
+uses copyable scalars, immutable strings, and immutable collection values. A
+collection update replaces a mutable binding with a new value; no mutable
+references or shared mutable contents are exposed. Collections are a deliberate
+value-semantic bridge to the ownership work, not evidence that a borrow checker
+exists. Allocations are retained until process exit; owned resources and references
+still require move/drop/borrow checking.
 
 ## Current language contract
 
@@ -130,7 +134,7 @@ def increment(value: Count) -> Count:
 ```
 
 `type Name = Type` declares a transparent, non-generic alias at module scope.
-Aliases may target any supported primitive, `()`, or another alias. They are
+Aliases may target any supported primitive, collection type, `range`, `()`, or another alias. They are
 visible throughout the module and may refer to later declarations. Cycles,
 unknown targets, duplicate aliases, and collisions with built-ins or function
 names are rejected, including unused aliases. Local aliases are not supported.
@@ -187,11 +191,99 @@ def clamp_low(value: i64, minimum: i64) -> i64:
     value
 ```
 
-Loops, break/continue, and arbitrary control-flow joins still need the next IR
-milestone. Tail calls in final expressions, final branches, and explicit return
+`for` loops are implemented. While loops, break/continue, and arbitrary
+control-flow joins remain deferred. Tail calls in final expressions, final branches, and explicit return
 expressions (including early guard clauses) become tail-call operations.
 Cranelift emits `return_call` with the Tail calling
 convention. Ordinary nested calls retain normal call semantics.
+
+### Collections and iteration
+
+The compiler-known constructors `list[T]`, `set[T]`, and `dict[K, V]` accept
+concrete element types, including nested collections. Dictionary keys and set
+elements are restricted to integers, `bool`, and `str`; there is no user-defined
+hash/equality protocol. Unit elements are rejected. These built-ins do not expose
+general user generics or require a trait solver.
+
+Literals use Python spelling: `[1, 2]`, `{"a": 1}`, and `{1, 2}`. Elements must
+have exactly the same type. Empty literals need context from an annotation,
+parameter, or return type; typed constructors such as `list[i64]()`,
+`dict[str, i64]()`, and `set[i64]()` also work. `{}` always means dictionary.
+Nonempty literals infer their type from the first element; integer literals still
+default to i64 without implicit narrowing. Aliases may name collection types.
+
+Collections have independent-value semantics. Assignment and function arguments
+may share immutable storage. `xs.append(value)`, `members.add(value)`, and
+`mapping[key] = value` replace a named `mut` binding; `xs[index] = value` does
+likewise. Parameters remain immutable. Mutating one binding does not change
+another binding, an existing nested collection, or an iteration already in
+progress. Nested indexed mutation is not implemented: extract the inner value,
+update a mutable binding, then assign that value back to its parent explicitly.
+
+Lists preserve order and duplicates. Dictionaries preserve first insertion order;
+a repeated key replaces its value without moving the key. Sets remove duplicates
+and promise no iteration order. Equality is structural: list order matters;
+dictionary insertion order and set order do not. There are no identity tests.
+
+`len`, `in`, and `not in` work with built-in iterables. Lists, strings, and
+ranges support i64 indexing, including negative indices. Dictionaries index by
+their key type. Out-of-bounds indices and absent keys report a runtime error and
+exit with status 1; absence-returning dictionary lookup awaits `Option`.
+`list(iterable)` and `set(iterable)` convert supported iterables; `dict(d)`
+copies an existing dictionary value. Dictionary `keys()` and `values()` produce
+snapshot lists, not mutable views. Pair iterables and `items()` await tuples.
+
+`range(stop)`, `range(start, stop)`, and `range(start, stop, step)` use i64
+arguments, exclude stop, and store only start/stop/step/length. A zero step or
+length exceeding i64 is a runtime error. Negative steps and extreme i64 bounds
+are checked using wider intermediate arithmetic. Range membership is constant
+time. `%` uses the divisor's sign, like Python; division by zero is an error,
+while `INT_MIN % -1` is zero.
+
+`for name in iterable:` evaluates its iterable once and iterates a snapshot:
+lists yield elements, dictionaries keys, sets elements, ranges integers, and
+strings Unicode scalar values as `str`. Loop variables and declarations are
+block-local and immutable; updates to enclosing mutable bindings persist. Even
+a body that always returns cannot prove a loop executes, so function return
+checking retains the zero-iteration path. Loops have unit value.
+
+List, set, and dictionary comprehensions accept multiple `for` and `if`
+clauses. Clauses nest left to right; each iterable is evaluated when its enclosing
+iteration reaches it. Filters run before the result expression. Dictionary keys
+are evaluated before their values. Comprehension variables have their own scope,
+and the first iterable sees the enclosing scope. Conditional expressions in
+iterables or filters must be parenthesized. No generator expressions, async
+iteration, tuple unpacking, arbitrary iterator protocol, or user special methods.
+
+Python's [display and comprehension rules](https://docs.python.org/3/reference/expressions.html#displays-for-lists-sets-and-dictionaries)
+inform evaluation order and scope; [dictionary semantics](https://docs.python.org/3/library/stdtypes.html#mapping-types-dict)
+inform key iteration, replacement, and insertion order. Independent values,
+block-local loop variables, and fixed element types are deliberate Plenty choices.
+
+#### Collection implementation and current costs
+
+`collection.rs` gives each operation one static signature. The frontend lowers
+loops and comprehensions into typed locals and structured loops. Cranelift calls
+a fixed native collection ABI with 64-bit slots; descriptors encode the already
+known element types. Descriptors support native storage/equality/printing, not
+dynamic type inference. No per-element compilation or trait instantiation occurs.
+Programs using only scalar operations do not compile or link the collection
+runtime; its C source is included only when operations or signatures require it.
+
+The C runtime uses growable list storage and hash tables with ordered entries for
+dictionaries and sets. Private builders append in place; literal and comprehension
+construction is amortized linear under ordinary hash distribution. Public updates
+copy the outer storage, so repeated `append` updates can be quadratic; prefer a
+comprehension for bulk construction. Nested immutable values are shared safely.
+Collection allocations are tracked and freed at process exit, not at last use.
+Long-running allocation-heavy programs therefore retain memory. Earlier scalar
+string helpers still have their append-only allocation policy. Ownership-based
+reclamation and uniqueness-aware updates are later work.
+
+String length and indexed access scan UTF-8 text, so string iteration is currently
+quadratic. Keys/values lists are snapshots. Hashes are not randomized. These are
+explicit initial runtime limits, not promises of Python's complete container API.
+Compiler-generated builder and iterator locals count toward the 256-slot limit.
 
 ### Bindings and mutation
 
@@ -241,10 +333,9 @@ source → lexer → AST → alias resolution → signatures → local type chec
 `frontend.rs` owns modern syntax, name resolution, local inference, mutability,
 and lowering. It emits operations directly, never translated legacy source.
 The parser retains type references with source positions. Before collecting
-signatures, the frontend resolves aliases with an iterative chain walk and
-caches each concrete result. For the current single-target aliases this is
-linear in the number of declarations/references, with no Rust recursion on
-long alias chains. All signatures and annotations normalize to existing `Ty`
+signatures, the frontend resolves aliases with an iterative dependency walk,
+including references inside collection arguments, and caches each concrete
+result. Cycles are rejected without Rust recursion on long alias chains. All signatures and annotations normalize to existing `Ty`
 values before the backend runs. The frontend returns operations only; aliases
 produce no runtime operations or persistent session state.
 `op.rs` remains a backend-neutral operation IR and an independent type checker.
@@ -262,8 +353,12 @@ do not jump to the branch join. Explicit return expressions are lowered so
 each conditional path returns or tail-calls, preserving tail-call optimization.
 
 This uses the existing structured IR, which already models terminated arms
-for tail calls; it does not claim the typed CFG migration is complete. Loops
-and source-level ownership analysis remain reasons to introduce that CFG.
+for tail calls. Structured loops now extend it with a condition and body, lowered
+to a Cranelift header, body, and exit. The checker requires a Boolean condition
+and a stack-preserving continuing body. Early exits remain checked against the
+function signature. Header sealing occurs after the back edge so mutable locals
+receive correct SSA joins. This does not complete the source CFG migration;
+break/continue and ownership analysis remain reasons to introduce that CFG.
 
 Cranelift declares one SSA variable per slot; stores define
 variables and joins use Cranelift's SSA construction. All names and types are
@@ -335,7 +430,9 @@ costs before permitting it.
 
 Use value ownership and moves for owned aggregates, immutable bindings by
 default, shared read-only borrows `&T`, and exclusive mutable borrows `&mut T`.
-Primitive scalars are copyable. Do not automatically copy arbitrary aggregates.
+Primitive scalars are copyable. Built-in collections have explicit independent-value
+semantics, implemented with immutable sharing and replacement updates. This does
+not decide the copying rules for arbitrary structs or resource-owning aggregates.
 Specify strings' owning/view types before replacing the current string arena.
 Mutability belongs to a binding/place; exclusivity belongs to a loan.
 
@@ -383,7 +480,7 @@ Implementation order:
 
 1. Current typed-expression vertical slice, native execution tests, and compile-latency
    measurement harness. Establish useful small/large-program baselines.
-2. Typed CFG, loops, richer source diagnostics, and module-independent
+2. Typed CFG, while/break/continue, richer source diagnostics, and module-independent
    native lowering.
 3. Concrete structs, methods, enums, exhaustive matching, `Option`/`Result`.
 4. Ownership, destruction, and a sound local borrow subset; then evaluate

@@ -7,6 +7,7 @@
 //! Compile with [`compile_source_to_executable`] or validate with [`check_source`].
 
 mod codegen;
+mod collection;
 mod frontend;
 mod lexer;
 mod op;

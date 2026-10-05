@@ -65,6 +65,7 @@ use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::lexer;
+mod collections;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 
@@ -151,7 +152,12 @@ fn compile_ops_to_executable(ops: &[Op], heap: &Heap, output: &Path) -> Result<(
     let obj_path = workspace.path().join("program.o");
     let rt_path = workspace.path().join("runtime.c");
     compile_to_object(ops, heap, &obj_path)?;
-    std::fs::write(&rt_path, RUNTIME_C)?;
+    let runtime = if uses_collections(ops) {
+        COLLECTION_RUNTIME_C
+    } else {
+        RUNTIME_C
+    };
+    std::fs::write(&rt_path, runtime)?;
     link_with_cc(&obj_path, &rt_path, output)
 }
 
@@ -159,7 +165,28 @@ fn compile_ops_to_executable(ops: &[Op], heap: &Heap, output: &Path) -> Result<(
 /// at link time lets `cc` do the runtime's compile-and-link in a single
 /// invocation — the same path the test harness took before c.5, just
 /// driven by the binary now.
-const RUNTIME_C: &[u8] = include_bytes!("../runtime/plenty_runtime.c");
+const RUNTIME_C: &str = include_str!("../runtime/plenty_runtime.c");
+const COLLECTION_RUNTIME_C: &str = concat!(
+    include_str!("../runtime/plenty_runtime.c"),
+    "\n",
+    include_str!("../runtime/collections.c")
+);
+
+/// Avoid compiling the collection runtime for programs that only use scalars.
+fn uses_collections(ops: &[Op]) -> bool {
+    ops.iter().any(|op| match op {
+        Op::Collection(_) => true,
+        Op::Loop { condition, body } => uses_collections(condition) || uses_collections(body),
+        Op::Match(arms) => arms.iter().any(|arm| uses_collections(&arm.body)),
+        Op::DefineFn(_, f) => {
+            f.sig.inputs.iter().any(|(_, ty)| ty.is_collection())
+                || f.sig.outputs.iter().any(Ty::is_collection)
+                || f.locals.iter().any(Ty::is_collection)
+                || uses_collections(&f.body)
+        }
+        _ => false,
+    })
+}
 
 /// Invoke `cc` to link `obj` (the Cranelift-emitted object) with the
 /// runtime source `runtime_src` into the executable at `output`. The
@@ -283,6 +310,8 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
 /// them all up-front so each call site is just `module.declare_func_in_func`
 /// plus an `ins().call`.
 struct Runtime {
+    type_data: std::cell::RefCell<HashMap<Ty, DataId>>,
+    collection: FuncId,
     print_i8: FuncId,
     print_i16: FuncId,
     print_i32: FuncId,
@@ -354,6 +383,14 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        type_data: Default::default(),
+        collection: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([AbiParam::new(types::I64); 5]);
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("plenty_collection", Linkage::Import, &sig)?
+        },
         print_i8: one_arg(module, "plenty_print_i8", types::I8)?,
         print_i16: one_arg(module, "plenty_print_i16", types::I16)?,
         print_i32: one_arg(module, "plenty_print_i32", types::I32)?,
@@ -446,6 +483,10 @@ fn declare_eof_empty_str(module: &mut ObjectModule) -> Result<DataId> {
 fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, ()>) {
     for op in ops {
         match op {
+            Op::Loop { condition, body } => {
+                collect_str_ids(condition, out, seen);
+                collect_str_ids(body, out, seen);
+            }
             Op::PushStr(id) if seen.insert(*id, ()).is_none() => out.push(*id),
             Op::Match(arms) => {
                 for arm in arms.iter() {
@@ -485,10 +526,10 @@ fn user_fn_signature(module: &ObjectModule, sig: &FnSig) -> Signature {
     let mut cl = module.make_signature();
     cl.call_conv = CallConv::Tail;
     for (_, ty) in &sig.inputs {
-        cl.params.push(AbiParam::new(clif_type(*ty)));
+        cl.params.push(AbiParam::new(clif_type(ty.clone())));
     }
     for ty in &sig.outputs {
-        cl.returns.push(AbiParam::new(clif_type(*ty)));
+        cl.returns.push(AbiParam::new(clif_type(ty.clone())));
     }
     cl
 }
@@ -572,15 +613,15 @@ fn emit_user_function(
         // raw block-param value would have to be threaded explicitly.
         let mut locals: Vec<(Variable, Ty)> = Vec::with_capacity(decl.sig.inputs.len());
         for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
-            let var = bcx.declare_var(clif_type(*ty));
+            let var = bcx.declare_var(clif_type(ty.clone()));
             let param = bcx.block_params(entry)[i];
             bcx.def_var(var, param);
-            locals.push((var, *ty));
+            locals.push((var, ty.clone()));
         }
         for ty in decl.locals.iter() {
-            let var = bcx.declare_var(clif_type(*ty));
+            let var = bcx.declare_var(clif_type(ty.clone()));
             // The frontend enforces definite initialization before every read.
-            locals.push((var, *ty));
+            locals.push((var, ty.clone()));
         }
 
         let mut lower = Lowerer {
@@ -687,7 +728,7 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::I16 | Ty::U16 => types::I16,
         Ty::I32 | Ty::U32 => types::I32,
         Ty::I64 | Ty::U64 => types::I64,
-        Ty::Str => PTR_TY,
+        Ty::Str | Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _) | Ty::Range => PTR_TY,
     }
 }
 
@@ -714,7 +755,7 @@ fn width_bits(ty: Ty) -> u8 {
         Ty::I16 | Ty::U16 => 16,
         Ty::I32 | Ty::U32 => 32,
         Ty::I64 | Ty::U64 => 64,
-        Ty::Bool | Ty::Str => panic!("non-integer in width_bits"),
+        _ => panic!("non-integer in width_bits"),
     }
 }
 
@@ -777,9 +818,14 @@ struct Lowerer<'a, 'b> {
 impl Lowerer<'_, '_> {
     fn lower(&mut self, op: &Op) -> Result<()> {
         match op {
+            Op::Collection(operation) => self.lower_collection(operation)?,
+            Op::Loop { condition, body } => self.lower_loop(condition, body)?,
             Op::PushInt(value) => {
                 let ty = Ty::from(*value);
-                let v = self.bcx.ins().iconst(clif_type(ty), int_value_bits(*value));
+                let v = self
+                    .bcx
+                    .ins()
+                    .iconst(clif_type(ty.clone()), int_value_bits(*value));
                 self.stack.push((v, ty));
             }
             Op::PushBool(b) => {
@@ -792,6 +838,7 @@ impl Lowerer<'_, '_> {
             Op::Mul => self.lower_checked_arith(ArithKind::Mul)?,
             Op::Div => self.lower_div(false)?,
             Op::FloorDiv => self.lower_div(true)?,
+            Op::Modulo => self.lower_modulo()?,
             Op::Eq => self.lower_eq()?,
             Op::Lt => self.int_cmp(IntCC::SignedLessThan, IntCC::UnsignedLessThan)?,
             Op::Gt => self.int_cmp(IntCC::SignedGreaterThan, IntCC::UnsignedGreaterThan)?,
@@ -813,7 +860,11 @@ impl Lowerer<'_, '_> {
                 self.stack.pop().ok_or("AOT: stack underflow on `drop`")?;
             }
             Op::Dup => {
-                let value = *self.stack.last().ok_or("AOT: stack underflow on `dup`")?;
+                let value = self
+                    .stack
+                    .last()
+                    .ok_or("AOT: stack underflow on `dup`")?
+                    .clone();
                 self.stack.push(value);
             }
             Op::Swap => {
@@ -829,14 +880,14 @@ impl Lowerer<'_, '_> {
             }
             Op::Cast(target) => {
                 let (v, src) = self.stack.pop().ok_or("AOT: stack underflow on cast")?;
-                let cast = self.cast(v, src, *target);
-                self.stack.push((cast, *target));
+                let cast = self.cast(v, src, target.clone());
+                self.stack.push((cast, target.clone()));
             }
             Op::Display => self.lower_display()?,
             Op::Clear => self.stack.clear(),
             Op::LoadLocal(i) => self.lower_load_local(*i)?,
             Op::StoreLocal(i) => {
-                let (var, ty) = self.locals[*i as usize];
+                let (var, ty) = self.locals[*i as usize].clone();
                 let (value, _) = self.pop_typed(ty)?;
                 self.bcx.def_var(var, value);
             }
@@ -862,7 +913,11 @@ impl Lowerer<'_, '_> {
                 let helper = match ty {
                     Ty::Str => self.runtime.println,
                     Ty::Bool => self.runtime.println_bool,
-                    ty if is_signed(ty) => {
+                    ty if ty.is_collection() => {
+                        self.collection_call(9, &[value], None)?;
+                        return Ok(());
+                    }
+                    ty if is_signed(ty.clone()) => {
                         value = self.cast(value, ty, Ty::I64);
                         self.runtime.println_signed
                     }
@@ -963,7 +1018,7 @@ impl Lowerer<'_, '_> {
     /// through the runtime helper `plenty_trap_overflow`.
     fn lower_checked_arith(&mut self, kind: ArithKind) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
-        let signed = is_signed(ty);
+        let signed = is_signed(ty.clone());
         let (result, of) = match (kind, signed) {
             (ArithKind::Add, true) => self.bcx.ins().sadd_overflow(a, b),
             (ArithKind::Add, false) => self.bcx.ins().uadd_overflow(a, b),
@@ -981,13 +1036,13 @@ impl Lowerer<'_, '_> {
     /// so both failures produce runtime diagnostics instead of hardware traps.
     fn lower_div(&mut self, floor: bool) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
-        let cty = clif_type(ty);
+        let cty = clif_type(ty.clone());
 
         let zero = self.bcx.ins().iconst(cty, 0);
         let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
         self.trap_if(b_is_zero, TrapKind::DivZero);
 
-        if is_signed(ty) {
+        if is_signed(ty.clone()) {
             // Only one signed-division overflow case exists: INT_MIN / -1.
             // (Result `-INT_MIN` is not representable at the same width.)
             let int_min = match ty {
@@ -1005,12 +1060,12 @@ impl Lowerer<'_, '_> {
             self.trap_if(overflow, TrapKind::Overflow);
         }
 
-        let mut v = if is_signed(ty) {
+        let mut v = if is_signed(ty.clone()) {
             self.bcx.ins().sdiv(a, b)
         } else {
             self.bcx.ins().udiv(a, b)
         };
-        if floor && is_signed(ty) {
+        if floor && is_signed(ty.clone()) {
             let remainder = self.bcx.ins().srem(a, b);
             let nonzero = self.bcx.ins().icmp_imm(IntCC::NotEqual, remainder, 0);
             let signs = self.bcx.ins().bxor(a, b);
@@ -1020,6 +1075,31 @@ impl Lowerer<'_, '_> {
             v = self.bcx.ins().select(round_down, below, v);
         }
         self.stack.push((v, ty));
+        Ok(())
+    }
+
+    /// Python-style modulo has the divisor's sign, including negative divisors.
+    fn lower_modulo(&mut self) -> Result<()> {
+        let (a, b, ty) = self.pop_int_pair()?;
+        let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
+        let is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
+        self.trap_if(is_zero, TrapKind::DivZero);
+        let result = if is_signed(ty.clone()) {
+            // INT_MIN % -1 is zero, so avoid a hardware division overflow.
+            let minus_one = self.bcx.ins().icmp_imm(IntCC::Equal, b, -1);
+            let one = self.bcx.ins().iconst(clif_type(ty.clone()), 1);
+            let divisor = self.bcx.ins().select(minus_one, one, b);
+            let rem = self.bcx.ins().srem(a, divisor);
+            let nonzero = self.bcx.ins().icmp_imm(IntCC::NotEqual, rem, 0);
+            let signs = self.bcx.ins().bxor(rem, b);
+            let different = self.bcx.ins().icmp_imm(IntCC::SignedLessThan, signs, 0);
+            let adjust = self.bcx.ins().band(nonzero, different);
+            let corrected = self.bcx.ins().iadd(rem, b);
+            self.bcx.ins().select(adjust, corrected, rem)
+        } else {
+            self.bcx.ins().urem(a, b)
+        };
+        self.stack.push((result, ty));
         Ok(())
     }
 
@@ -1060,7 +1140,11 @@ impl Lowerer<'_, '_> {
     /// Lower an integer ordering comparison with signedness-aware `icmp` codes.
     fn int_cmp(&mut self, signed: IntCC, unsigned: IntCC) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
-        let cc = if is_signed(ty) { signed } else { unsigned };
+        let cc = if is_signed(ty.clone()) {
+            signed
+        } else {
+            unsigned
+        };
         let v = self.bcx.ins().icmp(cc, a, b);
         self.stack.push((v, Ty::Bool));
         Ok(())
@@ -1115,8 +1199,8 @@ impl Lowerer<'_, '_> {
         from: Ty,
         to: Ty,
     ) -> cranelift_codegen::ir::Value {
-        let from_bits = width_bits(from);
-        let to_bits = width_bits(to);
+        let from_bits = width_bits(from.clone());
+        let to_bits = width_bits(to.clone());
         if from_bits == to_bits {
             return v;
         }
@@ -1154,7 +1238,7 @@ impl Lowerer<'_, '_> {
             if i > 0 {
                 self.bcx.ins().call(space, &[]);
             }
-            let printer = self.printer_for(*ty);
+            let printer = self.printer_for(ty.clone());
             let local = self.module.declare_func_in_func(printer, self.bcx.func);
             self.bcx.ins().call(local, &[*v]);
         }
@@ -1175,6 +1259,7 @@ impl Lowerer<'_, '_> {
             Ty::U64 => self.runtime.print_u64,
             Ty::Bool => self.runtime.print_bool,
             Ty::Str => self.runtime.print_str,
+            _ => unreachable!("collection printing uses its own runtime helper"),
         }
     }
 
@@ -1228,6 +1313,16 @@ impl Lowerer<'_, '_> {
     }
 
     fn lower_equality(&mut self, cc: IntCC, negate_string_result: bool) -> Result<()> {
+        if self.stack.last().is_some_and(|(_, ty)| ty.is_collection()) {
+            let (a, b, _) = self.pop_pair()?;
+            let eq = self.collection_call(8, &[a, b], None)?;
+            let mut value = self.bcx.ins().ireduce(types::I8, eq);
+            if negate_string_result {
+                value = self.bcx.ins().bxor_imm(value, 1);
+            }
+            self.stack.push((value, Ty::Bool));
+            return Ok(());
+        }
         let len = self.stack.len();
         if len >= 2 && self.stack[len - 1].1 == Ty::Str && self.stack[len - 2].1 == Ty::Str {
             let b = self.stack.pop().expect("len >= 2").0;
@@ -1275,7 +1370,7 @@ impl Lowerer<'_, '_> {
         let (var, ty) = self
             .locals
             .get(i as usize)
-            .copied()
+            .cloned()
             .ok_or_else(|| -> Box<dyn Error> {
                 format!("AOT: LoadLocal({i}) has no matching input").into()
             })?;
@@ -1395,7 +1490,7 @@ impl Lowerer<'_, '_> {
                     let pat = self
                         .bcx
                         .ins()
-                        .iconst(clif_type(scrut_ty), int_value_bits(value));
+                        .iconst(clif_type(scrut_ty.clone()), int_value_bits(value));
                     let eq = self.bcx.ins().icmp(IntCC::Equal, scrut, pat);
                     let next = self.bcx.create_block();
                     self.bcx.ins().brif(eq, arm_blocks[i], &[], next, &[]);
@@ -1457,9 +1552,10 @@ impl Lowerer<'_, '_> {
             }
             any_arm_falls_through = true;
             if join_param_types.is_none() {
-                let types: Vec<Ty> = self.stack.iter().map(|(_, t)| *t).collect();
+                let types: Vec<Ty> = self.stack.iter().map(|(_, t)| t.clone()).collect();
                 for ty in &types {
-                    self.bcx.append_block_param(join_block, clif_type(*ty));
+                    self.bcx
+                        .append_block_param(join_block, clif_type(ty.clone()));
                 }
                 join_param_types = Some(types);
             }

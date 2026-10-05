@@ -369,8 +369,8 @@ An alias is another name for the same type. `Count`, `ItemCount`, and `u32`
 are interchangeable here; an alias does not create a distinct type, enforce
 units of measurement, or add runtime overhead.
 
-Aliases can name integers, booleans, strings, unit, or other aliases. Only
-integer types have cast-call syntax. Declare aliases at module scope; they are
+Aliases can name integers, booleans, strings, collections, unit, or other aliases.
+Integer aliases support casts; collection aliases support collection constructors. Declare aliases at module scope; they are
 visible throughout that file, including before their declaration. Alias chains
 must eventually reach a concrete type; cycles and unknown targets are errors.
 An alias cannot redefine a built-in name, another alias, or a function name.
@@ -421,8 +421,8 @@ are not available yet.
 
 ## 11. Repeat work with tail recursion
 
-Loops have not been implemented yet. A tail-recursive function can repeat work
-without growing the call stack:
+A tail-recursive function can repeat work without growing the call stack.
+For collection traversal, the next lessons introduce `for` loops.
 
 ```plenty
 def sum_to(n: i64, total: i64) -> i64:
@@ -457,10 +457,165 @@ and reports a failing exit status when the program fails.
 
 There is no interactive REPL or interpreter, and JIT compilation is out of scope.
 
+## 13. Lists and independent values
+
+A list contains values of one type. Use `list[T]` in signatures and annotations.
+An empty list needs an annotation or a typed constructor such as `list[i64]()`.
+
+```plenty
+mut original: list[i64] = [10, 20]
+mut changed = original
+changed.append(30)
+changed[0] = 99
+print(original)
+print(changed)
+print(changed[-1])
+print(len(changed))
+```
+
+```output
+[10, 20]
+[99, 20, 30]
+30
+3
+```
+
+Unlike Python, the two bindings are independent values. Updating `changed`
+does not update `original`. Both the binding and its contents are immutable
+unless you declare the binding with `mut`; function parameters are immutable.
+Negative indices count from the end. Invalid indices stop the program with a
+runtime error.
+
+Collections can nest. To update an inner list, extract it into a mutable binding,
+update that binding, then assign it back into the outer list. Direct nested
+assignment such as `rows[0][0] = 1` is not implemented.
+
+## 14. Dictionaries and sets
+
+Dictionaries map a single key type to a single value type. Keys and set elements
+may be integers, booleans, or strings. Dictionary values can include collections.
+
+```plenty
+mut scores: dict[str, i64] = {"Ada": 10, "Grace": 20}
+scores["Ada"] = 12
+scores["Lin"] = 30
+print(scores["Ada"])
+print("Grace" in scores)
+print(scores.keys())
+print(scores.values())
+
+mut names: set[str] = set()
+names.add("Ada")
+names.add("Ada")
+print(len(names))
+print("Ada" in names)
+```
+
+```output
+12
+True
+["Ada", "Grace", "Lin"]
+[12, 20, 30]
+1
+True
+```
+
+A repeated dictionary key replaces its value and keeps its insertion position.
+`keys()` and `values()` return snapshot lists in insertion order. Sets remove
+duplicates and have no promised iteration order. `{}` is an empty dictionary;
+use an annotation with `set()` or write `set[str]()` for an empty set.
+
+Missing dictionary keys are runtime errors. Check membership before indexing
+when absence is possible; an `Option`-returning lookup awaits sum types.
+Collection equality compares contents; dictionary and set order do not matter.
+
+## 15. Iterate over values
+
+`for` visits list elements, dictionary keys, set elements, range integers, or
+characters of a string. A character is a one-character `str`.
+
+```plenty
+mut total = 0
+for n in range(1, 5):
+    total = total + n
+print(total)
+
+scores = {"Ada": 10, "Grace": 20}
+for name in scores:
+    print(name)
+    print(scores[name])
+
+print(list(range(5, 0, -2)))
+print(list("hé"))
+```
+
+```output
+10
+Ada
+10
+Grace
+20
+[5, 3, 1]
+["h", "é"]
+```
+
+`range(stop)` starts at zero. `range(start, stop, step)` permits a negative
+step, but never zero. The stop value is excluded. A range stores its bounds
+without building a list; `list(range(...))` materializes its values.
+
+The iterable is evaluated once. The loop visits that snapshot even if its
+binding is updated in the body. Loop variables and new body bindings do not
+escape the loop; changes to enclosing `mut` bindings persist. A loop has unit
+result. `return` can exit a containing function from a loop. `break`,
+`continue`, tuple unpacking, and `items()` are not implemented yet.
+
+## 16. Build collections with comprehensions
+
+A comprehension produces a new collection from an iterable and optional filters.
+The element expression runs only after the filters pass.
+
+```plenty
+squares = [n * n for n in range(8) if n % 2 == 0]
+print(squares)
+print({n: n * n for n in [2, 3]})
+print(len({n // 2 for n in range(8)}))
+print([x * 10 + y for x in range(3) for y in range(x)])
+```
+
+```output
+[0, 4, 16, 36]
+{2: 4, 3: 9}
+4
+[10, 20, 21]
+```
+
+Multiple clauses nest from left to right. Later iterables can use earlier
+variables, and you can use multiple `if` filters. Variables remain local to
+the comprehension. Parenthesize a conditional expression used as an iterable
+or filter. Dictionary comprehensions evaluate each key before its value.
+
+`%` is modulo: the result follows the divisor's sign, so `-7 % 3` is `2`.
+Both operands must have the same integer type.
+
+Every element must have the same type; there is no implicit numeric widening:
+
+```plenty-error
+values = [1, True]
+```
+
+```error
+expected list[i64]
+```
+
+For now, prefer comprehensions to repeated `append` calls when building a
+collection. Comprehensions use a private growing buffer; ordinary mutations copy
+the outer collection storage. Allocations currently remain until process exit.
+These costs will improve as ownership and reclamation are implemented.
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Structs and methods, sum
-types, ownership and borrowing, loops, and generators
+types, ownership and borrowing, richer loop control, and generators
 remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 

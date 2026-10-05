@@ -62,8 +62,27 @@ Supported today:
   explicit mutable bindings (`mut answer = 42`), and reassignment.
 - `print(value)` and `contains(haystack, needle)`. Strings support single,
   double, and triple quotes, UTF-8, and `\n`, `\r`, `\t`, quote/backslash escapes.
-- `//` rounds toward negative infinity. `/` is reserved for future floating
-  point support. Loops are not implemented yet; use tail recursion for iteration.
+- Typed `list[T]`, `dict[K, V]`, and `set[T]`, including nested values, literals,
+  indexing, membership, and independent-value updates through `mut` bindings.
+- `for` loops over collections, strings, and lazy `range` values; list, dict,
+  and set comprehensions with multiple iteration and filter clauses.
+- `//` rounds toward negative infinity; `%` follows the divisor's sign. `/`
+  is reserved for future floating-point support.
+
+Collections and comprehensions use familiar syntax with fixed element types:
+
+```python
+squares: list[i64] = [n * n for n in range(10) if n % 2 == 0]
+by_value: dict[i64, i64] = {n: n * n for n in squares}
+unique: set[i64] = set(squares)
+for n in squares:
+    print(n)
+```
+
+Collections have independent values: changing a `mut` binding leaves copies
+unchanged. Current updates copy outer storage and allocations last until process
+exit; use comprehensions for bulk construction. General iterator protocols,
+tuple unpacking, `items()`, and `break`/`continue` are not implemented yet.
 
 Guard clauses can return early while the main path uses an implicit result:
 

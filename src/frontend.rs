@@ -6,8 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::rc::Rc;
 
+use crate::collection::CollectionOp;
 use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
+mod collections;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit has no runtime representation in this milestone.
@@ -49,6 +51,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
     let mut line_start = true;
     let mut indents = vec![0];
     let mut parens = 0usize;
+    let mut delimiters = Vec::new();
     let mut out = Vec::new();
     while pos < chars.len() {
         if line_start {
@@ -210,7 +213,8 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                     ..start
                 });
             }
-            '(' | ')' | ':' | ',' | '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' => {
+            '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ',' | '+' | '-' | '*' | '%' | '/'
+            | '=' | '!' | '<' | '>' => {
                 let mut symbol = c.to_string();
                 if let Some(next) = chars.get(pos + 1) {
                     if matches!(
@@ -222,13 +226,20 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                         column += 1;
                     }
                 }
-                if c == '(' {
+                if matches!(c, '(' | '[' | '{') {
                     parens += 1;
+                    delimiters.push(c);
                 }
-                if c == ')' {
-                    parens = parens
-                        .checked_sub(1)
-                        .ok_or_else(|| start.error("unmatched `)`"))?;
+                if matches!(c, ')' | ']' | '}') {
+                    let expected = match c {
+                        ')' => '(',
+                        ']' => '[',
+                        _ => '{',
+                    };
+                    if delimiters.pop() != Some(expected) {
+                        return Err(start.error(format!("unmatched or mismatched `{c}`")));
+                    }
+                    parens -= 1;
                 }
                 pos += 1;
                 column += 1;
@@ -281,15 +292,51 @@ struct TypeRef {
     at: Token,
     /// None denotes unit, spelled `()`.
     name: Option<String>,
+    args: Vec<TypeRef>,
 }
 
 impl TypeRef {
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
-        match &self.name {
-            None => Ok(None),
-            Some(name) => lookup_type(name, aliases)
-                .ok_or_else(|| self.at.error(format!("unknown type `{name}`"))),
+        let Some(name) = &self.name else {
+            return Ok(None);
+        };
+        if matches!(name.as_str(), "list" | "dict" | "set") {
+            let count = if name == "dict" { 2 } else { 1 };
+            if self.args.len() != count {
+                return Err(self
+                    .at
+                    .error(format!("{name} requires {count} type arguments")));
+            }
+            let args: Vec<Ty> = self
+                .args
+                .iter()
+                .map(|t| {
+                    t.resolve(aliases)?
+                        .ok_or_else(|| t.at.error("collection elements cannot be unit"))
+                })
+                .collect::<Result<_>>()?;
+            return Ok(Some(match name.as_str() {
+                "list" => Ty::List(Rc::new(args[0].clone())),
+                "set" => {
+                    if !args[0].hashable() {
+                        return Err(self.at.error("set elements must be integers, bool, or str"));
+                    }
+                    Ty::Set(Rc::new(args[0].clone()))
+                }
+                _ => {
+                    if !args[0].hashable() {
+                        return Err(self
+                            .at
+                            .error("dictionary keys must be integers, bool, or str"));
+                    }
+                    Ty::Dict(Rc::new(args[0].clone()), Rc::new(args[1].clone()))
+                }
+            }));
         }
+        if !self.args.is_empty() {
+            return Err(self.at.error("this type does not take type arguments"));
+        }
+        lookup_type(name, aliases).ok_or_else(|| self.at.error(format!("unknown type `{name}`")))
     }
 }
 
@@ -318,6 +365,15 @@ enum Statement {
         no: Vec<Stmt>,
     },
     Pass,
+    For {
+        name: String,
+        iterable: Expr,
+        body: Vec<Stmt>,
+    },
+    SetIndex {
+        target: Expr,
+        value: Expr,
+    },
 }
 
 struct Expr {
@@ -328,6 +384,14 @@ enum Expression {
     Number(String),
     Text(String),
     Bool(bool),
+    Collection {
+        kind: String,
+        entries: Vec<(Expr, Option<Expr>)>,
+        clauses: Vec<Clause>,
+    },
+    Index(Box<Expr>, Box<Expr>),
+    Method(Box<Expr>, String, Vec<Expr>),
+    Constructor(TypeRef, Vec<Expr>),
     Unit,
     Group(Box<Expr>),
     Name(String),
@@ -339,6 +403,11 @@ enum Expression {
         yes: Box<Expr>,
         no: Box<Expr>,
     },
+}
+
+enum Clause {
+    For(String, Expr),
+    If(Expr),
 }
 
 struct Parser {
@@ -390,7 +459,11 @@ impl Parser {
         let at = self.peek().clone();
         if self.eat("(") {
             self.expect(")")?;
-            return Ok(TypeRef { at, name: None });
+            return Ok(TypeRef {
+                at,
+                name: None,
+                args: Vec::new(),
+            });
         }
         let t = self.take();
         if let Kind::Word(ref name) = t.kind {
@@ -398,10 +471,24 @@ impl Parser {
                 return Ok(TypeRef {
                     at,
                     name: Some(name.clone()),
+                    args: self.type_arguments()?,
                 });
             }
         }
         Err(t.error("expected a type name or ()"))
+    }
+    fn type_arguments(&mut self) -> Result<Vec<TypeRef>> {
+        let mut args = Vec::new();
+        if self.eat("[") {
+            loop {
+                args.push(self.ty()?);
+                if self.eat("]") {
+                    break;
+                }
+                self.expect(",")?;
+            }
+        }
+        Ok(args)
     }
     fn alias(&mut self) -> Result<TypeAlias> {
         let at = self.take(); // type
@@ -511,6 +598,21 @@ impl Parser {
         if self.peek().is("if") {
             return self.conditional_statement();
         }
+        if self.peek().is("for") {
+            let at = self.take();
+            let name = self.name()?;
+            self.expect("in")?;
+            let iterable = self.expr(0)?;
+            let body = self.suite()?;
+            return Ok(Stmt {
+                at,
+                kind: Statement::For {
+                    name,
+                    iterable,
+                    body,
+                },
+            });
+        }
         let at = self.peek().clone();
         let kind = if self.eat("return") {
             Statement::Return(if self.peek().kind == Kind::Newline {
@@ -543,7 +645,15 @@ impl Parser {
                     value: self.expr(0)?,
                 }
             } else {
-                Statement::Expr(self.expr(0)?)
+                let target = self.expr(0)?;
+                if self.eat("=") {
+                    Statement::SetIndex {
+                        target,
+                        value: self.expr(0)?,
+                    }
+                } else {
+                    Statement::Expr(target)
+                }
             }
         };
         self.kind(Kind::Newline, "the end of the statement")?;
@@ -568,8 +678,14 @@ impl Parser {
                     Expression::Group(Box::new(e))
                 }
             }
+            Kind::Symbol(s) if s == "[" || s == "{" => self.collection_display(s)?,
             Kind::Word(s) if !reserved(s) && !s.starts_with("__plenty_") => {
-                if self.eat("(") {
+                if matches!(s.as_str(), "list" | "dict" | "set") && self.peek().is("[") {
+                    self.pos -= 1;
+                    let ty = self.ty()?;
+                    self.expect("(")?;
+                    Expression::Constructor(ty, self.arguments()?)
+                } else if self.eat("(") {
                     let mut args = Vec::new();
                     while !self.eat(")") {
                         args.push(self.expr(0)?);
@@ -587,6 +703,25 @@ impl Parser {
         };
         let mut left = Expr { at, kind };
         loop {
+            if self.eat("[") {
+                let index = self.expr(0)?;
+                self.expect("]")?;
+                left = Expr {
+                    at: left.at.clone(),
+                    kind: Expression::Index(Box::new(left), Box::new(index)),
+                };
+                continue;
+            }
+            if self.eat(".") {
+                let name = self.name()?;
+                self.expect("(")?;
+                let args = self.arguments()?;
+                left = Expr {
+                    at: left.at.clone(),
+                    kind: Expression::Method(Box::new(left), name, args),
+                };
+                continue;
+            }
             if min == 0 && self.eat("if") {
                 let condition = self.expr(1)?;
                 self.expect("else")?;
@@ -602,7 +737,17 @@ impl Parser {
                 };
                 continue;
             }
-            let Some((op, prec)) = binary(self.peek()) else {
+            let not_in =
+                self.peek().is("not") && self.tokens.get(self.pos + 1).is_some_and(|t| t.is("in"));
+            let token = if not_in {
+                Token {
+                    kind: Kind::Word("not in".into()),
+                    ..self.peek().clone()
+                }
+            } else {
+                self.peek().clone()
+            };
+            let Some((op, prec)) = binary(&token) else {
                 break;
             };
             if prec < min {
@@ -615,6 +760,9 @@ impl Parser {
                 ));
             }
             self.take();
+            if not_in {
+                self.take();
+            }
             let right = self.expr(prec + 1)?;
             let at = left.at.clone();
             left = Expr {
@@ -638,13 +786,14 @@ fn named_type(name: &str) -> Type {
         "u64" => Ty::U64,
         "bool" => Ty::Bool,
         "str" => Ty::Str,
+        "range" => Ty::Range,
         _ => return None,
     })
 }
 fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
     named_type(name)
         .map(Some)
-        .or_else(|| aliases.get(name).copied())
+        .or_else(|| aliases.get(name).cloned())
 }
 
 /// Every alias has one target in this language slice. Follow each chain once,
@@ -666,39 +815,47 @@ fn resolve_aliases(declarations: &[TypeAlias]) -> Result<TypeAliases> {
         }
     }
     let mut resolved = TypeAliases::new();
+    let mut active = HashSet::new();
     for declaration in declarations {
-        let mut current = declaration;
-        let mut path = Vec::new();
-        let mut visiting = HashSet::new();
-        let ty = loop {
-            if let Some(ty) = resolved.get(&current.name) {
-                break *ty;
+        let mut work = vec![(declaration, false)];
+        while let Some((alias, finish)) = work.pop() {
+            if resolved.contains_key(&alias.name) {
+                continue;
             }
-            if !visiting.insert(current.name.as_str()) {
-                return Err(current
+            if finish {
+                let ty = alias.target.resolve(&resolved)?;
+                resolved.insert(alias.name.clone(), ty);
+                active.remove(alias.name.as_str());
+                continue;
+            }
+            if !active.insert(alias.name.as_str()) {
+                return Err(alias
                     .at
-                    .error(format!("cyclic type alias involving `{}`", current.name)));
+                    .error(format!("cyclic type alias involving `{}`", alias.name)));
             }
-            path.push(current);
-            let Some(name) = &current.target.name else {
-                break None;
-            };
-            if let Some(ty) = lookup_type(name, &resolved) {
-                break ty;
+            work.push((alias, true));
+            let mut refs = vec![&alias.target];
+            while let Some(t) = refs.pop() {
+                refs.extend(&t.args);
+                if let Some(name) = &t.name {
+                    if let Some(dependency) = definitions.get(name.as_str()) {
+                        if !resolved.contains_key(name) {
+                            work.push((dependency, false));
+                        }
+                    }
+                }
             }
-            current = definitions
-                .get(name.as_str())
-                .copied()
-                .ok_or_else(|| current.target.at.error(format!("unknown type `{name}`")))?;
-        };
-        for alias in path {
-            resolved.insert(alias.name.clone(), ty);
         }
     }
     Ok(resolved)
 }
+
 fn builtin(name: &str) -> bool {
-    named_type(name).is_some() || matches!(name, "print" | "contains")
+    named_type(name).is_some()
+        || matches!(
+            name,
+            "print" | "contains" | "list" | "dict" | "set" | "len" | "range"
+        )
 }
 fn reserved(name: &str) -> bool {
     matches!(
@@ -735,7 +892,7 @@ fn reserved(name: &str) -> bool {
     )
 }
 fn is_comparison(op: &str) -> bool {
-    matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=")
+    matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not in")
 }
 fn binary(t: &Token) -> Option<(String, u8)> {
     let s = match &t.kind {
@@ -745,9 +902,9 @@ fn binary(t: &Token) -> Option<(String, u8)> {
     let precedence = match s.as_str() {
         "or" => 1,
         "and" => 2,
-        "==" | "!=" | "<" | ">" | "<=" | ">=" => 3,
+        "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not in" => 3,
         "+" | "-" => 4,
-        "*" | "/" | "//" => 5,
+        "*" | "%" | "/" | "//" => 5,
         _ => return None,
     };
     Some((s.clone(), precedence))
@@ -801,6 +958,13 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
+            Expression::Collection { .. } => Some(self.collection(e, None, ops)?),
+            Expression::Index(base, index) => Some(self.index(base, index, ops)?),
+            Expression::Method(base, name, args) => self.method(base, name, args, ops)?,
+            Expression::Constructor(ty, args) => {
+                let ty = ty.resolve(self.aliases)?.unwrap();
+                Some(self.construct(ty, args, &e.at, ops)?)
+            }
             Expression::Number(n) => {
                 let v = integer(n, false, &e.at)?;
                 ops.push(Op::PushInt(v));
@@ -822,7 +986,7 @@ impl Lower<'_> {
                     .get(name)
                     .ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
                 ops.push(Op::LoadLocal(local.slot));
-                Some(local.ty)
+                Some(local.ty.clone())
             }
             Expression::Unary(op, value) => {
                 if op == "-" {
@@ -835,7 +999,7 @@ impl Lower<'_> {
                 let mut body = Vec::new();
                 let ty = self.value(value, &mut body)?;
                 if op == "not" {
-                    self.same(Some(ty), Some(Ty::Bool), &e.at)?;
+                    self.same(Some(ty.clone()), Some(Ty::Bool), &e.at)?;
                     ops.extend(body);
                     ops.push(Op::Not);
                 } else {
@@ -850,15 +1014,28 @@ impl Lower<'_> {
                         ops.push(Op::Sub);
                     }
                 }
-                Some(ty)
+                Some(ty.clone())
+            }
+            Expression::Binary(op, left, right) if op == "in" || op == "not in" => {
+                let a = self.value(left, ops)?;
+                let b = self.value(right, ops)?;
+                let element = b
+                    .element()
+                    .ok_or_else(|| e.at.error("membership requires an iterable"))?;
+                self.same(Some(a), Some(element), &e.at)?;
+                ops.push(Op::Collection(CollectionOp::Contains(b)));
+                if op == "not in" {
+                    ops.push(Op::Not);
+                }
+                Some(Ty::Bool)
             }
             Expression::Binary(op, left, right) => {
                 let a = self.value(left, ops)?;
                 let mut rhs = Vec::new();
                 let b = self.value(right, &mut rhs)?;
-                self.same(Some(b), Some(a), &e.at)?;
+                self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
                 if op == "and" || op == "or" {
-                    self.same(Some(a), Some(Ty::Bool), &e.at)?;
+                    self.same(Some(a.clone()), Some(Ty::Bool), &e.at)?;
                     let constant = vec![Op::PushBool(op == "or")];
                     let (yes, no) = if op == "and" {
                         (rhs, constant)
@@ -873,7 +1050,7 @@ impl Lower<'_> {
                     {
                         return Err(e.at.error(format!(
                             "operator `{op}` does not accept {}",
-                            type_name(Some(a))
+                            type_name(Some(a.clone()))
                         )));
                     }
                     if op == "/" {
@@ -887,6 +1064,7 @@ impl Lower<'_> {
                         "-" => Op::Sub,
                         "*" => Op::Mul,
                         "//" => Op::FloorDiv,
+                        "%" => Op::Modulo,
                         "==" => Op::Eq,
                         "!=" => Op::Ne,
                         "<" => Op::Lt,
@@ -898,7 +1076,7 @@ impl Lower<'_> {
                     if is_comparison(op) {
                         Some(Ty::Bool)
                     } else {
-                        Some(a)
+                        Some(a.clone())
                     }
                 }
             }
@@ -908,7 +1086,7 @@ impl Lower<'_> {
                 let (mut a, mut b) = (Vec::new(), Vec::new());
                 let ty = self.expr(yes, &mut a)?;
                 let other = self.expr(no, &mut b)?;
-                self.same(other, ty, &e.at)?;
+                self.same(other, ty.clone(), &e.at)?;
                 ops.push(branch(a, b));
                 ty
             }
@@ -916,7 +1094,13 @@ impl Lower<'_> {
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));
                 }
+                if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
+                    return self.builtin_collection(name, args, &e.at, ops).map(Some);
+                }
                 if let Some(target) = lookup_type(name, self.aliases) {
+                    if let Some(target) = target.as_ref().filter(|t| t.is_collection()) {
+                        return self.construct(target.clone(), args, &e.at, ops).map(Some);
+                    }
                     let target = target
                         .filter(|ty| ty.is_int())
                         .ok_or_else(|| e.at.error("only integer types support cast syntax"))?;
@@ -927,7 +1111,7 @@ impl Lower<'_> {
                     if !source.is_int() {
                         return Err(e.at.error("integer casts require an integer"));
                     }
-                    ops.push(Op::Cast(target));
+                    ops.push(Op::Cast(target.clone()));
                     Some(target)
                 } else if name == "print" {
                     if args.len() != 1 {
@@ -964,11 +1148,11 @@ impl Lower<'_> {
                         ));
                     }
                     for (arg, (_, expected)) in args.iter().zip(&sig.inputs) {
-                        let ty = self.expr(arg, ops)?;
-                        self.same(ty, Some(*expected), &arg.at)?;
+                        let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
+                        self.same(ty, Some(expected.clone()), &arg.at)?;
                     }
                     ops.push(Op::Call(name.clone()));
-                    sig.outputs.first().copied()
+                    sig.outputs.first().cloned()
                 }
             }
         };
@@ -979,14 +1163,23 @@ impl Lower<'_> {
         for (i, stmt) in body.iter().enumerate() {
             let last = tail && i + 1 == body.len();
             result = match &stmt.kind {
-                Statement::Expr(e) => self.expr(e, ops)?,
+                Statement::Expr(e) => self.expr_expected(
+                    e,
+                    if last {
+                        self.return_type.clone().flatten()
+                    } else {
+                        None
+                    },
+                    ops,
+                )?,
                 Statement::Return(e) => {
                     let expected = self
                         .return_type
+                        .clone()
                         .ok_or_else(|| stmt.at.error("return outside a function"))?;
                     let mut returned = Vec::new();
                     let ty = match e {
-                        Some(e) => self.expr(e, &mut returned)?,
+                        Some(e) => self.expr_expected(e, expected.clone(), &mut returned)?,
                         None => None,
                     };
                     self.same(ty, expected, &stmt.at)?;
@@ -995,18 +1188,37 @@ impl Lower<'_> {
                     return returned_block(body, i);
                 }
                 Statement::Pass => None,
+                Statement::For {
+                    name,
+                    iterable,
+                    body,
+                } => {
+                    self.for_statement(name, iterable, body, ops)?;
+                    None
+                }
+                Statement::SetIndex { target, value } => {
+                    self.set_index(target, value, ops)?;
+                    None
+                }
                 Statement::Assign {
                     name,
                     mutable,
                     annotation,
                     value,
                 } => {
-                    let ty = self.value(value, ops)?;
+                    let context = if let Some(ann) = annotation {
+                        ann.resolve(self.aliases)?
+                    } else {
+                        self.names.get(name).map(|l| l.ty.clone())
+                    };
+                    let ty = self
+                        .expr_expected(value, context, ops)?
+                        .ok_or_else(|| value.at.error("expected a value, got ()"))?;
                     if let Some(expected) = annotation {
                         let expected = expected.resolve(self.aliases)?.ok_or_else(|| {
                             expected.at.error("unit bindings are not supported yet")
                         })?;
-                        self.same(Some(ty), Some(expected), &stmt.at)?;
+                        self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
                     }
                     let slot = if let Some(local) = self.names.get(name) {
                         if *mutable || annotation.is_some() {
@@ -1017,7 +1229,7 @@ impl Lower<'_> {
                                 .at
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
-                        self.same(Some(ty), Some(local.ty), &stmt.at)?;
+                        self.same(Some(ty.clone()), Some(local.ty.clone()), &stmt.at)?;
                         local.slot
                     } else {
                         let slot =
@@ -1025,7 +1237,7 @@ impl Lower<'_> {
                                 stmt.at
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
-                        self.locals.push(ty);
+                        self.locals.push(ty.clone());
                         self.names.insert(
                             name.clone(),
                             Local {
@@ -1051,7 +1263,7 @@ impl Lower<'_> {
                     ops.push(branch(a, b));
                     match (yes_result, no_result) {
                         (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
-                            self.same(other, ty, &stmt.at)?;
+                            self.same(other, ty.clone(), &stmt.at)?;
                             ty
                         }
                         (BlockResult::Continues(ty), BlockResult::Returns)
@@ -1203,21 +1415,21 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             names: HashMap::new(),
             locals: Vec::new(),
             parameters: sig.inputs.len(),
-            return_type: Some(sig.outputs.first().copied()),
+            return_type: Some(sig.outputs.first().cloned()),
         };
         for (i, (name, ty)) in sig.inputs.iter().enumerate() {
             lower.names.insert(
                 name.clone(),
                 Local {
                     slot: i as u8,
-                    ty: *ty,
+                    ty: ty.clone(),
                     mutable: false,
                 },
             );
         }
         let mut body = Vec::new();
         if let BlockResult::Continues(output) = lower.block(&f.body, &mut body, true)? {
-            lower.same(output, sig.outputs.first().copied(), &f.at)?;
+            lower.same(output, sig.outputs.first().cloned(), &f.at)?;
         }
         mark_tail_calls(&mut body);
         ops.push(Op::DefineFn(
