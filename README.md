@@ -36,8 +36,10 @@ cargo run -- --compile examples/sum.plenty -o /tmp/plenty-sum
 
 Plenty uses Cranelift AOT exclusively. Running a file compiles it into a
 temporary executable, runs it, and removes it when execution finishes. Both
-running and compiling require a C compiler named `cc` on PATH; `--check`
-does not. Running with no arguments prints help.
+running and compiling require the system linker driver `cc` on PATH; `--check`
+does not. The separate [plenty-runtime](plenty-runtime/README.md) Rust crate is
+compiled when Plenty is built and embedded as a static library. Running or
+compiling Plenty programs needs no Rust toolchain or runtime source files. Running with no arguments prints help.
 
 There is no interpreter, REPL, or planned JIT backend.
 

@@ -1,6 +1,6 @@
 //! Repeatable compiler-latency probe, without a benchmark framework dependency.
 //! cargo run --release --example compile_bench -- 1000 10
-//! Add --aot to also measure complete native emission + C runtime compilation + linking.
+//! Add --aot to also measure native emission, archive extraction, and linking.
 use std::error::Error;
 use std::time::{Duration, Instant};
 
@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
         let _ = std::fs::remove_file(output);
         println!(
-            "aot_including_check_runtime_cc_link_median_ms={:.3}",
+            "aot_including_check_archive_link_median_ms={:.3}",
             native?.as_secs_f64() * 1000.0
         );
     }

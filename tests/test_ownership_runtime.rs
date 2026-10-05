@@ -1,26 +1,11 @@
 //! Exercise generated-code cleanup, including memory retained across suspension.
+//! Run with --features runtime-checks to count every Rust runtime allocation.
 #![cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 #[test]
 fn native_owners_are_reclaimed() {
     let workspace = tempfile::tempdir().unwrap();
-    let paths = std::env::var_os("PATH").unwrap();
-    let cc = std::env::split_paths(&paths)
-        .map(|p| p.join("cc"))
-        .find(|p| p.is_file())
-        .expect("C compiler");
-    let header = workspace.path().join("accounting.h");
-    std::fs::write(&header, include_str!("runtime_accounting.h")).unwrap();
-    let quote = |p: &std::path::Path| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"));
-    let wrapper = workspace.path().join("cc");
-    std::fs::write(&wrapper, format!("#!/bin/sh\nexec {} -Wall -Wextra -Werror -fsanitize=undefined -fsanitize-undefined-trap-on-error -include {} \"$@\"\n", quote(&cc), quote(&header))).unwrap();
-    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let path = std::env::join_paths(
-        std::iter::once(workspace.path().to_path_buf()).chain(std::env::split_paths(&paths)),
-    )
-    .unwrap();
     let source = workspace.path().join("ownership.plenty");
     std::fs::write(
         &source,
@@ -118,7 +103,6 @@ for n in range(100):
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
-        .env("PATH", path)
         .arg(source)
         .output()
         .unwrap();

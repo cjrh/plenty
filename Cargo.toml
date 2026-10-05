@@ -3,6 +3,13 @@ name = "plenty"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["plenty-runtime"]
+resolver = "2"
+
+[features]
+runtime-checks = []
+
 [dev-dependencies]
 rstest = "0.23.0"
 

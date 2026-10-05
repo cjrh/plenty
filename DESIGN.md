@@ -38,8 +38,8 @@ Consequences:
   on LLVM, a Python interpreter, tracing, deoptimization, or runtime reflection.
 - Optimize compiler simplicity and latency before adding expensive passes.
   Measure parse/check, lowering, native emission, and linking separately. The
-  current AOT command recompiles the small embedded C runtime on each link;
-  caching it is a future compile-latency improvement, not a measured result.
+  runtime is compiled once when building Plenty and embedded as a native static
+  archive. Each AOT build extracts the archive and links it with the generated object.
 - No async/await, dynamic attributes, monkey-patching, metaclasses, inheritance,
   implicit nullable references, or exceptions in the initial language.
 
@@ -295,10 +295,10 @@ loops and comprehensions into typed locals and structured loops. Cranelift calls
 a fixed native collection ABI with 64-bit slots; descriptors encode the already
 known element types. Descriptors support native storage/equality/printing, not
 dynamic type inference. No per-element compilation or trait instantiation occurs.
-Programs using only scalar operations do not compile or link the collection
-runtime; its C source is included only when operations or signatures require it.
+Every program links the same precompiled Rust runtime archive; no runtime source
+is compiled for individual programs.
 
-The C runtime uses growable list storage and hash tables with ordered entries for
+The Rust runtime uses `Vec` storage and hash tables with ordered entries for
 dictionaries and sets. Private builders append in place; literal and comprehension
 construction is amortized linear under ordinary hash distribution. Public updates
 also mutate in place; repeated `append` no longer copies existing contents.
@@ -346,7 +346,9 @@ occurred.
 - `plenty` with no arguments displays help.
 
 Both execution commands use the same compiler and embedded runtime. Running
-and compiling require a system C compiler named `cc`; checking does not.
+and compiling require the system linker driver `cc`; checking does not. Neither
+command invokes Cargo or rustc, and a relocated compiler binary needs no runtime
+source files.
 Temporary object/runtime files are also removed after success or failure.
 Compile-and-run adds compilation and linking to startup time; benchmark both
 as part of the edit/run workflow.
@@ -359,6 +361,8 @@ source → lexer → AST → alias resolution → signatures → local type chec
                                               typed operation IR
                                                        ↓
                                              Cranelift → object → cc → executable
+                                                                ↑
+                                                 embedded Rust runtime archive
 ```
 
 `frontend.rs` owns modern syntax, name resolution, local inference, mutability,
@@ -430,6 +434,39 @@ liveness is solved to a fixed point before native lowering. A future unified typ
 CFG with projected places and full source spans can replace the structured backend
 input; the current restricted reference subset does not depend on that migration.
 Borrow analysis never runs on Cranelift IR.
+
+## Rust runtime packaging
+
+`plenty-runtime` is a separate dependency-free workspace crate implemented in Rust.
+Its C ABI exports preserve the existing native signatures and fixed object
+prefixes. Rust owns buffers and metadata; narrowly scoped unsafe operations handle
+generated-code pointers, flexible allocations, reference counts, and callbacks.
+Plenty's static borrow checker still establishes source-level access permissions.
+
+The compiler's build script invokes the selected rustc directly for Cargo's target,
+avoiding recursive Cargo invocation and build-lock contention. It produces an
+optimized static archive using ThinLTO and abort-on-panic, captures rustc's native
+link requirements, and embeds both in the compiler. Per-program compilation
+writes the Cranelift object and archive to a temporary directory, then runs `cc`
+only as the linker driver. No C runtime sources remain. Rust compilation occurs
+when building the compiler, with no rustc or LLVM invocation on the Plenty-program
+compilation path. This is still native host compilation, not cross-compilation.
+
+The public signatures and memory layouts are checked by native regression tests
+and compile-time layout assertions. Standalone runtime tests also run under Miri
+with exposed-provenance semantics for the ABI's packed pointer slots. The
+`runtime-checks` compiler feature enables a counting Rust allocator for native
+integration tests, covering buffers and metadata as well as raw object storage.
+The relocated-compiler test rejects any runtime C/Rust compilation at link time.
+See [plenty-runtime/README.md](plenty-runtime/README.md) for the boundary invariants
+and validation commands.
+
+A diagnostic measurement after this migration, on the same x86_64 Linux machine
+and debug 100-function/6,194-byte workload with five measured repetitions, gave
+1.499 ms for checking and 51.009 ms for complete AOT compilation with the optimized
+archive. A first archive built without ThinLTO measured 100.508 ms for AOT, so
+runtime optimization is deliberately paid during the compiler build. These are
+single-session measurements, not controlled speedup claims against older baselines.
 
 ## One string type
 
@@ -786,7 +823,7 @@ allocation and optimizing frame liveness are later runtime improvements.
 ## Next milestones
 
 1. First-class unit payloads, richer diagnostics, and measured compile-latency
-   improvements; consider caching runtime compilation.
+   improvements; measure archive extraction and native linking costs.
 2. Recursive types with explicit layout rules; constructor and method ergonomics.
 3. Disjoint field loans, element places, and stored/returned reference contracts, then evaluate
    Polonius-style precision against compilation cost.
@@ -808,4 +845,4 @@ in tests. Update the guide as part of each learner-visible language change.
 The stack-language tutorial is an unmaintained historical archive; native legacy
 regression tests specify their expected output independently.
 Performance results must name the build mode, machine, input size, and whether
-linking/runtime compilation is included; no latency claim without measurement.
+archive extraction and linking are included; no latency claim without measurement.

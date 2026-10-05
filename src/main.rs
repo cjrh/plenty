@@ -12,7 +12,7 @@ Usage: plenty FILE
 FILE: compile to a temporary executable and run it.
 --check: parse and type-check without executing the program.
 --compile: emit a native executable with Cranelift and the system cc linker.
-Running and compiling require a C compiler named cc on PATH.
+Running and compiling require the system linker driver cc on PATH.
 --legacy before FILE or --compile selects the historical stack syntax.
 ";
 

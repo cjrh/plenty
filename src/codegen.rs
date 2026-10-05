@@ -2,7 +2,7 @@
 //!
 //! Lowers a Plenty `Op` stream to a Cranelift module emitted as a native
 //! object file. The object exports one symbol, `plenty_main`, which the
-//! C runtime in `runtime/plenty_runtime.c` calls from its `main`. User
+//! Rust runtime in `plenty-runtime` calls from its `main`. User
 //! function definitions become locally-linked symbols inside the same
 //! object, callable from each other and from `plenty_main`.
 //!
@@ -37,16 +37,12 @@
 //! `Ty::Str` (CLIF `i64` for the host pointer width). `Op::Add` and
 //! `Op::Eq` now dispatch on operand types: integer pairs take the
 //! existing CLIF paths; `Str Str` calls `plenty_concat` / `plenty_str_eq`
-//! in the C runtime. `Display` prints strings via `plenty_print_str`,
+//! in the Rust runtime. `Display` prints strings via `plenty_print_str`,
 //! and `match` patterns of type `Str` become `plenty_str_eq` + `brif`.
 //!
-//! Phase c.5 packages the runtime. The contents of
-//! `runtime/plenty_runtime.c` are embedded into the `plenty` binary at
-//! build time via `include_bytes!`; [`compile_source_to_executable`]
-//! writes the object and the runtime to a tempdir, invokes `cc` to link
-//! them, and deletes the temps so the user's `-o OUT` is the only
-//! artifact. Every Plenty op lowers, and the user no longer needs to
-//! run `cc` by hand.
+//! The precompiled `plenty-runtime` archive is embedded in the compiler. AOT
+//! builds write it beside the Cranelift object and invoke `cc` only to link.
+//! Runtime compilation happens when building Plenty, never for individual programs.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -127,7 +123,7 @@ use generators::GeneratorContext;
 /// step (DESIGN.md §11.1, §12.3 — phase c.5). The source is lexed,
 /// lowered to typed operations, and checked; the
 /// resulting op stream is lowered to a temp object file; the embedded
-/// C runtime is written alongside it; `cc` links the pair into the
+/// Rust runtime archive is written alongside it; `cc` links the pair into the
 /// final executable and the temps are removed.
 ///
 /// `cc` is invoked by name from `PATH` (no override). When `cc` is
@@ -153,70 +149,31 @@ fn compile_ops_to_executable(ops: &[Op], heap: &Heap, output: &Path) -> Result<(
 
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
-    let rt_path = workspace.path().join("runtime.c");
+    let rt_path = workspace.path().join("libplenty_runtime.a");
     compile_to_object(ops, heap, &obj_path)?;
-    let runtime = if uses_collections(ops) {
-        COLLECTION_RUNTIME_C
-    } else {
-        RUNTIME_C
-    };
-    std::fs::write(&rt_path, runtime)?;
+    std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
     link_with_cc(&obj_path, &rt_path, output)
 }
 
-/// Plenty's C runtime, embedded at build time. Writing this to a tempfile
-/// at link time lets `cc` do the runtime's compile-and-link in a single
-/// invocation — the same path the test harness took before c.5, just
-/// driven by the binary now.
-const RUNTIME_C: &str = concat!(
-    include_str!("../runtime/values.c"),
-    "\n",
-    include_str!("../runtime/generators.c"),
-    "\n",
-    include_str!("../runtime/plenty_runtime.c")
-);
-const COLLECTION_RUNTIME_C: &str = concat!(
-    include_str!("../runtime/values.c"),
-    "\n",
-    include_str!("../runtime/generators.c"),
-    "\n",
-    include_str!("../runtime/plenty_runtime.c"),
-    "\n",
-    include_str!("../runtime/collections.c")
-);
+/// Prebuilt for the compiler's target and embedded so an installed or relocated
+/// Plenty binary never needs runtime source files, Cargo, or rustc at run time.
+const RUNTIME_ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libplenty_runtime.a"));
+const RUNTIME_LINK_ARGS: &str = include_str!(concat!(env!("OUT_DIR"), "/runtime-link-args.txt"));
 
-/// Avoid compiling the collection runtime for programs that only use scalars.
-fn uses_collections(ops: &[Op]) -> bool {
-    ops.iter().any(|op| match op {
-        Op::Collection(_) | Op::Enum(_) | Op::Class(_) => true,
-        Op::Loop { condition, body } => uses_collections(condition) || uses_collections(body),
-        Op::Match(arms) => arms.iter().any(|arm| uses_collections(&arm.body)),
-        Op::DefineFn(_, f) => {
-            f.sig.inputs.iter().any(|(_, ty)| ty.uses_value_runtime())
-                || f.sig.outputs.iter().any(Ty::uses_value_runtime)
-                || f.locals.iter().any(Ty::uses_value_runtime)
-                || uses_collections(&f.body)
-        }
-        _ => false,
-    })
-}
-
-/// Invoke `cc` to link `obj` (the Cranelift-emitted object) with the
-/// runtime source `runtime_src` into the executable at `output`. The
-/// runtime is passed as a `.c` file rather than a precompiled archive
-/// so the build pipeline stays one-step (no `build.rs`); the runtime
-/// is recompiled for each executable; benchmark that cost along with linking.
-fn link_with_cc(obj: &Path, runtime_src: &Path, output: &Path) -> Result<()> {
+/// Use the system compiler driver only as a linker. The native dependency list
+/// comes from the rustc invocation that built this exact runtime archive.
+fn link_with_cc(obj: &Path, runtime_archive: &Path, output: &Path) -> Result<()> {
     let out = std::process::Command::new("cc")
         .arg(obj)
-        .arg(runtime_src)
+        .arg(runtime_archive)
+        .args(RUNTIME_LINK_ARGS.split_whitespace())
         .arg("-o")
         .arg(output)
         .output()
         .map_err(|e| -> Box<dyn Error> {
             format!(
                 "failed to invoke `cc` for the link step: {e}. \
-                 Plenty's AOT mode shells out to a C compiler named `cc` \
+                 Plenty's AOT mode uses the linker driver `cc` \
                  on PATH to link the emitted object with the embedded runtime."
             )
             .into()
@@ -235,7 +192,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// The object exports `plenty_main` (`() -> i32`) and one locally-linked
 /// symbol per user-defined Plenty function, plus one read-only data
 /// symbol per source-level string literal whose bytes come from `heap`.
-/// Link the object with `runtime/plenty_runtime.c` to produce an
+/// Link the object with the packaged `plenty-runtime` archive to produce an
 /// executable; the exit status of the final binary is 0 when the
 /// program runs to the end of `ops`.
 fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
@@ -770,7 +727,7 @@ fn emit_user_function(
     Ok(())
 }
 
-/// Emit `plenty_main` — the entry point the C runtime forwards to.
+/// Emit `plenty_main` — the entry point the Rust runtime forwards to.
 /// Top-level `DefineFn` ops are skipped (their bodies are emitted
 /// separately by [`emit_user_function`]); everything else lowers
 /// against an initially-empty compile-time stack, with no locals
@@ -783,10 +740,10 @@ fn emit_main(
     runtime: &Runtime,
     module: &mut ObjectModule,
 ) -> Result<()> {
-    // `plenty_main`: exported, no arguments, returns `i32`. The C
-    // runtime's `int main(int, char**)` forwards into this and returns
+    // `plenty_main`: exported, no arguments, returns `i32`. The Rust
+    // runtime's native `main` forwards into this and returns
     // its result as the process exit code. SystemV convention because
-    // the caller (the C runtime) speaks the host's C ABI; user
+    // the caller (the Rust runtime) speaks the host's C ABI; user
     // functions use `CallConv::Tail` and can still be invoked from here
     // via a regular `call`.
     let mut main_sig = module.make_signature();

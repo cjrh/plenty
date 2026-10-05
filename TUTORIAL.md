@@ -41,7 +41,9 @@ cargo run -- --compile hello.plenty -o /tmp/hello-plenty
 
 Plenty always compiles ahead of time with Cranelift. Running a file compiles a
 temporary native executable, runs it, and removes it afterward. Both running
-and compiling require a C compiler named `cc` on PATH. Checking does not.
+and compiling require the system linker driver `cc` on PATH. Checking does not.
+The Rust runtime is already packaged with Plenty; you do not need `cargo` or
+`rustc` to compile Plenty programs.
 
 Use `--compile` when you want to keep the executable and run it repeatedly
 without compiling again. The executable does not need Plenty installed.
