@@ -13,9 +13,14 @@ pub enum CollectionOp {
     Contains(Ty),
     Range,
     Values(Ty),
+    TextByteLen,
+    TextAtByte,
 }
 
 impl Ty {
+    pub fn uses_value_runtime(&self) -> bool {
+        self.is_collection() || matches!(self, Self::Enum(_) | Self::Generator(_))
+    }
     pub fn is_collection(&self) -> bool {
         matches!(
             self,
@@ -27,6 +32,7 @@ impl Ty {
             Self::List(t) | Self::Set(t) | Self::Dict(t, _) => Some((**t).clone()),
             Self::Range => Some(Self::I64),
             Self::Str => Some(Self::Str),
+            Self::Generator(t) => Some((**t).clone()),
             _ => None,
         }
     }
@@ -35,22 +41,63 @@ impl Ty {
     }
     /// Prefix encoding consumed by the native runtime, never a source-level type.
     pub fn descriptor(&self) -> String {
-        match self {
-            Self::I8 => "1".into(),
-            Self::I16 => "2".into(),
-            Self::I32 => "3".into(),
-            Self::I64 => "4".into(),
-            Self::U8 => "5".into(),
-            Self::U16 => "6".into(),
-            Self::U32 => "7".into(),
-            Self::U64 => "8".into(),
-            Self::Bool => "b".into(),
-            Self::Str => "s".into(),
-            Self::List(t) => format!("L{}", t.descriptor()),
-            Self::Set(t) => format!("S{}", t.descriptor()),
-            Self::Dict(k, v) => format!("D{}{}", k.descriptor(), v.descriptor()),
-            Self::Range => "R".into(),
+        fn write(ty: &Ty, out: &mut String, enums: &mut std::collections::HashMap<String, usize>) {
+            match ty {
+                Ty::Enum(t) => {
+                    if let Some(id) = enums.get(&t.name) {
+                        out.push_str(&format!("@{id}:"));
+                        return;
+                    }
+                    enums.insert(t.name.clone(), enums.len());
+                    out.push_str(&format!(
+                        "E{}:{}{}:",
+                        t.name.len(),
+                        t.name,
+                        t.variants.len()
+                    ));
+                    for variant in &t.variants {
+                        out.push_str(&format!(
+                            "{}:{}{}:",
+                            variant.name.len(),
+                            variant.name,
+                            variant.fields.len()
+                        ));
+                        for field in &variant.fields {
+                            write(field, out, enums);
+                        }
+                    }
+                }
+                Ty::List(t) | Ty::Set(t) => {
+                    out.push(if matches!(ty, Ty::List(_)) { 'L' } else { 'S' });
+                    write(t, out, enums);
+                }
+                Ty::Dict(k, v) => {
+                    out.push('D');
+                    write(k, out, enums);
+                    write(v, out, enums);
+                }
+                Ty::Generator(_) => {
+                    unreachable!("generator descriptors are never stored in values")
+                }
+                ty => out.push(match ty {
+                    Ty::I8 => '1',
+                    Ty::I16 => '2',
+                    Ty::I32 => '3',
+                    Ty::I64 => '4',
+                    Ty::U8 => '5',
+                    Ty::U16 => '6',
+                    Ty::U32 => '7',
+                    Ty::U64 => '8',
+                    Ty::Bool => 'b',
+                    Ty::Str => 's',
+                    Ty::Range => 'R',
+                    _ => unreachable!(),
+                }),
+            }
         }
+        let mut out = String::new();
+        write(self, &mut out, &mut std::collections::HashMap::new());
+        out
     }
 }
 
@@ -58,6 +105,8 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
+            TextByteLen => (vec![Ty::Str], Ty::I64),
+            TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
             New(t) => (vec![], t.clone()),
             Insert(t) | Append(t) => {
                 let mut args = vec![t.clone(), t.element().expect("collection element")];
@@ -97,6 +146,8 @@ impl CollectionOp {
             Self::Contains(_) => 7,
             Self::Range => 10,
             Self::Values(_) => 11,
+            Self::TextByteLen => 12,
+            Self::TextAtByte => 13,
         }
     }
 }

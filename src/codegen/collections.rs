@@ -71,9 +71,13 @@ impl Lowerer<'_, '_> {
             | CollectionOp::Get(Ty::Str)
             | CollectionOp::IterGet(Ty::Str)
             | CollectionOp::Contains(Ty::Str) => Some(&Ty::Str),
+            CollectionOp::TextByteLen | CollectionOp::TextAtByte => Some(&Ty::Str),
             _ => None,
         };
         let mut result = self.collection_call(operation.opcode(), &values, descriptor)?;
+        for (value, ty) in values.iter().zip(&inputs) {
+            self.release(*value, ty);
+        }
         let result_type = clif_type(output.clone());
         if result_type != types::I64 {
             result = self.bcx.ins().ireduce(result_type, result);

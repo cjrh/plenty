@@ -5,9 +5,9 @@ expression-valued blocks, explicit mutability, and native compilation through
 Cranelift. Fast compilation and a small, understandable language are primary
 design goals.
 
-This branch contains the first working slice of the new language. Structs,
-sum types, ownership/borrowing, and generators are designed next steps, **not
-implemented features**. The full contract and roadmap are in [DESIGN.md](DESIGN.md).
+This branch implements the typed AOT language, including collections, concrete
+enums, generators, and automatic value reclamation. Structs and public borrowing
+remain future work. The full contract and roadmap are in [DESIGN.md](DESIGN.md).
 
 Start with [TUTORIAL.md](TUTORIAL.md) to learn the language through runnable
 examples. Its code and expected diagnostics are tested as the compiler evolves.
@@ -61,11 +61,16 @@ Supported today:
 - Inferred bindings (`answer = 42`), annotated bindings (`answer: i64 = 42`),
   explicit mutable bindings (`mut answer = 42`), and reassignment.
 - `print(value)` and `contains(haystack, needle)`. Strings support single,
-  double, and triple quotes, UTF-8, and `\n`, `\r`, `\t`, quote/backslash escapes.
+  double, and triple quotes, UTF-8, and `\0`, `\n`, `\r`, `\t`, quote/backslash escapes.
 - Typed `list[T]`, `dict[K, V]`, and `set[T]`, including nested values, literals,
   indexing, membership, and independent-value updates through `mut` bindings.
-- `for` loops over collections, strings, and lazy `range` values; list, dict,
+- `for` loops over collections, strings, ranges, and lazy generators; list, dict,
   and set comprehensions with multiple iteration and filter clauses.
+- Concrete `enum` types, exhaustive `match`/`case`, and typed `Option`/`Result`.
+- `Generator[T]` functions with `yield`, consuming iteration, and `next` returning
+  `Option[T]`. Assignment and calls move generators; invalid reuse is checked.
+- One immutable `str` with explicit lengths and embedded NUL support. Managed
+  values are reclaimed automatically; public references are not implemented.
 - `//` rounds toward negative infinity; `%` follows the divisor's sign. `/`
   is reserved for future floating-point support.
 
@@ -80,8 +85,8 @@ for n in squares:
 ```
 
 Collections have independent values: changing a `mut` binding leaves copies
-unchanged. Current updates copy outer storage and allocations last until process
-exit; use comprehensions for bulk construction. General iterator protocols,
+unchanged. Updates currently copy outer storage; use comprehensions for bulk
+construction. Unused storage is released as owners are replaced or leave scope. General iterator protocols,
 tuple unpacking, and `items()` are not implemented yet. `while` loops and
 `break`/`continue` in both loop forms are supported; loop `else` is not.
 

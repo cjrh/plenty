@@ -1,0 +1,126 @@
+//! Laziness, suspension, affine ownership and destruction through native code.
+use rstest::rstest;
+use std::process::Command;
+
+const COUNT: &str = "def count(n: i64) -> Generator[i64]:\n    mut i = 0\n    while i < n:\n        yield i\n        i = i + 1\n";
+fn run(source: &str) -> std::process::Output {
+    let workspace = tempfile::tempdir().unwrap();
+    let executable = workspace.path().join("program");
+    plenty::compile_source_to_executable(source, &executable)
+        .unwrap_or_else(|e| panic!("{source}\n{e}"));
+    Command::new(executable).output().unwrap()
+}
+
+#[rstest]
+#[case("def g(n: i64) -> Generator[i64]:\n    print('start')\n    yield n\n    print('after')\ndef arg() -> i64:\n    print('arg')\n    42\nmut it = g(arg())\nprint('created')\nprint(next(it))\nprint('stop')", "arg\ncreated\nstart\nOption[i64].Some(42)\nstop\n")]
+#[case(
+    "def g() -> Generator[str]:\n    print('never')\n    yield 'x'\ng()\nprint('done')",
+    "done\n"
+)]
+#[case(
+    "mut g = count(2)\nprint(next(g))\nprint(next(g))\nprint(next(g))\nprint(next(g))",
+    "Option[i64].Some(0)\nOption[i64].Some(1)\nOption[i64].Nothing\nOption[i64].Nothing\n"
+)]
+#[case("def empty() -> Generator[i64]:\n    if False:\n        yield 1\nmut g = empty()\nprint(next(g))\nprint(next(g))\nprint(list(empty()))", "Option[i64].Nothing\nOption[i64].Nothing\n[]\n")]
+#[case(
+    "def g() -> Generator[i64]:\n    yield 1\n    return\nfor x in g():\n    print(x)",
+    "1\n"
+)]
+#[case("def g(flag: bool) -> Generator[i64]:\n    if flag:\n        yield 1\n        yield 2\n    else:\n        yield 3\n    yield 4\nprint(list(g(True)))\nprint(list(g(False)))", "[1, 2, 4]\n[3, 4]\n")]
+#[case("print([x * x for x in count(6) if x % 2 == 1])\nprint({x % 2 for x in count(6)})\nprint({x: x + 1 for x in count(3)})", "[1, 9, 25]\n{0, 1}\n{0: 1, 1: 2, 2: 3}\n")]
+#[case(
+    "print([x * 10 + y for x in count(3) for y in count(x)])",
+    "[10, 20, 21]\n"
+)]
+#[case("for n in count(100):\n    if n == 1:\n        continue\n    if n == 3:\n        break\n    print(n)", "0\n2\n")]
+#[case("def g() -> Generator[i64]:\n    for n in range(5):\n        if n == 1:\n            continue\n        if n == 3:\n            break\n        yield n\n    yield 99\nprint(list(g()))", "[0, 2, 99]\n")]
+#[case("def g() -> Generator[i64]:\n    for a in count(3):\n        for b in count(2):\n            yield a * 10 + b\nprint(list(g()))", "[0, 1, 10, 11, 20, 21]\n")]
+#[case("enum E:\n    A(i64)\n    B\ndef g(e: E) -> Generator[i64]:\n    match e:\n        case E.A(n):\n            yield n\n            yield n + 1\n        case E.B:\n            return\n    yield 9\nprint(list(g(E.A(2))))\nprint(list(g(E.B)))", "[2, 3, 9]\n[]\n")]
+#[case("def g() -> Generator[list[str]]:\n    mut xs = ['a' + '\\0b']\n    yield xs\n    xs.append('c')\n    yield xs\nprint(list(g()))", "[[\"a\\0b\"], [\"a\\0b\", \"c\"]]\n")]
+#[case("def g() -> Generator[Option[str]]:\n    yield Option[str].Some('hello' + ' world')\n    yield Option[str].Nothing\nprint(list(g()))", "[Option[str].Some(\"hello world\"), Option[str].Nothing]\n")]
+#[case(
+    "def forward(n: i64) -> Generator[i64]:\n    count(n)\nprint(list(forward(3)))",
+    "[0, 1, 2]\n"
+)]
+#[case("def forward(g: Generator[i64]) -> Generator[i64]:\n    return g\na = count(2)\nb = a\nprint(list(forward(b)))", "[0, 1]\n")]
+#[case("def take(g: Generator[i64]) -> i64:\n    for x in g:\n        return x\n    -1\nprint(take(count(100)))\nprint(take(count(0)))", "0\n-1\n")]
+#[case("mut g = count(1)\nfor i in range(3):\n    print(list(g))\n    g = count(i + 2)\nprint(list(g))", "[0]\n[0, 1]\n[0, 1, 2]\n[0, 1, 2, 3]\n")]
+#[case("def choose(flag: bool, g: Generator[i64]) -> i64:\n    if flag:\n        print(list(g))\n        return 1\n    print(list(g))\n    2\nprint(choose(False, count(2)))", "[0, 1]\n2\n")]
+#[case(
+    "mut sum = 0\nfor x in count(100_000):\n    sum = sum + x\nprint(sum)",
+    "4999950000\n"
+)]
+#[case(
+    "def chars() -> Generator[str]:\n    for c in 'é\\0😀':\n        yield c\nprint(list(chars()))",
+    "[\"é\", \"\\0\", \"😀\"]\n"
+)]
+#[case("def g(x: i8, y: u64, flag: bool) -> Generator[i8]:\n    if flag and y > 0u64:\n        yield x\n        yield x + 1i8\nprint(list(g(-128i8, 18446744073709551615u64, True)))", "[-128, -127]\n")]
+#[case("def wrapped(g: Generator[i64]) -> Generator[i64]:\n    for x in g:\n        yield x\nprint(list(wrapped(count(2))))", "[0, 1]\n")]
+fn native_generators(#[case] source: &str, #[case] expected: &str) {
+    let output = run(&format!("{COUNT}{source}"));
+    assert!(
+        output.status.success(),
+        "{source}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, expected.as_bytes(), "{source}");
+}
+
+#[rstest]
+#[case("yield 1", "yield requires")]
+#[case("def g() -> i64:\n    yield 1", "yield requires")]
+#[case("def g() -> Generator[i64]:\n    yield True", "expected i64, got bool")]
+#[case("def g() -> Generator[i64]:\n    yield 1\n    return 2", "bare return")]
+#[case("def g() -> Generator[()]:\n    yield ()", "cannot be unit")]
+#[case(
+    "def g() -> Generator[Generator[i64]]:\n    yield count(1)",
+    "cannot yield generators"
+)]
+#[case("a = count(2)\nb = a\nlist(a)", "moved or possibly moved")]
+#[case(
+    "def eat(g: Generator[i64]) -> ():\n    pass\na = count(2)\neat(a)\nlist(a)",
+    "moved or possibly moved"
+)]
+#[case(
+    "a = count(2)\nfor n in a:\n    break\nlist(a)",
+    "moved or possibly moved"
+)]
+#[case(
+    "a = count(2)\nif True:\n    list(a)\nlist(a)",
+    "moved or possibly moved"
+)]
+#[case("a = count(2)\nfor n in range(2):\n    list(a)", "loop backedge")]
+#[case(
+    "a = count(2)\nwhile True:\n    list(a)\n    continue",
+    "loop backedge"
+)]
+#[case(
+    "a = count(2)\nwhile True:\n    list(a)\n    break\nlist(a)",
+    "moved or possibly moved"
+)]
+#[case("a = count(2)\nnext(a)", "mutable generator binding")]
+#[case("next(count(2))", "named mutable generator")]
+#[case("mut a = 1\nnext(a)", "requires a generator")]
+#[case("print(count(2))", "cannot be printed")]
+#[case("len(count(2))", "len requires")]
+#[case("1 in count(2)", "membership does not consume")]
+#[case("count(2) == count(2)", "binary operators")]
+#[case("[count(2)]", "cannot be stored in collections")]
+#[case("{'a': count(2)}", "cannot be stored in collections")]
+#[case(
+    "type G = Generator[i64]\nx: list[G] = []",
+    "cannot be stored in collections"
+)]
+#[case("enum E:\n    A(Generator[i64])", "cannot be stored in enum")]
+#[case("x = Option[Generator[i64]].Nothing", "cannot be stored in enum")]
+#[case("a = count(2)\n[x for n in range(2) for x in a]", "loop backedge")]
+#[case("def condition(g: Generator[i64]) -> bool:\n    True\na = count(2)\nwhile condition(a):\n    pass", "loop backedge")]
+fn diagnostics(#[case] source: &str, #[case] expected: &str) {
+    let error = plenty::check_source(&format!("{COUNT}{source}"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains(expected),
+        "{source}\nexpected {expected:?}, got {error:?}"
+    );
+}

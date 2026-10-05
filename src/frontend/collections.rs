@@ -1,5 +1,12 @@
 use super::*;
 
+struct Iteration {
+    condition: Vec<Op>,
+    body: Vec<Op>,
+    step: Vec<Op>,
+    target: u8,
+}
+
 impl Parser {
     pub(super) fn arguments(&mut self) -> Result<Vec<Expr>> {
         let mut args = Vec::new();
@@ -68,7 +75,7 @@ impl Parser {
 }
 
 impl Lower<'_> {
-    fn slot(&mut self, ty: Ty, at: &Token) -> Result<u8> {
+    pub(super) fn slot(&mut self, ty: Ty, at: &Token) -> Result<u8> {
         let slot = u8::try_from(self.parameters + self.locals.len())
             .map_err(|_| at.error("at most 256 parameter/local slots are supported"))?;
         self.locals.push(ty);
@@ -137,6 +144,7 @@ impl Lower<'_> {
         ops.push(Op::StoreLocal(result));
         ops.extend(body);
         ops.push(Op::LoadLocal(result));
+        ops.push(Op::DropLocal(result));
         Ok(ty)
     }
 
@@ -152,13 +160,20 @@ impl Lower<'_> {
         match clauses.split_first() {
             Some((Clause::For(name, iterable), rest)) => {
                 let saved = self.names.clone();
-                let (condition, mut body, index) = self.iteration(name, iterable, ops)?;
+                let start = self.locals.len();
+                let Iteration {
+                    condition,
+                    mut body,
+                    step,
+                    ..
+                } = self.iteration(name, iterable, ops)?;
                 self.comprehension(rest, entries, kind, result, ty, &mut body)?;
-                increment(index, &mut body);
+                body.extend(step);
                 ops.push(Op::Loop {
                     condition: condition.into(),
                     body: body.into(),
                 });
+                self.cleanup(start, ops);
                 self.names = saved;
             }
             Some((Clause::If(condition), rest)) => {
@@ -202,6 +217,11 @@ impl Lower<'_> {
                     if let Some(expected) = ty {
                         self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
                     }
+                    if inferred.element().is_some_and(|t| t.affine())
+                        || matches!(&inferred, Ty::Dict(_, v) if v.affine())
+                    {
+                        return Err(key.at.error("generators cannot be stored in collections"));
+                    }
                     *ty = Some(inferred.clone());
                     ops.push(Op::Collection(CollectionOp::Insert(inferred)));
                     ops.push(Op::StoreLocal(result));
@@ -211,43 +231,93 @@ impl Lower<'_> {
         Ok(())
     }
 
-    fn iteration(
-        &mut self,
-        name: &str,
-        iterable: &Expr,
-        ops: &mut Vec<Op>,
-    ) -> Result<(Vec<Op>, Vec<Op>, u8)> {
+    fn iteration(&mut self, name: &str, iterable: &Expr, ops: &mut Vec<Op>) -> Result<Iteration> {
         let ty = self.value(iterable, ops)?;
-        let element = ty
-            .element()
-            .ok_or_else(|| iterable.at.error("for requires an iterable"))?;
-        let source = self.slot(ty.clone(), &iterable.at)?;
-        let index = self.slot(Ty::I64, &iterable.at)?;
-        let target = self.slot(element.clone(), &iterable.at)?;
-        ops.push(Op::StoreLocal(source));
-        ops.push(Op::PushInt(Value::I64(0)));
-        ops.push(Op::StoreLocal(index));
+        let plan = self.iteration_on_stack(ty.clone(), &iterable.at, ops)?;
         self.names.insert(
             name.into(),
             Local {
-                slot: target,
-                ty: element,
+                slot: plan.target,
+                ty: ty.element().unwrap(),
                 mutable: false,
             },
         );
+        Ok(plan)
+    }
+
+    fn iteration_on_stack(&mut self, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Iteration> {
+        let element = ty
+            .element()
+            .ok_or_else(|| at.error("for requires an iterable"))?;
+        let source = self.slot(ty.clone(), at)?;
+        let target = self.slot(element.clone(), at)?;
+        ops.push(Op::StoreLocal(source));
+        if ty.affine() {
+            let option = crate::sum::option(element);
+            let Ty::Enum(enum_type) = &option else {
+                unreachable!()
+            };
+            let item = self.slot(option.clone(), at)?;
+            return Ok(Iteration {
+                condition: vec![
+                    Op::Next(source, format!("{}:{}: iterator", at.line, at.column)),
+                    Op::StoreLocal(item),
+                    Op::LoadLocal(item),
+                    Op::Enum(crate::sum::EnumOp::Tag(enum_type.clone())),
+                    Op::PushInt(Value::I64(1)),
+                    Op::Eq,
+                ],
+                body: vec![
+                    Op::LoadLocal(item),
+                    Op::Enum(crate::sum::EnumOp::Field(enum_type.clone(), 1, 0)),
+                    Op::StoreLocal(target),
+                    Op::DropLocal(item),
+                ],
+                step: vec![],
+                target,
+            });
+        }
+        let index = self.slot(Ty::I64, at)?;
+        ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
+        let text = ty == Ty::Str;
         let condition = vec![
             Op::LoadLocal(index),
             Op::LoadLocal(source),
-            Op::Collection(CollectionOp::Len(ty.clone())),
+            Op::Collection(if text {
+                CollectionOp::TextByteLen
+            } else {
+                CollectionOp::Len(ty.clone())
+            }),
             Op::Lt,
         ];
         let body = vec![
             Op::LoadLocal(source),
             Op::LoadLocal(index),
-            Op::Collection(CollectionOp::IterGet(ty)),
+            Op::Collection(if text {
+                CollectionOp::TextAtByte
+            } else {
+                CollectionOp::IterGet(ty)
+            }),
             Op::StoreLocal(target),
         ];
-        Ok((condition, body, index))
+        let mut step = Vec::new();
+        if text {
+            step.extend([
+                Op::LoadLocal(index),
+                Op::LoadLocal(target),
+                Op::Collection(CollectionOp::TextByteLen),
+                Op::Add,
+                Op::StoreLocal(index),
+            ]);
+        } else {
+            increment(index, &mut step);
+        }
+        Ok(Iteration {
+            condition,
+            body,
+            step,
+            target,
+        })
     }
 
     pub(super) fn for_statement(
@@ -258,12 +328,18 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         let saved = self.names.clone();
-        let (condition, mut body, index) = self.iteration(name, iterable, ops)?;
-        let mut step = Vec::new();
-        increment(index, &mut step);
+        let start = self.locals.len();
+        let Iteration {
+            condition,
+            mut body,
+            step,
+            ..
+        } = self.iteration(name, iterable, ops)?;
         self.loop_steps.push(step.clone());
+        self.loop_scopes.push(self.locals.len());
         let result = self.block(statements, &mut body, false);
         self.loop_steps.pop();
+        self.loop_scopes.pop();
         self.names = saved;
         if matches!(result?, BlockResult::Continues(_)) {
             body.extend(step);
@@ -272,6 +348,7 @@ impl Lower<'_> {
             condition: condition.into(),
             body: body.into(),
         });
+        self.cleanup(start, ops);
         Ok(())
     }
 
@@ -334,6 +411,7 @@ impl Lower<'_> {
         ops.push(Op::LoadLocal(temp));
         ops.push(Op::Collection(CollectionOp::Put(local.ty)));
         ops.push(Op::StoreLocal(local.slot));
+        ops.push(Op::DropLocal(temp));
         Ok(())
     }
 
@@ -344,6 +422,9 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if let Some(ty) = self.qualified_type(base)? {
+            return self.variant(ty, name, Some(args), &base.at, ops);
+        }
         if matches!(name, "append" | "add") {
             let local = self.mutable_collection(base)?;
             if !matches!(
@@ -415,7 +496,7 @@ impl Lower<'_> {
         }
         let ty = self.value(&args[0], ops)?;
         if name == "len" {
-            if ty.element().is_none() {
+            if ty.element().is_none() || ty.affine() {
                 return Err(at.error("len requires an iterable"));
             }
             ops.push(Op::Collection(CollectionOp::Len(ty)));
@@ -470,36 +551,31 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        let source = self.slot(source_ty.clone(), at)?;
-        let index = self.slot(Ty::I64, at)?;
+        let start = self.locals.len();
+        let Iteration {
+            condition,
+            mut body,
+            step,
+            target,
+        } = self.iteration_on_stack(source_ty, at, ops)?;
         let result = self.slot(target_ty.clone(), at)?;
         ops.extend([
-            Op::StoreLocal(source),
-            Op::PushInt(Value::I64(0)),
-            Op::StoreLocal(index),
             Op::Collection(CollectionOp::New(target_ty.clone())),
             Op::StoreLocal(result),
         ]);
-        let condition = vec![
-            Op::LoadLocal(index),
-            Op::LoadLocal(source),
-            Op::Collection(CollectionOp::Len(source_ty.clone())),
-            Op::Lt,
-        ];
-        let mut body = vec![
+        body.extend([
             Op::LoadLocal(result),
-            Op::LoadLocal(source),
-            Op::LoadLocal(index),
-            Op::Collection(CollectionOp::IterGet(source_ty)),
+            Op::LoadLocal(target),
             Op::Collection(CollectionOp::Insert(target_ty)),
             Op::StoreLocal(result),
-        ];
-        increment(index, &mut body);
+        ]);
+        body.extend(step);
         ops.push(Op::Loop {
             condition: condition.into(),
             body: body.into(),
         });
         ops.push(Op::LoadLocal(result));
+        self.cleanup(start, ops);
         Ok(())
     }
 }

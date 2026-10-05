@@ -32,7 +32,7 @@
 //! Phase c.4 adds strings. Every string literal referenced by the source
 //! (whether by `Op::PushStr` or by a `Pattern::Str` inside a match) is
 //! emitted as one static-data symbol per `StrId`, carrying the UTF-8
-//! bytes plus a trailing nul. `Op::PushStr` lowers to `global_value` —
+//! managed header, cached byte/scalar lengths, and exact UTF-8 payload. `Op::PushStr` lowers to `global_value` —
 //! the data's address — and onto the compile-time stack tagged as
 //! `Ty::Str` (CLIF `i64` for the host pointer width). `Op::Add` and
 //! `Op::Eq` now dispatch on operand types: integer pairs take the
@@ -66,8 +66,11 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::lexer;
 mod collections;
+mod enums;
+mod generators;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
+use generators::GeneratorContext;
 
 // ---- Cranelift API reference ----
 //
@@ -165,8 +168,18 @@ fn compile_ops_to_executable(ops: &[Op], heap: &Heap, output: &Path) -> Result<(
 /// at link time lets `cc` do the runtime's compile-and-link in a single
 /// invocation — the same path the test harness took before c.5, just
 /// driven by the binary now.
-const RUNTIME_C: &str = include_str!("../runtime/plenty_runtime.c");
+const RUNTIME_C: &str = concat!(
+    include_str!("../runtime/values.c"),
+    "\n",
+    include_str!("../runtime/generators.c"),
+    "\n",
+    include_str!("../runtime/plenty_runtime.c")
+);
 const COLLECTION_RUNTIME_C: &str = concat!(
+    include_str!("../runtime/values.c"),
+    "\n",
+    include_str!("../runtime/generators.c"),
+    "\n",
     include_str!("../runtime/plenty_runtime.c"),
     "\n",
     include_str!("../runtime/collections.c")
@@ -175,13 +188,13 @@ const COLLECTION_RUNTIME_C: &str = concat!(
 /// Avoid compiling the collection runtime for programs that only use scalars.
 fn uses_collections(ops: &[Op]) -> bool {
     ops.iter().any(|op| match op {
-        Op::Collection(_) => true,
+        Op::Collection(_) | Op::Enum(_) => true,
         Op::Loop { condition, body } => uses_collections(condition) || uses_collections(body),
         Op::Match(arms) => arms.iter().any(|arm| uses_collections(&arm.body)),
         Op::DefineFn(_, f) => {
-            f.sig.inputs.iter().any(|(_, ty)| ty.is_collection())
-                || f.sig.outputs.iter().any(Ty::is_collection)
-                || f.locals.iter().any(Ty::is_collection)
+            f.sig.inputs.iter().any(|(_, ty)| ty.uses_value_runtime())
+                || f.sig.outputs.iter().any(Ty::uses_value_runtime)
+                || f.locals.iter().any(Ty::uses_value_runtime)
                 || uses_collections(&f.body)
         }
         _ => false,
@@ -246,12 +259,7 @@ fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path) -> Result<()> {
     // source of truth for the literal bytes.
     let str_data = declare_str_data(ops, heap, &mut module)?;
 
-    // One extra read-only data symbol holding a single `\0` byte — the
-    // empty-string placeholder `Op::ReadLine` substitutes for `NULL`
-    // on EOF so the value pushed as `Ty::Str` is always a valid C
-    // string. Always declared (one byte of `.rodata`, negligible)
-    // rather than conditionally so the Lowerer never has to track
-    // whether the module uses `:readline`.
+    // An immortal empty string substitutes for the legacy input helper's EOF.
     let eof_empty_str = declare_eof_empty_str(&mut module)?;
 
     // Pass 2: emit each user function's body. Bodies can refer to each
@@ -312,6 +320,10 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
 struct Runtime {
     type_data: std::cell::RefCell<HashMap<Ty, DataId>>,
     collection: FuncId,
+    retain: FuncId,
+    release: FuncId,
+    generator_new: FuncId,
+    generator_finish: FuncId,
     print_i8: FuncId,
     print_i16: FuncId,
     print_i32: FuncId,
@@ -338,13 +350,12 @@ struct Runtime {
     /// the `Div` lowering.
     trap_div_zero: FuncId,
     /// `plenty_readline() -> *const u8` — read one newline-terminated
-    /// line from stdin, strip the trailing newline, return a malloc'd
-    /// nul-terminated buffer. Returns NULL on EOF. Owned (never freed)
-    /// using the runtime's append-only string allocation.
+    /// line from stdin, strip its newline, validate UTF-8, and return an owned
+    /// counted string. NULL is internal EOF, never a language string.
     readline: FuncId,
     /// `plenty_contains(*const u8 haystack, *const u8 needle) -> i8` —
     /// returns 1 if `needle` is a byte-substring of `haystack`, 0
-    /// otherwise. Wraps `strstr`.
+    /// otherwise. Both inputs are borrowed counted strings.
     contains: FuncId,
     /// `plenty_println(*const u8) -> ()` — write the string raw to
     /// stdout, followed by a single `\n`. The bare-text output
@@ -383,7 +394,17 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        generator_new: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([AbiParam::new(types::I64); 3]);
+            sig.returns.push(AbiParam::new(PTR_TY));
+            module.declare_function("plenty_generator_new", Linkage::Import, &sig)?
+        },
+        generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
+        retain: one_arg(module, "plenty_retain", PTR_TY)?,
+        release: one_arg(module, "plenty_release", PTR_TY)?,
         collection: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
@@ -422,19 +443,20 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
     })
 }
 
-/// The CLIF type used for every Plenty `Str` value. Strings are passed
-/// around as nul-terminated C-style pointers (see `runtime/plenty_runtime.c`),
-/// and AOT mode only targets the host architecture today — every host
-/// we care about is 64-bit, so the pointer width is `types::I64`. If we
-/// ever cross-compile to a 32-bit target, this needs to come from
-/// `module.target_config().pointer_type()` instead.
+/// Managed values use one pointer on the current native 64-bit host target.
 const PTR_TY: types::Type = types::I64;
 
-/// Walk `ops` recursively and collect every `StrId` referenced by a
-/// `PushStr` or `Pattern::Str`. For each unique `StrId`, declare a
-/// read-only data symbol in `module` whose contents are the literal's
-/// UTF-8 bytes plus a trailing nul (so C string helpers can scan with
-/// `strlen` / `strcmp`).
+/// Serialize the runtime's 32-byte immortal string prefix and exact UTF-8 bytes.
+/// AOT targets the host, so serialization uses native byte order.
+fn string_literal_bytes(s: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(32 + s.len());
+    for word in [u64::MAX, 0, s.len() as u64, s.chars().count() as u64] {
+        bytes.extend_from_slice(&word.to_ne_bytes());
+    }
+    bytes.extend_from_slice(s.as_bytes());
+    bytes
+}
+
 fn declare_str_data(
     ops: &[Op],
     heap: &Heap,
@@ -452,27 +474,22 @@ fn declare_str_data(
         let name = format!("plenty_str_{i}");
         let data_id = module.declare_data(&name, Linkage::Local, false, false)?;
         let s = heap.str(id);
-        let mut bytes: Vec<u8> = Vec::with_capacity(s.len() + 1);
-        bytes.extend_from_slice(s.as_bytes());
-        bytes.push(0);
+        let bytes = string_literal_bytes(s);
         let mut desc = DataDescription::new();
         desc.define(bytes.into_boxed_slice());
+        desc.set_align(8);
         module.define_data(data_id, &desc)?;
         out.insert(id, data_id);
     }
     Ok(out)
 }
 
-/// One read-only data symbol holding a single nul byte — i.e. the C
-/// representation of `""`. [`Lowerer::lower_readline`] substitutes its
-/// address for the `NULL` returned by `plenty_readline` on EOF, so the
-/// value pushed onto the compile-time stack as `Ty::Str` is always a
-/// valid C string. Always declared (one byte of `.rodata`) so the
-/// Lowerer doesn't need to know whether the module uses `:readline`.
+/// An aligned, immortal, counted empty string for the legacy EOF fallback.
 fn declare_eof_empty_str(module: &mut ObjectModule) -> Result<DataId> {
     let id = module.declare_data("plenty_readline_eof_empty", Linkage::Local, false, false)?;
     let mut desc = DataDescription::new();
-    desc.define(vec![0u8].into_boxed_slice());
+    desc.define(string_literal_bytes("").into_boxed_slice());
+    desc.set_align(8);
     module.define_data(id, &desc)?;
     Ok(id)
 }
@@ -508,6 +525,8 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
 /// allocates one of these per `DefineFn` reachable from the source set;
 /// Pass 2 reads it back when emitting bodies and resolving calls.
 struct UserFn {
+    generator: Option<Ty>,
+    resume: Option<FuncId>,
     id: FuncId,
     sig: Rc<FnSig>,
     body: Rc<[Op]>,
@@ -561,6 +580,16 @@ fn collect_user_fns(
                     name.clone(),
                     UserFn {
                         id,
+                        generator: f.generator.clone(),
+                        resume: if f.generator.is_some() {
+                            Some(module.declare_function(
+                                &format!("__plenty_resume_{name}"),
+                                Linkage::Local,
+                                &generators::resume_signature(module),
+                            )?)
+                        } else {
+                            None
+                        },
                         sig: Rc::clone(&f.sig),
                         body: Rc::clone(&f.body),
                         locals: Rc::clone(&f.locals),
@@ -594,6 +623,9 @@ fn emit_user_function(
     module: &mut ObjectModule,
 ) -> Result<()> {
     let decl = &fns[name];
+    if decl.generator.is_some() {
+        return generators::emit_generator(name, fns, str_data, eof_empty_str, runtime, module);
+    }
     let cl_sig = user_fn_signature(module, &decl.sig);
 
     let mut ctx = Context::new();
@@ -620,7 +652,11 @@ fn emit_user_function(
         }
         for ty in decl.locals.iter() {
             let var = bcx.declare_var(clif_type(ty.clone()));
-            // The frontend enforces definite initialization before every read.
+            // Null denotes an uninitialized ownership slot, never a source value.
+            if ty.managed() {
+                let zero = bcx.ins().iconst(PTR_TY, 0);
+                bcx.def_var(var, zero);
+            }
             locals.push((var, ty.clone()));
         }
 
@@ -635,6 +671,7 @@ fn emit_user_function(
             stack: Vec::new(),
             terminated: false,
             loop_targets: Vec::new(),
+            generator: None,
         };
         for op in decl.body.iter() {
             if lower.terminated {
@@ -651,6 +688,7 @@ fn emit_user_function(
         if !lower.terminated {
             let returns: Vec<cranelift_codegen::ir::Value> =
                 lower.stack.iter().map(|(v, _)| *v).collect();
+            lower.release_locals();
             lower.bcx.ins().return_(&returns);
         }
         bcx.finalize();
@@ -703,12 +741,14 @@ fn emit_main(
             stack: Vec::new(),
             terminated: false,
             loop_targets: Vec::new(),
+            generator: None,
         };
         for op in ops {
             lower.lower(op)?;
         }
         // `plenty_main` never tail-calls (its convention doesn't
         // support it), so `lower.terminated` is always false here.
+        lower.release_stack();
         let zero = lower.bcx.ins().iconst(types::I32, 0);
         lower.bcx.ins().return_(&[zero]);
         bcx.finalize();
@@ -722,15 +762,20 @@ fn emit_main(
 /// Cranelift treats both with the same machine type, the individual
 /// instruction (`sdiv` vs `udiv`, `icmp slt` vs `icmp ult`) picks the
 /// interpretation. `Str` is a host pointer (`PTR_TY`), the address of
-/// a nul-terminated byte sequence in either the module's data section
-/// (literals) or the runtime heap (results of `plenty_concat`).
+/// a counted immutable object in read-only data or the managed runtime heap.
 fn clif_type(ty: Ty) -> types::Type {
     match ty {
         Ty::I8 | Ty::U8 | Ty::Bool => types::I8,
         Ty::I16 | Ty::U16 => types::I16,
         Ty::I32 | Ty::U32 => types::I32,
         Ty::I64 | Ty::U64 => types::I64,
-        Ty::Str | Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _) | Ty::Range => PTR_TY,
+        Ty::Str
+        | Ty::List(_)
+        | Ty::Set(_)
+        | Ty::Dict(_, _)
+        | Ty::Range
+        | Ty::Enum(_)
+        | Ty::Generator(_) => PTR_TY,
     }
 }
 
@@ -800,11 +845,7 @@ struct Lowerer<'a, 'b> {
     /// compares in `Op::Match` use the same map for the `Pattern::Str`
     /// case. Populated once per module by `declare_str_data`.
     str_data: &'a HashMap<StrId, DataId>,
-    /// Read-only data symbol holding a single `\0` byte — i.e. `""`.
-    /// `Op::ReadLine` substitutes its address for `NULL` on EOF so
-    /// the value pushed onto the compile-time stack as `Ty::Str` is
-    /// always a valid C string. Declared once per module by
-    /// [`declare_eof_empty_str`].
+    /// Immortal counted empty string used for legacy input EOF.
     eof_empty_str: DataId,
     /// The active function's input variables, indexed by the local
     /// slot `Op::LoadLocal` was emitted with. Empty when lowering
@@ -817,12 +858,92 @@ struct Lowerer<'a, 'b> {
     terminated: bool,
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
+    generator: Option<GeneratorContext>,
 }
 
 impl Lowerer<'_, '_> {
+    fn retain(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
+        if ty.managed() {
+            let f = self
+                .module
+                .declare_func_in_func(self.runtime.retain, self.bcx.func);
+            self.bcx.ins().call(f, &[value]);
+        }
+    }
+    fn release(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
+        if ty.managed() {
+            let f = self
+                .module
+                .declare_func_in_func(self.runtime.release, self.bcx.func);
+            self.bcx.ins().call(f, &[value]);
+        }
+    }
+    fn release_locals(&mut self) {
+        for i in (0..self.locals.len()).rev() {
+            self.drop_local(i as u8);
+        }
+    }
+    fn read_local(&mut self, i: u8) -> cranelift_codegen::ir::Value {
+        let (var, ty) = self.locals[i as usize].clone();
+        if let Some(g) = &self.generator {
+            let value = self.bcx.ins().load(
+                types::I64,
+                cranelift_codegen::ir::MemFlags::trusted(),
+                g.frame,
+                56 + i32::from(i) * 8,
+            );
+            self.unpack(value, &ty)
+        } else {
+            self.bcx.use_var(var)
+        }
+    }
+    fn write_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
+        let (var, ty) = self.locals[i as usize].clone();
+        if let Some(g) = &self.generator {
+            let frame = g.frame;
+            let value = self.pack(value, &ty);
+            self.bcx.ins().store(
+                cranelift_codegen::ir::MemFlags::trusted(),
+                value,
+                frame,
+                56 + i32::from(i) * 8,
+            );
+        } else {
+            self.bcx.def_var(var, value);
+        }
+    }
+    fn drop_local(&mut self, i: u8) {
+        let ty = self.locals[i as usize].1.clone();
+        if ty.managed() {
+            let value = self.read_local(i);
+            self.release(value, &ty);
+            let zero = self.bcx.ins().iconst(PTR_TY, 0);
+            self.write_local(i, zero);
+        }
+    }
+    fn release_stack(&mut self) {
+        while let Some((value, ty)) = self.stack.pop() {
+            self.release(value, &ty);
+        }
+    }
     fn lower(&mut self, op: &Op) -> Result<()> {
         match op {
             Op::Collection(operation) => self.lower_collection(operation)?,
+            Op::Enum(operation) => self.lower_enum(operation)?,
+            Op::Yield(ty) => self.lower_yield(ty)?,
+            Op::Next(i, _) => self.lower_next(*i)?,
+            Op::DropLocal(i) => self.drop_local(*i),
+            Op::MoveLocal(i, _) => {
+                let value = self.read_local(*i);
+                let ty = self.locals[*i as usize].1.clone();
+                let zero = self.bcx.ins().iconst(PTR_TY, 0);
+                self.write_local(*i, zero);
+                self.stack.push((value, ty));
+            }
+            Op::Unreachable => {
+                self.bcx.ins().trap(TrapCode::unwrap_user(1));
+                self.terminated = true;
+            }
             Op::Loop { condition, body } => self.lower_loop(condition, body)?,
             Op::PushInt(value) => {
                 let ty = Ty::from(*value);
@@ -861,7 +982,8 @@ impl Lowerer<'_, '_> {
             Op::And => self.lower_bool_binop(true)?,
             Op::Or => self.lower_bool_binop(false)?,
             Op::Drop => {
-                self.stack.pop().ok_or("AOT: stack underflow on `drop`")?;
+                let (value, ty) = self.stack.pop().ok_or("AOT: stack underflow on `drop`")?;
+                self.release(value, &ty);
             }
             Op::Dup => {
                 let value = self
@@ -869,6 +991,7 @@ impl Lowerer<'_, '_> {
                     .last()
                     .ok_or("AOT: stack underflow on `dup`")?
                     .clone();
+                self.retain(value.0, &value.1);
                 self.stack.push(value);
             }
             Op::Swap => {
@@ -888,12 +1011,16 @@ impl Lowerer<'_, '_> {
                 self.stack.push((cast, target.clone()));
             }
             Op::Display => self.lower_display()?,
-            Op::Clear => self.stack.clear(),
+            Op::Clear => self.release_stack(),
             Op::LoadLocal(i) => self.lower_load_local(*i)?,
             Op::StoreLocal(i) => {
-                let (var, ty) = self.locals[*i as usize].clone();
-                let (value, _) = self.pop_typed(ty)?;
-                self.bcx.def_var(var, value);
+                let ty = self.locals[*i as usize].1.clone();
+                let (value, _) = self.pop_typed(ty.clone())?;
+                if ty.managed() {
+                    let old = self.read_local(*i);
+                    self.release(old, &ty);
+                }
+                self.write_local(*i, value);
             }
             Op::Call(name) => self.lower_call(name)?,
             Op::TailCall(name) => self.lower_tail_call(name)?,
@@ -913,7 +1040,12 @@ impl Lowerer<'_, '_> {
                 self.terminated = true;
             }
             Op::Return => {
+                if self.generator.is_some() {
+                    self.complete_generator();
+                    return Ok(());
+                }
                 let values: Vec<_> = self.stack.iter().map(|(value, _)| *value).collect();
+                self.release_locals();
                 self.bcx.ins().return_(&values);
                 self.terminated = true;
             }
@@ -929,11 +1061,12 @@ impl Lowerer<'_, '_> {
             Op::Print => self.lower_print()?,
             Op::PrintLine => {
                 let (mut value, ty) = self.stack.pop().ok_or("empty print")?;
-                let helper = match ty {
+                let helper = match ty.clone() {
                     Ty::Str => self.runtime.println,
                     Ty::Bool => self.runtime.println_bool,
-                    ty if ty.is_collection() => {
+                    ty if ty.uses_value_runtime() => {
                         self.collection_call(9, &[value], None)?;
+                        self.release(value, &ty);
                         return Ok(());
                     }
                     ty if is_signed(ty.clone()) => {
@@ -947,13 +1080,14 @@ impl Lowerer<'_, '_> {
                 };
                 let f = self.module.declare_func_in_func(helper, self.bcx.func);
                 self.bcx.ins().call(f, &[value]);
+                self.release(value, &ty);
             }
         }
         Ok(())
     }
 
     /// Lower `Op::ReadLine`: call `plenty_readline`, which returns a
-    /// malloc'd nul-terminated buffer or `NULL` on EOF. We turn `NULL`
+    /// newly owned counted string or `NULL` on EOF. We turn `NULL`
     /// into the address of `plenty_readline_eof_empty` (the `""` data
     /// symbol) so the `Ty::Str` we push is always dereferenceable; the
     /// "got a line?" Bool is `ptr != 0`. The user discriminates via
@@ -969,10 +1103,7 @@ impl Lowerer<'_, '_> {
         // operand still produces an `i1`-widened-to-`i8`, which is
         // Plenty's Bool ABI.
         let got_line = self.bcx.ins().icmp(IntCC::NotEqual, ptr, zero);
-        // The EOF empty-string fallback: a 1-byte `\0` data symbol
-        // emitted unconditionally per module. Substituting it for
-        // `NULL` keeps the pushed `Ty::Str` always pointing at a
-        // valid C string.
+        // EOF still carries an ordinary empty string alongside a false flag.
         let eof_gv = self
             .module
             .declare_data_in_func(self.eof_empty_str, self.bcx.func);
@@ -984,7 +1115,7 @@ impl Lowerer<'_, '_> {
     }
 
     /// Lower `Op::Contains`: pop `haystack needle`, call
-    /// `plenty_contains` (a thin wrapper over `strstr`), push the
+    /// the bounded `plenty_contains` helper, and push the
     /// returned `i8` as Plenty `Bool`.
     fn lower_contains(&mut self) -> Result<()> {
         let needle = self
@@ -1002,6 +1133,8 @@ impl Lowerer<'_, '_> {
             .declare_func_in_func(self.runtime.contains, self.bcx.func);
         let inst = self.bcx.ins().call(contains, &[hay.0, needle.0]);
         let v = self.bcx.inst_results(inst)[0];
+        self.release(hay.0, &hay.1);
+        self.release(needle.0, &needle.1);
         self.stack.push((v, Ty::Bool));
         Ok(())
     }
@@ -1016,6 +1149,7 @@ impl Lowerer<'_, '_> {
             .module
             .declare_func_in_func(self.runtime.println, self.bcx.func);
         self.bcx.ins().call(println_fn, &[v]);
+        self.release(v, &ty);
         Ok(())
     }
 
@@ -1023,9 +1157,10 @@ impl Lowerer<'_, '_> {
     /// uses, but do not add brackets or a newline.
     fn lower_print(&mut self) -> Result<()> {
         let (value, ty) = self.stack.pop().ok_or("AOT: stack underflow on :print")?;
-        let printer = self.printer_for(ty);
+        let printer = self.printer_for(ty.clone());
         let local = self.module.declare_func_in_func(printer, self.bcx.func);
         self.bcx.ins().call(local, &[value]);
+        self.release(value, &ty);
         Ok(())
     }
 
@@ -1300,7 +1435,7 @@ impl Lowerer<'_, '_> {
 
     /// Lower `Op::Add`: integers go through the checked-overflow
     /// arithmetic path; the `Str Str` case calls into the runtime's
-    /// `plenty_concat`, which allocates a fresh nul-terminated buffer
+    /// `plenty_concat`, which allocates a fresh counted string
     /// and returns its address. The polymorphic `+` is the only op
     /// that mixes these two backends — every other arithmetic op
     /// stays integer-only (`check::arith` rejects `Str Str` for `-`,
@@ -1315,6 +1450,8 @@ impl Lowerer<'_, '_> {
                 .declare_func_in_func(self.runtime.concat, self.bcx.func);
             let inst = self.bcx.ins().call(concat, &[a, b]);
             let v = self.bcx.inst_results(inst)[0];
+            self.release(a, &Ty::Str);
+            self.release(b, &Ty::Str);
             self.stack.push((v, Ty::Str));
             return Ok(());
         }
@@ -1332,9 +1469,15 @@ impl Lowerer<'_, '_> {
     }
 
     fn lower_equality(&mut self, cc: IntCC, negate_string_result: bool) -> Result<()> {
-        if self.stack.last().is_some_and(|(_, ty)| ty.is_collection()) {
-            let (a, b, _) = self.pop_pair()?;
+        if self
+            .stack
+            .last()
+            .is_some_and(|(_, ty)| ty.uses_value_runtime())
+        {
+            let (a, b, ty) = self.pop_pair()?;
             let eq = self.collection_call(8, &[a, b], None)?;
+            self.release(a, &ty);
+            self.release(b, &ty);
             let mut value = self.bcx.ins().ireduce(types::I8, eq);
             if negate_string_result {
                 value = self.bcx.ins().bxor_imm(value, 1);
@@ -1351,6 +1494,8 @@ impl Lowerer<'_, '_> {
                 .declare_func_in_func(self.runtime.str_eq, self.bcx.func);
             let inst = self.bcx.ins().call(str_eq, &[a, b]);
             let eq = self.bcx.inst_results(inst)[0];
+            self.release(a, &Ty::Str);
+            self.release(b, &Ty::Str);
             let v = if negate_string_result {
                 let one = self.bcx.ins().iconst(types::I8, 1);
                 self.bcx.ins().bxor(eq, one)
@@ -1386,14 +1531,15 @@ impl Lowerer<'_, '_> {
     /// only emits `LoadLocal` inside a function body, so `self.locals`
     /// is always populated when we get here.
     fn lower_load_local(&mut self, i: u8) -> Result<()> {
-        let (var, ty) = self
+        let (_, ty) = self
             .locals
             .get(i as usize)
             .cloned()
             .ok_or_else(|| -> Box<dyn Error> {
                 format!("AOT: LoadLocal({i}) has no matching input").into()
             })?;
-        let v = self.bcx.use_var(var);
+        let v = self.read_local(i);
+        self.retain(v, &ty);
         self.stack.push((v, ty));
         Ok(())
     }
@@ -1446,6 +1592,7 @@ impl Lowerer<'_, '_> {
         let (decl, args) = self.pop_call_args(name)?;
         let func_id = decl.id;
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
+        self.release_locals();
         self.bcx.ins().return_call(funcref, &args);
         self.terminated = true;
         Ok(())
@@ -1560,6 +1707,7 @@ impl Lowerer<'_, '_> {
             self.bcx.seal_block(arm_blocks[i]);
             self.stack = entry_stack.clone();
             self.terminated = false;
+            self.release(scrut, &scrut_ty);
             for op in arm.body.iter() {
                 if self.terminated {
                     break;

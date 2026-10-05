@@ -11,6 +11,8 @@ mod collection;
 mod frontend;
 mod lexer;
 mod op;
+mod ownership;
+mod sum;
 mod value;
 
 pub use codegen::{compile_legacy_source_to_executable, compile_source_to_executable};

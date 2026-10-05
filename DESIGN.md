@@ -54,23 +54,29 @@ Consequences:
 | Cranelift AOT and compile-and-run file command | Implemented |
 | Direct and mutual tail calls | Implemented in AOT |
 | Early returns and return-aware branch checking | Implemented in AOT |
-| Structs, associated methods, tagged unions, exhaustive payload matching | Planned |
-| `Option[T]`, `Result[T, E]` | Planned with sum types |
-| Ownership, references, borrow checking | Planned; no current memory-safety claim |
+| Concrete enums, tagged payloads, exhaustive matching | Implemented |
+| Structs, associated methods | Planned |
+| `Option[T]`, `Result[T, E]` | Implemented for stored value payloads |
+| Value reclamation and affine generator moves | Implemented |
+| Public references and general borrow checking | Planned |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | While loops, break/continue | Implemented |
-| Generators | Planned; separate state-machine milestone |
+| Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | User generics, traits | Deferred |
 | Async/await | Out of scope |
 
-Mutability checking alone is **not a borrow checker**. The current runtime
-uses copyable scalars, immutable strings, and immutable collection values. A
-collection update replaces a mutable binding with a new value; no mutable
-references or shared mutable contents are exposed. Collections are a deliberate
-value-semantic bridge to the ownership work, not evidence that a borrow checker
-exists. Allocations are retained until process exit; owned resources and references
-still require move/drop/borrow checking.
+Mutability checking and automatic reference counting are **not a borrow checker**.
+Strings, collections, and current enums have independent-value semantics, using
+immutable shared storage and automatic reclamation. Updating a collection replaces
+one binding. Generators instead own advancing state: assignment, calls, returns,
+and iteration move that state. A conservative definite-ownership pass rejects
+use after a possible move. Public references and resource-bearing structs are
+not implemented.
+
+The four design proposals for this batch are in [docs/proposals](docs/proposals).
+They record the reasoning and suggested staging; this document describes the
+implemented result, including integration choices that differ from those proposals.
 
 ## Current language contract
 
@@ -119,10 +125,11 @@ and ordering requires integers. Chained comparisons are rejected explicitly.
 There is **no `None` type or value**. The unit type `()` means a computation
 completed without producing data, and lowers to no result register. It is
 currently supported for expressions and function returns, not stored bindings
-or parameters. Absence and recoverable failure will be explicit sum types.
-`Option[T]` may have an `Absent` case; that case is not implicitly coercible
-to any other type. `Result[T, E]` distinguishes success from failure and does
-not replace `Option[T]` or unit.
+or parameters. Absence and recoverable failure use explicit sum types:
+`Option[T].Some(value)` / `Option[T].Nothing` and
+`Result[T, E].Ok(value)` / `Result[T, E].Err(error)`. Unit payloads, including
+`Result[(), E]`, remain unsupported; a concrete enum with a nullary success
+variant expresses that outcome.
 
 ### Type aliases
 
@@ -226,7 +233,8 @@ a repeated key replaces its value without moving the key. Sets remove duplicates
 and promise no iteration order. Equality is structural: list order matters;
 dictionary insertion order and set order do not. There are no identity tests.
 
-`len`, `in`, and `not in` work with built-in iterables. Lists, strings, and
+`len`, `in`, and `not in` work with collections, strings, and ranges.
+Generators support consuming iteration, not length or membership. Lists, strings, and
 ranges support i64 indexing, including negative indices. Dictionaries index by
 their key type. Out-of-bounds indices and absent keys report a runtime error and
 exit with status 1; absence-returning dictionary lookup awaits `Option`.
@@ -285,13 +293,14 @@ dictionaries and sets. Private builders append in place; literal and comprehensi
 construction is amortized linear under ordinary hash distribution. Public updates
 copy the outer storage, so repeated `append` updates can be quadratic; prefer a
 comprehension for bulk construction. Nested immutable values are shared safely.
-Collection allocations are tracked and freed at process exit, not at last use.
-Long-running allocation-heavy programs therefore retain memory. Earlier scalar
-string helpers still have their append-only allocation policy. Ownership-based
-reclamation and uniqueness-aware updates are later work.
+Managed values are reference counted. Replacing a local releases its previous
+value; scope/function exits release remaining owners. Collection buffers and
+type metadata are reclaimed along with objects. Private expression temporaries
+can remain until their enclosing scope exits. Uniqueness-aware updates remain
+an optimization to consider later.
 
-String length and indexed access scan UTF-8 text, so string iteration is currently
-quadratic. Keys/values lists are snapshots. Hashes are not randomized. These are
+String length is cached; scalar indexing scans UTF-8 boundaries. String iteration
+uses a private byte cursor and is linear in byte length. Keys/values lists are snapshots. Hashes are not randomized. These are
 explicit initial runtime limits, not promises of Python's complete container API.
 Compiler-generated builder and iterator locals count toward the 256-slot limit.
 
@@ -370,14 +379,14 @@ checked against the innermost loop's entry stack; function returns are checked
 against the function signature. The frontend emits the `for` increment before
 each continue. Native lowering tracks loop headers and exits and seals blocks
 after all incoming edges are known, giving mutable locals correct SSA joins.
-This does not complete the source CFG migration needed for ownership analysis.
+This does not complete the source CFG migration needed for public borrow analysis.
 
 Cranelift declares one SSA variable per slot; stores define
 variables and joins use Cranelift's SSA construction. All names and types are
 resolved before native emission. `PrintLine` formats modern values naturally,
 and `FloorDiv` adds Python-compatible floor semantics without changing legacy
-backend regressions. Strings reject NUL because the inherited AOT runtime uses
-C strings. UTF-8 strings otherwise work with raw modern output.
+backend regressions. Strings use explicit byte/scalar lengths, including embedded
+NUL; raw modern output writes exactly the stored byte length.
 
 The public `compile_source_to_executable` uses modern syntax.
 `check_source` and `--check` validate without execution or native emission.
@@ -403,50 +412,115 @@ IDs, source spans, and uses/definitions. Add definite-initialization, moves,
 drops, and loan facts there. Cranelift AOT should consume the checked CFG. Do not run borrow analysis on Cranelift IR: source-level
 ownership and place information would already have been lost.
 
-## Structs and sum types — proposed next milestone
+## One string type
 
-Use `struct`, with named, statically typed fields and associated methods.
-There is no class hierarchy, object dictionary, implicit boxing, or automatic
-dynamic dispatch. A possible syntax (not accepted yet):
+There is one public `str`: an immutable sequence of Unicode scalar values.
+Storage is valid UTF-8 with an explicit byte length and cached scalar count.
+Embedded U+0000 is ordinary content; `\0` is a supported literal escape.
+Neither literals nor dynamic strings have a trailing terminator. Equality and
+hashing include every byte and do not normalize Unicode. `len` counts scalars,
+not grapheme clusters; indexing (including negative indices) returns a one-scalar
+`str`. Concatenation and indexing return independent values.
+
+The native value is one pointer to a 32-byte prefix followed by exactly the UTF-8
+payload: the 16-byte managed header, a u64 byte length, and a u64 scalar count.
+Literal headers are aligned to eight bytes and immortal. There is no public
+owning/view string distinction. Legacy input validates UTF-8, rejecting malformed
+sequences and preserving embedded NUL. Future FFI adapters must explicitly
+convert to pointer/length or temporary terminated C text; C-text export must
+reject embedded NUL when the external API cannot represent it.
+
+## Concrete enums and sum types
 
 ```python
-struct Point:
-    x: i64
-    y: i64
-
-    def length_squared(self: &Point) -> i64:
-        self.x * self.x + self.y * self.y
-
 enum Reading:
     Missing
     Value(i64)
     Invalid(str)
+
+def describe(reading: Reading) -> str:
+    match reading:
+        case Reading.Missing:
+            "missing"
+        case Reading.Value(number):
+            "positive" if number > 0 else "nonpositive"
+        case Reading.Invalid(reason):
+            reason
 ```
 
-Decide aggregate layout and calling conventions explicitly. Begin with tagged
-unions (tag plus payload) and exhaustive `match`/`case`; postpone niche layout
-optimization. Layouts must support Cranelift's native calling conventions. Struct
-construction must initialize every field. Pattern coverage is checked on the
-known finite variant set; payload binding is statically typed.
+Enums are nominal module-level types. Variants have zero or more fixed positional
+payloads; nullary variants omit parentheses. Qualified constructors and patterns
+use an enum name, a transparent alias, or an explicit builtin instantiation such
+as `Option[i64]`. Type/alias declarations may refer forward; recursive enum
+dependencies (including through containers) are rejected initially. Enum names
+share the type declaration namespace. A binding shadowing a type qualifier is
+diagnosed rather than silently selecting different behavior.
 
-Implement concrete structs and enums before general generics. `Option[T]`
-and `Result[T, E]` may initially be compiler-known type constructors with
-straightforward per-concrete-type layouts. This is an explicit bootstrap
-decision, not a user-extensible trait system. Unconstrained parametric functions
-and generic containers do not inherently require Rust's trait machinery;
-operation-constrained generics need a separately designed capability mechanism.
-Defer that mechanism until real examples justify it, and budget specialization
-costs before permitting it.
+Type nesting is limited to 64 levels, and expanded builtin type argument names
+to 16,384 bytes, with diagnostics when these implementation limits are exceeded.
+Runtime descriptors refer back to previously encoded enums, so shared enum
+dependencies do not expand exponentially during compilation or metadata loading.
 
-## Ownership and borrowing — design target
+`Option[T]` and `Result[T, E]` are compiler-known concrete enum constructors,
+without user generics or traits. All payloads must be stored, copyable values:
+integers, bool, str, collections, or other nonrecursive enums. Unit and generator
+payloads are rejected. Enums can be list elements and dictionary values, but are
+not dictionary keys or set elements in the initial closed hashable-type set.
 
-Use value ownership and moves for owned aggregates, immutable bindings by
-default, shared read-only borrows `&T`, and exclusive mutable borrows `&mut T`.
-Primitive scalars are copyable. Built-in collections have explicit independent-value
-semantics, implemented with immutable sharing and replacement updates. This does
-not decide the copying rules for arbitrary structs or resource-owning aggregates.
-Specify strings' owning/view types before replacing the current string arena.
-Mutability belongs to a binding/place; exclusivity belongs to a loan.
+`match` currently accepts enums. Each `case` names a variant and binds payload
+positions to immutable locals or `_`; a whole-value `_` covers the remaining
+variants. Coverage is exhaustive and checked before lowering. Duplicate variants,
+redundant wildcards, incorrect payload arity, and wrong enum identities are
+errors. Nested patterns, guards, OR patterns, and scalar matching syntax are
+deferred. The scrutinee is evaluated once. Arm bindings are scoped locally and
+may shadow outer bindings. Continuing arms agree on result type; arms ending in
+return/break/continue do not contribute a join value. A function-tail match
+produces its final arm expression, like the existing statement-form `if`.
+
+Native enum values are immutable pointer-sized handles to tagged records.
+The record contains a managed header, concrete type metadata, tag, and one
+64-bit slot per active payload field. Equality compares nominal type, tag, and
+payload contents. Printing uses qualified variant names. No niche optimization,
+stable external layout, or per-instantiation code generation is required.
+Frontend coverage lowers to the existing scalar-tag match with an invalid-tag
+trap fallback. The independent checker validates construction/projection types;
+the structured frontend places projections behind the corresponding tag tests.
+
+## Ownership and reclamation
+
+Every managed expression operand, live local, stored field, and frame capture
+has one owner. Loading a copyable value retains its immutable storage. Moving a
+generator clears the source ownership slot. Stores evaluate the RHS, release the
+old owner, then transfer the new one. Scope exits, loop exits, and function exits
+release locals; compiler-private temporaries are bounded by local slots.
+Tail-call arguments are owned before caller cleanup, preserving direct and mutual
+tail calls. Traps terminate the process without unwinding language scopes.
+
+Runtime objects share `{u64 refs, destroy_callback}`. Heap objects start with one
+reference; literal strings use an immortal count. Helpers borrow arguments and
+return owned managed results, including retained projections and builder aliases.
+Buffers and recursive metadata have explicit owners too. Destruction uses an
+iterative queue, avoiding recursive C-stack growth through owned value graphs.
+Reference counts are non-atomic; the language has no concurrency. The current
+immutable-value/affine-frame restrictions prevent source-visible ownership cycles.
+
+Generators are the first affine values. The independent ownership pass tracks
+definite availability of local slots through structured branches. Only continuing
+arms join. A move on one branch makes the binding unavailable at a later join
+unless reinitialized; exiting branches are excluded. Each loop backedge,
+including `continue`, must preserve availability of outer owners available at
+entry. A move followed by mutable reinitialization is accepted; a move reaching
+a backedge is conservatively rejected. Break paths join the zero-iteration path.
+No implicit generator copies or affine fields in copyable containers are allowed.
+
+## Public borrowing — future work
+
+Public references, resource-bearing structs, partial moves, and a general borrow
+checker remain future work. Proposed references are ordinary `&T` and `&mut T`;
+`str` remains the sole string value type. An exclusive reference to a string
+binding would permit replacement, not arbitrary byte mutation. Before references,
+introduce source-level places, a typed CFG, loan facts, and sound drop/borrow
+checking. The current ARC and affine analysis do not provide those features.
 
 Prefer last-use/flow-sensitive loan checking over lexical-lifetime rules.
 Polonius is the relevant Rust work: it models relationships between reference
@@ -474,33 +548,50 @@ Sources informing this design:
 - [2026 Polonius stabilization/modeling goal](https://goals.rust-lang.org/2026/polonius.html)
 - [Borrow checker roadmap](https://goals.rust-lang.org/2026/roadmap-borrow-checker-within.html)
 
-## Generators and later work
+## Native generators
 
-Generators are a separate milestone from ordinary loop control: a loop runs
-within one function invocation, whereas a generator preserves locals and its
-execution position between calls. Async/await remains out of scope. Lower a generator
-to an explicit state machine with a concrete frame type and a resume operation
-returning `Option[T]`. Initially allow only owned yields and prohibit borrows
-across suspension. Destruction must handle every suspension state. This needs
-sum types, ownership/drop semantics, and CFG analysis first, but does not need
-a trait system. A compiler-known `Generator[T]`/iteration protocol can come first.
+A function containing `yield` declares `Generator[T]`. Calls evaluate arguments
+and create an owned frame without running the body. Each resume executes native
+code until a statement-only `yield value`, bare `return`, or fallthrough.
+Yield types are exact and copyable; nested generator yield types and unit are
+rejected. Generator functions cannot return a value. An ordinary factory without
+`yield` may return another generator by moving it.
 
-Tail-call optimization is already retained. Keep its calling-convention
-constraints explicit as references and destructors arrive: a pending drop or
-a borrow of the caller's frame can prevent frame replacement. Do not promise
-arbitrary calls become tail calls merely because they occur near a return.
+`next(g)` requires a named mutable generator binding and returns `Option[T]`.
+This compiler-known operation borrows the owner only for the call. Exhaustion
+is stable. `for`, comprehensions, and iterable collection constructors consume
+generators; `break` destroys their hidden iterator owner without executing later
+generator statements. Generator assignment, arguments, and returns transfer
+ownership. Printing, equality, length, and membership are not defined on them.
+There is no yield-from, send/throw, generator expression, public reference across
+suspension, or async/await.
 
-Implementation order:
+Each generator has a concrete constructor and native resume function. The frame
+owns parameters and all locals in fixed 64-bit slots, plus a managed-slot mask,
+resume callback, continuation state, and reentrancy guard. Resume has the internal
+C ABI `(frame, out_slot) -> ready`; successful yields transfer an owned value.
+Completion clears owned slots and marks exhaustion. Dropping any state frees
+remaining captures without resuming the source body.
 
-1. Current typed-expression vertical slice, native execution tests, and compile-latency
-   measurement harness. Establish useful small/large-program baselines.
-2. Typed CFG, richer source diagnostics, and module-independent
-   native lowering.
-3. Concrete structs, methods, enums, exhaustive matching, `Option`/`Result`.
-4. Ownership, destruction, and a sound local borrow subset; then evaluate
-   Polonius-style precision versus compile-time cost on real Plenty programs.
-5. Owned generators, then narrowly scoped generics if needed. Traits remain
-   an independent decision, not a prerequisite imposed on the first language.
+Integration deliberately reuses the checked structured operation tree instead
+of introducing a second source IR in this batch. `Yield` requires an empty
+residual operand stack. Native lowering adds resume-dispatch edges to continuation
+blocks; all generator locals are frame-backed, so no SSA value needs to survive
+between invocations. Cranelift verifies the resulting CFG. This is native
+state-machine lowering, with no interpreter, C-stack suspension, or eager yield
+collection. The initial state dispatch is a linear comparison chain.
+Iteration currently wraps each resume result in an `Option`; avoiding that
+allocation and optimizing frame liveness are later runtime improvements.
+
+## Next milestones
+
+1. First-class unit payloads, richer diagnostics, and measured compile-latency
+   improvements; consider caching runtime compilation.
+2. Concrete structs and methods; recursive types with explicit layout rules.
+3. Typed source CFG/places and a sound local public-borrow subset, then evaluate
+   Polonius-style precision against compilation cost.
+4. Narrowly scoped generics if examples require them. Traits remain a separate
+   decision. Async/await remains out of scope.
 
 Tests must distinguish proposed syntax from executable examples. Every current
 example should run. Native execution tests exercise output, errors, side-effect

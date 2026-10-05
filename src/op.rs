@@ -16,8 +16,8 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// Sized integers (§11.2): the user picks an exact bit width, signed or
 /// unsigned, so the program's memory footprint and overflow semantics are
 /// declared on the surface rather than hidden behind a polymorphic "Int".
-/// Collection types share recursive descriptors; user generics, sum types,
-/// and floating-point types remain deferred.
+/// Collections, enums, and generators carry resolved concrete type metadata;
+/// user generics and floating-point types remain deferred.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     I8,
@@ -34,9 +34,35 @@ pub enum Ty {
     Set(Rc<Ty>),
     Dict(Rc<Ty>, Rc<Ty>),
     Range,
+    Enum(Rc<crate::sum::EnumType>),
+    Generator(Rc<Ty>),
 }
 
 impl Ty {
+    pub fn layout_depth(&self) -> usize {
+        match self {
+            Self::List(t) | Self::Set(t) | Self::Generator(t) => 1 + t.layout_depth(),
+            Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
+            Self::Enum(t) => t.depth,
+            _ => 0,
+        }
+    }
+    pub fn affine(&self) -> bool {
+        matches!(self, Self::Generator(_))
+    }
+    /// Heap values have one owner per operand/local; scalars are copied as bits.
+    pub fn managed(&self) -> bool {
+        matches!(
+            self,
+            Self::Str
+                | Self::List(_)
+                | Self::Set(_)
+                | Self::Dict(_, _)
+                | Self::Range
+                | Self::Enum(_)
+                | Self::Generator(_)
+        )
+    }
     /// `true` for every integer width. The two non-integer types (`Str`,
     /// `Bool`) return `false`. Used by the checker to enforce the
     /// "arithmetic and ordering work on same-width integers only" rule
@@ -85,6 +111,8 @@ impl fmt::Display for Ty {
             Ty::Set(t) => return write!(f, "set[{t}]"),
             Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
             Ty::Range => "range",
+            Ty::Enum(t) => return f.write_str(&t.name),
+            Ty::Generator(t) => return write!(f, "Generator[{t}]"),
         })
     }
 }
@@ -120,6 +148,13 @@ pub struct FnSig {
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    Yield(Ty),
+    Next(u8, String),
+    MoveLocal(u8, String),
+    DropLocal(u8),
+    Enum(crate::sum::EnumOp),
+    /// Defensive trap after an exhaustive finite-domain match.
+    Unreachable,
     Collection(crate::collection::CollectionOp),
     /// The condition leaves bool; a continuing body preserves the operand stack.
     Loop {
@@ -261,6 +296,7 @@ pub enum Pattern {
 /// Shared fields avoid copying bodies and signatures during compiler passes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledFn {
+    pub generator: Option<Ty>,
     pub sig: Rc<FnSig>,
     pub doc: Rc<str>,
     pub body: Rc<[Op]>,
@@ -416,6 +452,7 @@ impl Compiler<'_, '_> {
             CompiledFn {
                 sig,
                 doc,
+                generator: None,
                 body: body.into(),
                 locals: Rc::from([]),
             },
@@ -879,7 +916,7 @@ pub fn check(ops: &[Op]) -> Result<()> {
     // Top-level: locals are empty (the compiler will never have emitted a
     // `LoadLocal` here either), and there is no end-of-stream invariant.
     let mut stack = Vec::new();
-    check_sequence(ops, &mut stack, &[], &sigs, None, None)?;
+    check_sequence(ops, &mut stack, &[], &sigs, None, None, None)?;
     Ok(())
 }
 
@@ -897,13 +934,14 @@ fn check_sequence(
     sigs: &HashMap<String, Rc<FnSig>>,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
+    yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     let mut flow = Flow::Continues;
     for op in ops {
         if flow == Flow::Exits {
             return Err("unreachable operation after a control-flow exit".into());
         }
-        flow = step(op, stack, locals, sigs, returns, loop_stack)?;
+        flow = step(op, stack, locals, sigs, returns, loop_stack, yield_ty)?;
     }
     Ok(flow)
 }
@@ -962,6 +1000,7 @@ fn step(
     sigs: &HashMap<String, Rc<FnSig>>,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
+    yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     match op {
         Op::Collection(operation) => {
@@ -972,18 +1011,52 @@ fn step(
             stack.truncate(stack.len() - inputs.len());
             stack.push(output);
         }
+        Op::Enum(operation) => {
+            let (inputs, output) = operation.signature().ok_or("invalid enum operation")?;
+            if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
+                return Err("enum operation type mismatch".into());
+            }
+            stack.truncate(stack.len() - inputs.len());
+            stack.push(output);
+        }
+        Op::Unreachable => return Ok(Flow::Exits),
+        Op::Yield(ty) => {
+            if yield_ty != Some(ty) || stack.pop().as_ref() != Some(ty) || !stack.is_empty() {
+                return Err(
+                    "yield requires its declared element type and an empty residual operand stack"
+                        .into(),
+                );
+            }
+        }
+        Op::Next(slot, _) => {
+            let Some(Ty::Generator(element)) = locals.get(*slot as usize) else {
+                return Err("next requires a generator local".into());
+            };
+            stack.push(crate::sum::option((**element).clone()));
+        }
+        Op::DropLocal(i) => {
+            locals.get(*i as usize).ok_or("invalid drop local")?;
+        }
         Op::Loop { condition, body } => {
             let initial = stack.clone();
             let mut cond = initial.clone();
-            if check_sequence(condition, &mut cond, locals, sigs, returns, None)? != Flow::Continues
+            if check_sequence(condition, &mut cond, locals, sigs, returns, None, yield_ty)?
+                != Flow::Continues
                 || cond.pop() != Some(Ty::Bool)
                 || cond != initial
             {
                 return Err("loop condition must produce bool".into());
             }
             let mut iter = initial.clone();
-            if check_sequence(body, &mut iter, locals, sigs, returns, Some(&initial))?
-                == Flow::Continues
+            if check_sequence(
+                body,
+                &mut iter,
+                locals,
+                sigs,
+                returns,
+                Some(&initial),
+                yield_ty,
+            )? == Flow::Continues
                 && iter != initial
             {
                 return Err("loop body must preserve operand types".into());
@@ -1068,7 +1141,7 @@ fn step(
         }
         Op::Display => {}
         Op::Clear => stack.clear(),
-        Op::LoadLocal(i) => {
+        Op::LoadLocal(i) | Op::MoveLocal(i, _) => {
             let ty = locals.get(*i as usize).cloned().ok_or_else(|| {
                 format!("LoadLocal({i}) has no matching input in the enclosing function")
             })?;
@@ -1080,7 +1153,9 @@ fn step(
                 return Err("local assignment type mismatch".into());
             }
         }
-        Op::DefineFn(name, f) => check_body(name, &f.sig, &f.body, &f.locals, sigs)?,
+        Op::DefineFn(name, f) => {
+            check_body(name, &f.sig, &f.body, &f.locals, sigs, f.generator.as_ref())?
+        }
         Op::Call(name) => check_call(name, stack, sigs)?,
         Op::TailCall(name) => {
             check_call(name, stack, sigs)?;
@@ -1094,7 +1169,9 @@ fn step(
             }
             return Ok(Flow::Exits);
         }
-        Op::Match(arms) => return check_match(arms, stack, locals, sigs, returns, loop_stack),
+        Op::Match(arms) => {
+            return check_match(arms, stack, locals, sigs, returns, loop_stack, yield_ty)
+        }
         Op::Cast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;
             if !top.is_int() {
@@ -1213,6 +1290,7 @@ fn check_match(
     sigs: &HashMap<String, Rc<FnSig>>,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
+    yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     let matched_ty = stack
         .pop()
@@ -1295,8 +1373,15 @@ fn check_match(
     let mut joined: Option<Vec<Ty>> = None;
     for (i, arm) in arms.iter().enumerate() {
         let mut arm_stack = snapshot.clone();
-        if check_sequence(&arm.body, &mut arm_stack, locals, sigs, returns, loop_stack)?
-            == Flow::Exits
+        if check_sequence(
+            &arm.body,
+            &mut arm_stack,
+            locals,
+            sigs,
+            returns,
+            loop_stack,
+            yield_ty,
+        )? == Flow::Exits
         {
             continue;
         }
@@ -1337,6 +1422,7 @@ fn check_body(
     body: &[Op],
     extra_locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
+    yield_ty: Option<&Ty>,
 ) -> Result<()> {
     let locals: Vec<Ty> = sig
         .inputs
@@ -1345,9 +1431,23 @@ fn check_body(
         .chain(extra_locals.iter().cloned())
         .collect();
     let mut stack: Vec<Ty> = Vec::new();
-    let flow = check_sequence(body, &mut stack, &locals, sigs, Some(&sig.outputs), None)
-        .map_err(|e| -> Box<dyn Error> { format!("in `{fn_name}`: {e}").into() })?;
-    if flow == Flow::Continues && stack != sig.outputs {
+    let returns = if yield_ty.is_some() {
+        &[][..]
+    } else {
+        &sig.outputs
+    };
+    crate::ownership::check(body, &locals, sig.inputs.len())?;
+    let flow = check_sequence(
+        body,
+        &mut stack,
+        &locals,
+        sigs,
+        Some(returns),
+        None,
+        yield_ty,
+    )
+    .map_err(|e| -> Box<dyn Error> { format!("in `{fn_name}`: {e}").into() })?;
+    if flow == Flow::Continues && stack != returns {
         return Err(format!(
             "function `{fn_name}` body leaves [{}], but signature declares outputs [{}]",
             fmt_types(&stack),

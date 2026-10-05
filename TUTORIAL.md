@@ -321,9 +321,8 @@ A bare `return` returns unit. `print` also returns unit. Use `pass` for an
 intentionally empty block. Unit can be a return type, but unit parameters and
 stored unit bindings are not supported yet.
 
-There is no `None` value and no implicit nullable type. Future sum types will
-provide `Option` for absence and `Result` for recoverable errors; those types
-are not available in this version.
+There is no `None` value and no implicit nullable type. Lesson 19 introduces
+`Option` for absence and `Result` for recoverable errors.
 
 ## 8. Give types names of your own
 
@@ -401,7 +400,7 @@ Alternatively, put the choice in a small function or a conditional expression.
 
 Both single and double quotes make strings. Triple-quoted strings can contain
 physical newlines. Common escapes include `\n`, `\r`, `\t`, escaped quotes,
-and `\\`. Strings support UTF-8; embedded NUL bytes are not yet supported.
+and `\\`. Strings support UTF-8 and embedded NUL using `\0`.
 
 ```plenty
 message = 'Hello, ' + "Plenty!"
@@ -416,8 +415,26 @@ True
 
 `print` accepts one value and adds a newline. It prints text without quotes and
 integers without width suffixes. `contains(text, part)` tests for a substring.
-String indexing, collections, interpolation, and general conversion to strings
-are not available yet.
+There is just one string type, `str`. Strings are immutable values; `mut` permits
+replacing a binding rather than editing its bytes. `len` counts Unicode scalar
+values, and indexing returns a one-scalar string. Storage uses explicit lengths,
+so an embedded NUL does not end a string. Interpolation and general conversion
+to strings are not available yet.
+
+```plenty
+text = "é\0😀"
+print(len(text))
+print(text[-1])
+print("\0" in text)
+print([text])
+```
+
+```output
+3
+😀
+True
+["é\0😀"]
+```
 
 ## 11. Repeat work with tail recursion
 
@@ -526,7 +543,7 @@ duplicates and have no promised iteration order. `{}` is an empty dictionary;
 use an annotation with `set()` or write `set[str]()` for an empty set.
 
 Missing dictionary keys are runtime errors. Check membership before indexing
-when absence is possible; an `Option`-returning lookup awaits sum types.
+when absence is possible; a built-in `Option`-returning lookup is not yet provided.
 Collection equality compares contents; dictionary and set order do not matter.
 
 ## 15. Iterate over values
@@ -609,8 +626,8 @@ expected list[i64]
 
 For now, prefer comprehensions to repeated `append` calls when building a
 collection. Comprehensions use a private growing buffer; ordinary mutations copy
-the outer collection storage. Allocations currently remain until process exit.
-These costs will improve as ownership and reclamation are implemented.
+the outer collection storage. Storage is reclaimed automatically as owners are
+replaced or leave scope; you do not call `free` or manage reference counts.
 
 ## 17. Repeat until a condition changes
 
@@ -690,11 +707,243 @@ while True:
 unreachable statement after a control-flow exit
 ```
 
+## 18. Describe alternatives with enums
+
+An enum says which alternatives a value can have. Each variant may carry typed
+data. Match every possibility to extract that data:
+
+```plenty
+enum Reading:
+    Missing
+    Value(i64)
+    Invalid(str)
+
+def describe(reading: Reading) -> str:
+    match reading:
+        case Reading.Missing:
+            "no reading"
+        case Reading.Value(number):
+            "positive" if number > 0 else "nonpositive"
+        case Reading.Invalid(reason):
+            reason
+
+print(describe(Reading.Missing))
+print(describe(Reading.Value(42)))
+print(describe(Reading.Invalid("sensor offline")))
+```
+
+```output
+no reading
+positive
+sensor offline
+```
+
+Variants without data omit parentheses. Payloads may have several positions,
+such as `Pair(i64, str)`. Bindings in a case are immutable and stay inside
+that case. Use `_` for an unused payload position, or a final whole-value
+`case _:` for the remaining variants. Duplicate or missing cases are errors:
+
+```plenty-error
+enum Switch:
+    On
+    Off
+
+match Switch.On:
+    case Switch.On:
+        print("on")
+```
+
+```error
+non-exhaustive match; missing Switch.Off
+```
+
+A final match produces a function's result, like a final `if`. Cases may also
+return early or break/continue an enclosing loop. Enum declarations can refer to
+other nonrecursive types and aliases. Enums with identical variants but different
+names remain different types. Payloads can contain strings, collections, and
+other enums; matching them gives independent values.
+
+## 19. Represent absence and failure explicitly
+
+`Option[T]` has two variants: `Some(T)` and `Nothing`.
+`Nothing` belongs to one concrete option type; it is not a universal null.
+
+```plenty
+type Found = Option[i64]
+
+def first_positive(values: list[i64]) -> Found:
+    for value in values:
+        if value > 0:
+            return Found.Some(value)
+    Found.Nothing
+
+for values in [[-1, 0], [-1, 42]]:
+    match first_positive(values):
+        case Found.Some(value):
+            print(value)
+        case Found.Nothing:
+            print("not found")
+```
+
+```output
+not found
+42
+```
+
+Use `Result[T, E]` when the absent result has an explanation. Its variants
+are `Ok(T)` and `Err(E)`. A type alias makes repeated qualification shorter:
+
+```plenty
+type Division = Result[i64, str]
+
+def divide(left: i64, right: i64) -> Division:
+    if right == 0:
+        return Division.Err("division by zero")
+    Division.Ok(left // right)
+
+for result in [divide(8, 2), divide(8, 0)]:
+    match result:
+        case Division.Ok(value):
+            print(value)
+        case Division.Err(message):
+            print(message)
+```
+
+```output
+4
+division by zero
+```
+
+Both type arguments are explicit; there is no implicit unwrapping or exception.
+Unit payloads such as `Result[(), str]` are not implemented yet. For an operation
+without a success value, declare an enum with a nullary success variant and a
+payload-bearing failure variant.
+
+## 20. Produce values lazily with generators
+
+A generator function declares `Generator[T]` and uses `yield` statements:
+
+```plenty
+def countdown(start: i64) -> Generator[i64]:
+    print("starting")
+    mut remaining = start
+    while remaining > 0:
+        yield remaining
+        remaining = remaining - 1
+
+numbers = countdown(3)
+print("created")
+for number in numbers:
+    print(number)
+```
+
+```output
+created
+starting
+3
+2
+1
+```
+
+Calling the function evaluates its arguments immediately, but its body starts
+only when iteration requests the first value. Each yield pauses the body and
+keeps its locals for the next request. A bare return or the end of the body
+finishes the generator. It cannot return a value.
+
+Comprehensions and collection constructors also consume generators:
+
+```plenty
+def numbers(limit: i64) -> Generator[i64]:
+    for n in range(limit):
+        yield n
+
+print([n * n for n in numbers(6) if n % 2 == 1])
+print(list(numbers(3)))
+```
+
+```output
+[1, 9, 25]
+[0, 1, 2]
+```
+
+For one value at a time, name a mutable generator and call `next`.
+It returns `Some(value)` or `Nothing`; exhaustion stays exhausted:
+
+```plenty
+def once() -> Generator[str]:
+    yield "hello"
+
+mut messages = once()
+print(next(messages))
+print(next(messages))
+print(next(messages))
+```
+
+```output
+Option[str].Some("hello")
+Option[str].Nothing
+Option[str].Nothing
+```
+
+Breaking out of consuming iteration drops the suspended generator without
+executing the statements after its last yield. There are no generator expressions,
+`yield from`, `send`, or async operations. Yielded values are independent;
+a generator may yield strings, collections, and enums, but not another generator.
+
+## 21. Understand which values copy and which move
+
+Strings, collections, and current enums have independent values. Their immutable
+storage may be shared internally, and it is reclaimed automatically when no
+owner needs it. A collection update still changes only its target binding.
+
+A generator owns a position in an advancing computation. Assignment transfers
+that owner instead of copying the position:
+
+```plenty
+def once() -> Generator[i64]:
+    yield 42
+
+first = once()
+second = first
+print(list(second))
+```
+
+```output
+[42]
+```
+
+After a move, the old binding cannot be used:
+
+```plenty-error
+def once() -> Generator[i64]:
+    yield 42
+
+first = once()
+second = first
+list(first)
+```
+
+```error
+use of moved or possibly moved generator binding
+```
+
+Arguments, returns, and `for` iteration also move generators. `next` is the
+exception: it temporarily uses a named mutable generator without consuming the
+owner. A mutable binding can be reinitialized after moving its previous value.
+
+The compiler checks all possible continuing paths. A move on just one branch
+makes later reuse unsafe. Within a loop, an outer generator must be reinitialized
+before any path repeats the loop. These rules are intentionally conservative.
+Generators cannot be stored in collections or enum payloads yet.
+
+There is no public reference syntax or general borrow checker in this version.
+Automatic storage reclamation and checking generator moves are the current
+ownership features.
+
 ## Where the language goes next
 
-This guide deliberately uses implemented features. Structs and methods, sum
-types, ownership and borrowing, and generators
-remain future work. Traits and generics are deferred; async/await is out of
+This guide deliberately uses implemented features. Structs and methods, unit
+payloads, recursive enums, and public borrowing remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 
 When a lesson feels awkward, that is useful feedback for the language design.

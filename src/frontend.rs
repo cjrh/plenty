@@ -10,6 +10,8 @@ use crate::collection::CollectionOp;
 use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 mod collections;
+mod enums;
+mod generators;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit has no runtime representation in this milestone.
@@ -161,6 +163,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                         pos += 1;
                         column += 1;
                         text.push(match escaped {
+                            '0' => '\0',
                             'n' => '\n',
                             'r' => '\r',
                             't' => '\t',
@@ -170,9 +173,6 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                             _ => return Err(start.error(format!("unsupported escape \\{escaped}"))),
                         });
                     } else {
-                        if ch == '\0' {
-                            return Err(start.error("NUL bytes are not supported in strings yet"));
-                        }
                         if ch == '\n' {
                             line += 1;
                             column = 1;
@@ -297,9 +297,61 @@ struct TypeRef {
 
 impl TypeRef {
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
+        let ty = self.resolve_inner(aliases)?;
+        if ty.as_ref().is_some_and(|t| t.layout_depth() > 64) {
+            return Err(self
+                .at
+                .error("type nesting exceeds the implementation limit of 64"));
+        }
+        Ok(ty)
+    }
+    fn resolve_inner(&self, aliases: &TypeAliases) -> Result<Type> {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == "Generator" {
+            if self.args.len() != 1 {
+                return Err(self.at.error("Generator requires 1 type argument"));
+            }
+            let element = self.args[0]
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("generator elements cannot be unit"))?;
+            if element.affine() {
+                return Err(self.at.error("generators cannot yield generators"));
+            }
+            return Ok(Some(Ty::Generator(Rc::new(element))));
+        }
+        if matches!(name.as_str(), "Option" | "Result") {
+            let count = if name == "Option" { 1 } else { 2 };
+            if self.args.len() != count {
+                return Err(self
+                    .at
+                    .error(format!("{name} requires {count} type arguments")));
+            }
+            let args = self
+                .args
+                .iter()
+                .map(|t| {
+                    t.resolve(aliases)?
+                        .ok_or_else(|| t.at.error("enum payloads cannot be unit"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if args.iter().map(|t| t.to_string().len()).sum::<usize>() > 16_384 {
+                return Err(self
+                    .at
+                    .error("concrete type name exceeds the implementation limit"));
+            }
+            if args.iter().any(Ty::affine) {
+                return Err(self
+                    .at
+                    .error("generators cannot be stored in enum payloads"));
+            }
+            return Ok(Some(if name == "Option" {
+                crate::sum::option(args[0].clone())
+            } else {
+                crate::sum::result(args[0].clone(), args[1].clone())
+            }));
+        }
         if matches!(name.as_str(), "list" | "dict" | "set") {
             let count = if name == "dict" { 2 } else { 1 };
             if self.args.len() != count {
@@ -315,6 +367,9 @@ impl TypeRef {
                         .ok_or_else(|| t.at.error("collection elements cannot be unit"))
                 })
                 .collect::<Result<_>>()?;
+            if args.iter().any(Ty::affine) {
+                return Err(self.at.error("generators cannot be stored in collections"));
+            }
             return Ok(Some(match name.as_str() {
                 "list" => Ty::List(Rc::new(args[0].clone())),
                 "set" => {
@@ -351,6 +406,11 @@ struct Stmt {
     kind: Statement,
 }
 enum Statement {
+    Yield(Expr),
+    Match {
+        value: Expr,
+        cases: Vec<enums::Case>,
+    },
     Expr(Expr),
     Assign {
         name: String,
@@ -387,6 +447,8 @@ struct Expr {
     kind: Expression,
 }
 enum Expression {
+    Type(TypeRef),
+    Member(Box<Expr>, String),
     Number(String),
     Text(String),
     Bool(bool),
@@ -419,6 +481,7 @@ enum Clause {
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    type_depth: usize,
 }
 impl Parser {
     fn peek(&self) -> &Token {
@@ -462,6 +525,17 @@ impl Parser {
         Err(t.error("expected an identifier (keywords and __plenty_ names are reserved)"))
     }
     fn ty(&mut self) -> Result<TypeRef> {
+        if self.type_depth >= 64 {
+            return Err(self
+                .peek()
+                .error("type nesting exceeds the implementation limit of 64"));
+        }
+        self.type_depth += 1;
+        let result = self.ty_inner();
+        self.type_depth -= 1;
+        result
+    }
+    fn ty_inner(&mut self) -> Result<TypeRef> {
         let at = self.peek().clone();
         if self.eat("(") {
             self.expect(")")?;
@@ -596,6 +670,12 @@ impl Parser {
         })
     }
     fn statement(&mut self) -> Result<Stmt> {
+        if self.peek().is("enum") {
+            return Err(self.peek().error("enums must be declared at module scope"));
+        }
+        if self.peek().is("match") {
+            return self.match_statement();
+        }
         if self.peek().is("type") {
             return Err(self
                 .peek()
@@ -641,6 +721,8 @@ impl Parser {
             } else {
                 Some(self.expr(0)?)
             })
+        } else if self.eat("yield") {
+            Statement::Yield(self.expr(0)?)
         } else if self.eat("break") {
             Statement::Break
         } else if self.eat("continue") {
@@ -705,7 +787,10 @@ impl Parser {
             }
             Kind::Symbol(s) if s == "[" || s == "{" => self.collection_display(s)?,
             Kind::Word(s) if !reserved(s) && !s.starts_with("__plenty_") => {
-                if matches!(s.as_str(), "list" | "dict" | "set") && self.peek().is("[") {
+                if matches!(s.as_str(), "Option" | "Result") && self.peek().is("[") {
+                    self.pos -= 1;
+                    Expression::Type(self.ty()?)
+                } else if matches!(s.as_str(), "list" | "dict" | "set") && self.peek().is("[") {
                     self.pos -= 1;
                     let ty = self.ty()?;
                     self.expect("(")?;
@@ -739,11 +824,18 @@ impl Parser {
             }
             if self.eat(".") {
                 let name = self.name()?;
-                self.expect("(")?;
-                let args = self.arguments()?;
-                left = Expr {
-                    at: left.at.clone(),
-                    kind: Expression::Method(Box::new(left), name, args),
+                let at = left.at.clone();
+                left = if self.eat("(") {
+                    let args = self.arguments()?;
+                    Expr {
+                        at,
+                        kind: Expression::Method(Box::new(left), name, args),
+                    }
+                } else {
+                    Expr {
+                        at,
+                        kind: Expression::Member(Box::new(left), name),
+                    }
                 };
                 continue;
             }
@@ -821,65 +913,21 @@ fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
         .or_else(|| aliases.get(name).cloned())
 }
 
-/// Every alias has one target in this language slice. Follow each chain once,
-/// caching its concrete type. Iteration avoids growing the Rust call stack for
-/// long chains, and the active path detects cycles without graph-wide scans.
-fn resolve_aliases(declarations: &[TypeAlias]) -> Result<TypeAliases> {
-    let mut definitions = HashMap::new();
-    for alias in declarations {
-        if builtin(&alias.name) {
-            return Err(alias.at.error(format!(
-                "cannot redefine builtin `{}` as a type alias",
-                alias.name
-            )));
-        }
-        if definitions.insert(alias.name.as_str(), alias).is_some() {
-            return Err(alias
-                .at
-                .error(format!("type alias `{}` is already defined", alias.name)));
-        }
-    }
-    let mut resolved = TypeAliases::new();
-    let mut active = HashSet::new();
-    for declaration in declarations {
-        let mut work = vec![(declaration, false)];
-        while let Some((alias, finish)) = work.pop() {
-            if resolved.contains_key(&alias.name) {
-                continue;
-            }
-            if finish {
-                let ty = alias.target.resolve(&resolved)?;
-                resolved.insert(alias.name.clone(), ty);
-                active.remove(alias.name.as_str());
-                continue;
-            }
-            if !active.insert(alias.name.as_str()) {
-                return Err(alias
-                    .at
-                    .error(format!("cyclic type alias involving `{}`", alias.name)));
-            }
-            work.push((alias, true));
-            let mut refs = vec![&alias.target];
-            while let Some(t) = refs.pop() {
-                refs.extend(&t.args);
-                if let Some(name) = &t.name {
-                    if let Some(dependency) = definitions.get(name.as_str()) {
-                        if !resolved.contains_key(name) {
-                            work.push((dependency, false));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(resolved)
-}
-
 fn builtin(name: &str) -> bool {
     named_type(name).is_some()
         || matches!(
             name,
-            "print" | "contains" | "list" | "dict" | "set" | "len" | "range"
+            "print"
+                | "contains"
+                | "list"
+                | "dict"
+                | "set"
+                | "len"
+                | "range"
+                | "Option"
+                | "Result"
+                | "Generator"
+                | "next"
         )
 }
 fn reserved(name: &str) -> bool {
@@ -968,6 +1016,8 @@ struct Lower<'a> {
     return_type: Option<Type>,
     /// Code executed before continuing the innermost loop (for-loop increment).
     loop_steps: Vec<Vec<Op>>,
+    loop_scopes: Vec<usize>,
+    yield_type: Type,
 }
 impl Lower<'_> {
     fn same(&self, got: Type, expected: Type, at: &Token) -> Result<()> {
@@ -987,6 +1037,15 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
+            Expression::Type(_) => {
+                return Err(e.at.error("a type is not a value; select a variant"))
+            }
+            Expression::Member(base, name) => {
+                let ty = self
+                    .qualified_type(base)?
+                    .ok_or_else(|| e.at.error("unknown type qualifier"))?;
+                self.variant(ty, name, None, &e.at, ops)?
+            }
             Expression::Collection { .. } => Some(self.collection(e, None, ops)?),
             Expression::Index(base, index) => Some(self.index(base, index, ops)?),
             Expression::Method(base, name, args) => self.method(base, name, args, ops)?,
@@ -1014,7 +1073,14 @@ impl Lower<'_> {
                     .names
                     .get(name)
                     .ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
-                ops.push(Op::LoadLocal(local.slot));
+                if local.ty.affine() {
+                    ops.push(Op::MoveLocal(
+                        local.slot,
+                        format!("{}:{}: `{name}`", e.at.line, e.at.column),
+                    ));
+                } else {
+                    ops.push(Op::LoadLocal(local.slot));
+                }
                 Some(local.ty.clone())
             }
             Expression::Unary(op, value) => {
@@ -1048,6 +1114,11 @@ impl Lower<'_> {
             Expression::Binary(op, left, right) if op == "in" || op == "not in" => {
                 let a = self.value(left, ops)?;
                 let b = self.value(right, ops)?;
+                if b.affine() {
+                    return Err(e
+                        .at
+                        .error("membership does not consume generators; use a loop"));
+                }
                 let element = b
                     .element()
                     .ok_or_else(|| e.at.error("membership requires an iterable"))?;
@@ -1062,6 +1133,9 @@ impl Lower<'_> {
                 let a = self.value(left, ops)?;
                 let mut rhs = Vec::new();
                 let b = self.value(right, &mut rhs)?;
+                if a.affine() {
+                    return Err(e.at.error("generators do not support binary operators"));
+                }
                 self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
                 if op == "and" || op == "or" {
                     self.same(Some(a.clone()), Some(Ty::Bool), &e.at)?;
@@ -1123,6 +1197,9 @@ impl Lower<'_> {
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));
                 }
+                if name == "next" {
+                    return self.next(args, &e.at, ops);
+                }
                 if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
                     return self.builtin_collection(name, args, &e.at, ops).map(Some);
                 }
@@ -1146,7 +1223,9 @@ impl Lower<'_> {
                     if args.len() != 1 {
                         return Err(e.at.error("print takes one argument"));
                     }
-                    self.value(&args[0], ops)?;
+                    if self.value(&args[0], ops)?.affine() {
+                        return Err(e.at.error("generators cannot be printed"));
+                    }
                     ops.push(Op::PrintLine);
                     None
                 } else if name == "contains" {
@@ -1188,10 +1267,34 @@ impl Lower<'_> {
         Ok(ty)
     }
     fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: bool) -> Result<BlockResult> {
+        let start = self.locals.len();
+        let result = self.block_inner(body, ops, tail)?;
+        if !tail && matches!(result, BlockResult::Continues(_)) {
+            self.cleanup(start, ops);
+        }
+        Ok(result)
+    }
+    fn block_inner(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: bool) -> Result<BlockResult> {
         let mut result = None;
         for (i, stmt) in body.iter().enumerate() {
             let last = tail && i + 1 == body.len();
             result = match &stmt.kind {
+                Statement::Yield(e) => {
+                    let expected = self.yield_type.clone().ok_or_else(|| {
+                        stmt.at
+                            .error("yield requires a function returning Generator[T]")
+                    })?;
+                    let actual = self.expr_expected(e, Some(expected.clone()), ops)?;
+                    self.same(actual, Some(expected.clone()), &e.at)?;
+                    ops.push(Op::Yield(expected));
+                    None
+                }
+                Statement::Match { value, cases } => {
+                    match self.match_cases(value, cases, last, ops)? {
+                        BlockResult::Continues(ty) => ty,
+                        BlockResult::Exits => return exited_block(body, i),
+                    }
+                }
                 Statement::Expr(e) => self.expr_expected(
                     e,
                     if last {
@@ -1202,6 +1305,9 @@ impl Lower<'_> {
                     ops,
                 )?,
                 Statement::Return(e) => {
+                    if self.yield_type.is_some() && e.is_some() {
+                        return Err(stmt.at.error("a generator may only use bare return"));
+                    }
                     let expected = self
                         .return_type
                         .clone()
@@ -1226,6 +1332,7 @@ impl Lower<'_> {
                             "break outside a loop"
                         })
                     })?;
+                    self.cleanup(*self.loop_scopes.last().unwrap(), ops);
                     if is_continue {
                         ops.extend(step.iter().cloned());
                     }
@@ -1238,9 +1345,11 @@ impl Lower<'_> {
                     self.same(ty, Some(Ty::Bool), &condition.at)?;
                     let saved = self.names.clone();
                     self.loop_steps.push(Vec::new());
+                    self.loop_scopes.push(self.locals.len());
                     let mut lowered = Vec::new();
                     let result = self.block(body, &mut lowered, false);
                     self.loop_steps.pop();
+                    self.loop_scopes.pop();
                     self.names = saved;
                     result?;
                     ops.push(Op::Loop {
@@ -1430,19 +1539,23 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
     let mut parser = Parser {
         tokens: lex(source)?,
         pos: 0,
+        type_depth: 0,
     };
     let (mut functions, mut statements) = (Vec::new(), Vec::new());
     let mut declarations = Vec::new();
+    let mut enums = Vec::new();
     while parser.peek().kind != Kind::Eof {
         if parser.peek().is("def") {
             functions.push(parser.function()?);
+        } else if parser.peek().is("enum") {
+            enums.push(parser.enum_decl()?);
         } else if parser.peek().is("type") {
             declarations.push(parser.alias()?);
         } else {
             statements.push(parser.statement()?);
         }
     }
-    let aliases = resolve_aliases(&declarations)?;
+    let aliases = enums::resolve_types(&declarations, &enums)?;
     let mut sigs = HashMap::new();
     for f in &functions {
         if aliases.contains_key(&f.name) {
@@ -1469,6 +1582,16 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
     let mut ops = Vec::new();
     for f in functions {
         let sig = Rc::clone(&sigs[&f.name]);
+        let yield_type = if generators::yields(&f.body) {
+            let Some(Ty::Generator(element)) = sig.outputs.first() else {
+                return Err(f
+                    .at
+                    .error("yield requires a function returning Generator[T]"));
+            };
+            Some((**element).clone())
+        } else {
+            None
+        };
         let mut lower = Lower {
             heap,
             sigs: &sigs,
@@ -1476,8 +1599,14 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             names: HashMap::new(),
             locals: Vec::new(),
             parameters: sig.inputs.len(),
-            return_type: Some(sig.outputs.first().cloned()),
+            return_type: Some(if yield_type.is_some() {
+                None
+            } else {
+                sig.outputs.first().cloned()
+            }),
             loop_steps: Vec::new(),
+            loop_scopes: Vec::new(),
+            yield_type: yield_type.clone(),
         };
         for (i, (name, ty)) in sig.inputs.iter().enumerate() {
             lower.names.insert(
@@ -1490,13 +1619,26 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             );
         }
         let mut body = Vec::new();
-        if let BlockResult::Continues(output) = lower.block(&f.body, &mut body, true)? {
-            lower.same(output, sig.outputs.first().cloned(), &f.at)?;
+        if let BlockResult::Continues(output) =
+            lower.block(&f.body, &mut body, yield_type.is_none())?
+        {
+            lower.same(
+                output,
+                if yield_type.is_some() {
+                    None
+                } else {
+                    sig.outputs.first().cloned()
+                },
+                &f.at,
+            )?;
         }
-        mark_tail_calls(&mut body);
+        if yield_type.is_none() {
+            mark_tail_calls(&mut body);
+        }
         ops.push(Op::DefineFn(
             f.name,
             CompiledFn {
+                generator: yield_type,
                 sig,
                 doc: f.doc.into(),
                 body: body.into(),
@@ -1514,6 +1656,8 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
             parameters: 0,
             return_type: None,
             loop_steps: Vec::new(),
+            loop_scopes: Vec::new(),
+            yield_type: None,
         };
         let mut body = Vec::new();
         let BlockResult::Continues(output) = lower.block(&statements, &mut body, true)? else {
@@ -1523,6 +1667,7 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Vec<Op>> {
         ops.push(Op::DefineFn(
             ENTRY.into(),
             CompiledFn {
+                generator: None,
                 sig: Rc::new(FnSig {
                     inputs: Vec::new(),
                     outputs: output.into_iter().collect(),

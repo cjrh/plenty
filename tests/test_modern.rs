@@ -108,7 +108,6 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("-1u8", "out of range")]
 #[case("1__0", "invalid integer separator")]
 #[case("'hello", "unterminated string")]
-#[case("'a\0b'", "NUL bytes")]
 #[case("'\\q'", "unsupported escape")]
 #[case("(1 + 2", "unclosed parenthesis")]
 #[case("1 + 2)", "unmatched")]
