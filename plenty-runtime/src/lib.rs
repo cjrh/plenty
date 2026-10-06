@@ -18,6 +18,7 @@ mod numbers;
 mod strings;
 #[cfg(test)]
 mod tests;
+mod text_io;
 
 fn fail(message: &str) -> ! {
     io::flush();

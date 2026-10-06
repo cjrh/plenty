@@ -10,6 +10,71 @@ fn native(source: &str, expected: &str) {
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }
 
+fn with_input(source: &str, input: &[u8]) -> std::process::Output {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("program");
+    support::compile_source_to_executable(source, &executable).unwrap();
+    let mut child = Command::new(executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn input_distinguishes_empty_lines_eof_and_invalid_utf8() {
+    let output = with_input(
+        "print(input())\nprint(input())\nprint(input())\nprint(input())",
+        "é\0\r\n\nlast".as_bytes(),
+    );
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "Result[Option[str], IoError].Ok(Option[str].Some(\"é\\0\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"last\"))\nResult[Option[str], IoError].Ok(Option[str].Nothing)\n");
+    let output = with_input("print(input())", b"\xff\n");
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Result[Option[str], IoError].Err(IoError.Data(DataError.InvalidUtf8))\n"
+    );
+    assert!(support::check_source("input(1)").is_err());
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn input_allocation_failure_is_recoverable() {
+    for budget in 0..=2 {
+        let output = with_input(
+            &format!(
+                r#"
+print("__test_fail_allocations_after_{budget}__")
+a = input()
+print("__test_restore_allocations__")
+print(a)
+"#
+            ),
+            b"abc\n",
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            text.contains(if budget < 2 {
+                "Allocation(AllocError.OutOfMemory)"
+            } else {
+                "Some(\"abc\")"
+            }),
+            "{text}"
+        );
+    }
+}
+
 #[test]
 fn writes_exact_text_and_returns_character_count() {
     native(

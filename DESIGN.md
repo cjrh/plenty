@@ -76,7 +76,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
-| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
+| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, explicit-separator splitting, sized numeric parsing, and fallible scalar formatting |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
 | Text classification | `isascii` checks ASCII membership; `isspace` requires nonempty Unicode White_Space text; neither allocates |
@@ -92,7 +92,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Not implemented; modern programs currently expose output through `print` |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable stdout/stderr writes and flushes, and UTF-8 line input implemented; files and arguments remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -144,6 +144,14 @@ durable disk storage. Existing `print` retains its terminal error behavior.
 `write_stderr(text)` has the same contract for the diagnostic stream.
 `flush_stdout()` and `flush_stderr()` return `Result[(), IoError]`, exposing
 deferred buffered-write failures. Standard stream handles remain process-owned.
+
+`input() -> Result[Option[str], IoError]` reads one stdin line, removing LF or
+CRLF, preserving other characters, and distinguishing an empty line from EOF.
+Invalid UTF-8 is an error. Buffer growth and result allocation are recoverable;
+failure may consume a prefix or the complete line. It never reads ahead into
+the next line. The current Unix backend reads the process descriptor directly;
+other hosts report unsupported I/O. Prompt arguments, universal bare-CR newline
+translation, binary input, and buffered stream objects are deferred.
 
 Every integer type exposes `T.parse(text) -> Result[T, ParseError]`.
 Parsing borrows its string, trims Unicode White_Space, accepts an optional ASCII

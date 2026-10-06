@@ -1040,6 +1040,7 @@ fn builtin(name: &str) -> bool {
                 | "write_stderr"
                 | "flush_stdout"
                 | "flush_stderr"
+                | "input"
                 | "contains"
                 | "list"
                 | "dict"
@@ -1493,6 +1494,7 @@ impl Lower<'_> {
                     "write_stderr" => Some(CollectionOp::WriteStderr),
                     "flush_stdout" => Some(CollectionOp::FlushStdout),
                     "flush_stderr" => Some(CollectionOp::FlushStderr),
+                    "input" => Some(CollectionOp::Input),
                     _ => None,
                 } {
                     return self.system_call(operation, args, &e.at, ops);

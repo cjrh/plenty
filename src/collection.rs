@@ -7,6 +7,7 @@ pub enum CollectionOp {
     WriteStderr,
     FlushStdout,
     FlushStderr,
+    Input,
     ParseNumber(Ty),
     FormatScalar(Ty),
     Copy(Ty),
@@ -102,6 +103,10 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
+            Input => (
+                vec![],
+                crate::sum::result(crate::sum::option(Ty::Str), crate::sum::io_error()),
+            ),
             FlushStdout | FlushStderr => {
                 (vec![], crate::sum::result(Ty::Unit, crate::sum::io_error()))
             }
@@ -261,6 +266,7 @@ impl CollectionOp {
             Self::FlushStdout => 81,
             Self::WriteStderr => 82,
             Self::FlushStderr => 83,
+            Self::Input => 84,
             Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,
