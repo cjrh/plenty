@@ -84,6 +84,12 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   completed pieces on failure; no source storage is consumed or retained by the
   result. Empty pieces are preserved and also allocate. Empty separators are
   invalid operations and trap before allocating, rather than returning `AllocError`.
+- Opcode 37 borrows a string and an `i64` index, returning
+  `Result[Option[str], AllocError]`. Signed index normalization is checked before
+  scanning UTF-8. Missing indices return zero without allocating; present scalars
+  use one checked string allocation and the inline `Ok(Some(...))` tag path.
+  Allocation failure uses the ordinary inline error tags. Normal string indexing
+  shares this helper and converts missing indices/allocation errors into traps.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
@@ -108,6 +114,8 @@ exercise every collection construction/growth/reservation allocation and nested
 copy and string-splitting allocation, including partial-record, pending-key, and
 partial-piece cleanup, and retry after
 each failure. Raw ABI tests also run under `--features allocation-checks`.
+Checked character lookup also verifies zero allocations for missing indices,
+one for present scalars, and allocation-free propagation on failure.
 This instrumentation and its checkpoint markers are absent from normal builds.
 
 Miri covers raw layouts, flexible allocations, metadata sharing, float bit patterns

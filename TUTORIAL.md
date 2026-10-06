@@ -1295,7 +1295,7 @@ joining `["a", "", "b"]` with `"-"` gives `"a--b"`.
 UTF-8 characters and embedded `\0` are preserved, just as with ordinary strings.
 These methods currently require strings and a `list[str]`; joining a generator
 or another kind of iterable is not supported yet. Creating the input list or
-strings, indexing text, and printing keep their existing allocation behavior.
+strings, ordinary text indexing, and printing keep their existing allocation behavior.
 Ordinary string `+` also retains its terminal failure policy.
 
 ### Split text into fields
@@ -1339,6 +1339,52 @@ An empty separator is invalid and terminates the program with a runtime error;
 it does not return `AllocError`. Check `len(separator) > 0` when the separator
 comes from user input. There is currently no omitted-separator whitespace mode
 or maximum-split argument.
+
+### Look up a character without trapping
+
+Use `text.try_get(index)` when the index might be out of range or character
+allocation might fail. It returns `Result[Option[str], AllocError]`: `Result`
+reports allocation failure, while `Option` tells you whether the index exists.
+
+```plenty
+def show_character(text: &str, index: i64) -> Result[(), AllocError]:
+    character = text.try_get(index)?
+    match character:
+        case Some(value):
+            print(value)
+        case Nothing:
+            print("missing")
+    Ok(())
+
+def main() -> ():
+    text = "café🙂"
+    print(show_character(&text, -1))
+    print(show_character(&text, 3))
+    print(show_character(&text, 5))
+    print(text)
+```
+
+```output
+🙂
+Result[(), AllocError].Ok(())
+é
+Result[(), AllocError].Ok(())
+missing
+Result[(), AllocError].Ok(())
+café🙂
+```
+
+Indices are `i64` and count Unicode scalars, as with `text[index]`. Negative
+indices count backward from the end; `-1` selects the last scalar. Empty strings
+and indices outside either end return `Ok(Nothing)` without allocating. A valid
+index allocates one independent string for the character. Neither wrapper
+allocates, and the original string remains available on every outcome.
+
+In the example, `?` handles the allocation-error path and leaves an `Option[str]`
+for the match. `Nothing` is a successful lookup with no character, so it does not
+propagate an error. Ordinary `text[index]` still terminates the program for a
+missing index or allocation failure. Both forms scan UTF-8 to reach the requested
+scalar; repeated indexing is not a constant-time way to traverse text.
 
 ## 20. Produce values lazily with generators
 

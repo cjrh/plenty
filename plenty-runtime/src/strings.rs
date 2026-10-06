@@ -154,13 +154,27 @@ pub(crate) extern "C" fn plenty_readline() -> *mut Text {
 }
 
 pub(crate) unsafe fn at(text: *const Text, index: i64) -> *mut Text {
+    unsafe { try_get(text, index) }
+        .unwrap_or_else(|_| crate::fail("string allocation failed"))
+        .unwrap_or_else(|| crate::fail("index out of bounds"))
+}
+
+/// Borrow a live UTF-8 string. Missing indices need no allocation; a present
+/// scalar is copied into its own string so it outlives the source owner.
+pub(crate) unsafe fn try_get(
+    text: *const Text,
+    index: i64,
+) -> Result<Option<*mut Text>, AllocError> {
     unsafe {
-        let index = crate::aggregates::index(index, (*text).scalar_len as usize);
+        let Some(index) = crate::aggregates::checked_index(index, (*text).scalar_len as usize)
+        else {
+            return Ok(None);
+        };
         let character = utf8(text)
             .chars()
             .nth(index)
             .expect("validated string index");
-        new(character.encode_utf8(&mut [0; 4]).as_bytes())
+        try_new(character.encode_utf8(&mut [0; 4])).map(Some)
     }
 }
 pub(crate) unsafe fn at_byte(text: *const Text, offset: usize) -> *mut Text {

@@ -147,6 +147,92 @@ static RESULT_TEXT_LIST: Type = Type {
     ],
     ..scalar(b'B')
 };
+static OPTION_TEXT: Type = Type {
+    name: "Option[str]",
+    variants: &[
+        Variant {
+            name: "Nothing",
+            fields: &[],
+        },
+        Variant {
+            name: "Some",
+            fields: &[&TEXT],
+        },
+    ],
+    ..scalar(b'B')
+};
+static RESULT_OPTION_TEXT: Type = Type {
+    name: "Result[Option[str], AllocError]",
+    variants: &[
+        Variant {
+            name: "Ok",
+            fields: &[&OPTION_TEXT],
+        },
+        Variant {
+            name: "Err",
+            fields: &[&ALLOC_ERROR],
+        },
+    ],
+    ..scalar(b'B')
+};
+
+#[test]
+fn checked_character_results_use_inline_tags_and_outlive_the_source() {
+    unsafe {
+        let text = strings::new("é🙂\0".as_bytes());
+        for index in [i64::MIN, -4, 3, i64::MAX] {
+            assert_eq!(
+                collection(37, text as u128, index as u128, 0, ptr::null()),
+                0
+            );
+        }
+        let result = collection(37, text as u128, (-2i64) as u128, 0, ptr::null());
+        assert_eq!(result >> 64, 2);
+        let character = result as *const strings::Text;
+        plenty_release(text.cast());
+        assert_eq!(strings::utf8(character), "🙂");
+        assert_eq!((*character).byte_len, 4);
+        assert_eq!((*character).scalar_len, 1);
+        crate::aggregates::retain(result, &RESULT_OPTION_TEXT);
+        crate::aggregates::release(result, &RESULT_OPTION_TEXT);
+        assert_eq!(strings::utf8(character), "🙂");
+        crate::aggregates::release(result, &RESULT_OPTION_TEXT);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn checked_character_allocation_failure_and_missing_index_are_distinct() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let text = strings::new("é🙂\0".as_bytes());
+        for budget in 0..=1 {
+            let (missing, present) = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                (
+                    collection(37, text as u128, 3, 0, ptr::null()),
+                    collection(37, text as u128, 2, 0, ptr::null()),
+                )
+            };
+            assert_eq!(missing, 0);
+            if budget == 0 {
+                assert_eq!(present, 1u128 << 64);
+            } else {
+                assert_eq!(present >> 64, 2);
+                assert_eq!(strings::bytes(present as *const strings::Text), b"\0");
+            }
+            crate::aggregates::release(present, &RESULT_OPTION_TEXT);
+            assert_eq!(strings::utf8(text), "é🙂\0");
+        }
+        plenty_release(text.cast());
+    }
+}
 
 #[test]
 fn split_output_outlives_inputs_and_preserves_exact_utf8() {

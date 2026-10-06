@@ -92,6 +92,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
 | Recoverable text operations | `str.try_concat(other)` and `str.try_join(parts)` return `Result[str, AllocError]`; `str.try_split(separator)` returns `Result[list[str], AllocError]` |
+| Checked text lookup | `str.try_get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
 | Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
 | Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
@@ -614,7 +615,8 @@ text buffer or allocated array of pieces. Length/layout overflow returns
 `CapacityOverflow`, allocator rejection returns `OutOfMemory`, and the inputs
 remain unchanged. Error transport uses the allocation-free standard sum ABI.
 Ordinary `+` shares the concatenation implementation but retains terminal failure
-behavior. String indexing, input, and formatting remain future recovery work.
+behavior. Ordinary string indexing, input, and formatting retain terminal
+allocation failure behavior.
 
 `text.try_split(separator)` returns `Result[list[str], AllocError]`, observing
 both strings (including references) without consuming them. The explicit separator
@@ -634,6 +636,19 @@ input; successful pieces remain valid after the original strings are dropped.
 The compiler supplies immutable result metadata; no descriptor allocation or
 intermediate array of substrings is needed. Input expression construction and
 ordinary indexing retain their existing failure policies.
+
+`text.try_get(index)` returns `Result[Option[str], AllocError]`. The `i64` index
+counts Unicode scalars, with negative indices relative to the end, just like
+ordinary indexing. An out-of-range index (including either extreme `i64` value)
+returns `Ok(Nothing)` without allocating. A valid index returns
+`Ok(Some(character))`, using one checked allocation for the scalar's independent
+UTF-8 string; allocator rejection returns `Err(AllocError.OutOfMemory)`. The
+`Result` and `Option` wrappers themselves never allocate. The source is observed
+and remains unchanged, and a successful character outlives it. Receiver and index
+are evaluated once in source order; references to either input are accepted.
+Lookup takes linear time to reach the scalar within UTF-8 storage; it does not
+build a temporary character array. Ordinary `text[index]` shares this runtime
+implementation but still traps on missing indices or allocation failure.
 
 The native value is one pointer to a 32-byte prefix followed by exactly the UTF-8
 payload: the 16-byte managed header, a u64 byte length, and a u64 scalar count.
@@ -1159,8 +1174,8 @@ implemented. The new design review changes the recommended priority:
    records currently do. Recoverable OOM needs allocation-free error payloads
    as well as fallible runtime operations; wrapper layout alone does not promise it.
 3. Complete fallible allocation and allocator provenance (collection construction,
-   reservation, insertion, explicit copying, and text concatenation/joining/splitting now have
-   recoverable `try_` APIs), then expand text,
+   reservation, insertion, explicit copying, and text concatenation/joining/splitting
+   and checked character lookup now have recoverable `try_` APIs), then expand text,
    collection, input/file, and argument APIs under those rules. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration, disjoint class fields,

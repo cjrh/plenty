@@ -25,6 +25,7 @@ pub enum CollectionOp {
     TextTryConcat,
     TextTryJoin,
     TextTrySplit,
+    TextTryGet,
 }
 
 impl Ty {
@@ -80,6 +81,10 @@ impl CollectionOp {
                     Ty::List(std::rc::Rc::new(Ty::Str)),
                     crate::sum::alloc_error(),
                 ),
+            ),
+            TextTryGet => (
+                vec![Ty::Str, Ty::I64],
+                crate::sum::result(crate::sum::option(Ty::Str), crate::sum::alloc_error()),
             ),
             New(t) => (vec![], t.clone()),
             TryNew(t) => (
@@ -144,6 +149,7 @@ impl CollectionOp {
             Self::TextTryConcat => 34,
             Self::TextTryJoin => 35,
             Self::TextTrySplit => 36,
+            Self::TextTryGet => 37,
         }
     }
 }

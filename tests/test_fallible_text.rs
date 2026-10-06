@@ -195,6 +195,117 @@ fn split_rejects_empty_separator_at_runtime() {
         .contains("string split requires a nonempty separator"));
 }
 
+#[test]
+fn checked_character_lookup_uses_scalar_indices_and_handles_extreme_bounds() {
+    native(
+        r#"
+def show(text: &str, index: i64) -> Result[(), AllocError]:
+    print(text.try_get(index)?)
+    Ok(())
+text = "é🙂\0"
+for index in [-4, -3, -2, -1, 0, 1, 2, 3, -9223372036854775808, 9223372036854775807]:
+    show(&text, index)
+empty = ""
+show(&empty, 0)
+print(text == "é🙂\0")
+"#,
+        "Option[str].Nothing\nOption[str].Some(\"é\")\nOption[str].Some(\"🙂\")\nOption[str].Some(\"\\0\")\nOption[str].Some(\"é\")\nOption[str].Some(\"🙂\")\nOption[str].Some(\"\\0\")\nOption[str].Nothing\nOption[str].Nothing\nOption[str].Nothing\nOption[str].Nothing\nTrue",
+    );
+}
+
+#[test]
+fn character_lookup_borrows_fields_and_evaluates_operands_once() {
+    native(
+        r#"
+class Text:
+    value: str
+def source() -> str:
+    print("source")
+    "é🙂"
+def index() -> i64:
+    print("index")
+    -1
+class Custom:
+    def try_get(self, index: i64) -> i64:
+        index
+text = Text("abc")
+position = -2
+print(text.value.try_get(&position))
+print(text.value)
+print(source().try_get(index()))
+print(Custom().try_get(42))
+"#,
+        "Result[Option[str], AllocError].Ok(Option[str].Some(\"b\"))\nabc\nsource\nindex\nResult[Option[str], AllocError].Ok(Option[str].Some(\"🙂\"))\n42",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn missing_character_needs_no_allocation_and_present_character_needs_one() {
+    for budget in 0..=1 {
+        native(
+            &format!(r#"
+text = "é" + "🙂"
+print("__test_fail_allocations_after_{budget}__")
+print("__test_begin_no_allocations__")
+missing = text.try_get(-3)
+print("__test_end_no_allocations__")
+present = text.try_get(-1)
+print("__test_restore_allocations__")
+print(missing)
+print(present)
+print(text)
+print(text.try_get(-1))
+"#),
+            &format!("Result[Option[str], AllocError].Ok(Option[str].Nothing)\nResult[Option[str], AllocError].{}\né🙂\nResult[Option[str], AllocError].Ok(Option[str].Some(\"🙂\"))", if budget == 0 { "Err(AllocError.OutOfMemory)" } else { "Ok(Option[str].Some(\"🙂\"))" }),
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn character_allocation_failure_propagates_and_drops_locals() {
+    native(
+        r#"
+class Guard:
+    def __del__(self: &mut Guard) -> ():
+        print("dropped")
+def lookup(text: str, guard: Guard) -> Result[Option[str], AllocError]:
+    character = text.try_get(0)?
+    print("unreachable")
+    Ok(character)
+text = "é" + "🙂"
+guard = Guard()
+print("__test_fail_allocations_after_0__")
+result = lookup(text, guard)
+print("__test_begin_no_allocations__")
+match result:
+    case Ok(character):
+        print("unexpected success")
+    case Err(error):
+        print("handled")
+print("__test_restore_allocations__")
+print("__test_end_no_allocations__")
+"#,
+        "dropped\nhandled",
+    );
+}
+
+#[test]
+fn index_expression_can_propagate_before_character_allocation() {
+    native(
+        r#"
+def missing_index() -> Result[i64, AllocError]:
+    print("index")
+    Err(AllocError.CapacityOverflow)
+def lookup() -> Result[Option[str], AllocError]:
+    ("a" + "b").try_get(missing_index()?)
+print(lookup())
+"#,
+        "index\nResult[Option[str], AllocError].Err(AllocError.CapacityOverflow)",
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[rstest]
 #[case("left.try_concat(right)", "left-right")]
@@ -266,6 +377,15 @@ print("__test_end_no_allocations__")
 #[case("print(\"a\".try_split(\",\", 1))", "try_split requires one argument")]
 #[case("print(\"a\".try_split(1))", "expected str")]
 #[case("print((1).try_split(\",\"))", "expected str")]
+#[case("print(\"a\".try_get())", "try_get requires one argument")]
+#[case("print(\"a\".try_get(0, 1))", "try_get requires one argument")]
+#[case("print(\"a\".try_get(0u8))", "expected i64")]
+#[case("print(\"a\".try_get(0.0))", "expected i64")]
+#[case("print((1).try_get(0))", "expected str")]
+#[case(
+    "mut text = \"abc\"\nloan = &mut text\nresult = text.try_get(0)\nprint(loan)",
+    "borrow"
+)]
 #[case(
     "mut text = \"a:b\"\nloan = &mut text\nresult = text.try_split(\":\")\nprint(loan)",
     "borrow"

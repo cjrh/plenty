@@ -221,15 +221,16 @@ unsafe extern "C" fn record_destroy(header: *mut Header) {
 }
 
 pub(crate) fn index(index: i64, len: usize) -> usize {
+    checked_index(index, len).unwrap_or_else(|| crate::fail("index out of bounds"))
+}
+
+pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
     let i = if index < 0 {
         index as i128 + len as i128
     } else {
         index as i128
     };
-    if i < 0 || i >= len as i128 {
-        crate::fail("index out of bounds");
-    }
-    i as usize
+    (i >= 0 && i < len as i128).then_some(i as usize)
 }
 unsafe fn hash(value: u128, ty: &Type) -> u64 {
     if ty.kind == b's' {
@@ -712,6 +713,11 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            37 => match strings::try_get(a as *const Text, b as i64) {
+                Ok(Some(text)) => wrap(wrap(text as u128, 1), 0),
+                Ok(None) => wrap(wrap(0, 0), 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             36 => {
                 // The compiler supplies Result[list[str], AllocError] metadata.
                 let ty = (*descriptor).variants[0].fields[0];

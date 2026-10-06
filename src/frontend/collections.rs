@@ -538,7 +538,7 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(result);
         }
-        if matches!(name, "try_concat" | "try_join" | "try_split") {
+        if matches!(name, "try_concat" | "try_join" | "try_split" | "try_get") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if args.len() != 1 {
                 return Err(base.at.error(format!("{name} requires one argument")));
@@ -546,6 +546,7 @@ impl Lower<'_> {
             let (expected, operation) = match name {
                 "try_concat" => (Ty::Str, CollectionOp::TextTryConcat),
                 "try_split" => (Ty::Str, CollectionOp::TextTrySplit),
+                "try_get" => (Ty::I64, CollectionOp::TextTryGet),
                 _ => (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin),
             };
             let argument_loans = if matches!(ungroup(&args[0]).kind, Expression::Collection { .. })
