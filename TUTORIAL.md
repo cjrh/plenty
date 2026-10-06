@@ -643,6 +643,9 @@ permission to change the caller's value.
 Negative indices count from the end. Invalid indices stop the program with a
 runtime error.
 
+For recoverable allocation failure, `try_copy(original)` returns a `Result`
+instead. Lesson 19 shows how to use it with `?`.
+
 Collections can nest. To update an inner list while keeping the outer collection,
 use `mut child = copy(rows[0])`, update `child`, then assign it back with
 `rows[0] = child`. This last assignment transfers the child into the collection. Direct nested
@@ -1224,6 +1227,41 @@ the `add_answers` example can fail before the function runs; the `answers`
 example uses a fallible constructor to handle that stage too. Printing complex values
 and user destructors may also allocate. The new methods provide recovery for
 their own storage operations, not yet for every allocation in a program.
+
+### Copy without losing the source on failure
+
+`try_copy(value)` follows the same duplication rules as `copy`, but returns
+`Result[T, AllocError]`. It observes the source, so your original value remains
+usable whether copying succeeds or fails. Use `?` to keep the success path short:
+
+```plenty
+def extended(source: &list[i64]) -> Result[list[i64], AllocError]:
+    mut result = try_copy(source)?
+    result.try_append(30)?
+    Ok(result)
+
+def main() -> ():
+    original = [10, 20]
+    print(extended(&original))
+    print(original)
+```
+
+```output
+Result[list[i64], AllocError].Ok([10, 20, 30])
+[10, 20]
+```
+
+This also works for nested collections, ordinary classes, and enum payloads.
+If copying a later field or element fails, the partial copy is cleaned up and
+the original remains unchanged. Scalars and immutable values, including strings,
+need no allocation to copy; their existing immutable storage can be shared.
+
+`try_copy` has the same restrictions as `copy`: generators and classes with
+custom cleanup cannot be copied, including when nested in another value.
+The recoverable operation covers the duplication itself. For example,
+`try_copy([1, 2])` still constructs its list argument using the ordinary literal's
+failure policy before the copy begins. Use the fallible constructors when that
+initial allocation also needs to be handled.
 
 ## 20. Produce values lazily with generators
 

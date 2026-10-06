@@ -175,8 +175,11 @@ fn field_type(ty: &Type, tag: u64, index: usize) -> &Type {
     }
 }
 fn record_new(ty: &'static Type, tag_or_hook: u64) -> *mut Record {
+    try_record_new(ty, tag_or_hook).unwrap_or_else(|_| crate::fail("record allocation failed"))
+}
+fn try_record_new(ty: &'static Type, tag_or_hook: u64) -> Result<*mut Record, AllocError> {
     let count = record_count(ty, tag_or_hook);
-    let r = memory::allocate::<Record, u128>(count);
+    let r = memory::try_allocate::<Record, u128>(count)?;
     unsafe {
         r.write(Record {
             header: Header::new(record_destroy),
@@ -185,7 +188,7 @@ fn record_new(ty: &'static Type, tag_or_hook: u64) -> *mut Record {
             fields: [],
         });
     }
-    r
+    Ok(r)
 }
 unsafe extern "C" fn record_destroy(header: *mut Header) {
     // No Rust reference to the record survives a user callback. The callback
@@ -451,48 +454,99 @@ unsafe fn equal_inner(
     }
 }
 unsafe fn copy(value: u128, ty: &Type) -> u128 {
+    unsafe { try_copy(value, ty) }.unwrap_or_else(|_| crate::fail("copy allocation failed"))
+}
+
+/// A fully initialized temporary owner, including a partially filled collection.
+/// It never describes a record whose fields are still being initialized.
+struct OwnedValue<'a> {
+    value: u128,
+    ty: &'a Type,
+}
+impl OwnedValue<'_> {
+    fn into_value(self) -> u128 {
+        let value = self.value;
+        std::mem::forget(self);
+        value
+    }
+}
+impl Drop for OwnedValue<'_> {
+    fn drop(&mut self) {
+        // SAFETY: this guard owns one live value with its matching type.
+        unsafe {
+            release(self.value, self.ty);
+        }
+    }
+}
+
+unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
     unsafe {
         if !ty.affine {
             retain(value, ty);
-            return value;
+            return Ok(value);
         }
         match ty.kind {
-            b'B' => ty.payload(value).map_or(value, |t| {
-                wrap(copy(payload(value), t), ((value >> 64) & 1) as u64)
-            }),
+            b'B' => match ty.payload(value) {
+                Some(t) => Ok(wrap(
+                    try_copy(payload(value), t)?,
+                    ((value >> 64) & 1) as u64,
+                )),
+                None => Ok(value),
+            },
             b'C' | b'E' => {
                 let source = value as *const Record;
                 if ty.kind == b'C' && (*source).tag_or_hook != 0 {
                     crate::fail("cannot copy a class with custom cleanup");
                 }
-                let result = record_new(&*(*source).ty, (*source).tag_or_hook);
-                for i in 0..record_count(ty, (*source).tag_or_hook) {
-                    *std::ptr::addr_of_mut!((*result).fields)
-                        .cast::<u128>()
-                        .add(i) = copy(
+                let tag = (*source).tag_or_hook;
+                let count = record_count(ty, tag);
+                let result = try_record_new(&*(*source).ty, tag)?;
+                let fields = std::ptr::addr_of_mut!((*result).fields).cast::<u128>();
+                for i in 0..count {
+                    match try_copy(
                         *std::ptr::addr_of!((*source).fields).cast::<u128>().add(i),
-                        field_type(ty, (*source).tag_or_hook, i),
-                    );
+                        field_type(ty, tag, i),
+                    ) {
+                        Ok(field) => *fields.add(i) = field,
+                        Err(error) => {
+                            // Only the initialized prefix owns values. Never
+                            // run a whole-record destructor on a partial copy.
+                            for j in (0..i).rev() {
+                                release(*fields.add(j), field_type(ty, tag, j));
+                            }
+                            memory::free::<Record, u128>(result, count);
+                            return Err(error);
+                        }
+                    }
                 }
-                result as u128
+                Ok(result as u128)
             }
             b'L' | b'S' | b'D' => {
                 let source = &*(value as *const Collection);
-                let result = collection_new(&*source.ty);
+                let result = try_collection_new(&*source.ty, source.entries.len())?;
+                let owner = OwnedValue {
+                    value: result as u128,
+                    ty,
+                };
                 for entry in &source.entries {
-                    let key = copy(entry.key, ty.key());
-                    let value = ty.value.map_or(0, |t| copy(entry.value, t));
-                    (*result).insert(key, value);
-                    release(key, ty.key());
-                    if let Some(t) = &ty.value {
-                        release(value, t);
-                    }
+                    let key = OwnedValue {
+                        value: try_copy(entry.key, ty.key())?,
+                        ty: ty.key(),
+                    };
+                    let value = match ty.value {
+                        Some(t) => Some(OwnedValue {
+                            value: try_copy(entry.value, t)?,
+                            ty: t,
+                        }),
+                        None => None,
+                    };
+                    (*result).try_insert(key.value, value.as_ref().map_or(0, |v| v.value))?;
                 }
-                result as u128
+                Ok(owner.into_value())
             }
             _ => {
                 retain(value, ty);
-                value
+                Ok(value)
             }
         }
     }
@@ -602,15 +656,20 @@ pub(crate) unsafe fn collection(
     // SAFETY: the independent compiler checker supplies each opcode's declared
     // types and arity. No general Rust reference is returned to generated code.
     unsafe {
-        if op == 14 {
-            return copy(
-                a,
-                if descriptor.is_null() {
-                    value_type(a)
-                } else {
-                    &*descriptor
-                },
-            );
+        if op == 14 || op == 33 {
+            let ty = if descriptor.is_null() {
+                value_type(a)
+            } else {
+                &*descriptor
+            };
+            return if op == 14 {
+                copy(a, ty)
+            } else {
+                match try_copy(a, ty) {
+                    Ok(value) => wrap(value, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            };
         }
         if !descriptor.is_null() && (*descriptor).kind == b's' {
             let text = a as *const Text;

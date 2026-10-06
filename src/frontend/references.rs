@@ -201,6 +201,14 @@ impl Lower<'_> {
         if !ty.can_copy() {
             return Err(at.error("this resource cannot be copied"));
         }
+        if name == "try_copy" {
+            if ty.layout_depth() >= 64 {
+                return Err(at.error("type nesting exceeds the implementation limit of 64"));
+            }
+            ops.push(Op::Collection(CollectionOp::TryCopy(ty.clone())));
+            Self::end_reads(loans, ops);
+            return Ok(Some(crate::sum::result(ty, crate::sum::alloc_error())));
+        }
         if ty.affine() {
             ops.push(Op::Collection(CollectionOp::Copy(ty.clone())));
         }

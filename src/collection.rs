@@ -4,6 +4,7 @@ use crate::op::Ty;
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
     Copy(Ty),
+    TryCopy(Ty),
     Next(Ty),
     New(Ty),
     TryNew(Ty),     // initial capacity -> Result[collection, AllocError]
@@ -52,6 +53,10 @@ impl CollectionOp {
         use CollectionOp::*;
         match self {
             Copy(t) => (vec![t.clone()], t.clone()),
+            TryCopy(t) => (
+                vec![t.clone()],
+                crate::sum::result(t.clone(), crate::sum::alloc_error()),
+            ),
             Next(t) => (
                 vec![t.clone()],
                 crate::sum::option(t.element().expect("generator element")),
@@ -100,6 +105,7 @@ impl CollectionOp {
     pub fn opcode(&self) -> i64 {
         match self {
             Self::Copy(_) => 14,
+            Self::TryCopy(_) => 33,
             Self::Next(_) => 24,
             Self::New(_) => 0,
             Self::TryNew(_) => 32,

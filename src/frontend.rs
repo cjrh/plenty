@@ -1048,6 +1048,7 @@ fn builtin(name: &str) -> bool {
                 | "Generator"
                 | "next"
                 | "copy"
+                | "try_copy"
                 | "drop"
         )
 }
@@ -1474,7 +1475,7 @@ impl Lower<'_> {
                 if enums::prelude_variant(name) {
                     return self.prelude_constructor(name, Some(args), None, &e.at, ops);
                 }
-                if name == "copy" || name == "drop" {
+                if matches!(name.as_str(), "copy" | "try_copy" | "drop") {
                     return self.copy_or_drop(name, args, &e.at, ops);
                 }
                 if name == "next" {

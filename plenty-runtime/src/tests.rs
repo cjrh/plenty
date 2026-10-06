@@ -117,6 +117,55 @@ static RESULT_OPTION: Type = Type {
 };
 static LIST_RESULT: Type = list(&RESULT_OPTION);
 
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn partial_record_and_nested_collection_copies_release_only_owned_values() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for records in [false, true] {
+        let ty = if records { &PAIR } else { &LIST_LIST };
+        let allocations = if records { 3 } else { 6 };
+        unsafe {
+            let source = collection(if records { 30 } else { 0 }, 0, 0, 0, ty);
+            for i in 0..2 {
+                let child = if records {
+                    let child = collection(30, 0, 0, 0, &POINT);
+                    collection(21, child, 0, i + 1, ptr::null());
+                    collection(21, source, i, child, ptr::null());
+                    child
+                } else {
+                    let child = collection(0, 0, 0, 0, &LIST_INT);
+                    plenty_release(collection(1, child, i + 1, 0, ptr::null()) as *mut Header);
+                    plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
+                    child
+                };
+                plenty_release(child as *mut Header);
+            }
+            for budget in 0..=allocations {
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(33, source, 0, 0, ty)
+                };
+                if budget < allocations {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let copied = crate::aggregates::payload(result);
+                    assert_ne!(copied, source);
+                    assert_eq!(collection(8, source, copied, 0, ty), 1);
+                    plenty_release(copied as *mut Header);
+                }
+            }
+            plenty_release(source as *mut Header);
+        }
+    }
+}
+
 #[test]
 fn fallible_collection_headers_and_buffers_use_matching_layouts() {
     static SET: Type = Type {

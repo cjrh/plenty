@@ -64,6 +64,13 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   Successful construction moves the buffers into initialized raw header storage.
   The ordinary constructor shares this path. Collection destruction drops the
   buffers before freeing the header with the same checked allocation layout.
+- Opcode 33 returns `Result[T, AllocError]` from a borrowed source value and
+  its type descriptor. Deep copies reserve collection storage before copying
+  entries; temporary owner guards reclaim pending values and partial collections.
+  Records release only their initialized field prefix on failure and free the
+  partial record without invoking its destructor. Immutable payloads are retained
+  without allocation. Ordinary copying uses the same implementation with terminal
+  error handling. Custom-cleanup values remain statically uncopyable.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
@@ -84,7 +91,8 @@ checks that the instrumentation detects a temporary string allocation.
 Failure-injection markers reject all allocations after N successful calls, until
 explicitly restored. They cover alloc, alloc_zeroed, and realloc using a constant
 thread-local budget, without allocating inside the allocator. Integration tests
-exercise every collection construction/growth/reservation allocation and clean up/retry after
+exercise every collection construction/growth/reservation allocation and nested
+copy allocation, including partial-record and pending-key cleanup, and retry after
 each failure. Raw ABI tests also run under `--features allocation-checks`.
 This instrumentation and its checkpoint markers are absent from normal builds.
 

@@ -90,6 +90,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
 | `with` context managers | Proposed; automatic destruction works today |
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
+| Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
 | Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
 | Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
@@ -783,6 +784,25 @@ input can reserve before moving it. The native helper borrows inputs and retains
 only successfully stored values; the compiler releases its input owners on both
 paths. The returned error needs neither formatting nor a heap-backed enum record.
 
+`try_copy(value)` returns `Result[T, AllocError]`, where `T` is the observed
+operand type. It uses the same borrowing and copyability rules as `copy`: an owned
+binding is observed rather than consumed, reference operands copy the referred-to
+value, mutable contents are recursively duplicated, and immutable storage such as
+strings can be shared. Scalars and wholly immutable values require no allocation.
+Classes with custom cleanup, aggregates containing them, and generators remain
+uncopyable. The argument expression runs once; its own construction can still fail
+under the failure policy of that expression.
+
+A failed deep copy leaves the source unchanged and releases all newly owned
+values. Collection copies reserve the final entry count before copying payloads;
+temporary ownership guards cover pending keys, pending values, and partial
+collections. Record copies track their initialized field prefix and release only
+that prefix on error, then free the header directly. They never run a whole-record
+destructor on a partial object. Active inline sum payloads follow the same rules;
+inactive owned variants require no allocation. Ordinary `copy` shares this runtime
+implementation but retains its existing terminal failure policy. Propagating a
+failed `try_copy` uses the ordinary `?` cleanup rules without allocating an error.
+
 This is an incremental API: existing `append`, `add`, indexed assignment,
 literals, comprehensions, ordinary constructors, `copy`, strings, generators, comparisons
 that need memoization, and formatting retain their existing terminal failure
@@ -799,7 +819,7 @@ function pointer would lose allocator provenance.
 
 The instrumented runtime can reject every allocation after a chosen number of
 successful allocator calls, including reallocations. Native tests cover every
-allocation site in construction/growth/reservation, retry, preserved contents, moved-input
+allocation site in construction/growth/reservation and nested copying, retry, preserved contents, moved-input
 cleanup, and allocation-free handling while allocation remains disabled.
 
 ## Classes: fixed-layout records
@@ -871,7 +891,8 @@ destructor flags on nominal metadata.
 ## Ownership and reclamation
 
 Classes, mutable collections, and aggregates containing them move on assignment and owned
-argument passing; independent duplication requires `copy(value)`. Immutable `str`
+argument passing; independent duplication requires `copy(value)` or a successful
+`try_copy(value)`. Immutable `str`
 and enums containing only immutable values may share storage. Copyability is
 cached on concrete enum and class metadata so shared type graphs are not traversed repeatedly.
 
@@ -1099,7 +1120,7 @@ implemented. The new design review changes the recommended priority:
    records currently do. Recoverable OOM needs allocation-free error payloads
    as well as fallible runtime operations; wrapper layout alone does not promise it.
 3. Complete fallible allocation and allocator provenance (collection construction,
-   reservation, and insertion now have recoverable `try_` APIs), then expand text,
+   reservation, insertion, and explicit copying now have recoverable `try_` APIs), then expand text,
    collection, input/file, and argument APIs under those rules. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration, disjoint class fields,
