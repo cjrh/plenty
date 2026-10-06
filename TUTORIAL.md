@@ -723,10 +723,46 @@ does not allocate, so it needs no `try_` prefix or allocation-error result. Stri
 and immutable enum results retain their existing storage and remain valid even
 if the dictionary is subsequently updated or dropped.
 
-This first version supports values such as numbers, booleans, strings, and
-immutable enums. It rejects mutable collections, classes, and enums containing
-them: returning those values needs element borrowing or removal, which are not
-implemented yet. No mutable value is silently copied by `get`.
+`get` supports values such as numbers, booleans, strings, and immutable enums.
+It rejects mutable collections, classes, and enums containing them. Use `pop`
+to remove those values and take ownership; borrowing individual elements remains
+future work. No mutable value is silently copied by `get`.
+
+### Remove an entry and take its value
+
+`pop(key)` removes a dictionary entry and returns `Some(value)`, or `Nothing`
+when the key is absent. It requires a mutable dictionary and transfers ownership
+of the stored value, so it works with lists and classes too:
+
+```plenty
+def main() -> ():
+    mut groups = {"ready": [1, 2], "waiting": [3]}
+    match groups.pop("ready"):
+        case Some(items):
+            mut work = items
+            work.append(4)
+            print(work)
+        case Nothing:
+            print("no work")
+    print(groups)
+    print(groups.pop("missing"))
+```
+
+```output
+[1, 2, 4]
+{"waiting": [3]}
+Option[list[i64]].Nothing
+```
+
+There is no hidden copy. The returned value remains valid if the dictionary is
+dropped, and its new owner cleans it up normally. Discarding the result of `pop`
+also cleans up the removed value, including any custom `__del__` method.
+
+The operation preserves the order of remaining entries and reuses existing
+storage without allocating. Reinserting a removed key puts it at the end.
+Removal currently shifts entries and rebuilds the hash index, so its cost grows
+with the dictionary's size and reserved capacity. It accepts exactly one key;
+there is no default argument. List and set removal are not implemented yet.
 
 Collection equality compares contents; dictionary and set order do not matter.
 

@@ -214,6 +214,59 @@ fn optional_dictionary_lookup_retains_values_across_update_and_destruction() {
     }
 }
 
+#[test]
+fn dictionary_removal_transfers_owned_payload_and_repairs_hash_storage() {
+    static OPTION_INT_LIST: Type = Type {
+        affine: true,
+        name: "Option[list[i64]]",
+        variants: &[
+            Variant {
+                name: "Nothing",
+                fields: &[],
+            },
+            Variant {
+                name: "Some",
+                fields: &[&LIST_INT],
+            },
+        ],
+        ..scalar(b'B')
+    };
+    unsafe {
+        let dictionary = collection(0, 0, 0, 0, &DICT);
+        for key in 0..32 {
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, child, key, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, dictionary, key, child, ptr::null()) as *mut Header);
+            plenty_release(child as *mut Header);
+        }
+        for key in (0..32).step_by(2) {
+            let before = collection(4, dictionary, key, 0, ptr::null());
+            let removed = collection(39, dictionary, key, 0, ptr::null());
+            assert_eq!(removed >> 64, 1);
+            assert_eq!(crate::aggregates::payload(removed), before);
+            plenty_release(before as *mut Header);
+            assert_eq!(collection(39, dictionary, key, 0, ptr::null()), 0);
+            assert_eq!(
+                collection(4, crate::aggregates::payload(removed), 0, 0, ptr::null()),
+                key
+            );
+            crate::aggregates::release(removed, &OPTION_INT_LIST);
+        }
+        for key in (1..32).step_by(2) {
+            let child = collection(4, dictionary, key, 0, ptr::null());
+            assert_eq!(collection(4, child, 0, 0, ptr::null()), key);
+            plenty_release(child as *mut Header);
+        }
+        let last = collection(39, dictionary, 31, 0, ptr::null());
+        plenty_release(dictionary as *mut Header);
+        assert_eq!(
+            collection(4, crate::aggregates::payload(last), 0, 0, ptr::null()),
+            31
+        );
+        crate::aggregates::release(last, &OPTION_INT_LIST);
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn dictionary_lookup_succeeds_when_allocation_is_disabled() {

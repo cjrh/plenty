@@ -515,6 +515,9 @@ impl Lower<'_> {
             ops.push(Op::UseLoan(loan));
             return Ok(None);
         }
+        if name == "pop" && matches!(self.place_type(base), Some(Ty::Dict(..))) {
+            return self.dictionary_pop(base, args, ops);
+        }
         let (ty, loans) = self.observe(base, ops)?;
         if let Ty::Class(class) = &ty {
             let slot = self.slot(ty.clone(), &base.at)?;
@@ -537,6 +540,11 @@ impl Lower<'_> {
             self.expression_temps.push(slot);
             Self::end_reads(loans, ops);
             return Ok(result);
+        }
+        if name == "pop" {
+            return Err(base
+                .at
+                .error("pop requires a mutable dictionary binding or class field"));
         }
         if matches!(name, "try_concat" | "try_join" | "try_split" | "try_get") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
@@ -574,7 +582,7 @@ impl Lower<'_> {
             }
             if v.affine() {
                 return Err(base.at.error(
-                    "get cannot return owned dictionary values; element borrowing is not supported yet",
+                    "get cannot return owned dictionary values; use pop(key) to remove and take ownership, or wait for element borrowing support",
                 ));
             }
             let (key, key_loans) = self.observe(&args[0], ops)?;
@@ -609,6 +617,29 @@ impl Lower<'_> {
                 "unsupported dictionary method `{name}`; iterate keys and index values"
             )))
         }
+    }
+
+    fn dictionary_pop(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
+        let ty = self.place_type(base).expect("dictionary place");
+        let Ty::Dict(key, value) = &ty else {
+            unreachable!()
+        };
+        if args.len() != 1 {
+            return Err(base.at.error("pop requires one key argument"));
+        }
+        // Observe the key before borrowing the receiver exclusively. Its retained
+        // value remains valid even if it came from this dictionary's storage.
+        let (actual, loans) = self.observe(&args[0], ops)?;
+        self.same(Some(actual), Some((**key).clone()), &args[0].at)?;
+        let slot = self.slot((**key).clone(), &args[0].at)?;
+        ops.push(Op::StoreLocal(slot));
+        Self::end_reads(loans, ops);
+        let result = crate::sum::option((**value).clone());
+        let loan = self.mutation_place(base, ops)?;
+        ops.push(Op::MoveLocal(slot, "dictionary removal key".into()));
+        ops.push(Op::Collection(CollectionOp::DictPop(ty)));
+        ops.push(Op::UseLoan(loan));
+        Ok(Some(result))
     }
 
     fn fallible_constructor(

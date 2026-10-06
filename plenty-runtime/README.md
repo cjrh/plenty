@@ -95,6 +95,13 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   key; a hit retains its value before wrapping it in `Some`, and a miss returns
   `Nothing`. Neither path allocates. A retained result survives entry replacement
   or dictionary destruction, including nested inline sums and immutable enums.
+- Opcode 39 removes a dictionary entry through an exclusive receiver and returns
+  inline `Option[V]`, transferring the payload owner without retain/release.
+  The stored key is released after repairing the hash index. Remaining entries
+  keep their order; both buffers retain capacity. Bucket rebuilding uses existing
+  storage and no allocation, scanning the table and rehashing remaining keys. A miss
+  leaves storage unchanged. Dropping the result owns payload cleanup, including
+  user destructors; the runtime never runs a payload destructor during removal.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

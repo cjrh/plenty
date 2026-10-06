@@ -15,6 +15,7 @@ pub enum CollectionOp {
     Put(Ty),        // exclusive in-place indexed update
     Get(Ty),
     DictGet(Ty), // observed dictionary/key -> Option[non-affine value]
+    DictPop(Ty), // exclusive dictionary/key -> Option[owned value]
     Len(Ty),
     IterGet(Ty),
     IterTake(Ty),
@@ -116,7 +117,7 @@ impl CollectionOp {
                 Ty::Dict(k, v) => (vec![t.clone(), (**k).clone()], (**v).clone()),
                 _ => (vec![t.clone(), Ty::I64], t.element().unwrap()),
             },
-            DictGet(t) => {
+            DictGet(t) | DictPop(t) => {
                 let Ty::Dict(k, v) = t else { unreachable!() };
                 (
                     vec![t.clone(), (**k).clone()],
@@ -147,6 +148,7 @@ impl CollectionOp {
             Self::Put(_) => 3,
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,
+            Self::DictPop(_) => 39,
             Self::Len(_) => 5,
             Self::IterGet(_) => 6,
             Self::IterTake(_) => 15,

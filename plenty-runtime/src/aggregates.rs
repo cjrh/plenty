@@ -364,6 +364,25 @@ impl Collection {
             Ok(())
         }
     }
+    /// Preserve insertion order and rebuild bucket indices in existing storage.
+    /// The removed payload's owner is transferred, never retained or released.
+    unsafe fn pop(&mut self, key: u128) -> Option<u128> {
+        unsafe {
+            let index = self.find(key)?;
+            let entry = self.entries.remove(index);
+            self.table.fill(0);
+            for (i, entry) in self.entries.iter().enumerate() {
+                let mut bucket = hash(entry.key, self.ty().key()) as usize & (self.table.len() - 1);
+                while self.table[bucket] != 0 {
+                    bucket = (bucket + 1) & (self.table.len() - 1);
+                }
+                self.table[bucket] = i + 1;
+            }
+            release(entry.key, self.ty().key());
+            Some(entry.value)
+        }
+    }
+
     unsafe fn at(&self, index: usize) -> u128 {
         if self.ty().kind == b'R' {
             (self.start as i128 + index as i128 * self.step as i128) as u128
@@ -795,6 +814,10 @@ pub(crate) unsafe fn collection(
                 plenty_retain(a as *mut Header);
                 a
             }
+            39 => match (*(a as *mut Collection)).pop(b) {
+                Some(value) => wrap(value, 1),
+                None => wrap(0, 0),
+            },
             38 => {
                 let c = &*(a as *const Collection);
                 match c.find(b) {
