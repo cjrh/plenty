@@ -47,7 +47,10 @@ match set[u8]().try_union(set[u8]()):
 #[case(3)]
 fn algebra_recovers_from_each_storage_failure(
     #[case] budget: usize,
-    #[values(("try_union", 3), ("try_intersection", 1))] operation: (&str, i64),
+    #[values(("try_union", 3), ("try_intersection", 1), ("try_difference", 1))] operation: (
+        &str,
+        i64,
+    ),
 ) {
     let (method, length) = operation;
     let source = format!(
@@ -85,6 +88,7 @@ fn invalid_union(#[case] source: &str, #[case] expected: &str) {
 #[rstest]
 #[case("try_union", 150, 100)]
 #[case("try_intersection", 50, 100)]
+#[case("try_difference", 50, 0)]
 fn algebra_membership_and_self_aliases(
     #[case] method: &str,
     #[case] length: i64,
@@ -112,7 +116,14 @@ print(len(a))
 print(len(b))
 "#
         ),
-        &format!("{length}\nTrue\n{self_length}\n100\n100"),
+        &format!(
+            "{length}\n{}\n{self_length}\n100\n100",
+            if method == "try_difference" {
+                "False"
+            } else {
+                "True"
+            }
+        ),
     );
 }
 

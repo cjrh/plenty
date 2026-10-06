@@ -694,7 +694,12 @@ impl Lower<'_> {
         }
         if matches!(
             name,
-            "issubset" | "issuperset" | "isdisjoint" | "try_union" | "try_intersection"
+            "issubset"
+                | "issuperset"
+                | "isdisjoint"
+                | "try_union"
+                | "try_intersection"
+                | "try_difference"
         ) {
             if !matches!(ty, Ty::Set(_)) {
                 return Err(base.at.error(format!("{name} requires a set receiver")));
@@ -717,6 +722,7 @@ impl Lower<'_> {
                 "issuperset" => CollectionOp::SetIsSuperset(ty),
                 "try_union" => CollectionOp::SetTryUnion(ty),
                 "try_intersection" => CollectionOp::SetTryIntersection(ty),
+                "try_difference" => CollectionOp::SetTryDifference(ty),
                 _ => CollectionOp::SetIsDisjoint(ty),
             };
             let (_, result) = operation.signature();

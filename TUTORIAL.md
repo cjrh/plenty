@@ -1707,6 +1707,29 @@ def main() -> ():
 True
 ```
 
+Use `try_difference` to remove another set's members from a new result:
+
+```plenty
+def main() -> ():
+    wanted = {1, 2, 3}
+    completed = {2, 3, 4}
+    match wanted.try_difference(completed):
+        case Ok(remaining):
+            print(len(remaining))
+            print(1 in remaining)
+        case Err(error):
+            print(error)
+    print(len(wanted))
+```
+
+```output
+1
+True
+3
+```
+
+The receiver determines which members can appear in the result. Both inputs remain usable.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

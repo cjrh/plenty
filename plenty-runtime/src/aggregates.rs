@@ -864,12 +864,13 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
-            65 | 66 => {
+            65..=67 => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
-                let left_entries = left
-                    .entries
-                    .iter()
-                    .filter(|entry| op == 65 || right.find(entry.key).is_some());
+                let left_entries = left.entries.iter().filter(|entry| match op {
+                    65 => true,
+                    66 => right.find(entry.key).is_some(),
+                    _ => right.find(entry.key).is_none(),
+                });
                 let right_entries = right
                     .entries
                     .iter()
