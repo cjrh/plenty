@@ -78,7 +78,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
-| Allocation-free text queries | `startswith` and `endswith` compare literal prefixes/suffixes |
+| Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -730,6 +730,15 @@ once in source order, and compares literal UTF-8 without case folding or
 normalization. Empty prefixes/suffixes match every string, including empty input.
 Optional bounds and tuples of alternatives are not supported. Input expression
 construction retains its own allocation policy.
+
+`text.find(needle)` and `text.rfind(needle)` return `Option[i64]` for the first
+or last literal match. Positions count Unicode scalars, never UTF-8 bytes;
+absence is `Nothing`, including when needle exceeds the source. An empty needle
+matches at zero for `find` and at `len(text)` for `rfind`. The last match can
+overlap an earlier match. Operands are observed once in source order, references
+are accepted, and neither searching nor constructing the inline result allocates.
+Converting the byte position to a scalar position scans the preceding prefix.
+Optional bounds, regexes, case folding, and normalization are deferred.
 
 `text.try_slice(start, stop)` returns `Result[str, AllocError]`. It uses the list
 slice's two required `i64` bounds, negative indexing, exclusive stop, and clamping,

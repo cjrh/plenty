@@ -104,3 +104,88 @@ fn invalid_prefix_queries(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[rstest]
+#[case("banana", "ana", "Some(1)", "Some(3)")]
+#[case("é🙂é🙂", "🙂", "Some(1)", "Some(3)")]
+#[case("a\0b\0", "\0", "Some(1)", "Some(3)")]
+#[case("abc", "x", "Nothing", "Nothing")]
+#[case("", "", "Some(0)", "Some(0)")]
+#[case("é🙂", "", "Some(0)", "Some(2)")]
+#[case("abc", "abc", "Some(0)", "Some(0)")]
+#[case("abc", "abcd", "Nothing", "Nothing")]
+fn searches_return_optional_scalar_positions(
+    #[case] text: &str,
+    #[case] needle: &str,
+    #[case] first: &str,
+    #[case] last: &str,
+) {
+    native(
+        &format!("print({text:?}.find({needle:?}))\nprint({text:?}.rfind({needle:?}))"),
+        &format!("Option[i64].{first}\nOption[i64].{last}"),
+    );
+}
+
+#[test]
+fn search_references_propagation_and_inherent_methods() {
+    native(r#"
+def last(text: &str, needle: &str) -> Option[i64]:
+    index = text.rfind(needle)?
+    Some(index + 1)
+class Custom:
+    def find(self) -> i64:
+        42
+def source() -> str:
+    print("receiver")
+    return "aba"
+def needle() -> str:
+    print("argument")
+    return "a"
+text = "é" + "🙂"
+part = "🙂"
+print(last(&text, &part))
+print(last(&text, &text))
+print(text.find("missing"))
+print(source().find(needle()))
+print(Custom().find())
+"#, "Option[i64].Some(2)\nOption[i64].Some(1)\nOption[i64].Nothing\nreceiver\nargument\nOption[i64].Some(0)\n42");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn search_results_and_empty_patterns_need_no_allocation() {
+    native(
+        r#"
+text = "é🙂" + "é🙂"
+needle = "" + "🙂"
+print("__test_fail_allocations_after_0__")
+print("__test_begin_no_allocations__")
+a = text.find(needle)
+b = text.rfind(needle)
+c = text.rfind("")
+d = text.find("missing")
+drop(text)
+drop(needle)
+print("__test_restore_allocations__")
+print("__test_end_no_allocations__")
+print(a)
+print(b)
+print(c)
+print(d)
+"#,
+        "Option[i64].Some(1)\nOption[i64].Some(3)\nOption[i64].Some(4)\nOption[i64].Nothing",
+    );
+}
+
+#[rstest]
+#[case("print(\"a\".find())", "find requires one argument")]
+#[case("print(\"a\".rfind(\"a\", 0))", "rfind requires one argument")]
+#[case("print(\"a\".find(1))", "expected str")]
+#[case(
+    "mut text = \"a\"\nloan = &mut text\nprint(text.rfind(\"a\"))\n*loan = \"b\"",
+    "borrow"
+)]
+fn invalid_search_queries(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}

@@ -805,6 +805,19 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            50 | 51 => {
+                let source = strings::utf8(a as *const Text);
+                let needle = strings::utf8(b as *const Text);
+                let found = if op == 50 {
+                    source.find(needle)
+                } else {
+                    source.rfind(needle)
+                };
+                match found {
+                    Some(index) => wrap(source[..index].chars().count() as u128, 1),
+                    None => wrap(0, 0),
+                }
+            }
             48 => {
                 strings::utf8(a as *const Text).starts_with(strings::utf8(b as *const Text)) as u128
             }

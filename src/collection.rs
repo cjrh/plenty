@@ -38,6 +38,8 @@ pub enum CollectionOp {
     TextTryReplace,
     TextStartsWith,
     TextEndsWith,
+    TextFind,
+    TextRFind,
 }
 
 impl Ty {
@@ -79,6 +81,7 @@ impl CollectionOp {
             ),
             TextByteLen => (vec![Ty::Str], Ty::I64),
             TextStartsWith | TextEndsWith => (vec![Ty::Str, Ty::Str], Ty::Bool),
+            TextFind | TextRFind => (vec![Ty::Str, Ty::Str], crate::sum::option(Ty::I64)),
             TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
             TextTryConcat => (
                 vec![Ty::Str, Ty::Str],
@@ -210,6 +213,8 @@ impl CollectionOp {
             Self::TextTryReplace => 47,
             Self::TextStartsWith => 48,
             Self::TextEndsWith => 49,
+            Self::TextFind => 50,
+            Self::TextRFind => 51,
         }
     }
 }

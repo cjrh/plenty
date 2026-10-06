@@ -141,6 +141,9 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   intermediate text allocation is used, including no-match and empty results.
 - Opcodes 48/49 compare literal string prefixes/suffixes without allocating or
   modifying any owner. Empty patterns match, including empty input.
+- Opcodes 50/51 find the first/last literal substring and return inline
+  `Option[i64]`. Convert the UTF-8 byte match offset to a scalar count without
+  allocating; empty needles match at the corresponding end of the source.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

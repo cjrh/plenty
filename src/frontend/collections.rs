@@ -595,6 +595,8 @@ impl Lower<'_> {
                 | "try_replace"
                 | "startswith"
                 | "endswith"
+                | "find"
+                | "rfind"
         ) {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             let arity = if name == "try_replace" { 2 } else { 1 };
@@ -612,6 +614,8 @@ impl Lower<'_> {
                 "try_replace" => (Ty::Str, CollectionOp::TextTryReplace),
                 "startswith" => (Ty::Str, CollectionOp::TextStartsWith),
                 "endswith" => (Ty::Str, CollectionOp::TextEndsWith),
+                "find" => (Ty::Str, CollectionOp::TextFind),
+                "rfind" => (Ty::Str, CollectionOp::TextRFind),
                 _ => (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin),
             };
             let mut argument_loans = vec![];

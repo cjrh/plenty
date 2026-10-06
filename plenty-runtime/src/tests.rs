@@ -352,6 +352,20 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
     }
 }
 
+#[test]
+fn text_search_returns_scalar_positions_without_borrowed_result_storage() {
+    unsafe {
+        let text = strings::new("é🙂\0é🙂".as_bytes());
+        let needle = strings::new("🙂".as_bytes());
+        let first = collection(50, text as u128, needle as u128, 0, ptr::null());
+        let last = collection(51, text as u128, needle as u128, 0, ptr::null());
+        plenty_release(text.cast());
+        plenty_release(needle.cast());
+        assert_eq!(first, (1u128 << 64) | 1);
+        assert_eq!(last, (1u128 << 64) | 4);
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn string_replacement_is_fallible_and_outputs_survive_all_inputs() {
