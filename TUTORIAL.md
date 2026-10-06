@@ -1637,6 +1637,31 @@ and unchanged results still need that allocation. Interior whitespace is kept;
 NUL and zero-width space are not trimmed. These methods use Unicode White_Space
 and take no arguments; custom character sets are not supported yet.
 
+### Repeat text
+
+`text.try_repeat(count)` accepts an `i64` and returns `Result[str, AllocError]`.
+Zero and negative counts produce an empty string:
+
+```plenty
+def main() -> ():
+    print("é🙂".try_repeat(3))
+    print("x".try_repeat(0))
+    print("x".try_repeat(-2))
+    print("x".try_repeat(9223372036854775807))
+```
+
+```output
+Result[str, AllocError].Ok("é🙂é🙂é🙂")
+Result[str, AllocError].Ok("")
+Result[str, AllocError].Ok("")
+Result[str, AllocError].Err(AllocError.CapacityOverflow)
+```
+
+The source stays usable. The runtime checks the complete size before allocating
+one independent output string; even empty and single-copy outputs can fail to
+allocate. Empty input with a large count is handled directly. String multiplication
+syntax is not supported yet.
+
 ### Slice text by Unicode scalar position
 
 Strings also have `try_slice(start, stop) -> Result[str, AllocError]`, using the

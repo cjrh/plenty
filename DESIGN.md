@@ -80,6 +80,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
+| Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -757,6 +758,16 @@ supported. The receiver is observed once, including references. Boundary scannin
 does not allocate; creating the independent result requires one allocation even
 for empty or unchanged output. Failures preserve the source, and the output
 outlives it. No case folding or normalization occurs.
+
+`text.try_repeat(count) -> Result[str, AllocError]` observes one `i64` count and
+the receiver. Positive counts repeat the exact UTF-8 contents; zero and negative
+counts produce an empty string, like Python repetition. Empty input produces
+empty output for any count without iterating count times. Checked byte/scalar
+multiplication and layout validation precede one final allocation, including
+empty or single-copy results. Overflow returns `CapacityOverflow`, exhaustion
+returns `OutOfMemory`, and the source remains unchanged. The runtime fills the
+output by copying and doubling its initialized prefix without intermediate text.
+The result owns independent storage. String multiplication syntax is deferred.
 
 `text.try_slice(start, stop)` returns `Result[str, AllocError]`. It uses the list
 slice's two required `i64` bounds, negative indexing, exclusive stop, and clamping,

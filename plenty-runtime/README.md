@@ -149,6 +149,10 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
 - Opcodes 53–55 trim Unicode White_Space at both/left/right ends respectively.
   Borrow the input, locate the remaining byte interval, and allocate one final
   independent string; failures preserve the source.
+- Opcode 56 repeats text using checked byte/scalar multiplication and one output
+  allocation. Nonpositive counts produce empty strings. Copy the input once and
+  double the initialized output prefix with disjoint copies; empty inputs never
+  loop over the count. Layout overflow is detected before any allocator call.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

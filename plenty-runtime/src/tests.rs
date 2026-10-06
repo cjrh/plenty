@@ -354,6 +354,39 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn repeated_strings_fill_checked_storage_without_temporary_allocations() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for count in [-1i64, 0, 1, 2, 3, 7, 31] {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new("é\0🙂".as_bytes());
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(56, source as u128, count as u128, 0, ptr::null())
+                };
+                plenty_release(source.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
+                    assert_eq!(strings::utf8(output), "é\0🙂".repeat(count.max(0) as usize));
+                    assert_eq!((*output).scalar_len, count.max(0) as u64 * 3);
+                    plenty_release(output.cast());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn trimmed_strings_have_independent_storage_and_recover_from_allocation_failure() {
     struct Restore;
     impl Drop for Restore {

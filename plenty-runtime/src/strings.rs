@@ -233,6 +233,41 @@ pub(crate) unsafe fn try_get(
         try_new(character.encode_utf8(&mut [0; 4])).map(Some)
     }
 }
+fn repeated_length(length: u64, count: i64) -> Result<u64, AllocError> {
+    length
+        .checked_mul(count.max(0) as u64)
+        .filter(|n| *n <= i64::MAX as u64)
+        .ok_or(AllocError::CapacityOverflow)
+}
+
+pub(crate) unsafe fn try_repeat(text: *const Text, count: i64) -> Result<*mut Text, AllocError> {
+    unsafe {
+        let byte_len = repeated_length((*text).byte_len, count)?;
+        let scalar_len = repeated_length((*text).scalar_len, count)?;
+        let out = memory::try_allocate::<Text, u8>(byte_len as usize)?;
+        out.write(Text {
+            header: Header::new(destroy),
+            byte_len,
+            scalar_len,
+            data: [],
+        });
+        if byte_len != 0 {
+            let source = bytes(text);
+            let data = ptr::addr_of_mut!((*out).data).cast::<u8>();
+            ptr::copy_nonoverlapping(source.as_ptr(), data, source.len());
+            let mut filled = source.len();
+            while filled < byte_len as usize {
+                let count = filled.min(byte_len as usize - filled);
+                // The initialized prefix and destination are disjoint because
+                // count <= filled. Doubling avoids one iteration per repeat.
+                ptr::copy_nonoverlapping(data, data.add(filled), count);
+                filled += count;
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// Trim Unicode White_Space at selected ends, then allocate only the final text.
 pub(crate) unsafe fn try_strip(
     text: *const Text,
@@ -323,6 +358,21 @@ mod tests {
         );
         assert_eq!(
             replacement_length(0, u64::MAX, 0, 2),
+            Err(AllocError::CapacityOverflow)
+        );
+    }
+
+    #[test]
+    fn repeated_lengths_check_overflow_and_empty_or_negative_counts() {
+        assert_eq!(repeated_length(3, 5), Ok(15));
+        assert_eq!(repeated_length(0, i64::MAX), Ok(0));
+        assert_eq!(repeated_length(u64::MAX, i64::MIN), Ok(0));
+        assert_eq!(
+            repeated_length(2, i64::MAX),
+            Err(AllocError::CapacityOverflow)
+        );
+        assert_eq!(
+            repeated_length(u64::MAX, 3),
             Err(AllocError::CapacityOverflow)
         );
     }

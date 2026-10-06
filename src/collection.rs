@@ -44,6 +44,7 @@ pub enum CollectionOp {
     TextTryStrip,
     TextTryLStrip,
     TextTryRStrip,
+    TextTryRepeat,
 }
 
 impl Ty {
@@ -113,6 +114,10 @@ impl CollectionOp {
             ),
             TextTrySlice => (
                 vec![Ty::Str, Ty::I64, Ty::I64],
+                crate::sum::result(Ty::Str, crate::sum::alloc_error()),
+            ),
+            TextTryRepeat => (
+                vec![Ty::Str, Ty::I64],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
             TextTryReplace => (
@@ -228,6 +233,7 @@ impl CollectionOp {
             Self::TextTryStrip => 53,
             Self::TextTryLStrip => 54,
             Self::TextTryRStrip => 55,
+            Self::TextTryRepeat => 56,
         }
     }
 }
