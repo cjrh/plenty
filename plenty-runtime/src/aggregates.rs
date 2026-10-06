@@ -351,6 +351,33 @@ impl Collection {
         Ok(())
     }
 
+    /// Count missing keys before reserving. No logical update or payload cleanup
+    /// occurs until both entry and bucket capacity are available.
+    unsafe fn try_update(&mut self, source: &mut Collection) -> Result<(), AllocError> {
+        unsafe {
+            let additional = source
+                .entries
+                .iter()
+                .filter(|entry| self.find(entry.key).is_none())
+                .count();
+            self.try_reserve(additional)?;
+            let ty = &*self.ty;
+            source.table.fill(0);
+            for entry in source.entries.drain(..) {
+                if let Some(index) = self.find(entry.key) {
+                    let old = std::mem::replace(&mut self.entries[index].value, entry.value);
+                    release(entry.key, ty.key());
+                    release(old, ty.value());
+                } else {
+                    let bucket = self.bucket(entry.key);
+                    self.table[bucket] = self.entries.len() + 1;
+                    self.entries.push(entry);
+                }
+            }
+            Ok(())
+        }
+    }
+
     unsafe fn try_insert(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
             if self.ty().kind != b'L' {
@@ -815,6 +842,10 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            60 => match (*(a as *mut Collection)).try_update(&mut *(b as *mut Collection)) {
+                Ok(()) => wrap(0, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             59 => match (*(a as *mut Collection)).try_extend(&mut *(b as *mut Collection)) {
                 Ok(()) => wrap(0, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),

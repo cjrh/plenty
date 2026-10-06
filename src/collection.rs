@@ -7,13 +7,14 @@ pub enum CollectionOp {
     TryCopy(Ty),
     Next(Ty),
     New(Ty),
-    TryNew(Ty),     // initial capacity -> Result[collection, AllocError]
-    Insert(Ty),     // private builder: collection, element (or key, value) -> collection
-    Append(Ty),     // exclusive in-place update of a list or set
-    TryReserve(Ty), // exclusive capacity reservation -> Result[(), AllocError]
-    TryInsert(Ty),  // exclusive fallible append/add/insert
-    TryExtend(Ty),  // exclusive list + consumed list -> Result[(), AllocError]
-    Put(Ty),        // exclusive in-place indexed update
+    TryNew(Ty),        // initial capacity -> Result[collection, AllocError]
+    Insert(Ty),        // private builder: collection, element (or key, value) -> collection
+    Append(Ty),        // exclusive in-place update of a list or set
+    TryReserve(Ty),    // exclusive capacity reservation -> Result[(), AllocError]
+    TryInsert(Ty),     // exclusive fallible append/add/insert
+    TryExtend(Ty),     // exclusive list + consumed list -> Result[(), AllocError]
+    DictTryUpdate(Ty), // exclusive dictionary + consumed dictionary
+    Put(Ty),           // exclusive in-place indexed update
     Get(Ty),
     ListGet(Ty),     // observed list/index -> Option[non-affine element]
     DictGet(Ty),     // observed dictionary/key -> Option[non-affine value]
@@ -133,7 +134,9 @@ impl CollectionOp {
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
             ),
             TryReserve(t) => (vec![t.clone(), Ty::I64], crate::sum::allocation_result()),
-            TryExtend(t) => (vec![t.clone(), t.clone()], crate::sum::allocation_result()),
+            TryExtend(t) | DictTryUpdate(t) => {
+                (vec![t.clone(), t.clone()], crate::sum::allocation_result())
+            }
             TryInsert(t) => {
                 let mut args = vec![t.clone(), t.element().expect("collection element")];
                 if let Ty::Dict(_, v) = t {
@@ -207,6 +210,7 @@ impl CollectionOp {
             Self::TryReserve(_) => 28,
             Self::TryInsert(_) => 29,
             Self::TryExtend(_) => 59,
+            Self::DictTryUpdate(_) => 60,
             Self::Put(_) => 3,
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,

@@ -82,7 +82,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
 | Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
-| Recoverable bulk collection mutation | `list.try_extend(list)` consumes a same-typed source and reserves before transferring its elements |
+| Recoverable bulk collection mutation | `list.try_extend(list)` and `dict.try_update(dict)` consume same-typed sources and reserve before changing contents |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -447,6 +447,23 @@ suffices, including empty sources, the operation allocates nothing; otherwise
 reservation returns `OutOfMemory` or `CapacityOverflow`. After reservation only
 slot transfer remains. All permitted list element types, including custom-cleanup
 classes, work. Input construction and user cleanup retain their own policies.
+
+`dictionary.try_update(other) -> Result[(), AllocError]` consumes a same-typed
+dictionary, with the same receiver and source ownership rules as `try_extend`.
+Existing keys retain their insertion positions and stored key owners, while
+incoming values replace their payloads. New keys append in source insertion
+order. Count keys absent from the destination and reserve all entry/hash storage
+before any replacement, insertion, or payload destruction. A reservation failure
+leaves destination contents and lookup behavior unchanged; the consumed source
+is then cleaned normally. Capacity may change during preparation.
+
+Once reservation succeeds, transfer source entries without copying. Replacement
+drops old destination payloads in source traversal order, after installing each
+new payload. Incoming duplicate-key owners are released; new-key owners transfer.
+Replacing only existing keys, empty sources, and updates that fit reserved storage
+allocate nothing in the runtime. User cleanup keeps its own effect/allocation
+policy. Use `try_copy(source)?` to preserve an input; source references, pair
+iterables, and keyword updates are deferred.
 
 `items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
 forward list slice. Both arguments are required `i64` indices; start is inclusive

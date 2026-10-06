@@ -354,6 +354,57 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn dictionary_update_reserves_all_storage_before_transferring_owned_values() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=2 {
+        unsafe {
+            let target = collection(0, 0, 0, 0, &DICT);
+            let old = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, old, 99, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, target, 0, old, ptr::null()) as *mut Header);
+            plenty_release(old as *mut Header);
+            let source = collection(0, 0, 0, 0, &DICT);
+            for n in 0..10 {
+                let child = collection(0, 0, 0, 0, &LIST_INT);
+                plenty_release(collection(1, child, n, 0, ptr::null()) as *mut Header);
+                plenty_release(collection(1, source, n, child, ptr::null()) as *mut Header);
+                plenty_release(child as *mut Header);
+            }
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(60, target, source, 0, ptr::null())
+            };
+            assert_eq!(result, if budget < 2 { 1u128 << 64 } else { 0 });
+            assert_eq!(
+                collection(5, target, 0, 0, ptr::null()),
+                if budget < 2 { 1 } else { 10 }
+            );
+            assert_eq!(
+                collection(5, source, 0, 0, ptr::null()),
+                if budget < 2 { 10 } else { 0 }
+            );
+            plenty_release(source as *mut Header);
+            for n in 0..if budget < 2 { 1 } else { 10 } {
+                let child = collection(4, target, n, 0, ptr::null());
+                assert_eq!(
+                    collection(4, child, 0, 0, ptr::null()),
+                    if budget < 2 { 99 } else { n }
+                );
+                plenty_release(child as *mut Header);
+            }
+            plenty_release(target as *mut Header);
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn list_extension_reserves_before_transferring_owned_entries() {
     struct Restore;
     impl Drop for Restore {

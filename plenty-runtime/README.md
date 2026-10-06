@@ -164,6 +164,11 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   is needed; source entries are empty on success and intact on failure, then the
   compiler releases the source owner on either outcome. The checker forbids aliasing
   source/destination owners and requires exclusive destination access.
+- Opcode 60 consumes a dictionary into an exclusive destination. Count absent
+  keys, reserve both buffers, then transfer entries without further allocation.
+  Keep existing key positions/owners and release replaced payloads after installing
+  new ones; append new keys in source order. On failure both runtime objects keep
+  their contents, and generated cleanup releases the consumed source.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
