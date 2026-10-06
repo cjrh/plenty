@@ -102,6 +102,11 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   storage and no allocation, scanning the table and rehashing remaining keys. A miss
   leaves storage unchanged. Dropping the result owns payload cleanup, including
   user destructors; the runtime never runs a payload destructor during removal.
+- Opcode 40 removes a list element and returns inline `Option[T]`. The compiler
+  supplies `-1` for an omitted index; checked normalization handles negative and
+  extreme indices without overflow. A hit transfers the entry's payload directly;
+  a miss leaves the list unchanged. Ordered removal shifts later slots without
+  allocating or shrinking the buffer. Last-element removal requires no shifting.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

@@ -814,6 +814,13 @@ pub(crate) unsafe fn collection(
                 plenty_retain(a as *mut Header);
                 a
             }
+            40 => {
+                let c = &mut *(a as *mut Collection);
+                match checked_index(b as i64, c.entries.len()) {
+                    Some(index) => wrap(c.entries.remove(index).key, 1),
+                    None => wrap(0, 0),
+                }
+            }
             39 => match (*(a as *mut Collection)).pop(b) {
                 Some(value) => wrap(value, 1),
                 None => wrap(0, 0),

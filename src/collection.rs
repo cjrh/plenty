@@ -16,6 +16,7 @@ pub enum CollectionOp {
     Get(Ty),
     DictGet(Ty), // observed dictionary/key -> Option[non-affine value]
     DictPop(Ty), // exclusive dictionary/key -> Option[owned value]
+    ListPop(Ty), // exclusive list/index -> Option[owned element]
     Len(Ty),
     IterGet(Ty),
     IterTake(Ty),
@@ -124,6 +125,13 @@ impl CollectionOp {
                     crate::sum::option((**v).clone()),
                 )
             }
+            ListPop(t) => {
+                let Ty::List(element) = t else { unreachable!() };
+                (
+                    vec![t.clone(), Ty::I64],
+                    crate::sum::option((**element).clone()),
+                )
+            }
             Len(t) => (vec![t.clone()], Ty::I64),
             IterGet(t) | IterTake(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
             Contains(t) => (vec![t.element().unwrap(), t.clone()], Ty::Bool),
@@ -149,6 +157,7 @@ impl CollectionOp {
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,
             Self::DictPop(_) => 39,
+            Self::ListPop(_) => 40,
             Self::Len(_) => 5,
             Self::IterGet(_) => 6,
             Self::IterTake(_) => 15,

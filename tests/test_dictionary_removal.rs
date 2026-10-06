@@ -167,10 +167,10 @@ print(values)
     "pop requires one key argument"
 )]
 #[case("mut data = {1u8: 2}\nprint(data.pop(1))", "expected u8")]
-#[case("print({1: 2}.pop(1))", "pop requires a mutable dictionary")]
+#[case("print({1: 2}.pop(1))", "pop requires a mutable list or dictionary")]
 #[case(
-    "mut data = [1]\nprint(data.pop(0))",
-    "pop requires a mutable dictionary"
+    "mut data = {1}\nprint(data.pop(0))",
+    "pop requires a mutable list or dictionary"
 )]
 #[case(
     "mut data = {1: [2]}\nloan = &data\nremoved = data.pop(1)\nprint(loan)",

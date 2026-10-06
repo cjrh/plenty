@@ -267,6 +267,36 @@ fn dictionary_removal_transfers_owned_payload_and_repairs_hash_storage() {
     }
 }
 
+#[test]
+fn list_removal_transfers_payload_and_preserves_remaining_order() {
+    unsafe {
+        let list = collection(0, 0, 0, 0, &LIST_LIST);
+        let mut children = [0; 3];
+        for (i, child) in children.iter_mut().enumerate() {
+            *child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, list, *child, 0, ptr::null()) as *mut Header);
+            plenty_release(*child as *mut Header);
+        }
+        for index in [i64::MIN, -4, 3, i64::MAX] {
+            assert_eq!(collection(40, list, index as u128, 0, ptr::null()), 0);
+        }
+        let removed = collection(40, list, 1, 0, ptr::null());
+        assert_eq!(removed >> 64, 1);
+        assert_eq!(crate::aggregates::payload(removed), children[1]);
+        assert_eq!(collection(5, list, 0, 0, ptr::null()), 2);
+        for (index, expected) in [children[0], children[2]].into_iter().enumerate() {
+            let child = collection(4, list, index as u128, 0, ptr::null());
+            assert_eq!(child, expected);
+            plenty_release(child as *mut Header);
+        }
+        plenty_release(list as *mut Header);
+        let owned = crate::aggregates::payload(removed);
+        assert_eq!(collection(4, owned, 0, 0, ptr::null()), 1);
+        plenty_release(owned as *mut Header);
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn dictionary_lookup_succeeds_when_allocation_is_disabled() {

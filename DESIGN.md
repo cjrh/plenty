@@ -75,7 +75,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
-| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional dictionary `get`, and ownership-transferring dictionary `pop`; list/set removal and slicing are missing |
+| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional dictionary `get`, and ownership-transferring list/dictionary `pop`; set removal and slicing are missing |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
@@ -325,7 +325,7 @@ performs ordinary automatic cleanup. The removed key's stored owner is released.
 observed once before taking the receiver's exclusive loan, as with other collection
 mutations. Key references are accepted, and an immutable key derived from the same
 dictionary can be used. Active conflicting loans still prevent mutation. Temporary
-dictionary receivers and list/set `pop` are not supported.
+dictionary receivers and set `pop` are not supported.
 
 Removal itself does not allocate, and both buffers retain their capacity. Remaining
 entries keep their insertion order; reinserting a removed key appends it at the end.
@@ -333,6 +333,22 @@ The initial implementation shifts entries and rebuilds buckets in existing stora
 successful removal scans the reserved table and rehashes the remaining keys,
 while a missing key uses the normal hash lookup. Key evaluation and subsequent user cleanup retain
 their own allocation policies. This is not a promise of constant-time removal.
+
+`items.pop()` removes a list's last element; `items.pop(index)` selects an `i64`
+index, including negative indices counted from the end. Both return `Option[T]`
+and transfer the selected element's owner into `Some`. Empty lists and out-of-range
+indices return `Nothing` without changing the list, including extreme `i64` inputs.
+All supported list element types work, including nested collections and classes
+with custom cleanup. The remaining elements preserve their order and the list
+keeps its capacity; removal allocates nothing. Removing the last element is constant
+time, while earlier removal shifts the remaining elements.
+
+List `pop` requires a mutable binding, mutable field, or exclusive reference.
+An explicit index (or reference to one) is evaluated once before borrowing the
+receiver exclusively, so `items.pop(len(items) - 1)` is valid. A conflicting loan
+that remains active afterward still prevents removal. Temporary receivers and
+more than one index argument are rejected. Removed owners clean up normally,
+including when the returned `Option` is discarded or a later `?` propagates.
 
 `list(iterable)` and `set(iterable)` convert supported iterables; `dict(d)`
 transfers an existing dictionary value. Dictionary `keys()` and `values()` produce
