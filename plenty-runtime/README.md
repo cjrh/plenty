@@ -153,6 +153,9 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   allocation. Nonpositive counts produce empty strings. Copy the input once and
   double the initialized output prefix with disjoint copies; empty inputs never
   loop over the count. Layout overflow is detected before any allocator call.
+- Opcode 57 reverses list entry slots in place without payload retain/release or
+  allocation. The frontend requires exclusive access and discards the retained
+  internal receiver result so the public method returns unit.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

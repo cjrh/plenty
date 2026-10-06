@@ -352,6 +352,26 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
     }
 }
 
+#[test]
+fn list_reverse_reorders_owned_slots_without_duplication() {
+    unsafe {
+        let source = collection(0, 0, 0, 0, &LIST_LIST);
+        let child = collection(0, 0, 0, 0, &LIST_INT);
+        plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
+        plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
+        let other = collection(0, 0, 0, 0, &LIST_INT);
+        plenty_release(collection(1, source, other, 0, ptr::null()) as *mut Header);
+        plenty_release(child as *mut Header);
+        plenty_release(other as *mut Header);
+        plenty_release(collection(57, source, 0, 0, ptr::null()) as *mut Header);
+        let found = collection(4, source, 1, 0, ptr::null());
+        assert_eq!(found, child);
+        plenty_release(source as *mut Header);
+        assert_eq!(collection(4, found, 0, 0, ptr::null()), 42);
+        plenty_release(found as *mut Header);
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn repeated_strings_fill_checked_storage_without_temporary_allocations() {

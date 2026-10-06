@@ -518,6 +518,9 @@ impl Lower<'_> {
         if name == "pop" && matches!(self.place_type(base), Some(Ty::Dict(..) | Ty::List(_))) {
             return self.collection_removal(base, args, ops);
         }
+        if name == "reverse" && matches!(self.place_type(base), Some(Ty::List(_))) {
+            return self.collection_unit_mutation(base, name, args, ops);
+        }
         if name == "discard" && matches!(self.place_type(base), Some(Ty::Set(_))) {
             return self.collection_removal(base, args, ops);
         }
@@ -553,6 +556,11 @@ impl Lower<'_> {
             return Err(base
                 .at
                 .error("discard requires a mutable set binding or class field"));
+        }
+        if name == "reverse" {
+            return Err(base
+                .at
+                .error("reverse requires a mutable list binding or class field"));
         }
         if matches!(name, "try_strip" | "try_lstrip" | "try_rstrip") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
@@ -786,6 +794,24 @@ impl Lower<'_> {
         ops.push(Op::Collection(operation));
         ops.push(Op::UseLoan(loan));
         Ok(Some(result))
+    }
+
+    fn collection_unit_mutation(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if !args.is_empty() {
+            return Err(base.at.error(format!("{name} takes no arguments")));
+        }
+        let ty = self.place_type(base).expect("collection place");
+        let loan = self.mutation_place(base, ops)?;
+        ops.push(Op::Collection(CollectionOp::ListReverse(ty)));
+        ops.push(Op::Drop);
+        ops.push(Op::UseLoan(loan));
+        Ok(None)
     }
 
     fn fallible_constructor(

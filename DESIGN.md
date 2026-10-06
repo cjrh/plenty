@@ -81,6 +81,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
 | Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
+| In-place collection utilities | `list.reverse()` reverses element order without allocation |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -412,6 +413,14 @@ invoke user code. Capacity/layout overflow returns `AllocError.CapacityOverflow`
 allocation failure returns `AllocError.OutOfMemory`. The `Result` wrapper needs
 no allocation. Receiver construction and user cleanup retain their own allocation
 policies. Ordinary `keys()` and `values()` still terminate on allocation failure.
+
+`items.reverse() -> ()` reverses a list in place through a named mutable owner,
+class field, or exclusive reference. It takes no arguments and allocates nothing.
+Element slots are reordered without cloning, retaining, or dropping payloads;
+all permitted list element types are supported. Later list destruction follows
+the new element order. Empty and one-element lists are unchanged. Temporary
+receivers and shared references are rejected; the usual overlapping-loan rules
+apply. This does not introduce a reversed iterator or reverse slice steps.
 
 `items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
 forward list slice. Both arguments are required `i64` indices; start is inclusive

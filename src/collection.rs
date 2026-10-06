@@ -14,11 +14,12 @@ pub enum CollectionOp {
     TryInsert(Ty),  // exclusive fallible append/add/insert
     Put(Ty),        // exclusive in-place indexed update
     Get(Ty),
-    ListGet(Ty),    // observed list/index -> Option[non-affine element]
-    DictGet(Ty),    // observed dictionary/key -> Option[non-affine value]
-    DictPop(Ty),    // exclusive dictionary/key -> Option[owned value]
-    ListPop(Ty),    // exclusive list/index -> Option[owned element]
-    SetDiscard(Ty), // exclusive set/value -> bool
+    ListGet(Ty),     // observed list/index -> Option[non-affine element]
+    DictGet(Ty),     // observed dictionary/key -> Option[non-affine value]
+    DictPop(Ty),     // exclusive dictionary/key -> Option[owned value]
+    ListPop(Ty),     // exclusive list/index -> Option[owned element]
+    SetDiscard(Ty),  // exclusive set/value -> bool
+    ListReverse(Ty), // exclusive list -> retained internal alias
     Len(Ty),
     IterGet(Ty),
     IterTake(Ty),
@@ -168,6 +169,7 @@ impl CollectionOp {
                 )
             }
             SetDiscard(t) => (vec![t.clone(), t.element().unwrap()], Ty::Bool),
+            ListReverse(t) => (vec![t.clone()], t.clone()),
             Len(t) => (vec![t.clone()], Ty::I64),
             IterGet(t) | IterTake(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
             Contains(t) => (vec![t.element().unwrap(), t.clone()], Ty::Bool),
@@ -208,6 +210,7 @@ impl CollectionOp {
             Self::DictPop(_) => 39,
             Self::ListPop(_) => 40,
             Self::SetDiscard(_) => 41,
+            Self::ListReverse(_) => 57,
             Self::Len(_) => 5,
             Self::IterGet(_) => 6,
             Self::IterTake(_) => 15,
