@@ -177,6 +177,27 @@ pub(crate) unsafe fn try_get(
         try_new(character.encode_utf8(&mut [0; 4])).map(Some)
     }
 }
+/// Copy a forward Unicode-scalar slice directly from its UTF-8 byte interval.
+pub(crate) unsafe fn try_slice(
+    text: *const Text,
+    start: i64,
+    stop: i64,
+) -> Result<*mut Text, AllocError> {
+    unsafe {
+        let bounds = crate::aggregates::slice_bounds(start, stop, (*text).scalar_len as usize);
+        if bounds.is_empty() {
+            return try_new("");
+        }
+        let source = utf8(text);
+        let start = source.char_indices().nth(bounds.start).unwrap().0;
+        let end = source[start..]
+            .char_indices()
+            .nth(bounds.len())
+            .map_or(source.len(), |(offset, _)| start + offset);
+        try_new(&source[start..end])
+    }
+}
+
 pub(crate) unsafe fn at_byte(text: *const Text, offset: usize) -> *mut Text {
     unsafe {
         let s = utf8(text);

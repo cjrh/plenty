@@ -129,6 +129,10 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   output buffer and header before retaining immutable elements or transferring
   selected affine slots from a unique temporary. Unselected slots remain for
   ordinary input cleanup. The compiler supplies the list type descriptor.
+- Opcode 46 implements `str.try_slice` with the same clamped signed bounds as
+  lists, measured in Unicode scalars. Character iteration locates a UTF-8 byte
+  interval; only the final string is allocated, including empty/full slices.
+  Both inputs and output use their normal independent ownership lifetimes.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

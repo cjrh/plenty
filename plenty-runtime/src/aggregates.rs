@@ -805,6 +805,10 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            46 => match strings::try_slice(a as *const Text, b as i64, value as i64) {
+                Ok(text) => wrap(text as u128, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             45 => match try_list_slice(
                 &mut *(a as *mut Collection),
                 b as i64,

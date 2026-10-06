@@ -354,6 +354,41 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn string_slice_failure_and_utf8_result_lifetime() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (start, stop, expected) in [(1, 4, "é\0🙂"), (4, 1, ""), (i64::MIN, i64::MAX, "Aé\0🙂Z")]
+    {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new("Aé\0🙂Z".as_bytes());
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(46, source as u128, start as u128, stop as u128, ptr::null())
+                };
+                assert_eq!(strings::utf8(source), "Aé\0🙂Z");
+                plenty_release(source.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let text = crate::aggregates::payload(result) as *mut crate::strings::Text;
+                    assert_eq!(strings::utf8(text), expected);
+                    assert_eq!((*text).scalar_len, expected.chars().count() as u64);
+                    plenty_release(text.cast());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn list_slices_transfer_only_selected_payloads_after_reserving_storage() {
     struct Restore;
     impl Drop for Restore {

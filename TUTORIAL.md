@@ -1537,6 +1537,35 @@ method on a list returned by a function to transfer selected elements. Unselecte
 elements of that temporary are dropped after the call. If allocation fails,
 the temporary is cleaned up in full; a borrowed source remains unchanged.
 
+### Slice text by Unicode scalar position
+
+Strings also have `try_slice(start, stop) -> Result[str, AllocError]`, using the
+same required `i64` bounds and clamping rules as lists. Positions count Unicode
+scalar values, just like `len` and indexing:
+
+```plenty
+def main() -> ():
+    text = "Aé🙂Z"
+    print(text.try_slice(1, -1))
+    print(text.try_slice(-100, 100))
+    print(text.try_slice(3, 1))
+    print(text)
+```
+
+```output
+Result[str, AllocError].Ok("é🙂")
+Result[str, AllocError].Ok("Aé🙂Z")
+Result[str, AllocError].Ok("")
+Aé🙂Z
+```
+
+The result owns its UTF-8 bytes and outlives the source. The operation creates
+only the final string, including for an empty or whole-string slice, so even
+these cases can return `Err(AllocError.OutOfMemory)`. Source strings are never
+modified. Finding byte boundaries scans the text without a temporary character
+list. Combining marks count separately; positions are not grapheme clusters or
+byte offsets.
+
 ### Build text with recoverable allocation
 
 Use `text.try_concat(other)` to combine two strings. To combine a list of strings,

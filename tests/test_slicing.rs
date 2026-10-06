@@ -156,7 +156,10 @@ drop(result)
     "try_slice requires start and stop arguments"
 )]
 #[case("print([1].try_slice(0u8, 1))", "expected i64")]
-#[case("print({1: 2}.try_slice(0, 1))", "try_slice requires a list receiver")]
+#[case(
+    "print({1: 2}.try_slice(0, 1))",
+    "try_slice requires a list or string receiver"
+)]
 #[case(
     "items = [[1]]\nprint(items.try_slice(0, 1))",
     "try_slice with owned elements requires an owned temporary"
@@ -170,6 +173,118 @@ drop(result)
     "borrow"
 )]
 fn invalid_list_slices_are_rejected(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}
+
+#[rstest]
+#[case("0", "5", "Aé🙂\\0Z")]
+#[case("1", "3", "é🙂")]
+#[case("-4", "-1", "é🙂\\0")]
+#[case("3", "4", "\\0")]
+#[case("2", "1", "")]
+#[case("-100", "100", "Aé🙂\\0Z")]
+#[case("100", "200", "")]
+#[case("-100", "-99", "")]
+#[case("-9223372036854775808", "9223372036854775807", "Aé🙂\\0Z")]
+#[case("9223372036854775807", "-9223372036854775808", "")]
+fn string_slices_use_scalar_bounds(
+    #[case] start: &str,
+    #[case] stop: &str,
+    #[case] expected: &str,
+) {
+    native(
+        &format!("text = \"Aé🙂\\0Z\"\nprint(text.try_slice({start}, {stop}))\nprint(len(text))"),
+        &format!("Result[str, AllocError].Ok(\"{expected}\")\n5"),
+    );
+}
+
+#[test]
+fn string_slices_borrow_references_and_outlive_source_replacement() {
+    native(r#"
+class Message:
+    text: str
+def slice(text: &str, start: &i64, stop: &i64) -> Result[str, AllocError]:
+    middle = text.try_slice(start, stop)?
+    Ok(middle)
+mut message = Message("Aé" + "🙂Z")
+start = 1
+stop = 3
+saved = slice(&message.text, &start, &stop)
+message.text = "changed"
+drop(message)
+print(saved)
+print("".try_slice(0, 1))
+print("é".try_slice(1, 2))
+"#, "Result[str, AllocError].Ok(\"é🙂\")\nResult[str, AllocError].Ok(\"\")\nResult[str, AllocError].Ok(\"́\")");
+}
+
+#[test]
+fn string_slice_operands_run_once_in_source_order_and_short_circuit_errors() {
+    native(r#"
+def text() -> str:
+    print("receiver")
+    return "Aé🙂Z"
+def index(n: i64) -> Result[i64, AllocError]:
+    print(n)
+    Ok(n)
+def good() -> Result[str, AllocError]:
+    text().try_slice(index(1)?, index(3)?)
+def missing() -> Result[i64, AllocError]:
+    print("missing")
+    Err(AllocError.CapacityOverflow)
+def bad() -> Result[str, AllocError]:
+    ("A" + "B").try_slice(missing()?, index(2)?)
+print(good())
+print(bad())
+"#, "receiver\n1\n3\nResult[str, AllocError].Ok(\"é🙂\")\nmissing\nResult[str, AllocError].Err(AllocError.CapacityOverflow)");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn string_slices_allocate_only_the_final_string_and_recover_on_failure() {
+    for (start, stop, expected) in [(1, 3, "é🙂"), (3, 1, ""), (0, 4, "Aé🙂Z")] {
+        for budget in 0..=1 {
+            native(
+                &format!(
+                    r#"
+text = "Aé" + "🙂Z"
+print("__test_fail_allocations_after_{budget}__")
+result = text.try_slice({start}, {stop})
+print("__test_restore_allocations__")
+print(result)
+print(text)
+print(text.try_slice({start}, {stop}))
+"#
+                ),
+                &format!(
+                    "Result[str, AllocError].{}\nAé🙂Z\nResult[str, AllocError].Ok(\"{expected}\")",
+                    if budget == 0 {
+                        "Err(AllocError.OutOfMemory)".to_owned()
+                    } else {
+                        format!("Ok(\"{expected}\")")
+                    }
+                ),
+            );
+        }
+    }
+}
+
+#[rstest]
+#[case(
+    "print(\"text\".try_slice())",
+    "try_slice requires start and stop arguments"
+)]
+#[case(
+    "print(\"text\".try_slice(0, 1, 2))",
+    "try_slice requires start and stop arguments"
+)]
+#[case("print(\"text\".try_slice(0, 1u8))", "expected i64")]
+#[case(
+    "mut text = \"text\"\nloan = &mut text\nprint(text.try_slice(0, 1))\n*loan = \"changed\"",
+    "borrow"
+)]
+fn invalid_string_slices_are_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }

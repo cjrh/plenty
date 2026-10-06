@@ -76,7 +76,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
-| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining and explicit-separator splitting; formatting and numeric parsing are missing |
+| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
@@ -92,7 +92,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
 | Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
-| Recoverable text operations | `str.try_concat(other)` and `str.try_join(parts)` return `Result[str, AllocError]`; `str.try_split(separator)` returns `Result[list[str], AllocError]` |
+| Recoverable text operations | `str.try_concat(other)`, `str.try_join(parts)`, and `str.try_slice(start, stop)` return `Result[str, AllocError]`; `str.try_split(separator)` returns `Result[list[str], AllocError]` |
 | Checked text lookup | `str.try_get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
 | Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
@@ -722,6 +722,17 @@ Neither literals nor dynamic strings have a trailing terminator. Equality and
 hashing include every byte and do not normalize Unicode. `len` counts scalars,
 not grapheme clusters; indexing (including negative indices) returns a one-scalar
 `str`. Concatenation and indexing return independent values.
+
+`text.try_slice(start, stop)` returns `Result[str, AllocError]`. It uses the list
+slice's two required `i64` bounds, negative indexing, exclusive stop, and clamping,
+but positions count Unicode scalars. Reversed bounds produce an empty string.
+The receiver and bounds are observed once in source order, including references.
+The result owns a new UTF-8 buffer, independent of the source; even empty and
+full slices allocate one header/payload buffer. Allocation/layout failure is
+recoverable and leaves the source unchanged. The runtime scans scalar boundaries
+without an intermediate array, then copies the byte interval. This is linear in
+the scanned text length; combining marks remain separate scalars and no Unicode
+normalization occurs. Slice syntax and steps remain deferred.
 
 `text.try_concat(other)` and `separator.try_join(parts)` return
 `Result[str, AllocError]`. Both observe their inputs; `other` must be a `str`,

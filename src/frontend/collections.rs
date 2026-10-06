@@ -555,24 +555,31 @@ impl Lower<'_> {
                 .error("discard requires a mutable set binding or class field"));
         }
         if name == "try_slice" {
-            let Ty::List(element) = &ty else {
-                return Err(base.at.error("try_slice requires a list receiver"));
-            };
             if args.len() != 2 {
                 return Err(base.at.error("try_slice requires start and stop arguments"));
             }
-            if element.affine() && !loans.is_empty() {
-                return Err(base.at.error(
-                    "try_slice with owned elements requires an owned temporary; use try_copy(items)?.try_slice(start, stop) for fallible duplication",
-                ));
-            }
+            let operation = match &ty {
+                Ty::Str => CollectionOp::TextTrySlice,
+                Ty::List(element) => {
+                    if element.affine() && !loans.is_empty() {
+                        return Err(base.at.error(
+                            "try_slice with owned elements requires an owned temporary; use try_copy(items)?.try_slice(start, stop) for fallible duplication",
+                        ));
+                    }
+                    CollectionOp::ListTrySlice(ty.clone())
+                }
+                _ => {
+                    return Err(base
+                        .at
+                        .error("try_slice requires a list or string receiver"))
+                }
+            };
             let mut argument_loans = vec![];
             for argument in args {
                 let (actual, reads) = self.observe(argument, ops)?;
                 self.same(Some(actual), Some(Ty::I64), &argument.at)?;
                 argument_loans.extend(reads);
             }
-            let operation = CollectionOp::ListTrySlice(ty);
             let (_, result) = operation.signature();
             ops.push(Op::Collection(operation));
             Self::end_reads(argument_loans, ops);
