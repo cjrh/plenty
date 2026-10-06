@@ -538,6 +538,31 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(result);
         }
+        if matches!(name, "try_concat" | "try_join") {
+            self.same(Some(ty), Some(Ty::Str), &base.at)?;
+            if args.len() != 1 {
+                return Err(base.at.error(format!("{name} requires one argument")));
+            }
+            let (expected, operation) = if name == "try_concat" {
+                (Ty::Str, CollectionOp::TextTryConcat)
+            } else {
+                (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin)
+            };
+            let argument_loans = if matches!(ungroup(&args[0]).kind, Expression::Collection { .. })
+            {
+                let argument = self.expr_expected(&args[0], Some(expected.clone()), ops)?;
+                self.same(argument, Some(expected), &args[0].at)?;
+                vec![]
+            } else {
+                let (argument, loans) = self.observe(&args[0], ops)?;
+                self.same(Some(argument), Some(expected), &args[0].at)?;
+                loans
+            };
+            ops.push(Op::Collection(operation));
+            Self::end_reads(argument_loans, ops);
+            Self::end_reads(loans, ops);
+            return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
+        }
         let Ty::Dict(k, v) = &ty else {
             return Err(base.at.error(format!("unsupported method `{name}`")));
         };

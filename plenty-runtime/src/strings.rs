@@ -1,4 +1,4 @@
-use crate::memory::{self, Header};
+use crate::memory::{self, AllocError, Header};
 use std::io::BufRead;
 use std::{ptr, slice, str};
 
@@ -56,34 +56,73 @@ unsafe extern "C" fn destroy(header: *mut Header) {
 
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_concat(a: *const Text, b: *const Text) -> *mut Text {
+    unsafe { try_concat(a, b) }.unwrap_or_else(|_| crate::fail("string allocation failed"))
+}
+
+pub(crate) unsafe fn try_concat(a: *const Text, b: *const Text) -> Result<*mut Text, AllocError> {
+    unsafe { try_join(None, [a, b].into_iter()) }
+}
+
+fn add_length(total: u64, length: u64) -> Result<u64, AllocError> {
+    total
+        .checked_add(length)
+        .filter(|n| *n <= i64::MAX as u64)
+        .ok_or(AllocError::CapacityOverflow)
+}
+
+/// Borrow UTF-8 texts in a stable sequence. Cloning the iterator must enumerate
+/// the same live pointers; both passes run without callbacks or source mutation.
+/// Allocate only the final output, after checking its complete size.
+pub(crate) unsafe fn try_join(
+    separator: Option<*const Text>,
+    pieces: impl Clone + Iterator<Item = *const Text>,
+) -> Result<*mut Text, AllocError> {
     unsafe {
-        let len = (*a)
-            .byte_len
-            .checked_add((*b).byte_len)
-            .filter(|n| *n <= i64::MAX as u64)
-            .unwrap_or_else(|| crate::fail("string capacity overflow"));
-        let out = memory::allocate::<Text, u8>(len as usize);
+        let (mut byte_len, mut scalar_len) = (0, 0);
+        let mut first = true;
+        for piece in pieces.clone() {
+            if !first {
+                if let Some(separator) = separator {
+                    byte_len = add_length(byte_len, (*separator).byte_len)?;
+                    scalar_len = add_length(scalar_len, (*separator).scalar_len)?;
+                }
+            }
+            byte_len = add_length(byte_len, (*piece).byte_len)?;
+            scalar_len = add_length(scalar_len, (*piece).scalar_len)?;
+            first = false;
+        }
+        let out = memory::try_allocate::<Text, u8>(byte_len as usize)?;
         out.write(Text {
             header: Header::new(destroy),
-            byte_len: len,
-            scalar_len: (*a).scalar_len + (*b).scalar_len,
+            byte_len,
+            scalar_len,
             data: [],
         });
-        ptr::copy_nonoverlapping(
-            bytes(a).as_ptr(),
-            ptr::addr_of_mut!((*out).data).cast::<u8>(),
-            (*a).byte_len as usize,
-        );
-        ptr::copy_nonoverlapping(
-            bytes(b).as_ptr(),
-            ptr::addr_of_mut!((*out).data)
-                .cast::<u8>()
-                .add((*a).byte_len as usize),
-            (*b).byte_len as usize,
-        );
-        out
+        let mut offset = 0;
+        let mut append = |text| {
+            let data = bytes(text);
+            ptr::copy_nonoverlapping(
+                data.as_ptr(),
+                ptr::addr_of_mut!((*out).data).cast::<u8>().add(offset),
+                data.len(),
+            );
+            offset += data.len();
+        };
+        first = true;
+        for piece in pieces {
+            if !first {
+                if let Some(separator) = separator {
+                    append(separator);
+                }
+            }
+            append(piece);
+            first = false;
+        }
+        debug_assert_eq!(offset, byte_len as usize);
+        Ok(out)
     }
 }
+
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_str_eq(a: *const Text, b: *const Text) -> i8 {
     unsafe { (a == b || bytes(a) == bytes(b)) as i8 }
@@ -128,5 +167,24 @@ pub(crate) unsafe fn at_byte(text: *const Text, offset: usize) -> *mut Text {
             .unwrap_or_else(|| crate::fail("invalid string cursor"));
         let ch = tail.chars().next().unwrap();
         new(&tail.as_bytes()[..ch.len_utf8()])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn combined_lengths_and_header_layout_are_checked_before_allocation() {
+        assert_eq!(add_length(i64::MAX as u64 - 1, 1), Ok(i64::MAX as u64));
+        assert_eq!(
+            add_length(i64::MAX as u64, 1),
+            Err(AllocError::CapacityOverflow)
+        );
+        assert_eq!(add_length(u64::MAX, 1), Err(AllocError::CapacityOverflow));
+        assert_eq!(
+            memory::try_allocate::<Text, u8>(i64::MAX as usize),
+            Err(AllocError::CapacityOverflow)
+        );
     }
 }

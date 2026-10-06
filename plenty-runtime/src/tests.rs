@@ -117,6 +117,64 @@ static RESULT_OPTION: Type = Type {
 };
 static LIST_RESULT: Type = list(&RESULT_OPTION);
 
+#[test]
+fn fallible_text_builders_copy_exact_bytes_and_unicode_lengths() {
+    unsafe {
+        let first = strings::new("é\0".as_bytes());
+        let second = strings::new("🙂".as_bytes());
+        let separator = strings::new("界".as_bytes());
+        let joined = strings::try_join(
+            Some(separator),
+            [first.cast_const(), second.cast_const(), first.cast_const()].into_iter(),
+        )
+        .unwrap();
+        assert_eq!(strings::bytes(joined), "é\0界🙂界é\0".as_bytes());
+        assert_eq!((*joined).scalar_len, 7);
+        let combined = strings::try_concat(first, second).unwrap();
+        assert_eq!(strings::bytes(combined), "é\0🙂".as_bytes());
+        assert_eq!((*combined).scalar_len, 3);
+        let empty = strings::try_join(Some(separator), [].into_iter()).unwrap();
+        assert!(strings::bytes(empty).is_empty());
+        assert_eq!((*empty).scalar_len, 0);
+        for text in [joined, combined, empty, first, second, separator] {
+            plenty_release(text.cast());
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn text_builders_recover_from_allocation_failure_without_consuming_inputs() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let a = strings::new(b"a\0");
+        let b = strings::new(b"b");
+        for budget in 0..=1 {
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                strings::try_concat(a, b)
+            };
+            if budget == 0 {
+                assert_eq!(result, Err(crate::memory::AllocError::OutOfMemory));
+            } else {
+                let result = result.unwrap();
+                assert_eq!(strings::bytes(result), b"a\0b");
+                plenty_release(result.cast());
+            }
+            assert_eq!(strings::bytes(a), b"a\0");
+            assert_eq!(strings::bytes(b), b"b");
+        }
+        plenty_release(a.cast());
+        plenty_release(b.cast());
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn partial_record_and_nested_collection_copies_release_only_owned_values() {

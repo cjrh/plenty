@@ -1222,7 +1222,7 @@ existing set element or replacing a dictionary entry needs no storage growth.
 
 This is the first stage of recoverable allocation. Existing `append`, `add`,
 indexed assignment, allocating literals, ordinary constructors, comprehensions,
-strings, and `copy` still terminate on allocation failure. For example, `[]` in
+string `+` and indexing, and `copy` still terminate on allocation failure. For example, `[]` in
 the `add_answers` example can fail before the function runs; the `answers`
 example uses a fallible constructor to handle that stage too. Printing complex values
 and user destructors may also allocate. The new methods provide recovery for
@@ -1262,6 +1262,41 @@ The recoverable operation covers the duplication itself. For example,
 `try_copy([1, 2])` still constructs its list argument using the ordinary literal's
 failure policy before the copy begins. Use the fallible constructors when that
 initial allocation also needs to be handled.
+
+### Build text with recoverable allocation
+
+Use `text.try_concat(other)` to combine two strings. To combine a list of strings,
+use `separator.try_join(parts)`. Both return `Result[str, AllocError]`:
+
+```plenty
+def greeting(names: &list[str]) -> Result[str, AllocError]:
+    joined = ", ".try_join(names)?
+    "Hello, ".try_concat(joined)?.try_concat("!")
+
+def main() -> ():
+    names = ["Ada", "Bea"]
+    print(greeting(&names))
+    print(names)
+    print("-".try_join([]))
+```
+
+```output
+Result[str, AllocError].Ok("Hello, Ada, Bea!")
+["Ada", "Bea"]
+Result[str, AllocError].Ok("")
+```
+
+The methods observe their inputs, so `names` is still available afterward.
+Joining first calculates the final size and then allocates one output buffer;
+it does not build a succession of intermediate strings. An empty list gives an
+empty string, and a one-element list adds no separator. Empty pieces still count:
+joining `["a", "", "b"]` with `"-"` gives `"a--b"`.
+
+UTF-8 characters and embedded `\0` are preserved, just as with ordinary strings.
+These methods currently require strings and a `list[str]`; joining a generator
+or another kind of iterable is not supported yet. Creating the input list or
+strings, indexing text, and printing keep their existing allocation behavior.
+Ordinary string `+` also retains its terminal failure policy.
 
 ## 20. Produce values lazily with generators
 

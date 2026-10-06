@@ -683,6 +683,21 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            34 | 35 => {
+                let result = if op == 34 {
+                    strings::try_concat(a as *const Text, b as *const Text)
+                } else {
+                    let source = &*(b as *const Collection);
+                    strings::try_join(
+                        Some(a as *const Text),
+                        source.entries.iter().map(|entry| entry.key as *const Text),
+                    )
+                };
+                match result {
+                    Ok(text) => wrap(text as u128, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
             32 => {
                 let result = if (a as i64) < 0 {
                     Err(AllocError::CapacityOverflow)

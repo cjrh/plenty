@@ -71,6 +71,12 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   partial record without invoking its destructor. Immutable payloads are retained
   without allocation. Ordinary copying uses the same implementation with terminal
   error handling. Custom-cleanup values remain statically uncopyable.
+- Opcodes 34 (text concat) and 35 (text join) borrow strings/a list of strings
+  and return `Result[str, AllocError]`. A first pass checks combined byte/scalar
+  lengths; the output uses one checked header/payload allocation. A second pass
+  copies exact bytes without intermediate buffers or user callbacks. Empty and
+  singleton joins also allocate an output. Ordinary concat uses the same helper
+  with terminal failure handling. All paths preserve UTF-8 and embedded NUL bytes.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
