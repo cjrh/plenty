@@ -124,6 +124,24 @@ static RESULT_OPTION: Type = Type {
 static LIST_RESULT: Type = list(&RESULT_OPTION);
 static TEXT: Type = scalar(b's');
 static LIST_TEXT: Type = list(&TEXT);
+
+#[test]
+fn text_snapshots_own_members_and_clean_partial_validation_failures() {
+    unsafe {
+        let value =
+            crate::aggregates::try_text_list([Ok("first"), Ok("é\0")].into_iter(), &LIST_TEXT)
+                .unwrap();
+        let text = collection(4, value, 1, 0, ptr::null());
+        plenty_release(value as *mut Header);
+        assert_eq!(strings::utf8(text as *const strings::Text), "é\0");
+        plenty_release(text as *mut Header);
+        assert!(crate::aggregates::try_text_list(
+            [Ok("first"), Err(crate::text_io::Error::InvalidUtf8)].into_iter(),
+            &LIST_TEXT
+        )
+        .is_err());
+    }
+}
 static ALLOC_ERROR: Type = Type {
     name: "AllocError",
     variants: &[

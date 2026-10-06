@@ -1,6 +1,31 @@
 //! Fallible text I/O. No infallible growing buffers or allocated diagnostics.
 use crate::{aggregates::wrap, memory::AllocError, strings};
 use std::io::Read;
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+
+static ARG_COUNT: AtomicUsize = AtomicUsize::new(0);
+static ARG_VECTOR: AtomicPtr<*const u8> = AtomicPtr::new(std::ptr::null_mut());
+
+#[cfg(plenty_runtime_embedded)]
+pub(crate) unsafe fn set_arguments(argc: i32, argv: *const *const u8) {
+    ARG_VECTOR.store(argv.cast_mut(), Ordering::Relaxed);
+    ARG_COUNT.store(argc.max(0) as usize, Ordering::Release);
+}
+
+pub(crate) unsafe fn arguments(ty: &'static crate::aggregates::Type) -> Result<u128, Error> {
+    let count = ARG_COUNT.load(Ordering::Acquire);
+    let vector = ARG_VECTOR.load(Ordering::Relaxed);
+    // SAFETY: startup publishes argc pointers to immutable process-lifetime
+    // NUL-terminated arguments before any Plenty code can request a snapshot.
+    unsafe {
+        let texts = (0..count).map(|index| {
+            std::ffi::CStr::from_ptr((*vector.add(index)).cast())
+                .to_str()
+                .map_err(|_| Error::InvalidUtf8)
+        });
+        crate::aggregates::try_text_list(texts, ty)
+    }
+}
 
 #[derive(Debug)]
 pub(crate) enum Error {

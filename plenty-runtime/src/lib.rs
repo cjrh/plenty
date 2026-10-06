@@ -39,7 +39,11 @@ extern "C" {
 ///
 /// # Safety
 /// The linked object must supply a valid `plenty_main` with the declared ABI.
-pub unsafe extern "C" fn main(_argc: i32, _argv: *const *const u8) -> i32 {
+pub unsafe extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
+    // SAFETY: the system supplies process-lifetime argument pointers.
+    unsafe {
+        text_io::set_arguments(argc, argv);
+    }
     #[cfg(feature = "allocation-checks")]
     accounting::start();
     // SAFETY: the final executable supplies the generated zero-argument entry.

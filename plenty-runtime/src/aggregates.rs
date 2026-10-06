@@ -554,6 +554,28 @@ impl Drop for OwnedValue<'_> {
     }
 }
 
+/// Copy borrowed UTF-8 into an owned list, guarding every initialized prefix.
+pub(crate) unsafe fn try_text_list<'a>(
+    texts: impl ExactSizeIterator<Item = Result<&'a str, crate::text_io::Error>>,
+    ty: &'static Type,
+) -> Result<u128, crate::text_io::Error> {
+    unsafe {
+        let output = try_collection_new(ty, texts.len())?;
+        let owner = OwnedValue {
+            value: output as u128,
+            ty,
+        };
+        for text in texts {
+            let text = OwnedValue {
+                value: strings::try_new(text?)? as u128,
+                ty: ty.key(),
+            };
+            (*output).try_insert(text.value, 0)?;
+        }
+        Ok(owner.into_value())
+    }
+}
+
 /// Count the selected unique members before allocating. Inputs stay borrowed;
 /// output members retain immutable keys only after all storage is reserved.
 unsafe fn try_set_from_entries<'a>(
@@ -864,6 +886,9 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            85 => crate::text_io::result(crate::text_io::arguments(
+                (*descriptor).variants[0].fields[0],
+            )),
             84 => crate::text_io::input(),
             80 | 82 => crate::io::write_stream(a as *const Text, op == 82),
             81 | 83 => crate::io::flush_stream(op == 83),

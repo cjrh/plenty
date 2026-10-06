@@ -92,7 +92,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable stdout/stderr writes and flushes, and UTF-8 line input implemented; files and arguments remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable stdout/stderr writes and flushes, UTF-8 line input, and owned argument snapshots implemented; files remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -152,6 +152,12 @@ failure may consume a prefix or the complete line. It never reads ahead into
 the next line. The current Unix backend reads the process descriptor directly;
 other hosts report unsupported I/O. Prompt arguments, universal bare-CR newline
 translation, binary input, and buffered stream objects are deferred.
+
+`args() -> Result[list[str], IoError]` snapshots the executable's arguments,
+including its invocation name at index zero. Every call creates an independent
+list with fallibly allocated strings. OS-provided argument storage is borrowed
+only during construction; invalid UTF-8 is rejected, never replaced or escaped.
+The native startup retains the process argument pointers without allocating.
 
 Every integer type exposes `T.parse(text) -> Result[T, ParseError]`.
 Parsing borrows its string, trims Unicode White_Space, accepts an optional ASCII

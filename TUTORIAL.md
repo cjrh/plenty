@@ -2909,10 +2909,30 @@ def main() -> ():
 echo_line is ready
 ```
 
+## Command-line arguments
+
+`args()` returns `Result[list[str], IoError]`. Index zero is the executable's
+invocation name, followed by the supplied arguments. Spaces within one argument
+remain intact. Each call produces an independent list; allocation failure and
+invalid UTF-8 are recoverable errors. Pass arguments when launching a compiled
+binary, for example `./program first "two words"`.
+
+```plenty
+def count_arguments() -> Result[bool, IoError]:
+    values = args()?
+    Ok(len(values) >= 1)
+
+def main() -> ():
+    print(count_arguments())
+```
+```output
+Result[bool, IoError].Ok(True)
+```
+
 ## Where the language goes next
 
 
-This guide deliberately uses implemented features. File and argument APIs,
+This guide deliberately uses implemented features. File APIs,
 recursive types, element references, and stored or returned references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 

@@ -114,6 +114,87 @@ fn write_checks_arguments() {
 }
 
 #[test]
+fn arguments_preserve_order_unicode_and_independent_owners() {
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("program");
+    support::compile_source_to_executable(
+        r#"
+def inspect() -> Result[(), IoError]:
+    mut first = args()?
+    second = args()?
+    first.clear()
+    print(len(first))
+    print(len(second))
+    print(second[1])
+    print(second[2])
+    print(second[3])
+    Ok(())
+def main() -> ():
+    print(inspect())
+"#,
+        &executable,
+    )
+    .unwrap();
+    let output = std::process::Command::new(executable)
+        .args(["hello world", "é🙂", ""])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "0\n4\nhello world\né🙂\n\nResult[(), IoError].Ok(())\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn arguments_reject_invalid_utf8() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("program");
+    support::compile_source_to_executable("print(args())", &executable).unwrap();
+    let output = std::process::Command::new(executable)
+        .arg(std::ffi::OsStr::from_bytes(b"\xff"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("IoError.Data(DataError.InvalidUtf8)"));
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn argument_snapshot_cleans_up_every_failed_allocation() {
+    for budget in 0..=3 {
+        let output = support::run(&format!(
+            r#"
+print("__test_fail_allocations_after_{budget}__")
+a = args()
+print("__test_restore_allocations__")
+match a:
+    case Ok(items):
+        print(len(items))
+    case Err(error):
+        print(error)
+"#
+        ));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            text.contains(if budget < 3 {
+                "Allocation(AllocError.OutOfMemory)"
+            } else {
+                "\n1\n"
+            }),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn stderr_is_separate_and_flush_returns_unit_result() {
     let output = support::run(
         r#"
