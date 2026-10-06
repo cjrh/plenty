@@ -1612,6 +1612,32 @@ dropped during successful replacement; their destructors keep their own effects.
 Updating only existing keys needs no new runtime storage. Only same-typed
 dictionaries are accepted; pair iterables and keyword arguments are deferred.
 
+### Update a set by transferring another set
+
+Sets also support `try_update(source) -> Result[(), AllocError]`. Members already
+present are kept, and missing members transfer from the source:
+
+```plenty
+def main() -> ():
+    mut names = {"Ada", "Bea"}
+    more = {"Bea", "Cam"}
+    print(names.try_update(more))
+    print(len(names))
+    print("Ada" in names and "Bea" in names and "Cam" in names)
+```
+
+```output
+Result[(), AllocError].Ok(())
+3
+True
+```
+
+The source must be a set of the same type and is consumed on both outcomes.
+Use `names.try_update(try_copy(source)?)` to preserve it. Failed reservation leaves
+the destination unchanged and cleans up the consumed source. Duplicate-only and
+empty sources need no new runtime storage; existing capacity can cover new
+members too. Set iteration order remains unspecified.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

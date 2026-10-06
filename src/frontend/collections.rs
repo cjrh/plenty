@@ -524,7 +524,8 @@ impl Lower<'_> {
         if name == "try_extend" && matches!(self.place_type(base), Some(Ty::List(_))) {
             return self.fallible_mutation(base, name, args, ops);
         }
-        if name == "try_update" && matches!(self.place_type(base), Some(Ty::Dict(..))) {
+        if name == "try_update" && matches!(self.place_type(base), Some(Ty::Dict(..) | Ty::Set(_)))
+        {
             return self.fallible_mutation(base, name, args, ops);
         }
         if name == "clear"
@@ -584,7 +585,7 @@ impl Lower<'_> {
         if name == "try_update" {
             return Err(base
                 .at
-                .error("try_update requires a mutable dictionary binding or class field"));
+                .error("try_update requires a mutable dictionary or set binding or class field"));
         }
         if name == "clear" {
             return Err(base.at.error(
@@ -892,7 +893,7 @@ impl Lower<'_> {
             (Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _), "try_reserve") => vec![Ty::I64],
             (Ty::List(t), "try_append") | (Ty::Set(t), "try_add") => vec![(**t).clone()],
             (Ty::List(_), "try_extend") => vec![ty.clone()],
-            (Ty::Dict(..), "try_update") => vec![ty.clone()],
+            (Ty::Dict(..) | Ty::Set(_), "try_update") => vec![ty.clone()],
             (Ty::Dict(k, v), "try_insert") => vec![(**k).clone(), (**v).clone()],
             _ => {
                 return Err(base
@@ -924,7 +925,11 @@ impl Lower<'_> {
         } else if name == "try_extend" {
             CollectionOp::TryExtend(ty)
         } else if name == "try_update" {
-            CollectionOp::DictTryUpdate(ty)
+            if matches!(ty, Ty::Set(_)) {
+                CollectionOp::SetTryUpdate(ty)
+            } else {
+                CollectionOp::DictTryUpdate(ty)
+            }
         } else {
             CollectionOp::TryInsert(ty)
         }));

@@ -354,6 +354,56 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn set_update_preserves_string_owners_across_duplicate_and_failure_paths() {
+    static SET_TEXT: Type = Type {
+        kind: b'S',
+        ..list(&TEXT)
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=2 {
+        unsafe {
+            let target = collection(0, 0, 0, 0, &SET_TEXT);
+            let stored = strings::new(b"key0");
+            plenty_release(collection(1, target, stored as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(stored.cast());
+            let source = collection(0, 0, 0, 0, &SET_TEXT);
+            let query = strings::new(b"key0");
+            plenty_release(collection(1, source, query as u128, 0, ptr::null()) as *mut Header);
+            for n in 1..10 {
+                let text = strings::new(format!("key{n}").as_bytes());
+                plenty_release(collection(1, source, text as u128, 0, ptr::null()) as *mut Header);
+                plenty_release(text.cast());
+            }
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(61, target, source, 0, ptr::null())
+            };
+            assert_eq!(result, if budget < 2 { 1u128 << 64 } else { 0 });
+            assert_eq!(
+                collection(5, target, 0, 0, ptr::null()),
+                if budget < 2 { 1 } else { 10 }
+            );
+            assert_eq!(
+                collection(5, source, 0, 0, ptr::null()),
+                if budget < 2 { 10 } else { 0 }
+            );
+            assert_eq!(collection(7, query as u128, target, 0, ptr::null()), 1);
+            plenty_release(source as *mut Header);
+            plenty_release(target as *mut Header);
+            assert_eq!(strings::utf8(query), "key0");
+            plenty_release(query.cast());
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn dictionary_update_reserves_all_storage_before_transferring_owned_values() {
     struct Restore;
     impl Drop for Restore {

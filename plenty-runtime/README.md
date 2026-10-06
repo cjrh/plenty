@@ -169,6 +169,10 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   Keep existing key positions/owners and release replaced payloads after installing
   new ones; append new keys in source order. On failure both runtime objects keep
   their contents, and generated cleanup releases the consumed source.
+- Opcode 61 consumes a set into an exclusive destination, sharing dictionary
+  update's missing-key counting and reserve-first transfer. Duplicate incoming
+  member owners are released without changing existing owners. Sets have no
+  value type, so the shared path never releases a dictionary payload for them.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

@@ -278,3 +278,152 @@ fn invalid_dictionary_update(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[test]
+fn set_update_transfers_members_and_eliminates_content_equal_duplicates() {
+    native(r#"
+def update(data: &mut set[str], source: set[str]) -> Result[(), AllocError]:
+    data.try_update(source)
+class Data:
+    members: set[str]
+mut data = Data({"é" + "🙂"})
+print(update(&mut data.members, {"" + "é🙂", "other"}))
+print(len(data.members))
+print("é🙂" in data.members)
+print("other" in data.members)
+print(data.members.try_update(set[str]()))
+mut flags = {False}
+print(flags.try_update({False, True}))
+print(len(flags))
+mut bytes = {1u8}
+print(bytes.try_update({1u8, 2u8}))
+print(2u8 in bytes)
+"#, "Result[(), AllocError].Ok(())\n2\nTrue\nTrue\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n2\nResult[(), AllocError].Ok(())\nTrue");
+}
+
+#[test]
+fn set_update_keeps_probe_chains_valid_through_growth_and_removal() {
+    native(
+        r#"
+mut values = {n for n in range(100) if n % 2 == 0}
+print(values.try_update({n for n in range(100)}))
+mut valid = len(values) == 100
+for n in range(100):
+    valid = valid and n in values
+for n in range(25):
+    values.discard(n)
+print(values.try_update({n for n in range(25)}))
+for n in range(100):
+    valid = valid and n in values
+print(valid)
+print(len(values))
+"#,
+        "Result[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nTrue\n100",
+    );
+}
+
+#[test]
+fn set_update_can_explicitly_copy_a_source_before_consuming_it() {
+    native(
+        r#"
+def update(data: &mut set[str], source: &set[str]) -> Result[(), AllocError]:
+    data.try_update(try_copy(source)?)
+mut data = {"Ada"}
+source = {"A" + "da", "B" + "ea"}
+print(update(&mut data, &source))
+drop(data)
+print(len(source))
+print("Bea" in source)
+"#,
+        "Result[(), AllocError].Ok(())\n2\nTrue",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn set_update_failure_preserves_contents_and_the_hash_index() {
+    for budget in 0..=2 {
+        native(
+            &format!(
+                r#"
+mut data = {{0}}
+source = {{n for n in range(11)}}
+print("__test_fail_allocations_after_{budget}__")
+result = data.try_update(source)
+print("__test_restore_allocations__")
+print(result)
+print(len(data))
+print(0 in data)
+print(10 in data)
+data.add(42)
+print(42 in data)
+"#
+            ),
+            if budget < 2 {
+                "Result[(), AllocError].Err(AllocError.OutOfMemory)\n1\nTrue\nFalse\nTrue"
+            } else {
+                "Result[(), AllocError].Ok(())\n11\nTrue\nTrue\nTrue"
+            },
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn set_update_uses_existing_storage_and_cleans_duplicate_string_owners() {
+    native(
+        r#"
+def run() -> Result[set[str], AllocError]:
+    mut data = set[str].try_with_capacity(3)?
+    data.try_add("A" + "da")?
+    duplicates = {"Ad" + "a"}
+    additions = {"B" + "ea", "C" + "am"}
+    empty = set[str]()
+    print("__test_fail_allocations_after_0__")
+    print("__test_begin_no_allocations__")
+    data.try_update(duplicates)?
+    data.try_update(additions)?
+    data.try_update(empty)?
+    print("__test_restore_allocations__")
+    print("__test_end_no_allocations__")
+    Ok(data)
+match run():
+    case Ok(data):
+        print(len(data))
+        print("Ada" in data and "Bea" in data and "Cam" in data)
+    case Err(error):
+        print(error)
+"#,
+        "3\nTrue",
+    );
+}
+
+#[rstest]
+#[case("data = {1}\ndata.try_update({2})", "immutable")]
+#[case(
+    "mut data = {1}\nsource = {2}\ndata.try_update(source)\nprint(source)",
+    "moved"
+)]
+#[case("mut data = {1}\ndata.try_update(data)", "moved")]
+#[case(
+    "mut data = {1}\nsource = {2}\ndata.try_update(&source)",
+    "expected set[i64]"
+)]
+#[case(
+    "mut data = {1}\ndata.try_update([2])",
+    "collection type does not match its annotation"
+)]
+#[case("mut data = {1}\ndata.try_update({2u8})", "expected set[i64]")]
+#[case("mut data = {1}\ndata.try_update()", "try_update requires 1 argument")]
+#[case(
+    "{1}.try_update({2})",
+    "try_update requires a mutable dictionary or set"
+)]
+#[case(
+    "mut data = {1}\nloan = &data\ndata.try_update({2})\nprint(loan)",
+    "borrow"
+)]
+fn invalid_set_update(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}

@@ -367,7 +367,9 @@ impl Collection {
                 if let Some(index) = self.find(entry.key) {
                     let old = std::mem::replace(&mut self.entries[index].value, entry.value);
                     release(entry.key, ty.key());
-                    release(old, ty.value());
+                    if let Some(value_type) = ty.value {
+                        release(old, value_type);
+                    }
                 } else {
                     let bucket = self.bucket(entry.key);
                     self.table[bucket] = self.entries.len() + 1;
@@ -842,7 +844,7 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
-            60 => match (*(a as *mut Collection)).try_update(&mut *(b as *mut Collection)) {
+            60 | 61 => match (*(a as *mut Collection)).try_update(&mut *(b as *mut Collection)) {
                 Ok(()) => wrap(0, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },

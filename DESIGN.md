@@ -82,7 +82,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
 | Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
-| Recoverable bulk collection mutation | `list.try_extend(list)` and `dict.try_update(dict)` consume same-typed sources and reserve before changing contents |
+| Recoverable bulk collection mutation | `list.try_extend(list)` and dictionary/set `try_update` consume same-typed sources and reserve before changing contents |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -464,6 +464,18 @@ Replacing only existing keys, empty sources, and updates that fit reserved stora
 allocate nothing in the runtime. User cleanup keeps its own effect/allocation
 policy. Use `try_copy(source)?` to preserve an input; source references, pair
 iterables, and keyword updates are deferred.
+
+`set.try_update(other) -> Result[(), AllocError]` consumes a same-typed set and
+adds its missing members. The destination requires exclusive access; the source
+is consumed even on failure. Count absent members and reserve entries/buckets
+before changing contents. Allocation failure leaves destination membership and
+lookup behavior unchanged. On success, transfer new member owners and release
+duplicate incoming owners while keeping the destination's existing owners.
+Empty and duplicate-only sources need no allocation; sufficient reserved capacity
+also avoids allocation. Set iteration order stays unspecified. Use `try_copy`
+explicitly to preserve the source; general iterables, source references, and
+multi-source update calls are deferred. Hashing/comparison of permitted member
+types invokes no user code or allocation.
 
 `items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
 forward list slice. Both arguments are required `i64` indices; start is inclusive
