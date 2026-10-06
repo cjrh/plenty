@@ -1044,6 +1044,7 @@ fn builtin(name: &str) -> bool {
                 | "args"
                 | "read_text"
                 | "write_text"
+                | "append_text"
                 | "contains"
                 | "list"
                 | "dict"
@@ -1501,6 +1502,7 @@ impl Lower<'_> {
                     "args" => Some(CollectionOp::Args),
                     "read_text" => Some(CollectionOp::ReadText),
                     "write_text" => Some(CollectionOp::WriteText),
+                    "append_text" => Some(CollectionOp::AppendText),
                     _ => None,
                 } {
                     return self.system_call(operation, args, &e.at, ops);

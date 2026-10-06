@@ -11,6 +11,7 @@ pub enum CollectionOp {
     Args,
     ReadText,
     WriteText,
+    AppendText,
     ParseNumber(Ty),
     FormatScalar(Ty),
     Copy(Ty),
@@ -106,7 +107,7 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
-            WriteText => (
+            WriteText | AppendText => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
@@ -285,6 +286,7 @@ impl CollectionOp {
             Self::Args => 85,
             Self::ReadText => 86,
             Self::WriteText => 87,
+            Self::AppendText => 88,
             Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,

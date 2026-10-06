@@ -45,12 +45,13 @@ Consequences:
 
 ## Implementation status
 
-The core language can compile substantial single-file programs: typed functions,
+The core language can compile single- and multi-file programs: typed functions,
 control flow, collections, classes, sum types, generators, ownership, and automatic
 cleanup are implemented. It is still an early language implementation, with a
-small built-in library and important limits on borrowing. The main gaps for
-everyday programs are input and file APIs,
-and richer text/collection operations. An implemented row below describes the
+small built-in library and important limits on borrowing. Basic console, argument,
+numeric text, and whole-file APIs now work. Important remaining gaps include
+long-lived streams, broader borrowing, user generics, and complete allocation
+fallibility. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
 | Area | Status on this branch |
@@ -92,7 +93,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, line input, owned argument snapshots, and whole-file UTF-8 reads/writes implemented; stream objects remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, and Linux whole-file UTF-8 reads/replacements/appends implemented; stream objects remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -129,7 +130,7 @@ behavior.
 
 ## Current language contract
 
-### Numeric text conversion and allocation policy
+### Practical text I/O
 
 `write_stdout(text) -> Result[i64, IoError]` borrows UTF-8 text, writes it without
 adding a newline, and returns its Unicode-scalar count. `IoError.System(i32)`
@@ -178,6 +179,19 @@ atomic replacement. Creation uses permissions `0666` restricted by the process
 umask. Arguments are observed once in source order and remain usable.
 Tutorial executions use separate temporary working directories for each mode.
 
+`append_text(path, text)` has the same result and byte/cleanup rules as
+`write_text`, but opens with append semantics and never truncates existing data.
+It creates a missing file, including for empty text. Each OS write appends at the
+current end; a logical call may require multiple writes and is not an atomic
+record against concurrent writers. Allocation fails before opening; OS failures
+can leave an appended prefix. Long-lived streams and `with` remain future work.
+
+These initial functions are explicit prelude builtins. Future standard-library
+modules and stream methods can build on their error, encoding, and resource
+contracts; no file object or OS descriptor is exposed as a language value yet.
+
+### Numeric text conversion
+
 Every integer type exposes `T.parse(text) -> Result[T, ParseError]`.
 Parsing borrows its string, trims Unicode White_Space, accepts an optional ASCII
 sign and decimal ASCII digits, and checks the target width. Empty or malformed
@@ -197,6 +211,8 @@ floats use the same shortest round-trip representation as `print` (including
 `-0.0`, `inf`, and `NaN`); booleans use `True`/`False`. Aggregate formatting and
 format specifications remain deferred.
 
+### Allocation policy
+
 New practical I/O APIs must return explicit errors, including allocation failure
 in their own buffers and result construction. They must not hide infallible
 `String` growth behind a fallible public signature. Input consumption and partial
@@ -205,6 +221,8 @@ This does not retroactively make literals, comprehensions, class/generator
 construction, printing, or all runtime bookkeeping recoverable. Those existing
 terminal paths remain tracked work. Allocator provenance must be retained by an
 owner when custom allocators arrive; no public allocator switching API exists yet.
+
+### A small program
 
 ```python
 def choose(flag: bool, first: i64, second: i64) -> i64:
@@ -1582,8 +1600,9 @@ implemented. The new design review changes the recommended priority:
 3. Complete fallible allocation and allocator provenance (collection construction,
    reservation, insertion, explicit copying, and text concatenation/joining/splitting
    and checked character lookup, slices, replacement, and dictionary snapshots now have recoverable
-   `try_` APIs), then expand text,
-   collection, input/file, and argument APIs under those rules. Add allocation
+   `try_` APIs). Numeric parsing/formatting, console I/O, argument snapshots,
+   and Linux whole-file text helpers now have explicit failure contracts. Continue
+   with long-lived streams and the remaining construction/allocator gaps. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration, disjoint class fields,
    and restricted returned references. Add concrete context managers using the

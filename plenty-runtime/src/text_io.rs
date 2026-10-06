@@ -67,7 +67,13 @@ fn push(bytes: &mut Vec<u8>, byte: u8) -> Result<(), Error> {
     Ok(())
 }
 
-fn open_file(path: &str, write: bool) -> Result<std::fs::File, Error> {
+enum OpenMode {
+    Read,
+    Replace,
+    Append,
+}
+
+fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Error> {
     if path.as_bytes().contains(&0) {
         return Err(std::io::ErrorKind::InvalidInput.into());
     }
@@ -89,7 +95,12 @@ fn open_file(path: &str, write: bool) -> Result<std::fs::File, Error> {
         }
         // SAFETY: the checked fallible buffer is NUL terminated. O_CLOEXEC
         // prevents leaking this private descriptor to a future child process.
-        let flags = 0o2000000 | if write { 0o1 | 0o100 | 0o1000 } else { 0 };
+        let flags = 0o2000000
+            | match mode {
+                OpenMode::Read => 0,
+                OpenMode::Replace => 0o1 | 0o100 | 0o1000,
+                OpenMode::Append => 0o1 | 0o100 | 0o2000,
+            };
         let fd = unsafe { open(name.as_ptr().cast(), flags, 0o666u32) };
         if fd < 0 {
             return Err(std::io::Error::last_os_error().into());
@@ -99,7 +110,7 @@ fn open_file(path: &str, write: bool) -> Result<std::fs::File, Error> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = write;
+        let _ = mode;
         Err(std::io::ErrorKind::Unsupported.into())
     }
 }
@@ -150,12 +161,19 @@ fn read_all(reader: &mut impl Read) -> Result<*mut strings::Text, Error> {
 }
 
 pub(crate) fn read_text(path: &str) -> Result<u128, Error> {
-    let mut file = open_file(path, false)?;
+    let mut file = open_file(path, OpenMode::Read)?;
     Ok(read_all(&mut file)? as u128)
 }
 
-pub(crate) fn write_text(path: &str, text: &str) -> Result<u128, Error> {
-    let mut file = open_file(path, true)?;
+pub(crate) fn write_text(path: &str, text: &str, append: bool) -> Result<u128, Error> {
+    let mut file = open_file(
+        path,
+        if append {
+            OpenMode::Append
+        } else {
+            OpenMode::Replace
+        },
+    )?;
     file.write_all(text.as_bytes())?;
     close(file)?;
     Ok(text.chars().count() as u128)

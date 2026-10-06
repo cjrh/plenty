@@ -1,6 +1,95 @@
 mod support;
 
 #[test]
+fn appending_creates_or_extends_and_preserves_exact_bytes() {
+    for initial in [None, Some(&b"first\r\n"[..])] {
+        let out = run_file(
+            r#"
+print(append_text("sample.txt", "é\n"))
+print(append_text("sample.txt", ""))
+print(append_text("sample.txt", "last"))
+print(read_text("sample.txt"))
+"#,
+            initial,
+        );
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stdout), format!("Result[i64, IoError].Ok(2)\nResult[i64, IoError].Ok(0)\nResult[i64, IoError].Ok(4)\nResult[str, IoError].Ok(\"{}é\\nlast\")\n", if initial.is_some() { "first\\n" } else { "" }));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("program");
+    support::compile_source_to_executable(
+        "append_text(\"sample.txt\", \"é\\0\\r\\n\")",
+        &executable,
+    )
+    .unwrap();
+    assert!(std::process::Command::new(executable)
+        .current_dir(dir.path())
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        "é\0\r\n".as_bytes()
+    );
+    assert!(support::check_source("append_text(\"file\", 1)").is_err());
+}
+
+#[test]
+fn file_arguments_run_once_in_source_order() {
+    let out = run_file(
+        r#"
+def path() -> str:
+    print("path")
+    "sample.txt"
+def contents() -> str:
+    print("contents")
+    "new"
+print(append_text(path(), contents()))
+print(read_text("sample.txt"))
+"#,
+        Some(b"old"),
+    );
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "path\ncontents\nResult[i64, IoError].Ok(3)\nResult[str, IoError].Ok(\"oldnew\")\n"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn append_path_failure_leaves_existing_contents_intact() {
+    for budget in 0..=1 {
+        let out = run_file(
+            &format!(
+                r#"
+print("__test_fail_allocations_after_{budget}__")
+value = append_text("sample.txt", "new")
+print("__test_restore_allocations__")
+print(value)
+print(read_text("sample.txt"))
+"#
+            ),
+            Some(b"old"),
+        );
+        assert!(out.status.success());
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            text.ends_with(if budget == 0 {
+                "Result[str, IoError].Ok(\"old\")\n"
+            } else {
+                "Result[str, IoError].Ok(\"oldnew\")\n"
+            }),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn writing_replaces_and_closes_files_without_changing_inputs() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sample.txt");
