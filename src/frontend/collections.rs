@@ -700,6 +700,7 @@ impl Lower<'_> {
                 | "try_union"
                 | "try_intersection"
                 | "try_difference"
+                | "try_symmetric_difference"
         ) {
             if !matches!(ty, Ty::Set(_)) {
                 return Err(base.at.error(format!("{name} requires a set receiver")));
@@ -723,6 +724,7 @@ impl Lower<'_> {
                 "try_union" => CollectionOp::SetTryUnion(ty),
                 "try_intersection" => CollectionOp::SetTryIntersection(ty),
                 "try_difference" => CollectionOp::SetTryDifference(ty),
+                "try_symmetric_difference" => CollectionOp::SetTrySymmetricDifference(ty),
                 _ => CollectionOp::SetIsDisjoint(ty),
             };
             let (_, result) = operation.signature();

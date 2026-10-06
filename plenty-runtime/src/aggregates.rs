@@ -864,7 +864,7 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
-            65..=67 => {
+            65..=68 => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
                 let left_entries = left.entries.iter().filter(|entry| match op {
                     65 => true,
@@ -874,7 +874,7 @@ pub(crate) unsafe fn collection(
                 let right_entries = right
                     .entries
                     .iter()
-                    .filter(|entry| op == 65 && left.find(entry.key).is_none());
+                    .filter(|entry| matches!(op, 65 | 68) && left.find(entry.key).is_none());
                 let entries = left_entries.chain(right_entries);
                 match try_set_from_entries(entries, &*left.ty) {
                     Ok(set) => wrap(set, 0),

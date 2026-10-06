@@ -1730,6 +1730,25 @@ True
 
 The receiver determines which members can appear in the result. Both inputs remain usable.
 
+`try_symmetric_difference` keeps members found in exactly one of the two inputs:
+
+```plenty
+def main() -> ():
+    match {1, 2}.try_symmetric_difference({2, 3}):
+        case Ok(changed):
+            print(len(changed))
+            print(1 in changed and 3 in changed)
+            print(2 in changed)
+        case Err(error):
+            print(error)
+```
+
+```output
+2
+True
+False
+```
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

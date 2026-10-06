@@ -84,7 +84,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
 | Recoverable bulk collection mutation | `list.try_extend(list)` and dictionary/set `try_update` consume same-typed sources and reserve before changing contents |
 | Set relationships | `issubset`, `issuperset`, and `isdisjoint` observe same-typed sets without allocating |
-| Fallible set algebra | `try_union`, `try_intersection`, and `try_difference` return independent sets and preserve both same-typed inputs |
+| Fallible set algebra | `try_union`, `try_intersection`, `try_difference`, and `try_symmetric_difference` return independent sets and preserve both same-typed inputs |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -1433,6 +1433,11 @@ size, so disjoint inputs need only an empty output owner header.
 `set.try_difference(other)` selects receiver members absent from `other`, using
 the same fallible, borrowed, exact-capacity contract. Unlike union and intersection,
 the operands are not interchangeable; subtracting a set from itself yields empty.
+
+`set.try_symmetric_difference(other)` selects members present in exactly one
+input. It shares the same fallible construction contract; equal inputs produce
+an empty result. Set algebra methods accept exactly one same-typed set, not
+arbitrary iterables, and do not imply overloaded arithmetic operators.
 
 Set relationship methods take one same-typed set, including shared references,
 and return `bool`. They observe both operands once, left to right, without moving
