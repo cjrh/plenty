@@ -83,6 +83,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
 | Recoverable bulk collection mutation | `list.try_extend(list)` and dictionary/set `try_update` consume same-typed sources and reserve before changing contents |
+| Set relationships | `issubset`, `issuperset`, and `isdisjoint` observe same-typed sets without allocating |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -1416,6 +1417,11 @@ state-machine lowering, with no interpreter, C-stack suspension, or eager yield
 collection. The initial state dispatch is a linear comparison chain.
 Iteration wraps each resume result in an allocation-free inline `Option`.
 Optimizing frame liveness remains a later runtime improvement.
+
+Set relationship methods take one same-typed set, including shared references,
+and return `bool`. They observe both operands once, left to right, without moving
+them or allocating. Empty sets are subsets of all sets and disjoint from all sets.
+No iterable conversion, comparison operators, or heterogeneous key coercion is implied.
 
 ## Next milestones
 

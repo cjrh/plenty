@@ -692,6 +692,34 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
+        if matches!(name, "issubset" | "issuperset" | "isdisjoint") {
+            if !matches!(ty, Ty::Set(_)) {
+                return Err(base.at.error(format!("{name} requires a set receiver")));
+            }
+            if args.len() != 1 {
+                return Err(base.at.error(format!("{name} requires one set argument")));
+            }
+            let argument = &args[0];
+            let reads = if matches!(ungroup(argument).kind, Expression::Collection { .. }) {
+                let actual = self.expr_expected(argument, Some(ty.clone()), ops)?;
+                self.same(actual, Some(ty.clone()), &argument.at)?;
+                vec![]
+            } else {
+                let (actual, reads) = self.observe(argument, ops)?;
+                self.same(Some(actual), Some(ty.clone()), &argument.at)?;
+                reads
+            };
+            let operation = match name {
+                "issubset" => CollectionOp::SetIsSubset(ty),
+                "issuperset" => CollectionOp::SetIsSuperset(ty),
+                _ => CollectionOp::SetIsDisjoint(ty),
+            };
+            let (_, result) = operation.signature();
+            ops.push(Op::Collection(operation));
+            Self::end_reads(reads, ops);
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
         if name == "get" {
             let (expected, element, operation, collection) = match &ty {
                 Ty::List(v) => (

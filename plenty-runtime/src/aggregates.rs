@@ -844,6 +844,37 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            62..=64 => {
+                let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
+                let result = match op {
+                    62 => {
+                        left.entries.len() <= right.entries.len()
+                            && left
+                                .entries
+                                .iter()
+                                .all(|entry| right.find(entry.key).is_some())
+                    }
+                    63 => {
+                        right.entries.len() <= left.entries.len()
+                            && right
+                                .entries
+                                .iter()
+                                .all(|entry| left.find(entry.key).is_some())
+                    }
+                    _ => {
+                        let (small, large) = if left.entries.len() <= right.entries.len() {
+                            (left, right)
+                        } else {
+                            (right, left)
+                        };
+                        small
+                            .entries
+                            .iter()
+                            .all(|entry| large.find(entry.key).is_none())
+                    }
+                };
+                result as u128
+            }
             60 | 61 => match (*(a as *mut Collection)).try_update(&mut *(b as *mut Collection)) {
                 Ok(()) => wrap(0, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),

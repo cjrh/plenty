@@ -1638,6 +1638,30 @@ the destination unchanged and cleans up the consumed source. Duplicate-only and
 empty sources need no new runtime storage; existing capacity can cover new
 members too. Set iteration order remains unspecified.
 
+### Compare sets
+
+Set relationships borrow both sets and allocate nothing:
+
+```plenty
+def main() -> ():
+    needed = {"read"}
+    available = {"read", "write"}
+    print(needed.issubset(available))
+    print(available.issuperset(needed))
+    print(needed.isdisjoint({"write"}))
+    print(len(needed))
+```
+
+```output
+True
+True
+True
+1
+```
+
+Both operands must have the same set type. Empty sets are subsets of every set
+and disjoint from every set; neither operand is consumed.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

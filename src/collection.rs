@@ -15,7 +15,10 @@ pub enum CollectionOp {
     TryExtend(Ty),     // exclusive list + consumed list -> Result[(), AllocError]
     DictTryUpdate(Ty), // exclusive dictionary + consumed dictionary
     SetTryUpdate(Ty),  // exclusive set + consumed set
-    Put(Ty),           // exclusive in-place indexed update
+    SetIsSubset(Ty),
+    SetIsSuperset(Ty),
+    SetIsDisjoint(Ty),
+    Put(Ty), // exclusive in-place indexed update
     Get(Ty),
     ListGet(Ty),     // observed list/index -> Option[non-affine element]
     DictGet(Ty),     // observed dictionary/key -> Option[non-affine value]
@@ -135,6 +138,9 @@ impl CollectionOp {
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
             ),
             TryReserve(t) => (vec![t.clone(), Ty::I64], crate::sum::allocation_result()),
+            SetIsSubset(t) | SetIsSuperset(t) | SetIsDisjoint(t) => {
+                (vec![t.clone(), t.clone()], Ty::Bool)
+            }
             TryExtend(t) | DictTryUpdate(t) | SetTryUpdate(t) => {
                 (vec![t.clone(), t.clone()], crate::sum::allocation_result())
             }
@@ -213,6 +219,9 @@ impl CollectionOp {
             Self::TryExtend(_) => 59,
             Self::DictTryUpdate(_) => 60,
             Self::SetTryUpdate(_) => 61,
+            Self::SetIsSubset(_) => 62,
+            Self::SetIsSuperset(_) => 63,
+            Self::SetIsDisjoint(_) => 64,
             Self::Put(_) => 3,
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,

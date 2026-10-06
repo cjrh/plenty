@@ -330,6 +330,30 @@ fn set_discard_releases_stored_strings_and_keeps_query_owners_valid() {
 }
 
 #[test]
+fn set_relations_allow_identical_borrowed_operands() {
+    static SET: Type = Type {
+        affine: true,
+        key: Some(&TEXT),
+        ..scalar(b'S')
+    };
+    unsafe {
+        let a = collection(0, 0, 0, 0, &SET);
+        let b = collection(0, 0, 0, 0, &SET);
+        assert_eq!(collection(64, a, a, 0, ptr::null()), 1);
+        for set in [a, b] {
+            let text = strings::new("é\0🙂".as_bytes());
+            plenty_release(collection(1, set, text as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(text.cast());
+        }
+        assert_eq!(collection(62, a, b, 0, ptr::null()), 1);
+        assert_eq!(collection(63, b, a, 0, ptr::null()), 1);
+        assert_eq!(collection(64, a, a, 0, ptr::null()), 0);
+        plenty_release(a as *mut Header);
+        plenty_release(b as *mut Header);
+    }
+}
+
+#[test]
 fn list_lookup_retains_string_payload_without_transferring_the_entry() {
     unsafe {
         let list = collection(0, 0, 0, 0, &LIST_TEXT);
