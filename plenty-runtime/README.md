@@ -144,6 +144,8 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
 - Opcodes 50/51 find the first/last literal substring and return inline
   `Option[i64]`. Convert the UTF-8 byte match offset to a scalar count without
   allocating; empty needles match at the corresponding end of the source.
+- Opcode 52 counts non-overlapping literal matches with no allocation. Empty
+  patterns count scalar boundaries; valid string sizes keep the result within i64.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

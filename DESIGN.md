@@ -78,7 +78,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
-| Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions |
+| Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -739,6 +739,13 @@ overlap an earlier match. Operands are observed once in source order, references
 are accepted, and neither searching nor constructing the inline result allocates.
 Converting the byte position to a scalar position scans the preceding prefix.
 Optional bounds, regexes, case folding, and normalization are deferred.
+
+`text.count(needle) -> i64` counts literal non-overlapping matches from left to
+right without allocating. Empty needles match scalar boundaries, yielding
+`len(text) + 1`, including one match in an empty string. No match yields zero.
+Both strings are observed once in source order, including references. A source's
+validated byte length leaves room for the header, so its boundary count fits i64.
+There are no optional bounds, regexes, or normalization.
 
 `text.try_slice(start, stop)` returns `Result[str, AllocError]`. It uses the list
 slice's two required `i64` bounds, negative indexing, exclusive stop, and clamping,

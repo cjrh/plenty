@@ -189,3 +189,80 @@ fn invalid_search_queries(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[rstest]
+#[case("banana", "ana", 1)]
+#[case("aaaaa", "aa", 2)]
+#[case("é🙂é🙂", "🙂", 2)]
+#[case("a\0b\0", "\0", 2)]
+#[case("abc", "x", 0)]
+#[case("", "", 1)]
+#[case("é🙂", "", 3)]
+#[case("abc", "abc", 1)]
+fn counts_non_overlapping_literal_matches(
+    #[case] text: &str,
+    #[case] needle: &str,
+    #[case] expected: i64,
+) {
+    native(
+        &format!("print({text:?}.count({needle:?}))"),
+        &expected.to_string(),
+    );
+}
+
+#[test]
+fn counting_borrows_inputs_and_keeps_inherent_method_dispatch() {
+    native(
+        r#"
+def count(text: &str, needle: &str) -> i64:
+    text.count(needle)
+class Custom:
+    def count(self) -> i64:
+        42
+def source() -> str:
+    print("receiver")
+    return "aba"
+def needle() -> str:
+    print("argument")
+    return "a"
+text = "a" + "ba"
+part = "" + "a"
+print(count(&text, &part))
+print(text)
+print(source().count(needle()))
+print(Custom().count())
+"#,
+        "2\naba\nreceiver\nargument\n2\n42",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn counting_and_empty_pattern_handling_allocate_nothing() {
+    native(
+        r#"
+text = "é🙂" + "é🙂"
+needle = "" + "🙂"
+print("__test_fail_allocations_after_0__")
+print("__test_begin_no_allocations__")
+a = text.count(needle)
+b = text.count("")
+c = text.count("missing")
+print("__test_restore_allocations__")
+print("__test_end_no_allocations__")
+print(a)
+print(b)
+print(c)
+"#,
+        "2\n5\n0",
+    );
+}
+
+#[rstest]
+#[case("print(\"a\".count())", "count requires one argument")]
+#[case("print(\"a\".count(\"a\", 0))", "count requires one argument")]
+#[case("print(\"a\".count(1))", "expected str")]
+fn invalid_count_queries(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}

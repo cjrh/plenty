@@ -1587,6 +1587,30 @@ an `Option`-returning function. An empty needle matches at the beginning for
 `find` and at the end for `rfind`. Each takes one literal pattern; optional
 bounds and regexes are not supported.
 
+### Count occurrences
+
+`text.count(needle)` returns an `i64` without allocating. Matches are literal
+and do not overlap. An empty needle counts Unicode scalar boundaries:
+
+```plenty
+def main() -> ():
+    print("banana".count("ana"))
+    print("aaaaa".count("aa"))
+    print("é🙂".count(""))
+    print("".count(""))
+    print("text".count("missing"))
+```
+
+```output
+1
+2
+3
+1
+0
+```
+
+The method borrows both strings and takes exactly one pattern argument.
+
 ### Slice text by Unicode scalar position
 
 Strings also have `try_slice(start, stop) -> Result[str, AllocError]`, using the

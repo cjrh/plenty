@@ -805,6 +805,9 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            52 => strings::utf8(a as *const Text)
+                .matches(strings::utf8(b as *const Text))
+                .count() as u128,
             50 | 51 => {
                 let source = strings::utf8(a as *const Text);
                 let needle = strings::utf8(b as *const Text);
