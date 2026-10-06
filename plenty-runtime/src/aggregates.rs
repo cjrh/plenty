@@ -365,8 +365,9 @@ impl Collection {
         }
     }
     /// Preserve insertion order and rebuild bucket indices in existing storage.
-    /// The removed payload's owner is transferred, never retained or released.
-    unsafe fn pop(&mut self, key: u128) -> Option<u128> {
+    /// Dictionary payload owners are transferred, never retained or released.
+    /// Sets have a zero payload; Some(0) still distinguishes removal from a miss.
+    unsafe fn remove(&mut self, key: u128) -> Option<u128> {
         unsafe {
             let index = self.find(key)?;
             let entry = self.entries.remove(index);
@@ -821,7 +822,8 @@ pub(crate) unsafe fn collection(
                     None => wrap(0, 0),
                 }
             }
-            39 => match (*(a as *mut Collection)).pop(b) {
+            41 => (*(a as *mut Collection)).remove(b).is_some() as u128,
+            39 => match (*(a as *mut Collection)).remove(b) {
                 Some(value) => wrap(value, 1),
                 None => wrap(0, 0),
             },

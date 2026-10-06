@@ -107,6 +107,11 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   extreme indices without overflow. A hit transfers the entry's payload directly;
   a miss leaves the list unchanged. Ordered removal shifts later slots without
   allocating or shrinking the buffer. Last-element removal requires no shifting.
+- Opcode 41 discards a set member and returns a Boolean indicating whether it
+  was present. It shares dictionary removal's index rebuilding and capacity
+  retention, releasing the stored member without consuming the borrowed query
+  value. Sets have a zero entry payload; successful removal of that payload must
+  still be distinguished from a missing key. Neither path allocates.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

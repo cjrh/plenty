@@ -297,6 +297,38 @@ fn list_removal_transfers_payload_and_preserves_remaining_order() {
     }
 }
 
+#[test]
+fn set_discard_releases_stored_strings_and_keeps_query_owners_valid() {
+    static SET_TEXT: Type = Type {
+        affine: true,
+        key: Some(&TEXT),
+        ..scalar(b'S')
+    };
+    unsafe {
+        let set = collection(0, 0, 0, 0, &SET_TEXT);
+        for text in ["é\0🙂", "other"] {
+            let stored = strings::new(text.as_bytes());
+            plenty_release(collection(1, set, stored as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(stored.cast());
+        }
+        let query = strings::new("é\0🙂".as_bytes());
+        let other = strings::new(b"other");
+        assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 1);
+        assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 0);
+        assert_eq!(strings::utf8(query), "é\0🙂");
+        assert_eq!(collection(7, other as u128, set, 0, ptr::null()), 1);
+        plenty_release(collection(1, set, query as u128, 0, ptr::null()) as *mut Header);
+        assert_eq!(collection(7, query as u128, set, 0, ptr::null()), 1);
+        assert_eq!(collection(41, set, other as u128, 0, ptr::null()), 1);
+        assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 1);
+        assert_eq!(collection(5, set, 0, 0, ptr::null()), 0);
+        plenty_release(set as *mut Header);
+        assert_eq!(strings::utf8(query), "é\0🙂");
+        plenty_release(query.cast());
+        plenty_release(other.cast());
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn dictionary_lookup_succeeds_when_allocation_is_disabled() {

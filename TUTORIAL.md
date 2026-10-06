@@ -762,7 +762,7 @@ The operation preserves the order of remaining entries and reuses existing
 storage without allocating. Reinserting a removed key puts it at the end.
 Removal currently shifts entries and rebuilds the hash index, so its cost grows
 with the dictionary's size and reserved capacity. It accepts exactly one key;
-there is no default argument. Set removal is not implemented yet.
+there is no default argument. Sets use `discard`, described below.
 
 ### Remove list elements
 
@@ -799,6 +799,40 @@ Remaining elements stay in order, capacity is retained, and removal does not
 allocate. Removing the last element is constant time; removing an earlier element
 shifts the elements after it. The returned owner handles cleanup, so discarding
 a successful result also drops its element.
+
+### Remove set members
+
+Use `values.discard(value)` to remove a member from a mutable set. It returns
+`True` if the member was present and removed, or `False` if it was absent:
+
+```plenty
+def main() -> ():
+    mut names = {"Ada", "Bea"}
+    name = "Ada"
+    print(names.discard(name))
+    print(names.discard(name))
+    print(name)
+    print("Bea" in names)
+    print(len(names))
+    names.add(name)
+    print(len(names))
+```
+
+```output
+True
+False
+Ada
+True
+1
+2
+```
+
+The argument is observed, so `name` remains usable. Missing values are harmless,
+and discarding a stored zero, `False`, or empty string still returns `True`.
+Removal allocates nothing and preserves capacity for reuse. Like dictionary
+removal, it currently rebuilds the hash index after a hit; its cost grows with
+the set's size and reserved capacity. Sets still promise no iteration order.
+Use an exclusive reference when removing members through a function parameter.
 
 Collection equality compares contents; dictionary and set order do not matter.
 

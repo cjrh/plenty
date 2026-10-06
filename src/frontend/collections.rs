@@ -516,7 +516,10 @@ impl Lower<'_> {
             return Ok(None);
         }
         if name == "pop" && matches!(self.place_type(base), Some(Ty::Dict(..) | Ty::List(_))) {
-            return self.collection_pop(base, args, ops);
+            return self.collection_removal(base, args, ops);
+        }
+        if name == "discard" && matches!(self.place_type(base), Some(Ty::Set(_))) {
+            return self.collection_removal(base, args, ops);
         }
         let (ty, loans) = self.observe(base, ops)?;
         if let Ty::Class(class) = &ty {
@@ -545,6 +548,11 @@ impl Lower<'_> {
             return Err(base
                 .at
                 .error("pop requires a mutable list or dictionary binding or class field"));
+        }
+        if name == "discard" {
+            return Err(base
+                .at
+                .error("discard requires a mutable set binding or class field"));
         }
         if matches!(name, "try_concat" | "try_join" | "try_split" | "try_get") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
@@ -619,7 +627,12 @@ impl Lower<'_> {
         }
     }
 
-    fn collection_pop(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
+    fn collection_removal(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
         let ty = self.place_type(base).expect("collection place");
         let operation = match &ty {
             Ty::Dict(..) => {
@@ -633,6 +646,12 @@ impl Lower<'_> {
                     return Err(base.at.error("list pop takes at most one i64 index"));
                 }
                 CollectionOp::ListPop(ty)
+            }
+            Ty::Set(_) => {
+                if args.len() != 1 {
+                    return Err(base.at.error("discard requires one value argument"));
+                }
+                CollectionOp::SetDiscard(ty)
             }
             _ => unreachable!(),
         };

@@ -14,9 +14,10 @@ pub enum CollectionOp {
     TryInsert(Ty),  // exclusive fallible append/add/insert
     Put(Ty),        // exclusive in-place indexed update
     Get(Ty),
-    DictGet(Ty), // observed dictionary/key -> Option[non-affine value]
-    DictPop(Ty), // exclusive dictionary/key -> Option[owned value]
-    ListPop(Ty), // exclusive list/index -> Option[owned element]
+    DictGet(Ty),    // observed dictionary/key -> Option[non-affine value]
+    DictPop(Ty),    // exclusive dictionary/key -> Option[owned value]
+    ListPop(Ty),    // exclusive list/index -> Option[owned element]
+    SetDiscard(Ty), // exclusive set/value -> bool
     Len(Ty),
     IterGet(Ty),
     IterTake(Ty),
@@ -132,6 +133,7 @@ impl CollectionOp {
                     crate::sum::option((**element).clone()),
                 )
             }
+            SetDiscard(t) => (vec![t.clone(), t.element().unwrap()], Ty::Bool),
             Len(t) => (vec![t.clone()], Ty::I64),
             IterGet(t) | IterTake(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
             Contains(t) => (vec![t.element().unwrap(), t.clone()], Ty::Bool),
@@ -158,6 +160,7 @@ impl CollectionOp {
             Self::DictGet(_) => 38,
             Self::DictPop(_) => 39,
             Self::ListPop(_) => 40,
+            Self::SetDiscard(_) => 41,
             Self::Len(_) => 5,
             Self::IterGet(_) => 6,
             Self::IterTake(_) => 15,

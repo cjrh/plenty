@@ -75,7 +75,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
-| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional dictionary `get`, and ownership-transferring list/dictionary `pop`; set removal and slicing are missing |
+| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional dictionary `get`, list/dictionary `pop`, and set `discard`; slicing is missing |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
@@ -325,7 +325,7 @@ performs ordinary automatic cleanup. The removed key's stored owner is released.
 observed once before taking the receiver's exclusive loan, as with other collection
 mutations. Key references are accepted, and an immutable key derived from the same
 dictionary can be used. Active conflicting loans still prevent mutation. Temporary
-dictionary receivers and set `pop` are not supported.
+dictionary receivers and set `pop` are not supported; sets use `discard`.
 
 Removal itself does not allocate, and both buffers retain their capacity. Remaining
 entries keep their insertion order; reinserting a removed key appends it at the end.
@@ -349,6 +349,22 @@ receiver exclusively, so `items.pop(len(items) - 1)` is valid. A conflicting loa
 that remains active afterward still prevents removal. Temporary receivers and
 more than one index argument are rejected. Removed owners clean up normally,
 including when the returned `Option` is discarded or a later `?` propagates.
+
+`values.discard(value)` removes a set member and returns `True` if present,
+otherwise `False`. A miss does not change the set. It requires a mutable binding,
+mutable field, or exclusive reference and exactly one argument of the set's element
+type (or a reference to it). The argument is observed once before taking the
+receiver's exclusive loan and remains available afterward. Active conflicting
+loans prevent removal; temporary receivers are not supported. User-defined class
+methods named `discard` continue to use ordinary method dispatch.
+
+Set removal releases the stored member's owner, reuses both buffers, and allocates
+nothing. It shares dictionary hash-index rebuilding: a hit scans the reserved table
+and rehashes remaining keys; a miss uses normal lookup. Reinsertion can reuse the
+vacated capacity. Set iteration order remains unspecified. The Boolean result
+distinguishes removal from absence, including for zero, `False`, and empty strings;
+there is no exception or allocation-error result. Argument construction retains its
+own allocation policy.
 
 `list(iterable)` and `set(iterable)` convert supported iterables; `dict(d)`
 transfers an existing dictionary value. Dictionary `keys()` and `values()` produce
