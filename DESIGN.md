@@ -84,7 +84,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
 | Recoverable bulk collection mutation | `list.try_extend(list)` and dictionary/set `try_update` consume same-typed sources and reserve before changing contents |
 | Set relationships | `issubset`, `issuperset`, and `isdisjoint` observe same-typed sets without allocating |
-| Fallible set algebra | `try_union` returns an independent set and preserves both same-typed inputs |
+| Fallible set algebra | `try_union` and `try_intersection` return independent sets and preserve both same-typed inputs |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -1425,6 +1425,10 @@ or the same set. All output storage is reserved before retaining member owners;
 allocation failure leaves both inputs unchanged. Immutable strings may share
 storage. Nonempty results use three allocations (buckets, entries, owner header),
 empty results only the header. Iteration order is unspecified.
+
+`set.try_intersection(other)` has the same result and borrowing contract as
+`try_union`, selecting only common members. It reserves for the actual result
+size, so disjoint inputs need only an empty output owner header.
 
 Set relationship methods take one same-typed set, including shared references,
 and return `bool`. They observe both operands once, left to right, without moving

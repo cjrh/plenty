@@ -864,14 +864,17 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
-            65 => {
+            65 | 66 => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
-                let entries = left.entries.iter().chain(
-                    right
-                        .entries
-                        .iter()
-                        .filter(|entry| left.find(entry.key).is_none()),
-                );
+                let left_entries = left
+                    .entries
+                    .iter()
+                    .filter(|entry| op == 65 || right.find(entry.key).is_some());
+                let right_entries = right
+                    .entries
+                    .iter()
+                    .filter(|entry| op == 65 && left.find(entry.key).is_none());
+                let entries = left_entries.chain(right_entries);
                 match try_set_from_entries(entries, &*left.ty) {
                     Ok(set) => wrap(set, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),

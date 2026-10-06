@@ -45,13 +45,17 @@ match set[u8]().try_union(set[u8]()):
 #[case(1)]
 #[case(2)]
 #[case(3)]
-fn union_recovers_from_each_storage_failure(#[case] budget: usize) {
+fn algebra_recovers_from_each_storage_failure(
+    #[case] budget: usize,
+    #[values(("try_union", 3), ("try_intersection", 1))] operation: (&str, i64),
+) {
+    let (method, length) = operation;
     let source = format!(
         r#"
 a = {{"é" + "", "left"}}
 b = {{"é", "right"}}
 print("__test_fail_allocations_after_{budget}__")
-result = a.try_union(b)
+result = a.{method}(b)
 print("__test_restore_allocations__")
 match result:
     case Ok(value):
@@ -65,7 +69,7 @@ print("left" in a and "right" in b)
     );
     native(
         &source,
-        &format!("{}\n2\n2\nTrue", if budget == 3 { 3 } else { -1 }),
+        &format!("{}\n2\n2\nTrue", if budget == 3 { length } else { -1 }),
     );
 }
 
@@ -76,6 +80,56 @@ print("left" in a and "right" in b)
 fn invalid_union(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
+}
+
+#[rstest]
+#[case("try_union", 150, 100)]
+#[case("try_intersection", 50, 100)]
+fn algebra_membership_and_self_aliases(
+    #[case] method: &str,
+    #[case] length: i64,
+    #[case] self_length: i64,
+) {
+    native(
+        &format!(
+            r#"
+def operation(a: &set[i64], b: &set[i64]) -> Result[set[i64], AllocError]:
+    a.{method}(b)
+a = {{n for n in range(100)}}
+b = {{n for n in range(50, 150)}}
+match operation(&a, &b):
+    case Ok(values):
+        print(len(values))
+        print(75 in values)
+    case Err(error):
+        print(-1)
+match a.{method}(a):
+    case Ok(values):
+        print(len(values))
+    case Err(error):
+        print(-1)
+print(len(a))
+print(len(b))
+"#
+        ),
+        &format!("{length}\nTrue\n{self_length}\n100\n100"),
+    );
+}
+
+#[test]
+fn intersection_of_disjoint_sets_needs_only_an_owner_header() {
+    native(
+        r#"
+a = {1}
+b = {2}
+print("__test_fail_allocations_after_1__")
+result = a.try_intersection(b)
+print("__test_restore_allocations__")
+print(result)
+print(a.try_intersection(set[i64]()))
+"#,
+        "Result[set[i64], AllocError].Ok(set())\nResult[set[i64], AllocError].Ok(set())",
+    );
 }
 
 fn native(source: &str, expected: &str) {

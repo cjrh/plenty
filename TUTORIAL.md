@@ -1690,6 +1690,23 @@ True
 
 An allocation failure preserves the inputs. Set iteration order is unspecified.
 
+Find common members with `try_intersection`:
+
+```plenty
+def main() -> ():
+    match {1, 2}.try_intersection({2, 3}):
+        case Ok(common):
+            print(len(common))
+            print(2 in common)
+        case Err(error):
+            print(error)
+```
+
+```output
+1
+True
+```
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

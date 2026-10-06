@@ -367,7 +367,7 @@ fn set_algebra_cleans_partial_storage_and_retains_result_members() {
             crate::accounting::fail_after(None);
         }
     }
-    for (op, length) in [(65, 3)] {
+    for (op, length) in [(65, 3), (66, 1)] {
         for budget in 0..=3 {
             unsafe {
                 let a = collection(0, 0, 0, 0, &SET);

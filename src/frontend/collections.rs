@@ -692,7 +692,10 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if matches!(name, "issubset" | "issuperset" | "isdisjoint" | "try_union") {
+        if matches!(
+            name,
+            "issubset" | "issuperset" | "isdisjoint" | "try_union" | "try_intersection"
+        ) {
             if !matches!(ty, Ty::Set(_)) {
                 return Err(base.at.error(format!("{name} requires a set receiver")));
             }
@@ -713,6 +716,7 @@ impl Lower<'_> {
                 "issubset" => CollectionOp::SetIsSubset(ty),
                 "issuperset" => CollectionOp::SetIsSuperset(ty),
                 "try_union" => CollectionOp::SetTryUnion(ty),
+                "try_intersection" => CollectionOp::SetTryIntersection(ty),
                 _ => CollectionOp::SetIsDisjoint(ty),
             };
             let (_, result) = operation.signature();
