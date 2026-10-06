@@ -479,6 +479,35 @@ impl Drop for OwnedValue<'_> {
     }
 }
 
+/// Inputs stay borrowed throughout both passes. The output guard releases the
+/// initialized prefix on failure, without allocating or invoking user code.
+unsafe fn try_split(
+    text: *const Text,
+    separator: *const Text,
+    ty: &'static Type,
+) -> Result<u128, AllocError> {
+    unsafe {
+        let separator = strings::utf8(separator);
+        if separator.is_empty() {
+            crate::fail("string split requires a nonempty separator");
+        }
+        let pieces = strings::utf8(text).split(separator);
+        let result = try_collection_new(ty, pieces.clone().count())?;
+        let owner = OwnedValue {
+            value: result as u128,
+            ty,
+        };
+        for piece in pieces {
+            let piece = OwnedValue {
+                value: strings::try_new(piece)? as u128,
+                ty: ty.key(),
+            };
+            (*result).try_insert(piece.value, 0)?;
+        }
+        Ok(owner.into_value())
+    }
+}
+
 unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
     unsafe {
         if !ty.affine {
@@ -683,6 +712,14 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            36 => {
+                // The compiler supplies Result[list[str], AllocError] metadata.
+                let ty = (*descriptor).variants[0].fields[0];
+                match try_split(a as *const Text, b as *const Text, ty) {
+                    Ok(list) => wrap(list, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
             34 | 35 => {
                 let result = if op == 34 {
                     strings::try_concat(a as *const Text, b as *const Text)

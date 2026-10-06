@@ -24,6 +24,7 @@ pub enum CollectionOp {
     TextAtByte,
     TextTryConcat,
     TextTryJoin,
+    TextTrySplit,
 }
 
 impl Ty {
@@ -72,6 +73,13 @@ impl CollectionOp {
             TextTryJoin => (
                 vec![Ty::Str, Ty::List(std::rc::Rc::new(Ty::Str))],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
+            ),
+            TextTrySplit => (
+                vec![Ty::Str, Ty::Str],
+                crate::sum::result(
+                    Ty::List(std::rc::Rc::new(Ty::Str)),
+                    crate::sum::alloc_error(),
+                ),
             ),
             New(t) => (vec![], t.clone()),
             TryNew(t) => (
@@ -135,6 +143,7 @@ impl CollectionOp {
             Self::TextAtByte => 13,
             Self::TextTryConcat => 34,
             Self::TextTryJoin => 35,
+            Self::TextTrySplit => 36,
         }
     }
 }

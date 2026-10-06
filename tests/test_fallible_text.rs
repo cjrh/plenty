@@ -82,6 +82,119 @@ print(Custom().try_join("class method"))
     );
 }
 
+#[test]
+fn split_preserves_empty_fields_unicode_and_embedded_nuls() {
+    native(
+        r#"
+def check() -> Result[(), AllocError]:
+    pieces = "::é\0::🙂::::".try_split("::")?
+    print(pieces)
+    print(len(pieces[1]))
+    print("::".try_join(pieces)? == "::é\0::🙂::::")
+    print("".try_split(",")?)
+    print("abc".try_split("absent")?)
+    print("aaaaa".try_split("aa")?)
+    print("a界b界".try_split("界")?)
+    print("a\0b\0".try_split("\0")?)
+    Ok(())
+print(check())
+"#,
+        "[\"\", \"é\\0\", \"🙂\", \"\", \"\"]\n2\nTrue\n[\"\"]\n[\"abc\"]\n[\"\", \"\", \"a\"]\n[\"a\", \"b\", \"\"]\n[\"a\", \"b\", \"\"]\nResult[(), AllocError].Ok(())",
+    );
+}
+
+#[test]
+fn splitting_borrows_fields_and_parameters_and_evaluates_once() {
+    native(
+        r#"
+class Text:
+    contents: str
+def split(text: &str, separator: &str) -> Result[list[str], AllocError]:
+    text.try_split(separator)
+def source() -> str:
+    print("source")
+    "left:right"
+def separator() -> str:
+    print("separator")
+    ":"
+class Custom:
+    def try_split(self, text: str) -> str:
+        text
+text = Text("a:b")
+sep = ":"
+print(split(&text.contents, &sep))
+print(text.contents)
+print(source().try_split(separator()))
+print(Custom().try_split("custom"))
+"#,
+        "Result[list[str], AllocError].Ok([\"a\", \"b\"])\na:b\nsource\nseparator\nResult[list[str], AllocError].Ok([\"left\", \"right\"])\ncustom",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn splitting_recovers_at_every_allocation_and_preserves_sources() {
+    // One entry buffer, one list owner, and three piece allocations.
+    for budget in 0..=5 {
+        native(
+            &format!(r#"
+source = "a:" + "b:"
+separator = "" + ":"
+print("__test_fail_allocations_after_{budget}__")
+result = source.try_split(separator)
+print("__test_restore_allocations__")
+print(result)
+print(source)
+print(separator)
+print(source.try_split(separator))
+"#),
+            &format!("Result[list[str], AllocError].{}\na:b:\n:\nResult[list[str], AllocError].Ok([\"a\", \"b\", \"\"])",
+                if budget < 5 { "Err(AllocError.OutOfMemory)" } else { "Ok([\"a\", \"b\", \"\"])" }),
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_split_propagates_and_cleans_partial_output_without_allocating() {
+    for budget in 0..5 {
+        native(
+            &format!(
+                r#"
+class Guard:
+    def __del__(self: &mut Guard) -> ():
+        print("dropped")
+def split(source: str, guard: Guard) -> Result[list[str], AllocError]:
+    pieces = source.try_split(":")?
+    print("unreachable")
+    Ok(pieces)
+source = "a:" + "b:"
+guard = Guard()
+print("__test_fail_allocations_after_{budget}__")
+result = split(source, guard)
+print("__test_begin_no_allocations__")
+match result:
+    case Ok(pieces):
+        print("unexpected success")
+    case Err(error):
+        print("handled")
+print("__test_restore_allocations__")
+print("__test_end_no_allocations__")
+"#
+            ),
+            "dropped\nhandled",
+        );
+    }
+}
+
+#[test]
+fn split_rejects_empty_separator_at_runtime() {
+    let output = support::run("separator = \"\"\nprint(\"abc\".try_split(separator))");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("string split requires a nonempty separator"));
+}
+
 #[cfg(feature = "runtime-checks")]
 #[rstest]
 #[case("left.try_concat(right)", "left-right")]
@@ -149,6 +262,14 @@ print("__test_end_no_allocations__")
     "collection type does not match its annotation"
 )]
 #[case("print((1).try_concat(\"a\"))", "expected str")]
+#[case("print(\"a\".try_split())", "try_split requires one argument")]
+#[case("print(\"a\".try_split(\",\", 1))", "try_split requires one argument")]
+#[case("print(\"a\".try_split(1))", "expected str")]
+#[case("print((1).try_split(\",\"))", "expected str")]
+#[case(
+    "mut text = \"a:b\"\nloan = &mut text\nresult = text.try_split(\":\")\nprint(loan)",
+    "borrow"
+)]
 #[case(
     "mut parts = [\"a\"]\nloan = &mut parts\nresult = \"-\".try_join(parts)\nloan.append(\"b\")",
     "borrow"

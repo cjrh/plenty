@@ -26,10 +26,15 @@ pub(crate) unsafe fn utf8<'a>(text: *const Text) -> &'a str {
 }
 pub(crate) fn new(bytes: &[u8]) -> *mut Text {
     let text = str::from_utf8(bytes).unwrap_or_else(|_| crate::fail("invalid UTF-8 input"));
+    try_new(text).unwrap_or_else(|_| crate::fail("string allocation failed"))
+}
+
+pub(crate) fn try_new(text: &str) -> Result<*mut Text, AllocError> {
+    let bytes = text.as_bytes();
     if bytes.len() > i64::MAX as usize {
-        crate::fail("string capacity overflow");
+        return Err(AllocError::CapacityOverflow);
     }
-    let pointer = memory::allocate::<Text, u8>(bytes.len());
+    let pointer = memory::try_allocate::<Text, u8>(bytes.len())?;
     // SAFETY: the allocation has a header followed by exactly bytes.len() bytes.
     unsafe {
         pointer.write(Text {
@@ -44,7 +49,7 @@ pub(crate) fn new(bytes: &[u8]) -> *mut Text {
             bytes.len(),
         );
     }
-    pointer
+    Ok(pointer)
 }
 unsafe extern "C" fn destroy(header: *mut Header) {
     // SAFETY: callback installed only on dynamically allocated Text objects.

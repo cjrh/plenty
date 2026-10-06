@@ -116,6 +116,91 @@ static RESULT_OPTION: Type = Type {
     ..scalar(b'B')
 };
 static LIST_RESULT: Type = list(&RESULT_OPTION);
+static TEXT: Type = scalar(b's');
+static LIST_TEXT: Type = list(&TEXT);
+static ALLOC_ERROR: Type = Type {
+    name: "AllocError",
+    variants: &[
+        Variant {
+            name: "OutOfMemory",
+            fields: &[],
+        },
+        Variant {
+            name: "CapacityOverflow",
+            fields: &[],
+        },
+    ],
+    ..scalar(b'B')
+};
+static RESULT_TEXT_LIST: Type = Type {
+    affine: true,
+    name: "Result[list[str], AllocError]",
+    variants: &[
+        Variant {
+            name: "Ok",
+            fields: &[&LIST_TEXT],
+        },
+        Variant {
+            name: "Err",
+            fields: &[&ALLOC_ERROR],
+        },
+    ],
+    ..scalar(b'B')
+};
+
+#[test]
+fn split_output_outlives_inputs_and_preserves_exact_utf8() {
+    unsafe {
+        let text = strings::new("é\0::🙂::::".as_bytes());
+        let separator = strings::new(b"::");
+        let result = collection(36, text as u128, separator as u128, 0, &RESULT_TEXT_LIST);
+        plenty_release(text.cast());
+        plenty_release(separator.cast());
+        assert_eq!(result >> 64, 0);
+        let list = crate::aggregates::payload(result);
+        assert_eq!(collection(5, list, 0, 0, ptr::null()), 4);
+        for (i, expected) in ["é\0", "🙂", "", ""].iter().enumerate() {
+            let part = collection(4, list, i as u128, 0, ptr::null()) as *mut strings::Text;
+            assert_eq!(strings::utf8(part), *expected);
+            assert_eq!((*part).scalar_len, expected.chars().count() as u64);
+            plenty_release(part.cast());
+        }
+        crate::aggregates::release(result, &RESULT_TEXT_LIST);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn partial_split_cleanup_handles_every_allocation_failure() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let text = strings::new("é\0::🙂::::".as_bytes());
+        let separator = strings::new(b"::");
+        // Buffer + owner + four output strings, including the empty pieces.
+        for budget in 0..=6 {
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(36, text as u128, separator as u128, 0, &RESULT_TEXT_LIST)
+            };
+            if budget < 6 {
+                assert_eq!(result, 1u128 << 64);
+            } else {
+                assert_eq!(result >> 64, 0);
+            }
+            crate::aggregates::release(result, &RESULT_TEXT_LIST);
+            assert_eq!(strings::utf8(text), "é\0::🙂::::");
+            assert_eq!(strings::utf8(separator), "::");
+        }
+        plenty_release(text.cast());
+        plenty_release(separator.cast());
+    }
+}
 
 #[test]
 fn fallible_text_builders_copy_exact_bytes_and_unicode_lengths() {

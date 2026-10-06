@@ -76,7 +76,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values; safe dictionary lookup, removal, and slicing are missing |
-| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership; formatting, splitting/joining, and numeric parsing are missing |
+| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
@@ -91,7 +91,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | `with` context managers | Proposed; automatic destruction works today |
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
-| Recoverable text building | `str.try_concat(other)` and `str.try_join(parts)` return `Result[str, AllocError]` |
+| Recoverable text operations | `str.try_concat(other)` and `str.try_join(parts)` return `Result[str, AllocError]`; `str.try_split(separator)` returns `Result[list[str], AllocError]` |
 | Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
 | Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
@@ -615,6 +615,25 @@ text buffer or allocated array of pieces. Length/layout overflow returns
 remain unchanged. Error transport uses the allocation-free standard sum ABI.
 Ordinary `+` shares the concatenation implementation but retains terminal failure
 behavior. String indexing, input, and formatting remain future recovery work.
+
+`text.try_split(separator)` returns `Result[list[str], AllocError]`, observing
+both strings (including references) without consuming them. The explicit separator
+must be nonempty: an empty separator is an invalid-operation runtime error, like
+an out-of-bounds index, and terminates without unwinding. `AllocError` reports
+allocation failure, not invalid arguments. Whitespace splitting with an omitted
+separator and a maximum-split argument are not implemented.
+
+Matches are literal, non-overlapping, and scanned left to right. Leading, trailing,
+and adjacent separators produce empty pieces; an empty input produces `[""]`.
+No match produces a one-element list containing the input's contents. Multibyte
+separators and embedded NUL bytes work without normalization. The runtime counts
+pieces without allocating, reserves the result list, then allocates each piece's
+UTF-8 storage independently. Even empty pieces currently allocate. A failed
+allocation reclaims the list and every completed piece without changing either
+input; successful pieces remain valid after the original strings are dropped.
+The compiler supplies immutable result metadata; no descriptor allocation or
+intermediate array of substrings is needed. Input expression construction and
+ordinary indexing retain their existing failure policies.
 
 The native value is one pointer to a 32-byte prefix followed by exactly the UTF-8
 payload: the 16-byte managed header, a u64 byte length, and a u64 scalar count.
@@ -1140,7 +1159,7 @@ implemented. The new design review changes the recommended priority:
    records currently do. Recoverable OOM needs allocation-free error payloads
    as well as fallible runtime operations; wrapper layout alone does not promise it.
 3. Complete fallible allocation and allocator provenance (collection construction,
-   reservation, insertion, explicit copying, and text concatenation/joining now have
+   reservation, insertion, explicit copying, and text concatenation/joining/splitting now have
    recoverable `try_` APIs), then expand text,
    collection, input/file, and argument APIs under those rules. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.

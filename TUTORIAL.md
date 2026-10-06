@@ -1298,6 +1298,48 @@ or another kind of iterable is not supported yet. Creating the input list or
 strings, indexing text, and printing keep their existing allocation behavior.
 Ordinary string `+` also retains its terminal failure policy.
 
+### Split text into fields
+
+Use `text.try_split(separator)` to split on an explicit, nonempty string. It
+returns `Result[list[str], AllocError]`, so `?` can propagate allocation failure:
+
+```plenty
+def fields(line: &str) -> Result[list[str], AllocError]:
+    line.try_split("::")
+
+def main() -> ():
+    line = "Ada::Bea::::"
+    match fields(&line):
+        case Ok(parts):
+            print(parts)
+            print(" / ".try_join(parts))
+        case Err(error):
+            print(error)
+    print(line)
+    print("".try_split(","))
+```
+
+```output
+["Ada", "Bea", "", ""]
+Result[str, AllocError].Ok("Ada / Bea /  / ")
+Ada::Bea::::
+Result[list[str], AllocError].Ok([""])
+```
+
+Adjacent and trailing separators preserve empty fields. Matches do not overlap:
+`"aaaaa".try_split("aa")` succeeds with `["", "", "a"]`. A separator that does not
+occur produces a single piece containing the whole input. Unicode and embedded
+`\0` work in both the input and the separator.
+
+The operation observes both strings. Each output piece has independent storage;
+the result remains valid after the input is dropped. If allocation fails partway
+through, the partial result is cleaned up and both inputs remain unchanged.
+
+An empty separator is invalid and terminates the program with a runtime error;
+it does not return `AllocError`. Check `len(separator) > 0` when the separator
+comes from user input. There is currently no omitted-separator whitespace mode
+or maximum-split argument.
+
 ## 20. Produce values lazily with generators
 
 A generator function declares `Generator[T]` and uses `yield` statements:

@@ -77,6 +77,13 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   copies exact bytes without intermediate buffers or user callbacks. Empty and
   singleton joins also allocate an output. Ordinary concat uses the same helper
   with terminal failure handling. All paths preserve UTF-8 and embedded NUL bytes.
+- Opcode 36 splits two borrowed strings and returns `Result[list[str], AllocError]`.
+  The compiler supplies that result's immutable descriptor. Count literal,
+  non-overlapping separator matches without allocating, reserve the list, and
+  allocate each piece using checked string storage. An owner guard reclaims all
+  completed pieces on failure; no source storage is consumed or retained by the
+  result. Empty pieces are preserved and also allocate. Empty separators are
+  invalid operations and trap before allocating, rather than returning `AllocError`.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
@@ -98,7 +105,8 @@ Failure-injection markers reject all allocations after N successful calls, until
 explicitly restored. They cover alloc, alloc_zeroed, and realloc using a constant
 thread-local budget, without allocating inside the allocator. Integration tests
 exercise every collection construction/growth/reservation allocation and nested
-copy allocation, including partial-record and pending-key cleanup, and retry after
+copy and string-splitting allocation, including partial-record, pending-key, and
+partial-piece cleanup, and retry after
 each failure. Raw ABI tests also run under `--features allocation-checks`.
 This instrumentation and its checkpoint markers are absent from normal builds.
 

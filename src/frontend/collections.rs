@@ -538,15 +538,15 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(result);
         }
-        if matches!(name, "try_concat" | "try_join") {
+        if matches!(name, "try_concat" | "try_join" | "try_split") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if args.len() != 1 {
                 return Err(base.at.error(format!("{name} requires one argument")));
             }
-            let (expected, operation) = if name == "try_concat" {
-                (Ty::Str, CollectionOp::TextTryConcat)
-            } else {
-                (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin)
+            let (expected, operation) = match name {
+                "try_concat" => (Ty::Str, CollectionOp::TextTryConcat),
+                "try_split" => (Ty::Str, CollectionOp::TextTrySplit),
+                _ => (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin),
             };
             let argument_loans = if matches!(ungroup(&args[0]).kind, Expression::Collection { .. })
             {
@@ -558,10 +558,11 @@ impl Lower<'_> {
                 self.same(Some(argument), Some(expected), &args[0].at)?;
                 loans
             };
+            let (_, result) = operation.signature();
             ops.push(Op::Collection(operation));
             Self::end_reads(argument_loans, ops);
             Self::end_reads(loans, ops);
-            return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
+            return Ok(Some(result));
         }
         let Ty::Dict(k, v) = &ty else {
             return Err(base.at.error(format!("unsupported method `{name}`")));
