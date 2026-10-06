@@ -588,7 +588,13 @@ impl Lower<'_> {
         }
         if matches!(
             name,
-            "try_concat" | "try_join" | "try_split" | "try_get" | "try_replace"
+            "try_concat"
+                | "try_join"
+                | "try_split"
+                | "try_get"
+                | "try_replace"
+                | "startswith"
+                | "endswith"
         ) {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             let arity = if name == "try_replace" { 2 } else { 1 };
@@ -604,6 +610,8 @@ impl Lower<'_> {
                 "try_split" => (Ty::Str, CollectionOp::TextTrySplit),
                 "try_get" => (Ty::I64, CollectionOp::TextTryGet),
                 "try_replace" => (Ty::Str, CollectionOp::TextTryReplace),
+                "startswith" => (Ty::Str, CollectionOp::TextStartsWith),
+                "endswith" => (Ty::Str, CollectionOp::TextEndsWith),
                 _ => (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin),
             };
             let mut argument_loans = vec![];

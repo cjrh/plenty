@@ -139,6 +139,8 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   arithmetic subtracts removed contents before adding replacements, and checks
   multiplication, addition, and layout overflow. No match-position buffer or
   intermediate text allocation is used, including no-match and empty results.
+- Opcodes 48/49 compare literal string prefixes/suffixes without allocating or
+  modifying any owner. Empty patterns match, including empty input.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

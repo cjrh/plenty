@@ -805,6 +805,12 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            48 => {
+                strings::utf8(a as *const Text).starts_with(strings::utf8(b as *const Text)) as u128
+            }
+            49 => {
+                strings::utf8(a as *const Text).ends_with(strings::utf8(b as *const Text)) as u128
+            }
             47 => {
                 match strings::try_replace(a as *const Text, b as *const Text, value as *const Text)
                 {

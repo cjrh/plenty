@@ -78,6 +78,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
+| Allocation-free text queries | `startswith` and `endswith` compare literal prefixes/suffixes |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -722,6 +723,13 @@ Neither literals nor dynamic strings have a trailing terminator. Equality and
 hashing include every byte and do not normalize Unicode. `len` counts scalars,
 not grapheme clusters; indexing (including negative indices) returns a one-scalar
 `str`. Concatenation and indexing return independent values.
+
+`text.startswith(prefix)` and `text.endswith(suffix)` return `bool` without
+allocating. Each takes exactly one string (or reference), observes both operands
+once in source order, and compares literal UTF-8 without case folding or
+normalization. Empty prefixes/suffixes match every string, including empty input.
+Optional bounds and tuples of alternatives are not supported. Input expression
+construction retains its own allocation policy.
 
 `text.try_slice(start, stop)` returns `Result[str, AllocError]`. It uses the list
 slice's two required `i64` bounds, negative indexing, exclusive stop, and clamping,

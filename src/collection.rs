@@ -36,6 +36,8 @@ pub enum CollectionOp {
     TextTryGet,
     TextTrySlice,
     TextTryReplace,
+    TextStartsWith,
+    TextEndsWith,
 }
 
 impl Ty {
@@ -76,6 +78,7 @@ impl CollectionOp {
                 crate::sum::option(t.element().expect("generator element")),
             ),
             TextByteLen => (vec![Ty::Str], Ty::I64),
+            TextStartsWith | TextEndsWith => (vec![Ty::Str, Ty::Str], Ty::Bool),
             TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
             TextTryConcat => (
                 vec![Ty::Str, Ty::Str],
@@ -205,6 +208,8 @@ impl CollectionOp {
             Self::TextTryGet => 37,
             Self::TextTrySlice => 46,
             Self::TextTryReplace => 47,
+            Self::TextStartsWith => 48,
+            Self::TextEndsWith => 49,
         }
     }
 }

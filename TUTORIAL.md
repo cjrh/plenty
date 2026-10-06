@@ -1537,6 +1537,30 @@ method on a list returned by a function to transfer selected elements. Unselecte
 elements of that temporary are dropped after the call. If allocation fails,
 the temporary is cleaned up in full; a borrowed source remains unchanged.
 
+### Check a text prefix or suffix
+
+`startswith` and `endswith` borrow strings and return `bool` without allocating.
+Matches are literal and case-sensitive; an empty prefix or suffix always matches.
+
+```plenty
+def main() -> ():
+    name = "report.plenty"
+    print(name.startswith("report"))
+    print(name.endswith(".plenty"))
+    print(name.endswith(".PLENTY"))
+    print("".startswith(""))
+```
+
+```output
+True
+True
+False
+True
+```
+
+Each method takes one string, including a reference. Bounds and lists or tuples
+of alternative patterns are not supported yet.
+
 ### Slice text by Unicode scalar position
 
 Strings also have `try_slice(start, stop) -> Result[str, AllocError]`, using the
