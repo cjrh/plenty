@@ -864,6 +864,26 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            69 => {
+                let target = &mut *(a as *mut Collection);
+                let other = &*(b as *const Collection);
+                let ty = &*target.ty;
+                target.entries.retain(|entry| {
+                    if other.find(entry.key).is_some() {
+                        true
+                    } else {
+                        release(entry.key, ty.key());
+                        false
+                    }
+                });
+                target.table.fill(0);
+                for (index, entry) in target.entries.iter().enumerate() {
+                    let bucket = target.bucket(entry.key);
+                    target.table[bucket] = index + 1;
+                }
+                plenty_retain(a as *mut Header);
+                a
+            }
             65..=68 => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
                 let left_entries = left.entries.iter().filter(|entry| match op {

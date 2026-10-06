@@ -3,6 +3,71 @@ mod support;
 use rstest::rstest;
 
 #[test]
+fn intersection_update_filters_fields_and_borrows_its_source() {
+    native(
+        r#"
+def keep(target: &mut set[str], allowed: &set[str]) -> ():
+    target.intersection_update(allowed)
+class Store:
+    members: set[str]
+mut store = Store({"é" + "", "remove", "keep"})
+allowed = {"é", "keep", "extra"}
+keep(&mut store.members, &allowed)
+print(len(store.members))
+print("é" in store.members and "keep" in store.members)
+print("remove" in store.members)
+print(len(allowed))
+store.members.intersection_update(set[str]())
+print(len(store.members))
+class Custom:
+    def intersection_update(self) -> i64:
+        42
+print(Custom().intersection_update())
+"#,
+        "2\nTrue\nFalse\n3\n0\n42",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn intersection_update_reuses_capacity_and_repairs_probe_chains() {
+    native(
+        r#"
+mut target = {n for n in range(100)}
+allowed = {n for n in range(0, 100, 2)}
+print("__test_fail_allocations_after_0__")
+print("__test_begin_no_allocations__")
+target.intersection_update(allowed)
+target.add(101)
+a = 98 in target
+b = 99 in target
+c = 101 in target
+d = len(target)
+print("__test_restore_allocations__")
+print("__test_end_no_allocations__")
+print(a)
+print(b)
+print(c)
+print(d)
+print(len(allowed))
+"#,
+        "True\nFalse\nTrue\n51\n50",
+    );
+}
+
+#[rstest]
+#[case("a = {1}\na.intersection_update({1})", "immutable")]
+#[case("mut a = {1}\na.intersection_update(a)", "borrow")]
+#[case("mut a = {1}\nr = &a\na.intersection_update({1})\nprint(r)", "borrow")]
+#[case("mut a = {1}\na.intersection_update({1u8})", "expected set[i64]")]
+#[case("mut a = {1}\na.intersection_update()", "requires one set argument")]
+#[case("{1}.intersection_update({1})", "requires a mutable set")]
+fn invalid_intersection_update(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}
+
+#[test]
 fn union_borrows_sources_and_returns_an_independent_owner() {
     native(
         r#"

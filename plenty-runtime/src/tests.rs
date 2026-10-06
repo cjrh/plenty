@@ -430,6 +430,34 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
     }
 }
 
+#[test]
+fn set_filter_releases_removed_strings_and_keeps_source_owners() {
+    static SET: Type = Type {
+        affine: true,
+        key: Some(&TEXT),
+        ..scalar(b'S')
+    };
+    unsafe {
+        let target = collection(0, 0, 0, 0, &SET);
+        let other = collection(0, 0, 0, 0, &SET);
+        for (set, words) in [(target, ["é", "remove"]), (other, ["é", "extra"])] {
+            for word in words {
+                let text = strings::new(word.as_bytes());
+                plenty_release(collection(1, set, text as u128, 0, ptr::null()) as *mut Header);
+                plenty_release(text.cast());
+            }
+        }
+        plenty_release(collection(69, target, other, 0, ptr::null()) as *mut Header);
+        plenty_release(other as *mut Header);
+        assert_eq!(collection(5, target, 0, 0, ptr::null()), 1);
+        let kept = collection(6, target, 0, 0, ptr::null());
+        assert_eq!(strings::utf8(kept as *const strings::Text), "é");
+        plenty_release(target as *mut Header);
+        assert_eq!(strings::utf8(kept as *const strings::Text), "é");
+        plenty_release(kept as *mut Header);
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn set_update_preserves_string_owners_across_duplicate_and_failure_paths() {

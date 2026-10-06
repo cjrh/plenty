@@ -84,6 +84,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
 | Recoverable bulk collection mutation | `list.try_extend(list)` and dictionary/set `try_update` consume same-typed sources and reserve before changing contents |
 | Set relationships | `issubset`, `issuperset`, and `isdisjoint` observe same-typed sets without allocating |
+| In-place set filtering | `intersection_update` retains common members, borrowing its source and reusing destination capacity |
 | Fallible set algebra | `try_union`, `try_intersection`, `try_difference`, and `try_symmetric_difference` return independent sets and preserve both same-typed inputs |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
@@ -478,6 +479,38 @@ also avoids allocation. Set iteration order stays unspecified. Use `try_copy`
 explicitly to preserve the source; general iterables, source references, and
 multi-source update calls are deferred. Hashing/comparison of permitted member
 types invokes no user code or allocation.
+
+`set.try_union(other) -> Result[set[T], AllocError]` observes both same-typed sets
+and returns their unique members in an independent set. Inputs can be references
+or the same set. All output storage is reserved before retaining member owners;
+allocation failure leaves both inputs unchanged. Immutable strings may share
+storage. Nonempty results use three allocations (buckets, entries, owner header),
+empty results only the header. Iteration order is unspecified.
+
+`set.try_intersection(other)` has the same result and borrowing contract as
+`try_union`, selecting only common members. It reserves for the actual result
+size, so disjoint inputs need only an empty output owner header.
+
+`set.try_difference(other)` selects receiver members absent from `other`, using
+the same fallible, borrowed, exact-capacity contract. Unlike union and intersection,
+the operands are not interchangeable; subtracting a set from itself yields empty.
+
+`set.try_symmetric_difference(other)` selects members present in exactly one
+input. It shares the same fallible construction contract; equal inputs produce
+an empty result. Set algebra methods accept exactly one same-typed set, not
+arbitrary iterables, and do not imply overloaded arithmetic operators.
+
+`set.intersection_update(other) -> ()` retains common members in the receiver,
+requiring a mutable binding, field, or exclusive reference. The same-typed source
+is observed before acquiring the destination's exclusive loan and remains borrowed
+through mutation. Self-aliasing is rejected. Removed immutable member owners are
+released; entry and hash capacity are retained and the index is rebuilt without
+allocation. Both lookups and future insertion remain valid.
+
+Set relationship methods take one same-typed set, including shared references,
+and return `bool`. They observe both operands once, left to right, without moving
+them or allocating. Empty sets are subsets of all sets and disjoint from all sets.
+No iterable conversion, comparison operators, or heterogeneous key coercion is implied.
 
 `items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
 forward list slice. Both arguments are required `i64` indices; start is inclusive
@@ -1418,31 +1451,6 @@ state-machine lowering, with no interpreter, C-stack suspension, or eager yield
 collection. The initial state dispatch is a linear comparison chain.
 Iteration wraps each resume result in an allocation-free inline `Option`.
 Optimizing frame liveness remains a later runtime improvement.
-
-`set.try_union(other) -> Result[set[T], AllocError]` observes both same-typed sets
-and returns their unique members in an independent set. Inputs can be references
-or the same set. All output storage is reserved before retaining member owners;
-allocation failure leaves both inputs unchanged. Immutable strings may share
-storage. Nonempty results use three allocations (buckets, entries, owner header),
-empty results only the header. Iteration order is unspecified.
-
-`set.try_intersection(other)` has the same result and borrowing contract as
-`try_union`, selecting only common members. It reserves for the actual result
-size, so disjoint inputs need only an empty output owner header.
-
-`set.try_difference(other)` selects receiver members absent from `other`, using
-the same fallible, borrowed, exact-capacity contract. Unlike union and intersection,
-the operands are not interchangeable; subtracting a set from itself yields empty.
-
-`set.try_symmetric_difference(other)` selects members present in exactly one
-input. It shares the same fallible construction contract; equal inputs produce
-an empty result. Set algebra methods accept exactly one same-typed set, not
-arbitrary iterables, and do not imply overloaded arithmetic operators.
-
-Set relationship methods take one same-typed set, including shared references,
-and return `bool`. They observe both operands once, left to right, without moving
-them or allocating. Empty sets are subsets of all sets and disjoint from all sets.
-No iterable conversion, comparison operators, or heterogeneous key coercion is implied.
 
 ## Next milestones
 

@@ -539,6 +539,9 @@ impl Lower<'_> {
         if name == "discard" && matches!(self.place_type(base), Some(Ty::Set(_))) {
             return self.collection_removal(base, args, ops);
         }
+        if name == "intersection_update" && matches!(self.place_type(base), Some(Ty::Set(_))) {
+            return self.set_filter_mutation(base, name, args, ops);
+        }
         let (ty, loans) = self.observe(base, ops)?;
         if let Ty::Class(class) = &ty {
             let slot = self.slot(ty.clone(), &base.at)?;
@@ -586,6 +589,11 @@ impl Lower<'_> {
             return Err(base
                 .at
                 .error("try_update requires a mutable dictionary or set binding or class field"));
+        }
+        if name == "intersection_update" {
+            return Err(base.at.error(format!(
+                "{name} requires a mutable set binding or class field"
+            )));
         }
         if name == "clear" {
             return Err(base.at.error(
@@ -865,6 +873,40 @@ impl Lower<'_> {
         ops.push(Op::Collection(operation));
         ops.push(Op::UseLoan(loan));
         Ok(Some(result))
+    }
+
+    fn set_filter_mutation(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if args.len() != 1 {
+            return Err(base.at.error(format!("{name} requires one set argument")));
+        }
+        let ty = self.place_type(base).expect("set place");
+        let argument = &args[0];
+        let reads = if matches!(ungroup(argument).kind, Expression::Collection { .. }) {
+            let actual = self.expr_expected(argument, Some(ty.clone()), ops)?;
+            self.same(actual, Some(ty.clone()), &argument.at)?;
+            vec![]
+        } else {
+            let (actual, reads) = self.observe(argument, ops)?;
+            self.same(Some(actual), Some(ty.clone()), &argument.at)?;
+            reads
+        };
+        let slot = self.slot(ty.clone(), &argument.at)?;
+        ops.push(Op::StoreLocal(slot));
+        let loan = self.mutation_place(base, ops)?;
+        ops.push(Op::MoveLocal(slot, "set filter argument".into()));
+        ops.push(Op::Collection(CollectionOp::SetIntersectionUpdate(ty)));
+        ops.push(Op::Drop);
+        ops.push(Op::UseLoan(loan));
+        // Keep the source shared loan live across the exclusive operation.
+        // This rejects self-aliases rather than exposing aliased Rust references.
+        Self::end_reads(reads, ops);
+        Ok(None)
     }
 
     fn collection_unit_mutation(

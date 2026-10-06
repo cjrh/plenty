@@ -1749,6 +1749,32 @@ True
 False
 ```
 
+### Filter a set in place
+
+`intersection_update` retains common members in a mutable set. It borrows the
+other set, returns unit, and reuses existing storage without allocating:
+
+```plenty
+def main() -> ():
+    mut selected = {1, 2, 3}
+    allowed = {2, 3, 4}
+    selected.intersection_update(allowed)
+    print(len(selected))
+    print(1 in selected)
+    print(2 in selected and 3 in selected)
+    print(len(allowed))
+```
+
+```output
+2
+False
+True
+3
+```
+
+The source must be a different set: it stays borrowed while the destination is
+mutated. Use `try_intersection` when you want an independent result instead.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is
