@@ -649,6 +649,35 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
+        if let Ty::List(element) = &ty {
+            if matches!(name, "count" | "find" | "rfind") {
+                if !(element.is_int()
+                    || element.is_float()
+                    || matches!(**element, Ty::Bool | Ty::Str))
+                {
+                    return Err(base
+                        .at
+                        .error("list search supports integer, float, bool, and str elements"));
+                }
+                if args.len() != 1 {
+                    return Err(base
+                        .at
+                        .error(format!("{name} requires one element argument")));
+                }
+                let (actual, reads) = self.observe(&args[0], ops)?;
+                self.same(Some(actual), Some((**element).clone()), &args[0].at)?;
+                let operation = match name {
+                    "count" => CollectionOp::ListCount(ty),
+                    "find" => CollectionOp::ListFind(ty),
+                    _ => CollectionOp::ListRFind(ty),
+                };
+                let (_, result) = operation.signature();
+                ops.push(Op::Collection(operation));
+                Self::end_reads(reads, ops);
+                Self::end_reads(loans, ops);
+                return Ok(Some(result));
+            }
+        }
         if matches!(
             name,
             "try_concat"

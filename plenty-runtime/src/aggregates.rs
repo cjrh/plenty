@@ -864,6 +864,23 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            73..=75 => {
+                let list = &*(a as *const Collection);
+                let matches = |entry: &Entry| equal(entry.key, b, list.ty().key());
+                if op == 73 {
+                    list.entries.iter().filter(|entry| matches(entry)).count() as u128
+                } else {
+                    let index = if op == 74 {
+                        list.entries.iter().position(matches)
+                    } else {
+                        list.entries.iter().rposition(matches)
+                    };
+                    match index {
+                        Some(index) => wrap(index as u128, 1),
+                        None => wrap(0, 0),
+                    }
+                }
+            }
             71 | 72 => {
                 let source = strings::utf8(a as *const Text);
                 let affix = strings::utf8(b as *const Text);

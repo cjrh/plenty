@@ -26,7 +26,10 @@ pub enum CollectionOp {
     SetDifferenceUpdate(Ty),
     Put(Ty), // exclusive in-place indexed update
     Get(Ty),
-    ListGet(Ty),     // observed list/index -> Option[non-affine element]
+    ListGet(Ty), // observed list/index -> Option[non-affine element]
+    ListCount(Ty),
+    ListFind(Ty),
+    ListRFind(Ty),
     DictGet(Ty),     // observed dictionary/key -> Option[non-affine value]
     DictPop(Ty),     // exclusive dictionary/key -> Option[owned value]
     ListPop(Ty),     // exclusive list/index -> Option[owned element]
@@ -197,6 +200,11 @@ impl CollectionOp {
                 )
             }
             SetDiscard(t) => (vec![t.clone(), t.element().unwrap()], Ty::Bool),
+            ListCount(t) => (vec![t.clone(), t.element().unwrap()], Ty::I64),
+            ListFind(t) | ListRFind(t) => (
+                vec![t.clone(), t.element().unwrap()],
+                crate::sum::option(Ty::I64),
+            ),
             SetIntersectionUpdate(t) | SetDifferenceUpdate(t) => {
                 (vec![t.clone(), t.clone()], t.clone())
             }
@@ -250,6 +258,9 @@ impl CollectionOp {
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,
             Self::ListGet(_) => 42,
+            Self::ListCount(_) => 73,
+            Self::ListFind(_) => 74,
+            Self::ListRFind(_) => 75,
             Self::DictPop(_) => 39,
             Self::ListPop(_) => 40,
             Self::SetDiscard(_) => 41,

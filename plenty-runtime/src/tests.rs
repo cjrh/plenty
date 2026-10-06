@@ -460,6 +460,28 @@ fn set_filter_releases_removed_strings_and_keeps_source_owners() {
     }
 }
 
+#[test]
+fn list_queries_compare_float_values_and_return_inline_positions() {
+    unsafe {
+        let list = collection(0, 0, 0, 0, &LIST_F64);
+        for value in [f64::NAN, -0.0, 1.5, 0.0] {
+            plenty_release(
+                collection(1, list, value.to_bits() as u128, 0, ptr::null()) as *mut Header
+            );
+        }
+        assert_eq!(collection(73, list, 0, 0, ptr::null()), 2);
+        assert_eq!(collection(74, list, 0, 0, ptr::null()), (1u128 << 64) | 1);
+        assert_eq!(collection(75, list, 0, 0, ptr::null()), (1u128 << 64) | 3);
+        for op in [73, 74, 75] {
+            assert_eq!(
+                collection(op, list, f64::NAN.to_bits() as u128, 0, ptr::null()),
+                0
+            );
+        }
+        plenty_release(list as *mut Header);
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn removed_affixes_have_independent_storage_and_recoverable_failure() {

@@ -79,6 +79,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
+| Allocation-free list queries | `count`, `find`, and `rfind` observe integer/float/bool/string lists; searches return `Option[i64]` |
 | Literal text affix removal | `try_removeprefix`/`try_removesuffix` remove one exact boundary match and return independent fallible strings |
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
 | Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
@@ -517,6 +518,16 @@ Set relationship methods take one same-typed set, including shared references,
 and return `bool`. They observe both operands once, left to right, without moving
 them or allocating. Empty sets are subsets of all sets and disjoint from all sets.
 No iterable conversion, comparison operators, or heterogeneous key coercion is implied.
+
+`items.count(value) -> i64` counts equal elements; `find(value)` and `rfind(value)`
+return the first or last matching zero-based index as `Option[i64]`. Missing
+values produce `Nothing`, not a sentinel or exception. These methods currently
+support integer, float, bool, and string elements only, guaranteeing allocation-free
+comparison. Aggregate equality can allocate memoization storage and is deliberately
+excluded until its failure policy is addressed. Floats use IEEE equality (NaN
+never matches; signed zeros compare equal). Both operands are observed once in
+source order, including references, and must have exactly matching element types.
+Optional bounds and Python's throwing `index` method are deferred.
 
 `items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
 forward list slice. Both arguments are required `i64` indices; start is inclusive
