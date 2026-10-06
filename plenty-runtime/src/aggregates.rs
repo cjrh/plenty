@@ -864,12 +864,12 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
-            69 => {
+            69 | 70 => {
                 let target = &mut *(a as *mut Collection);
                 let other = &*(b as *const Collection);
                 let ty = &*target.ty;
                 target.entries.retain(|entry| {
-                    if other.find(entry.key).is_some() {
+                    if other.find(entry.key).is_some() == (op == 69) {
                         true
                     } else {
                         release(entry.key, ty.key());

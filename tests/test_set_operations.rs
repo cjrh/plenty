@@ -3,6 +3,65 @@ mod support;
 use rstest::rstest;
 
 #[test]
+fn difference_update_borrows_inputs_and_preserves_storage() {
+    native(
+        r#"
+def remove(target: &mut set[str], blocked: &set[str]) -> ():
+    target.difference_update(blocked)
+class Store:
+    members: set[str]
+mut store = Store({"é" + "", "remove", "keep"})
+blocked = {"é", "remove", "other"}
+remove(&mut store.members, &blocked)
+print(len(store.members))
+print("keep" in store.members)
+print("é" in store.members)
+print(len(blocked))
+store.members.difference_update(set[str]())
+print(len(store.members))
+store.members.difference_update({"keep"})
+print(len(store.members))
+class Custom:
+    def difference_update(self) -> i64:
+        42
+print(Custom().difference_update())
+"#,
+        "1\nTrue\nFalse\n3\n1\n0\n42",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn difference_update_repairs_hashes_and_can_empty_without_allocating() {
+    native(
+        r#"
+mut target = {n for n in range(100)}
+blocked = {n for n in range(0, 100, 2)}
+all = {n for n in range(100)}
+print("__test_fail_allocations_after_0__")
+print("__test_begin_no_allocations__")
+target.difference_update(blocked)
+a = len(target)
+b = 98 in target
+c = 99 in target
+target.difference_update(all)
+d = len(target)
+target.add(101)
+e = 101 in target
+print("__test_restore_allocations__")
+print("__test_end_no_allocations__")
+print(a)
+print(b)
+print(c)
+print(d)
+print(e)
+print(len(blocked))
+"#,
+        "50\nFalse\nTrue\n0\nTrue\n50",
+    );
+}
+
+#[test]
 fn intersection_update_filters_fields_and_borrows_its_source() {
     native(
         r#"
@@ -62,8 +121,13 @@ print(len(allowed))
 #[case("mut a = {1}\na.intersection_update({1u8})", "expected set[i64]")]
 #[case("mut a = {1}\na.intersection_update()", "requires one set argument")]
 #[case("{1}.intersection_update({1})", "requires a mutable set")]
-fn invalid_intersection_update(#[case] source: &str, #[case] expected: &str) {
-    let error = support::check_source(source).unwrap_err().to_string();
+fn invalid_intersection_update(
+    #[case] source: &str,
+    #[case] expected: &str,
+    #[values("intersection_update", "difference_update")] method: &str,
+) {
+    let source = source.replace("intersection_update", method);
+    let error = support::check_source(&source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
 

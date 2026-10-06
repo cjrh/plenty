@@ -84,7 +84,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
 | Recoverable bulk collection mutation | `list.try_extend(list)` and dictionary/set `try_update` consume same-typed sources and reserve before changing contents |
 | Set relationships | `issubset`, `issuperset`, and `isdisjoint` observe same-typed sets without allocating |
-| In-place set filtering | `intersection_update` retains common members, borrowing its source and reusing destination capacity |
+| In-place set filtering | `intersection_update` retains common members; `difference_update` removes them; both borrow the source and reuse destination capacity |
 | Fallible set algebra | `try_union`, `try_intersection`, `try_difference`, and `try_symmetric_difference` return independent sets and preserve both same-typed inputs |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
@@ -506,6 +506,11 @@ is observed before acquiring the destination's exclusive loan and remains borrow
 through mutation. Self-aliasing is rejected. Removed immutable member owners are
 released; entry and hash capacity are retained and the index is rebuilt without
 allocation. Both lookups and future insertion remain valid.
+
+`set.difference_update(other) -> ()` follows the same borrowing and no-allocation
+contract, removing every member also present in `other`. An empty source changes
+nothing. It retains capacity even when all members are removed. Neither method
+accepts source aliases into the destination; use `clear()` to empty a set directly.
 
 Set relationship methods take one same-typed set, including shared references,
 and return `bool`. They observe both operands once, left to right, without moving

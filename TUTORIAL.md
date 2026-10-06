@@ -1775,6 +1775,27 @@ True
 The source must be a different set: it stays borrowed while the destination is
 mutated. Use `try_intersection` when you want an independent result instead.
 
+Use `difference_update` to remove the other set's members in place:
+
+```plenty
+def main() -> ():
+    mut pending = {1, 2, 3}
+    done = {2, 3, 4}
+    pending.difference_update(done)
+    print(len(pending))
+    print(1 in pending)
+    print(len(done))
+```
+
+```output
+1
+True
+3
+```
+
+This also allocates nothing and keeps the source usable. To remove every member
+without needing another set, use `clear()`.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

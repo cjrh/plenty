@@ -539,7 +539,9 @@ impl Lower<'_> {
         if name == "discard" && matches!(self.place_type(base), Some(Ty::Set(_))) {
             return self.collection_removal(base, args, ops);
         }
-        if name == "intersection_update" && matches!(self.place_type(base), Some(Ty::Set(_))) {
+        if matches!(name, "intersection_update" | "difference_update")
+            && matches!(self.place_type(base), Some(Ty::Set(_)))
+        {
             return self.set_filter_mutation(base, name, args, ops);
         }
         let (ty, loans) = self.observe(base, ops)?;
@@ -590,7 +592,7 @@ impl Lower<'_> {
                 .at
                 .error("try_update requires a mutable dictionary or set binding or class field"));
         }
-        if name == "intersection_update" {
+        if matches!(name, "intersection_update" | "difference_update") {
             return Err(base.at.error(format!(
                 "{name} requires a mutable set binding or class field"
             )));
@@ -900,7 +902,11 @@ impl Lower<'_> {
         ops.push(Op::StoreLocal(slot));
         let loan = self.mutation_place(base, ops)?;
         ops.push(Op::MoveLocal(slot, "set filter argument".into()));
-        ops.push(Op::Collection(CollectionOp::SetIntersectionUpdate(ty)));
+        ops.push(Op::Collection(if name == "intersection_update" {
+            CollectionOp::SetIntersectionUpdate(ty)
+        } else {
+            CollectionOp::SetDifferenceUpdate(ty)
+        }));
         ops.push(Op::Drop);
         ops.push(Op::UseLoan(loan));
         // Keep the source shared loan live across the exclusive operation.
