@@ -1020,6 +1020,8 @@ fn named_type(name: &str) -> Type {
         "range" => Ty::Range,
         "AllocError" => crate::sum::alloc_error(),
         "ParseError" => crate::sum::parse_error(),
+        "DataError" => crate::sum::data_error(),
+        "IoError" => crate::sum::io_error(),
         _ => return None,
     })
 }
@@ -1034,6 +1036,7 @@ fn builtin(name: &str) -> bool {
         || matches!(
             name,
             "print"
+                | "write_stdout"
                 | "contains"
                 | "list"
                 | "dict"
@@ -1481,6 +1484,9 @@ impl Lower<'_> {
                 }
                 if name == "next" {
                     return self.next(args, &e.at, ops);
+                }
+                if name == "write_stdout" {
+                    return self.system_call(CollectionOp::WriteStdout, args, &e.at, ops);
                 }
                 if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
                     return self.builtin_collection(name, args, &e.at, ops).map(Some);

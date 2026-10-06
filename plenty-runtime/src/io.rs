@@ -1,6 +1,29 @@
 use crate::strings::{self, Text};
 use std::io::Write;
 
+pub(crate) fn system_error(error: std::io::Error) -> u128 {
+    crate::aggregates::wrap(error.raw_os_error().unwrap_or(0) as u32 as u128, 0)
+}
+
+pub(crate) fn io_result(result: std::io::Result<u128>) -> u128 {
+    use crate::aggregates::wrap;
+    match result {
+        Ok(value) => wrap(value, 0),
+        Err(error) => wrap(system_error(error), 1),
+    }
+}
+
+pub(crate) unsafe fn write_stdout(text: *const Text) -> u128 {
+    // SAFETY: the dispatcher borrows a live text throughout this call.
+    let source = unsafe { strings::utf8(text) };
+    io_result(
+        std::io::stdout()
+            .lock()
+            .write_all(source.as_bytes())
+            .map(|()| source.chars().count() as u128),
+    )
+}
+
 pub(crate) fn output(bytes: &[u8]) {
     if std::io::stdout().lock().write_all(bytes).is_err() {
         crate::fail("cannot write stdout");

@@ -1,0 +1,99 @@
+mod support;
+
+fn native(source: &str, expected: &str) {
+    let output = support::run(source);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+}
+
+#[test]
+fn writes_exact_text_and_returns_character_count() {
+    native(
+        r#"
+def send(text: &str) -> Result[i64, IoError]:
+    Ok(write_stdout(text)?)
+text = "hé🙂\0"
+result = send(&text)
+print(result)
+print(text)
+print(write_stdout(""))
+"#,
+        "hé🙂\0Result[i64, IoError].Ok(4)\nhé🙂\0\nResult[i64, IoError].Ok(0)\n",
+    );
+}
+
+#[test]
+fn io_errors_are_constructible_and_matchable() {
+    native(r#"
+def error() -> Result[i64, IoError]:
+    Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))
+print(error())
+print(IoError.System(5i32))
+print(IoError.Data(DataError.InvalidUtf8))
+"#, "Result[i64, IoError].Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))\nIoError.System(5)\nIoError.Data(DataError.InvalidUtf8)\n");
+}
+
+#[test]
+fn write_checks_arguments() {
+    for source in [
+        "write_stdout()",
+        "write_stdout(1)",
+        "write_stdout(\"a\", \"b\")",
+    ] {
+        assert!(support::check_source(source).is_err());
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn stdout_failure_is_recoverable() {
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("program");
+    support::compile_source_to_executable(
+        r#"
+def main() -> i32:
+    match write_stdout("line\n"):
+        case Ok(count):
+            1i32
+        case Err(error):
+            0i32
+"#,
+        &executable,
+    )
+    .unwrap();
+    let output = std::process::Command::new(executable)
+        .stdout(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open("/dev/full")
+                .unwrap(),
+        )
+        .status()
+        .unwrap();
+    assert!(output.success());
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn output_and_io_error_construction_do_not_allocate() {
+    let output = support::run(
+        r#"
+print("__test_fail_allocations_after_0__")
+a = write_stdout("hello\n")
+b = IoError.Data(DataError.Allocation(AllocError.OutOfMemory))
+print("__test_restore_allocations__")
+print(a)
+print(b)
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Result[i64, IoError].Ok(6)"));
+}

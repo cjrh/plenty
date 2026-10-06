@@ -75,6 +75,32 @@ impl Parser {
 }
 
 impl Lower<'_> {
+    pub(super) fn system_call(
+        &mut self,
+        operation: CollectionOp,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let (inputs, output) = operation.signature();
+        if args.len() != inputs.len() {
+            return Err(at.error(format!(
+                "expected {} arguments, got {}",
+                inputs.len(),
+                args.len()
+            )));
+        }
+        let mut loans = Vec::new();
+        for (arg, expected) in args.iter().zip(inputs) {
+            let (actual, reads) = self.observe(arg, ops)?;
+            self.same(Some(actual), Some(expected), &arg.at)?;
+            loans.extend(reads);
+        }
+        ops.push(Op::Collection(operation));
+        Self::end_reads(loans, ops);
+        Ok(Some(output))
+    }
+
     pub(super) fn slot(&mut self, ty: Ty, at: &Token) -> Result<u8> {
         let slot = u8::try_from(self.parameters + self.locals.len())
             .map_err(|_| at.error("at most 256 parameter/local slots are supported"))?;

@@ -28,7 +28,11 @@ impl Hash for EnumType {
 impl EnumType {
     /// Builtin sums have one payload and a binary discriminant at each level.
     pub fn inline(&self) -> bool {
-        self.propagatable() || matches!(self.name.as_str(), "AllocError" | "ParseError")
+        self.propagatable()
+            || matches!(
+                self.name.as_str(),
+                "AllocError" | "ParseError" | "IoError" | "DataError"
+            )
     }
     pub fn propagatable(&self) -> bool {
         self.name.starts_with("Option[") || self.name.starts_with("Result[")
@@ -59,6 +63,31 @@ pub fn alloc_error() -> Ty {
 
 pub fn allocation_result() -> Ty {
     result(Ty::Unit, alloc_error())
+}
+
+pub fn data_error() -> Ty {
+    let Ty::Enum(template) = result(Ty::Unit, alloc_error()) else {
+        unreachable!()
+    };
+    let mut ty = (*template).clone();
+    ty.name = "DataError".into();
+    ty.variants[0] = Variant {
+        name: "InvalidUtf8".into(),
+        fields: vec![],
+    };
+    ty.variants[1].name = "Allocation".into();
+    Ty::Enum(Rc::new(ty))
+}
+
+pub fn io_error() -> Ty {
+    let Ty::Enum(template) = result(Ty::I32, data_error()) else {
+        unreachable!()
+    };
+    let mut ty = (*template).clone();
+    ty.name = "IoError".into();
+    ty.variants[0].name = "System".into();
+    ty.variants[1].name = "Data".into();
+    Ty::Enum(Rc::new(ty))
 }
 
 pub fn parse_error() -> Ty {

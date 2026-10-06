@@ -131,6 +131,16 @@ behavior.
 
 ### Numeric text conversion and allocation policy
 
+`write_stdout(text) -> Result[i64, IoError]` borrows UTF-8 text, writes it without
+adding a newline, and returns its Unicode-scalar count. `IoError.System(i32)`
+preserves a native OS error code (zero means a failure without an OS code).
+`IoError.Data(DataError.InvalidUtf8)` reports invalid encoding, and
+`IoError.Data(DataError.Allocation(AllocError))` reports recoverable allocation
+failure. These error values and their Result wrappers all have inline layouts.
+Writes may have visible partial effects before returning an error. Successful
+writes may still be buffered; neither writing nor ordinary flushing implies
+durable disk storage. Existing `print` retains its terminal error behavior.
+
 Every integer type exposes `T.parse(text) -> Result[T, ParseError]`.
 Parsing borrows its string, trims Unicode White_Space, accepts an optional ASCII
 sign and decimal ASCII digits, and checks the target width. Empty or malformed

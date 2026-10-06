@@ -2841,6 +2841,26 @@ Result[str, AllocError].Ok("-0.0")
 Result[str, AllocError].Ok("True")
 ```
 
+## Writing text with recoverable errors
+
+`write_stdout(text)` borrows a string and writes exactly its contents, without a
+newline. Success returns the number of Unicode characters. An I/O error can
+follow a partial write, so retrying the whole string can duplicate output.
+
+```plenty
+def main() -> ():
+    result = write_stdout("Hello!\n")
+    print(result)
+```
+```output
+Hello!
+Result[i64, IoError].Ok(7)
+```
+
+`IoError.System(code)` carries a native OS error code (or zero when unavailable).
+`IoError.Data` carries `DataError.InvalidUtf8` or
+`DataError.Allocation(AllocError)`. All these error values allocate nothing.
+
 ## Where the language goes next
 
 
