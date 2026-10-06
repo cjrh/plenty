@@ -84,6 +84,12 @@ static DICT: Type = Type {
     value: Some(&LIST_INT),
     ..scalar(b'D')
 };
+static DICT_TEXT: Type = Type {
+    affine: true,
+    key: Some(&TEXT),
+    value: Some(&TEXT),
+    ..scalar(b'D')
+};
 static GENERATOR: Type = scalar(b'G');
 static OPTION_GUARD: Type = Type {
     affine: true,
@@ -175,6 +181,73 @@ static RESULT_OPTION_TEXT: Type = Type {
     ],
     ..scalar(b'B')
 };
+
+#[test]
+fn optional_dictionary_lookup_retains_values_across_update_and_destruction() {
+    unsafe {
+        let dictionary = collection(0, 0, 0, 0, &DICT_TEXT);
+        let key = strings::new("é\0".as_bytes());
+        let equal_key = strings::new("é\0".as_bytes());
+        let value = strings::new("Ada🙂".as_bytes());
+        let replacement = strings::new(b"Bea");
+        plenty_release(
+            collection(1, dictionary, key as u128, value as u128, ptr::null()) as *mut Header,
+        );
+        let found = collection(38, dictionary, equal_key as u128, 0, ptr::null());
+        assert_eq!(found >> 64, 1);
+        assert_eq!(
+            collection(38, dictionary, replacement as u128, 0, ptr::null()),
+            0
+        );
+        plenty_release(
+            collection(3, dictionary, key as u128, replacement as u128, ptr::null()) as *mut Header,
+        );
+        plenty_release(dictionary as *mut Header);
+        for text in [key, equal_key, value, replacement] {
+            plenty_release(text.cast());
+        }
+        assert_eq!(strings::utf8(found as *const strings::Text), "Ada🙂");
+        crate::aggregates::retain(found, &OPTION_TEXT);
+        crate::aggregates::release(found, &OPTION_TEXT);
+        assert_eq!(strings::utf8(found as *const strings::Text), "Ada🙂");
+        crate::aggregates::release(found, &OPTION_TEXT);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn dictionary_lookup_succeeds_when_allocation_is_disabled() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let dictionary = collection(0, 0, 0, 0, &DICT_TEXT);
+        let key = strings::new(b"key");
+        let equal_key = strings::new(b"key");
+        let value = strings::new(b"value");
+        plenty_release(
+            collection(1, dictionary, key as u128, value as u128, ptr::null()) as *mut Header,
+        );
+        let (found, missing) = {
+            let _restore = Restore;
+            crate::accounting::fail_after(Some(0));
+            (
+                collection(38, dictionary, equal_key as u128, 0, ptr::null()),
+                collection(38, dictionary, value as u128, 0, ptr::null()),
+            )
+        };
+        assert_eq!(found >> 64, 1);
+        assert_eq!(missing, 0);
+        crate::aggregates::release(found, &OPTION_TEXT);
+        plenty_release(dictionary as *mut Header);
+        for text in [key, equal_key, value] {
+            plenty_release(text.cast());
+        }
+    }
+}
 
 #[test]
 fn checked_character_results_use_inline_tags_and_outlive_the_source() {

@@ -90,6 +90,11 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   use one checked string allocation and the inline `Ok(Some(...))` tag path.
   Allocation failure uses the ordinary inline error tags. Normal string indexing
   shares this helper and converts missing indices/allocation errors into traps.
+- Opcode 38 performs dictionary lookup and returns inline `Option[V]`. The
+  frontend permits only non-affine values. Hash lookup borrows the dictionary and
+  key; a hit retains its value before wrapping it in `Some`, and a miss returns
+  `Nothing`. Neither path allocates. A retained result survives entry replacement
+  or dictionary destruction, including nested inline sums and immutable enums.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
@@ -116,6 +121,8 @@ partial-piece cleanup, and retry after
 each failure. Raw ABI tests also run under `--features allocation-checks`.
 Checked character lookup also verifies zero allocations for missing indices,
 one for present scalars, and allocation-free propagation on failure.
+Optional dictionary lookup checks allocation-free hits/misses, equal but separately
+allocated string keys, and returned-value lifetime across update/destruction.
 This instrumentation and its checkpoint markers are absent from normal builds.
 
 Miri covers raw layouts, flexible allocations, metadata sharing, float bit patterns

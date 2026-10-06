@@ -689,8 +689,45 @@ independent payloads explicitly. Sets remove
 duplicates and have no promised iteration order. `{}` is an empty dictionary;
 use an annotation with `set()` or write `set[str]()` for an empty set.
 
-Missing dictionary keys are runtime errors. Check membership before indexing
-when absence is possible; a built-in `Option`-returning lookup is not yet provided.
+Missing keys in `scores[key]` are runtime errors. Use `scores.get(key)` when
+absence is expected. It returns an `Option`: `Some(value)` if found, or `Nothing`
+if absent. Match the two possibilities explicitly:
+
+```plenty
+def main() -> ():
+    scores = {"Ada": 12, "Grace": 0}
+    match scores.get("Ada"):
+        case Some(score):
+            print(score)
+        case Nothing:
+            print("unknown player")
+    print(scores.get("Grace"))
+    print(scores.get("Lin"))
+    print(scores["Ada"])
+```
+
+```output
+12
+Option[i64].Some(0)
+Option[i64].Nothing
+12
+```
+
+A stored zero, `False`, empty string, or `Nothing` still counts as a present
+value. For example, looking up a stored `Nothing` returns `Some(Nothing)`.
+There is no optional default argument; use a match to choose a fallback.
+The later lessons explain `Option` and its `?` propagation in more detail.
+
+`get` observes the dictionary and key, leaving both available. The lookup itself
+does not allocate, so it needs no `try_` prefix or allocation-error result. String
+and immutable enum results retain their existing storage and remain valid even
+if the dictionary is subsequently updated or dropped.
+
+This first version supports values such as numbers, booleans, strings, and
+immutable enums. It rejects mutable collections, classes, and enums containing
+them: returning those values needs element borrowing or removal, which are not
+implemented yet. No mutable value is silently copied by `get`.
+
 Collection equality compares contents; dictionary and set order do not matter.
 
 ## 15. Iterate over values

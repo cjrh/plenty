@@ -75,7 +75,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
-| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values; safe dictionary lookup, removal, and slicing are missing |
+| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional dictionary `get` for scalar/immutable values; removal and slicing are missing |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
@@ -297,8 +297,22 @@ dictionary insertion order and set order do not. There are no identity tests.
 Generators support consuming iteration, not length or membership. Lists, strings, and
 ranges support i64 indexing, including negative indices. Dictionaries index by
 their key type. Out-of-bounds indices and absent keys report a runtime error and
-exit with status 1; absence-returning dictionary lookup is not implemented yet,
-although `Option` is now available to express its result.
+exit with status 1. `dictionary.get(key)` returns `Option[V]`: `Some(value)`
+for a present key and `Nothing` for a missing key. It takes exactly one key,
+with no default argument. The receiver and key are observed, may be references,
+and are evaluated once in source order. Lookup does not allocate: scalar values
+are copied and immutable managed values are retained. The returned value survives
+replacement of the entry or destruction of the dictionary. Constructing either
+input expression still uses that expression's allocation policy.
+
+`get` supports only non-affine values, like ordinary indexed reads: numbers,
+booleans, strings, and enums whose payloads do not transfer ownership. Collections,
+classes, and enums containing them are rejected, even for temporary dictionaries;
+there is no hidden deep copy or alias to mutable storage. Element borrowing and
+ownership-transferring removal remain future work. The new `Option` wrapper keeps
+stored absence distinct from a missing key: a stored `Nothing` is returned as
+`Some(Nothing)`.
+
 `list(iterable)` and `set(iterable)` convert supported iterables; `dict(d)`
 transfers an existing dictionary value. Dictionary `keys()` and `values()` produce
 new lists. `values()` on mutable payloads requires an owned temporary such as

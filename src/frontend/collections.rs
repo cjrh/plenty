@@ -568,6 +568,23 @@ impl Lower<'_> {
         let Ty::Dict(k, v) = &ty else {
             return Err(base.at.error(format!("unsupported method `{name}`")));
         };
+        if name == "get" {
+            if args.len() != 1 {
+                return Err(base.at.error("get requires one key argument"));
+            }
+            if v.affine() {
+                return Err(base.at.error(
+                    "get cannot return owned dictionary values; element borrowing is not supported yet",
+                ));
+            }
+            let (key, key_loans) = self.observe(&args[0], ops)?;
+            self.same(Some(key), Some((**k).clone()), &args[0].at)?;
+            let result = crate::sum::option((**v).clone());
+            ops.push(Op::Collection(CollectionOp::DictGet(ty)));
+            Self::end_reads(key_loans, ops);
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
         if !args.is_empty() {
             return Err(base.at.error("keys and values take no arguments"));
         }

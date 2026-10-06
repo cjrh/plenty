@@ -795,6 +795,17 @@ pub(crate) unsafe fn collection(
                 plenty_retain(a as *mut Header);
                 a
             }
+            38 => {
+                let c = &*(a as *const Collection);
+                match c.find(b) {
+                    Some(i) => {
+                        let value = c.entries[i].value;
+                        retain(value, c.ty().value());
+                        wrap(value, 1)
+                    }
+                    None => wrap(0, 0),
+                }
+            }
             4 | 6 => {
                 let c = &*(a as *const Collection);
                 if op == 4 && c.ty().kind == b'D' {
