@@ -144,6 +144,12 @@ optional sign. Conversion rounds directly to the requested width. Finite input
 overflow returns `OutOfRange`; underflow may round to zero. Signed zero survives.
 Numeric separators and hexadecimal forms are rejected. Parsing allocates nothing.
 
+`str.try_from(number_or_bool) -> Result[str, AllocError]` renders a scalar through
+a bounded stack buffer and one fallible output allocation. Integers use decimal;
+floats use the same shortest round-trip representation as `print` (including
+`-0.0`, `inf`, and `NaN`); booleans use `True`/`False`. Aggregate formatting and
+format specifications remain deferred.
+
 New practical I/O APIs must return explicit errors, including allocation failure
 in their own buffers and result construction. They must not hide infallible
 `String` growth behind a fallible public signature. Input consumption and partial

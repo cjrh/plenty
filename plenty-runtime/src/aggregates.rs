@@ -864,6 +864,10 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            79 => match crate::numbers::format(a, (*descriptor).kind) {
+                Ok(text) => wrap(text as u128, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             78 => crate::numbers::parse(strings::utf8(a as *const Text), (*descriptor).kind),
             76 | 77 => {
                 let source = strings::utf8(a as *const Text);

@@ -4,6 +4,7 @@ use crate::op::Ty;
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
     ParseNumber(Ty),
+    FormatScalar(Ty),
     Copy(Ty),
     TryCopy(Ty),
     Next(Ty),
@@ -97,6 +98,10 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
+            FormatScalar(t) => (
+                vec![t.clone()],
+                crate::sum::result(Ty::Str, crate::sum::alloc_error()),
+            ),
             ParseNumber(t) => (
                 vec![Ty::Str],
                 crate::sum::result(t.clone(), crate::sum::parse_error()),
@@ -241,6 +246,7 @@ impl CollectionOp {
     }
     pub fn opcode(&self) -> i64 {
         match self {
+            Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,
             Self::TryCopy(_) => 33,

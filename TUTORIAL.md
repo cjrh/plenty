@@ -2823,7 +2823,26 @@ Result[f32, ParseError].Err(ParseError.OutOfRange)
 Result[f64, ParseError].Ok(-0.0)
 ```
 
+## Converting scalars to text
+
+`str.try_from` converts numbers or booleans with one recoverable string
+allocation. It returns `Result[str, AllocError]`, so it combines with `?` and
+the existing fallible string operations. Floats use shortest round-trip text.
+
+```plenty
+def main() -> ():
+    print(str.try_from(42))
+    print(str.try_from(-0.0f32))
+    print(str.try_from(True))
+```
+```output
+Result[str, AllocError].Ok("42")
+Result[str, AllocError].Ok("-0.0")
+Result[str, AllocError].Ok("True")
+```
+
 ## Where the language goes next
+
 
 This guide deliberately uses implemented features. Input/file APIs,
 recursive types, element references, and stored or returned references remain future work. Traits and generics are deferred; async/await is out of

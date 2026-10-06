@@ -58,6 +58,44 @@ fn parsing_checks_arity_and_type() {
 }
 
 #[test]
+fn scalar_formatting_and_round_trip() {
+    native(r#"
+def render(n: f32) -> Result[str, AllocError]:
+    str.try_from(n)
+print(str.try_from(-128i8))
+print(str.try_from(18446744073709551615u64))
+print(render(-0.0f32))
+print(str.try_from(True))
+print(str.try_from(False))
+"#, "Result[str, AllocError].Ok(\"-128\")\nResult[str, AllocError].Ok(\"18446744073709551615\")\nResult[str, AllocError].Ok(\"-0.0\")\nResult[str, AllocError].Ok(\"True\")\nResult[str, AllocError].Ok(\"False\")");
+    for source in ["str.try_from()", "str.try_from([])", "str.try_from(\"x\")"] {
+        assert!(support::check_source(source).is_err());
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn scalar_formatting_has_one_recoverable_allocation() {
+    for budget in 0..=1 {
+        native(
+            &format!(
+                r#"
+print("__test_fail_allocations_after_{budget}__")
+a = str.try_from(1.25f64)
+print("__test_restore_allocations__")
+print(a)
+"#
+            ),
+            if budget == 0 {
+                "Result[str, AllocError].Err(AllocError.OutOfMemory)"
+            } else {
+                "Result[str, AllocError].Ok(\"1.25\")"
+            },
+        );
+    }
+}
+
+#[test]
 fn float_parsing_preserves_width_and_reports_overflow() {
     native(r#"
 print(f32.parse(" .125 "))

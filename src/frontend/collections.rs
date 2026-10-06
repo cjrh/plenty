@@ -472,6 +472,24 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if let Some(ty) = self.qualified_type(base)? {
+            if ty == Ty::Str && name == "try_from" {
+                if args.len() != 1 {
+                    return Err(base
+                        .at
+                        .error("str.try_from takes one numeric or bool argument"));
+                }
+                let (source, loans) = self.observe(&args[0], ops)?;
+                if !source.is_numeric() && source != Ty::Bool {
+                    return Err(args[0]
+                        .at
+                        .error("str.try_from requires a numeric or bool value"));
+                }
+                let operation = CollectionOp::FormatScalar(source);
+                let (_, result) = operation.signature();
+                ops.push(Op::Collection(operation));
+                Self::end_reads(loans, ops);
+                return Ok(Some(result));
+            }
             if ty.is_numeric() && name == "parse" {
                 if args.len() != 1 {
                     return Err(base.at.error("parse takes one string argument"));

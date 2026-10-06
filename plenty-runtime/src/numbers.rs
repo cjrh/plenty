@@ -1,5 +1,50 @@
 //! Numeric text conversion uses stack storage and inline error values.
 use crate::aggregates::wrap;
+use crate::{
+    memory::AllocError,
+    strings::{self, Text},
+};
+use std::fmt::Write;
+
+/// Shortest numeric rendering needs fewer than 128 bytes for supported widths.
+/// The formatter can fail rather than grow an intermediate heap buffer.
+pub(crate) fn format(value: u128, kind: u8) -> Result<*mut Text, AllocError> {
+    struct Buffer {
+        bytes: [u8; 128],
+        len: usize,
+    }
+    impl Write for Buffer {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            let end = self.len.checked_add(text.len()).ok_or(std::fmt::Error)?;
+            self.bytes
+                .get_mut(self.len..end)
+                .ok_or(std::fmt::Error)?
+                .copy_from_slice(text.as_bytes());
+            self.len = end;
+            Ok(())
+        }
+    }
+    let mut out = Buffer {
+        bytes: [0; 128],
+        len: 0,
+    };
+    let result = match kind {
+        b'1' => write!(out, "{}", value as i8),
+        b'2' => write!(out, "{}", value as i16),
+        b'3' => write!(out, "{}", value as i32),
+        b'4' => write!(out, "{}", value as i64),
+        b'5' => write!(out, "{}", value as u8),
+        b'6' => write!(out, "{}", value as u16),
+        b'7' => write!(out, "{}", value as u32),
+        b'8' => write!(out, "{}", value as u64),
+        b'f' => write!(out, "{:?}", f32::from_bits(value as u32)),
+        b'd' => write!(out, "{:?}", f64::from_bits(value as u64)),
+        b'b' => out.write_str(if value == 0 { "False" } else { "True" }),
+        _ => unreachable!("scalar descriptor"),
+    };
+    result.map_err(|_| AllocError::CapacityOverflow)?;
+    strings::try_new(std::str::from_utf8(&out.bytes[..out.len]).expect("formatter emits UTF-8"))
+}
 
 pub(crate) fn parse(text: &str, kind: u8) -> u128 {
     let text = text.trim();
