@@ -27,7 +27,8 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   expected by generated code: a 16-byte ownership header, string bytes and record
   fields at byte 32, and generator frame slots at byte 64.
 - Runtime slots carry 128 raw bits: the low word is a scalar or pointer payload,
-  and the high word stores the tag path for inline `Option`/`Result` wrappers.
+  and the high word stores the tag path for inline `Option`/`Result` wrappers
+  and the builtin `AllocError` enum.
   Floats use their IEEE bit patterns (`f32` in the low 32 bits), and unit payloads
   use zero. Aggregate calls pass aligned input/output slot pointers, avoiding a
   dependency on the platform's C ABI for 128-bit integers. Float equality follows IEEE
@@ -49,7 +50,15 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   reenter the runtime; no queue borrow or mutable Rust view of the dying record
   survives such a callback. The queue is thread-local; Plenty execution remains
   single-threaded and reference counts are non-atomic.
-- Runtime failures terminate without unwinding Plenty frames. Internal Rust panics
+- Collection dispatcher opcodes 28 (reserve) and 29 (insert) return inline
+  `Result[(), AllocError]`: zero on success, `1 << 64` for exhaustion, and
+  `3 << 64` for capacity overflow. Inputs are borrowed on both outcomes; only
+  committed entries retain payloads. Size validation precedes allocation, and
+  both entry and hash buffers are reserved before changing logical contents.
+  Failed `realloc` leaves the old buffer valid. Rust `Vec` keeps allocation and
+  deallocation paired with the fixed global allocator; custom allocator
+  selection is not exposed yet.
+- Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
 ## Validation
@@ -66,6 +75,11 @@ returns to the baseline and that integration-test checkpoints keep live memory
 bounded. Allocation-free regions additionally count every allocation attempt,
 including temporary allocations freed before the region ends. A negative control
 checks that the instrumentation detects a temporary string allocation.
+Failure-injection markers reject all allocations after N successful calls, until
+explicitly restored. They cover alloc, alloc_zeroed, and realloc using a constant
+thread-local budget, without allocating inside the allocator. Integration tests
+exercise every collection growth/reservation allocation and clean up/retry after
+each failure. Raw ABI tests also run under `--features allocation-checks`.
 This instrumentation and its checkpoint markers are absent from normal builds.
 
 Miri covers raw layouts, flexible allocations, metadata sharing, float bit patterns

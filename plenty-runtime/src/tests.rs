@@ -118,6 +118,83 @@ static RESULT_OPTION: Type = Type {
 static LIST_RESULT: Type = list(&RESULT_OPTION);
 
 #[test]
+fn fallible_reservation_and_growth_preserve_hash_lookups() {
+    static SET: Type = Type {
+        kind: b'S',
+        ..list(&INTEGER)
+    };
+    static MAP: Type = Type {
+        kind: b'D',
+        value: Some(&INTEGER),
+        ..list(&INTEGER)
+    };
+    for ty in [&LIST_INT, &SET, &MAP] {
+        unsafe {
+            let c = collection(0, 0, 0, 0, ty);
+            assert_eq!(collection(28, c, 0, 0, ptr::null()), 0);
+            assert_eq!(collection(28, c, 32, 0, ptr::null()), 0);
+            for n in 0..32 {
+                assert_eq!(collection(29, c, n, n + 1, ptr::null()), 0);
+            }
+            // Both negative lengths and impossible layouts return the inline
+            // Err(CapacityOverflow) tag path, without touching existing entries.
+            for count in [u64::MAX as u128, i64::MAX as u128] {
+                assert_eq!(collection(28, c, count, 0, ptr::null()), 3u128 << 64);
+            }
+            for n in 0..32 {
+                assert_eq!(collection(7, n, c, 0, ptr::null()), 1);
+                if ty.kind == b'D' {
+                    assert_eq!(collection(4, c, n, 0, ptr::null()), n + 1);
+                }
+            }
+            plenty_release(c as *mut Header);
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn actual_allocator_failures_preserve_empty_and_populated_hash_tables() {
+    static MAP: Type = Type {
+        kind: b'D',
+        value: Some(&INTEGER),
+        ..list(&INTEGER)
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for len in [0, 8] {
+        for budget in 0..=2 {
+            unsafe {
+                let c = collection(0, 0, 0, 0, &MAP);
+                for n in 0..len {
+                    assert_eq!(collection(29, c, n, n, ptr::null()), 0);
+                }
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(29, c, 42, 42, ptr::null())
+                };
+                assert_eq!(result, if budget == 2 { 0 } else { 1u128 << 64 });
+                assert_eq!(
+                    collection(5, c, 0, 0, ptr::null()),
+                    len + u128::from(budget == 2)
+                );
+                for n in 0..len {
+                    assert_eq!(collection(4, c, n, 0, ptr::null()), n);
+                }
+                assert_eq!(collection(29, c, 42, 99, ptr::null()), 0);
+                assert_eq!(collection(4, c, 42, 0, ptr::null()), 99);
+                plenty_release(c as *mut Header);
+            }
+        }
+    }
+}
+
+#[test]
 fn inline_payloads_retain_and_drop_through_runtime_slots() {
     use crate::aggregates::{release, wrap};
     unsafe {

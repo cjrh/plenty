@@ -1,5 +1,6 @@
 //! Opt-in test instrumentation; absent from normal compiler/runtime builds.
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 struct Accounting;
@@ -10,11 +11,31 @@ static REGION_START: AtomicUsize = AtomicUsize::new(0);
 #[global_allocator]
 static ALLOCATOR: Accounting = Accounting;
 
+// Thread-local so runtime unit tests can run concurrently. The constant TLS
+// initializer does not allocate; failing realloc must preserve its old pointer.
+thread_local! { static FAIL_AFTER: Cell<Option<usize>> = const { Cell::new(None) }; }
+pub(crate) fn fail_after(successes: Option<usize>) {
+    FAIL_AFTER.with(|budget| budget.set(successes));
+}
+fn injected_failure() -> bool {
+    FAIL_AFTER.with(|budget| match budget.get() {
+        None => false,
+        Some(0) => true,
+        Some(n) => {
+            budget.set(Some(n - 1));
+            false
+        }
+    })
+}
+
 // SAFETY: layouts/pointers are forwarded unchanged to System. Counters neither
 // allocate nor hold locks, and realloc changes accounting only on success.
 unsafe impl GlobalAlloc for Accounting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         ATTEMPTS.fetch_add(1, Relaxed);
+        if injected_failure() {
+            return std::ptr::null_mut();
+        }
         let p = unsafe { System.alloc(layout) };
         if !p.is_null() {
             LIVE.fetch_add(layout.size(), Relaxed);
@@ -23,6 +44,9 @@ unsafe impl GlobalAlloc for Accounting {
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         ATTEMPTS.fetch_add(1, Relaxed);
+        if injected_failure() {
+            return std::ptr::null_mut();
+        }
         let p = unsafe { System.alloc_zeroed(layout) };
         if !p.is_null() {
             LIVE.fetch_add(layout.size(), Relaxed);
@@ -37,6 +61,9 @@ unsafe impl GlobalAlloc for Accounting {
     }
     unsafe fn realloc(&self, p: *mut u8, old: Layout, size: usize) -> *mut u8 {
         ATTEMPTS.fetch_add(1, Relaxed);
+        if injected_failure() {
+            return std::ptr::null_mut();
+        }
         let p = unsafe { System.realloc(p, old, size) };
         if !p.is_null() {
             LIVE.fetch_add(size, Relaxed);

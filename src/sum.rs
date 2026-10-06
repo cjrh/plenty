@@ -28,11 +28,37 @@ impl Hash for EnumType {
 impl EnumType {
     /// Builtin sums have one payload and a binary discriminant at each level.
     pub fn inline(&self) -> bool {
+        self.propagatable() || self.name == "AllocError"
+    }
+    pub fn propagatable(&self) -> bool {
         self.name.starts_with("Option[") || self.name.starts_with("Result[")
     }
     pub fn is_option(&self) -> bool {
         self.name.starts_with("Option[")
     }
+}
+
+/// An allocation error must itself be constructible without allocating.
+pub fn alloc_error() -> Ty {
+    Ty::Enum(Rc::new(EnumType {
+        name: "AllocError".into(),
+        variants: ["OutOfMemory", "CapacityOverflow"]
+            .into_iter()
+            .map(|name| Variant {
+                name: name.into(),
+                fields: vec![],
+            })
+            .collect(),
+        depth: 1,
+        affine: false,
+        copyable: true,
+        has_destructor: false,
+        managed: false,
+    }))
+}
+
+pub fn allocation_result() -> Ty {
+    result(Ty::Unit, alloc_error())
 }
 #[derive(Clone, Debug)]
 pub struct Variant {

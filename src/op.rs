@@ -1076,8 +1076,8 @@ fn step(
 ) -> Result<Flow> {
     match op {
         Op::Try { source, target } => {
-            if !source.inline()
-                || !target.inline()
+            if !source.propagatable()
+                || !target.propagatable()
                 || source.is_option() != target.is_option()
                 || (!source.is_option() && source.variants[1].fields != target.variants[1].fields)
                 || yield_ty.is_some()

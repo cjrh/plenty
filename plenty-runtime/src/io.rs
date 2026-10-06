@@ -47,6 +47,16 @@ pub(crate) unsafe extern "C" fn plenty_println(text: *const Text) {
     match unsafe { strings::bytes(text) } {
         b"__test_begin_no_allocations__" => crate::accounting::begin_no_allocations(),
         b"__test_end_no_allocations__" => crate::accounting::end_no_allocations(),
+        b"__test_restore_allocations__" => crate::accounting::fail_after(None),
+        marker if marker.starts_with(b"__test_fail_allocations_after_") => {
+            let count = marker
+                .strip_prefix(b"__test_fail_allocations_after_")
+                .and_then(|n| n.strip_suffix(b"__"))
+                .and_then(|n| std::str::from_utf8(n).ok())
+                .and_then(|n| n.parse().ok())
+                .expect("valid allocation failure marker");
+            crate::accounting::fail_after(Some(count));
+        }
         _ => {}
     }
     unsafe {

@@ -6,9 +6,11 @@ pub enum CollectionOp {
     Copy(Ty),
     Next(Ty),
     New(Ty),
-    Insert(Ty), // private builder: collection, element (or key, value) -> collection
-    Append(Ty), // exclusive in-place update of a list or set
-    Put(Ty),    // exclusive in-place indexed update
+    Insert(Ty),     // private builder: collection, element (or key, value) -> collection
+    Append(Ty),     // exclusive in-place update of a list or set
+    TryReserve(Ty), // exclusive capacity reservation -> Result[(), AllocError]
+    TryInsert(Ty),  // exclusive fallible append/add/insert
+    Put(Ty),        // exclusive in-place indexed update
     Get(Ty),
     Len(Ty),
     IterGet(Ty),
@@ -56,6 +58,14 @@ impl CollectionOp {
             TextByteLen => (vec![Ty::Str], Ty::I64),
             TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
             New(t) => (vec![], t.clone()),
+            TryReserve(t) => (vec![t.clone(), Ty::I64], crate::sum::allocation_result()),
+            TryInsert(t) => {
+                let mut args = vec![t.clone(), t.element().expect("collection element")];
+                if let Ty::Dict(_, v) = t {
+                    args.push((**v).clone());
+                }
+                (args, crate::sum::allocation_result())
+            }
             Insert(t) | Append(t) => {
                 let mut args = vec![t.clone(), t.element().expect("collection element")];
                 if let Ty::Dict(_, v) = t {
@@ -89,6 +99,8 @@ impl CollectionOp {
             Self::New(_) => 0,
             Self::Insert(_) => 1,
             Self::Append(_) => 2,
+            Self::TryReserve(_) => 28,
+            Self::TryInsert(_) => 29,
             Self::Put(_) => 3,
             Self::Get(_) => 4,
             Self::Len(_) => 5,

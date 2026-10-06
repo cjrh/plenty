@@ -89,7 +89,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
 | `with` context managers | Proposed; automatic destruction works today |
-| Recoverable allocation failure and custom allocators | Proposed; allocation failure is not reliably recoverable today |
+| Recoverable allocation failure | First increment: collection `try_reserve`, `try_append`, `try_add`, and `try_insert` return allocation-free `AllocError`; other allocating operations remain terminal on failure |
+| Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
 | Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
 | Async/await | Out of scope |
@@ -723,6 +724,63 @@ return types. The independent checker verifies family/error compatibility and th
 enclosing signature. Native lowering branches before evaluating later operations,
 returns the residual after cleanup, and continues with the success payload.
 
+### Recoverable collection allocation — first increment
+
+`AllocError` is a builtin nominal enum with two nullary variants:
+`AllocError.OutOfMemory` and `AllocError.CapacityOverflow`. It shares the binary
+inline representation of standard sums and never owns memory. Constructing,
+copying, comparing, matching, or propagating it inside a `Result` does not
+allocate. `AllocError` itself is not an operand or return family for `?`.
+Unsupported allocator layouts remain a future concern when custom allocators exist.
+
+The following exclusive methods return `Result[(), AllocError]`:
+
+| Receiver | Method | Contract |
+| --- | --- | --- |
+| `list[T]`, `set[T]`, `dict[K, V]` | `try_reserve(additional: i64)` | Reserve room for at least this many more entries beyond the current length |
+| `list[T]` | `try_append(value: T)` | Append one element |
+| `set[T]` | `try_add(value: T)` | Insert an element if absent |
+| `dict[K, V]` | `try_insert(key: K, value: V)` | Insert or replace a value, preserving key insertion order |
+
+They work on mutable bindings, exclusive references, and mutable class fields.
+Callers handle the returned `Result` with `match` or propagate it with `?`.
+Negative reservation counts and capacities exceeding the addressable buffer
+layout return `CapacityOverflow`; allocator rejection returns `OutOfMemory`.
+The return type remains fallible even when a particular call needs no growth.
+
+Growth validates sizes and reserves both entries and hash storage before
+committing a mutation. Failed reservation/insertion preserves logical contents,
+order, and lookup behavior; callers must not depend on capacity being unchanged.
+Hash rebuilding uses preallocated storage and never invokes user code. A
+successful reserve permits that many subsequent insertions without storage
+allocation. Existing-key replacement and duplicate set insertion do not grow
+storage. Argument evaluation and user cleanup can still allocate independently.
+
+Insertion consumes its arguments on success and failure. A failed insertion
+destroys an owned input instead of returning it; a caller needing to keep the
+input can reserve before moving it. The native helper borrows inputs and retains
+only successfully stored values; the compiler releases its input owners on both
+paths. The returned error needs neither formatting nor a heap-backed enum record.
+
+This is an incremental API: existing `append`, `add`, indexed assignment,
+literals, comprehensions, constructors, `copy`, strings, generators, comparisons
+that need memoization, and formatting retain their existing terminal failure
+policy. The `try_` prefix makes the currently recoverable operations explicit;
+it does not settle the eventual syntax for making *all* allocations fallible.
+Whole-program OOM recovery is not yet promised. Custom destructors must avoid
+allocating, or handle their own fallible operations, on an OOM recovery path.
+
+Collection buffers remain owned by Rust `Vec` with the same fixed global allocator
+for growth and deallocation. Runtime allocator switching is not exposed. Per-value
+allocator handles, context lifetime, and matching deallocation must be implemented
+before adding custom/global allocator selection; merely changing an allocation
+function pointer would lose allocator provenance.
+
+The instrumented runtime can reject every allocation after a chosen number of
+successful allocator calls, including reallocations. Native tests cover every
+allocation site in growth/reservation, retry, preserved contents, moved-input
+cleanup, and allocation-free handling while allocation remains disabled.
+
 ## Classes: fixed-layout records
 
 `class` declares a concrete record with typed fields and associated methods.
@@ -1019,7 +1077,8 @@ implemented. The new design review changes the recommended priority:
    matters: scalar error codes need no allocation, while user-defined enum
    records currently do. Recoverable OOM needs allocation-free error payloads
    as well as fallible runtime operations; wrapper layout alone does not promise it.
-3. Implement fallible allocation and allocator provenance, then expand text,
+3. Complete fallible allocation and allocator provenance (collection reservation
+   and insertion now have recoverable `try_` methods), then expand text,
    collection, input/file, and argument APIs under those rules. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration, disjoint class fields,

@@ -1014,6 +1014,7 @@ fn named_type(name: &str) -> Type {
         "bool" => Ty::Bool,
         "str" => Ty::Str,
         "range" => Ty::Range,
+        "AllocError" => crate::sum::alloc_error(),
         _ => return None,
     })
 }
@@ -1212,7 +1213,7 @@ impl Lower<'_> {
                         .at
                         .error("`?` requires a function returning Result or Option"));
                 };
-                if !target.inline() {
+                if !target.propagatable() {
                     return Err(e
                         .at
                         .error("`?` requires a function returning Result or Option"));
@@ -1220,7 +1221,7 @@ impl Lower<'_> {
                 let Ty::Enum(source) = self.value(value, ops)? else {
                     return Err(e.at.error("`?` requires a Result or Option operand"));
                 };
-                if !source.inline() || source.is_option() != target.is_option() {
+                if !source.propagatable() || source.is_option() != target.is_option() {
                     return Err(e.at.error(
                         "`?` operand and function return must use the same Result or Option family",
                     ));

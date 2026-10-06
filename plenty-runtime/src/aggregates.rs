@@ -1,6 +1,6 @@
 //! Rust-owned metadata and buffers behind a small, layout-stable native prefix.
 use crate::generators::{plenty_generator_resume, Generator};
-use crate::memory::{self, plenty_release, plenty_retain, Header};
+use crate::memory::{self, plenty_release, plenty_retain, AllocError, Header};
 use crate::strings::{self, Text};
 use std::io::Write;
 
@@ -260,7 +260,54 @@ impl Collection {
             unsafe { self.table[self.bucket(key)].checked_sub(1) }
         }
     }
+    /// Reserve both buffers before publishing a new hash index. On error,
+    /// logical contents and the old index remain intact; capacity may change.
+    unsafe fn try_reserve(&mut self, additional: usize) -> Result<(), AllocError> {
+        let needed = self
+            .entries
+            .len()
+            .checked_add(additional)
+            .filter(|n| *n <= i64::MAX as usize)
+            .ok_or(AllocError::CapacityOverflow)?;
+        memory::checked_capacity::<Entry>(needed)?;
+        let table_size = if self.ty().kind != b'L' && needed > self.table.len() / 2 {
+            let count = needed
+                .checked_mul(2)
+                .and_then(|n| n.max(16).checked_next_power_of_two())
+                .ok_or(AllocError::CapacityOverflow)?;
+            memory::checked_capacity::<usize>(count)?;
+            count
+        } else {
+            0
+        };
+        let mut table = Vec::new();
+        if table_size != 0 {
+            memory::try_reserve(&mut table, table_size)?;
+            table.resize(table_size, 0);
+        }
+        memory::try_reserve(&mut self.entries, additional)?;
+        if table_size != 0 {
+            // Hashing legal keys (integers, bool, str) never allocates or calls
+            // user code. Build from hashes alone: all existing keys are unique.
+            for (i, entry) in self.entries.iter().enumerate() {
+                let mut bucket =
+                    unsafe { hash(entry.key, self.ty().key()) } as usize & (table_size - 1);
+                while table[bucket] != 0 {
+                    bucket = (bucket + 1) & (table_size - 1);
+                }
+                table[bucket] = i + 1;
+            }
+            self.table = table;
+        }
+        Ok(())
+    }
+
     unsafe fn insert(&mut self, key: u128, value: u128) {
+        unsafe { self.try_insert(key, value) }
+            .unwrap_or_else(|_| crate::fail("collection allocation failed"));
+    }
+
+    unsafe fn try_insert(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
             if self.ty().kind != b'L' {
                 if let Some(i) = self.find(key) {
@@ -269,28 +316,23 @@ impl Collection {
                         release(self.entries[i].value, ty);
                     }
                     self.entries[i].value = value;
-                    return;
+                    return Ok(());
                 }
             }
-            if self.entries.len() >= i64::MAX as usize {
-                crate::fail("collection capacity overflow");
-            }
-            self.entries
-                .try_reserve(1)
-                .unwrap_or_else(|_| crate::fail("collection capacity overflow"));
-            if self.ty().kind != b'L' && self.entries.len() >= self.table.len() / 2 {
-                let capacity = self
-                    .table
+            let additional = if self.entries.len() == self.entries.capacity() {
+                // Geometric growth without making explicit reserve speculative.
+                self.entries
                     .len()
-                    .max(8)
-                    .checked_mul(2)
-                    .unwrap_or_else(|| crate::fail("collection capacity overflow"));
-                self.table = vec![0; capacity];
-                for (i, entry) in self.entries.iter().enumerate() {
-                    let bucket = self.bucket(entry.key);
-                    self.table[bucket] = i + 1;
-                }
-            }
+                    .max(4)
+                    .min(
+                        (isize::MAX as usize / size_of::<Entry>())
+                            .saturating_sub(self.entries.len()),
+                    )
+                    .max(1)
+            } else {
+                1
+            };
+            self.try_reserve(additional)?;
             retain(key, self.ty().key());
             if let Some(ty) = &self.ty().value {
                 retain(value, ty);
@@ -300,6 +342,7 @@ impl Collection {
                 self.table[bucket] = self.entries.len() + 1;
             }
             self.entries.push(Entry { key, value });
+            Ok(())
         }
     }
     unsafe fn at(&self, index: usize) -> u128 {
@@ -573,6 +616,22 @@ pub(crate) unsafe fn collection(
             27 => {
                 release(a, &*descriptor);
                 0
+            }
+            28 | 29 => {
+                let c = &mut *(a as *mut Collection);
+                let result = if op == 28 {
+                    if (b as i64) < 0 {
+                        Err(AllocError::CapacityOverflow)
+                    } else {
+                        c.try_reserve(b as usize)
+                    }
+                } else {
+                    c.try_insert(b, value)
+                };
+                match result {
+                    Ok(()) => wrap(0, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
             }
             0 => collection_new(&*descriptor) as u128,
             1 | 2 => {

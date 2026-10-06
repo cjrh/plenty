@@ -480,6 +480,12 @@ impl Lower<'_> {
         if matches!(name, "__init__" | "__del__" | "__new__") {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }
+        if matches!(
+            name,
+            "try_reserve" | "try_append" | "try_add" | "try_insert"
+        ) {
+            return self.fallible_mutation(base, name, args, ops);
+        }
         if matches!(name, "append" | "add") {
             let target_ty = self.place_type(base).ok_or_else(|| {
                 base.at
@@ -556,6 +562,55 @@ impl Lower<'_> {
                 "unsupported dictionary method `{name}`; iterate keys and index values"
             )))
         }
+    }
+
+    fn fallible_mutation(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let ty = self.place_type(base).ok_or_else(|| {
+            base.at
+                .error("mutation requires a named binding or class field")
+        })?;
+        let inputs = match (&ty, name) {
+            (Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _), "try_reserve") => vec![Ty::I64],
+            (Ty::List(t), "try_append") | (Ty::Set(t), "try_add") => vec![(**t).clone()],
+            (Ty::Dict(k, v), "try_insert") => vec![(**k).clone(), (**v).clone()],
+            _ => {
+                return Err(base
+                    .at
+                    .error(format!("unsupported method `{name}` for {ty}")))
+            }
+        };
+        if args.len() != inputs.len() {
+            return Err(base
+                .at
+                .error(format!("{name} requires {} argument(s)", inputs.len())));
+        }
+        // Evaluate arguments before taking the exclusive receiver loan, as for
+        // append. Hidden locals also own earlier inputs if a later argument exits.
+        let mut slots = Vec::new();
+        for (arg, expected) in args.iter().zip(inputs) {
+            let actual = self.expr_expected(arg, Some(expected.clone()), ops)?;
+            self.same(actual, Some(expected.clone()), &arg.at)?;
+            let slot = self.slot(expected, &arg.at)?;
+            ops.push(Op::StoreLocal(slot));
+            slots.push(slot);
+        }
+        let loan = self.mutation_place(base, ops)?;
+        for slot in slots {
+            ops.push(Op::MoveLocal(slot, "fallible mutation argument".into()));
+        }
+        ops.push(Op::Collection(if name == "try_reserve" {
+            CollectionOp::TryReserve(ty)
+        } else {
+            CollectionOp::TryInsert(ty)
+        }));
+        ops.push(Op::UseLoan(loan));
+        Ok(Some(crate::sum::allocation_result()))
     }
 
     pub(super) fn builtin_collection(

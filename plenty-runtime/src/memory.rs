@@ -3,6 +3,30 @@ use std::alloc::{alloc_zeroed, dealloc, handle_alloc_error, Layout};
 use std::cell::Cell;
 use std::ptr;
 
+/// Tags match the compiler's allocation-free AllocError builtin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AllocError {
+    OutOfMemory = 0,
+    CapacityOverflow = 1,
+}
+
+/// Validate separately so stable Vec APIs need not expose TryReserveErrorKind.
+pub(crate) fn checked_capacity<T>(count: usize) -> Result<usize, AllocError> {
+    Layout::array::<T>(count).map_err(|_| AllocError::CapacityOverflow)?;
+    Ok(count)
+}
+
+pub(crate) fn try_reserve<T>(buffer: &mut Vec<T>, additional: usize) -> Result<(), AllocError> {
+    let count = buffer
+        .len()
+        .checked_add(additional)
+        .ok_or(AllocError::CapacityOverflow)?;
+    checked_capacity::<T>(count)?;
+    buffer
+        .try_reserve_exact(additional)
+        .map_err(|_| AllocError::OutOfMemory)
+}
+
 #[repr(C)]
 pub(crate) struct Header {
     pub refs: u64,

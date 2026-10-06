@@ -1116,7 +1116,77 @@ def main() -> ():
 nested. Their payloads keep their usual behavior: `Some([1, 2])` allocates the
 list, but adds no wrapper allocation. Returning or propagating an existing sum
 does not allocate a wrapper either. Printing and operations on the payload can
-still allocate; recoverable out-of-memory handling is not implemented yet.
+still allocate. The collection methods below are the first operations that let
+you recover from allocation failure.
+
+### Handle collection growth failures
+
+Use `try_append` for a list, `try_add` for a set, and `try_insert` for a dictionary
+when you need to handle allocation failure. Each returns `Result[(), AllocError]`.
+`try_reserve(n)` reserves space for at least `n` additional entries; it is available
+on all three collection types and returns the same result type.
+
+```plenty
+def add_answers(values: &mut list[i64]) -> Result[(), AllocError]:
+    values.try_reserve(2)?
+    values.try_append(21)?
+    values.try_append(42)?
+    Ok(())
+
+def main() -> ():
+    mut values: list[i64] = []
+    match add_answers(&mut values):
+        case Ok(done):
+            print(values)
+        case Err(error):
+            match error:
+                case AllocError.OutOfMemory:
+                    print("not enough memory")
+                case AllocError.CapacityOverflow:
+                    print("requested capacity is too large")
+```
+
+```output
+[21, 42]
+```
+
+`AllocError` is always available. Its two variants need no payload or allocation.
+`OutOfMemory` means the allocator rejected a request. `CapacityOverflow` means
+the requested size cannot be represented; a negative reservation is also a
+capacity error. You can handle a failure without terminating the program:
+
+```plenty
+def main() -> ():
+    mut values = [1, 2]
+    match values.try_reserve(-1):
+        case Ok(done):
+            print("reserved")
+        case Err(error):
+            print(error)
+    print(values)
+```
+
+```output
+AllocError.CapacityOverflow
+[1, 2]
+```
+
+On failure the collection keeps its existing contents. An insertion consumes its
+arguments even when it fails, so an owned argument is cleaned up rather than
+returned to you. Reserve first if you want to keep an item until storage is ready.
+Successful reservation covers collection storage, including a dictionary or
+set's hash table; constructing the elements themselves may still allocate.
+
+These methods require a mutable receiver, just like `append` and `add`. Dictionary
+`try_insert(key, value)` replaces an existing value or adds a new entry. Adding an
+existing set element or replacing a dictionary entry needs no storage growth.
+
+This is the first stage of recoverable allocation. Existing `append`, `add`,
+indexed assignment, allocating literals, constructors, comprehensions, strings,
+and `copy` still terminate on allocation failure. In particular, even creating
+the empty list above can fail before `add_answers` runs. Printing complex values
+and user destructors may also allocate. The new methods provide recovery for
+their own storage operations, not yet for every allocation in a program.
 
 ## 20. Produce values lazily with generators
 
