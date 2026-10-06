@@ -79,6 +79,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
+| Literal text affix removal | `try_removeprefix`/`try_removesuffix` remove one exact boundary match and return independent fallible strings |
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
 | Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
@@ -829,6 +830,13 @@ Neither literals nor dynamic strings have a trailing terminator. Equality and
 hashing include every byte and do not normalize Unicode. `len` counts scalars,
 not grapheme clusters; indexing (including negative indices) returns a one-scalar
 `str`. Concatenation and indexing return independent values.
+
+`text.try_removeprefix(prefix)` and `text.try_removesuffix(suffix)` return
+`Result[str, AllocError]`, removing at most one exact UTF-8 prefix or suffix.
+Empty patterns and missing matches preserve the contents; no normalization,
+character-set stripping, or repeated removal occurs. Receiver and argument are
+observed once, left to right. One independent output allocation occurs even for
+empty or unchanged results, with recoverable failure and unchanged inputs.
 
 `text.startswith(prefix)` and `text.endswith(suffix)` return `bool` without
 allocating. Each takes exactly one string (or reference), observes both operands

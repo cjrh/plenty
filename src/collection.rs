@@ -59,6 +59,8 @@ pub enum CollectionOp {
     TextTryLStrip,
     TextTryRStrip,
     TextTryRepeat,
+    TextTryRemovePrefix,
+    TextTryRemoveSuffix,
 }
 
 impl Ty {
@@ -107,7 +109,7 @@ impl CollectionOp {
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
             TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
-            TextTryConcat => (
+            TextTryConcat | TextTryRemovePrefix | TextTryRemoveSuffix => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
@@ -264,6 +266,8 @@ impl CollectionOp {
             Self::ListTrySlice(_) => 45,
             Self::TextByteLen => 12,
             Self::TextAtByte => 13,
+            Self::TextTryRemovePrefix => 71,
+            Self::TextTryRemoveSuffix => 72,
             Self::TextTryConcat => 34,
             Self::TextTryJoin => 35,
             Self::TextTrySplit => 36,

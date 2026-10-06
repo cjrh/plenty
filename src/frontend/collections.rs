@@ -662,6 +662,8 @@ impl Lower<'_> {
                 | "rfind"
                 | "count"
                 | "try_repeat"
+                | "try_removeprefix"
+                | "try_removesuffix"
         ) {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             let arity = if name == "try_replace" { 2 } else { 1 };
@@ -683,6 +685,8 @@ impl Lower<'_> {
                 "rfind" => (Ty::Str, CollectionOp::TextRFind),
                 "count" => (Ty::Str, CollectionOp::TextCount),
                 "try_repeat" => (Ty::I64, CollectionOp::TextTryRepeat),
+                "try_removeprefix" => (Ty::Str, CollectionOp::TextTryRemovePrefix),
+                "try_removesuffix" => (Ty::Str, CollectionOp::TextTryRemoveSuffix),
                 _ => (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin),
             };
             let mut argument_loans = vec![];

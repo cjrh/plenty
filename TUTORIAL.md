@@ -1796,6 +1796,31 @@ True
 This also allocates nothing and keeps the source usable. To remove every member
 without needing another set, use `clear()`.
 
+### Remove an exact prefix or suffix
+
+These methods remove one complete match at the chosen end. They return an
+independent string inside a `Result`, leaving the original usable:
+
+```plenty
+def title(name: &str) -> Result[str, AllocError]:
+    name.try_removeprefix("draft-")?.try_removesuffix(".txt")
+
+def main() -> ():
+    name = "draft-notes.txt"
+    print(title(&name))
+    print("abab".try_removeprefix("ab"))
+    print("notes.txt".try_removesuffix(".csv"))
+```
+
+```output
+Result[str, AllocError].Ok("notes")
+Result[str, AllocError].Ok("ab")
+Result[str, AllocError].Ok("notes.txt")
+```
+
+Empty patterns do nothing. Each method can fail to allocate even when the
+contents stay unchanged. Use `try_strip` for surrounding whitespace instead.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

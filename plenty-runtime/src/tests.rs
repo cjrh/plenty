@@ -462,6 +462,39 @@ fn set_filter_releases_removed_strings_and_keeps_source_owners() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn removed_affixes_have_independent_storage_and_recoverable_failure() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (op, expected) in [(71, "🙂é"), (72, "é🙂")] {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new("é🙂é".as_bytes());
+                let affix = strings::new("é".as_bytes());
+                let reset = Restore;
+                crate::accounting::fail_after(Some(budget));
+                let result = collection(op, source as u128, affix as u128, 0, ptr::null());
+                drop(reset);
+                plenty_release(source.cast());
+                plenty_release(affix.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    let result = crate::aggregates::payload(result) as *mut strings::Text;
+                    assert_eq!(strings::utf8(result), expected);
+                    assert_eq!((*result).scalar_len, 2);
+                    plenty_release(result.cast());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn set_update_preserves_string_owners_across_duplicate_and_failure_paths() {
     static SET_TEXT: Type = Type {
         kind: b'S',

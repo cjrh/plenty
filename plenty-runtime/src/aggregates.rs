@@ -864,6 +864,20 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            71 | 72 => {
+                let source = strings::utf8(a as *const Text);
+                let affix = strings::utf8(b as *const Text);
+                let trimmed = if op == 71 {
+                    source.strip_prefix(affix)
+                } else {
+                    source.strip_suffix(affix)
+                }
+                .unwrap_or(source);
+                match strings::try_new(trimmed) {
+                    Ok(text) => wrap(text as u128, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
             69 | 70 => {
                 let target = &mut *(a as *mut Collection);
                 let other = &*(b as *const Collection);

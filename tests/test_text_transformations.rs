@@ -2,6 +2,97 @@
 mod support;
 use rstest::rstest;
 
+#[rstest]
+#[case("try_removeprefix", "abab", "ab", "ab")]
+#[case("try_removesuffix", "abab", "ab", "ab")]
+#[case("try_removeprefix", "é🙂é", "é", "🙂é")]
+#[case("try_removesuffix", "é🙂é", "é", "é🙂")]
+#[case("try_removeprefix", "\0x", "\0", "x")]
+#[case("try_removesuffix", "x\0", "\0", "x")]
+#[case("try_removeprefix", "abc", "bc", "abc")]
+#[case("try_removesuffix", "abc", "ab", "abc")]
+#[case("try_removeprefix", "abc", "abcd", "abc")]
+#[case("try_removesuffix", "abc", "abc", "")]
+#[case("try_removeprefix", "", "", "")]
+#[case("try_removesuffix", "abc", "", "abc")]
+fn affix_removal_is_literal(
+    #[case] method: &str,
+    #[case] source: &str,
+    #[case] pattern: &str,
+    #[case] expected: &str,
+) {
+    native(
+        &format!("print({source:?}.{method}({pattern:?}))"),
+        &format!("Result[str, AllocError].Ok({expected:?})"),
+    );
+}
+
+#[test]
+fn affix_arguments_are_observed_in_order_and_results_outlive_inputs() {
+    native(r#"
+def source() -> str:
+    print("source")
+    "pre-value"
+def pattern() -> str:
+    print("pattern")
+    "pre-"
+def trim(text: &str, prefix: &str) -> Result[str, AllocError]:
+    text.try_removeprefix(prefix)?.try_removesuffix("-end")
+print(source().try_removeprefix(pattern()))
+mut text = "pre-é" + "-end"
+prefix = "pre" + "-"
+result = trim(&text, &prefix)
+text = "changed"
+drop(text)
+drop(prefix)
+print(result)
+class Custom:
+    def try_removeprefix(self) -> i64:
+        42
+print(Custom().try_removeprefix())
+"#, "source\npattern\nResult[str, AllocError].Ok(\"value\")\nResult[str, AllocError].Ok(\"é\")\n42");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[rstest]
+fn affix_removal_recovers_from_its_single_output_allocation(
+    #[values("try_removeprefix", "try_removesuffix")] method: &str,
+    #[values("é", "missing", "")] pattern: &str,
+    #[values(0, 1)] budget: usize,
+) {
+    let expected = if pattern == "é" { "" } else { "é" };
+    native(
+        &format!(
+            r#"
+source = "" + "é"
+pattern = "" + {pattern:?}
+print("__test_fail_allocations_after_{budget}__")
+result = source.{method}(pattern)
+print("__test_restore_allocations__")
+print(result)
+print(source)
+"#
+        ),
+        &format!(
+            "Result[str, AllocError].{}\né",
+            if budget == 0 {
+                "Err(AllocError.OutOfMemory)".to_owned()
+            } else {
+                format!("Ok({expected:?})")
+            }
+        ),
+    );
+}
+
+#[rstest]
+#[case("print(\"x\".try_removeprefix())", "requires one argument")]
+#[case("print(\"x\".try_removesuffix(1))", "expected str")]
+#[case("print([1].try_removeprefix(\"x\"))", "expected str")]
+fn invalid_affix_removal(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}
+
 fn native(source: &str, expected: &str) {
     let output = support::run(source);
     assert!(
