@@ -472,7 +472,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if let Some(ty) = self.qualified_type(base)? {
-            if ty.is_int() && name == "parse" {
+            if ty.is_numeric() && name == "parse" {
                 if args.len() != 1 {
                     return Err(base.at.error("parse takes one string argument"));
                 }

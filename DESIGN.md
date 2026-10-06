@@ -138,6 +138,12 @@ input returns `ParseError.Invalid`; a valid number outside the target range
 returns `ParseError.OutOfRange`. Prefixes, underscores, and non-ASCII digits are
 not accepted. Parsing and both error variants allocate nothing.
 
+`f32.parse` and `f64.parse` use the same result/error contract, accepting ASCII
+decimal/exponent forms and case-insensitive `inf`, `infinity`, and `nan` with an
+optional sign. Conversion rounds directly to the requested width. Finite input
+overflow returns `OutOfRange`; underflow may round to zero. Signed zero survives.
+Numeric separators and hexadecimal forms are rejected. Parsing allocates nothing.
+
 New practical I/O APIs must return explicit errors, including allocation failure
 in their own buffers and result construction. They must not hide infallible
 `String` growth behind a fallible public signature. Input consumption and partial

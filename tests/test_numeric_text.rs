@@ -56,3 +56,30 @@ fn parsing_checks_arity_and_type() {
         assert!(support::check_source(source).is_err());
     }
 }
+
+#[test]
+fn float_parsing_preserves_width_and_reports_overflow() {
+    native(r#"
+print(f32.parse(" .125 "))
+print(f64.parse("-0.0"))
+print(f32.parse("1e100"))
+print(f64.parse("1e-1000"))
+print(f64.parse("inf"))
+print(f32.parse("bad"))
+"#, "Result[f32, ParseError].Ok(0.125)\nResult[f64, ParseError].Ok(-0.0)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\nResult[f64, ParseError].Ok(0.0)\nResult[f64, ParseError].Ok(inf)\nResult[f32, ParseError].Err(ParseError.Invalid)");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn float_parsing_is_allocation_free() {
+    native(r#"
+print("__test_fail_allocations_after_0__")
+a = f64.parse("3.14159265358979323846264338327950288419716939937510")
+b = f32.parse("1e100")
+c = f64.parse("bad")
+print("__test_restore_allocations__")
+print(a)
+print(b)
+print(c)
+"#, "Result[f64, ParseError].Ok(3.141592653589793)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\nResult[f64, ParseError].Err(ParseError.Invalid)");
+}
