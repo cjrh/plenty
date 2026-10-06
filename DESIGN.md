@@ -92,7 +92,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable stdout/stderr writes and flushes, UTF-8 line input, and owned argument snapshots implemented; files remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, line input, owned argument snapshots, and whole-file UTF-8 reads implemented; file writes and stream objects remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -158,6 +158,16 @@ including its invocation name at index zero. Every call creates an independent
 list with fallibly allocated strings. OS-provided argument storage is borrowed
 only during construction; invalid UTF-8 is rejected, never replaced or escaped.
 The native startup retains the process argument pointers without allocating.
+
+`read_text(path) -> Result[str, IoError]` reads and closes a whole UTF-8 file,
+normalizing CRLF and bare CR to LF as Python text readers do. NUL characters in
+contents are preserved; NUL in paths is rejected. Decoding is strict, with no
+locale dependence or BOM removal. Path conversion, buffer growth, and the final
+string are fallible; errors reclaim partial buffers and close the descriptor.
+The initial file backend uses Linux open/read/close through Rust-owned handles,
+with no public ABI exposure; other hosts report unsupported I/O. Paths are
+relative to the process working directory unless absolute. Ordinary symlink
+resolution applies. Reads do not promise a snapshot against concurrent writers.
 
 Every integer type exposes `T.parse(text) -> Result[T, ParseError]`.
 Parsing borrows its string, trims Unicode White_Space, accepts an optional ASCII

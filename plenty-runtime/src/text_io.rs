@@ -67,6 +67,91 @@ fn push(bytes: &mut Vec<u8>, byte: u8) -> Result<(), Error> {
     Ok(())
 }
 
+fn open_read(path: &str) -> Result<std::fs::File, Error> {
+    if path.as_bytes().contains(&0) {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::FromRawFd;
+        let length = path
+            .len()
+            .checked_add(1)
+            .filter(|n| *n <= isize::MAX as usize)
+            .ok_or(AllocError::CapacityOverflow)?;
+        let mut name = Vec::new();
+        name.try_reserve_exact(length)
+            .map_err(|_| AllocError::OutOfMemory)?;
+        name.extend_from_slice(path.as_bytes());
+        name.push(0);
+        unsafe extern "C" {
+            fn open(path: *const std::ffi::c_char, flags: i32, ...) -> i32;
+        }
+        // SAFETY: the checked fallible buffer is NUL terminated. O_CLOEXEC
+        // prevents leaking this private descriptor to a future child process.
+        let fd = unsafe { open(name.as_ptr().cast(), 0o2000000) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: open returned a new descriptor; File takes sole ownership.
+        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(std::io::ErrorKind::Unsupported.into())
+    }
+}
+
+impl From<std::io::ErrorKind> for Error {
+    fn from(kind: std::io::ErrorKind) -> Self {
+        Self::System(kind.into())
+    }
+}
+
+fn read_all(reader: &mut impl Read) -> Result<*mut strings::Text, Error> {
+    let mut bytes = Vec::new();
+    let mut chunk = [0; 8192];
+    loop {
+        let count = match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        };
+        bytes
+            .len()
+            .checked_add(count)
+            .filter(|n| *n <= i64::MAX as usize)
+            .ok_or(AllocError::CapacityOverflow)?;
+        bytes
+            .try_reserve(count)
+            .map_err(|_| AllocError::OutOfMemory)?;
+        bytes.extend_from_slice(&chunk[..count]);
+    }
+    // Python-style universal text newlines, compacted without another allocation.
+    let (mut read, mut written) = (0, 0);
+    while read < bytes.len() {
+        let mut byte = bytes[read];
+        read += 1;
+        if byte == b'\r' {
+            byte = b'\n';
+            if bytes.get(read) == Some(&b'\n') {
+                read += 1;
+            }
+        }
+        bytes[written] = byte;
+        written += 1;
+    }
+    bytes.truncate(written);
+    let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
+    Ok(strings::try_new(text)?)
+}
+
+pub(crate) fn read_text(path: &str) -> Result<u128, Error> {
+    let mut file = open_read(path)?;
+    Ok(read_all(&mut file)? as u128)
+}
+
 fn line(reader: &mut impl Read) -> Result<u128, Error> {
     let mut bytes = Vec::new();
     loop {
@@ -123,6 +208,22 @@ pub(crate) fn input() -> u128 {
 mod tests {
     use super::*;
     use crate::memory::{plenty_release, Header};
+    #[test]
+    fn complete_reads_translate_newlines_across_chunks() {
+        let mut input = vec![b'x'; 8191];
+        input.extend_from_slice(b"\r\n\r\0\n");
+        let text = read_all(&mut input.as_slice()).unwrap();
+        unsafe {
+            let content = strings::utf8(text);
+            assert_eq!(content.len(), 8195);
+            assert!(content.ends_with("\n\n\0\n"));
+            plenty_release(text.cast());
+        }
+        assert!(matches!(
+            read_all(&mut &b"\xff"[..]),
+            Err(Error::InvalidUtf8)
+        ));
+    }
     #[test]
     fn lines_do_not_read_ahead_and_preserve_nul_and_utf8() {
         let mut source = "é\0\r\n\nlast".as_bytes();

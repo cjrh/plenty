@@ -1042,6 +1042,7 @@ fn builtin(name: &str) -> bool {
                 | "flush_stderr"
                 | "input"
                 | "args"
+                | "read_text"
                 | "contains"
                 | "list"
                 | "dict"
@@ -1497,6 +1498,7 @@ impl Lower<'_> {
                     "flush_stderr" => Some(CollectionOp::FlushStderr),
                     "input" => Some(CollectionOp::Input),
                     "args" => Some(CollectionOp::Args),
+                    "read_text" => Some(CollectionOp::ReadText),
                     _ => None,
                 } {
                     return self.system_call(operation, args, &e.at, ops);
