@@ -27,6 +27,7 @@ pub enum CollectionOp {
     Values(Ty),
     TryKeys(Ty),
     TryValues(Ty),
+    ListTrySlice(Ty),
     TextByteLen,
     TextAtByte,
     TextTryConcat,
@@ -153,6 +154,10 @@ impl CollectionOp {
                     crate::sum::result(Ty::List(element.clone()), crate::sum::alloc_error()),
                 )
             }
+            ListTrySlice(t) => (
+                vec![t.clone(), Ty::I64, Ty::I64],
+                crate::sum::result(t.clone(), crate::sum::alloc_error()),
+            ),
         }
     }
     pub fn opcode(&self) -> i64 {
@@ -181,6 +186,7 @@ impl CollectionOp {
             Self::Values(_) => 11,
             Self::TryKeys(_) => 43,
             Self::TryValues(_) => 44,
+            Self::ListTrySlice(_) => 45,
             Self::TextByteLen => 12,
             Self::TextAtByte => 13,
             Self::TextTryConcat => 34,

@@ -224,6 +224,21 @@ pub(crate) fn index(index: i64, len: usize) -> usize {
     checked_index(index, len).unwrap_or_else(|| crate::fail("index out of bounds"))
 }
 
+/// Python-style forward slice bounds, without overflow at extreme signed inputs.
+pub(crate) fn slice_bounds(start: i64, stop: i64, len: usize) -> std::ops::Range<usize> {
+    let normalize = |index: i64| {
+        let index = index as i128;
+        let index = if index < 0 {
+            len as i128 + index
+        } else {
+            index
+        };
+        index.clamp(0, len as i128) as usize
+    };
+    let start = normalize(start);
+    start..normalize(stop).max(start)
+}
+
 pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
     let i = if index < 0 {
         index as i128 + len as i128
@@ -558,6 +573,34 @@ unsafe fn try_dictionary_snapshot(
     }
 }
 
+unsafe fn try_list_slice(
+    source: &mut Collection,
+    start: i64,
+    stop: i64,
+    ty: &'static Type,
+) -> Result<u128, AllocError> {
+    unsafe {
+        let bounds = slice_bounds(start, stop, source.entries.len());
+        let result = try_collection_new(ty, bounds.len())?;
+        let element = ty.key();
+        // Reserve before moving anything. The source is a unique temporary for
+        // affine elements; its eventual cleanup releases all unselected entries.
+        for entry in &mut source.entries[bounds] {
+            let value = if element.affine {
+                std::mem::take(&mut entry.key)
+            } else {
+                retain(entry.key, element);
+                entry.key
+            };
+            (*result).entries.push(Entry {
+                key: value,
+                value: 0,
+            });
+        }
+        Ok(result as u128)
+    }
+}
+
 unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
     unsafe {
         if !ty.affine {
@@ -762,6 +805,15 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            45 => match try_list_slice(
+                &mut *(a as *mut Collection),
+                b as i64,
+                value as i64,
+                &*descriptor,
+            ) {
+                Ok(list) => wrap(list, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             43 | 44 => {
                 // Result[list[element], AllocError] carries the snapshot layout.
                 let ty = (*descriptor).variants[0].fields[0];

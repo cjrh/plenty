@@ -124,6 +124,11 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   code. Failures leave the source untouched; compiler cleanup consumes temporary
   receivers on either outcome. Ordinary `values` (opcode 11) shares this helper
   with a terminal allocation-failure policy. Keys and values retain insertion order.
+- Opcode 45 builds a fallible forward list slice from two signed bounds. Bounds
+  normalize with wide arithmetic and clamp to the source length. Reserve the
+  output buffer and header before retaining immutable elements or transferring
+  selected affine slots from a unique temporary. Unselected slots remain for
+  ordinary input cleanup. The compiler supplies the list type descriptor.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

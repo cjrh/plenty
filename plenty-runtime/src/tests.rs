@@ -354,6 +354,52 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn list_slices_transfer_only_selected_payloads_after_reserving_storage() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=2 {
+        unsafe {
+            let source = collection(0, 0, 0, 0, &LIST_LIST);
+            let mut children = [0; 3];
+            for (i, child) in children.iter_mut().enumerate() {
+                *child = collection(0, 0, 0, 0, &LIST_INT);
+                plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
+                plenty_release(collection(1, source, *child, 0, ptr::null()) as *mut Header);
+                plenty_release(*child as *mut Header);
+            }
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(45, source, 1, 2, &LIST_LIST)
+            };
+            if budget < 2 {
+                assert_eq!(result, 1u128 << 64);
+                for (i, child) in children.iter().enumerate() {
+                    let stored = collection(4, source, i as u128, 0, ptr::null());
+                    assert_eq!(stored, *child);
+                    plenty_release(stored as *mut Header);
+                }
+                plenty_release(source as *mut Header);
+            } else {
+                assert_eq!(result >> 64, 0);
+                plenty_release(source as *mut Header);
+                let output = crate::aggregates::payload(result);
+                let child = collection(4, output, 0, 0, ptr::null());
+                assert_eq!(child, children[1]);
+                assert_eq!(collection(4, child, 0, 0, ptr::null()), 1);
+                plenty_release(child as *mut Header);
+                plenty_release(output as *mut Header);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn dictionary_snapshots_retain_strings_only_after_successful_reservation() {
     struct Restore;
     impl Drop for Restore {

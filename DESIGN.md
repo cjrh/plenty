@@ -75,7 +75,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
-| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, and set `discard`; slicing is missing |
+| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
@@ -409,6 +409,25 @@ invoke user code. Capacity/layout overflow returns `AllocError.CapacityOverflow`
 allocation failure returns `AllocError.OutOfMemory`. The `Result` wrapper needs
 no allocation. Receiver construction and user cleanup retain their own allocation
 policies. Ordinary `keys()` and `values()` still terminate on allocation failure.
+
+`items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
+forward list slice. Both arguments are required `i64` indices; start is inclusive
+and stop exclusive. Negative bounds count from the end, bounds clamp to
+`[0, len(items)]`, and a stop before start yields an empty list. Extreme signed
+bounds cannot overflow. The receiver, start, and stop are observed once in that
+order, including reference arguments. Slice syntax, omitted bounds, and steps
+are deferred.
+
+The result is a new list. Immutable elements are retained, with no deep copy;
+its lifetime is independent of the source. Affine elements require an owned
+temporary receiver and transfer only the selected owners. The temporary's other
+elements are dropped in source order after the call; on failure all its elements
+are dropped. Use `try_copy(items)?.try_slice(start, stop)` for explicit duplication
+that preserves an affine source. Borrowed sources remain unchanged on failure.
+The complete output buffer and header are reserved before any transfer (two
+allocations for nonempty slices, one for empty slices). Capacity/layout overflow
+and exhaustion return `AllocError`; input construction and user cleanup retain
+their own policies.
 
 `range(stop)`, `range(start, stop)`, and `range(start, stop, step)` use i64
 arguments, exclude stop, and store only start/stop/step/length. A zero step or
