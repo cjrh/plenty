@@ -586,27 +586,37 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if matches!(name, "try_concat" | "try_join" | "try_split" | "try_get") {
+        if matches!(
+            name,
+            "try_concat" | "try_join" | "try_split" | "try_get" | "try_replace"
+        ) {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
-            if args.len() != 1 {
-                return Err(base.at.error(format!("{name} requires one argument")));
+            let arity = if name == "try_replace" { 2 } else { 1 };
+            if args.len() != arity {
+                return Err(base.at.error(if name == "try_replace" {
+                    "try_replace requires old and new string arguments".to_owned()
+                } else {
+                    format!("{name} requires one argument")
+                }));
             }
             let (expected, operation) = match name {
                 "try_concat" => (Ty::Str, CollectionOp::TextTryConcat),
                 "try_split" => (Ty::Str, CollectionOp::TextTrySplit),
                 "try_get" => (Ty::I64, CollectionOp::TextTryGet),
+                "try_replace" => (Ty::Str, CollectionOp::TextTryReplace),
                 _ => (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin),
             };
-            let argument_loans = if matches!(ungroup(&args[0]).kind, Expression::Collection { .. })
-            {
-                let argument = self.expr_expected(&args[0], Some(expected.clone()), ops)?;
-                self.same(argument, Some(expected), &args[0].at)?;
-                vec![]
-            } else {
-                let (argument, loans) = self.observe(&args[0], ops)?;
-                self.same(Some(argument), Some(expected), &args[0].at)?;
-                loans
-            };
+            let mut argument_loans = vec![];
+            for argument in args {
+                if matches!(ungroup(argument).kind, Expression::Collection { .. }) {
+                    let actual = self.expr_expected(argument, Some(expected.clone()), ops)?;
+                    self.same(actual, Some(expected.clone()), &argument.at)?;
+                } else {
+                    let (actual, loans) = self.observe(argument, ops)?;
+                    self.same(Some(actual), Some(expected.clone()), &argument.at)?;
+                    argument_loans.extend(loans);
+                }
+            }
             let (_, result) = operation.signature();
             ops.push(Op::Collection(operation));
             Self::end_reads(argument_loans, ops);

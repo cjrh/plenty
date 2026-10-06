@@ -76,7 +76,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
-| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, and explicit-separator splitting; formatting and numeric parsing are missing |
+| Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
@@ -92,7 +92,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
 | Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
-| Recoverable text operations | `str.try_concat(other)`, `str.try_join(parts)`, and `str.try_slice(start, stop)` return `Result[str, AllocError]`; `str.try_split(separator)` returns `Result[list[str], AllocError]` |
+| Recoverable text operations | `str.try_concat(other)`, `str.try_join(parts)`, `str.try_slice(start, stop)`, and `str.try_replace(old, new)` return `Result[str, AllocError]`; `str.try_split(separator)` returns `Result[list[str], AllocError]` |
 | Checked text lookup | `str.try_get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
 | Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
@@ -753,6 +753,22 @@ Ordinary `+` shares the concatenation implementation but retains terminal failur
 behavior. Ordinary string indexing, input, and formatting retain terminal
 allocation failure behavior.
 
+`text.try_replace(old, new)` returns `Result[str, AllocError]`. It requires two
+`str` arguments (references are accepted) and observes receiver, old, and new
+once in that order. Replace every literal, non-overlapping match from left to
+right; inserted text is not searched again. An empty old string matches every
+Unicode-scalar boundary, including both ends; replacing in an empty string with
+an empty pattern inserts new once. Empty new strings remove matches. There is no
+count limit, regex interpretation, grapheme matching, or normalization.
+
+Count matches and check the final byte/scalar lengths and object layout before
+allocating. Only the final output buffer is allocated, even for empty results,
+unchanged results, or zero matches. Byte copying uses a second match scan, with
+no intermediate strings, lists, or arrays of match positions. Overflow returns
+`CapacityOverflow` and allocation failure returns `OutOfMemory`. All inputs remain
+unchanged on either outcome, and successful output outlives them independently.
+Input construction retains its own allocation policy.
+
 `text.try_split(separator)` returns `Result[list[str], AllocError]`, observing
 both strings (including references) without consuming them. The explicit separator
 must be nonempty: an empty separator is an invalid-operation runtime error, like
@@ -1310,7 +1326,7 @@ implemented. The new design review changes the recommended priority:
    as well as fallible runtime operations; wrapper layout alone does not promise it.
 3. Complete fallible allocation and allocator provenance (collection construction,
    reservation, insertion, explicit copying, and text concatenation/joining/splitting
-   and checked character lookup and dictionary snapshots now have recoverable
+   and checked character lookup, slices, replacement, and dictionary snapshots now have recoverable
    `try_` APIs), then expand text,
    collection, input/file, and argument APIs under those rules. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.

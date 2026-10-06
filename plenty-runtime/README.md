@@ -133,6 +133,12 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   lists, measured in Unicode scalars. Character iteration locates a UTF-8 byte
   interval; only the final string is allocated, including empty/full slices.
   Both inputs and output use their normal independent ownership lifetimes.
+- Opcode 47 implements literal `str.try_replace`. Count non-overlapping matches
+  (empty patterns match scalar boundaries), check final byte/scalar lengths, then
+  allocate one output and copy unmatched spans and replacements directly. Length
+  arithmetic subtracts removed contents before adding replacements, and checks
+  multiplication, addition, and layout overflow. No match-position buffer or
+  intermediate text allocation is used, including no-match and empty results.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

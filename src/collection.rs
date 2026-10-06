@@ -35,6 +35,7 @@ pub enum CollectionOp {
     TextTrySplit,
     TextTryGet,
     TextTrySlice,
+    TextTryReplace,
 }
 
 impl Ty {
@@ -97,6 +98,10 @@ impl CollectionOp {
             ),
             TextTrySlice => (
                 vec![Ty::Str, Ty::I64, Ty::I64],
+                crate::sum::result(Ty::Str, crate::sum::alloc_error()),
+            ),
+            TextTryReplace => (
+                vec![Ty::Str, Ty::Str, Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
             New(t) => (vec![], t.clone()),
@@ -199,6 +204,7 @@ impl CollectionOp {
             Self::TextTrySplit => 36,
             Self::TextTryGet => 37,
             Self::TextTrySlice => 46,
+            Self::TextTryReplace => 47,
         }
     }
 }

@@ -354,6 +354,58 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn string_replacement_is_fallible_and_outputs_survive_all_inputs() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (text, old, new, expected) in [
+        ("Aé\0🙂é", "é", "中🙂", "A中🙂\0🙂中🙂"),
+        ("é\0", "", "🙂", "🙂é🙂\0🙂"),
+        ("", "", "", ""),
+        ("abc", "x", "y", "abc"),
+        ("abc", "abc", "", ""),
+    ] {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new(text.as_bytes());
+                let old_text = strings::new(old.as_bytes());
+                let new_text = strings::new(new.as_bytes());
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(
+                        47,
+                        source as u128,
+                        old_text as u128,
+                        new_text as u128,
+                        ptr::null(),
+                    )
+                };
+                assert_eq!(strings::utf8(source), text);
+                assert_eq!(strings::utf8(old_text), old);
+                assert_eq!(strings::utf8(new_text), new);
+                plenty_release(source.cast());
+                plenty_release(old_text.cast());
+                plenty_release(new_text.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
+                    assert_eq!(strings::utf8(output), expected);
+                    assert_eq!((*output).scalar_len, expected.chars().count() as u64);
+                    plenty_release(output.cast());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn string_slice_failure_and_utf8_result_lifetime() {
     struct Restore;
     impl Drop for Restore {

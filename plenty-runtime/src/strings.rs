@@ -75,6 +75,62 @@ fn add_length(total: u64, length: u64) -> Result<u64, AllocError> {
         .ok_or(AllocError::CapacityOverflow)
 }
 
+fn replacement_length(total: u64, old: u64, new: u64, count: u64) -> Result<u64, AllocError> {
+    let removed = old.checked_mul(count).ok_or(AllocError::CapacityOverflow)?;
+    let added = new.checked_mul(count).ok_or(AllocError::CapacityOverflow)?;
+    let remaining = total
+        .checked_sub(removed)
+        .ok_or(AllocError::CapacityOverflow)?;
+    add_length(remaining, added)
+}
+
+/// Literal, non-overlapping replacement with no intermediate buffer. Empty
+/// patterns match Unicode-scalar boundaries, including the beginning and end.
+pub(crate) unsafe fn try_replace(
+    text: *const Text,
+    old: *const Text,
+    new: *const Text,
+) -> Result<*mut Text, AllocError> {
+    unsafe {
+        let source = utf8(text);
+        let matches = source.match_indices(utf8(old));
+        let count = matches.clone().count() as u64;
+        let byte_len =
+            replacement_length((*text).byte_len, (*old).byte_len, (*new).byte_len, count)?;
+        let scalar_len = replacement_length(
+            (*text).scalar_len,
+            (*old).scalar_len,
+            (*new).scalar_len,
+            count,
+        )?;
+        let out = memory::try_allocate::<Text, u8>(byte_len as usize)?;
+        out.write(Text {
+            header: Header::new(destroy),
+            byte_len,
+            scalar_len,
+            data: [],
+        });
+        let mut offset = 0;
+        let mut append = |data: &[u8]| {
+            ptr::copy_nonoverlapping(
+                data.as_ptr(),
+                ptr::addr_of_mut!((*out).data).cast::<u8>().add(offset),
+                data.len(),
+            );
+            offset += data.len();
+        };
+        let mut previous = 0;
+        for (index, matched) in matches {
+            append(&source.as_bytes()[previous..index]);
+            append(bytes(new));
+            previous = index + matched.len();
+        }
+        append(&source.as_bytes()[previous..]);
+        debug_assert_eq!(offset, byte_len as usize);
+        Ok(out)
+    }
+}
+
 /// Borrow UTF-8 texts in a stable sequence. Cloning the iterator must enumerate
 /// the same live pointers; both passes run without callbacks or source mutation.
 /// Allocate only the final output, after checking its complete size.
@@ -224,6 +280,31 @@ mod tests {
         assert_eq!(add_length(u64::MAX, 1), Err(AllocError::CapacityOverflow));
         assert_eq!(
             memory::try_allocate::<Text, u8>(i64::MAX as usize),
+            Err(AllocError::CapacityOverflow)
+        );
+    }
+
+    #[test]
+    fn replacement_lengths_check_growth_and_allow_shrinking_at_the_limit() {
+        assert_eq!(
+            replacement_length(i64::MAX as u64, 2, 1, 1),
+            Ok(i64::MAX as u64 - 1)
+        );
+        assert_eq!(replacement_length(0, 0, 1, 1), Ok(1));
+        assert_eq!(
+            replacement_length(i64::MAX as u64, 0, 1, 1),
+            Err(AllocError::CapacityOverflow)
+        );
+        assert_eq!(
+            replacement_length(0, 0, u64::MAX, 2),
+            Err(AllocError::CapacityOverflow)
+        );
+        assert_eq!(
+            replacement_length(1, 2, 0, 1),
+            Err(AllocError::CapacityOverflow)
+        );
+        assert_eq!(
+            replacement_length(0, u64::MAX, 0, 2),
             Err(AllocError::CapacityOverflow)
         );
     }
