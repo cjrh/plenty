@@ -129,6 +129,24 @@ behavior.
 
 ## Current language contract
 
+### Numeric text conversion and allocation policy
+
+Every integer type exposes `T.parse(text) -> Result[T, ParseError]`.
+Parsing borrows its string, trims Unicode White_Space, accepts an optional ASCII
+sign and decimal ASCII digits, and checks the target width. Empty or malformed
+input returns `ParseError.Invalid`; a valid number outside the target range
+returns `ParseError.OutOfRange`. Prefixes, underscores, and non-ASCII digits are
+not accepted. Parsing and both error variants allocate nothing.
+
+New practical I/O APIs must return explicit errors, including allocation failure
+in their own buffers and result construction. They must not hide infallible
+`String` growth behind a fallible public signature. Input consumption and partial
+external writes cannot generally be rolled back; their contracts must say so.
+This does not retroactively make literals, comprehensions, class/generator
+construction, printing, or all runtime bookkeeping recoverable. Those existing
+terminal paths remain tracked work. Allocator provenance must be retained by an
+owner when custom allocators arrive; no public allocator switching API exists yet.
+
 ```python
 def choose(flag: bool, first: i64, second: i64) -> i64:
     """Choose one of two integers."""

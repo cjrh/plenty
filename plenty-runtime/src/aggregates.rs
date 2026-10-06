@@ -864,6 +864,7 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            78 => crate::numbers::parse(strings::utf8(a as *const Text), (*descriptor).kind),
             76 | 77 => {
                 let source = strings::utf8(a as *const Text);
                 if op == 76 {

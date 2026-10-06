@@ -28,7 +28,7 @@ impl Hash for EnumType {
 impl EnumType {
     /// Builtin sums have one payload and a binary discriminant at each level.
     pub fn inline(&self) -> bool {
-        self.propagatable() || self.name == "AllocError"
+        self.propagatable() || matches!(self.name.as_str(), "AllocError" | "ParseError")
     }
     pub fn propagatable(&self) -> bool {
         self.name.starts_with("Option[") || self.name.starts_with("Result[")
@@ -59,6 +59,17 @@ pub fn alloc_error() -> Ty {
 
 pub fn allocation_result() -> Ty {
     result(Ty::Unit, alloc_error())
+}
+
+pub fn parse_error() -> Ty {
+    let Ty::Enum(template) = alloc_error() else {
+        unreachable!()
+    };
+    let mut ty = (*template).clone();
+    ty.name = "ParseError".into();
+    ty.variants[0].name = "Invalid".into();
+    ty.variants[1].name = "OutOfRange".into();
+    Ty::Enum(Rc::new(ty))
 }
 #[derive(Clone, Debug)]
 pub struct Variant {

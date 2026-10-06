@@ -472,6 +472,18 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if let Some(ty) = self.qualified_type(base)? {
+            if ty.is_int() && name == "parse" {
+                if args.len() != 1 {
+                    return Err(base.at.error("parse takes one string argument"));
+                }
+                let (actual, loans) = self.observe(&args[0], ops)?;
+                self.same(Some(actual), Some(Ty::Str), &args[0].at)?;
+                let operation = CollectionOp::ParseNumber(ty);
+                let (_, result) = operation.signature();
+                ops.push(Op::Collection(operation));
+                Self::end_reads(loans, ops);
+                return Ok(Some(result));
+            }
             if matches!(ty, Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _)) {
                 return self.fallible_constructor(ty, name, args, &base.at, ops);
             }

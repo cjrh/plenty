@@ -1019,6 +1019,7 @@ fn named_type(name: &str) -> Type {
         "str" => Ty::Str,
         "range" => Ty::Range,
         "AllocError" => crate::sum::alloc_error(),
+        "ParseError" => crate::sum::parse_error(),
         _ => return None,
     })
 }

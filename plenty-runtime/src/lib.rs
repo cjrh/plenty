@@ -14,6 +14,7 @@ mod aggregates;
 mod generators;
 mod io;
 mod memory;
+mod numbers;
 mod strings;
 #[cfg(test)]
 mod tests;
