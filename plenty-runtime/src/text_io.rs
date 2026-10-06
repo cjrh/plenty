@@ -1,6 +1,6 @@
 //! Fallible text I/O. No infallible growing buffers or allocated diagnostics.
 use crate::{aggregates::wrap, memory::AllocError, strings};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 static ARG_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -67,7 +67,7 @@ fn push(bytes: &mut Vec<u8>, byte: u8) -> Result<(), Error> {
     Ok(())
 }
 
-fn open_read(path: &str) -> Result<std::fs::File, Error> {
+fn open_file(path: &str, write: bool) -> Result<std::fs::File, Error> {
     if path.as_bytes().contains(&0) {
         return Err(std::io::ErrorKind::InvalidInput.into());
     }
@@ -89,7 +89,8 @@ fn open_read(path: &str) -> Result<std::fs::File, Error> {
         }
         // SAFETY: the checked fallible buffer is NUL terminated. O_CLOEXEC
         // prevents leaking this private descriptor to a future child process.
-        let fd = unsafe { open(name.as_ptr().cast(), 0o2000000) };
+        let flags = 0o2000000 | if write { 0o1 | 0o100 | 0o1000 } else { 0 };
+        let fd = unsafe { open(name.as_ptr().cast(), flags, 0o666u32) };
         if fd < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
@@ -98,6 +99,7 @@ fn open_read(path: &str) -> Result<std::fs::File, Error> {
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = write;
         Err(std::io::ErrorKind::Unsupported.into())
     }
 }
@@ -148,8 +150,34 @@ fn read_all(reader: &mut impl Read) -> Result<*mut strings::Text, Error> {
 }
 
 pub(crate) fn read_text(path: &str) -> Result<u128, Error> {
-    let mut file = open_read(path)?;
+    let mut file = open_file(path, false)?;
     Ok(read_all(&mut file)? as u128)
+}
+
+pub(crate) fn write_text(path: &str, text: &str) -> Result<u128, Error> {
+    let mut file = open_file(path, true)?;
+    file.write_all(text.as_bytes())?;
+    close(file)?;
+    Ok(text.chars().count() as u128)
+}
+
+fn close(file: std::fs::File) -> Result<(), Error> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::IntoRawFd;
+        unsafe extern "C" {
+            fn close(fd: i32) -> i32;
+        }
+        let fd = file.into_raw_fd();
+        // SAFETY: consume our sole descriptor exactly once. Do not retry close
+        // after EINTR: on Linux it has already relinquished the descriptor.
+        if unsafe { close(fd) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    #[cfg(not(unix))]
+    drop(file);
+    Ok(())
 }
 
 fn line(reader: &mut impl Read) -> Result<u128, Error> {

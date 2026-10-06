@@ -2951,10 +2951,35 @@ def main() -> ():
 configuration reader is ready
 ```
 
+## Writing a UTF-8 file
+
+`write_text(path, text)` creates or replaces a file and returns the number of
+Unicode characters written. It writes exact UTF-8 bytes without translating
+newlines. Its temporary file handle is closed before it returns. Allocation of
+the path happens before truncating an existing file, but OS failures can leave
+truncated or partially written contents. This is not an atomic-save operation.
+
+Run this in a scratch directory: it replaces `plenty-example.txt`.
+
+```plenty
+def save_and_read() -> Result[str, IoError]:
+    write_text("plenty-example.txt", "Hello, é!\n")?
+    read_text("plenty-example.txt")
+
+def main() -> ():
+    print(save_and_read())
+```
+```output
+Result[str, IoError].Ok("Hello, é!\n")
+```
+
+The tutorial tests execute file examples in temporary directories, independently
+for compile-and-run and compiled-binary execution.
+
 ## Where the language goes next
 
 
-This guide deliberately uses implemented features. File writing and stream objects,
+This guide deliberately uses implemented features. Long-lived file stream objects,
 recursive types, element references, and stored or returned references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 

@@ -110,7 +110,18 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
         }
         let source_path = example_dir.join("lesson.plenty");
         std::fs::write(&source_path, &source.body).unwrap();
-        let run_output = Command::new(binary).arg(&source_path).output().unwrap();
+        // Runtime examples may create files. Give each execution a separate
+        // empty working directory so examples neither touch the repo nor rely
+        // on files left behind by the other execution mode.
+        let run_dir = example_dir.join("run");
+        let native_dir = example_dir.join("native");
+        std::fs::create_dir(&run_dir).unwrap();
+        std::fs::create_dir(&native_dir).unwrap();
+        let run_output = Command::new(binary)
+            .arg(&source_path)
+            .current_dir(&run_dir)
+            .output()
+            .unwrap();
         let executable = workspace.0.join(format!("lesson-{examples}"));
         let compiled = Command::new(binary)
             .arg("--compile")
@@ -132,7 +143,10 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
                 source.line,
                 String::from_utf8_lossy(&compiled.stderr)
             );
-            let native = Command::new(&executable).output().unwrap();
+            let native = Command::new(&executable)
+                .current_dir(&native_dir)
+                .output()
+                .unwrap();
             assert!(
                 native.status.success(),
                 "TUTORIAL.md:{} native: {}",

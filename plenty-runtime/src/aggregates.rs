@@ -886,6 +886,10 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            87 => crate::text_io::result(crate::text_io::write_text(
+                strings::utf8(a as *const Text),
+                strings::utf8(b as *const Text),
+            )),
             86 => {
                 crate::text_io::result(crate::text_io::read_text(strings::utf8(a as *const Text)))
             }

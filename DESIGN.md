@@ -92,7 +92,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, line input, owned argument snapshots, and whole-file UTF-8 reads implemented; file writes and stream objects remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, line input, owned argument snapshots, and whole-file UTF-8 reads/writes implemented; stream objects remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -168,6 +168,15 @@ The initial file backend uses Linux open/read/close through Rust-owned handles,
 with no public ABI exposure; other hosts report unsupported I/O. Paths are
 relative to the process working directory unless absolute. Ordinary symlink
 resolution applies. Reads do not promise a snapshot against concurrent writers.
+
+`write_text(path, text) -> Result[i64, IoError]` creates or truncates a file,
+writes the exact UTF-8 bytes, closes it, and returns the Unicode-scalar count.
+Path allocation precedes opening/truncation; no output allocation follows it.
+The existing file can be truncated or partially written on an OS failure.
+Successful writes check close errors but do not imply `fsync` durability or
+atomic replacement. Creation uses permissions `0666` restricted by the process
+umask. Arguments are observed once in source order and remain usable.
+Tutorial executions use separate temporary working directories for each mode.
 
 Every integer type exposes `T.parse(text) -> Result[T, ParseError]`.
 Parsing borrows its string, trims Unicode White_Space, accepts an optional ASCII
