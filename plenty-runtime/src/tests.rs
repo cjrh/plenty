@@ -354,6 +354,51 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn list_extension_reserves_before_transferring_owned_entries() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=1 {
+        unsafe {
+            let destination = collection(0, 0, 0, 0, &LIST_LIST);
+            let source = collection(0, 0, 0, 0, &LIST_LIST);
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
+            plenty_release(child as *mut Header);
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(59, destination, source, 0, ptr::null())
+            };
+            assert_eq!(result, if budget == 0 { 1u128 << 64 } else { 0 });
+            assert_eq!(
+                collection(5, destination, 0, 0, ptr::null()),
+                budget as u128
+            );
+            assert_eq!(
+                collection(5, source, 0, 0, ptr::null()),
+                (1 - budget) as u128
+            );
+            if budget == 1 {
+                plenty_release(source as *mut Header);
+                let stored = collection(4, destination, 0, 0, ptr::null());
+                assert_eq!(stored, child);
+                assert_eq!(collection(4, stored, 0, 0, ptr::null()), 42);
+                plenty_release(stored as *mut Header);
+            } else {
+                plenty_release(source as *mut Header);
+            }
+            plenty_release(destination as *mut Header);
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn dictionary_clear_releases_entries_but_reuses_buffers() {
     struct Restore;
     impl Drop for Restore {

@@ -1554,6 +1554,34 @@ Clearing itself allocates no storage. Owned elements are destroyed before the
 method returns, in list order or dictionary insertion order; custom destructors
 may have their own effects and allocations. Clearing an empty collection is fine.
 
+### Extend a list by transferring another list
+
+`items.try_extend(other)` returns `Result[(), AllocError]`. It moves all elements
+from another list of the same type after reserving space:
+
+```plenty
+def combined() -> Result[list[i64], AllocError]:
+    mut items = list[i64].try_new()?
+    more = [10, 20, 30]
+    items.try_extend(more)?
+    Ok(items)
+
+def main() -> ():
+    print(combined())
+```
+
+```output
+Result[list[i64], AllocError].Ok([10, 20, 30])
+```
+
+The source is consumed even when reservation fails; its elements are then cleaned
+up and the destination stays unchanged. To retain a source, explicitly write
+`items.try_extend(try_copy(source)?)`. References and general iterables are not
+accepted as sources yet. The destination needs mutable access. Existing capacity
+is reused, and moving elements does not clone or allocate their contents.
+The literal in this example retains its usual terminal allocation policy; use
+fallible constructors and insertions if source creation must also be recoverable.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

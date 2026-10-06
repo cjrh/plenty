@@ -341,6 +341,16 @@ impl Collection {
             .unwrap_or_else(|_| crate::fail("collection allocation failed"));
     }
 
+    /// Source ownership transfers only after reservation. On error the caller
+    /// still owns both unchanged collections and handles source cleanup.
+    unsafe fn try_extend(&mut self, source: &mut Collection) -> Result<(), AllocError> {
+        unsafe {
+            self.try_reserve(source.entries.len())?;
+        }
+        self.entries.append(&mut source.entries);
+        Ok(())
+    }
+
     unsafe fn try_insert(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
             if self.ty().kind != b'L' {
@@ -805,6 +815,10 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            59 => match (*(a as *mut Collection)).try_extend(&mut *(b as *mut Collection)) {
+                Ok(()) => wrap(0, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             58 => {
                 let c = &mut *(a as *mut Collection);
                 let ty = &*c.ty;

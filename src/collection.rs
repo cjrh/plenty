@@ -12,6 +12,7 @@ pub enum CollectionOp {
     Append(Ty),     // exclusive in-place update of a list or set
     TryReserve(Ty), // exclusive capacity reservation -> Result[(), AllocError]
     TryInsert(Ty),  // exclusive fallible append/add/insert
+    TryExtend(Ty),  // exclusive list + consumed list -> Result[(), AllocError]
     Put(Ty),        // exclusive in-place indexed update
     Get(Ty),
     ListGet(Ty),     // observed list/index -> Option[non-affine element]
@@ -132,6 +133,7 @@ impl CollectionOp {
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
             ),
             TryReserve(t) => (vec![t.clone(), Ty::I64], crate::sum::allocation_result()),
+            TryExtend(t) => (vec![t.clone(), t.clone()], crate::sum::allocation_result()),
             TryInsert(t) => {
                 let mut args = vec![t.clone(), t.element().expect("collection element")];
                 if let Ty::Dict(_, v) = t {
@@ -204,6 +206,7 @@ impl CollectionOp {
             Self::Append(_) => 2,
             Self::TryReserve(_) => 28,
             Self::TryInsert(_) => 29,
+            Self::TryExtend(_) => 59,
             Self::Put(_) => 3,
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,

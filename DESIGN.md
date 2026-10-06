@@ -82,6 +82,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
 | Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
+| Recoverable bulk collection mutation | `list.try_extend(list)` consumes a same-typed source and reserves before transferring its elements |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -430,6 +431,22 @@ order and dictionaries in insertion order with keys before values. Set order is
 unspecified. User cleanup retains its own allocation/effect policy. Empty clear
 is harmless, future insertions can reuse capacity, and independent immutable
 owners survive. Temporaries, shared references, and conflicting loans are rejected.
+
+`items.try_extend(other) -> Result[(), AllocError]` appends all elements of a
+same-typed owned list. The destination requires a named mutable binding, class
+field, or exclusive reference. The source is evaluated and moved before exclusive
+access to the destination, as with `try_append`. It is consumed on both outcomes:
+on success its elements transfer in order without cloning; on failure its owners
+are dropped. Destination contents stay unchanged on failure. Preserve a source
+explicitly with `items.try_extend(try_copy(source)?)`; references and arbitrary
+iterables are not accepted as sources. Self-extension by moving the destination
+is rejected by ownership checking.
+
+Reserve the entire additional entry count before moving anything. When capacity
+suffices, including empty sources, the operation allocates nothing; otherwise
+reservation returns `OutOfMemory` or `CapacityOverflow`. After reservation only
+slot transfer remains. All permitted list element types, including custom-cleanup
+classes, work. Input construction and user cleanup retain their own policies.
 
 `items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
 forward list slice. Both arguments are required `i64` indices; start is inclusive

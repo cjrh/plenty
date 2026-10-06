@@ -159,6 +159,11 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
 - Opcode 58 clears a list/dictionary/set: reset hash buckets, drain entries in
   source order, and release keys before values while retaining buffer capacity.
   Runtime clearing allocates nothing; user cleanup follows its own policy.
+- Opcode 59 reserves destination list capacity before appending a consumed source's
+  entry slots. It returns inline `Result[(), AllocError]`. No payload retain/copy
+  is needed; source entries are empty on success and intact on failure, then the
+  compiler releases the source owner on either outcome. The checker forbids aliasing
+  source/destination owners and requires exclusive destination access.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
