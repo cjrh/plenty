@@ -79,6 +79,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
+| Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -746,6 +747,16 @@ right without allocating. Empty needles match scalar boundaries, yielding
 Both strings are observed once in source order, including references. A source's
 validated byte length leaves room for the header, so its boundary count fits i64.
 There are no optional bounds, regexes, or normalization.
+
+`text.try_strip()`, `text.try_lstrip()`, and `text.try_rstrip()` return
+`Result[str, AllocError]`, removing Unicode White_Space from both ends, the
+left end, or the right end respectively. The compiler's bundled Rust runtime
+provides the Unicode classification; NUL and zero-width space are not whitespace.
+Interior text is preserved byte-for-byte. No explicit character-set argument is
+supported. The receiver is observed once, including references. Boundary scanning
+does not allocate; creating the independent result requires one allocation even
+for empty or unchanged output. Failures preserve the source, and the output
+outlives it. No case folding or normalization occurs.
 
 `text.try_slice(start, stop)` returns `Result[str, AllocError]`. It uses the list
 slice's two required `i64` bounds, negative indexing, exclusive stop, and clamping,

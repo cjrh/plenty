@@ -41,6 +41,9 @@ pub enum CollectionOp {
     TextFind,
     TextRFind,
     TextCount,
+    TextTryStrip,
+    TextTryLStrip,
+    TextTryRStrip,
 }
 
 impl Ty {
@@ -84,6 +87,10 @@ impl CollectionOp {
             TextStartsWith | TextEndsWith => (vec![Ty::Str, Ty::Str], Ty::Bool),
             TextFind | TextRFind => (vec![Ty::Str, Ty::Str], crate::sum::option(Ty::I64)),
             TextCount => (vec![Ty::Str, Ty::Str], Ty::I64),
+            TextTryStrip | TextTryLStrip | TextTryRStrip => (
+                vec![Ty::Str],
+                crate::sum::result(Ty::Str, crate::sum::alloc_error()),
+            ),
             TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
             TextTryConcat => (
                 vec![Ty::Str, Ty::Str],
@@ -218,6 +225,9 @@ impl CollectionOp {
             Self::TextFind => 50,
             Self::TextRFind => 51,
             Self::TextCount => 52,
+            Self::TextTryStrip => 53,
+            Self::TextTryLStrip => 54,
+            Self::TextTryRStrip => 55,
         }
     }
 }

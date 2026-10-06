@@ -1611,6 +1611,32 @@ def main() -> ():
 
 The method borrows both strings and takes exactly one pattern argument.
 
+### Trim surrounding whitespace
+
+`try_strip()`, `try_lstrip()`, and `try_rstrip()` remove Unicode whitespace
+from both ends, the left end, or the right end. Each returns `Result[str, AllocError]`:
+
+```plenty
+def main() -> ():
+    text = "  é🙂  "
+    print(text.try_strip())
+    print(text.try_lstrip())
+    print(text.try_rstrip())
+    print(" \t\n".try_strip())
+```
+
+```output
+Result[str, AllocError].Ok("é🙂")
+Result[str, AllocError].Ok("é🙂  ")
+Result[str, AllocError].Ok("  é🙂")
+Result[str, AllocError].Ok("")
+```
+
+They borrow the source and allocate only the final independent string. Empty
+and unchanged results still need that allocation. Interior whitespace is kept;
+NUL and zero-width space are not trimmed. These methods use Unicode White_Space
+and take no arguments; custom character sets are not supported yet.
+
 ### Slice text by Unicode scalar position
 
 Strings also have `try_slice(start, stop) -> Result[str, AllocError]`, using the

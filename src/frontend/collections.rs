@@ -554,6 +554,21 @@ impl Lower<'_> {
                 .at
                 .error("discard requires a mutable set binding or class field"));
         }
+        if matches!(name, "try_strip" | "try_lstrip" | "try_rstrip") {
+            self.same(Some(ty), Some(Ty::Str), &base.at)?;
+            if !args.is_empty() {
+                return Err(base.at.error(format!("{name} takes no arguments")));
+            }
+            let operation = match name {
+                "try_strip" => CollectionOp::TextTryStrip,
+                "try_lstrip" => CollectionOp::TextTryLStrip,
+                _ => CollectionOp::TextTryRStrip,
+            };
+            let (_, result) = operation.signature();
+            ops.push(Op::Collection(operation));
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
         if name == "try_slice" {
             if args.len() != 2 {
                 return Err(base.at.error("try_slice requires start and stop arguments"));

@@ -146,6 +146,9 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   allocating; empty needles match at the corresponding end of the source.
 - Opcode 52 counts non-overlapping literal matches with no allocation. Empty
   patterns count scalar boundaries; valid string sizes keep the result within i64.
+- Opcodes 53–55 trim Unicode White_Space at both/left/right ends respectively.
+  Borrow the input, locate the remaining byte interval, and allocate one final
+  independent string; failures preserve the source.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

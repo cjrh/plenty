@@ -233,6 +233,24 @@ pub(crate) unsafe fn try_get(
         try_new(character.encode_utf8(&mut [0; 4])).map(Some)
     }
 }
+/// Trim Unicode White_Space at selected ends, then allocate only the final text.
+pub(crate) unsafe fn try_strip(
+    text: *const Text,
+    left: bool,
+    right: bool,
+) -> Result<*mut Text, AllocError> {
+    unsafe {
+        let mut source = utf8(text);
+        if left {
+            source = source.trim_start();
+        }
+        if right {
+            source = source.trim_end();
+        }
+        try_new(source)
+    }
+}
+
 /// Copy a forward Unicode-scalar slice directly from its UTF-8 byte interval.
 pub(crate) unsafe fn try_slice(
     text: *const Text,

@@ -352,6 +352,40 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
     }
 }
 
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn trimmed_strings_have_independent_storage_and_recover_from_allocation_failure() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (op, expected) in [(53, "é\0🙂"), (54, "é\0🙂 "), (55, "　é\0🙂")] {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new("　é\0🙂 ".as_bytes());
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(op, source as u128, 0, 0, ptr::null())
+                };
+                assert_eq!(strings::utf8(source), "　é\0🙂 ");
+                plenty_release(source.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
+                    assert_eq!(strings::utf8(output), expected);
+                    assert_eq!((*output).scalar_len, expected.chars().count() as u64);
+                    plenty_release(output.cast());
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn text_search_returns_scalar_positions_without_borrowed_result_storage() {
     unsafe {

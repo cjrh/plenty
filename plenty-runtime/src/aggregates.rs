@@ -805,6 +805,10 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            53..=55 => match strings::try_strip(a as *const Text, op != 55, op != 54) {
+                Ok(text) => wrap(text as u128, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             52 => strings::utf8(a as *const Text)
                 .matches(strings::utf8(b as *const Text))
                 .count() as u128,
