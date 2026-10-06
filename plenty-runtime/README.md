@@ -116,6 +116,14 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   signed index normalization precedes the read; a hit retains its payload, and a
   miss returns `Nothing`. The compiler restricts this to non-affine elements.
   Neither path allocates or alters storage, and retained payloads outlive the list.
+- Opcodes 43/44 implement dictionary `try_keys`/`try_values`, with output metadata
+  `Result[list[T], AllocError]`. They reserve the complete list buffer and header
+  before touching source owners, then retain immutable slots or transfer affine
+  values and zero their old slots. The frontend permits affine values only from
+  unique owned temporaries. No step after reservation can allocate or call user
+  code. Failures leave the source untouched; compiler cleanup consumes temporary
+  receivers on either outcome. Ordinary `values` (opcode 11) shares this helper
+  with a terminal allocation-failure policy. Keys and values retain insertion order.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

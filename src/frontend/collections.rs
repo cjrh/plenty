@@ -620,6 +620,25 @@ impl Lower<'_> {
         let Ty::Dict(k, v) = &ty else {
             return Err(base.at.error(format!("unsupported method `{name}`")));
         };
+        if matches!(name, "try_keys" | "try_values") {
+            if !args.is_empty() {
+                return Err(base.at.error(format!("{name} takes no arguments")));
+            }
+            if name == "try_values" && v.affine() && !loans.is_empty() {
+                return Err(base.at.error(
+                    "try_values with owned payloads requires an owned temporary; use try_copy(dictionary)?.try_values() for fallible duplication",
+                ));
+            }
+            let operation = if name == "try_keys" {
+                CollectionOp::TryKeys(ty)
+            } else {
+                CollectionOp::TryValues(ty)
+            };
+            let (_, result) = operation.signature();
+            ops.push(Op::Collection(operation));
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
         if !args.is_empty() {
             return Err(base.at.error("keys and values take no arguments"));
         }

@@ -529,6 +529,35 @@ unsafe fn try_split(
     }
 }
 
+/// Reserve the complete snapshot before retaining or transferring any elements.
+/// Affine values require a unique temporary source; the frontend enforces this.
+unsafe fn try_dictionary_snapshot(
+    source: &mut Collection,
+    ty: &'static Type,
+    values: bool,
+) -> Result<u128, AllocError> {
+    unsafe {
+        let result = try_collection_new(ty, source.entries.len())?;
+        let element = ty.key();
+        for entry in &mut source.entries {
+            let value = if values && element.affine {
+                std::mem::take(&mut entry.value)
+            } else {
+                let value = if values { entry.value } else { entry.key };
+                retain(value, element);
+                value
+            };
+            // Reservation above guarantees push cannot allocate. No operation
+            // after the first ownership transfer can fail or call user code.
+            (*result).entries.push(Entry {
+                key: value,
+                value: 0,
+            });
+        }
+        Ok(result as u128)
+    }
+}
+
 unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
     unsafe {
         if !ty.affine {
@@ -733,6 +762,14 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            43 | 44 => {
+                // Result[list[element], AllocError] carries the snapshot layout.
+                let ty = (*descriptor).variants[0].fields[0];
+                match try_dictionary_snapshot(&mut *(a as *mut Collection), ty, op == 44) {
+                    Ok(list) => wrap(list, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
             37 => match strings::try_get(a as *const Text, b as i64) {
                 Ok(Some(text)) => wrap(wrap(text as u128, 1), 0),
                 Ok(None) => wrap(wrap(0, 0), 0),
@@ -935,19 +972,8 @@ pub(crate) unsafe fn collection(
                 (*c).range_len = len as usize;
                 c as u128
             }
-            11 => {
-                let c = &mut *(a as *mut Collection);
-                let element = c.ty().value.unwrap();
-                let out = collection_new(&*descriptor);
-                for entry in &mut c.entries {
-                    (*out).insert(entry.value, 0);
-                    if element.affine {
-                        release(entry.value, element);
-                        entry.value = 0;
-                    }
-                }
-                out as u128
-            }
+            11 => try_dictionary_snapshot(&mut *(a as *mut Collection), &*descriptor, true)
+                .unwrap_or_else(|_| crate::fail("dictionary snapshot allocation failed")),
             20 | 30 => record_new(&*descriptor, a as u64) as u128,
             21 => {
                 let r = a as *mut Record;

@@ -70,7 +70,9 @@ impl Lowerer<'_, '_> {
             CollectionOp::Next(_) | CollectionOp::Values(_) | CollectionOp::Range => Some(&output),
             CollectionOp::Copy(ty) | CollectionOp::TryCopy(ty) => Some(ty),
             CollectionOp::New(ty) | CollectionOp::TryNew(ty) => Some(ty),
-            CollectionOp::TextTrySplit => Some(&output),
+            CollectionOp::TextTrySplit | CollectionOp::TryKeys(_) | CollectionOp::TryValues(_) => {
+                Some(&output)
+            }
             CollectionOp::Len(Ty::Str)
             | CollectionOp::Get(Ty::Str)
             | CollectionOp::IterGet(Ty::Str)

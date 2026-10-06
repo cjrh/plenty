@@ -25,6 +25,8 @@ pub enum CollectionOp {
     Contains(Ty),
     Range,
     Values(Ty),
+    TryKeys(Ty),
+    TryValues(Ty),
     TextByteLen,
     TextAtByte,
     TextTryConcat,
@@ -143,6 +145,14 @@ impl CollectionOp {
                 let Ty::Dict(_, v) = t else { unreachable!() };
                 (vec![t.clone()], Ty::List(v.clone()))
             }
+            TryKeys(t) | TryValues(t) => {
+                let Ty::Dict(k, v) = t else { unreachable!() };
+                let element = if matches!(self, TryKeys(_)) { k } else { v };
+                (
+                    vec![t.clone()],
+                    crate::sum::result(Ty::List(element.clone()), crate::sum::alloc_error()),
+                )
+            }
         }
     }
     pub fn opcode(&self) -> i64 {
@@ -169,6 +179,8 @@ impl CollectionOp {
             Self::Contains(_) => 7,
             Self::Range => 10,
             Self::Values(_) => 11,
+            Self::TryKeys(_) => 43,
+            Self::TryValues(_) => 44,
             Self::TextByteLen => 12,
             Self::TextAtByte => 13,
             Self::TextTryConcat => 34,

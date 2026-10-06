@@ -91,6 +91,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | `with` context managers | Proposed; automatic destruction works today |
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
+| Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
 | Recoverable text operations | `str.try_concat(other)` and `str.try_join(parts)` return `Result[str, AllocError]`; `str.try_split(separator)` returns `Result[list[str], AllocError]` |
 | Checked text lookup | `str.try_get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
 | Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
@@ -383,6 +384,31 @@ transfers an existing dictionary value. Dictionary `keys()` and `values()` produ
 new lists. `values()` on mutable payloads requires an owned temporary such as
 `copy(d).values()` so a borrowed dictionary cannot expose mutable aliases.
 Pair iterables and `items()` await tuples.
+
+`dictionary.try_keys()` and `dictionary.try_values()` are fallible snapshot
+operations returning `Result[list[K], AllocError]` and
+`Result[list[V], AllocError]`. Both take no arguments, evaluate the receiver once,
+and preserve insertion order. They allocate a new list, retaining existing
+immutable element storage rather than deep-copying it. For non-affine values,
+the receiver is observed and can be a binding, field, or reference; the snapshot
+survives source updates and destruction. `try_keys()` also observes dictionaries
+with affine values, without touching those values.
+
+Like `values()`, `try_values()` with affine payloads requires an owned temporary,
+whose values transfer to the result. A named binding or reference cannot expose
+mutable aliases through this operation. Use `try_copy(d)?.try_values()` to
+explicitly request fallible duplication while preserving `d`, or call it on a
+function result to transfer its owned payloads, including custom-cleanup classes.
+The temporary is consumed on both success and failure; failed allocation cleans
+its original payloads normally. Borrowed receivers remain unchanged on failure.
+
+The runtime reserves the entire entry buffer and list header before retaining or
+transferring elements. Nonempty snapshots require two allocations; empty snapshots
+require only the header. After reservation, copying the slots cannot allocate or
+invoke user code. Capacity/layout overflow returns `AllocError.CapacityOverflow`;
+allocation failure returns `AllocError.OutOfMemory`. The `Result` wrapper needs
+no allocation. Receiver construction and user cleanup retain their own allocation
+policies. Ordinary `keys()` and `values()` still terminate on allocation failure.
 
 `range(stop)`, `range(start, stop)`, and `range(start, stop, step)` use i64
 arguments, exclude stop, and store only start/stop/step/length. A zero step or
@@ -1254,7 +1280,8 @@ implemented. The new design review changes the recommended priority:
    as well as fallible runtime operations; wrapper layout alone does not promise it.
 3. Complete fallible allocation and allocator provenance (collection construction,
    reservation, insertion, explicit copying, and text concatenation/joining/splitting
-   and checked character lookup now have recoverable `try_` APIs), then expand text,
+   and checked character lookup and dictionary snapshots now have recoverable
+   `try_` APIs), then expand text,
    collection, input/file, and argument APIs under those rules. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration, disjoint class fields,

@@ -1439,6 +1439,67 @@ The recoverable operation covers the duplication itself. For example,
 failure policy before the copy begins. Use the fallible constructors when that
 initial allocation also needs to be handled.
 
+### Take dictionary snapshots with recoverable allocation
+
+`try_keys()` and `try_values()` build new lists in dictionary insertion order,
+returning `Result[list[T], AllocError]`. They take no arguments. Use `?` to
+propagate allocation failure:
+
+```plenty
+def names(scores: &dict[str, i64]) -> Result[list[str], AllocError]:
+    result = scores.try_keys()?
+    Ok(result)
+
+def main() -> ():
+    mut scores = {"Ada": 10, "Bea": 20}
+    saved = scores.try_values()
+    scores["Ada"] = 30
+    print(names(&scores))
+    print(saved)
+    print(scores)
+```
+
+```output
+Result[list[str], AllocError].Ok(["Ada", "Bea"])
+Result[list[i64], AllocError].Ok([10, 20])
+{"Ada": 30, "Bea": 20}
+```
+
+For numbers, strings, and other immutable values, the dictionary remains usable
+after either outcome. Strings and immutable enum storage are shared; the new
+list does not copy their contents. The snapshot remains valid after the source
+changes or leaves scope. An empty dictionary produces `Ok([])` if its new list
+header can be allocated.
+
+For owned values such as lists or classes, `try_values()` requires an owned
+temporary, just like `values()`. Request duplication explicitly to keep the
+original:
+
+```plenty
+def rows(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]:
+    try_copy(data)?.try_values()
+
+def main() -> ():
+    data = {"first": [1, 2], "second": [3]}
+    print(rows(&data))
+    print(data)
+```
+
+```output
+Result[list[list[i64]], AllocError].Ok([[1, 2], [3]])
+{"first": [1, 2], "second": [3]}
+```
+
+Calling `make_dictionary().try_values()` instead transfers owned values from
+that temporary into the list. If allocation fails, the temporary and its values
+are cleaned up. `try_keys()` never takes the dictionary's values, so it works on
+borrowed dictionaries regardless of their value type.
+
+Both operations reserve all list storage before retaining or transferring any
+elements. They report `OutOfMemory` or `CapacityOverflow` through `AllocError`.
+The ordinary `keys()` and `values()` methods still terminate on allocation
+failure, and building the receiver itself follows its own allocation policy.
+
 ### Build text with recoverable allocation
 
 Use `text.try_concat(other)` to combine two strings. To combine a list of strings,

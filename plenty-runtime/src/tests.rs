@@ -354,6 +354,109 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn dictionary_snapshots_retain_strings_only_after_successful_reservation() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for op in [43, 44] {
+        for budget in 0..=2 {
+            unsafe {
+                let source = collection(0, 0, 0, 0, &DICT_TEXT);
+                let key = strings::new(b"key");
+                let value = strings::new("é\0🙂".as_bytes());
+                plenty_release(
+                    collection(1, source, key as u128, value as u128, ptr::null()) as *mut Header,
+                );
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(op, source, 0, 0, &RESULT_TEXT_LIST)
+                };
+                let stored = collection(4, source, key as u128, 0, ptr::null());
+                assert_eq!(stored, value as u128);
+                plenty_release(stored as *mut Header);
+                plenty_release(key.cast());
+                plenty_release(value.cast());
+                plenty_release(source as *mut Header);
+                if budget < 2 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let list = crate::aggregates::payload(result);
+                    let item = collection(4, list, 0, 0, ptr::null());
+                    assert_eq!(item, if op == 43 { key as u128 } else { value as u128 });
+                    assert_eq!(
+                        strings::utf8(item as *const _),
+                        if op == 43 { "key" } else { "é\0🙂" }
+                    );
+                    plenty_release(item as *mut Header);
+                    crate::aggregates::release(result, &RESULT_TEXT_LIST);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn dictionary_snapshot_transfers_owned_payload_only_on_success() {
+    static RESULT_LISTS: Type = Type {
+        affine: true,
+        variants: &[
+            Variant {
+                name: "Ok",
+                fields: &[&LIST_LIST],
+            },
+            Variant {
+                name: "Err",
+                fields: &[&ALLOC_ERROR],
+            },
+        ],
+        ..scalar(b'B')
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=2 {
+        unsafe {
+            let source = collection(0, 0, 0, 0, &DICT);
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, source, 1, child, ptr::null()) as *mut Header);
+            plenty_release(child as *mut Header);
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(44, source, 0, 0, &RESULT_LISTS)
+            };
+            if budget < 2 {
+                assert_eq!(result, 1u128 << 64);
+                let stored = collection(4, source, 1, 0, ptr::null());
+                assert_eq!(stored, child);
+                plenty_release(stored as *mut Header);
+            }
+            plenty_release(source as *mut Header);
+            if budget == 2 {
+                assert_eq!(result >> 64, 0);
+                let list = crate::aggregates::payload(result);
+                let stored = collection(4, list, 0, 0, ptr::null());
+                assert_eq!(stored, child);
+                assert_eq!(collection(4, stored, 0, 0, ptr::null()), 42);
+                plenty_release(stored as *mut Header);
+                crate::aggregates::release(result, &RESULT_LISTS);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn dictionary_lookup_succeeds_when_allocation_is_disabled() {
     struct Restore;
     impl Drop for Restore {
