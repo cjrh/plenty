@@ -554,6 +554,26 @@ impl Drop for OwnedValue<'_> {
     }
 }
 
+/// Count the selected unique members before allocating. Inputs stay borrowed;
+/// output members retain immutable keys only after all storage is reserved.
+unsafe fn try_set_from_entries<'a>(
+    entries: impl Iterator<Item = &'a Entry> + Clone,
+    ty: &'static Type,
+) -> Result<u128, AllocError> {
+    unsafe {
+        let output = try_collection_new(ty, entries.clone().count())?;
+        let guard = OwnedValue {
+            value: output as u128,
+            ty,
+        };
+        for entry in entries {
+            // Capacity covers every selected member; this cannot grow storage.
+            (*output).try_insert(entry.key, 0)?;
+        }
+        Ok(guard.into_value())
+    }
+}
+
 /// Inputs stay borrowed throughout both passes. The output guard releases the
 /// initialized prefix on failure, without allocating or invoking user code.
 unsafe fn try_split(
@@ -844,6 +864,19 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            65 => {
+                let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
+                let entries = left.entries.iter().chain(
+                    right
+                        .entries
+                        .iter()
+                        .filter(|entry| left.find(entry.key).is_none()),
+                );
+                match try_set_from_entries(entries, &*left.ty) {
+                    Ok(set) => wrap(set, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
             62..=64 => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
                 let result = match op {

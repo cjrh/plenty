@@ -18,6 +18,7 @@ pub enum CollectionOp {
     SetIsSubset(Ty),
     SetIsSuperset(Ty),
     SetIsDisjoint(Ty),
+    SetTryUnion(Ty),
     Put(Ty), // exclusive in-place indexed update
     Get(Ty),
     ListGet(Ty),     // observed list/index -> Option[non-affine element]
@@ -138,6 +139,10 @@ impl CollectionOp {
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
             ),
             TryReserve(t) => (vec![t.clone(), Ty::I64], crate::sum::allocation_result()),
+            SetTryUnion(t) => (
+                vec![t.clone(), t.clone()],
+                crate::sum::result(t.clone(), crate::sum::alloc_error()),
+            ),
             SetIsSubset(t) | SetIsSuperset(t) | SetIsDisjoint(t) => {
                 (vec![t.clone(), t.clone()], Ty::Bool)
             }
@@ -222,6 +227,7 @@ impl CollectionOp {
             Self::SetIsSubset(_) => 62,
             Self::SetIsSuperset(_) => 63,
             Self::SetIsDisjoint(_) => 64,
+            Self::SetTryUnion(_) => 65,
             Self::Put(_) => 3,
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,

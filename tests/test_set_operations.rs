@@ -2,6 +2,82 @@
 mod support;
 use rstest::rstest;
 
+#[test]
+fn union_borrows_sources_and_returns_an_independent_owner() {
+    native(
+        r#"
+def combine(a: &set[str], b: &set[str]) -> Result[set[str], AllocError]:
+    a.try_union(b)
+def unwrap(result: Result[set[str], AllocError]) -> set[str]:
+    match result:
+        case Ok(value):
+            value
+        case Err(error):
+            set[str]()
+mut a = {"é" + "", "left"}
+b = {"é", "right"}
+mut output = unwrap(combine(&a, &b))
+a.clear()
+print(len(output))
+print("é" in output)
+print("left" in output and "right" in output)
+print(output.discard("left"))
+print(len(b))
+print(len(a))
+match {True}.try_union({False}):
+    case Ok(value):
+        print(len(value))
+    case Err(error):
+        print(-1)
+match set[u8]().try_union(set[u8]()):
+    case Ok(value):
+        print(len(value))
+    case Err(error):
+        print(-1)
+"#,
+        "3\nTrue\nTrue\nTrue\n2\n0\n2\n0",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[rstest]
+#[case(0)]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+fn union_recovers_from_each_storage_failure(#[case] budget: usize) {
+    let source = format!(
+        r#"
+a = {{"é" + "", "left"}}
+b = {{"é", "right"}}
+print("__test_fail_allocations_after_{budget}__")
+result = a.try_union(b)
+print("__test_restore_allocations__")
+match result:
+    case Ok(value):
+        print(len(value))
+    case Err(error):
+        print(-1)
+print(len(a))
+print(len(b))
+print("left" in a and "right" in b)
+"#
+    );
+    native(
+        &source,
+        &format!("{}\n2\n2\nTrue", if budget == 3 { 3 } else { -1 }),
+    );
+}
+
+#[rstest]
+#[case("print({1}.try_union({1u8}))", "expected set[i64]")]
+#[case("print({1}.try_union())", "requires one set argument")]
+#[case("print([1].try_union({1}))", "requires a set receiver")]
+fn invalid_union(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}
+
 fn native(source: &str, expected: &str) {
     let output = support::run(source);
     assert!(

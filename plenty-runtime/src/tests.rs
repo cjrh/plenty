@@ -353,6 +353,60 @@ fn set_relations_allow_identical_borrowed_operands() {
     }
 }
 
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn set_algebra_cleans_partial_storage_and_retains_result_members() {
+    static SET: Type = Type {
+        affine: true,
+        key: Some(&TEXT),
+        ..scalar(b'S')
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (op, length) in [(65, 3)] {
+        for budget in 0..=3 {
+            unsafe {
+                let a = collection(0, 0, 0, 0, &SET);
+                let b = collection(0, 0, 0, 0, &SET);
+                for (set, words) in [(a, ["é", "left"]), (b, ["é", "right"])] {
+                    for word in words {
+                        let text = strings::new(word.as_bytes());
+                        plenty_release(
+                            collection(1, set, text as u128, 0, ptr::null()) as *mut Header
+                        );
+                        plenty_release(text.cast());
+                    }
+                }
+                let reset = Restore;
+                crate::accounting::fail_after(Some(budget));
+                let result = collection(op, a, b, 0, ptr::null());
+                drop(reset);
+                assert_eq!(collection(5, a, 0, 0, ptr::null()), 2);
+                assert_eq!(collection(5, b, 0, 0, ptr::null()), 2);
+                plenty_release(a as *mut Header);
+                plenty_release(b as *mut Header);
+                if budget < 3 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    let result = crate::aggregates::payload(result);
+                    assert_eq!(collection(5, result, 0, 0, ptr::null()), length);
+                    // Reads after both inputs die validate retained string owners.
+                    for i in 0..length {
+                        let text = collection(6, result, i, 0, ptr::null());
+                        assert!(!strings::utf8(text as *const strings::Text).is_empty());
+                        plenty_release(text as *mut Header);
+                    }
+                    plenty_release(result as *mut Header);
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn list_lookup_retains_string_payload_without_transferring_the_entry() {
     unsafe {

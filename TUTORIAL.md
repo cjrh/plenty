@@ -1662,6 +1662,34 @@ True
 Both operands must have the same set type. Empty sets are subsets of every set
 and disjoint from every set; neither operand is consumed.
 
+### Combine sets without consuming them
+
+`try_union` returns an independent set inside a `Result`. Both inputs are borrowed:
+
+```plenty
+def merged(a: &set[i64], b: &set[i64]) -> Result[set[i64], AllocError]:
+    a.try_union(b)
+
+def main() -> ():
+    a = {1, 2}
+    b = {2, 3}
+    match merged(&a, &b):
+        case Ok(values):
+            print(len(values))
+            print(1 in values and 3 in values)
+        case Err(error):
+            print(error)
+    print(len(a))
+```
+
+```output
+3
+True
+2
+```
+
+An allocation failure preserves the inputs. Set iteration order is unspecified.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is
