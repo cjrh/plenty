@@ -602,6 +602,19 @@ impl Lower<'_> {
                 "clear requires a mutable list, dictionary, or set binding or class field",
             ));
         }
+        if matches!(name, "isascii" | "isspace") {
+            self.same(Some(ty), Some(Ty::Str), &base.at)?;
+            if !args.is_empty() {
+                return Err(base.at.error(format!("{name} takes no arguments")));
+            }
+            ops.push(Op::Collection(if name == "isascii" {
+                CollectionOp::TextIsAscii
+            } else {
+                CollectionOp::TextIsSpace
+            }));
+            Self::end_reads(loans, ops);
+            return Ok(Some(Ty::Bool));
+        }
         if matches!(name, "try_strip" | "try_lstrip" | "try_rstrip") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if !args.is_empty() {

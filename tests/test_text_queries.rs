@@ -2,6 +2,83 @@
 mod support;
 use rstest::rstest;
 
+#[rstest]
+#[case("", "True\nFalse")]
+#[case("hello", "True\nFalse")]
+#[case(" \t\r\n", "True\nTrue")]
+#[case("\0", "True\nFalse")]
+#[case("é", "False\nFalse")]
+#[case("🙂", "False\nFalse")]
+#[case(" x ", "True\nFalse")]
+fn classification_observes_all_characters(#[case] text: &str, #[case] expected: &str) {
+    native(
+        &format!("print({text:?}.isascii())\nprint({text:?}.isspace())"),
+        expected,
+    );
+}
+
+#[test]
+fn whitespace_uses_the_same_unicode_property_as_stripping() {
+    let source = r#"
+def blank(text: &str) -> bool:
+    text.isspace()
+text = "UNICODE_SPACE"
+print(blank(&text))
+print(text.isascii())
+print("ZERO_WIDTH_SPACE".isspace())
+print("ZERO_WIDTH_SPACE".isascii())
+class Custom:
+    def isascii(self) -> i64:
+        42
+print(Custom().isascii())
+def source() -> str:
+    print("receiver")
+    " "
+print(source().isspace())
+"#
+    .replace("UNICODE_SPACE", "\u{a0}\u{3000}")
+    .replace("ZERO_WIDTH_SPACE", "\u{200b}");
+    native(&source, "True\nFalse\nFalse\nFalse\n42\nreceiver\nTrue");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn classification_needs_no_allocation() {
+    native(
+        &r#"
+spaces = " " + "UNICODE_SPACE"
+text = "hé" + "llo"
+print("__test_fail_allocations_after_0__")
+print("__test_begin_no_allocations__")
+a = spaces.isspace()
+b = spaces.isascii()
+c = text.isascii()
+d = text.isspace()
+print("__test_restore_allocations__")
+print("__test_end_no_allocations__")
+print(a)
+print(b)
+print(c)
+print(d)
+"#
+        .replace("UNICODE_SPACE", "\u{3000}"),
+        "True\nFalse\nFalse\nFalse",
+    );
+}
+
+#[rstest]
+#[case("print(\"x\".isascii(1))", "takes no arguments")]
+#[case("print(\"x\".isspace(\" \"))", "takes no arguments")]
+#[case("print([1].isspace())", "expected str")]
+#[case(
+    "mut text = \"x\"\nr = &mut text\nprint(text.isascii())\n*r = \"y\"",
+    "borrow"
+)]
+fn invalid_classification(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+}
+
 fn native(source: &str, expected: &str) {
     let output = support::run(source);
     assert!(

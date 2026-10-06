@@ -864,6 +864,14 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            76 | 77 => {
+                let source = strings::utf8(a as *const Text);
+                if op == 76 {
+                    source.is_ascii() as u128
+                } else {
+                    (!source.is_empty() && source.chars().all(char::is_whitespace)) as u128
+                }
+            }
             73..=75 => {
                 let list = &*(a as *const Collection);
                 let matches = |entry: &Entry| equal(entry.key, b, list.ty().key());

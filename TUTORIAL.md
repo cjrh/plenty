@@ -1796,6 +1796,34 @@ True
 This also allocates nothing and keeps the source usable. To remove every member
 without needing another set, use `clear()`.
 
+### Classify text without allocating
+
+`isascii()` accepts only ASCII characters, including controls and NUL.
+`isspace()` checks for nonempty text containing only Unicode whitespace:
+
+```plenty
+def main() -> ():
+    print("hello".isascii())
+    print("é".isascii())
+    print("".isascii())
+    print(" \t\n".isspace())
+    print(" x ".isspace())
+    print("".isspace())
+```
+
+```output
+True
+False
+True
+True
+False
+False
+```
+
+Both queries borrow their receiver and allocate nothing. Whitespace means the
+same Unicode White_Space characters removed by `try_strip`; NUL and zero-width
+space do not count.
+
 ### Remove an exact prefix or suffix
 
 These methods remove one complete match at the chosen end. They return an

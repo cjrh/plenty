@@ -482,6 +482,24 @@ fn list_queries_compare_float_values_and_return_inline_positions() {
     }
 }
 
+#[test]
+fn classification_reads_utf8_with_explicit_lengths() {
+    unsafe {
+        for (text, ascii, space) in [
+            ("", 1, 0),
+            (" \t", 1, 1),
+            ("\0", 1, 0),
+            ("\u{a0}\u{3000}", 0, 1),
+            ("\u{200b}", 0, 0),
+        ] {
+            let text = strings::new(text.as_bytes());
+            assert_eq!(collection(76, text as u128, 0, 0, ptr::null()), ascii);
+            assert_eq!(collection(77, text as u128, 0, 0, ptr::null()), space);
+            plenty_release(text.cast());
+        }
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn removed_affixes_have_independent_storage_and_recoverable_failure() {

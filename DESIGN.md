@@ -79,6 +79,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
+| Text classification | `isascii` checks ASCII membership; `isspace` requires nonempty Unicode White_Space text; neither allocates |
 | Allocation-free list queries | `count`, `find`, and `rfind` observe integer/float/bool/string lists; searches return `Option[i64]` |
 | Literal text affix removal | `try_removeprefix`/`try_removesuffix` remove one exact boundary match and return independent fallible strings |
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
@@ -841,6 +842,14 @@ Neither literals nor dynamic strings have a trailing terminator. Equality and
 hashing include every byte and do not normalize Unicode. `len` counts scalars,
 not grapheme clusters; indexing (including negative indices) returns a one-scalar
 `str`. Concatenation and indexing return independent values.
+
+`text.isascii() -> bool` is true when every character belongs to ASCII, including
+controls and NUL; it is true for empty text. `text.isspace() -> bool` requires at
+least one character and all characters to have Unicode's White_Space property,
+using the same bundled Rust tables as `try_strip`. NUL and U+200B are not whitespace.
+This is not a promise to reproduce Python's extra whitespace classifications.
+Both methods take no arguments, observe their receiver once, accept references,
+and allocate nothing.
 
 `text.try_removeprefix(prefix)` and `text.try_removesuffix(suffix)` return
 `Result[str, AllocError]`, removing at most one exact UTF-8 prefix or suffix.

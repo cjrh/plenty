@@ -64,6 +64,8 @@ pub enum CollectionOp {
     TextTryRepeat,
     TextTryRemovePrefix,
     TextTryRemoveSuffix,
+    TextIsAscii,
+    TextIsSpace,
 }
 
 impl Ty {
@@ -104,6 +106,7 @@ impl CollectionOp {
                 crate::sum::option(t.element().expect("generator element")),
             ),
             TextByteLen => (vec![Ty::Str], Ty::I64),
+            TextIsAscii | TextIsSpace => (vec![Ty::Str], Ty::Bool),
             TextStartsWith | TextEndsWith => (vec![Ty::Str, Ty::Str], Ty::Bool),
             TextFind | TextRFind => (vec![Ty::Str, Ty::Str], crate::sum::option(Ty::I64)),
             TextCount => (vec![Ty::Str, Ty::Str], Ty::I64),
@@ -279,6 +282,8 @@ impl CollectionOp {
             Self::TextAtByte => 13,
             Self::TextTryRemovePrefix => 71,
             Self::TextTryRemoveSuffix => 72,
+            Self::TextIsAscii => 76,
+            Self::TextIsSpace => 77,
             Self::TextTryConcat => 34,
             Self::TextTryJoin => 35,
             Self::TextTrySplit => 36,
