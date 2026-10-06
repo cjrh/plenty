@@ -764,6 +764,39 @@ Removal currently shifts entries and rebuilds the hash index, so its cost grows
 with the dictionary's size and reserved capacity. It accepts exactly one key;
 there is no default argument. Sets use `discard`, described below.
 
+### Read a list element that might be missing
+
+`items.get(index)` returns `Some(value)` for an existing element or `Nothing`
+for an out-of-range index. It takes one `i64` index, including negative indices:
+
+```plenty
+def main() -> ():
+    names = ["Ada", "Bea"]
+    print(names.get(-1))
+    match names.get(2):
+        case Some(name):
+            print(name)
+        case Nothing:
+            print("no name at that position")
+    print(names)
+```
+
+```output
+Option[str].Some("Bea")
+no name at that position
+["Ada", "Bea"]
+```
+
+This is a constant-time read that leaves the list unchanged and allocates nothing.
+Numbers and booleans are copied; strings and immutable enum values share their
+existing storage. A returned string remains valid after the original list is
+updated or dropped. There is no default argument; choose a fallback with `match`.
+
+Like dictionary `get`, this supports scalar and immutable elements. For lists
+containing mutable collections or classes, use `pop` to transfer ownership, or
+explicitly copy through ordinary indexing. Individual element borrowing is not
+implemented yet. Ordinary `items[index]` still traps for an out-of-range index.
+
 ### Remove list elements
 
 Lists also have `pop`. With no argument it removes the last element; an `i64`

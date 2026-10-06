@@ -75,7 +75,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
-| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional dictionary `get`, list/dictionary `pop`, and set `discard`; slicing is missing |
+| Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, and set `discard`; slicing is missing |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining and explicit-separator splitting; formatting and numeric parsing are missing |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
 | While loops, break/continue | Implemented |
@@ -312,6 +312,18 @@ there is no hidden deep copy or alias to mutable storage. Use `pop` to remove an
 take ownership of such values; element borrowing remains future work. The `Option` wrapper keeps
 stored absence distinct from a missing key: a stored `Nothing` is returned as
 `Some(Nothing)`.
+
+`items.get(index)` provides the same optional read for lists, using an `i64`
+index and returning `Option[T]`. Negative indices count from the end; empty lists
+and out-of-range indices return `Nothing`, including extreme `i64` values. The
+receiver and index are observed once in source order, may be references, and remain
+usable. Lookup is constant-time and does not allocate or change the list. Managed
+immutable results retain their existing storage, surviving entry replacement or
+list destruction. As with dictionary `get`, affine elements are rejected: use
+`pop` to remove and take ownership, or explicit copying with ordinary indexing.
+There is no default argument. Unlike string `try_get`, list lookup does not create
+new character storage and therefore needs no allocation-error result. Constructing
+the receiver or index expression still follows its own allocation policy.
 
 `dictionary.pop(key)` requires a mutable binding, mutable class field, or exclusive
 reference and returns `Option[V]`. A hit removes the entry and transfers its value

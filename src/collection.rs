@@ -14,6 +14,7 @@ pub enum CollectionOp {
     TryInsert(Ty),  // exclusive fallible append/add/insert
     Put(Ty),        // exclusive in-place indexed update
     Get(Ty),
+    ListGet(Ty),    // observed list/index -> Option[non-affine element]
     DictGet(Ty),    // observed dictionary/key -> Option[non-affine value]
     DictPop(Ty),    // exclusive dictionary/key -> Option[owned value]
     ListPop(Ty),    // exclusive list/index -> Option[owned element]
@@ -126,7 +127,7 @@ impl CollectionOp {
                     crate::sum::option((**v).clone()),
                 )
             }
-            ListPop(t) => {
+            ListGet(t) | ListPop(t) => {
                 let Ty::List(element) = t else { unreachable!() };
                 (
                     vec![t.clone(), Ty::I64],
@@ -158,6 +159,7 @@ impl CollectionOp {
             Self::Put(_) => 3,
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,
+            Self::ListGet(_) => 42,
             Self::DictPop(_) => 39,
             Self::ListPop(_) => 40,
             Self::SetDiscard(_) => 41,

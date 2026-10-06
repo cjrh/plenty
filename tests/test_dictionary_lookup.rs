@@ -184,7 +184,7 @@ print(len(values))
 #[case("print({1: 2}.get(1, 0))", "get requires one key argument")]
 #[case("print({1u8: 2}.get(1))", "expected u8")]
 #[case("print({1: 2}.get(\"key\"))", "expected i64")]
-#[case("print([1].get(0))", "unsupported method `get`")]
+#[case("print({1}.get(0))", "unsupported method `get`")]
 #[case("print({1: [2]}.get(1))", "get cannot return owned dictionary values")]
 #[case(
     "class Item:\n    value: i64\nprint({1: Item(2)}.get(1))",

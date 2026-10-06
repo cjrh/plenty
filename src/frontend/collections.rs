@@ -581,26 +581,45 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        let Ty::Dict(k, v) = &ty else {
-            return Err(base.at.error(format!("unsupported method `{name}`")));
-        };
         if name == "get" {
+            let (expected, element, operation, collection) = match &ty {
+                Ty::List(v) => (
+                    Ty::I64,
+                    (**v).clone(),
+                    CollectionOp::ListGet(ty.clone()),
+                    "list",
+                ),
+                Ty::Dict(k, v) => (
+                    (**k).clone(),
+                    (**v).clone(),
+                    CollectionOp::DictGet(ty.clone()),
+                    "dictionary",
+                ),
+                _ => return Err(base.at.error("unsupported method `get`")),
+            };
             if args.len() != 1 {
-                return Err(base.at.error("get requires one key argument"));
+                return Err(base.at.error(if collection == "list" {
+                    "get requires one index argument"
+                } else {
+                    "get requires one key argument"
+                }));
             }
-            if v.affine() {
-                return Err(base.at.error(
-                    "get cannot return owned dictionary values; use pop(key) to remove and take ownership, or wait for element borrowing support",
-                ));
+            if element.affine() {
+                return Err(base.at.error(format!(
+                    "get cannot return owned {collection} values; use pop to remove and take ownership"
+                )));
             }
             let (key, key_loans) = self.observe(&args[0], ops)?;
-            self.same(Some(key), Some((**k).clone()), &args[0].at)?;
-            let result = crate::sum::option((**v).clone());
-            ops.push(Op::Collection(CollectionOp::DictGet(ty)));
+            self.same(Some(key), Some(expected), &args[0].at)?;
+            let result = crate::sum::option(element);
+            ops.push(Op::Collection(operation));
             Self::end_reads(key_loans, ops);
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
+        let Ty::Dict(k, v) = &ty else {
+            return Err(base.at.error(format!("unsupported method `{name}`")));
+        };
         if !args.is_empty() {
             return Err(base.at.error("keys and values take no arguments"));
         }

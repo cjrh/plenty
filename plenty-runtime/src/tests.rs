@@ -329,6 +329,29 @@ fn set_discard_releases_stored_strings_and_keeps_query_owners_valid() {
     }
 }
 
+#[test]
+fn list_lookup_retains_string_payload_without_transferring_the_entry() {
+    unsafe {
+        let list = collection(0, 0, 0, 0, &LIST_TEXT);
+        let text = strings::new("é\0🙂".as_bytes());
+        plenty_release(collection(1, list, text as u128, 0, ptr::null()) as *mut Header);
+        plenty_release(text.cast());
+        for index in [i64::MIN, -2, 1, i64::MAX] {
+            assert_eq!(collection(42, list, index as u128, 0, ptr::null()), 0);
+        }
+        let found = collection(42, list, (-1i64) as u128, 0, ptr::null());
+        assert_eq!(found >> 64, 1);
+        assert_eq!(crate::aggregates::payload(found), text as u128);
+        assert_eq!(collection(5, list, 0, 0, ptr::null()), 1);
+        let again = collection(42, list, 0, 0, ptr::null());
+        assert_eq!(found, again);
+        crate::aggregates::release(again, &OPTION_TEXT);
+        plenty_release(list as *mut Header);
+        assert_eq!(strings::utf8(text), "é\0🙂");
+        crate::aggregates::release(found, &OPTION_TEXT);
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn dictionary_lookup_succeeds_when_allocation_is_disabled() {

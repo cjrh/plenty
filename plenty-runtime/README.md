@@ -112,6 +112,10 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   retention, releasing the stored member without consuming the borrowed query
   value. Sets have a zero entry payload; successful removal of that payload must
   still be distinguished from a missing key. Neither path allocates.
+- Opcode 42 performs checked list lookup and returns inline `Option[T]`. Checked
+  signed index normalization precedes the read; a hit retains its payload, and a
+  miss returns `Nothing`. The compiler restricts this to non-affine elements.
+  Neither path allocates or alters storage, and retained payloads outlive the list.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

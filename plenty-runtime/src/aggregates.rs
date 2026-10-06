@@ -815,6 +815,17 @@ pub(crate) unsafe fn collection(
                 plenty_retain(a as *mut Header);
                 a
             }
+            42 => {
+                let c = &*(a as *const Collection);
+                match checked_index(b as i64, c.entries.len()) {
+                    Some(index) => {
+                        let value = c.entries[index].key;
+                        retain(value, c.ty().key());
+                        wrap(value, 1)
+                    }
+                    None => wrap(0, 0),
+                }
+            }
             40 => {
                 let c = &mut *(a as *mut Collection);
                 match checked_index(b as i64, c.entries.len()) {
