@@ -141,6 +141,10 @@ Writes may have visible partial effects before returning an error. Successful
 writes may still be buffered; neither writing nor ordinary flushing implies
 durable disk storage. Existing `print` retains its terminal error behavior.
 
+`write_stderr(text)` has the same contract for the diagnostic stream.
+`flush_stdout()` and `flush_stderr()` return `Result[(), IoError]`, exposing
+deferred buffered-write failures. Standard stream handles remain process-owned.
+
 Every integer type exposes `T.parse(text) -> Result[T, ParseError]`.
 Parsing borrows its string, trims Unicode White_Space, accepts an optional ASCII
 sign and decimal ASCII digits, and checks the target width. Empty or malformed

@@ -4,6 +4,9 @@ use crate::op::Ty;
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
     WriteStdout,
+    WriteStderr,
+    FlushStdout,
+    FlushStderr,
     ParseNumber(Ty),
     FormatScalar(Ty),
     Copy(Ty),
@@ -99,7 +102,10 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
-            WriteStdout => (
+            FlushStdout | FlushStderr => {
+                (vec![], crate::sum::result(Ty::Unit, crate::sum::io_error()))
+            }
+            WriteStdout | WriteStderr => (
                 vec![Ty::Str],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
@@ -252,6 +258,9 @@ impl CollectionOp {
     pub fn opcode(&self) -> i64 {
         match self {
             Self::WriteStdout => 80,
+            Self::FlushStdout => 81,
+            Self::WriteStderr => 82,
+            Self::FlushStderr => 83,
             Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,

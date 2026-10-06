@@ -48,6 +48,55 @@ fn write_checks_arguments() {
     }
 }
 
+#[test]
+fn stderr_is_separate_and_flush_returns_unit_result() {
+    let output = support::run(
+        r#"
+print(write_stderr("diagnostic é\n"))
+print(flush_stderr())
+print(flush_stdout())
+"#,
+    );
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "diagnostic é\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Result[i64, IoError].Ok(13)\nResult[(), IoError].Ok(())\nResult[(), IoError].Ok(())\n"
+    );
+    assert!(support::check_source("flush_stdout(1)").is_err());
+    assert!(support::check_source("write_stderr(1)").is_err());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn buffered_failure_is_reported_by_flush() {
+    let dir = tempfile::tempdir().unwrap();
+    let executable = dir.path().join("program");
+    support::compile_source_to_executable(
+        r#"
+def main() -> i32:
+    write_stdout("buffered")
+    match flush_stdout():
+        case Ok(unit):
+            1i32
+        case Err(error):
+            0i32
+"#,
+        &executable,
+    )
+    .unwrap();
+    assert!(std::process::Command::new(executable)
+        .stdout(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open("/dev/full")
+                .unwrap()
+        )
+        .status()
+        .unwrap()
+        .success());
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn stdout_failure_is_recoverable() {

@@ -864,7 +864,8 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
-            80 => crate::io::write_stdout(a as *const Text),
+            80 | 82 => crate::io::write_stream(a as *const Text, op == 82),
+            81 | 83 => crate::io::flush_stream(op == 83),
             79 => match crate::numbers::format(a, (*descriptor).kind) {
                 Ok(text) => wrap(text as u128, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),

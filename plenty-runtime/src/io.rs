@@ -13,15 +13,24 @@ pub(crate) fn io_result(result: std::io::Result<u128>) -> u128 {
     }
 }
 
-pub(crate) unsafe fn write_stdout(text: *const Text) -> u128 {
+pub(crate) unsafe fn write_stream(text: *const Text, stderr: bool) -> u128 {
     // SAFETY: the dispatcher borrows a live text throughout this call.
     let source = unsafe { strings::utf8(text) };
-    io_result(
-        std::io::stdout()
-            .lock()
-            .write_all(source.as_bytes())
-            .map(|()| source.chars().count() as u128),
-    )
+    let result = if stderr {
+        std::io::stderr().lock().write_all(source.as_bytes())
+    } else {
+        std::io::stdout().lock().write_all(source.as_bytes())
+    };
+    io_result(result.map(|()| source.chars().count() as u128))
+}
+
+pub(crate) fn flush_stream(stderr: bool) -> u128 {
+    let result = if stderr {
+        std::io::stderr().lock().flush()
+    } else {
+        std::io::stdout().lock().flush()
+    };
+    io_result(result.map(|()| 0))
 }
 
 pub(crate) fn output(bytes: &[u8]) {

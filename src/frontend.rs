@@ -1037,6 +1037,9 @@ fn builtin(name: &str) -> bool {
             name,
             "print"
                 | "write_stdout"
+                | "write_stderr"
+                | "flush_stdout"
+                | "flush_stderr"
                 | "contains"
                 | "list"
                 | "dict"
@@ -1485,8 +1488,14 @@ impl Lower<'_> {
                 if name == "next" {
                     return self.next(args, &e.at, ops);
                 }
-                if name == "write_stdout" {
-                    return self.system_call(CollectionOp::WriteStdout, args, &e.at, ops);
+                if let Some(operation) = match name.as_str() {
+                    "write_stdout" => Some(CollectionOp::WriteStdout),
+                    "write_stderr" => Some(CollectionOp::WriteStderr),
+                    "flush_stdout" => Some(CollectionOp::FlushStdout),
+                    "flush_stderr" => Some(CollectionOp::FlushStderr),
+                    _ => None,
+                } {
+                    return self.system_call(operation, args, &e.at, ops);
                 }
                 if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
                     return self.builtin_collection(name, args, &e.at, ops).map(Some);
