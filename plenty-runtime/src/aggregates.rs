@@ -116,7 +116,10 @@ pub(crate) unsafe fn release(value: u128, ty: &Type) {
 }
 
 fn collection_new(ty: &'static Type) -> *mut Collection {
-    Box::into_raw(Box::new(Collection {
+    try_collection_new(ty, 0).unwrap_or_else(|_| crate::fail("collection allocation failed"))
+}
+fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collection, AllocError> {
+    let mut collection = Collection {
         header: Header::new(collection_destroy),
         ty,
         entries: Vec::new(),
@@ -125,7 +128,18 @@ fn collection_new(ty: &'static Type) -> *mut Collection {
         stop: 0,
         step: 0,
         range_len: 0,
-    }))
+    };
+    // Validate and reserve before publishing an owner. Until the header is
+    // allocated, ordinary Rust drops reclaim these empty buffers on any error.
+    // No payloads exist yet and no user destructor can run on a partial object.
+    unsafe {
+        collection.try_reserve(capacity)?;
+    }
+    let pointer = memory::try_allocate::<Collection, u8>(0)?;
+    unsafe {
+        pointer.write(collection);
+    }
+    Ok(pointer)
 }
 unsafe extern "C" fn collection_destroy(header: *mut Header) {
     unsafe {
@@ -138,7 +152,8 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
             }
             release(entry.key, ty.key());
         }
-        drop(Box::from_raw(c));
+        std::ptr::drop_in_place(c);
+        memory::free::<Collection, u8>(c, 0);
     }
 }
 fn record_count(ty: &Type, tag: u64) -> usize {
@@ -609,6 +624,17 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            32 => {
+                let result = if (a as i64) < 0 {
+                    Err(AllocError::CapacityOverflow)
+                } else {
+                    try_collection_new(&*descriptor, a as usize)
+                };
+                match result {
+                    Ok(collection) => wrap(collection as u128, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
             26 => {
                 retain(a, &*descriptor);
                 0

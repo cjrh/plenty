@@ -89,7 +89,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
 | `with` context managers | Proposed; automatic destruction works today |
-| Recoverable allocation failure | First increment: collection `try_reserve`, `try_append`, `try_add`, and `try_insert` return allocation-free `AllocError`; other allocating operations remain terminal on failure |
+| Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
 | Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
@@ -724,7 +724,7 @@ return types. The independent checker verifies family/error compatibility and th
 enclosing signature. Native lowering branches before evaluating later operations,
 returns the residual after cleanup, and continues with the success payload.
 
-### Recoverable collection allocation — first increment
+### Recoverable collection construction and growth
 
 `AllocError` is a builtin nominal enum with two nullary variants:
 `AllocError.OutOfMemory` and `AllocError.CapacityOverflow`. It shares the binary
@@ -732,6 +732,27 @@ inline representation of standard sums and never owns memory. Constructing,
 copying, comparing, matching, or propagating it inside a `Result` does not
 allocate. `AllocError` itself is not an operand or return family for `?`.
 Unsupported allocator layouts remain a future concern when custom allocators exist.
+
+Explicit collection types expose `try_new()` and `try_with_capacity(capacity: i64)`:
+`list[T].try_new()`, `set[T].try_with_capacity(n)`, and
+`dict[K, V].try_with_capacity(n)` return `Result` with the collection as its
+success payload and `AllocError` as its error payload. Collection type aliases,
+including imported aliases, expose the same constructors. This is concrete
+builtin type-method syntax, not general generic functions or static class methods.
+
+Both constructors produce an empty collection. `try_new()` allocates only its
+owner header; `try_with_capacity(n)` also reserves room for at least `n` entries,
+including hash storage where needed. The capacity expression is evaluated once.
+Negative counts and impossible layouts return `CapacityOverflow` before attempting
+any allocation. Allocator rejection at any subsequent stage returns `OutOfMemory`.
+Construction cleans up any buffers already reserved before returning an error.
+No partially initialized collection or user destructor is exposed.
+
+The runtime validates and reserves buffers in a local Rust value before allocating
+and initializing its owner header. Rust cleanup handles partial reservation; after
+publication, the intrusive destruction queue releases buffers and frees the header
+with its matching layout. Existing infallible collection construction uses the
+same owner allocation/deallocation path with its existing terminal failure policy.
 
 The following exclusive methods return `Result[(), AllocError]`:
 
@@ -763,7 +784,7 @@ only successfully stored values; the compiler releases its input owners on both
 paths. The returned error needs neither formatting nor a heap-backed enum record.
 
 This is an incremental API: existing `append`, `add`, indexed assignment,
-literals, comprehensions, constructors, `copy`, strings, generators, comparisons
+literals, comprehensions, ordinary constructors, `copy`, strings, generators, comparisons
 that need memoization, and formatting retain their existing terminal failure
 policy. The `try_` prefix makes the currently recoverable operations explicit;
 it does not settle the eventual syntax for making *all* allocations fallible.
@@ -778,7 +799,7 @@ function pointer would lose allocator provenance.
 
 The instrumented runtime can reject every allocation after a chosen number of
 successful allocator calls, including reallocations. Native tests cover every
-allocation site in growth/reservation, retry, preserved contents, moved-input
+allocation site in construction/growth/reservation, retry, preserved contents, moved-input
 cleanup, and allocation-free handling while allocation remains disabled.
 
 ## Classes: fixed-layout records
@@ -1077,8 +1098,8 @@ implemented. The new design review changes the recommended priority:
    matters: scalar error codes need no allocation, while user-defined enum
    records currently do. Recoverable OOM needs allocation-free error payloads
    as well as fallible runtime operations; wrapper layout alone does not promise it.
-3. Complete fallible allocation and allocator provenance (collection reservation
-   and insertion now have recoverable `try_` methods), then expand text,
+3. Complete fallible allocation and allocator provenance (collection construction,
+   reservation, and insertion now have recoverable `try_` APIs), then expand text,
    collection, input/file, and argument APIs under those rules. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration, disjoint class fields,

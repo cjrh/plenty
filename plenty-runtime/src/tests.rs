@@ -118,6 +118,68 @@ static RESULT_OPTION: Type = Type {
 static LIST_RESULT: Type = list(&RESULT_OPTION);
 
 #[test]
+fn fallible_collection_headers_and_buffers_use_matching_layouts() {
+    static SET: Type = Type {
+        kind: b'S',
+        ..list(&INTEGER)
+    };
+    static MAP: Type = Type {
+        kind: b'D',
+        value: Some(&INTEGER),
+        ..list(&INTEGER)
+    };
+    for ty in [&LIST_INT, &SET, &MAP] {
+        for capacity in [0, 16] {
+            unsafe {
+                let result = collection(32, capacity, 0, 0, ty);
+                assert_eq!(result >> 64, 0);
+                let c = crate::aggregates::payload(result);
+                assert_ne!(c, 0);
+                for n in 0..16 {
+                    assert_eq!(collection(29, c, n, n + 1, ptr::null()), 0);
+                }
+                assert_eq!(collection(5, c, 0, 0, ptr::null()), 16);
+                plenty_release(c as *mut Header);
+                assert_eq!(collection(32, u64::MAX as u128, 0, 0, ty), 3u128 << 64);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn partial_constructor_buffers_are_freed_on_each_allocation_failure() {
+    static MAP: Type = Type {
+        kind: b'D',
+        value: Some(&INTEGER),
+        ..list(&INTEGER)
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (ty, allocations) in [(&LIST_INT, 2), (&MAP, 3)] {
+        for budget in 0..=allocations {
+            unsafe {
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(32, 8, 0, 0, ty)
+                };
+                if budget < allocations {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    plenty_release(crate::aggregates::payload(result) as *mut Header);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn fallible_reservation_and_growth_preserve_hash_lookups() {
     static SET: Type = Type {
         kind: b'S',

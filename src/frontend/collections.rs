@@ -472,6 +472,9 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if let Some(ty) = self.qualified_type(base)? {
+            if matches!(ty, Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _)) {
+                return self.fallible_constructor(ty, name, args, &base.at, ops);
+            }
             return self.variant(ty, name, Some(args), &base.at, ops);
         }
         if let Some(Ty::Class(class)) = self.place_type(base) {
@@ -562,6 +565,36 @@ impl Lower<'_> {
                 "unsupported dictionary method `{name}`; iterate keys and index values"
             )))
         }
+    }
+
+    fn fallible_constructor(
+        &mut self,
+        ty: Ty,
+        name: &str,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let arity = match name {
+            "try_new" => 0,
+            "try_with_capacity" => 1,
+            _ => return Err(at.error(format!("unsupported collection type method `{name}`"))),
+        };
+        if args.len() != arity {
+            return Err(at.error(format!("{name} requires {arity} argument(s)")));
+        }
+        if ty.layout_depth() >= 64 {
+            return Err(at.error("type nesting exceeds the implementation limit of 64"));
+        }
+        if let Some(capacity) = args.first() {
+            let actual = self.expr_expected(capacity, Some(Ty::I64), ops)?;
+            self.same(actual, Some(Ty::I64), &capacity.at)?;
+        } else {
+            ops.push(Op::PushInt(Value::I64(0)));
+        }
+        let result = crate::sum::result(ty.clone(), crate::sum::alloc_error());
+        ops.push(Op::Collection(CollectionOp::TryNew(ty)));
+        Ok(Some(result))
     }
 
     fn fallible_mutation(

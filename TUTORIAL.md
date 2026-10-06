@@ -1119,7 +1119,43 @@ does not allocate a wrapper either. Printing and operations on the payload can
 still allocate. The collection methods below are the first operations that let
 you recover from allocation failure.
 
-### Handle collection growth failures
+### Handle collection allocation failures
+
+Start with `list[T].try_new()` when you need to handle failure while creating an
+empty list. It returns `Result[list[T], AllocError]`. Sets and dictionaries work
+the same way: `set[T].try_new()` and `dict[K, V].try_new()`.
+
+If you know how many entries you need, use `try_with_capacity(n)`. The collection
+starts empty and has space for at least `n` entries, including any hash table.
+Here construction and insertion both propagate errors to the caller:
+
+```plenty
+def answers() -> Result[list[i64], AllocError]:
+    mut values = list[i64].try_with_capacity(2)?
+    values.try_append(21)?
+    values.try_append(42)?
+    Ok(values)
+
+def main() -> ():
+    match answers():
+        case Ok(values):
+            print(values)
+        case Err(error):
+            match error:
+                case AllocError.OutOfMemory:
+                    print("not enough memory")
+                case AllocError.CapacityOverflow:
+                    print("requested capacity is too large")
+```
+
+```output
+[21, 42]
+```
+
+The `?` unwraps the newly owned collection on success. On failure, construction
+reclaims any memory it already obtained and returns the error. The error itself
+needs no allocation. Type aliases work too: after `type Numbers = list[i64]`,
+you can write `Numbers.try_new()`.
 
 Use `try_append` for a list, `try_add` for a set, and `try_insert` for a dictionary
 when you need to handle allocation failure. Each returns `Result[(), AllocError]`.
@@ -1182,9 +1218,10 @@ These methods require a mutable receiver, just like `append` and `add`. Dictiona
 existing set element or replacing a dictionary entry needs no storage growth.
 
 This is the first stage of recoverable allocation. Existing `append`, `add`,
-indexed assignment, allocating literals, constructors, comprehensions, strings,
-and `copy` still terminate on allocation failure. In particular, even creating
-the empty list above can fail before `add_answers` runs. Printing complex values
+indexed assignment, allocating literals, ordinary constructors, comprehensions,
+strings, and `copy` still terminate on allocation failure. For example, `[]` in
+the `add_answers` example can fail before the function runs; the `answers`
+example uses a fallible constructor to handle that stage too. Printing complex values
 and user destructors may also allocate. The new methods provide recovery for
 their own storage operations, not yet for every allocation in a program.
 

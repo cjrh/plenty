@@ -58,6 +58,12 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   Failed `realloc` leaves the old buffer valid. Rust `Vec` keeps allocation and
   deallocation paired with the fixed global allocator; custom allocator
   selection is not exposed yet.
+- Opcode 32 constructs an empty collection with the supplied initial capacity,
+  returning `Result[collection, AllocError]`. Validate layouts and reserve buffers
+  before allocating the owner header; Rust drops any temporary buffers on error.
+  Successful construction moves the buffers into initialized raw header storage.
+  The ordinary constructor shares this path. Collection destruction drops the
+  buffers before freeing the header with the same checked allocation layout.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 
@@ -78,7 +84,7 @@ checks that the instrumentation detects a temporary string allocation.
 Failure-injection markers reject all allocations after N successful calls, until
 explicitly restored. They cover alloc, alloc_zeroed, and realloc using a constant
 thread-local budget, without allocating inside the allocator. Integration tests
-exercise every collection growth/reservation allocation and clean up/retry after
+exercise every collection construction/growth/reservation allocation and clean up/retry after
 each failure. Raw ABI tests also run under `--features allocation-checks`.
 This instrumentation and its checkpoint markers are absent from normal builds.
 

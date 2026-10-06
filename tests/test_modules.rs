@@ -37,6 +37,31 @@ fn run(files: &[(&str, &str)], entry: &str, expected: &str) {
     }
 }
 
+#[test]
+fn fallible_constructors_resolve_imported_collection_aliases() {
+    run(
+        &[
+            ("data.plenty", "pub type Numbers = list[i64]\n"),
+            (
+                "main.plenty",
+                r#"
+import data
+from data import Numbers as Values
+def build() -> Result[data.Numbers, AllocError]:
+    mut values = Values.try_with_capacity(1)?
+    values.try_append(42)?
+    Ok(values)
+def main() -> ():
+    print(data.Numbers.try_new())
+    print(build())
+"#,
+            ),
+        ],
+        "main.plenty",
+        "Result[list[i64], AllocError].Ok([])\nResult[list[i64], AllocError].Ok([42])\n",
+    );
+}
+
 fn reject(files: &[(&str, &str)], expected: &str) {
     let dir = workspace(files);
     let source = dir.path().join("main.plenty");

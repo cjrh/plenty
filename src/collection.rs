@@ -6,6 +6,7 @@ pub enum CollectionOp {
     Copy(Ty),
     Next(Ty),
     New(Ty),
+    TryNew(Ty),     // initial capacity -> Result[collection, AllocError]
     Insert(Ty),     // private builder: collection, element (or key, value) -> collection
     Append(Ty),     // exclusive in-place update of a list or set
     TryReserve(Ty), // exclusive capacity reservation -> Result[(), AllocError]
@@ -58,6 +59,10 @@ impl CollectionOp {
             TextByteLen => (vec![Ty::Str], Ty::I64),
             TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
             New(t) => (vec![], t.clone()),
+            TryNew(t) => (
+                vec![Ty::I64],
+                crate::sum::result(t.clone(), crate::sum::alloc_error()),
+            ),
             TryReserve(t) => (vec![t.clone(), Ty::I64], crate::sum::allocation_result()),
             TryInsert(t) => {
                 let mut args = vec![t.clone(), t.element().expect("collection element")];
@@ -97,6 +102,7 @@ impl CollectionOp {
             Self::Copy(_) => 14,
             Self::Next(_) => 24,
             Self::New(_) => 0,
+            Self::TryNew(_) => 32,
             Self::Insert(_) => 1,
             Self::Append(_) => 2,
             Self::TryReserve(_) => 28,

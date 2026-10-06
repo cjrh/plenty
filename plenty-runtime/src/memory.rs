@@ -126,12 +126,30 @@ pub(crate) unsafe extern "C" fn plenty_release(object: *mut Header) {
     }
 }
 
-pub(crate) fn flex_layout<H, E>(count: usize) -> Layout {
+fn try_flex_layout<H, E>(count: usize) -> Result<Layout, AllocError> {
     Layout::array::<E>(count)
         .ok()
         .and_then(|tail| Layout::new::<H>().extend(tail).ok())
         .map(|(layout, _)| layout.pad_to_align())
-        .unwrap_or_else(|| crate::fail("allocation capacity overflow"))
+        .ok_or(AllocError::CapacityOverflow)
+}
+pub(crate) fn flex_layout<H, E>(count: usize) -> Layout {
+    try_flex_layout::<H, E>(count).unwrap_or_else(|_| crate::fail("allocation capacity overflow"))
+}
+pub(crate) fn try_allocate<H, E>(count: usize) -> Result<*mut H, AllocError> {
+    let layout = try_flex_layout::<H, E>(count)?;
+    assert!(
+        layout.size() != 0,
+        "runtime allocations require a nonzero header"
+    );
+    // SAFETY: the checked layout has a nonzero size. Null means no allocation
+    // was obtained, so returning an error leaves nothing to deallocate.
+    let pointer = unsafe { alloc_zeroed(layout) };
+    if pointer.is_null() {
+        Err(AllocError::OutOfMemory)
+    } else {
+        Ok(pointer.cast())
+    }
 }
 pub(crate) fn allocate<H, E>(count: usize) -> *mut H {
     let layout = flex_layout::<H, E>(count);

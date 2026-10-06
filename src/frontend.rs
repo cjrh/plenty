@@ -893,8 +893,12 @@ impl Parser {
                 } else if matches!(s.as_str(), "list" | "dict" | "set") && self.peek().is("[") {
                     self.pos -= 1;
                     let ty = self.ty()?;
-                    self.expect("(")?;
-                    Expression::Constructor(ty, self.arguments()?)
+                    if self.peek().is(".") {
+                        Expression::Type(ty)
+                    } else {
+                        self.expect("(")?;
+                        Expression::Constructor(ty, self.arguments()?)
+                    }
                 } else if self.eat("(") {
                     let mut args = Vec::new();
                     while !self.eat(")") {
