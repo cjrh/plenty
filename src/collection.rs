@@ -20,6 +20,7 @@ pub enum CollectionOp {
     ListPop(Ty),     // exclusive list/index -> Option[owned element]
     SetDiscard(Ty),  // exclusive set/value -> bool
     ListReverse(Ty), // exclusive list -> retained internal alias
+    Clear(Ty),       // exclusive list/dict/set -> retained internal alias
     Len(Ty),
     IterGet(Ty),
     IterTake(Ty),
@@ -169,7 +170,7 @@ impl CollectionOp {
                 )
             }
             SetDiscard(t) => (vec![t.clone(), t.element().unwrap()], Ty::Bool),
-            ListReverse(t) => (vec![t.clone()], t.clone()),
+            ListReverse(t) | Clear(t) => (vec![t.clone()], t.clone()),
             Len(t) => (vec![t.clone()], Ty::I64),
             IterGet(t) | IterTake(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
             Contains(t) => (vec![t.element().unwrap(), t.clone()], Ty::Bool),
@@ -211,6 +212,7 @@ impl CollectionOp {
             Self::ListPop(_) => 40,
             Self::SetDiscard(_) => 41,
             Self::ListReverse(_) => 57,
+            Self::Clear(_) => 58,
             Self::Len(_) => 5,
             Self::IterGet(_) => 6,
             Self::IterTake(_) => 15,

@@ -1526,6 +1526,34 @@ Owned elements such as classes and nested lists work too. Reversing does not
 copy or destroy them; eventual list cleanup follows their new order. To keep
 the original order separately, explicitly copy the list first.
 
+### Empty a collection and reuse its storage
+
+Lists, dictionaries, and sets have `clear() -> ()`. The method requires mutable
+access, drops the contents, and retains capacity for later insertions:
+
+```plenty
+def main() -> ():
+    mut items = [10, 20]
+    items.clear()
+    print(items)
+    print(items.try_append(30))
+    print(items)
+    mut scores = {"Ada": 10}
+    scores.clear()
+    print(scores)
+```
+
+```output
+[]
+Result[(), AllocError].Ok(())
+[30]
+{}
+```
+
+Clearing itself allocates no storage. Owned elements are destroyed before the
+method returns, in list order or dictionary insertion order; custom destructors
+may have their own effects and allocations. Clearing an empty collection is fine.
+
 ### Take a list slice
 
 `items.try_slice(start, stop)` returns a new list inside a `Result`. Start is

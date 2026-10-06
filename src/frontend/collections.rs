@@ -521,6 +521,14 @@ impl Lower<'_> {
         if name == "reverse" && matches!(self.place_type(base), Some(Ty::List(_))) {
             return self.collection_unit_mutation(base, name, args, ops);
         }
+        if name == "clear"
+            && matches!(
+                self.place_type(base),
+                Some(Ty::List(_) | Ty::Set(_) | Ty::Dict(..))
+            )
+        {
+            return self.collection_unit_mutation(base, name, args, ops);
+        }
         if name == "discard" && matches!(self.place_type(base), Some(Ty::Set(_))) {
             return self.collection_removal(base, args, ops);
         }
@@ -561,6 +569,11 @@ impl Lower<'_> {
             return Err(base
                 .at
                 .error("reverse requires a mutable list binding or class field"));
+        }
+        if name == "clear" {
+            return Err(base.at.error(
+                "clear requires a mutable list, dictionary, or set binding or class field",
+            ));
         }
         if matches!(name, "try_strip" | "try_lstrip" | "try_rstrip") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
@@ -808,7 +821,11 @@ impl Lower<'_> {
         }
         let ty = self.place_type(base).expect("collection place");
         let loan = self.mutation_place(base, ops)?;
-        ops.push(Op::Collection(CollectionOp::ListReverse(ty)));
+        ops.push(Op::Collection(if name == "reverse" {
+            CollectionOp::ListReverse(ty)
+        } else {
+            CollectionOp::Clear(ty)
+        }));
         ops.push(Op::Drop);
         ops.push(Op::UseLoan(loan));
         Ok(None)

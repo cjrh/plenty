@@ -805,6 +805,21 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            58 => {
+                let c = &mut *(a as *mut Collection);
+                let ty = &*c.ty;
+                c.table.fill(0);
+                // Drain preserves allocated capacity. Clear the visible length
+                // before invoking cleanup, then destroy entries in source order.
+                for entry in c.entries.drain(..) {
+                    release(entry.key, ty.key());
+                    if let Some(value) = ty.value {
+                        release(entry.value, value);
+                    }
+                }
+                plenty_retain(a as *mut Header);
+                a
+            }
             57 => {
                 (*(a as *mut Collection)).entries.reverse();
                 plenty_retain(a as *mut Header);

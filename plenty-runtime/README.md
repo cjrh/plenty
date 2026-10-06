@@ -156,6 +156,9 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
 - Opcode 57 reverses list entry slots in place without payload retain/release or
   allocation. The frontend requires exclusive access and discards the retained
   internal receiver result so the public method returns unit.
+- Opcode 58 clears a list/dictionary/set: reset hash buckets, drain entries in
+  source order, and release keys before values while retaining buffer capacity.
+  Runtime clearing allocates nothing; user cleanup follows its own policy.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

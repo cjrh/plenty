@@ -352,6 +352,38 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
     }
 }
 
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn dictionary_clear_releases_entries_but_reuses_buffers() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let source = collection(0, 0, 0, 0, &DICT_TEXT);
+        let text = strings::new("é\0🙂".as_bytes());
+        plenty_release(
+            collection(1, source, text as u128, text as u128, ptr::null()) as *mut Header,
+        );
+        let saved = collection(4, source, text as u128, 0, ptr::null());
+        plenty_release(text.cast());
+        let inserted = {
+            let _restore = Restore;
+            crate::accounting::fail_after(Some(0));
+            plenty_release(collection(58, source, 0, 0, ptr::null()) as *mut Header);
+            collection(29, source, saved, saved, ptr::null())
+        };
+        assert_eq!(inserted, 0);
+        assert_eq!(collection(5, source, 0, 0, ptr::null()), 1);
+        assert_eq!(collection(7, saved, source, 0, ptr::null()), 1);
+        plenty_release(source as *mut Header);
+        assert_eq!(strings::utf8(saved as *const _), "é\0🙂");
+        plenty_release(saved as *mut Header);
+    }
+}
+
 #[test]
 fn list_reverse_reorders_owned_slots_without_duplication() {
     unsafe {

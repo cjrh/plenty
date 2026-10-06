@@ -81,7 +81,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
 | Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
 | Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
-| In-place collection utilities | `list.reverse()` reverses element order without allocation |
+| In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -421,6 +421,15 @@ all permitted list element types are supported. Later list destruction follows
 the new element order. Empty and one-element lists are unchanged. Temporary
 receivers and shared references are rejected; the usual overlapping-loan rules
 apply. This does not introduce a reversed iterator or reverse slice steps.
+
+`collection.clear() -> ()` empties a list, dictionary, or set through a mutable
+binding, class field, or exclusive reference. It takes no arguments. It retains
+the collection's buffers and capacity, resets any hash index, and allocates no
+runtime storage. Removed owners are dropped before returning: lists in element
+order and dictionaries in insertion order with keys before values. Set order is
+unspecified. User cleanup retains its own allocation/effect policy. Empty clear
+is harmless, future insertions can reuse capacity, and independent immutable
+owners survive. Temporaries, shared references, and conflicting loans are rejected.
 
 `items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
 forward list slice. Both arguments are required `i64` indices; start is inclusive
