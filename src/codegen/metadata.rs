@@ -57,6 +57,7 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
     let mut bytes = vec![0; 56];
     bytes[0] = match ty {
         Ty::I8 => b'1',
+        Ty::Callable(_) => b'c',
         Ty::I16 => b'2',
         Ty::I32 => b'3',
         Ty::I64 => b'4',

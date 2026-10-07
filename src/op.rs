@@ -20,6 +20,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// generic functions are specialized before native lowering.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
+    Callable(Rc<CallableSig>),
     I8,
     I16,
     I32,
@@ -67,6 +68,15 @@ impl Ty {
     }
     pub fn layout_depth(&self) -> usize {
         match self {
+            Ty::Callable(sig) => {
+                1 + sig
+                    .inputs
+                    .iter()
+                    .chain(sig.output.iter())
+                    .map(Ty::layout_depth)
+                    .max()
+                    .unwrap_or(0)
+            }
             Self::List(t) | Self::Set(t) => 1 + t.layout_depth(),
             Self::Generator(t) => 1 + t.element.layout_depth(),
             Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
@@ -168,6 +178,7 @@ impl Ty {
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Ty::Callable(sig) => return write!(f, "{sig}"),
             Ty::I8 => "i8",
             Ty::I16 => "i16",
             Ty::I32 => "i32",
@@ -235,9 +246,54 @@ pub struct FnSig {
     pub outputs: Vec<Ty>,
 }
 
+/// Structural signature of a capture-free Plenty function value.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CallableSig {
+    pub inputs: Vec<Ty>,
+    pub output: Option<Ty>,
+}
+impl CallableSig {
+    pub fn from_function(sig: &FnSig) -> Self {
+        Self {
+            inputs: sig.inputs.iter().map(|(_, ty)| ty.clone()).collect(),
+            output: sig.outputs.first().cloned(),
+        }
+    }
+    pub fn function(&self) -> FnSig {
+        FnSig {
+            inputs: self
+                .inputs
+                .iter()
+                .enumerate()
+                .map(|(i, ty)| (format!("arg{i}"), ty.clone()))
+                .collect(),
+            outputs: self.output.iter().cloned().collect(),
+        }
+    }
+}
+impl fmt::Display for CallableSig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Callable[[{}], {}]",
+            self.inputs
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.output
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "()".into())
+        )
+    }
+}
+
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    FunctionAddress(String, Rc<CallableSig>),
+    CallIndirect(Rc<CallableSig>),
     /// Unwrap a standard sum or return its residual, releasing pending operands.
     Try {
         source: Rc<crate::sum::EnumType>,
@@ -1377,6 +1433,24 @@ fn step(
             )?
         }
         Op::Call(name) => check_call(name, stack, sigs)?,
+        Op::FunctionAddress(name, signature) => {
+            let actual = sigs.get(name).ok_or("undefined function value")?;
+            if actual.outputs.len() > 1 || CallableSig::from_function(actual) != **signature {
+                return Err("function value signature mismatch".into());
+            }
+            stack.push(Ty::Callable(signature.clone()));
+        }
+        Op::CallIndirect(signature) => {
+            for expected in signature.inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(expected) {
+                    return Err("indirect call argument mismatch".into());
+                }
+            }
+            if stack.pop() != Some(Ty::Callable(signature.clone())) {
+                return Err("indirect call requires a matching callable".into());
+            }
+            stack.extend(signature.output.iter().cloned());
+        }
         Op::TailCall(name) => {
             check_call(name, stack, sigs)?;
             return check_return(stack, returns);

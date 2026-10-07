@@ -110,6 +110,7 @@
     - [Build a C library](tutorial/60-build-a-c-library.md)
     - [Export owned objects](tutorial/61-export-owned-objects.md)
     - [Load a library at runtime](tutorial/62-load-a-library-at-runtime.md)
+    - [Pass functions as values](tutorial/63-pass-functions-as-values.md)
 
 # Reference
 
@@ -156,6 +157,7 @@
         - [Inspect embedded contracts](design/24-c-interfaces/04-embedded-contracts.md)
         - [Publishing library artifacts](design/24-c-interfaces/05-artifact-publication.md)
         - [Runtime library loading](design/24-c-interfaces/06-runtime-loading.md)
+    - [Function values](design/25-function-values.md)
 - [Native runtime](runtime.md)
 
 # Proposals

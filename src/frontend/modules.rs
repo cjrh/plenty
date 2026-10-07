@@ -920,6 +920,11 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             }
         }
         match ty {
+            Ty::Callable(sig) => {
+                for ty in sig.inputs.iter().chain(sig.output.iter()) {
+                    visible(ty, at, access)?;
+                }
+            }
             Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) => visible(t, at, access)?,
             Ty::Generator(t) => visible(&t.element, at, access)?,
             Ty::Dict(k, v) => {

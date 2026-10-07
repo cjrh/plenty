@@ -19,6 +19,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Checked sized integers, booleans, strings, unit returns | Implemented |
 | Floating-point types and arithmetic (`f32`, `f64`, `/`) | Implemented with IEEE arithmetic and explicit numeric casts |
 | Transparent module-level type aliases | Implemented |
+| Function values | Concrete named functions use allocation-free `Callable[[parameters], result]` values; indirect calls check the full signature |
 | Cranelift AOT and compile-and-run file command | Implemented |
 | Native linker configuration | CLI `--linker` / `--link-arg` and Rust `CompileOptions`; cc-compatible driver interface, default `cc` |
 | Native object output | `--emit-object` / Rust APIs emit an application object without linking; `--emit-runtime` extracts the matching archive and native dependencies for external linking |

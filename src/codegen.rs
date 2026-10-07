@@ -916,6 +916,7 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::F32 => types::F32,
         Ty::F64 => types::F64,
         Ty::Str
+        | Ty::Callable(_)
         | Ty::File
         | Ty::ForeignPtr(_)
         | Ty::List(_)
@@ -1280,6 +1281,17 @@ impl Lowerer<'_, '_> {
                 self.write_local(*i, value);
             }
             Op::Call(name) => self.lower_call(name)?,
+            Op::FunctionAddress(name, signature) => {
+                let id = self
+                    .user_fns
+                    .get(name)
+                    .ok_or("undefined function value")?
+                    .id;
+                let reference = self.module.declare_func_in_func(id, self.bcx.func);
+                let value = self.bcx.ins().func_addr(PTR_TY, reference);
+                self.stack.push((value, Ty::Callable(signature.clone())));
+            }
+            Op::CallIndirect(signature) => self.lower_indirect_call(signature)?,
             Op::ForeignCall { declaration, sig } => self.lower_foreign_call(declaration, sig)?,
             Op::ForeignNull(ty) => {
                 let value = self.bcx.ins().iconst(PTR_TY, 0);
@@ -1901,6 +1913,28 @@ impl Lowerer<'_, '_> {
         debug_assert_eq!(results.len(), outputs.len());
         for (v, ty) in results.into_iter().zip(outputs) {
             self.stack.push((v, ty));
+        }
+        Ok(())
+    }
+
+    fn lower_indirect_call(&mut self, signature: &crate::op::CallableSig) -> Result<()> {
+        let split = self
+            .stack
+            .len()
+            .checked_sub(signature.inputs.len())
+            .ok_or("indirect call stack underflow")?;
+        let mut args: Vec<_> = self.stack.drain(split..).map(|(v, _)| v).collect();
+        let (callee, _) = self.stack.pop().ok_or("missing indirect callee")?;
+        let sig = signature.function();
+        let bytes = sig.outputs.iter().map(Ty::inline_bytes).sum();
+        if bytes != 0 {
+            args.push(self.inline_storage(bytes));
+        }
+        let native = user_fn_signature(self.module, &sig);
+        let reference = self.bcx.import_signature(native);
+        let call = self.bcx.ins().call_indirect(reference, callee, &args);
+        for (value, ty) in self.bcx.inst_results(call).iter().copied().zip(sig.outputs) {
+            self.stack.push((value, ty));
         }
         Ok(())
     }

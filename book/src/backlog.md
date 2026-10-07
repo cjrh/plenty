@@ -16,8 +16,8 @@ The initial toolchain and C boundary batch (B01–B07) is complete, including ty
 runtime loading with resident code, recoverable LoadError values, and ownership
 wrappers checked against their originating library instance.
 
-B08 is next: start with first-class named functions and explicit callable
-signatures, then multiline anonymous functions and checked captures. Settle
+B08 is in progress: first-class concrete named functions and explicit callable
+signatures are implemented. Continue with multiline anonymous functions and checked captures. Settle
 environment ownership, escape rules, and allocation behavior before higher-order
 APIs. Expanded C representations are B27; additional loader tooling and library
 lifecycle work are B28.

@@ -9,6 +9,7 @@ use std::rc::Rc;
 use crate::collection::CollectionOp;
 use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
+mod callables;
 mod classes;
 mod collections;
 mod contexts;
@@ -377,6 +378,24 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == "Callable" {
+            let (output, inputs) = self.args.split_last().ok_or_else(|| {
+                self.at
+                    .error("use Callable[[parameter types], return type]")
+            })?;
+            let signature = crate::op::CallableSig {
+                inputs: inputs
+                    .iter()
+                    .map(|t| {
+                        t.resolve(aliases)?
+                            .ok_or_else(|| t.at.error("callable parameters cannot have unit type"))
+                    })
+                    .collect::<Result<_>>()?,
+                output: output.resolve(aliases)?,
+            };
+            callables::validate(&signature, &self.at)?;
+            return Ok(Some(Ty::Callable(Rc::new(signature))));
+        }
         if name == "tuple" {
             if self.args.is_empty() {
                 return Err(self.at.error("use () for the empty tuple"));
@@ -700,6 +719,28 @@ impl Parser {
                 while self.eat(".") {
                     name.push('.');
                     name.push_str(&self.name()?);
+                }
+                if name == "Callable" {
+                    self.expect("[")?;
+                    self.expect("[")?;
+                    let mut args = Vec::new();
+                    while !self.eat("]") {
+                        args.push(self.ty()?);
+                        if self.eat("]") {
+                            break;
+                        }
+                        self.expect(",")?;
+                    }
+                    self.expect(",")?;
+                    args.push(self.ty()?);
+                    self.eat(",");
+                    self.expect("]")?;
+                    return Ok(TypeRef {
+                        concrete: None,
+                        at,
+                        name: Some(name),
+                        args,
+                    });
                 }
                 return Ok(TypeRef {
                     concrete: None,
@@ -1340,6 +1381,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "Option"
                 | "Result"
                 | "Generator"
+                | "Callable"
                 | "tuple"
                 | "IntType"
                 | "next"
@@ -1718,6 +1760,9 @@ impl Lower<'_> {
                 if enums::prelude_variant(name) && !self.names.contains_key(name) {
                     return self.prelude_constructor(name, None, None, &e.at, ops);
                 }
+                if !self.names.contains_key(name) && self.sigs.contains_key(name) {
+                    return self.function_value(name, &e.at, ops).map(Some);
+                }
                 let local = self
                     .names
                     .get(name)
@@ -1919,6 +1964,13 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if self.names.contains_key(name) {
+                    let callee = Expr {
+                        at: e.at.clone(),
+                        kind: Expression::Name(name.clone()),
+                    };
+                    return self.call_value(&callee, args, ops);
+                }
                 if name == "print" {
                     if self.names.contains_key(name) {
                         return Err(e.at.error(format!("binding `{name}` is not callable")));
