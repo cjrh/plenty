@@ -326,6 +326,21 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
         ) -> Result<Option<HashSet<String>>> {
             for stmt in body {
                 match &stmt.kind {
+                    Statement::With {
+                        manager,
+                        name,
+                        body,
+                    } => {
+                        self.expr(manager, &set)?;
+                        if let Some(name) = name {
+                            self.binding(name, &stmt.at)?;
+                        }
+                        if let Some(next) = self.block(body, set.clone())? {
+                            set = next;
+                        } else {
+                            return Ok(None);
+                        }
+                    }
                     Statement::SetIndex { target, value } => {
                         self.expr(value, &set)?;
                         if let Expression::Member(base, field) = &target.kind {

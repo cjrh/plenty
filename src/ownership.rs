@@ -47,6 +47,9 @@ fn backedge(state: &[bool], entry: &[bool], locals: &[Ty]) -> Result<()> {
 fn sequence(ops: &[Op], locals: &[Ty], state: &mut State, loops: &mut Vec<Loop>) -> Result<bool> {
     for op in ops {
         match op {
+            Op::Try { cleanup, .. } => {
+                sequence(cleanup, locals, &mut state.clone(), &mut Vec::new())?;
+            }
             Op::MoveLocal(i, site) | Op::Next(i, site) => {
                 if !state.get(*i as usize).copied().unwrap_or(false) {
                     return Err(format!("{site}: use of moved or possibly moved binding").into());
@@ -122,6 +125,13 @@ fn graph(ops: &[Op], next: usize, targets: Option<(usize, usize)>, nodes: &mut V
     let mut next = next;
     for op in ops.iter().rev() {
         match op {
+            Op::Try { cleanup, .. } => {
+                let failure = graph(cleanup, 0, None, nodes);
+                nodes.push(Node {
+                    op: None,
+                    successors: vec![next, failure],
+                });
+            }
             Op::Match(arms) => {
                 let successors = arms
                     .iter()
@@ -168,6 +178,7 @@ fn graph(ops: &[Op], next: usize, targets: Option<(usize, usize)>, nodes: &mut V
 fn check_loans(ops: &[Op]) -> Result<()> {
     fn has_loans(ops: &[Op]) -> bool {
         ops.iter().any(|op| match op {
+            Op::Try { cleanup, .. } => has_loans(cleanup),
             Op::Loan(_) => true,
             Op::Match(arms) => arms.iter().any(|arm| has_loans(&arm.body)),
             Op::Loop { condition, body } => has_loans(condition) || has_loans(body),

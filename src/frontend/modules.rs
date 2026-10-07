@@ -378,6 +378,16 @@ impl Scope {
     fn block(&self, body: &mut [Stmt], locals: &mut HashSet<String>) -> Result<()> {
         for stmt in body {
             match &mut stmt.kind {
+                Statement::With {
+                    manager,
+                    name,
+                    body,
+                } => {
+                    self.expr(manager, locals)?;
+                    let mut inner = locals.clone();
+                    inner.extend(name.iter().cloned());
+                    self.block(body, &mut inner)?;
+                }
                 Statement::Expr(e) | Statement::Yield(e) => self.expr(e, locals)?,
                 Statement::Return(e) => {
                     if let Some(e) = e {

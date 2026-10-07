@@ -4,7 +4,9 @@ pub(super) fn yields(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| match &stmt.kind {
         Statement::Yield(_) => true,
         Statement::If { yes, no, .. } => yields(yes) || yields(no),
-        Statement::For { body, .. } | Statement::While { body, .. } => yields(body),
+        Statement::For { body, .. }
+        | Statement::While { body, .. }
+        | Statement::With { body, .. } => yields(body),
         Statement::Match { cases, .. } => cases.iter().any(|case| yields(&case.body)),
         _ => false,
     })
@@ -13,8 +15,14 @@ pub(super) fn yields(body: &[Stmt]) -> bool {
 impl Lower<'_> {
     pub(super) fn cleanup(&self, start: usize, ops: &mut Vec<Op>) {
         for i in (start..self.locals.len()).rev() {
+            let slot = (self.parameters + i) as u8;
+            if let Some(context) = self.contexts.iter().find(|context| context.slot == slot) {
+                ops.push(Op::Access(slot, true, None));
+                ops.push(Op::BorrowLocal(slot, true));
+                ops.push(Op::Call(context.exit.clone()));
+            }
             if self.locals[i].managed() {
-                ops.push(Op::DropLocal((self.parameters + i) as u8));
+                ops.push(Op::DropLocal(slot));
             }
         }
     }

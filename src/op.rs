@@ -202,6 +202,7 @@ pub enum Op {
     Try {
         source: Rc<crate::sum::EnumType>,
         target: Rc<crate::sum::EnumType>,
+        cleanup: Rc<[Op]>,
     },
     Class(crate::record::ClassOp),
     BorrowLocal(u8, bool),
@@ -1075,7 +1076,18 @@ fn step(
     yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     match op {
-        Op::Try { source, target } => {
+        Op::Try {
+            source,
+            target,
+            cleanup,
+        } => {
+            let mut empty = Vec::new();
+            check_sequence(
+                cleanup, &mut empty, locals, sigs, returns, loop_stack, yield_ty,
+            )?;
+            if !empty.is_empty() {
+                return Err("propagation cleanup must return unit".into());
+            }
             if !source.propagatable()
                 || !target.propagatable()
                 || source.is_option() != target.is_option()

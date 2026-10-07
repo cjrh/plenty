@@ -1032,7 +1032,11 @@ impl Lowerer<'_, '_> {
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
         match op {
-            Op::Try { source, target } => self.lower_try(source, target)?,
+            Op::Try {
+                source,
+                target,
+                cleanup,
+            } => self.lower_try(source, target, cleanup)?,
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
             Op::BorrowLocal(i, mutable) => {
                 let (frame, offset) = if let Some(g) = &self.generator {

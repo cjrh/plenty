@@ -227,6 +227,7 @@ impl Lowerer<'_, '_> {
         &mut self,
         source: &std::rc::Rc<crate::sum::EnumType>,
         target: &std::rc::Rc<crate::sum::EnumType>,
+        cleanup: &[Op],
     ) -> Result<()> {
         let (value, _) = self.pop_typed(Ty::Enum(source.clone()))?;
         let tag = self.sum_tag(value);
@@ -246,6 +247,9 @@ impl Lowerer<'_, '_> {
         // every initialized local still need normal early-return cleanup.
         let pending = self.stack.clone();
         self.release_stack();
+        for op in cleanup {
+            self.lower(op)?;
+        }
         self.release_locals();
         self.bcx.ins().return_(&[residual]);
         self.stack = pending;

@@ -2999,8 +2999,47 @@ Result[str, IoError].Ok("started\nfinished\n")
 ```
 
 These helpers cover whole files. Long-lived `open`/`read`/`write`/`close` stream
-objects and `with` are still future work. Automatic cleanup already closes the
+objects are still future work. Automatic cleanup already closes the
 private handles used by the helpers, on both success and failure.
+
+## Context managers
+
+Use `with` when a class needs an action at the end of a block. Its `__enter__`
+method supplies the `as` value; `__exit__` takes only a mutable receiver and
+returns unit. No inheritance or protocol declaration is needed.
+
+```plenty
+class Message:
+    text: str
+    def __enter__(self: &mut Message) -> str:
+        print("enter")
+        self.text
+    def __exit__(self: &mut Message) -> ():
+        print("exit")
+
+def main() -> ():
+    with Message("hello") as text:
+        print(text)
+    print("after")
+```
+```output
+enter
+hello
+exit
+after
+```
+
+The manager moves into the block. The entry value and body locals are cleaned up
+before `__exit__`, and the manager is dropped afterward. This also happens on
+`return`, `?`, `break`, and `continue`; nested managers exit in reverse order.
+An owned entry value can be moved out, for example by returning it. The `as`
+binding itself is only visible inside the body. Omit `as` for unit entry methods.
+Acquire fallible resources before entry: `with acquire()?:` propagates acquisition
+failure without entering that context.
+
+Exit is infallible and cannot suppress errors. Check fallible writes or flushes
+explicitly. Fatal traps do not run exits, and `yield` inside `with` is not yet
+supported. Entry results cannot yet be references to the manager.
 
 ## Where the language goes next
 

@@ -100,7 +100,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Typed ranges and contextual numeric inference | Proposed: `range[u8](8)` and expression-local constraints from annotations; ranges currently yield `i64` |
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
-| `with` context managers | Proposed; automatic destruction works today |
+| `with` context managers | Concrete owned managers, owned/unit entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
 | Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
@@ -184,7 +184,7 @@ Tutorial executions use separate temporary working directories for each mode.
 It creates a missing file, including for empty text. Each OS write appends at the
 current end; a logical call may require multiple writes and is not an atomic
 record against concurrent writers. Allocation fails before opening; OS failures
-can leave an appended prefix. Long-lived streams and `with` remain future work.
+can leave an appended prefix. Long-lived streams remain future work.
 
 These initial functions are explicit prelude builtins. Future standard-library
 modules and stream methods can build on their error, encoding, and resource
@@ -1579,6 +1579,36 @@ state-machine lowering, with no interpreter, C-stack suspension, or eager yield
 collection. The initial state dispatch is a linear comparison chain.
 Iteration wraps each resume result in an allocation-free inline `Option`.
 Optimizing frame liveness remains a later runtime improvement.
+
+## Concrete context managers
+
+`with expression as name:` evaluates and moves an owned class instance once into
+a hidden mutable local. The class must expose `__enter__(self: &mut Class) -> T`
+and `__exit__(self: &mut Class) -> ()`, with no additional parameters. The `as`
+binding receives the entry result and is confined to the body. Entry may return
+unit if `as` is omitted; an unused owned entry result is dropped before the body.
+Entry is an ordinary infallible call, not implicit Result unwrapping: perform
+fallible acquisition with `?` in the manager expression. Visibility rules apply
+to both methods.
+
+Body locals drop in reverse order, then `__exit__` runs exactly once, then the
+manager drops normally. Nested contexts exit in reverse order. Return values
+are evaluated and preserved before cleanup; early `return`, `?`, `break`, and
+`continue` use the same ordering. Inner-loop control flow does not exit an outer
+context. `__del__` remains a separate fallback destructor; resource authors must
+make exit plus destruction safe. Traps and process aborts do not unwind scopes.
+Exit is not an implicit flush or a durability guarantee. Fallible operations
+must expose their own Results.
+
+The typed propagation operation carries its lexical cleanup operations; its
+failure edge participates in ownership and loan analysis. The native backend
+releases pending expression operands, runs this cleanup, then releases remaining
+locals before returning the residual. Compiler exit bookkeeping adds no runtime
+allocation. This does not constrain allocations inside user methods.
+
+Borrowed managers and reference entry results remain future work. `yield` inside
+`with` is rejected until generator frames can retain exit obligations. Concrete
+lookup requires no traits or user generics.
 
 ## Next milestones
 

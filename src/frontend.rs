@@ -11,6 +11,7 @@ use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 mod classes;
 mod collections;
+mod contexts;
 mod enums;
 mod generators;
 mod modules;
@@ -463,6 +464,11 @@ struct Stmt {
     kind: Statement,
 }
 enum Statement {
+    With {
+        manager: Expr,
+        name: Option<String>,
+        body: Vec<Stmt>,
+    },
     Yield(Expr),
     Match {
         value: Expr,
@@ -766,6 +772,24 @@ impl Parser {
         })
     }
     fn statement(&mut self) -> Result<Stmt> {
+        if self.peek().is("with") {
+            let at = self.take();
+            let manager = self.expr(0)?;
+            let name = if self.eat("as") {
+                Some(self.name()?)
+            } else {
+                None
+            };
+            let body = self.suite()?;
+            return Ok(Stmt {
+                at,
+                kind: Statement::With {
+                    manager,
+                    name,
+                    body,
+                },
+            });
+        }
         if self.peek().is("enum") {
             return Err(self.peek().error("enums must be declared at module scope"));
         }
@@ -1068,6 +1092,7 @@ fn reserved(name: &str) -> bool {
     matches!(
         name,
         "def"
+            | "with"
             | "type"
             | "return"
             | "if"
@@ -1159,6 +1184,7 @@ struct Lower<'a> {
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
     expression_temps: Vec<u8>,
+    contexts: Vec<contexts::Context>,
 }
 impl Lower<'_> {
     fn number(&self, text: &str, negative: bool, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
@@ -1250,7 +1276,15 @@ impl Lower<'_> {
                 }
                 let success = usize::from(source.is_option());
                 let payload = source.variants[success].fields[0].clone();
-                ops.push(Op::Try { source, target });
+                let mut cleanup = Vec::new();
+                if !self.contexts.is_empty() {
+                    self.cleanup(0, &mut cleanup);
+                }
+                ops.push(Op::Try {
+                    source,
+                    target,
+                    cleanup: cleanup.into(),
+                });
                 if payload == Ty::Unit {
                     ops.push(Op::Drop);
                     None
@@ -1643,6 +1677,19 @@ impl Lower<'_> {
             let temporary_start = self.expression_temps.len();
             let last = tail && i + 1 == body.len();
             result = match &stmt.kind {
+                Statement::With {
+                    manager,
+                    name,
+                    body: inner,
+                } => {
+                    if matches!(
+                        self.with_statement(manager, name.as_deref(), inner, ops)?,
+                        BlockResult::Exits
+                    ) {
+                        return exited_block(body, i);
+                    }
+                    None
+                }
                 Statement::Yield(e) => {
                     let expected = self.yield_type.clone().ok_or_else(|| {
                         stmt.at
@@ -1684,7 +1731,12 @@ impl Lower<'_> {
                     };
                     self.same(ty, expected, &stmt.at)?;
                     self.finish_temporaries(temporary_start, &mut returned);
-                    finish_return(&mut returned);
+                    if self.contexts.is_empty() {
+                        finish_return(&mut returned);
+                    } else {
+                        self.cleanup(0, &mut returned);
+                        returned.push(Op::Return);
+                    }
                     ops.extend(returned);
                     return exited_block(body, i);
                 }
@@ -2050,6 +2102,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             loans: Vec::new(),
             reference_locals: HashMap::new(),
             expression_temps: Vec::new(),
+            contexts: Vec::new(),
         };
         for (i, (name, ty)) in sig.inputs.iter().enumerate() {
             lower.names.insert(
