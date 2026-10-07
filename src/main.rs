@@ -14,7 +14,7 @@ Usage: plenty FILE
        plenty -h | --help
 
 FILE: compile to a temporary executable and run it.
-Programs require def main() -> () or def main() -> i32.
+Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --module-root DIR: resolve absolute imports here (default: FILE's directory).
 --check: parse and type-check without executing the program.
 --check-module: check a library module without requiring main.

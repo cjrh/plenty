@@ -1,0 +1,69 @@
+# All references/buffers are call-scoped: no retention, callbacks, or unwinding.
+# open_raw initializes out even on failure, possibly with a live owned output.
+opaque Raw
+extern def open_raw(out: &mut Raw, mode: i32) -> i32 = "fixture_open"
+extern def close_raw(raw: Raw) -> () = "fixture_close"
+extern def get_raw(raw: Raw) -> i64 = "fixture_value"
+extern def set_raw(raw: Raw, value: i64) -> () = "fixture_set"
+extern def transfer_raw(raw: Raw, fail: i32) -> i32 = "fixture_transfer"
+extern def consume_raw(raw: Raw, fail: i32) -> i32 = "fixture_consume"
+pub extern def live() -> i64 = "fixture_live"
+pub extern def opened() -> i64 = "fixture_opened"
+pub extern def outputs(a: &mut i8, b: &mut u16, c: &mut f32, d: &mut f64, e: &mut i64) -> () = "fixture_outputs"
+pub extern def read(value: &i64) -> i64 = "fixture_read"
+pub extern def bytes(text: &str as utf8) -> u64 = "fixture_bytes"
+pub extern def strings(a: &str as c_string, b: &str as c_string) -> Result[u64, CStrError] = "fixture_strings"
+pub extern def string_void(text: &str as c_string) -> Result[(), CStrError] = "fixture_string_void"
+pub extern def text_calls() -> i64 = "fixture_text_calls"
+pub extern def string_float(text: &str as c_string) -> Result[f32, CStrError] = "fixture_string_float"
+extern def string_pointer_raw(text: &str as c_string) -> Result[Raw, CStrError] = "fixture_string_pointer"
+
+pub def pointer_value(text: &str) -> Result[i64, CStrError]:
+    Ok(get_raw(string_pointer_raw(text)?))
+
+pub class Resource:
+    raw: Raw
+    def __init__(self) -> ():
+        self.raw = Raw.null()
+    def __del__(self) -> ():
+        close_raw(self.raw)
+    pub def value(self) -> i64:
+        get_raw(self.raw)
+    pub def set(self: &mut Resource, value: i64) -> ():
+        set_raw(self.raw, value)
+
+pub def create(mode: i32) -> Result[Resource, Failure]:
+    mut owner = Resource()?
+    if open_raw(&mut owner.raw, mode) != 0:
+        return Err(Failure.Unspecified)
+    if owner.raw.is_null():
+        return Err(Failure.Unspecified)
+    Ok(owner)
+
+# Consumes only on success; return the unchanged owner on failure.
+pub def transfer(resource: Resource, fail: i32) -> Result[(), Resource]:
+    mut owner = resource
+    if transfer_raw(owner.raw, fail) != 0:
+        return Err(owner)
+    owner.raw = Raw.null()
+    Ok(())
+
+# Consumes even on error; disarm the local destructor before calling C.
+pub def consume(resource: Resource, fail: i32) -> Result[(), Failure]:
+    mut owner = resource
+    pointer = owner.raw
+    owner.raw = Raw.null()
+    if consume_raw(pointer, fail) != 0:
+        return Err(Failure.Unspecified)
+    Ok(())
+
+pub def acquire_pair(fail: i32) -> Result[(), Failure]:
+    first = create(0)?
+    second = create(fail)?
+    print(first.value() + second.value())?
+    Ok(())
+
+pub def convert_owned(resource: Resource, text: &str) -> Result[(), CStrError]:
+    string_void(text)?
+    drop(resource)
+    Ok(())

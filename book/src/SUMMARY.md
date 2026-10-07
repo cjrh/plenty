@@ -105,6 +105,8 @@
     - [Borrowing a field through a getter](tutorial/55-borrowing-a-field-through-a-getter.md)
     - [Where the language goes next](tutorial/56-where-the-language-goes-next.md)
     - [Call C libraries](tutorial/57-call-c-libraries.md)
+    - [Pass text to C](tutorial/58-pass-text-to-c.md)
+    - [Own a foreign handle](tutorial/59-own-a-foreign-handle.md)
 
 # Reference
 
@@ -145,6 +147,7 @@
     - [Splitting existing text into lines](design/22-splitting-existing-text-into-lines.md)
     - [Development workflow](design/23-next-milestones.md)
     - [C interfaces](design/24-c-interfaces.md)
+        - [Ownership and text adapters](design/24-c-interfaces/01-ownership-and-text-adapters.md)
 - [Native runtime](runtime.md)
 
 # Proposals

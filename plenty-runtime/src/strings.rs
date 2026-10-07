@@ -10,6 +10,36 @@ pub(crate) struct Text {
     data: [u8; 0],
 }
 const _: () = assert!(std::mem::offset_of!(Text, data) == 32);
+const _: () = assert!(std::mem::offset_of!(Text, byte_len) == 16);
+
+pub(crate) enum CStrError {
+    EmbeddedNul,
+    Allocation(AllocError),
+}
+
+/// Build a call-scoped C string using the normal text owner, including its
+/// terminator in the allocation length so ordinary release frees it correctly.
+pub(crate) unsafe fn try_c_string(text: *const Text) -> Result<*mut Text, CStrError> {
+    // SAFETY: the compiler borrows a live immutable Text for this entire call.
+    unsafe {
+        let source = bytes(text);
+        if source.contains(&0) {
+            return Err(CStrError::EmbeddedNul);
+        }
+        let size = add_length((*text).byte_len, 1).map_err(CStrError::Allocation)?;
+        let out = memory::try_allocate::<Text, u8>(size as usize).map_err(CStrError::Allocation)?;
+        out.write(Text {
+            header: Header::new(destroy),
+            byte_len: size,
+            scalar_len: (*text).scalar_len + 1,
+            data: [],
+        });
+        let data = ptr::addr_of_mut!((*out).data).cast::<u8>();
+        ptr::copy_nonoverlapping(source.as_ptr(), data, source.len());
+        data.add(source.len()).write(0);
+        Ok(out)
+    }
+}
 
 pub(crate) unsafe fn bytes<'a>(text: *const Text) -> &'a [u8] {
     // SAFETY: the caller keeps text alive for the returned view's lifetime.

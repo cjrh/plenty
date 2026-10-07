@@ -32,6 +32,50 @@ const fn list(key: &'static Type) -> Type {
 }
 static INTEGER: Type = scalar(b'4');
 static UNSIGNED: Type = scalar(b'8');
+
+#[test]
+fn c_string_adapter_preserves_utf8_terminates_and_rejects_nuls() {
+    // SAFETY: text operands own their allocation until released; returned buffers
+    // are separately owned, and the C view never survives that owner.
+    unsafe {
+        for source in ["", "é🦀"] {
+            let text = strings::new(source.as_bytes());
+            let result = strings::try_c_string(text).ok().unwrap();
+            let bytes = strings::bytes(result);
+            assert_eq!(&bytes[..bytes.len() - 1], source.as_bytes());
+            assert_eq!(bytes.last(), Some(&0));
+            assert_eq!(strings::bytes(text), source.as_bytes());
+            plenty_release(result.cast());
+            plenty_release(text.cast());
+        }
+        let text = strings::new(b"a\0b");
+        assert!(matches!(
+            strings::try_c_string(text),
+            Err(strings::CStrError::EmbeddedNul)
+        ));
+        plenty_release(text.cast());
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn c_string_conversion_failure_preserves_source_without_allocating_an_error() {
+    // SAFETY: the source remains live, and allocation failure returns no buffer.
+    unsafe {
+        let text = strings::new(b"hello");
+        crate::accounting::fail_after(Some(0));
+        let result = strings::try_c_string(text);
+        crate::accounting::fail_after(None);
+        assert!(matches!(
+            result,
+            Err(strings::CStrError::Allocation(
+                crate::memory::AllocError::OutOfMemory
+            ))
+        ));
+        assert_eq!(strings::bytes(text), b"hello");
+        plenty_release(text.cast());
+    }
+}
 static UNSIGNED_RANGE: Type = Type {
     key: Some(&UNSIGNED),
     ..scalar(b'R')

@@ -271,6 +271,6 @@ fn checking_needs_no_linker_and_missing_linker_failure_cleans_up() {
         .unwrap();
     assert_eq!(run.status.code(), Some(1));
     assert!(run.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&run.stderr).contains("failed to invoke `cc`"));
+    assert!(String::from_utf8_lossy(&run.stderr).contains("failed to invoke linker driver `cc`"));
     assert_eq!(std::fs::read_dir(&scratch).unwrap().count(), 0);
 }

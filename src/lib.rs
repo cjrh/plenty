@@ -8,6 +8,7 @@
 
 mod codegen;
 mod collection;
+mod foreign;
 mod frontend;
 mod generator;
 mod lexer;
@@ -30,7 +31,8 @@ pub use toolchain::{
 
 /// Parse and type-check a standalone modern Plenty binary without executing
 /// it or generating native code. Requires a parameterless `main` returning
-/// `()` or `i32`, just like [`compile_source_to_executable`].
+/// `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`, just like
+/// [`compile_source_to_executable`].
 pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
     let program = frontend::compile(source, &mut heap)?;

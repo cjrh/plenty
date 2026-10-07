@@ -12,9 +12,8 @@ stages describe technical dependencies, not a second priority list.
 
 ## Next batch
 
-| ID | Work | Scope and completion evidence |
-| --- | --- | --- |
-| B05 | Ownership-aware C adapters | Add opaque owned handles with matching destruction, call-scoped buffers, explicit string adapters, nullability, and transfer/error contracts. Test success, failure, partial initialization, and cleanup against C fixtures. Depends on B04. |
+The toolchain and C-import batch (B01–B05) is complete. Select the next batch
+from the candidates below before starting it.
 
 ## Later candidates
 
@@ -51,6 +50,7 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
+| B05: Ownership-aware C adapters | Scalar/pointer borrows and explicit UTF-8/C-string adapters integrate with normal borrowing. Private opaque pointers in classes provide owned handles and matching destruction; C fixtures verify partial acquisition, allocation errors, and conditional/unconditional transfer. Mutable/returned byte buffers remain outside this subset. See [adapters](design/24-c-interfaces/01-ownership-and-text-adapters.md). |
 | B04: Initial C imports | Trusted `.plentyi` declarations support sized C scalars and nominal opaque pointers. Native C fixtures cover static/shared linking and actual ABI calls; visibility and Plenty layouts remain separate. See [C interfaces](design/24-c-interfaces.md). |
 | B03: Target compatibility | Native compilation validates the supported x86_64 Linux GNU target, packaged runtime triple, and ISA pointer width. Explicit target selection rejects incompatible layouts before source loading/emission; runtime extraction includes target metadata. See [runtime packaging](design/09-rust-runtime-packaging.md). |
 | B02: Object-file output | CLI/API application object emission and matching runtime extraction work without a linker on PATH. External-driver tests link and run single-file and imported programs. See [execution commands](design/07-execution-commands.md). |

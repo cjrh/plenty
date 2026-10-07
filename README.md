@@ -7,6 +7,8 @@ design goals.
 
 This branch implements the typed AOT language, including collections, concrete
 enums, fixed-layout classes, generators, explicit copying, and checked references.
+Trusted [C interfaces](book/src/design/24-c-interfaces.md) support scalar/opaque
+imports, owned resource wrappers, explicit text adapters, and static/shared linking.
 Owned values clean up automatically, including custom `__del__` methods. The language contract is in the [reference](book/src/design/index.md); future work and priorities are maintained in the [backlog](book/src/backlog.md).
 
 Start with [Learn Plenty](book/src/tutorial/index.md) to learn the language
@@ -47,8 +49,11 @@ cargo run -- --compile examples/sum.plenty -o /tmp/plenty-sum
 
 Plenty uses Cranelift AOT exclusively. Running a file compiles it into a
 temporary executable, runs it, and removes it when execution finishes. Both
-running and compiling require the system linker driver `cc` on PATH; `--check`
-does not. The separate [plenty-runtime](plenty-runtime/README.md) Rust crate is
+running and compiling require a cc-compatible driver (`cc` by default, configurable
+with `--linker` and `--link-arg`); `--check` does not. Native emission currently
+supports `x86_64-unknown-linux-gnu`; `--print-target` reports the packaged target.
+`--emit-object` and `--emit-runtime` support linking through an external build
+system. The separate [plenty-runtime](plenty-runtime/README.md) Rust crate is
 compiled when Plenty is built and embedded as a static library. Running or
 compiling Plenty programs needs no Rust toolchain or runtime source files. Running with no arguments prints help.
 
@@ -182,12 +187,15 @@ Plenty prevents the common C memory errors by design.
 | Iterator invalidation | An element borrow locks the whole collection. Growth, removal and replacement are rejected while the loan is live. | Compile time |
 | Double free | A move transfers the cleanup duty. Destruction is deterministic. Files record "already closed". | Compile time + runtime |
 | Buffer overrun | Indexing is bounds-checked. A bad index or missing key traps. | Run time |
-| Null dereference | No null. `Option` only. | Compile time |
+| Null dereference | Plenty references cannot be null. Opaque C pointers support null checks but cannot be dereferenced in Plenty. | Compile time |
 | Uninitialized read | The checker tracks which slots definitely hold a value. | Compile time |
 | Integer overflow, divide by zero | Both trap. | Run time |
 | Data races | No concurrency. | (Planned) |
 | Leaks from cycles | Unique mutable ownership prevents ownership cycles. | By design |
 | Unchecked `malloc` failure | Allocation returns `Result[_, AllocError]`. | Compile time (you must handle it) |
 
-FFI is not implemented yet. When it arrives, foreign calls will be an unchecked
-boundary: the compiler cannot verify memory safety in foreign code.
+Trusted `.plentyi` interfaces are an unchecked boundary: the compiler cannot verify
+the C implementation or its ABI, lifetime, and aliasing promises. Application code
+uses typed wrappers, checked borrows, and ordinary owned classes with matching
+native destruction. C-string conversion errors and allocation failures return
+`Result`; native library failures require explicit wrapper handling.

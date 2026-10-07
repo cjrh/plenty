@@ -336,7 +336,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
 
 #[derive(Clone)]
 struct Function {
-    foreign: Option<String>,
+    foreign: Option<crate::foreign::Declaration>,
     name: String,
     type_params: Vec<(String, Option<TypeRef>)>,
     at: Token,
@@ -764,6 +764,7 @@ impl Parser {
         }
         self.expect("(")?;
         let mut inputs = Vec::new();
+        let mut adapters = Vec::new();
         while !self.eat(")") {
             let param = self.name()?;
             if inputs.iter().any(|(n, _)| n == &param) {
@@ -794,6 +795,21 @@ impl Parser {
                 self.expect(":")?;
                 self.ty()?
             };
+            let adapter = if foreign && self.eat("as") {
+                let token = self.take();
+                if token.is("utf8") {
+                    crate::foreign::Argument::Utf8
+                } else if token.is("c_string") {
+                    crate::foreign::Argument::CString
+                } else {
+                    return Err(token.error("expected utf8 or c_string C argument adapter"));
+                }
+            } else {
+                crate::foreign::Argument::Direct
+            };
+            if foreign {
+                adapters.push(adapter);
+            }
             inputs.push((param, ty));
             if self.eat(")") {
                 break;
@@ -817,7 +833,10 @@ impl Parser {
             foreign::check_symbol(symbol_name, &symbol)?;
             self.kind(Kind::Newline, "the end of the C declaration")?;
             return Ok(Function {
-                foreign: Some(symbol_name.clone()),
+                foreign: Some(crate::foreign::Declaration {
+                    symbol: symbol_name.clone(),
+                    arguments: adapters,
+                }),
                 type_params,
                 name,
                 at,
@@ -1244,6 +1263,7 @@ fn named_type(name: &str) -> Type {
         "DataError" => crate::sum::data_error(),
         "IoError" => crate::sum::io_error(),
         "Failure" => crate::sum::failure(),
+        "CStrError" => crate::sum::c_str_error(),
         _ => return None,
     })
 }
@@ -2490,12 +2510,12 @@ fn lower_function(
         return Err(f.at.error("recursive generator factory requires a concrete return type; recursive inline frames are not supported"));
     }
     let mut sig = Rc::clone(&sigs[&f.name]);
-    if let Some(symbol) = &f.foreign {
+    if let Some(declaration) = &f.foreign {
         let mut body: Vec<_> = (0..sig.inputs.len())
             .map(|i| Op::LoadLocal(i as u8))
             .collect();
         body.push(Op::ForeignCall {
-            symbol: symbol.clone(),
+            declaration: declaration.clone(),
             sig: sig.clone(),
         });
         body.push(Op::Return);

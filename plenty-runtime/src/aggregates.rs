@@ -1538,6 +1538,13 @@ pub(crate) unsafe fn collection(
                 0
             }
             117 => ranges::copy_payload(a, &*descriptor, b as *mut Range),
+            118 => match strings::try_c_string(a as *const Text) {
+                Ok(text) => wrap(text as u128, 0),
+                Err(strings::CStrError::EmbeddedNul) => wrap(wrap(0, 0), 1),
+                Err(strings::CStrError::Allocation(error)) => {
+                    wrap(wrap(wrap(0, error as u64), 1), 1)
+                }
+            },
             11 => try_dictionary_snapshot(&mut *(a as *mut Collection), &*descriptor, true)
                 .unwrap_or_else(|_| crate::fail("dictionary snapshot allocation failed")),
             108 => match try_record_new(&*descriptor, a as u64) {

@@ -258,7 +258,10 @@ impl Lowerer<'_, '_> {
             value
         }
     }
-    fn sum_tag(&mut self, value: cranelift_codegen::ir::Value) -> cranelift_codegen::ir::Value {
+    pub(super) fn sum_tag(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+    ) -> cranelift_codegen::ir::Value {
         let tags = self.bcx.ins().ushr_imm(value, 64);
         let tags = self.raw_word(tags);
         self.bcx.ins().band_imm(tags, 1)
@@ -270,7 +273,7 @@ impl Lowerer<'_, '_> {
         let tags = self.bcx.ins().ishl_imm(tags, 64);
         self.bcx.ins().bor(word, tags)
     }
-    fn wrap_sum(
+    pub(super) fn wrap_sum(
         &mut self,
         value: cranelift_codegen::ir::Value,
         tag: usize,

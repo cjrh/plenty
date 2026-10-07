@@ -18,11 +18,13 @@ Plenty's private calling convention makes an ordinary target-C-ABI call; C calls
 are never emitted using Plenty's tail calling convention.
 
 The initial ABI supports `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, opaque pointers,
-and `()` for a void result. On the supported x86_64 Linux GNU target these match
+and `()` for a void result. Call-scoped scalar/pointer references and explicit
+text adapters are described in [ownership and text adapters](24-c-interfaces/01-ownership-and-text-adapters.md).
+On the supported x86_64 Linux GNU target these match
 the corresponding C `intN_t`/`uintN_t`, `float`, `double`, and pointers. Use
 explicit aliases in the binding for C names; C `int` is `i32`, `long` and
 `ptrdiff_t` are `i64`, and `size_t` is `u64` on this target. `bool`, aggregate
-values, references, and private Plenty layouts have no raw C ABI in this subset.
+values, and private Plenty object layouts have no raw C ABI in this subset.
 
 `opaque Name` declares a nominal raw pointer type, with no size or pointee layout.
 Different opaque names do not interchange. Values can be copied, compared for

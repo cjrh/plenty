@@ -326,7 +326,7 @@ pub enum Op {
     /// Invoke a user-defined function by name. Non-tail position.
     Call(String),
     ForeignCall {
-        symbol: String,
+        declaration: crate::foreign::Declaration,
         sig: Rc<FnSig>,
     },
     ForeignNull(Ty),

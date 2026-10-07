@@ -123,7 +123,7 @@ use generators::GeneratorContext;
 //   each call site (see `trap_if`).
 
 /// Compile a complete modern binary program to a native executable at `output`.
-/// A parameterless `main` returning `()` or `i32` is required. The source is
+/// A parameterless `main` returning `()`, `i32`, or a Result wrapping either is required. The source is
 /// lexed, lowered to typed operations, and checked; the
 /// resulting op stream is lowered to a temp object file; the embedded
 /// Rust runtime archive is written alongside it; `cc` links the pair into the
@@ -1249,7 +1249,7 @@ impl Lowerer<'_, '_> {
                 self.write_local(*i, value);
             }
             Op::Call(name) => self.lower_call(name)?,
-            Op::ForeignCall { symbol, sig } => self.lower_foreign_call(symbol, sig)?,
+            Op::ForeignCall { declaration, sig } => self.lower_foreign_call(declaration, sig)?,
             Op::ForeignNull(ty) => {
                 let value = self.bcx.ins().iconst(PTR_TY, 0);
                 self.stack.push((value, ty.clone()));

@@ -250,3 +250,15 @@ allocating or executing the body. The compiler supplies the exact frame layout,
 resume callback, and immutable slot metadata. Arguments and generator bodies
 retain their own fallible allocation operations.
 These interfaces are internal compiler/runtime ABIs, not public foreign layouts.
+
+## C-string conversion
+
+Opcode 118 borrows a live text and returns inline `Result[str, CStrError]`. The
+successful internal text includes one appended NUL in its byte/scalar lengths;
+it is used only as a temporary C buffer, never exposed as the user's string.
+Embedded NULs are rejected before allocation. `CStrError.EmbeddedNul` and
+`CStrError.Allocation(AllocError)` allocate nothing. The compiler frees buffers
+after the call and also frees earlier buffers when a later conversion fails.
+The call-scoped UTF-8 adapter instead lends bytes directly at offset 32, with the
+byte length from offset 16. Neither adapter passes a Plenty object header to C.
+Native fixtures verify the calls; raw conversion tests run under Miri.

@@ -38,7 +38,7 @@ impl EnumType {
         self.propagatable()
             || matches!(
                 self.name.as_str(),
-                "AllocError" | "ParseError" | "IoError" | "DataError" | "Failure"
+                "AllocError" | "ParseError" | "IoError" | "DataError" | "Failure" | "CStrError"
             )
     }
     pub fn propagatable(&self) -> bool {
@@ -110,6 +110,17 @@ pub fn data_error() -> Ty {
         fields: vec![],
     };
     ty.variants[1].name = "Allocation".into();
+    Ty::Enum(Rc::new(ty))
+}
+
+/// Conversion failures before a native C-string call. These errors allocate nothing.
+pub fn c_str_error() -> Ty {
+    let Ty::Enum(template) = data_error() else {
+        unreachable!()
+    };
+    let mut ty = (*template).clone();
+    ty.name = "CStrError".into();
+    ty.variants[0].name = "EmbeddedNul".into();
     Ty::Enum(Rc::new(ty))
 }
 
