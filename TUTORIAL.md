@@ -3103,6 +3103,28 @@ report close errors; call `file.close()?` explicitly when those matter.
 
 ## Recoverable class construction
 
+Collect an owned iterator with recoverable list growth:
+
+```plenty
+def numbers() -> Generator[i64]:
+    yield 3
+    yield 6
+
+def collect() -> Result[list[i64], AllocError]:
+    source = numbers.try_new()?
+    list[i64].try_from(source)
+
+def main() -> ():
+    print(collect())
+```
+```output
+Result[list[i64], AllocError].Ok([3, 6])
+```
+
+`try_from` consumes the source. If output allocation fails, it drops the partial
+list and remaining iterator. Earlier iterator side effects are not undone, and
+allocations inside the generator body still follow that body's chosen APIs.
+
 Generators can be returned inside `Result` and extracted with `?`:
 
 ```plenty

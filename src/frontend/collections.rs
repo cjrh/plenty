@@ -1136,6 +1136,23 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if name == "try_from" && matches!(ty, Ty::List(_)) {
+            if args.len() != 1 {
+                return Err(at.error("try_from requires one owned iterable"));
+            }
+            if ty.layout_depth() >= 64 {
+                return Err(at.error("type nesting exceeds the implementation limit of 64"));
+            }
+            let source = self.value(&args[0], ops)?;
+            if !matches!(
+                source,
+                Ty::List(_) | Ty::Set(_) | Ty::Dict(..) | Ty::Range | Ty::Generator(_)
+            ) {
+                return Err(at.error("try_from requires an owned collection, range, or generator"));
+            }
+            self.same(source.element(), ty.element(), at)?;
+            return self.try_collect_on_stack(source, ty, at, ops).map(Some);
+        }
         let arity = match name {
             "try_new" => 0,
             "try_with_capacity" => 1,
@@ -1329,6 +1346,78 @@ impl Lower<'_> {
         ops.push(Op::LoadLocal(result));
         self.cleanup(start, ops);
         Ok(())
+    }
+
+    /// Keep the output Result in a local throughout iteration. Replacing its Ok
+    /// owner with Err releases the partial collection; cleanup releases the
+    /// current element and unconsumed source on either path.
+    fn try_collect_on_stack(
+        &mut self,
+        source: Ty,
+        target_ty: Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        use crate::sum::EnumOp;
+        let start = self.locals.len();
+        let Iteration {
+            condition,
+            mut body,
+            step,
+            target,
+        } = self.iteration_on_stack(source, at, ops)?;
+        let output = crate::sum::result(target_ty.clone(), crate::sum::alloc_error());
+        let Ty::Enum(result_type) = &output else {
+            unreachable!()
+        };
+        let mutation = crate::sum::allocation_result();
+        let Ty::Enum(mutation_type) = &mutation else {
+            unreachable!()
+        };
+        let result = self.slot(output.clone(), at)?;
+        let pending = self.slot(mutation.clone(), at)?;
+        ops.extend([
+            Op::PushInt(Value::I64(0)),
+            Op::Collection(CollectionOp::TryNew(target_ty.clone())),
+            Op::StoreLocal(result),
+            Op::LoadLocal(result),
+            Op::Enum(EnumOp::Tag(result_type.clone())),
+            Op::PushInt(Value::I64(0)),
+            Op::Eq,
+        ]);
+        body.extend([
+            Op::LoadLocal(result),
+            Op::Enum(EnumOp::Field(result_type.clone(), 0, 0)),
+            Op::LoadLocal(target),
+            Op::Collection(CollectionOp::TryInsert(target_ty)),
+            Op::StoreLocal(pending),
+            Op::LoadLocal(pending),
+            Op::Enum(EnumOp::Tag(mutation_type.clone())),
+            Op::PushInt(Value::I64(1)),
+            Op::Eq,
+            branch(
+                vec![
+                    Op::MoveLocal(pending, "collection allocation error".into()),
+                    Op::Enum(EnumOp::Take(mutation_type.clone(), 1, 0)),
+                    Op::Enum(EnumOp::New(result_type.clone(), 1)),
+                    Op::StoreLocal(result),
+                    Op::Break,
+                ],
+                vec![],
+            ),
+            Op::DropLocal(pending),
+        ]);
+        body.extend(step);
+        ops.push(branch(
+            vec![Op::Loop {
+                condition: condition.into(),
+                body: body.into(),
+            }],
+            vec![],
+        ));
+        ops.push(Op::LoadLocal(result));
+        self.cleanup(start, ops);
+        Ok(output)
     }
 }
 

@@ -373,6 +373,13 @@ calls so observable cleanup happens after the callee returns.
 
 ### Collections and iteration
 
+`list[T].try_from(source)` consumes an owned collection, range, or generator and
+returns `Result[list[T], AllocError]`. Output construction and growth are fallible.
+Failure destroys the partial output, current element, and remaining source;
+generator side effects before failure are not rolled back. Source construction
+and allocations performed by a generator body keep their own failure contracts.
+Borrowed sources and string iteration are not accepted by this API yet.
+
 The compiler-known constructors `list[T]`, `set[T]`, and `dict[K, V]` accept
 concrete element types, including nested collections. Dictionary keys and set
 elements are restricted to integers, `bool`, and `str`; there is no user-defined
