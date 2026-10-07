@@ -104,6 +104,7 @@
     - [Requiring methods with a protocol](tutorial/54-requiring-methods-with-a-protocol.md)
     - [Borrowing a field through a getter](tutorial/55-borrowing-a-field-through-a-getter.md)
     - [Where the language goes next](tutorial/56-where-the-language-goes-next.md)
+    - [Call C libraries](tutorial/57-call-c-libraries.md)
 
 # Reference
 
@@ -143,6 +144,7 @@
     - [Bounded stream operations](design/21-bounded-stream-operations.md)
     - [Splitting existing text into lines](design/22-splitting-existing-text-into-lines.md)
     - [Development workflow](design/23-next-milestones.md)
+    - [C interfaces](design/24-c-interfaces.md)
 - [Native runtime](runtime.md)
 
 # Proposals

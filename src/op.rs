@@ -34,6 +34,8 @@ pub enum Ty {
     Unit,
     Str,
     File,
+    /// Nominal opaque C pointer. No dereference or integer conversions.
+    ForeignPtr(Rc<str>),
     Bool,
     List(Rc<Ty>),
     Set(Rc<Ty>),
@@ -179,6 +181,7 @@ impl fmt::Display for Ty {
             Ty::Unit => "()",
             Ty::Str => "str",
             Ty::File => "File",
+            Ty::ForeignPtr(name) => return f.write_str(name),
             Ty::Bool => "bool",
             Ty::List(t) => return write!(f, "list[{t}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),
@@ -322,6 +325,11 @@ pub enum Op {
     DefineFn(String, CompiledFn),
     /// Invoke a user-defined function by name. Non-tail position.
     Call(String),
+    ForeignCall {
+        symbol: String,
+        sig: Rc<FnSig>,
+    },
+    ForeignNull(Ty),
     /// Invoke a user-defined function by name from tail position (§11.8).
     /// Native lowering reuses the caller's frame. Emitted by tail-call marking.
     TailCall(String),
@@ -1252,6 +1260,20 @@ fn step(
         }
         Op::PushStr(_) => stack.push(Ty::Str),
         Op::PushBool(_) => stack.push(Ty::Bool),
+        Op::ForeignNull(ty) => {
+            if !matches!(ty, Ty::ForeignPtr(_)) {
+                return Err("foreign null requires an opaque pointer".into());
+            }
+            stack.push(ty.clone());
+        }
+        Op::ForeignCall { sig, .. } => {
+            for (_, expected) in sig.inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(expected) {
+                    return Err("foreign call argument type mismatch".into());
+                }
+            }
+            stack.extend(sig.outputs.iter().cloned());
+        }
         Op::Add => {
             let (a, b) = pop2(stack, "+")?;
             let out = match (a.clone(), b.clone()) {

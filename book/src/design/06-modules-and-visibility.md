@@ -7,11 +7,12 @@ initializers. There are no globals, implicit transitive imports, relative paths,
 wildcards, or re-exports. A module's imported names are private bindings.
 
 One source root defaults to the entry file's canonical directory and can be set
-with `--module-root DIR`. `a.b` resolves to `<root>/a/b.plenty`; directories are
+with `--module-root DIR`. `a.b` resolves to `<root>/a/b.plenty` or the trusted
+interface `<root>/a/b.plentyi`; having both is an ambiguity error. Directories are
 namespaces, without `__init__` execution. File/directory name collisions are
 errors. Canonical paths deduplicate imports and cannot escape the selected root.
 Imported canonical filenames and directories must have identifier components
-and a `.plenty` extension. Cycles report the actual file dependency chain. The
+and a `.plenty` or `.plentyi` extension. Cycles report the actual file dependency chain. The
 initial implementation caps graph depth at 128 and loaded modules at 4096.
 
 `pub` exposes top-level functions, aliases, classes, and enums. Private names

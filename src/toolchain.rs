@@ -80,33 +80,6 @@ impl Default for CompileOptions {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rejects_runtime_mismatch_and_unsupported_layouts() {
-        let native = "x86_64-unknown-linux-gnu";
-        assert!(validate_target_pair(native, native).is_ok());
-        assert!(validate_target_pair(native, "aarch64-unknown-linux-gnu")
-            .unwrap_err()
-            .to_string()
-            .contains("does not match"));
-        for target in [
-            "i686-unknown-linux-gnu",
-            "aarch64-unknown-linux-gnu",
-            "x86_64-pc-windows-msvc",
-            "not-a-target",
-            "x86_64-unknown-linux-musl",
-        ] {
-            assert!(validate_target_pair(target, target)
-                .unwrap_err()
-                .to_string()
-                .contains("unsupported native target"));
-        }
-    }
-}
-
 pub(crate) fn link(
     object: &Path,
     runtime: &Path,
@@ -139,4 +112,31 @@ pub(crate) fn link(
         .into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_runtime_mismatch_and_unsupported_layouts() {
+        let native = "x86_64-unknown-linux-gnu";
+        assert!(validate_target_pair(native, native).is_ok());
+        assert!(validate_target_pair(native, "aarch64-unknown-linux-gnu")
+            .unwrap_err()
+            .to_string()
+            .contains("does not match"));
+        for target in [
+            "i686-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-pc-windows-msvc",
+            "not-a-target",
+            "x86_64-unknown-linux-musl",
+        ] {
+            assert!(validate_target_pair(target, target)
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported native target"));
+        }
+    }
 }

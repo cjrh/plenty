@@ -128,7 +128,34 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
     while parser.peek().kind != Kind::Eof {
         let public = parser.eat("pub");
         let at = parser.peek().clone();
-        let name = if parser.peek().is("def") {
+        let name = if parser.peek().is("extern") || parser.peek().is("opaque") {
+            if !path.is_some_and(|p| p.extension().is_some_and(|e| e == "plentyi")) {
+                return Err(at.error("C declarations require a trusted .plentyi interface module"));
+            }
+            if parser.eat("extern") {
+                parser.expect("def")?;
+                parser.pos -= 1;
+                let f = parser.function_header(None, true)?;
+                let name = f.name.clone();
+                module.functions.push(f);
+                name
+            } else {
+                parser.expect("opaque")?;
+                let name = parser.name()?;
+                parser.kind(Kind::Newline, "the end of the opaque pointer declaration")?;
+                module.declarations.push(TypeAlias {
+                    at: at.clone(),
+                    name: name.clone(),
+                    target: TypeRef {
+                        at: at.clone(),
+                        name: None,
+                        args: vec![],
+                        concrete: Some(Ty::ForeignPtr(qualified(&module.name, &name).into())),
+                    },
+                });
+                name
+            }
+        } else if parser.peek().is("def") {
             let f = parser.function()?;
             let name = f.name.clone();
             module.functions.push(f);
@@ -282,9 +309,12 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
             for (i, part) in parts.iter().enumerate() {
                 path.push(part);
                 let file = path.with_extension("plenty");
-                if path.is_dir() && file.exists() {
+                let interface = path.with_extension("plentyi");
+                if (path.is_dir() && (file.exists() || interface.exists()))
+                    || (file.exists() && interface.exists())
+                {
                     return Err(import.at.error(format!(
-                        "ambiguous module `{}`: both {} and {} exist",
+                        "ambiguous module `{}`: conflicting namespace or .plenty/.plentyi files at {} and {}",
                         import.module,
                         path.display(),
                         file.display()
@@ -297,7 +327,11 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     )));
                 }
             }
-            let file = path.with_extension("plenty");
+            let file = if path.with_extension("plentyi").exists() {
+                path.with_extension("plentyi")
+            } else {
+                path.with_extension("plenty")
+            };
             let canonical = file.canonicalize().map_err(|e| {
                 import.at.error(format!(
                     "loading `{}` at {}: {e}",
@@ -310,7 +344,9 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
             }
             let relative = canonical.strip_prefix(&self.root).unwrap();
             let stem = relative.with_extension("");
-            if relative.extension().is_none_or(|e| e != "plenty")
+            if relative
+                .extension()
+                .is_none_or(|e| e != "plenty" && e != "plentyi")
                 || !stem.components().all(|component| {
                     let name = component.as_os_str().to_string_lossy();
                     let mut chars = name.chars();
@@ -321,7 +357,7 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                 })
             {
                 return Err(import.at.error(
-                    "canonical imported paths must be .plenty files with identifier components",
+                    "canonical imported paths must be .plenty files or .plentyi interfaces with identifier components",
                 ));
             }
             Ok(canonical)
@@ -366,6 +402,9 @@ impl Scope {
             .any(|p| p.split('.').next() == Some(name))
     }
     fn ty(&self, ty: &mut TypeRef) -> Result<()> {
+        if ty.concrete.is_some() {
+            return Ok(());
+        }
         for arg in &mut ty.args {
             self.ty(arg)?;
         }
@@ -731,6 +770,15 @@ fn resolve(
             }
         }
         for a in &mut m.declarations {
+            if let Some(Ty::ForeignPtr(name)) = &a.target.concrete {
+                result.access.types.insert(
+                    name.to_string(),
+                    Access {
+                        owner: a.at.source.clone(),
+                        public: m.exports.contains(&a.name),
+                    },
+                );
+            }
             scope.ty(&mut a.target)?;
             if m.exports.contains(&a.name) {
                 result.public_api.push(a.target.clone());
@@ -838,8 +886,9 @@ pub(super) fn check_member(
 pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &AccessMap) -> Result<()> {
     fn visible(ty: &Ty, at: &Token, access: &AccessMap) -> Result<()> {
         let nominal = match ty {
-            Ty::Class(c) => Some(&c.name),
-            Ty::Enum(e) => Some(&e.name),
+            Ty::Class(c) => Some(c.name.as_str()),
+            Ty::Enum(e) => Some(e.name.as_str()),
+            Ty::ForeignPtr(name) => Some(name.as_ref()),
             _ => None,
         };
         if let Some(name) = nominal {

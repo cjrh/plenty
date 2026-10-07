@@ -63,6 +63,7 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use crate::lexer;
 mod collections;
 mod enums;
+mod foreign;
 mod generators;
 mod inline;
 mod metadata;
@@ -885,6 +886,7 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::F64 => types::F64,
         Ty::Str
         | Ty::File
+        | Ty::ForeignPtr(_)
         | Ty::List(_)
         | Ty::Set(_)
         | Ty::Dict(_, _)
@@ -1247,6 +1249,11 @@ impl Lowerer<'_, '_> {
                 self.write_local(*i, value);
             }
             Op::Call(name) => self.lower_call(name)?,
+            Op::ForeignCall { symbol, sig } => self.lower_foreign_call(symbol, sig)?,
+            Op::ForeignNull(ty) => {
+                let value = self.bcx.ins().iconst(PTR_TY, 0);
+                self.stack.push((value, ty.clone()));
+            }
             Op::TailCall(name) => self.lower_tail_call(name)?,
             Op::Break | Op::Continue => {
                 let &(header, exit) = self

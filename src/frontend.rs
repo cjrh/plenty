@@ -14,6 +14,7 @@ mod collections;
 mod contexts;
 mod enums;
 mod files;
+mod foreign;
 mod generators;
 mod generics;
 mod modules;
@@ -335,6 +336,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
 
 #[derive(Clone)]
 struct Function {
+    foreign: Option<String>,
     name: String,
     type_params: Vec<(String, Option<TypeRef>)>,
     at: Token,
@@ -730,6 +732,9 @@ impl Parser {
         self.function_in(None)
     }
     fn function_in(&mut self, class: Option<&str>) -> Result<Function> {
+        self.function_header(class, false)
+    }
+    fn function_header(&mut self, class: Option<&str>, foreign: bool) -> Result<Function> {
         let at = self.take(); // def
         let name = self.name()?;
         if class.is_none() && builtin(&name) {
@@ -800,6 +805,28 @@ impl Parser {
         }
         self.expect("->")?;
         let output = self.ty()?;
+        if foreign {
+            if !type_params.is_empty() {
+                return Err(at.error("C imports cannot be generic"));
+            }
+            self.expect("=")?;
+            let symbol = self.take();
+            let Kind::Text(ref symbol_name) = symbol.kind else {
+                return Err(symbol.error("expected a C symbol string"));
+            };
+            foreign::check_symbol(symbol_name, &symbol)?;
+            self.kind(Kind::Newline, "the end of the C declaration")?;
+            return Ok(Function {
+                foreign: Some(symbol_name.clone()),
+                type_params,
+                name,
+                at,
+                inputs,
+                output,
+                doc: String::new(),
+                body: vec![],
+            });
+        }
         let mut body = self.suite()?;
         let doc = if matches!(
             body.first(),
@@ -827,6 +854,7 @@ impl Parser {
             String::new()
         };
         Ok(Function {
+            foreign: None,
             type_params,
             name,
             at,
@@ -1264,6 +1292,8 @@ fn reserved(name: &str) -> bool {
     matches!(
         name,
         "def"
+            | "extern"
+            | "opaque"
             | "try"
             | "with"
             | "type"
@@ -2408,6 +2438,9 @@ fn register_signature(
         inputs.push((name.clone(), resolved));
     }
     let mut output = f.output.resolve(aliases)?;
+    if f.foreign.is_some() {
+        foreign::check_signature(f, &inputs, &output)?;
+    }
     if let Some(Ty::Ref(_, mutable)) = &output {
         let references: Vec<_> = inputs
             .iter()
@@ -2457,6 +2490,35 @@ fn lower_function(
         return Err(f.at.error("recursive generator factory requires a concrete return type; recursive inline frames are not supported"));
     }
     let mut sig = Rc::clone(&sigs[&f.name]);
+    if let Some(symbol) = &f.foreign {
+        let mut body: Vec<_> = (0..sig.inputs.len())
+            .map(|i| Op::LoadLocal(i as u8))
+            .collect();
+        body.push(Op::ForeignCall {
+            symbol: symbol.clone(),
+            sig: sig.clone(),
+        });
+        body.push(Op::Return);
+        let locals = sig
+            .inputs
+            .iter()
+            .map(|(_, t)| t.clone())
+            .collect::<Vec<_>>();
+        generics.active.remove(&f.name);
+        generics.completed.insert(f.name.clone());
+        generics.compiled.push(Op::DefineFn(
+            f.name,
+            CompiledFn {
+                location: None,
+                generator: None,
+                sig,
+                doc: "".into(),
+                body: body.into(),
+                locals: locals.into(),
+            },
+        ));
+        return Ok(());
+    }
     let yield_type = if generators::yields(&f.body) {
         let Some(Ty::Generator(element)) = sig.outputs.first() else {
             return Err(f
@@ -2598,6 +2660,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     for f in &generics.pending {
         register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;
     }
+    foreign::check_symbols(generics.pending.iter(), &sigs)?;
     let returns_status = if require_main {
         let entry = generics
             .pending

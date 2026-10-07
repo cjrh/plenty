@@ -14,7 +14,6 @@ stages describe technical dependencies, not a second priority list.
 
 | ID | Work | Scope and completion evidence |
 | --- | --- | --- |
-| B04 | Initial C imports | Add trusted interface declarations for C scalars and opaque pointers, with explicit link configuration and native C-fixture tests. Keep source visibility, C linkage, and private Plenty layouts separate. See the [FFI design](proposals/ffi-and-dynamic-libraries.md). |
 | B05 | Ownership-aware C adapters | Add opaque owned handles with matching destruction, call-scoped buffers, explicit string adapters, nullability, and transfer/error contracts. Test success, failure, partial initialization, and cleanup against C fixtures. Depends on B04. |
 
 ## Later candidates
@@ -52,6 +51,7 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
+| B04: Initial C imports | Trusted `.plentyi` declarations support sized C scalars and nominal opaque pointers. Native C fixtures cover static/shared linking and actual ABI calls; visibility and Plenty layouts remain separate. See [C interfaces](design/24-c-interfaces.md). |
 | B03: Target compatibility | Native compilation validates the supported x86_64 Linux GNU target, packaged runtime triple, and ISA pointer width. Explicit target selection rejects incompatible layouts before source loading/emission; runtime extraction includes target metadata. See [runtime packaging](design/09-rust-runtime-packaging.md). |
 | B02: Object-file output | CLI/API application object emission and matching runtime extraction work without a linker on PATH. External-driver tests link and run single-file and imported programs. See [execution commands](design/07-execution-commands.md). |
 | B01: Linker selection | CLI `--linker` / `--link-arg` and Rust `CompileOptions` select a cc-compatible driver without shell parsing. Native and mock-driver tests cover argument fidelity, failure diagnostics, and temporary cleanup. See [execution commands](design/07-execution-commands.md). |

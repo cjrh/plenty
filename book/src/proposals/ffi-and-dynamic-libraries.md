@@ -5,8 +5,10 @@
 > are historical. See the [implementation status](../design/04-implementation-status.md)
 > and [reference](../design/index.md) for current behavior.
 
-Status: researched proposal, 2026-10-05. Nothing in this document is implemented
-language syntax. The code blocks are sketches, not runnable Plenty examples.
+Status: researched proposal, 2026-10-05. Scalar/opaque-pointer C imports and
+explicit static/shared linking are now implemented; see the
+[C interface reference](../design/24-c-interfaces.md). The code blocks below
+remain historical sketches, not runnable Plenty syntax.
 
 Plenty should support ordinary C libraries without making every application
 author become an FFI expert. A binding author supplies an explicit, trusted

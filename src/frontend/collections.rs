@@ -1056,6 +1056,15 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if name == "null" {
+            if let Some(ty @ Ty::ForeignPtr(_)) = self.qualified_type(base)? {
+                if !args.is_empty() {
+                    return Err(base.at.error("null takes no arguments"));
+                }
+                ops.push(Op::ForeignNull(ty.clone()));
+                return Ok(Some(ty));
+            }
+        }
         if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) {
             return self.unwrap_result(base, args, None, ops);
         }
@@ -1215,6 +1224,15 @@ impl Lower<'_> {
             return self.set_filter_mutation(base, name, args, ops);
         }
         let (ty, loans) = self.observe(base, ops)?;
+        if name == "is_null" && matches!(ty, Ty::ForeignPtr(_)) {
+            if !args.is_empty() {
+                return Err(base.at.error("is_null takes no arguments"));
+            }
+            ops.push(Op::ForeignNull(ty));
+            ops.push(Op::Eq);
+            Self::end_reads(loans, ops);
+            return Ok(Some(Ty::Bool));
+        }
         if let Ty::Class(class) = &ty {
             if self
                 .sigs

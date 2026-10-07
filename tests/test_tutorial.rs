@@ -124,7 +124,9 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
                     && path
                         .components()
                         .all(|c| matches!(c, std::path::Component::Normal(_)))
-                    && path.extension().is_some_and(|e| e == "plenty")
+                    && path
+                        .extension()
+                        .is_some_and(|e| e == "plenty" || e == "plentyi")
                     && path != std::path::Path::new("lesson.plenty"),
                 "invalid module path at {}",
                 source.line
