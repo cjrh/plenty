@@ -7,6 +7,9 @@ can also be imported and called by an ordinary Plenty program:
 pub export def add(a: i32, b: i32) -> i32 = "calc_add":
     "Add two checked integers."
     a + b
+
+pub export def increment(value: &mut i32) -> () = "calc_increment":
+    *value = *value + 1
 ```
 
 ```plenty
@@ -14,10 +17,14 @@ import calc
 
 def main() -> Result[(), Failure]:
     print(calc.add(20, 22))?
+    mut value = 10i32
+    calc.increment(&mut value)
+    print(value)?
     Ok(())
 ```
 ```output
 42
+11
 ```
 
 `pub` makes the function accessible through source imports. `export` independently
@@ -38,7 +45,12 @@ inside the library. Ordinary C consumers include `calc.h` and link the library.
 For a static archive, use `--static-library` instead. Pass the native arguments
 listed in `calc.link-args.txt` after the archive when linking a C program.
 
-Exports currently support numeric scalars and unit returns. Read the generated
+For C callers, `increment` takes an `int32_t *`. The generated comments explain
+that it must point to an initialized value and be borrowed exclusively for the
+call; the final value is written back before returning. Plenty callers get the
+same borrowing rules automatically from the generated interface.
+
+Exports currently support numeric scalars, scalar borrows, and unit returns. Read the generated
 header's requirements even for simple APIs: runtime traps can terminate the
 process, and current libraries require serialized calls on one caller thread.
 Managed objects and ownership-transferring exports need further adapters. See the

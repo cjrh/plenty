@@ -14,15 +14,24 @@ pub(crate) fn check_signature(
     inputs: &[(String, Ty)],
     output: &Option<Ty>,
 ) -> Result<(), &'static str> {
-    if inputs.iter().any(|(_, ty)| !ty.is_numeric())
+    if inputs
+        .iter()
+        .any(|(_, ty)| !ty.is_numeric() && !matches!(ty, Ty::Ref(inner, _) if inner.is_numeric()))
         || output.as_ref().is_some_and(|ty| !ty.is_numeric())
     {
-        return Err("C exports currently require numeric scalar parameters and a numeric scalar or () return");
+        return Err("C exports currently require numeric scalar parameters or scalar borrows, and a numeric scalar or () return");
     }
     Ok(())
 }
 
-pub(crate) fn c_type(ty: &Ty) -> &'static str {
+pub(crate) fn c_type(ty: &Ty) -> String {
+    if let Ty::Ref(inner, mutable) = ty {
+        return format!(
+            "{}{} *",
+            if *mutable { "" } else { "const " },
+            c_type(inner)
+        );
+    }
     match ty {
         Ty::I8 => "int8_t",
         Ty::I16 => "int16_t",
@@ -36,6 +45,7 @@ pub(crate) fn c_type(ty: &Ty) -> &'static str {
         Ty::F64 => "double",
         _ => unreachable!("checked C export type"),
     }
+    .into()
 }
 
 /// The namespace is also an importable Plenty module name and a C identifier.
@@ -44,6 +54,7 @@ pub(crate) fn check_library_name(name: &str) -> Result<(), Box<dyn std::error::E
         || !name.as_bytes()[0].is_ascii_alphabetic()
         || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
         || crate::frontend::builtin(name)
+        || crate::frontend::reserved(name)
     {
         return Err(
             "library name must be a non-builtin ASCII identifier beginning with a letter".into(),
@@ -79,7 +90,17 @@ impl Interface {
         for export in exports {
             header.push_str("\n/* Plenty declaration: ");
             header.push_str(&export.name);
-            header.push_str(".\n * Guarantees: scalar arguments and results are copied by value;\n * no ownership crosses this interface.\n");
+            header.push_str(".\n * Guarantees: scalar values are copied; no ownership crosses this interface.\n * Borrowed storage is never retained after this call.\n");
+            for (i, (_, ty)) in export.signature.inputs.iter().enumerate() {
+                if let Ty::Ref(inner, mutable) = ty {
+                    header.push_str(&format!(" * Requires p{i}: non-null, aligned, initialized {} storage, valid\n * for this whole call (one element, sizeof({}) bytes).\n", c_type(inner), c_type(inner)));
+                    if *mutable {
+                        header.push_str(&format!(" * p{i} is borrowed exclusively: storage must be readable and writable,\n * must not overlap any other borrowed argument, and no other alias may\n * access it during the call (including concurrent or reentrant access).\n * On every normal return, the final value is written back to p{i}.\n"));
+                    } else {
+                        header.push_str(&format!(" * p{i} is borrowed read-only: storage must be readable and must not\n * be mutated through any alias during the call. Shared reads may alias.\n * This call leaves p{i}'s storage unchanged.\n"));
+                    }
+                }
+            }
             if !export.documentation.is_empty() {
                 header
                     .push_str(" * Author documentation (additional to the generated contract):\n");
@@ -99,7 +120,7 @@ impl Interface {
                 .outputs
                 .first()
                 .map(c_type)
-                .unwrap_or("void");
+                .unwrap_or_else(|| "void".into());
             let parameters: Vec<_> = export
                 .signature
                 .inputs

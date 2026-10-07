@@ -1326,7 +1326,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "drop"
         )
 }
-fn reserved(name: &str) -> bool {
+pub(crate) fn reserved(name: &str) -> bool {
     matches!(
         name,
         "def"

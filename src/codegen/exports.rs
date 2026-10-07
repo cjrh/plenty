@@ -28,10 +28,55 @@ pub(super) fn emit(
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
         b.seal_block(block);
-        let arguments = b.block_params(block).to_vec();
+        let mut arguments = b.block_params(block).to_vec();
+        let mut writebacks = Vec::new();
+        for (argument, (_, ty)) in arguments.iter_mut().zip(&export.signature.inputs) {
+            if let Ty::Ref(inner, mutable) = ty {
+                // C promises one exact-sized initialized scalar, never a Plenty
+                // 16-byte slot. Marshal through a private, aligned stack slot.
+                let scalar_type = clif_type(inner.as_ref().clone());
+                let value = b.ins().load(
+                    scalar_type,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    *argument,
+                    0,
+                );
+                let slot = b.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    16,
+                    4,
+                ));
+                let temporary = b.ins().stack_addr(PTR_TY, slot, 0);
+                let packed = enums::pack_value(&mut b, value, inner);
+                b.ins().store(
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    packed,
+                    temporary,
+                    0,
+                );
+                if *mutable {
+                    writebacks.push((*argument, temporary, scalar_type));
+                }
+                *argument = temporary;
+            }
+        }
         let callee = module.declare_func_in_func(functions[&export.function].id, b.func);
         let call = b.ins().call(callee, &arguments);
         let results = b.inst_results(call).to_vec();
+        for (destination, temporary, scalar_type) in writebacks {
+            let value = b.ins().load(
+                scalar_type,
+                cranelift_codegen::ir::MemFlags::new(),
+                temporary,
+                0,
+            );
+            b.ins().store(
+                cranelift_codegen::ir::MemFlags::new(),
+                value,
+                destination,
+                0,
+            );
+        }
         b.ins().return_(&results);
         b.finalize();
         module.define_function(id, &mut ctx)?;

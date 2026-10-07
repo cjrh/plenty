@@ -131,11 +131,123 @@ int main(void) {
         .unwrap();
         let executable = root.join("plenty-caller");
         let options = plenty::CompileOptions {
-            link_args: vec![library.into_os_string()],
+            link_args: vec![library.into_os_string(), "-Wl,--gc-sections".into()],
             ..Default::default()
         };
         plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
+        if kind == LibraryKind::Static {
+            // This caller never invokes discovery. The retained section still
+            // survives archive extraction and native section garbage collection.
+            assert!(std::fs::read(&executable)
+                .unwrap()
+                .windows(interface.len())
+                .any(|w| w == interface));
+        }
         assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+    }
+}
+
+const BORROWS: &str = r#"
+export def update(a: &mut i8, b: &mut u8, c: &mut i16, d: &mut u16, e: &mut i32, f: &mut u32, g: &mut i64, h: &mut u64, x: &mut f32, y: &mut f64) -> () = "calc_update":
+    *a = -12
+    *b = 254
+    *c = -30000
+    *d = 60000
+    *e = -2000000000
+    *f = 4000000000
+    *g = -9000000000
+    *h = 18000000000
+    *x = *x * 2.0
+    *y = *y / 2.0
+export def shared(a: &i8, b: &i8) -> i8 = "calc_shared":
+    *a + *b
+export def increment(a: &mut i8) -> i8 = "calc_increment":
+    *a = *a + 1
+    *a
+"#;
+
+#[test]
+fn scalar_borrows_use_exact_c_storage_and_preserve_contracts() {
+    for kind in [LibraryKind::Static, LibraryKind::Shared] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (library, artifacts) = build(root, BORROWS, kind);
+        let header = std::fs::read_to_string(&artifacts.header).unwrap();
+        for contract in [
+            "non-null, aligned, initialized",
+            "borrowed exclusively",
+            "must not overlap",
+            "borrowed read-only",
+            "never retained",
+            "final value is written back",
+        ] {
+            assert!(header.contains(contract), "missing {contract}");
+        }
+        assert!(header.contains("const int8_t * p0"));
+        let c = root.join("borrow.c");
+        std::fs::write(&c, r#"
+#include "calc.h"
+#include <assert.h>
+#include <sys/mman.h>
+#include <unistd.h>
+/* Put each argument against a guard page to catch even read-only overreads. */
+static void *scalar(size_t size) {
+    long page = sysconf(_SC_PAGESIZE);
+    assert(page > 0);
+    void *base = mmap(0, (size_t)page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(base != MAP_FAILED);
+    assert(mprotect((char *)base + page, (size_t)page, PROT_NONE) == 0);
+    return (char *)base + page - size;
+}
+int main(void) {
+    int8_t *a = scalar(sizeof(*a)); *a = -3;
+    uint8_t *b = scalar(sizeof(*b)); *b = 3;
+    int16_t *c = scalar(sizeof(*c)); *c = -3;
+    uint16_t *d = scalar(sizeof(*d)); *d = 3;
+    int32_t *e = scalar(sizeof(*e)); *e = -3;
+    uint32_t *f = scalar(sizeof(*f)); *f = 3;
+    int64_t *g = scalar(sizeof(*g)); *g = -3;
+    uint64_t *h = scalar(sizeof(*h)); *h = 3;
+    float *x = scalar(sizeof(*x)); *x = 1.25f;
+    double *y = scalar(sizeof(*y)); *y = 7.0;
+    assert(calc_shared(a, a) == -6);
+    assert(*a == -3);
+    assert(calc_increment(a) == -2 && *a == -2);
+    calc_update(a, b, c, d, e, f, g, h, x, y);
+    assert(*a == -12 && *b == 254 && *c == -30000 && *d == 60000);
+    assert(*e == -2000000000 && *f == UINT32_C(4000000000));
+    assert(*g == -INT64_C(9000000000) && *h == UINT64_C(18000000000));
+    assert(*x == 2.5f && *y == 3.5);
+    return 0;
+}
+"#).unwrap();
+        let args = std::fs::read_to_string(artifacts.link_args).unwrap();
+        let app = root.join("borrow");
+        success(
+            Command::new("cc")
+                .args(["-Wall", "-Wextra", "-Werror"])
+                .arg(&c)
+                .arg(&library)
+                .args(args.lines())
+                .arg("-o")
+                .arg(&app)
+                .output()
+                .unwrap(),
+        );
+        success(Command::new(app).output().unwrap());
+        let source = root.join("main.plenty");
+        std::fs::write(&source, "import calc\ndef main() -> i32:\n    mut value = 40i8\n    calc.increment(&mut value)\n    i32(calc.increment(&mut value))\n").unwrap();
+        let executable = root.join("plenty-borrows");
+        let options = plenty::CompileOptions {
+            link_args: vec![library.into_os_string()],
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&source, &executable, None, &options)
+            .unwrap();
+        assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+        std::fs::write(&source, "import calc\ndef main() -> ():\n    mut value = 40i8\n    loan = &value\n    calc.increment(&mut value)\n    calc.shared(loan, loan)\n    pass\n").unwrap();
+        let error = plenty::check_file(&source, None).unwrap_err().to_string();
+        assert!(error.contains("borrow"), "{error}");
     }
 }
 

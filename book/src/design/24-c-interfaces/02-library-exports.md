@@ -10,9 +10,10 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
     a + b
 ```
 
-The initial subset accepts numeric scalar parameters and numeric scalar or unit
-returns. Booleans, managed objects, references, raw pointers, generic exports,
-and aggregate results are rejected. The body can use ordinary language features
+The initial subset accepts numeric scalar parameters, `&T` / `&mut T` borrows of
+numeric scalars, and numeric scalar or unit returns. Booleans, managed objects,
+returned references, raw pointers, generic exports, and aggregate results are
+rejected. The body can use ordinary language features
 internally. No native Plenty object layout becomes part of the C ABI.
 
 ```sh
@@ -67,6 +68,20 @@ including serialized calls on one caller thread and no unwinding or nonlocal
 jumps through Plenty frames. Traps and explicitly unwrapped failures can terminate
 the process; C entry adapters do not invent recoverable errors. Function docstrings
 appear separately as author documentation, escaped so they cannot alter C syntax.
+
+Scalar references become exact-sized C pointers: `&i32` becomes `const int32_t *`,
+and `&mut i32` becomes `int32_t *`. They must point to one aligned, initialized,
+non-null scalar for the whole call. Shared borrows permit shared reads but exclude
+mutation through every alias. Mutable borrows require exclusive access and cannot
+overlap any other borrowed argument. These requirements include concurrent and
+reentrant access. The callee retains no borrowed storage after returning.
+
+Adapters copy input scalars into private stack slots and write mutable values back
+on every normal return. They read and write exactly the C type's size; C callers
+never need to allocate a Plenty value slot. No heap allocation is needed for this
+adaptation. A runtime trap does not return, and does not promise copy-back or
+rollback. The generated `.plentyi` signatures preserve these loans for Plenty
+callers, where the ordinary borrow checker enforces them.
 
 The exact UTF-8 `.plentyi` bytes, including format version and target comments,
 are embedded in a retained `.plenty.interface.calc` section. They survive supported

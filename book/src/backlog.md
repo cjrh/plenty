@@ -13,9 +13,9 @@ stages describe technical dependencies, not a second priority list.
 ## Next batch
 
 The toolchain and C-import batch (B01–B05) is complete. B06 is active: numeric
-exports, static/shared packaging, and generated/embedded `.plentyi` contracts are
-implemented. Complete scalar borrowing next, then add owned handle exports and
-matching destruction/error adapters. Acceptance includes actual C/C++ and Plenty
+exports, scalar borrowing, static/shared packaging, and generated/embedded `.plentyi`
+contracts are implemented. Next add owned handle exports and matching
+destruction/error adapters. Acceptance includes actual C/C++ and Plenty
 callers, contract comments, metadata retention, and failure-path cleanup.
 
 ## Later candidates
