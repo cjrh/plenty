@@ -106,7 +106,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
 | Recoverable text operations | `str.try_concat(other)`, `str.try_join(parts)`, `str.try_slice(start, stop)`, and `str.try_replace(old, new)` return `Result[str, AllocError]`; `str.try_split(separator)` and `str.try_splitlines(keepends=False)` return `Result[list[str], AllocError]` |
 | Checked text lookup | `str.try_get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
-| Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
+| Custom allocators and allocator provenance | Object allocations retain internal allocator identity; container buffers still use the global allocator. Public allocator selection and allocator lifetimes remain future work |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
 | Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
 | Async/await | Out of scope |
@@ -213,6 +213,14 @@ floats use the same shortest round-trip representation as `print` (including
 format specifications remain deferred.
 
 ### Allocation policy
+
+Runtime object allocations carry a private allocation prefix identifying their
+allocator. The generated-code-visible Header and payload offsets are unchanged;
+freeing uses the stored allocator, never a mutable global choice. The initial
+internal allocator interface requires process-lifetime callback tables. Ordinary
+objects currently select the global allocator, and Vec-backed container buffers
+still use it directly. This is provenance groundwork, not a public custom-memory
+manager API or support for scoped allocator lifetimes.
 
 `str.try_repr(value)` borrows any printable value and returns
 `Result[str, AllocError]`, including escaped strings and structural aggregates.
