@@ -150,3 +150,57 @@ fn rejects_malformed_ambiguous_and_oversized_metadata() {
         .to_string()
         .contains("thin"));
 }
+
+#[test]
+fn fingerprints_are_deterministic_and_stale_interfaces_fail_to_link() {
+    for kind in [LibraryKind::Static, LibraryKind::Shared] {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source.plenty");
+        let library = temp.path().join("library");
+        let options = LibraryOptions::new("calc", kind);
+        let build = |text: &str| {
+            std::fs::write(&source, text).unwrap();
+            plenty::compile_file_to_library(&source, &library, None, &options).unwrap();
+            plenty::read_library_interfaces(&library).unwrap().remove(0)
+        };
+        let original =
+            build("export def answer(value: i32) -> i32 = \"calc_answer\":\n    value + 1\n");
+        let changed_body = build("export def answer(renamed: i32) -> i32 = \"calc_answer\":\n    \"New author documentation.\"\n    renamed + 2\n");
+        assert_eq!(original.fingerprint, changed_body.fingerprint);
+        assert_eq!(original.fingerprint.as_ref().unwrap().len(), 64);
+        let changed_type =
+            build("export def answer(value: i64) -> i64 = \"calc_answer\":\n    value + 1\n");
+        assert_ne!(original.fingerprint, changed_type.fingerprint);
+        std::fs::write(temp.path().join("calc.plentyi"), original.source).unwrap();
+        let app = temp.path().join("main.plenty");
+        std::fs::write(
+            &app,
+            "import calc\ndef main() -> i32:\n    calc.answer(40)\n",
+        )
+        .unwrap();
+        let compile = plenty::CompileOptions {
+            link_args: vec![library.into_os_string()],
+            ..Default::default()
+        };
+        let error = plenty::compile_file_to_executable_with_options(
+            &app,
+            &temp.path().join("caller"),
+            None,
+            &compile,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("calc_plenty_contract_v1_"), "{error}");
+        let tampered = changed_type.source.replace("p0: i64", "p0: i32");
+        let object_path = temp.path().join("tampered.o");
+        std::fs::write(
+            &object_path,
+            object(&[(".plenty.interface.calc", tampered.as_bytes())]),
+        )
+        .unwrap();
+        let error = plenty::read_library_interfaces(&object_path)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("fingerprint mismatch"), "{error}");
+    }
+}

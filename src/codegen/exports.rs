@@ -157,11 +157,28 @@ pub(super) fn emit(
         module.define_function(id, &mut ctx)?;
     }
     if let Some(interface) = interface {
+        emit_guard(&interface.contract_guard, module)?;
         for handle in &interface.handles {
             emit_destroy(handle, runtime, module)?;
         }
         emit_interface(interface, module)?;
     }
+    Ok(())
+}
+
+fn emit_guard(symbol: &str, module: &mut ObjectModule) -> Result<()> {
+    let signature = module.make_signature();
+    let id = module.declare_function(symbol, Linkage::Export, &signature)?;
+    let mut ctx = Context::new();
+    ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+    let mut fc = FunctionBuilderContext::new();
+    let mut b = FunctionBuilder::new(&mut ctx.func, &mut fc);
+    let block = b.create_block();
+    b.switch_to_block(block);
+    b.seal_block(block);
+    b.ins().return_(&[]);
+    b.finalize();
+    module.define_function(id, &mut ctx)?;
     Ok(())
 }
 

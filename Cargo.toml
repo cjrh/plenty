@@ -29,3 +29,4 @@ cranelift-native = "0.131"
 target-lexicon = "0.13"
 tempfile = "3.27.0"
 object = { version = "0.39.1", default-features = false, features = ["read_core", "elf", "archive", "std"] }
+sha2 = { version = "0.10", default-features = false }

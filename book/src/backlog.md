@@ -16,7 +16,8 @@ The toolchain and C-import batch (B01–B05) is complete. B06 is active: numeric
 exports, scalar borrowing, static/shared packaging, and generated/embedded `.plentyi`
 contracts, Result adapters, and owned factories with matching destruction are
 implemented, including shared/mutable borrows and consuming handle arguments.
-Embedded metadata extraction is implemented; next add compatibility checks.
+Embedded extraction and fingerprint-specific link guards are implemented; next
+add explicit pre-link interface validation and artifact reliability.
 Acceptance includes actual C/C++ and Plenty
 callers, contract comments, metadata retention, and failure-path cleanup.
 

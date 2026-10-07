@@ -105,6 +105,7 @@ pub(crate) struct Interface {
     pub source: String,
     pub header: String,
     pub handles: Vec<Handle>,
+    pub contract_guard: String,
 }
 
 impl Interface {
@@ -117,7 +118,14 @@ impl Interface {
         let prefix = format!("{name}_");
         let handles = handles::collect(name, exports)?;
         for export in exports {
-            if !export.symbol.starts_with(&prefix) || export.symbol == discovery {
+            if export.name.starts_with("_plenty_") {
+                return Err(
+                    "export names beginning `_plenty_` are reserved for generated adapters".into(),
+                );
+            }
+            if !export.symbol.starts_with(&prefix)
+                || export.symbol.starts_with(&format!("{name}_plenty_"))
+            {
                 return Err(format!("C export `{}` must start with `{prefix}` and cannot use reserved discovery symbol `{discovery}`", export.symbol).into());
             }
         }
@@ -249,7 +257,7 @@ impl Interface {
                     );
                 }
                 let (mut raw_parameters, mut args, transfers) = handles::arguments(export);
-                let mut body = String::new();
+                let mut body = String::from("    _plenty_require_contract()\n");
                 let owner = if let Ty::Class(class) = ok {
                     handles.iter().find(|h| h.class.name == class.name)
                 } else {
@@ -304,25 +312,14 @@ impl Interface {
                 ));
             } else {
                 let (raw_parameters, args, transfers) = handles::arguments(export);
-                if raw_parameters == parameters {
-                    source.push_str(&format!(
-                        "pub extern def {}({}) -> {output} = \"{}\"\n",
-                        export.name,
-                        parameters.join(", "),
-                        export.symbol
-                    ));
-                } else {
-                    let raw = format!("_plenty_c_{}", export.name);
-                    if exports.iter().any(|e| e.name == raw) {
-                        return Err(format!(
-                            "export name `{raw}` conflicts with a generated adapter"
-                        )
-                        .into());
-                    }
-                    source.push_str(&format!("extern def {raw}({}) -> {output} = \"{}\"\npub def {}({}) -> {output}:\n{transfers}    {raw}({})\n\n", raw_parameters.join(", "), export.symbol, export.name, parameters.join(", "), args.join(", ")));
-                }
+                let raw = format!("_plenty_c_{}", export.name);
+                source.push_str(&format!("extern def {raw}({}) -> {output} = \"{}\"\npub def {}({}) -> {output}:\n    _plenty_require_contract()\n{transfers}    {raw}({})\n\n", raw_parameters.join(", "), export.symbol, export.name, parameters.join(", "), args.join(", ")));
             }
         }
+        let fingerprint = crate::library_metadata::fingerprint(source.as_bytes());
+        let contract_guard = format!("{name}_plenty_contract_v1_{fingerprint}");
+        source.push_str(&format!("# interface-sha256: {fingerprint}\nextern def _plenty_require_contract() -> () = \"{contract_guard}\"\n"));
+        header.push_str(&format!("\n/* Interface SHA-256: {fingerprint}\n * Optional C compatibility guard: calling this no-op requires the exact\n * generated contract at link/symbol resolution. Does not allocate.\n * A fingerprint checks compatibility, not authenticity or implementation safety.\n */\nvoid {contract_guard}(void);\n"));
         header.push_str(&format!("\n/* Requires: length points to writable, aligned size_t storage (not null).\n * Writes the byte length; returns immutable UTF-8 metadata, without a NUL\n * terminator. Borrowed until library unload; never modify or free it.\n * The call does not allocate or retain length.\n */\nconst uint8_t *{discovery}(size_t *length);\n\n#ifdef __cplusplus\n}}\n#endif\n#endif /* {guard} */\n"));
         Ok(Self {
             name: name.into(),
@@ -330,6 +327,7 @@ impl Interface {
             source,
             header,
             handles,
+            contract_guard,
         })
     }
 }

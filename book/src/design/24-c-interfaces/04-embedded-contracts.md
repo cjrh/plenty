@@ -27,5 +27,24 @@ cannot overwrite the input library.
 
 An extracted interface has the same trust requirements as any `.plentyi` source
 contract. Metadata is not authentication or proof of the implementation's
-behavior. Extraction alone does not check that a subsequent link uses that same
-binary; keep the binary and interface together.
+behavior.
+
+## Compatibility fingerprints
+
+Generated interfaces include a SHA-256 fingerprint of their canonical source
+contract and a no-op C symbol named `NAME_plenty_contract_v1_HASH`. All generated
+Plenty call wrappers reference that symbol before entering the native function.
+A stale interface therefore requires a symbol that an incompatible library does
+not provide: static linking fails, and shared linking or later symbol resolution
+fails. The guard does not allocate. C headers declare the same optional guard.
+
+Signatures, borrowing modes, generated cleanup/adaptation rules, namespace, and
+target affect the fingerprint. Parameter spelling, author documentation, private
+class layout, and function bodies do not. Whole-interface matching is deliberately
+conservative: adding an export also changes the fingerprint. It does not promise
+compatibility between compiler/runtime builds for static runtime composition.
+
+Inspection checks the embedded hash and guard declaration. Older format-1
+interfaces without fingerprints can still be extracted; `LibraryInterface`
+reports `fingerprint: None` for those. A matching hash detects mismatched contracts,
+not malicious libraries or implementation bugs.

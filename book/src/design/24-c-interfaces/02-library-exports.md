@@ -26,7 +26,8 @@ plenty --static-library source.plenty --library-name calc -o build/libcalc.a
 
 Create the output directory first. Library names are non-builtin ASCII identifiers
 beginning with a letter. C symbols must begin with the library name plus `_`;
-`calc_plenty_interface_v1` is reserved for metadata discovery. Duplicate symbols,
+The `calc_plenty_` C namespace and `_plenty_` source names are reserved for
+metadata and compatibility adapters. Duplicate symbols,
 import/export symbol collisions, and duplicate generated interface names fail
 during checking or artifact validation. Imported source modules are included in
 the library; their explicit exports must follow the same namespace convention.
@@ -111,8 +112,8 @@ them. This discovery call allocates nothing.
 
 The source interface is the first metadata format for this subset, not a stable
 general-purpose binary Plenty ABI. [Compile-time extraction](04-embedded-contracts.md)
-is available. Compatibility validation
-against a linked binary, runtime loading, and richer error
-adapters are not implemented. Keep the generated header/interface and binary
+is available, and generated wrappers require a fingerprint-specific compatibility
+symbol. Runtime loading and richer error adapters are not implemented.
+Keep the generated header/interface and binary
 together. The [export design](../../proposals/ffi-export-contracts.md) explains the
 broader direction; the [backlog](../../backlog.md) tracks remaining work.

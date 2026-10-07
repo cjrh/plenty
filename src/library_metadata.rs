@@ -1,5 +1,6 @@
 //! Read embedded source contracts as bounded file data, without loading code.
 use object::{Object, ObjectSection};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::Path;
@@ -10,12 +11,18 @@ const MAX_CONTRACT: usize = 4 * 1024 * 1024;
 const MAX_CONTRACTS: usize = 256;
 const MAX_TOTAL: usize = 16 * 1024 * 1024;
 
+pub(crate) fn fingerprint(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibraryInterface {
     pub name: String,
     pub target: String,
     /// Exact UTF-8 bytes embedded in the binary, including the version header.
     pub source: String,
+    /// Absent on older format-1 interfaces that predate compatibility guards.
+    pub fingerprint: Option<String>,
 }
 
 impl LibraryInterface {
@@ -47,10 +54,27 @@ impl LibraryInterface {
         if lines.next() != Some("# abi: C") {
             return Err("unsupported embedded interface ABI".into());
         }
+        let fingerprint = if let Some((contract, footer)) =
+            source.rsplit_once("# interface-sha256: ")
+        {
+            let mut footer = footer.lines();
+            let hash = footer.next().ok_or("missing interface fingerprint")?;
+            if !contract.ends_with('\n') || hash != fingerprint(contract.as_bytes()) {
+                return Err("embedded interface fingerprint mismatch".into());
+            }
+            let guard = format!("extern def _plenty_require_contract() -> () = \"{name}_plenty_contract_v1_{hash}\"");
+            if footer.next() != Some(guard.as_str()) || footer.next().is_some() {
+                return Err("malformed interface compatibility guard".into());
+            }
+            Some(hash.into())
+        } else {
+            None
+        };
         Ok(Self {
             name: name.into(),
             target: target.into(),
             source: source.into(),
+            fingerprint,
         })
     }
 }
