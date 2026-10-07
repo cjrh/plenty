@@ -29,8 +29,8 @@ pub use codegen::{
     compile_source_to_object,
 };
 pub use library::{
-    compile_file_to_library, runtime_interface_source, LibraryArtifacts, LibraryKind,
-    LibraryOptions,
+    compile_file_to_library, emit_runtime_interface, runtime_interface_source, LibraryArtifacts,
+    LibraryKind, LibraryOptions,
 };
 pub use library_metadata::{
     extract_library_interface, read_library_interfaces, verify_library_interface, LibraryInterface,

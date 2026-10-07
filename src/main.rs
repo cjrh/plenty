@@ -11,6 +11,7 @@ Usage: plenty FILE
        plenty --emit-object FILE -o OUT
        plenty --shared-library FILE --library-name NAME -o OUT
        plenty --static-library FILE --library-name NAME -o OUT
+       plenty --runtime-interface FILE --library-name NAME -o OUT.plentyi
        plenty --extract-interface LIBRARY --library-name NAME -o OUT
        plenty --verify-interface LIBRARY INTERFACE
        plenty --emit-runtime DIR
@@ -25,6 +26,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --compile: emit a native executable with Cranelift.
 --emit-object: emit an application object without linking (requires main).
 --shared-library / --static-library: emit C exports without requiring main.
+--runtime-interface: generate an explicit typed loader from checked export source.
 --library-name NAME: namespace for C exports, header, and generated .plentyi.
 --archiver PATH: ar-compatible archiver for --static-library (default: ar).
 --extract-interface: read embedded .plentyi metadata without executing library code.
@@ -115,8 +117,11 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
         .first()
         .is_some_and(|a| matches!(a.as_str(), "--shared-library" | "--static-library"));
     let extraction = args.first().is_some_and(|a| a == "--extract-interface");
-    if library_name.is_some() && !library && !extraction {
-        return Err("--library-name requires library output or interface extraction".into());
+    let runtime_interface = args.first().is_some_and(|a| a == "--runtime-interface");
+    if library_name.is_some() && !library && !extraction && !runtime_interface {
+        return Err(
+            "--library-name requires library output or interface generation/extraction".into(),
+        );
     }
     if archiver.is_some() && !args.first().is_some_and(|a| a == "--static-library") {
         return Err("--archiver requires --static-library".into());
@@ -134,12 +139,27 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
                         | "--emit-runtime"
                         | "--extract-interface"
                         | "--verify-interface"
+                        | "--runtime-interface"
                 )
             }))
     {
         return Err("linker options require compilation or execution".into());
     }
     match args.as_slice() {
+        [flag, source, option, output]
+            if flag == "--runtime-interface"
+                && !legacy
+                && (option == "-o" || option == "--output") =>
+        {
+            let name =
+                library_name.ok_or("runtime interface generation requires --library-name NAME")?;
+            plenty::emit_runtime_interface(
+                Path::new(source),
+                Path::new(output),
+                root.as_deref(),
+                &name,
+            )?;
+        }
         [flag, binary, interface] if flag == "--verify-interface" && !legacy && root.is_none() => {
             plenty::verify_library_interface(Path::new(binary), Path::new(interface))?;
         }

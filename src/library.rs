@@ -12,13 +12,52 @@ const NATIVE_ARGS: &str = include_str!(concat!(env!("OUT_DIR"), "/library-runtim
 /// Generate a typed runtime-loading module from the same checked export source
 /// used to build a library. Does not emit, link, load, or execute native code.
 pub fn runtime_interface_source(path: &Path, root: Option<&Path>, name: &str) -> Result<String> {
+    Ok(runtime_interface(path, root, name)?.0)
+}
+
+fn runtime_interface(
+    path: &Path,
+    root: Option<&Path>,
+    name: &str,
+) -> Result<(String, Vec<PathBuf>)> {
     crate::validate_target(None)?;
     let mut heap = crate::value::Heap::default();
     let program = crate::frontend::compile_file(path, root, false, &mut heap)?;
     crate::op::check(&program.ops)?;
     let interface = Interface::new(name, &program.exports)?;
     interface.validate_imports(&program.imported_symbols)?;
-    interface.runtime_source(&program.exports)
+    Ok((
+        interface.runtime_source(&program.exports)?,
+        program.source_paths,
+    ))
+}
+
+/// Publish a generated runtime interface without overwriting any loaded source.
+pub fn emit_runtime_interface(
+    path: &Path,
+    output: &Path,
+    root: Option<&Path>,
+    name: &str,
+) -> Result<()> {
+    if output
+        .extension()
+        .is_none_or(|extension| extension != "plentyi")
+    {
+        return Err("runtime interface output must have the .plentyi extension".into());
+    }
+    let (source, paths) = runtime_interface(path, root, name)?;
+    publication::validate(&[output], &paths)?;
+    let directory = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let workspace = tempfile::Builder::new()
+        .prefix(".plenty-build-")
+        .tempdir_in(directory)?;
+    let staged = workspace.path().join("interface");
+    std::fs::write(&staged, source)?;
+    publication::validate(&[output], &paths)?;
+    publication::publish(workspace, &[(staged, output.to_owned())])
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -11,6 +11,9 @@
   uses `--archiver PATH` (default `ar`); shared output uses `--linker`.
 - `plenty --extract-interface LIBRARY --library-name NAME -o OUT` extracts
   embedded source metadata without executing native code.
+- `plenty --runtime-interface FILE --library-name NAME -o OUT.plentyi` generates
+  a [typed runtime loader](24-c-interfaces/06-runtime-loading.md) from checked
+  export source. It uses no native toolchain and does not load the library.
 - `plenty --verify-interface LIBRARY INTERFACE` checks a generated contract
   and its compatibility symbol before linking; see [inspection](24-c-interfaces/04-embedded-contracts.md).
 - `plenty --emit-object FILE -o OUT` emits one native application object,

@@ -23,8 +23,9 @@ fixed ABI-checked declarations now expose those helpers to trusted interfaces.
 Exact discovery-contract validation returns recoverable errors. Generated scalar
 loaders expose a typed Library with cached callable addresses, scalar borrows,
 and Result adapters. Owned factories, automatic destruction, class borrows and
-consuming methods preserve originating-library identity. Command-line generation
-and end-to-end allocation-failure validation remain in progress.
+consuming methods preserve originating-library identity. CLI/API generation
+publishes checked loaders without a native toolchain. End-to-end allocation
+failure validation and the runnable teaching example remain in progress.
 
 ## Later candidates
 

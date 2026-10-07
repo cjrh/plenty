@@ -1,12 +1,28 @@
 # Runtime library loading
 
+Build the library and generate a runtime interface from the same source:
+
+```sh
+plenty --shared-library calc.plenty --library-name calc -o libcalc.so
+plenty --runtime-interface calc.plenty --library-name calc -o plugin.plentyi
+```
+
+Consumers import `plugin`, call `plugin.load(&path)`, and use the resulting
+library's methods. Their build requires no link argument for `libcalc.so`.
+Generation accepts `--module-root`, protects loaded source files, and publishes
+the `.plentyi` through staged replacement. It needs no linker or native compiler.
+The Rust API offers `emit_runtime_interface` with the same publication rules.
+This generated loader is distinct from the linked `calc.plentyi` contract;
+`--extract-interface` and `--verify-interface` still work with that linked
+contract. Runtime generation currently requires the original export source.
+
 `runtime_interface_source(path, root, library_name)` in the compiler's Rust API
 generates a trusted module from the same export source used to build a library.
 Save it as, for example, `plugin.plentyi`. Its public API is `load(path: &str) ->
 Result[Library, LoadError]`, and the returned `Library` has a method for each
 export. Generated methods support numeric scalar inputs/results, shared or
 mutable scalar borrows, unit results, and the scalar/unit Result forms supported
-by C exports. The exact error type and numeric width are preserved. Mutations to
+by C exports, plus owned handles described below. The exact error type and numeric width are preserved. Mutations to
 borrowed inputs remain visible on Err, as with linked calls. Generating the
 source does not run or link native code.
 
