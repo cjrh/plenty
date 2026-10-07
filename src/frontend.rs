@@ -17,6 +17,7 @@ mod files;
 mod generators;
 mod generics;
 mod modules;
+mod protocols;
 mod references;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -1294,6 +1295,7 @@ fn reserved(name: &str) -> bool {
             | "await"
             | "class"
             | "trait"
+            | "protocol"
             | "break"
             | "continue"
             | "import"
@@ -2335,6 +2337,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         declarations,
         enums,
         classes,
+        protocols,
         access,
         public_api,
         at,
@@ -2343,7 +2346,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
     modules::check_api(&public_api, &aliases, &access)?;
     functions.extend(classes::expand(classes, &aliases)?);
-    let functions = generics::expand(functions, &aliases)?;
+    let functions = generics::expand(functions, &aliases, &protocols, &access)?;
     let mut sigs = HashMap::new();
     for f in &functions {
         if f.inputs.len() > 256 {

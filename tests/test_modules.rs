@@ -12,11 +12,54 @@ fn workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 }
 
 #[test]
+fn public_protocol_signatures_cannot_expose_private_requirements() {
+    for source in [
+        "protocol Hidden:\n    def read(self) -> i64:\n        pass\npub def read[T: Hidden](x: &T) -> i64:\n    x.read()\ndef main() -> ():\n    pass\n",
+        "class Hidden:\n    value: i64\npub protocol Reader:\n    def read(self) -> Hidden:\n        pass\ndef main() -> ():\n    pass\n",
+    ] {
+        let dir = workspace(&[("main.plenty", source)]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path())).unwrap_err().to_string();
+        assert!(error.contains("private"), "{error}");
+    }
+}
+
+#[test]
 fn explicit_generics_resolve_imports_aliases_and_definition_scope() {
     run(&[
         ("maths.plenty", "def helper(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def bumped[T: IntType](x: T) -> i64:\n    helper(i64(x))\n"),
         ("main.plenty", "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> ():\n    print(keep[Count](7))\n    print(maths.identity[list[i64]]([1, 2]))\n    print(maths.bumped[u16](4))\n"),
     ], "main.plenty", "7\n[1, 2]\n5\n");
+}
+
+#[test]
+fn protocol_imports_do_not_activate_methods_and_preserve_visibility() {
+    let api = "pub protocol Readable:\n    def read(self) -> i64:\n        pass\npub def read[T: Readable](source: &T) -> i64:\n    source.read()\n";
+    let implementation =
+        "pub class Box:\n    pub value: i64\n    pub def read(self) -> i64:\n        self.value\n";
+    let main = "import api\nfrom data import Box\ndef main() -> ():\n    box = Box(7)\n    print(box.read())\n    print(api.read[Box](&box))\n";
+    run(
+        &[
+            ("api.plenty", api),
+            ("data.plenty", implementation),
+            ("main.plenty", main),
+        ],
+        "main.plenty",
+        "7\n7\n",
+    );
+    let private = implementation.replace("pub def", "def");
+    let private_main = main.replace("    print(box.read())\n", "");
+    let workspace = workspace(&[
+        ("api.plenty", api),
+        ("data.plenty", &private),
+        ("main.plenty", &private_main),
+    ]);
+    let error = plenty::check_file(
+        &workspace.path().join("main.plenty"),
+        Some(workspace.path()),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("private"), "{error}");
 }
 
 fn run(files: &[(&str, &str)], entry: &str, expected: &str) {

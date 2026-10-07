@@ -19,6 +19,7 @@ struct Module {
     declarations: Vec<TypeAlias>,
     enums: Vec<enums::EnumDecl>,
     classes: Vec<classes::ClassDecl>,
+    protocols: Vec<protocols::Protocol>,
     imports: Vec<Import>,
     exports: HashSet<String>,
 }
@@ -32,6 +33,7 @@ pub(super) struct Access {
 pub(super) struct AccessMap {
     members: HashMap<(String, String), Access>,
     types: HashMap<String, Access>,
+    protocols: HashSet<String>,
 }
 
 pub(super) struct Resolved {
@@ -39,6 +41,7 @@ pub(super) struct Resolved {
     pub(super) declarations: Vec<TypeAlias>,
     pub(super) enums: Vec<enums::EnumDecl>,
     pub(super) classes: Vec<classes::ClassDecl>,
+    pub(super) protocols: Vec<protocols::Protocol>,
     pub(super) access: AccessMap,
     pub(super) public_api: Vec<TypeRef>,
     pub(super) at: Token,
@@ -135,6 +138,11 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
             let name = c.name.clone();
             module.classes.push(c);
             name
+        } else if parser.peek().is("protocol") {
+            let p = parser.protocol_decl()?;
+            let name = p.name.clone();
+            module.protocols.push(p);
+            name
         } else if parser.peek().is("enum") {
             let e = parser.enum_decl()?;
             let name = e.name.clone();
@@ -173,6 +181,7 @@ impl Module {
             .chain(self.declarations.iter().map(|a| &a.name))
             .chain(self.enums.iter().map(|e| &e.name))
             .chain(self.classes.iter().map(|c| &c.name))
+            .chain(self.protocols.iter().map(|p| &p.name))
             .cloned()
             .collect()
     }
@@ -613,6 +622,7 @@ fn resolve(
         })
         .collect();
     let mut result = Resolved {
+        protocols: vec![],
         functions: vec![],
         declarations: vec![],
         enums: vec![],
@@ -665,6 +675,9 @@ fn resolve(
             let public = m.exports.contains(&f.name);
             scope.function(f)?;
             if public {
+                result
+                    .public_api
+                    .extend(f.type_params.iter().filter_map(|(_, b)| b.clone()));
                 fn concrete_parts(
                     t: &TypeRef,
                     params: &[(String, Option<TypeRef>)],
@@ -692,6 +705,31 @@ fn resolve(
                 }
             }
             f.name = qualified(&m.name, &f.name);
+        }
+        for p in &mut m.protocols {
+            let public = m.exports.contains(&p.name);
+            p.name = qualified(&m.name, &p.name);
+            result.access.protocols.insert(p.name.clone());
+            result.access.types.insert(
+                p.name.clone(),
+                Access {
+                    owner: p.at.source.clone(),
+                    public,
+                },
+            );
+            for method in &mut p.methods {
+                scope.function(method)?;
+                if public {
+                    for t in method
+                        .inputs
+                        .iter()
+                        .map(|(_, t)| t)
+                        .chain(std::iter::once(&method.output))
+                    {
+                        protocols::public_types(t, &p.name, &mut result.public_api);
+                    }
+                }
+            }
         }
         for a in &mut m.declarations {
             scope.ty(&mut a.target)?;
@@ -777,6 +815,7 @@ fn resolve(
         result.declarations.append(&mut m.declarations);
         result.enums.append(&mut m.enums);
         result.classes.append(&mut m.classes);
+        result.protocols.append(&mut m.protocols);
     }
     Ok(result)
 }
@@ -828,6 +867,17 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
         Ok(())
     }
     for t in refs {
+        if t.name.as_deref() == Some("IntType") && t.args.is_empty() {
+            continue;
+        }
+        if let Some(name) = t.name.as_ref().filter(|n| access.protocols.contains(*n)) {
+            if !access.types[name].public {
+                return Err(t.at.error(format!(
+                    "public signature exposes private protocol `{name}`"
+                )));
+            }
+            continue;
+        }
         if let Some(ty) = t.resolve(aliases)? {
             visible(&ty, &t.at, access)?;
         }

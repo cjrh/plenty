@@ -67,6 +67,30 @@ not code generation or linking. Generic classes, generic methods, inferred type
 arguments, reference/unit type arguments, and first-class generic functions are
 deferred. A signature can borrow `T` directly using `&T` or `&mut T`.
 
+## Structural protocols
+
+`protocol Readable:` declares required methods using ordinary `def` signatures
+and `pass` bodies. `def read(self) -> str:` implies `self: &Readable`;
+`self: &mut Readable` explicitly requires an exclusive receiver. A generic bound
+`T: Readable` accepts any class with the required inherent methods. No inheritance,
+registration, or import-driven method activation occurs. Calls remain statically
+dispatched to concrete methods in the cached specialization.
+
+Every requirement is checked, even if a particular generic body does not call it.
+Parameter and return types, arity, and receiver borrowing must match exactly;
+parameter names may differ. Normal module visibility applies at the generic
+definition, and public signatures cannot expose private protocols or private
+types from their requirements. Within requirements, the protocol's own name
+denotes the implementing class, including in returned references.
+
+Protocols currently constrain class type arguments only. They are not runtime
+value types or existential containers. Fields, protocol inheritance, multiple
+bounds, default implementations, generic methods, and associated types are
+deferred; lifecycle hooks cannot be requirements. `IntType` remains a separate
+builtin numeric-family constraint. Generic bodies are still checked per concrete
+instance, so requirements express a minimum interface rather than a separately
+type-checked abstract implementation.
+
 ## Implementation status
 
 The core language can compile single- and multi-file programs: typed functions,
@@ -122,7 +146,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generic functions | Explicit `def f[T](...)` / `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
-| Structural protocols | Proposed; no protocol checking implemented yet |
+| Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |

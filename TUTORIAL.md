@@ -3855,10 +3855,47 @@ when the body only moves, borrows, or uses operations supported by the chosen
 concrete type. Each specialization is checked and compiled once. Type arguments
 are currently mandatory; generic classes and methods are not implemented yet.
 
+## Requiring methods with a protocol
+
+A protocol describes an interface a generic function needs. A class satisfies
+it by having methods with matching signatures; no inheritance or registration
+is required. Importing a protocol does not add methods to a class.
+
+```plenty
+protocol Readable:
+    def read(self) -> str:
+        pass
+
+class Message:
+    text: str
+    def read(self) -> str:
+        self.text
+
+def read_message[T: Readable](source: &T) -> str:
+    source.read()
+
+def main() -> ():
+    message = Message("hello")
+    print(read_message[Message](&message))
+```
+```output
+hello
+```
+
+`self` means a shared receiver. Write `self: &mut ProtocolName` when a required
+method mutates the receiver. Method parameters, return types, and receiver
+borrowing must match exactly. All required methods are checked at specialization,
+including methods the generic function does not happen to use. Across modules,
+the class methods must be visible to the generic function's defining module.
+
+Protocols currently constrain class type arguments; they cannot be stored as
+values. Use `source: &T` with `T: Readable`, not `source: Readable`. Protocol
+fields, inheritance, and default method implementations are deferred.
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,
-recursive types and stored references remain future work. Structural protocols are next; async/await is out of
+recursive types, stored references, closures, and C interoperability remain future work; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 
 When a lesson feels awkward, that is useful feedback for the language design.

@@ -1,8 +1,41 @@
 //! Explicit, cached monomorphization before typed body lowering.
 use super::*;
 
-pub(super) fn expand(functions: Vec<Function>, aliases: &TypeAliases) -> Result<Vec<Function>> {
+pub(super) fn expand(
+    functions: Vec<Function>,
+    aliases: &TypeAliases,
+    protocols: &[protocols::Protocol],
+    access: &modules::AccessMap,
+) -> Result<Vec<Function>> {
+    let mut declarations = HashMap::new();
+    for protocol in protocols {
+        if aliases.contains_key(&protocol.name)
+            || functions.iter().any(|f| f.name == protocol.name)
+            || declarations
+                .insert(protocol.name.clone(), protocol)
+                .is_some()
+        {
+            return Err(protocol.at.error(format!(
+                "protocol `{}` is already defined or conflicts with another declaration",
+                protocol.name
+            )));
+        }
+        // Validate requirements even if no function uses this protocol. The
+        // receiver placeholder is replaced by the implementing class at use.
+        let mut validation = aliases.clone();
+        validation.insert(protocol.name.clone(), Some(Ty::I64));
+        for method in &protocol.methods {
+            protocols::signature(method, &validation)?;
+        }
+    }
     let mut engine = Engine {
+        protocols: declarations,
+        methods: functions
+            .iter()
+            .filter(|f| f.type_params.is_empty())
+            .map(|f| Ok((f.name.clone(), protocols::signature(f, aliases)?)))
+            .collect::<Result<_>>()?,
+        access,
         templates: HashMap::new(),
         cache: HashMap::new(),
         pending: Vec::new(),
@@ -24,10 +57,16 @@ pub(super) fn expand(functions: Vec<Function>, aliases: &TypeAliases) -> Result<
             }
             for (_, bound) in &f.type_params {
                 if let Some(bound) = bound {
-                    if bound.name.as_deref() != Some("IntType") || !bound.args.is_empty() {
+                    if (bound.name.as_deref() != Some("IntType")
+                        && !bound
+                            .name
+                            .as_ref()
+                            .is_some_and(|n| engine.protocols.contains_key(n)))
+                        || !bound.args.is_empty()
+                    {
                         return Err(bound
                             .at
-                            .error("generic constraints currently support IntType only"));
+                            .error("generic constraints require IntType or a declared protocol"));
                     }
                 }
             }
@@ -47,6 +86,9 @@ pub(super) fn expand(functions: Vec<Function>, aliases: &TypeAliases) -> Result<
 }
 
 struct Engine<'a> {
+    protocols: HashMap<String, &'a protocols::Protocol>,
+    methods: HashMap<String, (Vec<Ty>, Type)>,
+    access: &'a modules::AccessMap,
     templates: HashMap<String, Function>,
     cache: HashMap<(String, Vec<Ty>), String>,
     pending: Vec<Function>,
@@ -88,19 +130,33 @@ impl Engine<'_> {
                     .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))
             })
             .collect::<Result<Vec<_>>>()?;
+        let key = (name.to_owned(), actual.clone());
+        if let Some(symbol) = self.cache.get(&key) {
+            return Ok(symbol.clone());
+        }
         for ((_, bound), ty) in template.type_params.iter().zip(&actual) {
             if ty.contains_reference() {
                 return Err(at.error(
                     "reference type arguments are not supported; borrow T in the signature",
                 ));
             }
-            if bound.is_some() && !ty.is_int() {
-                return Err(at.error(format!("{ty} does not satisfy IntType")));
+            if let Some(bound) = bound {
+                if bound.name.as_deref() == Some("IntType") {
+                    if !ty.is_int() {
+                        return Err(at.error(format!("{ty} does not satisfy IntType")));
+                    }
+                } else {
+                    protocols::check(
+                        self.protocols[bound.name.as_ref().unwrap()],
+                        ty,
+                        &self.methods,
+                        self.aliases,
+                        self.access,
+                        &bound.at,
+                        at,
+                    )?;
+                }
             }
-        }
-        let key = (name.to_owned(), actual);
-        if let Some(symbol) = self.cache.get(&key) {
-            return Ok(symbol.clone());
         }
         if self.cache.len() >= 256 {
             return Err(at.error(
@@ -301,7 +357,13 @@ mod tests {
         }
         let parsed = modules::single(&source).unwrap();
         let start = std::time::Instant::now();
-        let functions = expand(parsed.functions, &TypeAliases::new()).unwrap();
+        let functions = expand(
+            parsed.functions,
+            &TypeAliases::new(),
+            &[],
+            &modules::AccessMap::default(),
+        )
+        .unwrap();
         assert_eq!(functions.len(), 2);
         eprintln!(
             "100 calls and recursive body: one specialization in {:?}",
