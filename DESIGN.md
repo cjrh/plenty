@@ -75,7 +75,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, and returned references tied to one reference parameter; element/stored references deferred |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
-| Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
+| Borrowed collection iteration | Shared list loops borrow owned elements; mutable list loops yield mutable element references. Shared copyable elements and dictionary keys remain values |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, explicit-separator splitting, sized numeric parsing, and fallible scalar formatting |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
@@ -115,8 +115,8 @@ Collections, classes, generators, and enums containing owned values transfer own
 `copy(value)` explicitly duplicates mutable contents; `drop(value)` consumes an
 owner early. Immutable strings and immutable enums may share storage. Collection
 updates operate in place. Named local and parameter references use `&T` / `&mut T`,
-with last-use loan checking over an access CFG. Class fields can also be borrowed;
-collection element references and stored references are deferred. Returned
+with last-use loan checking over an access CFG. Class fields, list elements, and
+dictionary values can also be borrowed; stored references are deferred. Returned
 references must originate from a function's single reference parameter.
 
 The original four feature proposals are in [docs/proposals](docs/proposals).
@@ -432,8 +432,8 @@ immutable strings and enums. `append`, `add`, and indexed updates mutate in plac
 through a named `mut` owner or an exclusive reference. Mutation arguments and
 indices are evaluated before exclusive access to the target is taken, supporting
 `xs.append(len(xs))` and `xs[len(xs) - 1] = value` without two-phase loans.
-Nested indexed mutation and element references are deferred: use
-`mut child = copy(parent[index])`, update it, and transfer it back to the parent.
+Nested indexed places support explicit element references and mutation through
+those references. Element loans conservatively protect the whole collection.
 Owned values cannot be moved directly out of indexed storage.
 
 Lists preserve order and duplicates. Dictionaries preserve first insertion order;
@@ -1577,17 +1577,25 @@ values finish their read immediately; observations of mutable collections hold
 temporary shared loans through the operation that consumes them.
 
 Native references address 128-bit local storage slots, generator frame slots, or
-fixed class field slots.
+fixed class field slots, or collection entry slots protected against invalidation.
 Functions taking addresses spill their locals; ordinary functions retain SSA locals.
 Borrowed parameters already carry an address. Internal retained operands protect
 temporary storage lifetime, but the static checker establishes access permissions.
 Reference calls retain the caller frame, so native tail calls do not invalidate it.
 
-Collection element references, partial moves, and stored references remain
-rejected. Class field loans distinguish disjoint projections,
+Partial moves and stored references remain rejected. Class field loans distinguish disjoint projections,
 including through reborrowed reference parameters. A generator cannot capture reference parameters or retain a live
 loan across `yield`; short borrows completed within one resume are permitted.
 No lifetime annotation syntax or general trait system is required for this subset.
+
+Shared iteration over a list of owned elements binds `&T`; mutable list iteration
+binds `&mut T`, including scalar elements. Shared iteration over copyable elements
+still binds values. The source remains borrowed throughout the loop, including
+back edges, so growth, removal, replacement, and owner destruction cannot
+invalidate element addresses. Indexed and iterated element loans retain the
+collection's entire footprint; disjoint indices are not proven. Loop variables
+cannot escape into stored references. Returned element references follow the same
+single reference-parameter origin rule as direct indexed borrows.
 
 Prefer last-use/flow-sensitive loan checking over lexical-lifetime rules.
 Polonius is the relevant Rust work: it models relationships between reference

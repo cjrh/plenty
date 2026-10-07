@@ -2622,7 +2622,8 @@ Basket(count=2, items=["apple", "pear"])
 
 The borrow ends after `count`'s last use. Distinct fields can be borrowed or
 changed independently. Borrowing a whole record still overlaps all its fields.
-Collection element references such as `&basket.items[0]` are still deferred.
+Collection element references such as `&basket.items[0]` protect the collection
+against changes that could invalidate the element's address.
 You can replace a class-valued field by assignment, but cannot replace a whole
 class through `*reference = new_instance` yet.
 
@@ -3698,10 +3699,37 @@ Result[list[str], AllocError].Ok(["first\r\n", "last"])
 Result[list[str], AllocError].Ok([])
 ```
 
+## Borrowing elements in a loop
+
+Use `&items` to inspect owned list elements without moving or copying them.
+Each loop variable is a shared reference. Use `&mut items` to get mutable
+references, including for scalar elements. The list itself cannot grow, shrink,
+or be moved during either loop. Shared loops over copyable elements still yield
+values, as they did before.
+
+```plenty
+class Score:
+    value: i64
+
+def main() -> ():
+    mut scores = [Score(2), Score(5)]
+    for score in &mut scores:
+        score.value = score.value + 1
+    print([score.value for score in &scores])
+    mut numbers = [10, 20]
+    for number in &mut numbers:
+        *number = *number + 2
+    print(numbers)
+```
+```output
+[3, 6]
+[12, 22]
+```
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,
-recursive types, element references, and stored references remain future work. Traits and generics are deferred; async/await is out of
+recursive types and stored references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 
 When a lesson feels awkward, that is useful feedback for the language design.

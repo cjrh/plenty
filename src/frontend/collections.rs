@@ -394,7 +394,20 @@ impl Lower<'_> {
         let iterable = ungroup(iterable);
         let borrowed = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(..))));
-        let (ty, loans) = if borrowed {
+        let mutable = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&mut")
+            || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(_, true))));
+        let (ty, loans) = if mutable {
+            let base = match &iterable.kind {
+                Expression::Unary(_, base) => &**base,
+                _ => iterable,
+            };
+            let (reference, loan) = self.borrow(base, true, ops)?;
+            let Ty::Ref(ty, _) = reference else {
+                unreachable!()
+            };
+            ops.push(Op::ReadRef((*ty).clone()));
+            ((*ty).clone(), vec![loan])
+        } else if borrowed {
             self.observe(iterable, ops)?
         } else {
             (self.value(iterable, ops)?, vec![])
@@ -402,10 +415,29 @@ impl Lower<'_> {
         if borrowed && matches!(ty, Ty::Generator(_)) {
             return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
         }
-        if borrowed && ty.element().is_some_and(|t| t.affine()) {
+        let references = borrowed
+            && matches!(ty, Ty::List(_))
+            && (mutable || ty.element().is_some_and(|t| t.affine()));
+        if borrowed && !references && ty.element().is_some_and(|t| t.affine()) {
             return Err(iterable.at.error("borrowed iteration of owned elements is not supported; iterate an owned collection or copy it"));
         }
-        let mut plan = self.iteration_on_stack(ty.clone(), &iterable.at, ops)?;
+        let mut plan = if references {
+            self.borrowed_list_iteration(ty.clone(), mutable, &iterable.at, ops)?
+        } else {
+            self.iteration_on_stack(ty.clone(), &iterable.at, ops)?
+        };
+        if references {
+            let loan = loans[0];
+            self.loans[loan].precise = false;
+            for op in ops.iter_mut() {
+                if let Op::Loan(fact) = op {
+                    if fact.id == loan {
+                        fact.precise = false;
+                    }
+                }
+            }
+            self.reference_locals.insert(plan.target, loan);
+        }
         self.finish_temporaries(temporary_start, ops);
         plan.condition
             .extend(loans.iter().copied().map(Op::UseLoan));
@@ -414,11 +446,50 @@ impl Lower<'_> {
             name.into(),
             Local {
                 slot: plan.target,
-                ty: ty.element().unwrap(),
+                ty: if references {
+                    Ty::Ref(Rc::new(ty.element().unwrap()), mutable)
+                } else {
+                    ty.element().unwrap()
+                },
                 mutable: false,
             },
         );
         Ok(plan)
+    }
+
+    fn borrowed_list_iteration(
+        &mut self,
+        ty: Ty,
+        mutable: bool,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        let source = self.slot(ty.clone(), at)?;
+        let target = self.slot(Ty::Ref(Rc::new(ty.element().unwrap()), mutable), at)?;
+        let index = self.slot(Ty::I64, at)?;
+        ops.extend([
+            Op::StoreLocal(source),
+            Op::PushInt(Value::I64(0)),
+            Op::StoreLocal(index),
+        ]);
+        let mut step = Vec::new();
+        increment(index, &mut step);
+        Ok(Iteration {
+            condition: vec![
+                Op::LoadLocal(index),
+                Op::LoadLocal(source),
+                Op::Collection(CollectionOp::Len(ty.clone())),
+                Op::Lt,
+            ],
+            body: vec![
+                Op::BorrowLocal(source, mutable),
+                Op::LoadLocal(index),
+                Op::Collection(CollectionOp::ElementRef(ty, mutable)),
+                Op::StoreLocal(target),
+            ],
+            step,
+            target,
+        })
     }
 
     fn iteration_on_stack(&mut self, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Iteration> {
