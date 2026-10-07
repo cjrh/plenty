@@ -61,3 +61,58 @@ print(values)
         );
     }
 }
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn every_buffer_growth_and_final_string_allocation_can_fail_cleanly() {
+    let representation = format!("{:?}", (0..32).collect::<Vec<_>>());
+    for operation in ["str.try_repr(values)", "try_print(values)"] {
+        let mut succeeded = false;
+        let mut failures = 0;
+        for budget in 0..=12 {
+            let out = support::run(&format!(
+                r#"
+values = [n for n in range(32)]
+print("__test_fail_allocations_after_{budget}__")
+result = {operation}
+print("__test_restore_allocations__")
+match result:
+    case Ok(value):
+        print("success")
+    case Err(error):
+        print("failed")
+print(len(values))
+"#
+            ));
+            assert!(
+                out.status.success(),
+                "budget {budget}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let lines = stdout
+                .lines()
+                .filter(|s| !s.starts_with("__test_"))
+                .collect::<Vec<_>>();
+            if lines.contains(&"success") {
+                succeeded = true;
+                if operation.starts_with("try_print") {
+                    assert_eq!(lines, [representation.as_str(), "success", "32"]);
+                } else {
+                    assert_eq!(lines, ["success", "32"]);
+                }
+                break;
+            }
+            failures += 1;
+            assert_eq!(
+                lines,
+                ["failed", "32"],
+                "no formatted prefix may escape on allocation failure"
+            );
+        }
+        assert!(
+            succeeded && failures > 1,
+            "exercise both buffer growth and success"
+        );
+    }
+}
