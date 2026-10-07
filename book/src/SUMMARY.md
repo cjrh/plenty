@@ -148,6 +148,7 @@
 
 - [Proposals](proposals/index.md)
     - [Runtime allocation audit](proposals/allocation-audit.md)
+    - [Allocation-free generator frames and ranges](proposals/allocation-free-generators.md)
     - [GCC backend (`plenty_codegen_gcc`)](proposals/codegen-gcc.md)
     - [Explicit applications, modules, and executable lessons](proposals/entrypoints-modules-and-tutorials.md)
     - [C interop and dynamic libraries](proposals/ffi-and-dynamic-libraries.md)

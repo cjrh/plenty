@@ -2,8 +2,9 @@
 
 This is the single maintained list of planned language, compiler, runtime, and
 tooling work. It replaces the separate roadmap and next-work lists. Entries are
-candidates, not promises about syntax or delivery dates; no language feature is
-currently in progress. The next batch below is a proposed order.
+candidates, not promises about syntax or delivery dates. Allocation-free ranges
+are implemented. Non-allocating generator frames remain a separate design task;
+range support does not depend on changing generators.
 
 Use the [implementation status](design/04-implementation-status.md) to see what
 works today, the [reference](design/index.md) for its exact contract, and the
@@ -14,6 +15,7 @@ stages describe technical dependencies, not a second priority list.
 
 | ID | Work | Scope and completion evidence |
 | --- | --- | --- |
+| B25 | Allocation-free generator frames | Separate design task: retain concrete frame layouts through calls, returns, moves, nested generators, and standard sum wrappers. Settle `Generator[T]` annotation semantics; test scalar-only generators with heap allocation disabled and cleanup on every exit. Body and argument allocations remain fallible. See the [design](proposals/allocation-free-generators.md). |
 | B01 | Linker selection | Expose an explicit linker-driver choice while retaining the current default. Define CLI/API configuration and diagnostics; test invocation without assuming every driver accepts the same flags. |
 | B02 | Object-file output | Expose native object output independently of executable linking. Document runtime and symbol requirements, and test linking the object with an external driver. |
 | B03 | Target compatibility | Make supported target and pointer-width assumptions explicit. Check compatibility with the packaged runtime; reject unsupported combinations before code generation. Audit pointer uses across signatures, storage, and runtime layouts before expanding target support. |
@@ -55,6 +57,7 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
+| B26: Allocation-free ranges | Range construction now returns a copyable inline value directly. Calls, returns, standard sums, indexing, membership, and repeated traversal need no range allocation. Stored ranges live in their containing owner's storage. See [collections and iteration](design/05-current-language-contract/08-collections-and-iteration.md). |
 | String/heap reclamation | Owned values and strings are reclaimed by the Rust runtime, with deterministic cleanup. See [ownership](design/13-ownership-and-reclamation.md) and [destruction](design/14-deterministic-destruction.md). |
 | Length-aware strings | Strings already store explicit lengths and support embedded NULs. The original `strlen`-based premise is obsolete; adopting a two-word source value is not required to resolve it. |
 | Precompiled runtime archive | The runtime archive is built with the compiler and embedded for linking. It is not rebuilt from C source for each program. See [runtime](runtime.md). |
