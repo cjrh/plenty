@@ -17,8 +17,7 @@ impl Lower<'_> {
         for i in (start..self.locals.len()).rev() {
             let slot = (self.parameters + i) as u8;
             if let Some(context) = self.contexts.iter().find(|context| context.slot == slot) {
-                ops.push(Op::Access(slot, true, None));
-                ops.push(Op::BorrowLocal(slot, true));
+                self.context_receiver(context, ops);
                 ops.push(Op::Call(context.exit.clone()));
             }
             if self.locals[i].managed() {

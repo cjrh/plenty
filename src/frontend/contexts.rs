@@ -5,6 +5,7 @@ use crate::record::method;
 pub(super) struct Context {
     pub slot: u8,
     pub exit: String,
+    pub loan: Option<usize>,
 }
 
 impl Lower<'_> {
@@ -20,10 +21,31 @@ impl Lower<'_> {
         }
         let saved = self.names.clone();
         let start = self.locals.len();
-        let Ty::Class(class) = self.value(manager, ops)? else {
-            return Err(manager.at.error("with requires an owned class instance"));
+        let (ty, loan) = if let Expression::Unary(op, base) = &ungroup(manager).kind {
+            if op == "&mut" {
+                let (ty, loan) = self.borrow(base, true, ops)?;
+                (ty, Some(loan))
+            } else {
+                (self.value(manager, ops)?, None)
+            }
+        } else {
+            (self.value(manager, ops)?, None)
         };
-        let slot = self.slot(Ty::Class(class.clone()), &manager.at)?;
+        let class = match &ty {
+            Ty::Class(class) => class.clone(),
+            Ty::Ref(inner, true) if loan.is_some() => {
+                let Ty::Class(class) = inner.as_ref() else {
+                    return Err(manager.at.error("with requires a class instance"));
+                };
+                class.clone()
+            }
+            _ => {
+                return Err(manager
+                    .at
+                    .error("with requires an owned class instance or explicit &mut borrow"))
+            }
+        };
+        let slot = self.slot(ty, &manager.at)?;
         ops.push(Op::StoreLocal(slot));
         let mut entry = None;
         for name in ["__enter__", "__exit__"] {
@@ -47,12 +69,14 @@ impl Lower<'_> {
                 entry = sig.outputs.first().cloned();
             }
         }
-        ops.push(Op::BorrowLocal(slot, true));
-        ops.push(Op::Call(method(&class.name, "__enter__")));
-        self.contexts.push(Context {
+        let context = Context {
             slot,
             exit: method(&class.name, "__exit__"),
-        });
+            loan,
+        };
+        self.context_receiver(&context, ops);
+        ops.push(Op::Call(method(&class.name, "__enter__")));
+        self.contexts.push(context);
         if let Some(name) = name {
             if self.names.contains_key(name) {
                 return Err(manager.at.error(format!("duplicate binding `{name}`")));
@@ -79,5 +103,16 @@ impl Lower<'_> {
         self.contexts.pop();
         self.names = saved;
         Ok(result)
+    }
+
+    pub(super) fn context_receiver(&self, context: &Context, ops: &mut Vec<Op>) {
+        if let Some(loan) = context.loan {
+            ops.push(Op::Access(self.loans[loan].root, true, Some(loan)));
+            ops.push(Op::LoadLocal(context.slot));
+            ops.push(Op::UseLoan(loan));
+        } else {
+            ops.push(Op::Access(context.slot, true, None));
+            ops.push(Op::BorrowLocal(context.slot, true));
+        }
     }
 }

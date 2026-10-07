@@ -3037,6 +3037,29 @@ binding itself is only visible inside the body. Omit `as` for unit entry methods
 Acquire fallible resources before entry: `with acquire()?:` propagates acquisition
 failure without entering that context.
 
+To keep a manager after the block, borrow it explicitly. The original binding
+is exclusively borrowed until exit completes.
+
+```plenty
+class Counter:
+    count: i64
+    def __enter__(self: &mut Counter) -> i64:
+        self.count = self.count + 1
+        self.count
+    def __exit__(self: &mut Counter) -> ():
+        self.count = self.count + 10
+
+def main() -> ():
+    mut counter = Counter(0)
+    with &mut counter as n:
+        print(n)
+    print(counter.count)
+```
+```output
+1
+11
+```
+
 Several managers can share one `with` statement. They enter from left to right
 and exit from right to left, just like nested blocks. Later manager expressions
 can use earlier `as` bindings.

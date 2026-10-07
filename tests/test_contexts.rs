@@ -81,6 +81,62 @@ print("after")
 }
 
 #[test]
+fn borrowed_manager_survives_scope_and_retains_mutations() {
+    run(
+        r#"
+class Counter:
+    count: i64
+    def __enter__(self: &mut Counter) -> i64:
+        self.count = self.count + 1
+        self.count
+    def __exit__(self: &mut Counter) -> ():
+        self.count = self.count + 10
+    def __del__(self) -> ():
+        print(self.count)
+def use(counter: &mut Counter) -> ():
+    with &mut counter as n:
+        print(n)
+mut counter = Counter(0)
+use(&mut counter)
+with &mut counter as n:
+    print(n)
+print(counter.count)
+"#,
+        "1\n12\n22\n22\n",
+    );
+}
+
+#[test]
+fn borrowed_manager_is_exclusive_until_exit_on_every_path() {
+    reject(
+        &format!("{MANAGER}\nmut m = Manager(\"x\")\nwith &mut m as r:\n    print(m.name)\n"),
+        "conflicting borrow",
+    );
+    reject(
+        &format!("{MANAGER}\nmut m = Manager(\"x\")\nwith &mut m as r:\n    drop(m)\n"),
+        "moved binding",
+    );
+    reject(
+        &format!("{MANAGER}\nmut m = Manager(\"x\")\nwith &m as r:\n    pass\n"),
+        "explicit &mut",
+    );
+    run(
+        &format!(
+            r#"{MANAGER}
+def use(m: &mut Manager) -> Option[i64]:
+    with &mut m as r:
+        n: Option[i64] = Nothing
+        return Some(n?)
+mut m = Manager("enter")
+print(use(&mut m))
+print(m.name)
+"#
+        ),
+        "enter\nentry dropped\nexit\nOption[i64].Nothing\nenter\nmanager dropped\n",
+    );
+}
+
+#[test]
 fn early_return_preserves_value_and_cleanup_order() {
     run(
         &format!(
