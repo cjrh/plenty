@@ -5,11 +5,11 @@ The element expression runs only after the filters pass.
 
 ```plenty
 def main() -> Result[(), Failure]:
-    squares = [n * n for n in range(8)? if n % 2 == 0]?
+    squares = [n * n for n in range(8) if n % 2 == 0]?
     print(squares)?
     print({n: n * n for n in [2, 3]?}?)?
-    print(len({n // 2 for n in range(8)?}?))?
-    print([x * 10 + y for x in range(3)? for y in range(x)?]?)?
+    print(len({n // 2 for n in range(8)}?))?
+    print([x * 10 + y for x in range(3) for y in range(x)]?)?
     Ok(())
 ```
 

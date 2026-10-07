@@ -78,7 +78,7 @@ def main() -> Result[(), Failure]:
     r: Result[u64, str] = Ok(18446744073709551615u64)
     print(success(r))?
     print(optional(Some(1u8)))?
-    print(count(range[u8](4)?))?
+    print(count(range[u8](4)))?
     print(identity(2.5))?
     print(1 + identity[u8](2))?
     Ok(())
@@ -109,7 +109,7 @@ def main() -> Result[(), Failure]:
                 print(identity(n))?
             case Nothing:
                 print("missing")?
-    print([identity(n) for n in range[u8](3)?]?)?
+    print([identity(n) for n in range[u8](3)]?)?
     Ok(())
 "#,
         "0\n[8]\n2\nmissing\n[0, 1, 2]\n",

@@ -24,7 +24,7 @@ fn collect_ranges_generators_and_owned_elements() {
 def numbers() -> Generator[i64]:
     yield 2
     yield 4
-print(list[i64].from(range(3).unwrap())).unwrap()
+print(list[i64].from(range(3))).unwrap()
 print(list[i64].from(numbers().unwrap())).unwrap()
 print(list[list[i64]].from([[1].unwrap(), [2].unwrap()].unwrap())).unwrap()
 "#, "Result[list[i64], AllocError].Ok([0, 1, 2])\nResult[list[i64], AllocError].Ok([2, 4])\nResult[list[list[i64]], AllocError].Ok([[1], [2]])");
@@ -34,7 +34,7 @@ print(list[list[i64]].from([[1].unwrap(), [2].unwrap()].unwrap())).unwrap()
 fn collection_conversion_checks_types_and_consumes_its_source() {
     for (source, message) in [
         ("list[i64].from(1)", "requires an owned collection"),
-        ("list[u8].from(range(2).unwrap())", "expected u8"),
+        ("list[u8].from(range(2))", "expected u8"),
         (
             "values = [1].unwrap()\nlist[i64].from(values)\nprint(values).unwrap()",
             "moved or possibly moved",
@@ -54,7 +54,7 @@ fn set_conversion_deduplicates_and_preserves_first_seen_order() {
     native(r#"
 print(set[i64].from([3, 1, 3, 2].unwrap())).unwrap()
 print(set[str].from(["a", "b", "a"].unwrap())).unwrap()
-print(set[i64].from(range(0).unwrap())).unwrap()
+print(set[i64].from(range(0))).unwrap()
 print(list[str].from({"a": 1, "b": 2}.unwrap())).unwrap()
 "#, "Result[set[i64], AllocError].Ok({3, 1, 2})\nResult[set[str], AllocError].Ok({\"a\", \"b\"})\nResult[set[i64], AllocError].Ok(set())\nResult[list[str], AllocError].Ok([\"a\", \"b\"])");
 }

@@ -68,10 +68,12 @@ impl Lowerer<'_, '_> {
                 let (owner, _) = self.pop_typed(inputs[0].clone())?;
                 let index = self.bcx.ins().iconst(types::I64, *i as i64);
                 let value = self.collection_call(31, &[owner, index], None)?;
+                let value = self.unpack(value, &output);
+                let value = self.snapshot_range(value, &output);
                 self.release(owner, &inputs[0]);
-                value
+                self.pack(value, &output)
             }
-            ClassOp::FieldRef(_, i, _) => {
+            ClassOp::FieldRef(t, i, _) => {
                 let (address, _) = self.pop_typed(inputs[0].clone())?;
                 let owner = self.bcx.ins().load(
                     PTR_TY,
@@ -79,7 +81,11 @@ impl Lowerer<'_, '_> {
                     address,
                     0,
                 );
-                self.bcx.ins().iadd_imm(owner, 32 + (*i as i64) * 16)
+                let offset: i64 = t.fields[..*i]
+                    .iter()
+                    .map(|(_, t)| t.slot_bytes() as i64)
+                    .sum();
+                self.bcx.ins().iadd_imm(owner, 32 + offset)
             }
         };
         let result = self.unpack(result, &output);
@@ -194,10 +200,11 @@ impl Lowerer<'_, '_> {
                 )?
             }
         };
+        let result = self.unpack(result, &output);
+        let result = self.snapshot_range(result, &output);
         for (value, ty) in values.iter().zip(&inputs) {
             self.release(*value, ty);
         }
-        let result = self.unpack(result, &output);
         self.stack.push((result, output));
         Ok(())
     }
@@ -312,8 +319,7 @@ impl Lowerer<'_, '_> {
         for op in cleanup {
             self.lower(op)?;
         }
-        self.release_locals();
-        self.bcx.ins().return_(&[residual]);
+        self.return_values(vec![(residual, Ty::Enum(target.clone()))]);
         self.stack = pending;
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);

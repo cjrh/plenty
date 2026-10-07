@@ -299,7 +299,11 @@ and exhaustion return `AllocError`; input construction and user cleanup retain
 their own policies.
 
 `range(stop)`, `range(start, stop)`, and `range(start, stop, step)` exclude stop
-and store only start/stop/step/length. `range[T](...)` chooses any integer type;
+and return a range directly, without a Result or heap allocation. Ranges store
+only start/stop/step/length, copy as small independent values, and support repeated
+iteration. Passing and returning them, including through Option/Result, require
+no heap allocation. Collecting their elements into a list or set remains fallible.
+`range[T](...)` chooses any integer type;
 start and stop have type T, while step is always signed i64, permitting descending
 unsigned ranges. Without explicit type arguments, a typed bound or range
 annotation supplies T, otherwise it defaults to i64. Bounds must fit T, so an
@@ -311,7 +315,7 @@ while `INT_MIN % -1` is zero.
 
 For a directly written range in a list/set/dict comprehension, a numeric output
 annotation can guide its loop variable through direct arithmetic in the output
-expression. For example `squares: list[u8] = [n * n for n in range(8)]` selects
+expression. For example `squares: list[u8] = [n * n for n in range(8)]?` selects
 u8. Function return types supply the same context. This is bounded expression
 inference, not whole-program inference: constraints are not inferred backward
 through arbitrary calls, filters, stored range bindings, or explicit range type

@@ -9,7 +9,7 @@ def build() -> Result[list[list[u8]], AllocError]:
 def main() -> Result[(), AllocError]:
     values: list[list[u8]] = build()?
     print(values).unwrap()
-    squares: list[u8] = [n * n for n in range(6)?]?
+    squares: list[u8] = [n * n for n in range(6)]?
     print(squares).unwrap()
     Ok(())
 "#,
@@ -76,7 +76,7 @@ fn old_prefixes_are_rejected() {
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn range_index_and_iteration_report_allocation_failure() {
+fn ranges_succeed_while_text_index_and_iteration_report_allocation_failure() {
     let output = support::run(
         r#"
 def main() -> ():
@@ -102,10 +102,7 @@ def main() -> ():
         String::from_utf8_lossy(&output.stderr)
     );
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        text.contains("Result[range[u8], AllocError].Err(AllocError.OutOfMemory)"),
-        "{text}"
-    );
+    assert!(text.contains("range(0, 4, 1)"), "{text}");
     assert!(
         text.contains("Result[str, AllocError].Err(AllocError.OutOfMemory)"),
         "{text}"

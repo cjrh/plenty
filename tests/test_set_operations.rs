@@ -35,9 +35,9 @@ print(Custom().unwrap().difference_update()).unwrap()
 fn difference_update_repairs_hashes_and_can_empty_without_allocating() {
     native(
         r#"
-mut target = {n for n in range(100).unwrap()}.unwrap()
-blocked = {n for n in range(0, 100, 2).unwrap()}.unwrap()
-all = {n for n in range(100).unwrap()}.unwrap()
+mut target = {n for n in range(100)}.unwrap()
+blocked = {n for n in range(0, 100, 2)}.unwrap()
+all = {n for n in range(100)}.unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 print("__test_begin_no_allocations__").unwrap()
 target.difference_update(blocked)
@@ -92,8 +92,8 @@ print(Custom().unwrap().intersection_update()).unwrap()
 fn intersection_update_reuses_capacity_and_repairs_probe_chains() {
     native(
         r#"
-mut target = {n for n in range(100).unwrap()}.unwrap()
-allowed = {n for n in range(0, 100, 2).unwrap()}.unwrap()
+mut target = {n for n in range(100)}.unwrap()
+allowed = {n for n in range(0, 100, 2)}.unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 print("__test_begin_no_allocations__").unwrap()
 target.intersection_update(allowed)
@@ -245,8 +245,8 @@ fn algebra_membership_and_self_aliases(
             r#"
 def operation(a: &set[i64], b: &set[i64]) -> Result[set[i64], AllocError]:
     a.{method}(b)
-a = {{n for n in range(100).unwrap()}}.unwrap()
-b = {{n for n in range(50, 150).unwrap()}}.unwrap()
+a = {{n for n in range(100)}}.unwrap()
+b = {{n for n in range(50, 150)}}.unwrap()
 match operation(&a, &b):
     case Ok(values):
         print(len(values)).unwrap()
@@ -340,8 +340,8 @@ print(Custom().unwrap().issubset()).unwrap()
 fn relations_do_not_allocate() {
     native(
         r#"
-a = {n for n in range(100).unwrap()}.unwrap()
-b = {n for n in range(50).unwrap()}.unwrap()
+a = {n for n in range(100)}.unwrap()
+b = {n for n in range(50)}.unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 print("__test_begin_no_allocations__").unwrap()
 x = a.issuperset(b)

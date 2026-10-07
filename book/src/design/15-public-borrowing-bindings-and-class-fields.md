@@ -30,9 +30,11 @@ reborrows; access through a parent conflicts with a live child. Copies of immuta
 values finish their read immediately; observations of mutable collections hold
 temporary shared loans through the operation that consumes them.
 
-Native references address 128-bit local storage slots, generator frame slots, or
+Native references address typed local storage slots, generator frame slots, or
 fixed class field slots, or collection entry slots protected against invalidation.
-Functions taking addresses spill their locals; ordinary functions retain SSA locals.
+Each slot starts with 128-bit value bits; slots containing a range have an adjacent
+32-byte payload. Writes through references update that inline storage. Functions
+taking addresses or storing inline ranges spill their locals; other functions retain SSA locals.
 Borrowed parameters already carry an address. Internal retained operands protect
 temporary storage lifetime, but the static checker establishes access permissions.
 Reference calls retain the caller frame, so native tail calls do not invalidate it.

@@ -234,6 +234,7 @@ unsafe extern "C" fn destroy(pointer: *mut Header) {
 mod tests {
     use super::*;
     static TYPE: Type = Type {
+        inline_range: false,
         kind: b'F',
         affine: true,
         reflexive: true,

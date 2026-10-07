@@ -526,7 +526,7 @@ fn observed_temporaries_survive_the_full_expression() {
             r#"{RESOURCE}
 print([Resource("element").unwrap()].unwrap()[0].name).unwrap()
 print(Resource("left").unwrap() == Resource("right").unwrap()).unwrap()
-names = [Resource("item").unwrap().name for n in range(2).unwrap()].unwrap()
+names = [Resource("item").unwrap().name for n in range(2)].unwrap()
 print(names).unwrap()
 "#
         ),

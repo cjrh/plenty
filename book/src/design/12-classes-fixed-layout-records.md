@@ -74,7 +74,8 @@ Fields may contain classes, enums, and collections, but not references,
 generators, or unit. Acyclic forward declarations and aliases are supported;
 recursive layouts remain rejected. Methods become statically resolved native
 functions. Class instances currently use one owned heap allocation with a runtime
-header, concrete type metadata, an optional destructor adapter, and 128-bit field
-slots. This representation favors simple lowering and fast compilation; it is not
+header, concrete type metadata, an optional destructor adapter, and typed field
+slots. Slots use 16 bytes, with 32 additional inline bytes for ranges or standard
+sums containing ranges. This representation favors simple lowering and fast compilation; it is not
 a public FFI layout guarantee. The compiler caches nesting, copyability, and
 destructor flags on nominal metadata.

@@ -35,9 +35,9 @@ print(nested()).unwrap()
 #[test]
 fn comprehensions_support_nested_loops_filters_and_all_collection_kinds() {
     native(r#"
-print([a * b for a in range(3).unwrap() for b in range(3).unwrap() if b != 1]).unwrap()
-print({a % 2 for a in range(5).unwrap()}).unwrap()
-print({a: a * a for a in range(3).unwrap()}).unwrap()
+print([a * b for a in range(3) for b in range(3) if b != 1]).unwrap()
+print({a % 2 for a in range(5)}).unwrap()
+print({a: a * a for a in range(3)}).unwrap()
 "#, "Result[list[i64], AllocError].Ok([0, 0, 0, 2, 0, 4])\nResult[set[i64], AllocError].Ok({0, 1})\nResult[dict[i64, i64], AllocError].Ok({0: 0, 1: 1, 2: 4})");
 }
 

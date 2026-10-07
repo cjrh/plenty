@@ -13,6 +13,7 @@ const fn scalar(kind: u8) -> Type {
         kind,
         affine: false,
         reflexive: kind != b'f' && kind != b'd',
+        inline_range: kind == b'R',
         key: None,
         value: None,
         name: "",
@@ -37,17 +38,133 @@ static UNSIGNED_RANGE: Type = Type {
 
 #[test]
 fn unsigned_ranges_keep_full_width_bounds_and_signed_steps() {
-    // SAFETY: all operands and metadata match the runtime ABI; owners are released.
+    // SAFETY: operands and metadata match; stack payloads outlive every read.
     unsafe {
         let stop = u64::MAX as u128;
-        let range = collection(10, stop - 3, stop, 1, &UNSIGNED_RANGE);
-        assert_eq!(collection(5, range, 0, 0, ptr::null()), 3);
-        assert_eq!(collection(4, range, 2, 0, ptr::null()), stop - 1);
-        assert_eq!(collection(7, stop - 2, range, 0, ptr::null()), 1);
-        plenty_release(range as *mut Header);
-        let range = collection(10, stop, stop - 3, (-1i64) as u128, &UNSIGNED_RANGE);
-        assert_eq!(collection(4, range, 2, 0, ptr::null()), stop - 2);
-        plenty_release(range as *mut Header);
+        let range = crate::ranges::Range::new((stop - 3) as u64, stop as u64, 1, false);
+        let range = &range as *const crate::ranges::Range as u128;
+        assert_eq!(collection(5, range, 0, 0, &UNSIGNED_RANGE), 3);
+        assert_eq!(collection(4, range, 2, 0, &UNSIGNED_RANGE), stop - 1);
+        assert_eq!(collection(7, stop - 2, range, 0, &UNSIGNED_RANGE), 1);
+        let range = crate::ranges::Range::new(stop as u64, (stop - 3) as u64, -1, false);
+        let range = &range as *const crate::ranges::Range as u128;
+        assert_eq!(collection(4, range, 2, 0, &UNSIGNED_RANGE), stop - 2);
+    }
+}
+
+#[test]
+fn inline_range_rows_relocate_and_removed_values_outlive_shifts() {
+    use crate::entries::{Entries, Entry};
+    use crate::ranges::Range;
+    let mut entries = Entries::new(&UNSIGNED_RANGE, None);
+    entries.try_reserve(2).unwrap();
+    let mut source = Range::new(10, 14, 1, false);
+    // SAFETY: each insertion copies the live source into reserved inline storage;
+    // every read uses the current row or the still-live removal scratch buffer.
+    unsafe {
+        entries.push(Entry {
+            key: &source as *const Range as u128,
+            value: 0,
+        });
+        source = Range::new(20, 25, 1, false);
+        entries.push(Entry {
+            key: &source as *const Range as u128,
+            value: 0,
+        });
+        entries.try_reserve(4096).unwrap();
+        assert_eq!((*(entries.get(0).key as *const Range)).start, 10);
+        assert_eq!((*(entries.get(1).key as *const Range)).start, 20);
+        entries.reverse();
+        let removed = entries.remove(0);
+        let snapshot = *(removed.key as *const Range);
+        assert_eq!(snapshot.start, 20);
+        assert_eq!((*(entries.get(0).key as *const Range)).start, 10);
+        entries.clear();
+        assert_eq!(snapshot.len, 5);
+    }
+}
+
+#[test]
+fn inline_range_sum_slots_copy_and_relocate_only_the_active_payload() {
+    use crate::aggregates::{payload, wrap};
+    use crate::ranges::{self, Range};
+    static OPTIONAL: Type = Type {
+        inline_range: true,
+        variants: &[
+            Variant {
+                name: "Nothing",
+                fields: &[],
+            },
+            Variant {
+                name: "Some",
+                fields: &[&UNSIGNED_RANGE],
+            },
+        ],
+        ..scalar(b'B')
+    };
+    let source = Range::new(100, 104, 1, false);
+    let mut first = [0u128; 3];
+    let mut second = [0u128; 3];
+    // SAFETY: both typed slots reserve a header plus their inline range payload.
+    unsafe {
+        ranges::store(
+            first.as_mut_ptr(),
+            wrap(&source as *const Range as u128, 1),
+            &OPTIONAL,
+        );
+        second.copy_from_slice(&first);
+        ranges::relocate(second.as_mut_ptr(), &OPTIONAL);
+        first.fill(0);
+        assert_eq!((*(payload(second[0]) as *const Range)).start, 100);
+        assert_eq!((second[0] >> 64) & 1, 1);
+        ranges::store(second.as_mut_ptr(), wrap(0, 0), &OPTIONAL);
+        assert_eq!(second[0], 0);
+    }
+}
+
+#[test]
+fn inline_range_dictionary_removal_and_record_copy_keep_valid_payloads() {
+    use crate::aggregates::payload;
+    use crate::ranges::Range;
+    static MAP: Type = Type {
+        value: Some(&UNSIGNED_RANGE),
+        ..DICT
+    };
+    static RECORD: Type = Type {
+        affine: true,
+        name: "Ranges",
+        variants: &[
+            Variant {
+                name: "range",
+                fields: &[&UNSIGNED_RANGE],
+            },
+            Variant {
+                name: "number",
+                fields: &[&INTEGER],
+            },
+        ],
+        ..scalar(b'C')
+    };
+    // SAFETY: inputs remain live for each copy and all heap owners are released.
+    unsafe {
+        let source = Range::new(10, 13, 1, false);
+        let address = &source as *const Range as u128;
+        let map = collection(0, 0, 0, 0, &MAP);
+        for key in 0..20 {
+            assert_eq!(collection(29, map, key, address, ptr::null()), 0);
+        }
+        let removed = collection(39, map, 3, 0, ptr::null());
+        assert_eq!((*(payload(removed) as *const Range)).start, 10);
+        let record = collection(30, 0, 0, 0, &RECORD);
+        collection(21, record, 0, address, ptr::null());
+        collection(21, record, 1, 42, ptr::null());
+        let duplicate = payload(collection(33, record, 0, 0, &RECORD));
+        plenty_release(record as *mut Header);
+        let copied_range = collection(31, duplicate, 0, 0, ptr::null());
+        assert_eq!((*(copied_range as *const Range)).len, 3);
+        assert_eq!(collection(31, duplicate, 1, 0, ptr::null()), 42);
+        plenty_release(duplicate as *mut Header);
+        plenty_release(map as *mut Header);
     }
 }
 static UNIT: Type = scalar(b'v');

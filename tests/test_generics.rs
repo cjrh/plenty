@@ -10,7 +10,7 @@ def add[T: IntType](a: T, b: T) -> T:
     a + b
 def total[T: IntType](stop: T) -> T:
     mut value: T = 0
-    for n in range[T](stop).unwrap():
+    for n in range[T](stop):
         value = value + n
     value
 def first[T](values: &list[T]) -> &T:

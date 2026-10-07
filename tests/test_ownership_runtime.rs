@@ -14,8 +14,8 @@ enum Data:
     Values(list[i64])
 
 def suspended() -> Generator[i64]:
-    len([n for n in range(10_000).unwrap()].unwrap())
-    match Data.Values([n for n in range(10_000).unwrap()].unwrap()).unwrap():
+    len([n for n in range(10_000)].unwrap())
+    match Data.Values([n for n in range(10_000)].unwrap()).unwrap():
         case Data.Values(values):
             len(values)
     yield 1
@@ -26,7 +26,7 @@ def captured(values: list[str]) -> Generator[str]:
         yield value
 
 def release_unstarted() -> ():
-    captured([('a' + 'b').unwrap() for n in range(100).unwrap()].unwrap()).unwrap()
+    captured([('a' + 'b').unwrap() for n in range(100)].unwrap()).unwrap()
     pass
 
 def early() -> str:
@@ -62,18 +62,18 @@ def main() -> ():
     next(it)
     print("__test_small_live_heap__").unwrap()
     release_unstarted()
-    owned = [n for n in range(10_000).unwrap()].unwrap()
+    owned = [n for n in range(10_000)].unwrap()
     drop(owned)
-    abandoned = captured([('drop' + ' capture').unwrap() for n in range(100).unwrap()].unwrap()).unwrap()
+    abandoned = captured([('drop' + ' capture').unwrap() for n in range(100)].unwrap()).unwrap()
     drop(abandoned)
     print("__test_small_live_heap__").unwrap()
     print(early()).unwrap()
-    for value in captured([('c' + 'd').unwrap() for n in range(100).unwrap()].unwrap()).unwrap():
+    for value in captured([('c' + 'd').unwrap() for n in range(100)].unwrap()).unwrap():
         break
     print("__test_small_live_heap__").unwrap()
 
     mut text = ""
-    for n in range(500).unwrap():
+    for n in range(500):
         text = (text + "é\0").unwrap()
         mut values = {text: [text].unwrap()}.unwrap()
         saved = copy(values).unwrap()
@@ -88,7 +88,7 @@ def main() -> ():
     next(finished)
     next(finished)
 
-    for n in range(100).unwrap():
+    for n in range(100):
         drop(Pair(Buffer([("a" + " data").unwrap()].unwrap()).unwrap(), Buffer([("b" + " data").unwrap()].unwrap()).unwrap()).unwrap())
         mut iterator = buffers(Buffer([("x" + " data").unwrap()].unwrap()).unwrap(), Buffer([("y" + " data").unwrap()].unwrap()).unwrap()).unwrap()
         next(iterator)

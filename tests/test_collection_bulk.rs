@@ -308,15 +308,15 @@ print(2u8 in bytes).unwrap()
 fn set_update_keeps_probe_chains_valid_through_growth_and_removal() {
     native(
         r#"
-mut values = {n for n in range(100).unwrap() if n % 2 == 0}.unwrap()
-print(values.update({n for n in range(100).unwrap()}.unwrap())).unwrap()
+mut values = {n for n in range(100) if n % 2 == 0}.unwrap()
+print(values.update({n for n in range(100)}.unwrap())).unwrap()
 mut valid = len(values) == 100
-for n in range(100).unwrap():
+for n in range(100):
     valid = valid and n in values
-for n in range(25).unwrap():
+for n in range(25):
     values.discard(n)
-print(values.update({n for n in range(25).unwrap()}.unwrap())).unwrap()
-for n in range(100).unwrap():
+print(values.update({n for n in range(25)}.unwrap())).unwrap()
+for n in range(100):
     valid = valid and n in values
 print(valid).unwrap()
 print(len(values)).unwrap()
@@ -350,7 +350,7 @@ fn set_update_failure_preserves_contents_and_the_hash_index() {
             &format!(
                 r#"
 mut data = {{0}}.unwrap()
-source = {{n for n in range(11).unwrap()}}.unwrap()
+source = {{n for n in range(11)}}.unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = data.update(source)
 print("__test_restore_allocations__").unwrap()

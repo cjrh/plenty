@@ -11,7 +11,7 @@ def identity[T](value: T) -> T:
 
 def sum_to[T: IntType](stop: T) -> Result[T, AllocError]:
     mut total: T = 0
-    for n in range[T](stop)?:
+    for n in range[T](stop):
         total = total + n
     Ok(total)
 

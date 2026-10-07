@@ -34,11 +34,16 @@ There is no yield-from, send/throw, generator expression, public reference acros
 suspension, or async/await.
 
 Each generator has a concrete constructor and native resume function. The frame
-owns parameters and all locals in fixed 128-bit slots, plus immutable slot-type metadata,
+owns parameters and all locals in typed slots, plus immutable slot-type metadata,
 resume callback, continuation state, and reentrancy guard. Resume has the internal
 C ABI `(frame, out_slot) -> ready`; successful yields transfer an owned value.
 Completion clears owned slots and marks exhaustion. Dropping any state frees
 remaining captures without resuming the source body.
+
+Ordinary slots use 16 bytes. A range or standard sum containing a range adds a
+32-byte inline payload, so ranges captured or created in a suspended frame do not
+refer to expired caller/resume storage. Yielded ranges copy into caller-provided
+storage. Generator frames themselves still allocate.
 
 Integration deliberately reuses the checked structured operation tree instead
 of introducing a second source IR in this batch. `Yield` requires an empty

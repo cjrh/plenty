@@ -72,16 +72,11 @@ match error:
 
 #[cfg(feature = "runtime-checks")]
 #[rstest]
-#[case(
-    "list",
-    "[n for n in range(8).unwrap()].unwrap()",
-    "values.append(99)",
-    1
-)]
-#[case("set", "{n for n in range(8).unwrap()}.unwrap()", "values.add(99)", 2)]
+#[case("list", "[n for n in range(8)].unwrap()", "values.append(99)", 1)]
+#[case("set", "{n for n in range(8)}.unwrap()", "values.add(99)", 2)]
 #[case(
     "dict",
-    "{n: n for n in range(8).unwrap()}.unwrap()",
+    "{n: n for n in range(8)}.unwrap()",
     "values.insert(99, 99)",
     2
 )]
@@ -120,9 +115,9 @@ print(len(values)).unwrap()
 
 #[cfg(feature = "runtime-checks")]
 #[rstest]
-#[case("[n for n in range(8).unwrap()].unwrap()", 1)]
-#[case("{n for n in range(8).unwrap()}.unwrap()", 2)]
-#[case("{n: n for n in range(8).unwrap()}.unwrap()", 2)]
+#[case("[n for n in range(8)].unwrap()", 1)]
+#[case("{n for n in range(8)}.unwrap()", 2)]
+#[case("{n: n for n in range(8)}.unwrap()", 2)]
 fn reservation_failure_keeps_existing_contents(#[case] initial: &str, #[case] allocations: usize) {
     for budget in 0..=allocations {
         native(

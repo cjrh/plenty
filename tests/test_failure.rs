@@ -17,7 +17,7 @@ fn mixed_errors_and_contextual_success_types() {
         r#"
 type AppFailure = Failure
 def build() -> Result[list[u8], AppFailure]:
-    Ok([n * n for n in range(4)?]?)
+    Ok([n * n for n in range(4)]?)
 def main() -> Result[(), Failure]:
     values: list[u8] = build()?
     print(values)?

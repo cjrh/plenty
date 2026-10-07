@@ -51,9 +51,15 @@ fn summary_lists_every_book_page() {
         .iter()
         .filter(|f| *f != "SUMMARY.md" && !listed.contains(f))
         .collect();
-    assert!(missing.is_empty(), "pages missing from SUMMARY.md: {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "pages missing from SUMMARY.md: {missing:?}"
+    );
     let dangling: Vec<_> = listed.iter().filter(|l| !files.contains(l)).collect();
-    assert!(dangling.is_empty(), "SUMMARY.md links missing pages: {dangling:?}");
+    assert!(
+        dangling.is_empty(),
+        "SUMMARY.md links missing pages: {dangling:?}"
+    );
 }
 
 fn fences(page: &str, markdown: &str) -> Vec<Fence> {
@@ -62,11 +68,7 @@ fn fences(page: &str, markdown: &str) -> Vec<Fence> {
     for (line, text) in markdown.lines().enumerate() {
         if let Some(language) = text.strip_prefix("```") {
             if let Some(fence) = open.take() {
-                assert!(
-                    language.is_empty(),
-                    "{page}:{}: nested fence",
-                    line + 1
-                );
+                assert!(language.is_empty(), "{page}:{}: nested fence", line + 1);
                 fences.push(fence);
             } else {
                 open = Some(Fence {

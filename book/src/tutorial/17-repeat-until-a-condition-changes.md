@@ -47,7 +47,7 @@ advances to the next element:
 
 ```plenty
 def main() -> Result[(), Failure]:
-    for n in range(6)?:
+    for n in range(6):
         if n == 1:
             continue
         if n == 4:

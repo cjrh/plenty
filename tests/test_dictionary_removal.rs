@@ -105,24 +105,24 @@ fn repeated_removal_rebuilds_probe_chains_and_preserves_remaining_order() {
     native(
         r#"
 mut values = dict[i64, i64]().unwrap()
-for n in range(100).unwrap():
+for n in range(100):
     values.insert(n, n * 2).unwrap()
 mut valid = True
-for n in range(0, 100, 2).unwrap():
+for n in range(0, 100, 2):
     match values.pop(n):
         case Some(value):
             valid = valid and value == n * 2
         case Nothing:
             valid = False
-for n in range(1, 100, 2).unwrap():
+for n in range(1, 100, 2):
     match values.get(n):
         case Some(value):
             valid = valid and value == n * 2
         case Nothing:
             valid = False
 print(valid).unwrap()
-print(values.keys().unwrap() == [n for n in range(1, 100, 2).unwrap()].unwrap()).unwrap()
-for n in range(0, 100, 2).unwrap():
+print(values.keys().unwrap() == [n for n in range(1, 100, 2)].unwrap()).unwrap()
+for n in range(0, 100, 2):
     values.insert(n, n).unwrap()
 print(len(values)).unwrap()
 print(values.pop(0)).unwrap()

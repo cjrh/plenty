@@ -72,7 +72,7 @@ fn every_buffer_growth_and_final_string_allocation_can_fail_cleanly() {
         for budget in 0..=12 {
             let out = support::run(&format!(
                 r#"
-values = [n for n in range(32).unwrap()].unwrap()
+values = [n for n in range(32)].unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = {operation}
 print("__test_restore_allocations__").unwrap()

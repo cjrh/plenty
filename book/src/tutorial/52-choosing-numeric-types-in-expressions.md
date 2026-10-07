@@ -5,14 +5,14 @@ function return type can also guide a directly written range comprehension.
 
 ```plenty
 def squares() -> Result[list[u8], AllocError]:
-    [n * n for n in range(8)? if n % 2 == 0]
+    [n * n for n in range(8) if n % 2 == 0]
 
 def main() -> Result[(), Failure]:
     print(squares()?)?
-    print([n * n for n in range[u8](8)? if n % 2 == 0]?)?
-    small: list[u16] = [n + 1 for n in range(3)?]?
+    print([n * n for n in range[u8](8) if n % 2 == 0]?)?
+    small: list[u16] = [n + 1 for n in range(3)]?
     print(small)?
-    print(list(range[u8](5, 0, -2)?)?)?
+    print(list(range[u8](5, 0, -2))?)?
     fraction: f32 = 3.5
     print(fraction * 2)?
     Ok(())

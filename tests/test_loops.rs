@@ -19,16 +19,16 @@ fn run(source: &str) -> std::process::Output {
     "3\n"
 )]
 #[case("mut n = 0\nmut sum = 0\nwhile n < 6:\n    n = n + 1\n    if n % 2 == 0:\n        continue\n    sum = sum + n\nprint(sum).unwrap()", "9\n")]
-#[case("mut visits = 0\nfor n in range(5).unwrap():\n    visits = visits + 1\n    if visits > 10:\n        break\n    continue\nprint(visits).unwrap()", "5\n")]
+#[case("mut visits = 0\nfor n in range(5):\n    visits = visits + 1\n    if visits > 10:\n        break\n    continue\nprint(visits).unwrap()", "5\n")]
 #[case(
-    "for n in range(5).unwrap():\n    if n == 2:\n        break\n    print(n).unwrap()",
+    "for n in range(5):\n    if n == 2:\n        break\n    print(n).unwrap()",
     "0\n1\n"
 )]
 #[case("mut sum = 0\nfor n in [1, 2, 3, 4].unwrap():\n    if n % 2 == 0:\n        continue\n    sum = sum + n\nprint(sum).unwrap()", "4\n")]
-#[case("mut visits = 0\nfor n in range(4).unwrap():\n    visits = visits + 1\n    if n < 2 and visits < 10:\n        continue\n    else:\n        break\nprint(visits).unwrap()", "3\n")]
-#[case("mut total = 0\nfor outer in range(3).unwrap():\n    for inner in range(5).unwrap():\n        if inner == 2:\n            break\n        total = total + 1\nprint(total).unwrap()", "6\n")]
-#[case("mut total = 0\nfor outer in range(3).unwrap():\n    mut inner = 0\n    while inner < 4:\n        inner = inner + 1\n        if inner == 2:\n            continue\n        if inner == 4:\n            break\n        total = total + 1\nprint(total).unwrap()", "6\n")]
-#[case("mut outer = 0\nmut visits = 0\nwhile outer < 3:\n    outer = outer + 1\n    for inner in range(4).unwrap():\n        if inner == 1:\n            break\n        visits = visits + 1\n    continue\nprint(visits).unwrap()", "3\n")]
+#[case("mut visits = 0\nfor n in range(4):\n    visits = visits + 1\n    if n < 2 and visits < 10:\n        continue\n    else:\n        break\nprint(visits).unwrap()", "3\n")]
+#[case("mut total = 0\nfor outer in range(3):\n    for inner in range(5):\n        if inner == 2:\n            break\n        total = total + 1\nprint(total).unwrap()", "6\n")]
+#[case("mut total = 0\nfor outer in range(3):\n    mut inner = 0\n    while inner < 4:\n        inner = inner + 1\n        if inner == 2:\n            continue\n        if inner == 4:\n            break\n        total = total + 1\nprint(total).unwrap()", "6\n")]
+#[case("mut outer = 0\nmut visits = 0\nwhile outer < 3:\n    outer = outer + 1\n    for inner in range(4):\n        if inner == 1:\n            break\n        visits = visits + 1\n    continue\nprint(visits).unwrap()", "3\n")]
 #[case("mut n = 0\nwhile n < 3:\n    n = n + 1\n    while True:\n        break\n    if n == 2:\n        continue\n    print(n).unwrap()", "1\n3\n")]
 #[case("def limit(n: i64) -> bool:\n    print(n).unwrap()\n    n < 3\nmut n = 0\nwhile limit(n):\n    n = n + 1\nprint(n).unwrap()", "0\n1\n2\n3\n3\n")]
 #[case("def condition() -> bool:\n    print('test').unwrap()\n    True\nwhile condition():\n    break\nprint('done').unwrap()", "test\ndone\n")]
@@ -52,20 +52,17 @@ fn run(source: &str) -> std::process::Output {
     "100000\n"
 )]
 #[case(
-    "mut n = 0\nwhile n < 3 and len([x for x in range(n + 1).unwrap()].unwrap()) > 0:\n    n = n + 1\nprint(n).unwrap()",
+    "mut n = 0\nwhile n < 3 and len([x for x in range(n + 1)].unwrap()) > 0:\n    n = n + 1\nprint(n).unwrap()",
     "3\n"
 )]
 #[case(
     "mut xs = [1].unwrap()\nwhile len(xs) < 3:\n    xs.append(len(xs) + 1).unwrap()\nprint(xs).unwrap()",
     "[1, 2, 3]\n"
 )]
-#[case("mut visits = 0\nfor n in range(5, 0, -2).unwrap():\n    visits = visits + 1\n    if visits > 10:\n        break\n    if n == 3:\n        continue\n    print(n).unwrap()\nprint(visits).unwrap()", "5\n1\n3\n")]
+#[case("mut visits = 0\nfor n in range(5, 0, -2):\n    visits = visits + 1\n    if visits > 10:\n        break\n    if n == 3:\n        continue\n    print(n).unwrap()\nprint(visits).unwrap()", "5\n1\n3\n")]
+#[case("n = 99\nfor n in range(3):\n    break\nprint(n).unwrap()", "99\n")]
 #[case(
-    "n = 99\nfor n in range(3).unwrap():\n    break\nprint(n).unwrap()",
-    "99\n"
-)]
-#[case(
-    "while False:\n    break\nfor n in range(0).unwrap():\n    continue\nprint(42).unwrap()",
+    "while False:\n    break\nfor n in range(0):\n    continue\nprint(42).unwrap()",
     "42\n"
 )]
 #[case("mut n = 0\nwhile n < 3:\n    n = n + 1\n    if n > 0:\n        if n < 3:\n            continue\n        else:\n            break\nprint(n).unwrap()", "3\n")]
@@ -87,7 +84,7 @@ fn native_loops(#[case] source: &str, #[case] expected: &str) {
 #[case("break", "break outside a loop")]
 #[case("continue", "continue outside a loop")]
 #[case(
-    "def f() -> ():\n    break\nfor n in range(1).unwrap():\n    f()",
+    "def f() -> ():\n    break\nfor n in range(1):\n    f()",
     "break outside a loop"
 )]
 #[case(
@@ -100,7 +97,7 @@ fn native_loops(#[case] source: &str, #[case] expected: &str) {
     "5:9: unreachable statement"
 )]
 #[case(
-    "for n in range(3).unwrap():\n    continue\n    print(n).unwrap()",
+    "for n in range(3):\n    continue\n    print(n).unwrap()",
     "5:9: unreachable statement"
 )]
 #[case(
@@ -113,10 +110,7 @@ fn native_loops(#[case] source: &str, #[case] expected: &str) {
 )]
 #[case("mut n = 0\nwhile n < 1:\n    n = True", "expected i64")]
 #[case("while missing:\n    missing = True", "unknown binding")]
-#[case(
-    "for n in range(2).unwrap():\n    pass\ncontinue",
-    "continue outside a loop"
-)]
+#[case("for n in range(2):\n    pass\ncontinue", "continue outside a loop")]
 #[case("while False:\n    pass\nbreak", "break outside a loop")]
 #[case(
     "def f() -> i64:\n    while True:\n        return 42",
@@ -132,7 +126,7 @@ fn native_loops(#[case] source: &str, #[case] expected: &str) {
     "loop else is not supported"
 )]
 #[case(
-    "for n in range(0).unwrap():\n    pass\nelse:\n    pass",
+    "for n in range(0):\n    pass\nelse:\n    pass",
     "loop else is not supported"
 )]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {

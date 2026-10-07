@@ -69,7 +69,8 @@ produces its final arm expression, like the existing statement-form `if`.
 
 Native user-defined enum values are immutable pointer-sized handles to tagged
 records. A record contains a managed header, immutable type metadata pointer,
-tag, and one 128-bit slot per active payload field. Equality compares nominal type, tag, and
+tag, and one typed slot per active payload field. Slots use 16 bytes plus 32 inline
+bytes when the field is a range or a standard sum containing one. Equality compares nominal type, tag, and
 payload contents, using IEEE comparisons for floats. Runtime metadata records
 whether equality is reflexive; float-containing values cannot use pointer identity
 as an equality shortcut because of NaN. Aggregate pairs are memoized during a

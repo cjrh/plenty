@@ -11,11 +11,13 @@
 #[cfg(feature = "allocation-checks")]
 mod accounting;
 mod aggregates;
+mod entries;
 mod files;
 mod generators;
 mod io;
 mod memory;
 mod numbers;
+mod ranges;
 mod render_buffer;
 mod strings;
 #[cfg(test)]

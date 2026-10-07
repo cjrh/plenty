@@ -6,7 +6,7 @@ characters of a string. A character is a one-character `str`.
 ```plenty
 def main() -> Result[(), Failure]:
     mut total = 0
-    for n in range(1, 5)?:
+    for n in range(1, 5):
         total = total + n
     print(total)?
 
@@ -15,7 +15,7 @@ def main() -> Result[(), Failure]:
         print(name)?
         print(scores[name])?
 
-    print(list(range(5, 0, -2)?)?)?
+    print(list(range(5, 0, -2))?)?
     print([character? for character in "hé"]?)?
     Ok(())
 ```
@@ -31,10 +31,10 @@ Grace
 ```
 
 `range(stop)` starts at zero. `range(start, stop, step)` permits a negative
-step, but never zero. The stop value is excluded. A range stores its bounds
-without building a list, but currently allocates its own small owner. Both
-range construction and list materialization return results:
-`list(range(5)?)?` propagates both failures. String iteration similarly returns
+step, but never zero. The stop value is excluded. A range is a small inline value:
+creating, copying, and iterating it require no heap allocation. `range(5)` returns
+a range directly; `list(range(5))?` handles the allocation needed for the list.
+You can iterate the same range repeatedly. String iteration returns
 one checked character at a time: `[character? for character in text]?`.
 
 Ranges default to `i64`; `range[u8](8)` explicitly produces u8 values. Start

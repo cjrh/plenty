@@ -1,6 +1,8 @@
 //! Rust-owned metadata and buffers behind a small, layout-stable native prefix.
+use crate::entries::{Entries, Entry};
 use crate::generators::{plenty_generator_resume, Generator};
 use crate::memory::{self, plenty_release, plenty_retain, AllocError, Header};
+use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
 use std::io::Write;
 
@@ -14,6 +16,7 @@ pub(crate) struct Type {
     pub(crate) kind: u8,
     pub(crate) affine: bool,
     pub(crate) reflexive: bool,
+    pub(crate) inline_range: bool,
     pub(crate) key: Option<&'static Type>,
     pub(crate) value: Option<&'static Type>,
     pub(crate) name: &'static str,
@@ -31,7 +34,7 @@ impl Type {
         self.kind == b'B'
             || matches!(
                 self.kind,
-                b's' | b'L' | b'S' | b'D' | b'R' | b'E' | b'C' | b'G' | b'F'
+                b's' | b'L' | b'S' | b'D' | b'E' | b'C' | b'G' | b'F'
             )
     }
     fn key(&self) -> &Type {
@@ -54,21 +57,12 @@ pub(crate) fn wrap(value: u128, tag: u64) -> u128 {
     (value & u64::MAX as u128) | (((value >> 64) * 2 + tag as u128) << 64)
 }
 
-#[derive(Clone, Copy)]
-struct Entry {
-    key: u128,
-    value: u128,
-}
 #[repr(C)]
 struct Collection {
     header: Header,
     ty: *const Type,
-    entries: Vec<Entry>,
+    entries: Entries,
     table: Vec<usize>,
-    start: i128,
-    stop: i128,
-    step: i64,
-    range_len: usize,
 }
 #[repr(C)]
 struct Record {
@@ -122,12 +116,8 @@ fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collect
     let mut collection = Collection {
         header: Header::new(collection_destroy),
         ty,
-        entries: Vec::new(),
+        entries: Entries::new(ty.key(), ty.value),
         table: Vec::new(),
-        start: 0,
-        stop: 0,
-        step: 0,
-        range_len: 0,
     };
     // Validate and reserve before publishing an owner. Until the header is
     // allocated, ordinary Rust drops reclaim these empty buffers on any error.
@@ -174,11 +164,27 @@ fn field_type(ty: &Type, tag: u64, index: usize) -> &Type {
         ty.variants[tag as usize].fields[index]
     }
 }
+fn record_words(ty: &Type, tag: u64) -> usize {
+    (0..record_count(ty, tag))
+        .map(|i| field_type(ty, tag, i).slot_words())
+        .sum()
+}
+unsafe fn record_slot(record: *mut Record, index: usize) -> *mut u128 {
+    unsafe {
+        let ty = &*(*record).ty;
+        let offset: usize = (0..index)
+            .map(|i| field_type(ty, (*record).tag_or_hook, i).slot_words())
+            .sum();
+        std::ptr::addr_of_mut!((*record).fields)
+            .cast::<u128>()
+            .add(offset)
+    }
+}
 fn record_new(ty: &'static Type, tag_or_hook: u64) -> *mut Record {
     try_record_new(ty, tag_or_hook).unwrap_or_else(|_| crate::fail("record allocation failed"))
 }
 fn try_record_new(ty: &'static Type, tag_or_hook: u64) -> Result<*mut Record, AllocError> {
-    let count = record_count(ty, tag_or_hook);
+    let count = record_words(ty, tag_or_hook);
     let r = memory::try_allocate::<Record, u128>(count)?;
     unsafe {
         r.write(Record {
@@ -211,12 +217,9 @@ unsafe extern "C" fn record_destroy(header: *mut Header) {
             }
         }
         for i in (0..count).rev() {
-            release(
-                *std::ptr::addr_of!((*r).fields).cast::<u128>().add(i),
-                field_type(ty, tag, i),
-            );
+            release(*record_slot(r, i), field_type(ty, tag, i));
         }
-        memory::free::<Record, u128>(r, count);
+        memory::free::<Record, u128>(r, record_words(ty, tag));
     }
 }
 
@@ -266,18 +269,14 @@ impl Collection {
         unsafe { &*self.ty }
     }
     fn len(&self) -> usize {
-        if self.ty().kind == b'R' {
-            self.range_len
-        } else {
-            self.entries.len()
-        }
+        self.entries.len()
     }
     unsafe fn bucket(&self, key: u128) -> usize {
         unsafe {
             let mut bucket = hash(key, self.ty().key()) as usize & (self.table.len() - 1);
             while self.table[bucket] != 0
                 && !equal(
-                    self.entries[self.table[bucket] - 1].key,
+                    self.entries.get(self.table[bucket] - 1).key,
                     key,
                     self.ty().key(),
                 )
@@ -319,7 +318,7 @@ impl Collection {
             memory::try_reserve(&mut table, table_size)?;
             table.resize(table_size, 0);
         }
-        memory::try_reserve(&mut self.entries, additional)?;
+        self.entries.try_reserve(additional)?;
         if table_size != 0 {
             // Hashing legal keys (integers, bool, str) never allocates or calls
             // user code. Build from hashes alone: all existing keys are unique.
@@ -347,7 +346,9 @@ impl Collection {
         unsafe {
             self.try_reserve(source.entries.len())?;
         }
-        self.entries.append(&mut source.entries);
+        unsafe {
+            self.entries.append(&mut source.entries);
+        }
         Ok(())
     }
 
@@ -363,9 +364,10 @@ impl Collection {
             self.try_reserve(additional)?;
             let ty = &*self.ty;
             source.table.fill(0);
-            for entry in source.entries.drain(..) {
+            for entry in source.entries.iter() {
                 if let Some(index) = self.find(entry.key) {
-                    let old = std::mem::replace(&mut self.entries[index].value, entry.value);
+                    let old = self.entries.get(index).value;
+                    self.entries.set(index, true, entry.value);
                     release(entry.key, ty.key());
                     if let Some(value_type) = ty.value {
                         release(old, value_type);
@@ -376,6 +378,7 @@ impl Collection {
                     self.entries.push(entry);
                 }
             }
+            source.entries.clear();
             Ok(())
         }
     }
@@ -386,9 +389,9 @@ impl Collection {
                 if let Some(i) = self.find(key) {
                     if let Some(ty) = &self.ty().value {
                         retain(value, ty);
-                        release(self.entries[i].value, ty);
+                        release(self.entries.get(i).value, ty);
                     }
-                    self.entries[i].value = value;
+                    self.entries.set(i, true, value);
                     return Ok(());
                 }
             }
@@ -398,7 +401,7 @@ impl Collection {
                     .len()
                     .max(4)
                     .min(
-                        (isize::MAX as usize / size_of::<Entry>())
+                        (isize::MAX as usize / self.entries.row_bytes())
                             .saturating_sub(self.entries.len()),
                     )
                     .max(1)
@@ -439,14 +442,10 @@ impl Collection {
     }
 
     unsafe fn at(&self, index: usize) -> u128 {
-        if self.ty().kind == b'R' {
-            (self.start + index as i128 * self.step as i128) as u128
-        } else {
-            unsafe {
-                let value = self.entries[index].key;
-                retain(value, self.ty().key());
-                value
-            }
+        unsafe {
+            let value = self.entries.get(index).key;
+            retain(value, self.ty().key());
+            value
         }
     }
 }
@@ -495,26 +494,27 @@ unsafe fn equal_inner(
                 }
                 (0..record_count(ty, (*a).tag_or_hook)).all(|i| {
                     equal_inner(
-                        *std::ptr::addr_of!((*a).fields).cast::<u128>().add(i),
-                        *std::ptr::addr_of!((*b).fields).cast::<u128>().add(i),
+                        *record_slot(a.cast_mut(), i),
+                        *record_slot(b.cast_mut(), i),
                         field_type(ty, (*a).tag_or_hook, i),
                         seen,
                         cursor,
                     )
                 })
             }
-            b'L' | b'S' | b'D' | b'R' => {
+            b'R' => {
+                let (a, b) = (&*(a as *const Range), &*(b as *const Range));
+                a.len == b.len
+                    && (a.len == 0 || (a.start == b.start && (a.len == 1 || a.step == b.step)))
+            }
+            b'L' | b'S' | b'D' => {
                 let (a, b) = (&*(a as *const Collection), &*(b as *const Collection));
                 if a.len() != b.len() {
                     return false;
                 }
-                if ty.kind == b'R' {
-                    return a.len() == 0
-                        || (a.start == b.start && (a.len() == 1 || a.step == b.step));
-                }
                 for (i, entry) in a.entries.iter().enumerate() {
                     if ty.kind == b'L' {
-                        if !equal_inner(entry.key, b.entries[i].key, ty.key(), seen, cursor) {
+                        if !equal_inner(entry.key, b.entries.get(i).key, ty.key(), seen, cursor) {
                             return false;
                         }
                     } else {
@@ -524,7 +524,7 @@ unsafe fn equal_inner(
                         if ty.kind == b'D'
                             && !equal_inner(
                                 entry.value,
-                                b.entries[j].value,
+                                b.entries.get(j).value,
                                 ty.value(),
                                 seen,
                                 cursor,
@@ -624,7 +624,7 @@ unsafe fn write_file_lines(
     unsafe {
         // Validate state even for an empty list; an empty write preserves CRLF state.
         crate::files::write(file, "")?;
-        for entry in &(*lines).entries {
+        for entry in (*lines).entries.iter() {
             crate::files::write(file, strings::utf8(entry.key as *const Text))?;
         }
     }
@@ -633,8 +633,8 @@ unsafe fn write_file_lines(
 
 /// Count the selected unique members before allocating. Inputs stay borrowed;
 /// output members retain immutable keys only after all storage is reserved.
-unsafe fn try_set_from_entries<'a>(
-    entries: impl Iterator<Item = &'a Entry> + Clone,
+unsafe fn try_set_from_entries(
+    entries: impl Iterator<Item = Entry> + Clone,
     ty: &'static Type,
 ) -> Result<u128, AllocError> {
     unsafe {
@@ -700,9 +700,11 @@ unsafe fn try_dictionary_snapshot(
     unsafe {
         let result = try_collection_new(ty, source.entries.len())?;
         let element = ty.key();
-        for entry in &mut source.entries {
+        for index in 0..source.entries.len() {
+            let entry = source.entries.get(index);
             let value = if values && element.affine {
-                std::mem::take(&mut entry.value)
+                source.entries.set(index, true, 0);
+                entry.value
             } else {
                 let value = if values { entry.value } else { entry.key };
                 retain(value, element);
@@ -731,9 +733,11 @@ unsafe fn try_list_slice(
         let element = ty.key();
         // Reserve before moving anything. The source is a unique temporary for
         // affine elements; its eventual cleanup releases all unselected entries.
-        for entry in &mut source.entries[bounds] {
+        for index in bounds {
+            let entry = source.entries.get(index);
             let value = if element.affine {
-                std::mem::take(&mut entry.key)
+                source.entries.set(index, false, 0);
+                entry.key
             } else {
                 retain(entry.key, element);
                 entry.key
@@ -769,20 +773,18 @@ unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
                 let tag = (*source).tag_or_hook;
                 let count = record_count(ty, tag);
                 let result = try_record_new(&*(*source).ty, tag)?;
-                let fields = std::ptr::addr_of_mut!((*result).fields).cast::<u128>();
                 for i in 0..count {
-                    match try_copy(
-                        *std::ptr::addr_of!((*source).fields).cast::<u128>().add(i),
-                        field_type(ty, tag, i),
-                    ) {
-                        Ok(field) => *fields.add(i) = field,
+                    match try_copy(*record_slot(source.cast_mut(), i), field_type(ty, tag, i)) {
+                        Ok(field) => {
+                            ranges::store(record_slot(result, i), field, field_type(ty, tag, i))
+                        }
                         Err(error) => {
                             // Only the initialized prefix owns values. Never
                             // run a whole-record destructor on a partial copy.
                             for j in (0..i).rev() {
-                                release(*fields.add(j), field_type(ty, tag, j));
+                                release(*record_slot(result, j), field_type(ty, tag, j));
                             }
-                            memory::free::<Record, u128>(result, count);
+                            memory::free::<Record, u128>(result, record_words(ty, tag));
                             return Err(error);
                         }
                     }
@@ -796,7 +798,7 @@ unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
                     value: result as u128,
                     ty,
                 };
-                for entry in &source.entries {
+                for entry in source.entries.iter() {
                     let key = OwnedValue {
                         value: try_copy(entry.key, ty.key())?,
                         ty: ty.key(),
@@ -876,7 +878,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                             out.push(b'=');
                         }
                         render(
-                            *std::ptr::addr_of!((*r).fields).cast::<u128>().add(i),
+                            *record_slot(r.cast_mut(), i),
                             field_type(ty, (*r).tag_or_hook, i),
                             out,
                         );
@@ -887,12 +889,18 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                     out.push(b')');
                 }
             }
+            b'R' => {
+                let r = &*(value as *const Range);
+                let signed = ty.key().kind <= b'4';
+                let stop = if signed {
+                    r.stop as i64 as i128
+                } else {
+                    r.stop as i128
+                };
+                write!(out, "range({}, {}, {})", r.start(signed), stop, r.step).unwrap();
+            }
             _ => {
                 let c = &*(value as *const Collection);
-                if ty.kind == b'R' {
-                    write!(out, "range({}, {}, {})", c.start, c.stop, c.step).unwrap();
-                    return;
-                }
                 if ty.kind == b'S' && c.entries.is_empty() {
                     out.extend_from_slice(b"set()");
                     return;
@@ -924,8 +932,26 @@ pub(crate) unsafe extern "C" fn plenty_collection(
     descriptor: *const Type,
     out: *mut u128,
 ) {
-    // SAFETY: generated code supplies three aligned slots and one output slot.
+    // SAFETY: generated code supplies three aligned inputs and an output slot
+    // followed by 32 bytes of scratch range storage.
     unsafe {
+        if op == 10 {
+            let range = out.add(1).cast::<Range>();
+            range.write(Range::new(
+                *args as u64,
+                *args.add(1) as u64,
+                *args.add(2) as i64,
+                (*descriptor).key().kind <= b'4',
+            ));
+            out.write(range as u128);
+            return;
+        }
+        if op == 24 {
+            out.write(0);
+            let ready = plenty_generator_resume(*args as *mut Generator, out);
+            out.write(wrap(out.read(), ready as u64));
+            return;
+        }
         out.write(collection(
             op,
             *args,
@@ -946,6 +972,18 @@ pub(crate) unsafe fn collection(
     // SAFETY: the independent compiler checker supplies each opcode's declared
     // types and arity. No general Rust reference is returned to generated code.
     unsafe {
+        if !descriptor.is_null() && (*descriptor).kind == b'R' {
+            let signed = (*descriptor).key().kind <= b'4';
+            match op {
+                4 | 6 => {
+                    let range = &*(a as *const Range);
+                    return range.at(index(b as i64, range.len as usize), signed);
+                }
+                5 => return (*(a as *const Range)).len as u128,
+                7 => return (*(b as *const Range)).contains(a, signed) as u128,
+                _ => {}
+            }
+        }
         if op == 14 || op == 33 {
             let ty = if descriptor.is_null() {
                 value_type(a)
@@ -975,19 +1013,14 @@ pub(crate) unsafe fn collection(
         match op {
             112 => {
                 let owner = *(a as *const u128);
-                let c = &*(owner as *const Collection);
+                let c = &mut *(owner as *mut Collection);
                 let position = if c.ty().kind == b'L' {
                     index(b as i64, c.entries.len())
                 } else {
                     c.find(b)
                         .unwrap_or_else(|| crate::fail("dictionary key not found"))
                 };
-                let entry = c.entries.as_ptr().add(position);
-                if c.ty().kind == b'L' {
-                    std::ptr::addr_of!((*entry).key) as u128
-                } else {
-                    std::ptr::addr_of!((*entry).value) as u128
-                }
+                c.entries.slot(position, c.ty().kind != b'L') as u128
             }
             114 => match strings::try_get(a as *const Text, b as i64) {
                 Ok(Some(text)) => wrap(text as u128, 0),
@@ -1131,9 +1164,9 @@ pub(crate) unsafe fn collection(
                     list.entries.iter().filter(|entry| matches(entry)).count() as u128
                 } else {
                     let index = if op == 74 {
-                        list.entries.iter().position(matches)
+                        list.entries.iter().position(|entry| matches(&entry))
                     } else {
-                        list.entries.iter().rposition(matches)
+                        list.entries.iter().rposition(|entry| matches(&entry))
                     };
                     match index {
                         Some(index) => wrap(index as u128, 1),
@@ -1237,7 +1270,7 @@ pub(crate) unsafe fn collection(
                 c.table.fill(0);
                 // Drain preserves allocated capacity. Clear the visible length
                 // before invoking cleanup, then destroy entries in source order.
-                for entry in c.entries.drain(..) {
+                for entry in c.entries.drain() {
                     release(entry.key, ty.key());
                     if let Some(value) = ty.value {
                         release(entry.value, value);
@@ -1391,15 +1424,15 @@ pub(crate) unsafe fn collection(
                 if c.ty().kind == b'L' {
                     let i = index(b as i64, c.len());
                     retain(value, c.ty().key());
-                    release(c.entries[i].key, c.ty().key());
-                    c.entries[i].key = value;
+                    release(c.entries.get(i).key, c.ty().key());
+                    c.entries.set(i, false, value);
                 } else {
                     let i = c.find(b).unwrap_or_else(|| {
                         crate::fail("dictionary key not found; use insert to add keys")
                     });
                     retain(value, c.ty().value());
-                    release(c.entries[i].value, c.ty().value());
-                    c.entries[i].value = value;
+                    release(c.entries.get(i).value, c.ty().value());
+                    c.entries.set(i, true, value);
                 }
                 plenty_retain(a as *mut Header);
                 a
@@ -1408,7 +1441,7 @@ pub(crate) unsafe fn collection(
                 let c = &*(a as *const Collection);
                 match checked_index(b as i64, c.entries.len()) {
                     Some(index) => {
-                        let value = c.entries[index].key;
+                        let value = c.entries.get(index).key;
                         retain(value, c.ty().key());
                         wrap(value, 1)
                     }
@@ -1431,7 +1464,7 @@ pub(crate) unsafe fn collection(
                 let c = &*(a as *const Collection);
                 match c.find(b) {
                     Some(i) => {
-                        let value = c.entries[i].value;
+                        let value = c.entries.get(i).value;
                         retain(value, c.ty().value());
                         wrap(value, 1)
                     }
@@ -1444,8 +1477,8 @@ pub(crate) unsafe fn collection(
                     let i = c
                         .find(b)
                         .unwrap_or_else(|| crate::fail("dictionary key not found"));
-                    retain(c.entries[i].value, c.ty().value());
-                    c.entries[i].value
+                    retain(c.entries.get(i).value, c.ty().value());
+                    c.entries.get(i).value
                 } else {
                     c.at(index(b as i64, c.len()))
                 }
@@ -1457,22 +1490,15 @@ pub(crate) unsafe fn collection(
                     crate::fail("owned iteration requires a list");
                 }
                 let i = index(b as i64, c.len());
-                std::mem::take(&mut c.entries[i].key)
+                {
+                    let value = c.entries.get(i).key;
+                    c.entries.set(i, false, 0);
+                    value
+                }
             }
             7 => {
                 let c = &*(b as *const Collection);
-                if c.ty().kind == b'R' {
-                    let number = if c.ty().key().kind <= b'4' {
-                        a as i64 as i128
-                    } else {
-                        a as u64 as i128
-                    };
-                    let delta = number - c.start;
-                    (c.len() > 0
-                        && delta % c.step as i128 == 0
-                        && delta / c.step as i128 >= 0
-                        && delta / (c.step as i128) < c.len() as i128) as u128
-                } else if c.ty().kind != b'L' {
+                if c.ty().kind != b'L' {
                     c.find(a).is_some() as u128
                 } else {
                     c.entries
@@ -1507,48 +1533,7 @@ pub(crate) unsafe fn collection(
                 );
                 0
             }
-            10 | 113 => {
-                let c = match try_collection_new(&*descriptor, 0) {
-                    Ok(c) => c,
-                    Err(e) if op == 113 => return wrap(wrap(0, e as u64), 1),
-                    Err(_) => crate::fail("range allocation failed"),
-                };
-                let signed = (*descriptor).key().kind <= b'4';
-                (*c).start = if signed {
-                    a as i64 as i128
-                } else {
-                    a as u64 as i128
-                };
-                (*c).stop = if signed {
-                    b as i64 as i128
-                } else {
-                    b as u64 as i128
-                };
-                (*c).step = value as i64;
-                if (*c).step == 0 {
-                    crate::fail("range step cannot be zero");
-                }
-                let distance = if (*c).step > 0 {
-                    (*c).stop - (*c).start
-                } else {
-                    (*c).start - (*c).stop
-                };
-                let step = ((*c).step as i128).abs();
-                let len = if distance <= 0 {
-                    0
-                } else {
-                    (distance + step - 1) / step
-                };
-                if len > i64::MAX as i128 {
-                    crate::fail("range length exceeds i64");
-                }
-                (*c).range_len = len as usize;
-                if op == 113 {
-                    wrap(c as u128, 0)
-                } else {
-                    c as u128
-                }
-            }
+            117 => ranges::copy_payload(a, &*descriptor, b as *mut Range),
             11 => try_dictionary_snapshot(&mut *(a as *mut Collection), &*descriptor, true)
                 .unwrap_or_else(|_| crate::fail("dictionary snapshot allocation failed")),
             108 => match try_record_new(&*descriptor, a as u64) {
@@ -1565,10 +1550,10 @@ pub(crate) unsafe fn collection(
                 let ty = &*(*r).ty;
                 let i = index(b as i64, record_count(ty, (*r).tag_or_hook));
                 let field_ty = field_type(ty, (*r).tag_or_hook, i);
-                let slot = std::ptr::addr_of_mut!((*r).fields).cast::<u128>().add(i);
+                let slot = record_slot(r, i);
                 retain(value, field_ty);
                 release(*slot, field_ty);
-                *slot = value;
+                ranges::store(slot, value, field_ty);
                 0
             }
             22 => (*(a as *const Record)).tag_or_hook as u128,
@@ -1579,7 +1564,7 @@ pub(crate) unsafe fn collection(
                     crate::fail("invalid enum projection");
                 }
                 let i = index(b as i64, record_count(ty, (*r).tag_or_hook));
-                let slot = std::ptr::addr_of_mut!((*r).fields).cast::<u128>().add(i);
+                let slot = record_slot(r, i);
                 let field = *slot;
                 if op == 25 {
                     *slot = 0;

@@ -371,7 +371,7 @@ impl CollectionOp {
             ),
             Range(t) => (
                 vec![t.clone(), t.clone(), Ty::I64],
-                crate::sum::result(Ty::Range(Rc::new(t.clone())), crate::sum::alloc_error()),
+                Ty::Range(Rc::new(t.clone())),
             ),
             TryKeys(t) | TryValues(t) => {
                 let Ty::Dict(k, v) = t else { unreachable!() };
@@ -455,7 +455,7 @@ impl CollectionOp {
             Self::IterGet(_) => 6,
             Self::IterTake(_) => 15,
             Self::Contains(_) => 7,
-            Self::Range(_) => 113,
+            Self::Range(_) => 10,
             Self::TryKeys(_) => 43,
             Self::TryValues(_) => 44,
             Self::ListTrySlice(_) => 45,

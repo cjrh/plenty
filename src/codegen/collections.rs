@@ -24,7 +24,7 @@ impl Lowerer<'_, '_> {
                 .bcx
                 .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
                     cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    64,
+                    96,
                     4,
                 ));
             self.collection_scratch = Some(slot);
@@ -75,9 +75,14 @@ impl Lowerer<'_, '_> {
             | CollectionOp::FormatValue(ty)
             | CollectionOp::TryPrint(ty) => Some(ty),
             CollectionOp::Next(_) => Some(&output),
-            CollectionOp::Range(_) => {
-                let Ty::Enum(t) = &output else { unreachable!() };
-                Some(&t.variants[0].fields[0])
+            CollectionOp::Range(_) => Some(&output),
+            CollectionOp::Len(t)
+            | CollectionOp::Get(t)
+            | CollectionOp::IterGet(t)
+            | CollectionOp::Contains(t)
+                if matches!(t, Ty::Range(_)) =>
+            {
+                Some(t)
             }
             CollectionOp::TryCopy(ty) => Some(ty),
             CollectionOp::TryNew(ty) | CollectionOp::ListTrySlice(ty) => Some(ty),
@@ -93,10 +98,11 @@ impl Lowerer<'_, '_> {
             _ => None,
         };
         let result = self.collection_call(operation.opcode(), &values, descriptor)?;
+        let result = self.unpack(result, &output);
+        let result = self.snapshot_range(result, &output);
         for (value, ty) in values.iter().zip(&inputs) {
             self.release(*value, ty);
         }
-        let result = self.unpack(result, &output);
         self.stack.push((result, output));
         Ok(())
     }

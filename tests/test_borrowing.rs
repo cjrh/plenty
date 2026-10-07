@@ -63,7 +63,7 @@ use std::process::Command;
 )]
 #[case("type R = Result[list[i64], str]\na = R.Ok([1].unwrap())\nb = copy(a).unwrap()\nmatch b:\n    case R.Ok(items):\n        mut x = items\n        x.append(2).unwrap()\n        print(x).unwrap()\n    case R.Err(_):\n        pass\nprint(a).unwrap()", "[1, 2]\nResult[list[i64], str].Ok([1])\n")]
 #[case(
-    "mut a: list[i64] = [].unwrap()\nfor n in range(20_000).unwrap():\n    a.append(n).unwrap()\nprint(len(a)).unwrap()\nprint(a[-1]).unwrap()",
+    "mut a: list[i64] = [].unwrap()\nfor n in range(20_000):\n    a.append(n).unwrap()\nprint(len(a)).unwrap()\nprint(a[-1]).unwrap()",
     "20000\n19999\n"
 )]
 #[case("type View = &list[i64]\ndef length(v: View) -> i64:\n    len(v)\na = [1, 2].unwrap()\nprint(length(&a)).unwrap()", "2\n")]
@@ -154,7 +154,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 )]
 #[case("x = 1\ndrop(&x)", "owned value")]
 #[case(
-    "s = ('a' + 'b').unwrap()\nfor n in range(2).unwrap():\n    print(s).unwrap()\n    drop(s)",
+    "s = ('a' + 'b').unwrap()\nfor n in range(2):\n    print(s).unwrap()\n    drop(s)",
     "loop backedge"
 )]
 #[case("n = 1\nwhile n > 0:\n    drop(n)", "loop backedge")]

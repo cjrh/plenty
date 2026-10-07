@@ -14,6 +14,7 @@ pub struct EnumType {
     pub copyable: bool,
     pub has_destructor: bool,
     pub managed: bool,
+    pub inline_range: bool,
 }
 impl PartialEq for EnumType {
     fn eq(&self, other: &Self) -> bool {
@@ -65,6 +66,7 @@ pub fn failure() -> Ty {
         copyable: true,
         has_destructor: false,
         managed: false,
+        inline_range: false,
     }))
 }
 
@@ -85,6 +87,7 @@ pub fn alloc_error() -> Ty {
         copyable: true,
         has_destructor: false,
         managed: false,
+        inline_range: false,
     }))
 }
 
@@ -150,6 +153,7 @@ pub fn tuple(fields: Vec<Ty>) -> Ty {
         has_destructor: fields.iter().any(Ty::has_destructor),
         restricted_storage: fields.iter().any(Ty::restricted_storage),
         managed: true,
+        inline_range: false,
         variants: vec![Variant {
             name: String::new(),
             fields,
@@ -166,6 +170,7 @@ pub fn option(element: Ty) -> Ty {
         copyable: element.can_copy(),
         has_destructor: element.has_destructor(),
         managed: element.managed(),
+        inline_range: element.has_inline_range(),
         variants: vec![
             Variant {
                 name: "Nothing".into(),
@@ -187,6 +192,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
         copyable: ok.can_copy() && error.can_copy(),
         has_destructor: ok.has_destructor() || error.has_destructor(),
         managed: ok.managed() || error.managed(),
+        inline_range: ok.has_inline_range() || error.has_inline_range(),
         variants: vec![
             Variant {
                 name: "Ok".into(),

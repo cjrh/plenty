@@ -83,6 +83,7 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
     };
     bytes[1] = u8::from(ty.affine());
     bytes[2] = u8::from(reflexive(ty, &mut Default::default()));
+    bytes[3] = u8::from(ty.has_inline_range());
     let mut links = Vec::new();
     match ty {
         Ty::List(t) | Ty::Set(t) | Ty::Range(t) => links.push((8, declare(module, runtime, t)?)),

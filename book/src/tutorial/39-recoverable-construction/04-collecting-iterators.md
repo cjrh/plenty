@@ -4,7 +4,7 @@ Comprehensions support the same explicit allocation boundary:
 
 ```plenty
 def squares() -> Result[list[i64], AllocError]:
-    [n * n for n in range(6)? if n % 2 == 0]
+    [n * n for n in range(6) if n % 2 == 0]
 
 def main() -> Result[(), IoError]:
     print(squares())?

@@ -111,7 +111,7 @@ fn readline_preserves_line_endings_and_distinguishes_empty_lines_from_eof() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt")? as file:
-        for n in range(6).unwrap():
+        for n in range(6):
             print(file.readline()).unwrap()
     Ok(())
 print(work()).unwrap()

@@ -96,8 +96,8 @@ String `+` and indexing return `Result[str, AllocError]`. Index bounds still
 trap; `get` returns `Result[Option[str], AllocError]` for recoverable absence.
 String iteration yields `Result[str, AllocError]` per scalar, and advances its
 byte cursor without allocation even after an error. String literals are immortal
-and need no allocation. Ranges currently have heap-backed storage: `range(...)`
-and `range[T](...)` return `Result[range[T], AllocError]`.
+and need no allocation. Ranges are inline values: `range(...)` and
+`range[T](...)` return `range[T]` directly without allocating.
 
 `text.replace(old, new)` returns `Result[str, AllocError]`. It requires two
 `str` arguments (references are accepted) and observes receiver, old, and new

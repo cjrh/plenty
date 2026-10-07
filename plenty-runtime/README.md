@@ -29,11 +29,19 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
 - Runtime slots carry 128 raw bits: the low word is a scalar or pointer payload,
   and the high word stores the tag path for inline `Option`/`Result` wrappers
   and the builtin `AllocError` enum.
+  A slot whose type contains an inline range reserves another 32 bytes for
+  start/stop/step/length. Those payloads live in the same local, aggregate buffer,
+  record, or generator frame as their slots; relocations repair their private
+  addresses. Plain ranges have no ownership header or separate heap allocation.
   Floats use their IEEE bit patterns (`f32` in the low 32 bits), and unit payloads
   use zero. Aggregate calls pass aligned input/output slot pointers, avoiding a
   dependency on the platform's C ABI for 128-bit integers. Float equality follows IEEE
   rules even inside shared aggregates; memoized comparisons preserve linear
   traversal of shared payload graphs rather than expanding them into trees.
+- The aggregate helper's generated scratch area contains three 16-byte inputs,
+  one 16-byte output, and 32 bytes of inline range output storage. Returning a
+  range from an ordinary function likewise uses storage supplied by its caller.
+  Generator resume output reserves the same extra payload space when needed.
 - Generated code supplies valid typed pointers, initialized fields, bounded type
   descriptors, and ownership transfers. Internal zero slots represent moved or
   uninitialized values; they are never source-level nullable references.

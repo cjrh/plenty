@@ -78,7 +78,7 @@ def work() -> Option[i64]:
         n: Option[i64] = Nothing
         return Some(n?)
 print(work()).unwrap()
-for n in range(2).unwrap():
+for n in range(2):
     with Counter(n).unwrap() as counter:
         counter.count = counter.count + 10
         if n == 0:
@@ -255,7 +255,7 @@ print(work()).unwrap()
 #[test]
 fn loop_exits_cleanup_once_and_inner_loop_keeps_manager() {
     run(&format!(r#"{MANAGER}
-for n in range(2).unwrap():
+for n in range(2):
     with Manager("enter").unwrap() as r:
         if n == 0:
             continue

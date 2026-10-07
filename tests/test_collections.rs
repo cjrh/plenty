@@ -43,39 +43,33 @@ use rstest::rstest;
     "[[], [1]]\n"
 )]
 #[case(
-    "print([x * x for x in range(6).unwrap() if x > 2].unwrap()).unwrap()",
+    "print([x * x for x in range(6) if x > 2].unwrap()).unwrap()",
     "[9, 16, 25]\n"
 )]
 #[case(
-    "print([x * 10 + y for x in range(3).unwrap() for y in range(x).unwrap() if y < 2].unwrap()).unwrap()",
+    "print([x * 10 + y for x in range(3) for y in range(x) if y < 2].unwrap()).unwrap()",
     "[10, 20, 21]\n"
 )]
 #[case(
-    "print([x for x in range(8).unwrap() if x > 1 if x < 4].unwrap()).unwrap()",
+    "print([x for x in range(8) if x > 1 if x < 4].unwrap()).unwrap()",
     "[2, 3]\n"
 )]
 #[case(
-    "x = 10\nprint([x for x in range(x).unwrap() if x < 2].unwrap()).unwrap()\nprint(x).unwrap()",
+    "x = 10\nprint([x for x in range(x) if x < 2].unwrap()).unwrap()\nprint(x).unwrap()",
     "[0, 1]\n10\n"
 )]
 #[case(
     "print({x: x * x for x in [3, 2, 3].unwrap()}.unwrap()).unwrap()",
     "{3: 9, 2: 4}\n"
 )]
+#[case("print(len({x // 2 for x in range(10)}.unwrap())).unwrap()", "5\n")]
 #[case(
-    "print(len({x // 2 for x in range(10).unwrap()}.unwrap())).unwrap()",
-    "5\n"
-)]
-#[case(
-    "print([[x + y for y in range(2).unwrap()].unwrap() for x in range(3).unwrap()].unwrap()).unwrap()",
+    "print([[x + y for y in range(2)].unwrap() for x in range(3)].unwrap()).unwrap()",
     "[[0, 1], [1, 2], [2, 3]]\n"
 )]
+#[case("print(100 + len([x for x in range(4)].unwrap())).unwrap()", "104\n")]
 #[case(
-    "print(100 + len([x for x in range(4).unwrap()].unwrap())).unwrap()",
-    "104\n"
-)]
-#[case(
-    "mut total = 0\nfor n in range(5).unwrap():\n    total = total + n\nprint(total).unwrap()",
+    "mut total = 0\nfor n in range(5):\n    total = total + n\nprint(total).unwrap()",
     "10\n"
 )]
 #[case(
@@ -87,10 +81,10 @@ use rstest::rstest;
     "for c in 'hé🙂':\n    print(c.unwrap()).unwrap()\nprint(len('hé🙂')).unwrap()\nprint('hé🙂'[-1].unwrap()).unwrap()",
     "h\né\n🙂\n3\n🙂\n"
 )]
-#[case("print(list(range(5, -2, -2).unwrap()).unwrap()).unwrap()\nprint(len(range(5, 0).unwrap())).unwrap()\nprint(3 in range(1, 8, 2).unwrap()).unwrap()\nprint(4 not in range(1, 8, 2).unwrap()).unwrap()", "[5, 3, 1, -1]\n0\nTrue\nTrue\n")]
-#[case("print(list(range(9223372036854775806, 9223372036854775807).unwrap()).unwrap()).unwrap()\nprint(list(range(0, -9223372036854775808, -9223372036854775808).unwrap()).unwrap()).unwrap()", "[9223372036854775806]\n[0]\n")]
+#[case("print(list(range(5, -2, -2)).unwrap()).unwrap()\nprint(len(range(5, 0))).unwrap()\nprint(3 in range(1, 8, 2)).unwrap()\nprint(4 not in range(1, 8, 2)).unwrap()", "[5, 3, 1, -1]\n0\nTrue\nTrue\n")]
+#[case("print(list(range(9223372036854775806, 9223372036854775807)).unwrap()).unwrap()\nprint(list(range(0, -9223372036854775808, -9223372036854775808)).unwrap()).unwrap()", "[9223372036854775806]\n[0]\n")]
 #[case(
-    "print(range(2, 8, 2).unwrap()[-1]).unwrap()\nprint(range(3, 0).unwrap() == range(0).unwrap()).unwrap()",
+    "print(range(2, 8, 2)[-1]).unwrap()\nprint(range(3, 0) == range(0)).unwrap()",
     "6\nTrue\n"
 )]
 #[case(
@@ -121,7 +115,7 @@ use rstest::rstest;
 #[case("print([1, 2].unwrap() == [1, 2].unwrap()).unwrap()\nprint([[1].unwrap()].unwrap() != [[2].unwrap()].unwrap()).unwrap()\nprint({'a': 1, 'b': 2}.unwrap() == {'b': 2, 'a': 1}.unwrap()).unwrap()\nprint({1, 2}.unwrap() == {2, 1}.unwrap()).unwrap()", "True\nTrue\nTrue\nTrue\n")]
 #[case("print([1].unwrap() in [[1].unwrap(), [2].unwrap()].unwrap()).unwrap()\nprint('é' in 'héllo').unwrap()", "True\nTrue\n")]
 #[case("def find(xs: list[i64]) -> i64:\n    for x in xs:\n        if x > 2:\n            return x\n    -1\nprint(find([1, 3, 4].unwrap())).unwrap()\nprint(find([].unwrap())).unwrap()", "3\n-1\n")]
-#[case("def f(n: i64) -> i64:\n    for x in range(1).unwrap():\n        if n > 0:\n            return f(n - 1)\n    42\nprint(f(100_000)).unwrap()", "42\n")]
+#[case("def f(n: i64) -> i64:\n    for x in range(1):\n        if n > 0:\n            return f(n - 1)\n    42\nprint(f(100_000)).unwrap()", "42\n")]
 #[case("def source() -> list[i64]:\n    print('source').unwrap()\n    [1, 2].unwrap()\ndef item(n: i64) -> i64:\n    print(n).unwrap()\n    n\nprint([item(x) for x in source() if x > 1].unwrap()).unwrap()", "source\n2\n[2]\n")]
 #[case(
     "def key(n: i64) -> i64:\n    print(n).unwrap()\n    n\nprint({key(1): key(2), key(1): key(3)}.unwrap()).unwrap()",
@@ -184,7 +178,7 @@ fn collections_preserve_typed_function_results() {
 )]
 #[case("xs = [x for x in [1].unwrap() if x].unwrap()", "expected bool")]
 #[case("def f(xs: list[i64]) -> ():\n    xs.append(1).unwrap()", "immutable")]
-#[case("print(range(True).unwrap()).unwrap()", "expected i64")]
+#[case("print(range(True)).unwrap()", "expected i64")]
 #[case("xs = [1}.unwrap()", "mismatched")]
 #[case("print(len(1)).unwrap()", "requires an iterable")]
 fn invalid_collections(#[case] source: &str, #[case] diagnostic: &str) {
@@ -199,9 +193,9 @@ fn invalid_collections(#[case] source: &str, #[case] diagnostic: &str) {
 #[case("print([1].unwrap()[1]).unwrap()", "index out of bounds")]
 #[case("print([1].unwrap()[-2]).unwrap()", "index out of bounds")]
 #[case("print({'a': 1}.unwrap()['b']).unwrap()", "dictionary key not found")]
-#[case("print(range(0, 4, 0).unwrap()).unwrap()", "range step cannot be zero")]
+#[case("print(range(0, 4, 0)).unwrap()", "range step cannot be zero")]
 #[case(
-    "print(len(range(-9223372036854775808, 9223372036854775807).unwrap())).unwrap()",
+    "print(len(range(-9223372036854775808, 9223372036854775807))).unwrap()",
     "range length exceeds i64"
 )]
 fn runtime_errors(#[case] source: &str, #[case] diagnostic: &str) {
@@ -212,7 +206,7 @@ fn runtime_errors(#[case] source: &str, #[case] diagnostic: &str) {
 
 #[test]
 fn large_builders_and_hash_tables() {
-    let output = support::run("xs = [x for x in range(10_000).unwrap()].unwrap()\nd = {x: x + 1 for x in &xs}.unwrap()\ns = set(copy(xs).unwrap()).unwrap()\nprint(len(xs)).unwrap()\nprint(d[9999]).unwrap()\nprint(9999 in s).unwrap()");
+    let output = support::run("xs = [x for x in range(10_000)].unwrap()\nd = {x: x + 1 for x in &xs}.unwrap()\ns = set(copy(xs).unwrap()).unwrap()\nprint(len(xs)).unwrap()\nprint(d[9999]).unwrap()\nprint(9999 in s).unwrap()");
     assert!(
         output.status.success(),
         "{}",
@@ -223,7 +217,7 @@ fn large_builders_and_hash_tables() {
 
 #[rstest]
 #[case(
-    "print([x for x in range(8).unwrap() if x % 2 == 0].unwrap()).unwrap()",
+    "print([x for x in range(8) if x % 2 == 0].unwrap()).unwrap()",
     "[0, 2, 4, 6]\n"
 )]
 #[case(

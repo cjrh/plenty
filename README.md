@@ -114,7 +114,7 @@ Collections and comprehensions use familiar syntax with fixed element types:
 
 ```python
 def main() -> Result[(), Failure]:
-    squares: list[i64] = [n * n for n in range(10)? if n % 2 == 0]?
+    squares: list[i64] = [n * n for n in range(10) if n % 2 == 0]?
     by_value: dict[i64, i64] = {n: n * n for n in &squares}?
     unique: set[i64] = set(copy(squares)?)?
     for n in &squares:

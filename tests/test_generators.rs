@@ -34,7 +34,7 @@ fn run(source: &str) -> std::process::Output {
     "[10, 20, 21]\n"
 )]
 #[case("for n in count(100).unwrap():\n    if n == 1:\n        continue\n    if n == 3:\n        break\n    print(n).unwrap()", "0\n2\n")]
-#[case("def g() -> Generator[i64]:\n    for n in range(5).unwrap():\n        if n == 1:\n            continue\n        if n == 3:\n            break\n        yield n\n    yield 99\nprint(list(g().unwrap()).unwrap()).unwrap()", "[0, 2, 99]\n")]
+#[case("def g() -> Generator[i64]:\n    for n in range(5):\n        if n == 1:\n            continue\n        if n == 3:\n            break\n        yield n\n    yield 99\nprint(list(g().unwrap()).unwrap()).unwrap()", "[0, 2, 99]\n")]
 #[case("def g() -> Generator[i64]:\n    for a in count(3).unwrap():\n        for b in count(2).unwrap():\n            yield a * 10 + b\nprint(list(g().unwrap()).unwrap()).unwrap()", "[0, 1, 10, 11, 20, 21]\n")]
 #[case("enum E:\n    A(i64)\n    B\ndef g(e: E) -> Generator[i64]:\n    match e:\n        case E.A(n):\n            yield n\n            yield n + 1\n        case E.B:\n            return\n    yield 9\nprint(list(g(E.A(2).unwrap()).unwrap()).unwrap()).unwrap()\nprint(list(g((E.B).unwrap()).unwrap()).unwrap()).unwrap()", "[2, 3, 9]\n[]\n")]
 #[case("def g() -> Generator[list[str]]:\n    mut xs = [('a' + '\\0b').unwrap()].unwrap()\n    yield copy(xs).unwrap()\n    xs.append('c').unwrap()\n    yield xs\nprint(list(g().unwrap()).unwrap()).unwrap()", "[[\"a\\0b\"], [\"a\\0b\", \"c\"]]\n")]
@@ -45,7 +45,7 @@ fn run(source: &str) -> std::process::Output {
 )]
 #[case("def forward(g: Generator[i64]) -> Generator[i64]:\n    return g\na = count(2).unwrap()\nb = a\nprint(list(forward(b)).unwrap()).unwrap()", "[0, 1]\n")]
 #[case("def take(g: Generator[i64]) -> i64:\n    for x in g:\n        return x\n    -1\nprint(take(count(100).unwrap())).unwrap()\nprint(take(count(0).unwrap())).unwrap()", "0\n-1\n")]
-#[case("mut g = count(1).unwrap()\nfor i in range(3).unwrap():\n    print(list(g).unwrap()).unwrap()\n    g = count(i + 2).unwrap()\nprint(list(g).unwrap()).unwrap()", "[0]\n[0, 1]\n[0, 1, 2]\n[0, 1, 2, 3]\n")]
+#[case("mut g = count(1).unwrap()\nfor i in range(3):\n    print(list(g).unwrap()).unwrap()\n    g = count(i + 2).unwrap()\nprint(list(g).unwrap()).unwrap()", "[0]\n[0, 1]\n[0, 1, 2]\n[0, 1, 2, 3]\n")]
 #[case("def choose(flag: bool, g: Generator[i64]) -> i64:\n    if flag:\n        print(list(g).unwrap()).unwrap()\n        return 1\n    print(list(g).unwrap()).unwrap()\n    2\nprint(choose(False, count(2).unwrap())).unwrap()", "[0, 1]\n2\n")]
 #[case(
     "mut sum = 0\nfor x in count(100_000).unwrap():\n    sum = sum + x\nprint(sum).unwrap()",
@@ -94,7 +94,7 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
     "moved or possibly moved"
 )]
 #[case(
-    "a = count(2).unwrap()\nfor n in range(2).unwrap():\n    list(a).unwrap()",
+    "a = count(2).unwrap()\nfor n in range(2):\n    list(a).unwrap()",
     "loop backedge"
 )]
 #[case(
@@ -124,7 +124,7 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
     "cannot be stored in collections"
 )]
 #[case(
-    "a = count(2).unwrap()\n[x for n in range(2).unwrap() for x in a].unwrap()",
+    "a = count(2).unwrap()\n[x for n in range(2) for x in a].unwrap()",
     "loop backedge"
 )]
 #[case("def condition(g: Generator[i64]) -> bool:\n    True\na = count(2).unwrap()\nwhile condition(a):\n    pass", "loop backedge")]

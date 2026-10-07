@@ -46,6 +46,18 @@ pub enum Ty {
 }
 
 impl Ty {
+    /// A runtime slot carries its normal bits followed by an inline range when
+    /// needed. Standard sum tags remain in the ordinary 128-bit representation.
+    pub fn has_inline_range(&self) -> bool {
+        matches!(self, Self::Range(_)) || matches!(self, Self::Enum(t) if t.inline_range)
+    }
+    pub fn slot_bytes(&self) -> usize {
+        if self.has_inline_range() {
+            48
+        } else {
+            16
+        }
+    }
     pub fn inline_sum(&self) -> bool {
         matches!(self, Self::Enum(t) if t.inline())
     }
@@ -120,7 +132,6 @@ impl Ty {
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
-                | Self::Range(_)
                 | Self::Enum(_)
                 | Self::Class(_)
                 | Self::Generator(_)

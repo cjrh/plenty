@@ -74,37 +74,32 @@ pub(super) fn emit_generator(
         let mask = module.declare_data_in_func(mask_id, b.func);
         let mask = b.ins().global_value(PTR_TY, mask);
         let count = b.ins().iconst(types::I64, slot_types.len() as i64);
-        if fallible {
-            let n = decl.sig.inputs.len();
-            let slot = b.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                ((n + 1) * 16) as u32,
-                4,
-            ));
-            let captures = b.ins().stack_addr(PTR_TY, slot, 0);
-            for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
-                let value = b.block_params(entry)[i];
-                let value = enums::pack_value(&mut b, value, ty);
-                b.ins()
-                    .store(MemFlags::trusted(), value, captures, i as i32 * 16);
-            }
-            let out = b.ins().iadd_imm(captures, (n * 16) as i64);
-            let n = b.ins().iconst(types::I64, n as i64);
-            let new = module.declare_func_in_func(runtime.generator_try_new, b.func);
+        let n = decl.sig.inputs.len();
+        let slot = b.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+            ((n + 1) * 16) as u32,
+            4,
+        ));
+        let captures = b.ins().stack_addr(PTR_TY, slot, 0);
+        for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
+            let value = b.block_params(entry)[i];
+            let value = enums::pack_value(&mut b, value, ty);
             b.ins()
-                .call(new, &[callback, count, mask, captures, n, out]);
-            let result = b.ins().load(types::I128, MemFlags::trusted(), out, 0);
+                .store(MemFlags::trusted(), value, captures, i as i32 * 16);
+        }
+        let out = b.ins().iadd_imm(captures, (n * 16) as i64);
+        let n = b.ins().iconst(types::I64, n as i64);
+        let new = module.declare_func_in_func(runtime.generator_try_new, b.func);
+        b.ins()
+            .call(new, &[callback, count, mask, captures, n, out]);
+        let result = b.ins().load(types::I128, MemFlags::trusted(), out, 0);
+        if fallible {
             b.ins().return_(&[result]);
         } else {
-            let new = module.declare_func_in_func(runtime.generator_new, b.func);
-            let call = b.ins().call(new, &[callback, count, mask]);
-            let frame = b.inst_results(call)[0];
-            for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
-                let value = b.block_params(entry)[i];
-                let value = enums::pack_value(&mut b, value, ty);
-                b.ins()
-                    .store(MemFlags::trusted(), value, frame, 64 + i as i32 * 16);
-            }
+            let tags = b.ins().ushr_imm(result, 64);
+            let tags = b.ins().ireduce(types::I64, tags);
+            b.ins().trapnz(tags, TrapCode::unwrap_user(4));
+            let frame = b.ins().ireduce(PTR_TY, result);
             b.ins().return_(&[frame]);
         }
         b.finalize();
@@ -148,6 +143,7 @@ pub(super) fn emit_generator(
             terminated: false,
             loop_targets: Vec::new(),
             local_frame: None,
+            return_range: None,
             collection_scratch: None,
             generator: Some(GeneratorContext {
                 frame,
@@ -193,6 +189,7 @@ impl Lowerer<'_, '_> {
         let output = crate::sum::option((*element).clone());
         let frame = self.read_local(slot);
         let value = self.collection_call(24, &[frame], Some(&output))?;
+        let value = self.snapshot_range(value, &output);
         self.stack.push((value, output));
         Ok(())
     }
@@ -201,6 +198,9 @@ impl Lowerer<'_, '_> {
         if !self.stack.is_empty() {
             return Err("nonempty stack at yield".into());
         }
+        let out = self.generator.as_ref().unwrap().out;
+        let destination = self.bcx.ins().iadd_imm(out, 16);
+        let value = self.copy_range_to(value, ty, destination);
         let value = self.pack(value, ty);
         let g = self.generator.as_mut().ok_or("yield outside generator")?;
         let next = self.bcx.create_block();

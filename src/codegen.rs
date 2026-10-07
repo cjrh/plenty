@@ -65,6 +65,7 @@ mod collections;
 mod enums;
 mod generators;
 mod metadata;
+mod ranges;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
@@ -295,7 +296,6 @@ struct Runtime {
     collection: FuncId,
     retain: FuncId,
     release: FuncId,
-    generator_new: FuncId,
     generator_try_new: FuncId,
     generator_finish: FuncId,
     print_i8: FuncId,
@@ -370,13 +370,6 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
             sig.call_conv = CallConv::SystemV;
             sig.params.extend([AbiParam::new(types::I64); 6]);
             module.declare_function("plenty_generator_try_new", Linkage::Import, &sig)?
-        },
-        generator_new: {
-            let mut sig = module.make_signature();
-            sig.call_conv = CallConv::SystemV;
-            sig.params.extend([AbiParam::new(types::I64); 3]);
-            sig.returns.push(AbiParam::new(PTR_TY));
-            module.declare_function("plenty_generator_new", Linkage::Import, &sig)?
         },
         generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
@@ -524,6 +517,9 @@ fn user_fn_signature(module: &ObjectModule, sig: &FnSig) -> Signature {
     for ty in &sig.outputs {
         cl.returns.push(AbiParam::new(clif_type(ty.clone())));
     }
+    if sig.outputs.iter().any(Ty::has_inline_range) {
+        cl.params.push(AbiParam::new(PTR_TY));
+    }
     cl
 }
 
@@ -665,10 +661,12 @@ fn emit_user_function(
             locals.push((var, ty.clone()));
         }
 
-        let local_frame = if needs_local_addresses(&decl.body) {
+        let local_frame = if needs_local_addresses(&decl.body)
+            || locals.iter().any(|(_, t)| t.has_inline_range())
+        {
             let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
                 cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                (locals.len() * 16) as u32,
+                locals.iter().map(|(_, t)| t.slot_bytes() as u32).sum(),
                 4,
             ));
             let frame = bcx.ins().stack_addr(PTR_TY, slot, 0);
@@ -684,13 +682,22 @@ fn emit_user_function(
                     cranelift_codegen::ir::MemFlags::trusted(),
                     packed,
                     frame,
-                    (i * 16) as i32,
+                    locals[..i]
+                        .iter()
+                        .map(|(_, t)| t.slot_bytes() as i32)
+                        .sum::<i32>(),
                 );
             }
             Some(frame)
         } else {
             None
         };
+        let return_range = decl
+            .sig
+            .outputs
+            .iter()
+            .any(Ty::has_inline_range)
+            .then(|| bcx.block_params(entry)[decl.sig.inputs.len()]);
         let mut lower = Lowerer {
             bcx: &mut bcx,
             module,
@@ -704,8 +711,17 @@ fn emit_user_function(
             loop_targets: Vec::new(),
             generator: None,
             local_frame,
+            return_range,
             collection_scratch: None,
         };
+        // Argument addresses belong to the caller. Snapshot inline values into
+        // this function's locals before any mutation or nested call can occur.
+        for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
+            if ty.has_inline_range() {
+                let value = lower.read_local(i as u8);
+                lower.write_local(i as u8, value);
+            }
+        }
         for op in decl.body.iter() {
             if lower.terminated {
                 // A `TailCall` already terminated this block; any
@@ -719,10 +735,7 @@ fn emit_user_function(
                 .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         }
         if !lower.terminated {
-            let returns: Vec<cranelift_codegen::ir::Value> =
-                lower.stack.iter().map(|(v, _)| *v).collect();
-            lower.release_locals();
-            lower.bcx.ins().return_(&returns);
+            lower.return_values(lower.stack.clone());
         }
         bcx.finalize();
     }
@@ -797,6 +810,7 @@ fn emit_main(
             loop_targets: Vec::new(),
             generator: None,
             local_frame: None,
+            return_range: None,
             collection_scratch: None,
         };
         for op in ops {
@@ -928,6 +942,7 @@ struct Lowerer<'a, 'b> {
     loop_targets: Vec<(Block, Block)>,
     generator: Option<GeneratorContext>,
     local_frame: Option<cranelift_codegen::ir::Value>,
+    return_range: Option<cranelift_codegen::ir::Value>,
     /// Reused across non-overlapping runtime calls; callbacks have their own frame.
     collection_scratch: Option<cranelift_codegen::ir::StackSlot>,
 }
@@ -972,45 +987,36 @@ impl Lowerer<'_, '_> {
     }
     fn read_local(&mut self, i: u8) -> cranelift_codegen::ir::Value {
         let (var, ty) = self.locals[i as usize].clone();
-        if let Some(g) = &self.generator {
-            let value = self.bcx.ins().load(
-                types::I128,
-                cranelift_codegen::ir::MemFlags::trusted(),
-                g.frame,
-                64 + i32::from(i) * 16,
-            );
-            self.unpack(value, &ty)
-        } else if let Some(frame) = self.local_frame {
+        let frame = self
+            .generator
+            .as_ref()
+            .map(|g| (g.frame, 64))
+            .or(self.local_frame.map(|p| (p, 0)));
+        let value = if let Some((frame, base)) = frame {
+            let offset = base + self.local_offset(i as usize);
             let value = self.bcx.ins().load(
                 types::I128,
                 cranelift_codegen::ir::MemFlags::trusted(),
                 frame,
-                i32::from(i) * 16,
+                offset as i32,
             );
             self.unpack(value, &ty)
         } else {
             self.bcx.use_var(var)
-        }
+        };
+        self.snapshot_range(value, &ty)
     }
     fn write_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
         let (var, ty) = self.locals[i as usize].clone();
-        if let Some(g) = &self.generator {
-            let frame = g.frame;
-            let value = self.pack(value, &ty);
-            self.bcx.ins().store(
-                cranelift_codegen::ir::MemFlags::trusted(),
-                value,
-                frame,
-                64 + i32::from(i) * 16,
-            );
-        } else if let Some(frame) = self.local_frame {
-            let value = self.pack(value, &ty);
-            self.bcx.ins().store(
-                cranelift_codegen::ir::MemFlags::trusted(),
-                value,
-                frame,
-                i32::from(i) * 16,
-            );
+        let frame = self
+            .generator
+            .as_ref()
+            .map(|g| (g.frame, 64))
+            .or(self.local_frame.map(|p| (p, 0)));
+        if let Some((frame, base)) = frame {
+            let offset = base + self.local_offset(i as usize);
+            let slot = self.bcx.ins().iadd_imm(frame, offset);
+            self.store_slot(slot, value, &ty);
         } else {
             self.bcx.def_var(var, value);
         }
@@ -1044,7 +1050,8 @@ impl Lowerer<'_, '_> {
                 } else {
                     (self.local_frame.expect("addressable locals"), 0)
                 };
-                let ptr = self.bcx.ins().iadd_imm(frame, offset + i64::from(*i) * 16);
+                let offset = offset + self.local_offset(*i as usize);
+                let ptr = self.bcx.ins().iadd_imm(frame, offset);
                 self.stack.push((
                     ptr,
                     Ty::Ref(
@@ -1062,6 +1069,7 @@ impl Lowerer<'_, '_> {
                     0,
                 );
                 let value = self.unpack(packed, ty);
+                let value = self.snapshot_range(value, ty);
                 self.retain(value, ty);
                 self.stack.push((value, ty.clone()));
             }
@@ -1078,10 +1086,7 @@ impl Lowerer<'_, '_> {
                     0,
                 );
                 self.release(old, ty);
-                let value = self.pack(value, ty);
-                self.bcx
-                    .ins()
-                    .store(cranelift_codegen::ir::MemFlags::trusted(), value, ptr, 0);
+                self.store_slot(ptr, value, ty);
             }
             Op::Collection(operation) => self.lower_collection(operation)?,
             Op::Class(operation) => self.lower_class(operation)?,
@@ -1223,9 +1228,7 @@ impl Lowerer<'_, '_> {
                     self.complete_generator();
                     return Ok(());
                 }
-                let values: Vec<_> = self.stack.iter().map(|(value, _)| *value).collect();
-                self.release_locals();
-                self.bcx.ins().return_(&values);
+                self.return_values(self.stack.clone());
                 self.terminated = true;
             }
             // `DefineFn` is hoisted into a top-level Cranelift function by
@@ -1802,9 +1805,13 @@ impl Lowerer<'_, '_> {
     /// Lower `Op::Call`: emit a regular call and push each return value
     /// onto the compile-time stack with its declared `Ty`.
     fn lower_call(&mut self, name: &str) -> Result<()> {
-        let (decl, args) = self.pop_call_args(name)?;
+        let (decl, mut args) = self.pop_call_args(name)?;
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
+        let ranges = outputs.iter().filter(|t| t.has_inline_range()).count();
+        if ranges != 0 {
+            args.push(self.range_storage(ranges * 32));
+        }
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
         let inst = self.bcx.ins().call(funcref, &args);
         let results: Vec<cranelift_codegen::ir::Value> = self.bcx.inst_results(inst).to_vec();
@@ -1821,6 +1828,15 @@ impl Lowerer<'_, '_> {
     /// instruction is a block terminator, so we set `self.terminated`
     /// and the outer loop stops feeding ops to this lowerer.
     fn lower_tail_call(&mut self, name: &str) -> Result<()> {
+        let signature = &self.user_fns[name].sig;
+        if signature.inputs.iter().any(|(_, t)| t.has_inline_range())
+            || signature.outputs.iter().any(Ty::has_inline_range)
+        {
+            self.lower_call(name)?;
+            self.return_values(self.stack.clone());
+            self.terminated = true;
+            return Ok(());
+        }
         let (decl, args) = self.pop_call_args(name)?;
         let func_id = decl.id;
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);

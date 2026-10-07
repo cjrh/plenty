@@ -161,11 +161,11 @@ fn lookup_uses_the_hash_index_after_growth_and_replacement() {
     native(
         r#"
 mut values = dict[i64, i64]().unwrap()
-for n in range(100).unwrap():
+for n in range(100):
     values.insert(n, n * 2).unwrap()
 values.insert(50, 123).unwrap()
 mut valid = True
-for n in range(100).unwrap():
+for n in range(100):
     match values.get(n):
         case Some(value):
             valid = valid and value == (123 if n == 50 else n * 2)

@@ -90,19 +90,19 @@ print(Custom().unwrap().discard(7)).unwrap()
 fn repeated_discard_and_reinsertion_preserve_probe_chains() {
     native(
         r#"
-mut values = {n for n in range(100).unwrap()}.unwrap()
+mut values = {n for n in range(100)}.unwrap()
 mut valid = True
-for n in range(0, 100, 2).unwrap():
+for n in range(0, 100, 2):
     valid = values.discard(n) and valid
     valid = not values.discard(n) and valid
-for n in range(100).unwrap():
+for n in range(100):
     valid = valid and (n in values) == (n % 2 == 1)
 print(valid).unwrap()
 print(len(values)).unwrap()
-for n in range(0, 100, 2).unwrap():
+for n in range(0, 100, 2):
     values.add(n).unwrap()
 print(len(values)).unwrap()
-for n in range(100).unwrap():
+for n in range(100):
     valid = values.discard(n) and valid
 print(valid).unwrap()
 print(len(values)).unwrap()

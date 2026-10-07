@@ -54,7 +54,7 @@ def unit(ok: bool) -> Result[i64, str]:
 def item(n: i64) -> Result[i64, str]:
     Ok(n * n) if n < 3 else Err("large")
 def collect(n: i64) -> Result[list[i64], str]:
-    Ok([item(i)? for i in range(n).unwrap()].unwrap())
+    Ok([item(i)? for i in range(n)].unwrap())
 def field() -> Option[i64]:
     Some(Some(Point(7).unwrap())?.x)
 print(unwrap()).unwrap()
@@ -133,7 +133,7 @@ def looping() -> Result[(), ()]:
         print("unreachable").unwrap()
     Ok(())
 def filter_items() -> Result[list[i64], ()]:
-    Ok([n for n in range(3).unwrap() if flag()?].unwrap())
+    Ok([n for n in range(3) if flag()?].unwrap())
 print(short()).unwrap()
 print(looping()).unwrap()
 print(filter_items()).unwrap()

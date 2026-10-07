@@ -8,6 +8,15 @@ dynamic type inference. No per-element compilation or trait instantiation occurs
 Every program links the same precompiled Rust runtime archive; no runtime source
 is compiled for individual programs.
 
+Ranges carry 32 bytes of inline bounds/step/length data. Runtime argument slots
+refer to live caller-owned data; stored range values (including inside standard
+sums) keep their data in the owning local, record, generator frame, or collection
+buffer. Typed storage slots are 16 bytes normally and 48 bytes when they contain
+a range. Buffer relocation repairs those private addresses. Range temporaries
+and returned ranges never point into expired storage or allocate a separate owner.
+Calls passing or returning inline range values currently use ordinary calls
+rather than native tail calls, so the caller's temporary storage stays live.
+
 The Rust runtime uses `Vec` storage and hash tables with ordered entries for
 dictionaries and sets. Private builders append in place; literal and comprehension
 construction is amortized linear under ordinary hash distribution. Public updates

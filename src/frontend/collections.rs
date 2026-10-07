@@ -250,20 +250,11 @@ impl Lower<'_> {
             }
             Expression::Call(name, args)
                 if name == "range"
-                    && matches!(&expected, Some(Ty::Range(_)) | Some(Ty::Enum(_)))
+                    && matches!(&expected, Some(Ty::Range(_)))
                     && !self.names.contains_key(name) =>
             {
-                let ty = match expected {
-                    Some(Ty::Enum(t)) if t.propagatable() && !t.is_option() => {
-                        t.variants[0].fields[0].clone()
-                    }
-                    Some(t) => t,
-                    None => unreachable!(),
-                };
-                let Ty::Range(t) = ty else {
-                    return Err(e
-                        .at
-                        .error("range context must be range[T] or Result[range[T], AllocError]"));
+                let Some(Ty::Range(t)) = expected else {
+                    unreachable!()
                 };
                 self.range(args, (*t).clone(), &e.at, ops).map(Some)
             }
@@ -1791,10 +1782,7 @@ impl Lower<'_> {
             ops.push(Op::PushInt(Value::I64(1)));
         }
         ops.push(Op::Collection(CollectionOp::Range(element.clone())));
-        Ok(crate::sum::result(
-            Ty::Range(Rc::new(element)),
-            crate::sum::alloc_error(),
-        ))
+        Ok(Ty::Range(Rc::new(element)))
     }
 
     pub(super) fn builtin_collection(

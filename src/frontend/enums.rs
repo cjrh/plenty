@@ -196,6 +196,7 @@ pub(super) fn resolve_types(
                             restricted_storage: false,
                             name: e.name.clone(),
                             managed: true,
+                            inline_range: false,
                             affine: variants.iter().flat_map(|v| &v.fields).any(Ty::affine),
                             copyable: variants.iter().flat_map(|v| &v.fields).all(Ty::can_copy),
                             has_destructor: variants

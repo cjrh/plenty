@@ -4,7 +4,8 @@
 payload and one 64-bit path of binary tags, outermost tag first. Nested standard
 sums add tag bits without boxing; the existing 64-level type limit bounds the path.
 The terminal payload is scalar bits or a handle to an independently owned heap
-value. This representation preserves all integer and float bit patterns; it does
+value, or an internal address of owner-local inline range data. This
+representation preserves all integer and float bit patterns; it does
 not reserve a null pointer or numeric sentinel as a source-level value.
 
 Construction, passing, returning, matching, and `?` do not allocate a standard
@@ -16,9 +17,11 @@ This is a wrapper guarantee, not yet a guarantee of recoverable allocation failu
 
 Native calls carry standard sums as integer pairs through Cranelift's internal
 calling convention. Addressable locals, collection entries, record fields, and
-generator slots use 16-byte storage, including scalar slots in this initial
-uniform representation. This increases aggregate storage costs relative to the
-previous 8-byte slots; compact per-type storage is a later optimization. The
+generator slots use 16-byte storage for scalar/pointer payloads and sum tags.
+Slots whose types can contain a range add 32 bytes of inline range data; only
+those slots grow. Native functions returning such a value receive caller-owned
+range storage, and copies relocate its private address while preserving sum tags.
+No range owner is allocated. The
 runtime aggregate helper takes pointers to aligned input/output slots rather than
 depending on a platform's C ABI for `u128`. Neither representation is a public FFI ABI.
 

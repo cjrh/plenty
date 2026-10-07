@@ -35,7 +35,7 @@ Comprehensions and collection constructors also consume generators:
 
 ```plenty
 def numbers(limit: i64) -> Generator[i64]:
-    for n in range(limit).unwrap():
+    for n in range(limit):
         yield n
 
 def main() -> Result[(), Failure]:

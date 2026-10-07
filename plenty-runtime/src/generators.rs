@@ -1,5 +1,6 @@
 use crate::aggregates::{release, Type};
 use crate::memory::{self, Header};
+use crate::ranges;
 
 type Resume = unsafe extern "C" fn(*mut Generator, *mut u128) -> u8;
 #[repr(C)]
@@ -14,20 +15,39 @@ pub(crate) struct Generator {
 }
 const _: () = assert!(std::mem::offset_of!(Generator, slots) == 64);
 
+unsafe fn slot_words(g: *const Generator) -> usize {
+    unsafe {
+        (0..(*g).count as usize)
+            .map(|i| (&**(*g).managed.add(i)).slot_words())
+            .sum()
+    }
+}
+
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_generator_finish(g: *mut Generator) {
     // SAFETY: generated frames match this prefix; their managed mask is immortal.
     // Do not create a mutable Rust view across releases, which can call user code.
     unsafe {
+        let forward = memory::dropping();
+        let mut offset = if forward { 0 } else { slot_words(g) };
         for n in 0..(*g).count as usize {
-            let i = if memory::dropping() {
+            let i = if forward {
                 n
             } else {
                 (*g).count as usize - 1 - n
             };
-            let slot = std::ptr::addr_of_mut!((*g).slots).cast::<u128>().add(i);
+            let ty = &**(*g).managed.add(i);
+            if !forward {
+                offset -= ty.slot_words();
+            }
+            let slot = std::ptr::addr_of_mut!((*g).slots)
+                .cast::<u128>()
+                .add(offset);
             let value = slot.replace(0);
-            release(value, &**(*g).managed.add(i));
+            if forward {
+                offset += ty.slot_words();
+            }
+            release(value, ty);
         }
         (*g).state = u64::MAX;
     }
@@ -36,7 +56,7 @@ unsafe extern "C" fn destroy(header: *mut Header) {
     unsafe {
         let g = header.cast::<Generator>();
         plenty_generator_finish(g);
-        memory::free::<Generator, u128>(g, (*g).count as usize);
+        memory::free::<Generator, u128>(g, slot_words(g));
     }
 }
 #[no_mangle]
@@ -58,6 +78,13 @@ pub(crate) unsafe fn try_new(
     managed: *const *const Type,
 ) -> Result<*mut Generator, memory::AllocError> {
     let slots = usize::try_from(count).map_err(|_| memory::AllocError::CapacityOverflow)?;
+    memory::checked_capacity::<u128>(slots)?;
+    let slots = unsafe {
+        (0..slots).try_fold(0usize, |n, i| {
+            n.checked_add((&**managed.add(i)).slot_words())
+                .ok_or(memory::AllocError::CapacityOverflow)
+        })?
+    };
     let g = memory::try_allocate::<Generator, u128>(slots)?;
     unsafe {
         g.write(Generator {
@@ -88,11 +115,12 @@ pub(crate) unsafe extern "C" fn plenty_generator_try_new(
         assert!(capture_count <= count);
         let result = match try_new(resume, count, managed) {
             Ok(frame) => {
-                std::ptr::copy_nonoverlapping(
-                    captures,
-                    std::ptr::addr_of_mut!((*frame).slots).cast(),
-                    capture_count as usize,
-                );
+                let mut slot = std::ptr::addr_of_mut!((*frame).slots).cast::<u128>();
+                for i in 0..capture_count as usize {
+                    let ty = &**managed.add(i);
+                    ranges::store(slot, *captures.add(i), ty);
+                    slot = slot.add(ty.slot_words());
+                }
                 crate::aggregates::wrap(frame as u128, 0)
             }
             Err(error) => {
