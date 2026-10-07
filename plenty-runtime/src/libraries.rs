@@ -192,6 +192,26 @@ pub(crate) unsafe extern "C" fn plenty_library_contract_v1(
 mod tests {
     use super::*;
 
+    #[cfg(feature = "allocation-checks")]
+    #[test]
+    fn allocation_failure_preserves_output_and_lookup_uses_no_rust_allocation() {
+        unsafe {
+            let handle = open(b"libm.so.6").unwrap();
+            let sentinel = ptr::dangling_mut::<c_void>();
+            let mut output = sentinel;
+            crate::accounting::fail_after(Some(0));
+            let failed = plenty_library_open_v1(b"libm.so.6".as_ptr(), 9, &mut output);
+            let found = symbol(handle, b"cos");
+            let missing = symbol(handle, b"missing_plenty_test_symbol");
+            plenty_library_close_v1(handle);
+            crate::accounting::fail_after(None);
+            assert_eq!(failed, LoadError::OutOfMemory as u32);
+            assert_eq!(output, sentinel);
+            assert!(found.is_ok());
+            assert_eq!(missing, Err(LoadError::MissingSymbol));
+        }
+    }
+
     #[test]
     fn errors_leave_outputs_unchanged_and_code_survives_closed_lease() {
         unsafe {

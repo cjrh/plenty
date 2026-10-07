@@ -392,3 +392,161 @@ def main() -> Result[(), Failure]:
         "{output:?}"
     );
 }
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn injected_failures_preserve_loading_and_owner_cleanup_without_allocating_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let producer = root.join("producer.plenty");
+    std::fs::write(
+        &producer,
+        format!(
+            r#"{OWNERS}
+export def warm() -> () = "calc_warm":
+    print("warm").unwrap()
+export def fail_allocations() -> () = "calc_fail_allocations":
+    print("__test_fail_allocations_after_0__").unwrap()
+export def restore_allocations() -> () = "calc_restore_allocations":
+    print("__test_restore_allocations__").unwrap()
+"#
+        ),
+    )
+    .unwrap();
+    let native = root.join("libcalc.so");
+    plenty::compile_file_to_library(
+        &producer,
+        &native,
+        None,
+        &plenty::LibraryOptions::new("calc", plenty::LibraryKind::Shared),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("plugin.plentyi"),
+        plenty::runtime_interface_source(&producer, None, "calc").unwrap(),
+    )
+    .unwrap();
+    let mut source = format!(
+        "import plugin\ndef main() -> Result[(), Failure]:\n    path = \"{}\"\n",
+        native.display()
+    );
+    for budget in 0..5 {
+        source.push_str(&format!("    print(\"__test_fail_allocations_after_{budget}__\").unwrap()\n    attempt{budget} = plugin.load(&path)\n    print(\"__test_restore_allocations__\").unwrap()\n    match attempt{budget}:\n        case Ok(value):\n            drop(value)\n            print(\"loaded\")?\n        case Err(error):\n            print(error)?\n"));
+    }
+    source.push_str(
+        r#"
+    library = plugin.load(&path)?
+    library.warm()
+    mut owner = library.create(10)?
+    print("__test_begin_no_allocations__").unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    value = library.read(&owner)
+    changed = library.bump(&mut owner)
+    error: Result[i64, LoadError] = Err(LoadError.IncompatibleContract)
+    same = error == Result[i64, LoadError].Err(LoadError.IncompatibleContract)
+    print("__test_restore_allocations__").unwrap()
+    print("__test_end_no_allocations__").unwrap()
+    print(value)?
+    print(changed)?
+    print(same)?
+    print("__test_fail_allocations_after_0__").unwrap()
+    failed_wrapper = library.transfer(owner)
+    print("__test_restore_allocations__").unwrap()
+    match failed_wrapper:
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error)?
+    library.fail_allocations()
+    failed_native = library.create(42)
+    library.restore_allocations()
+    match failed_native:
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error)?
+    Ok(())
+"#,
+    );
+    let output = run(root, &source);
+    assert!(output.status.success(), "{output:?}");
+    let output = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<_> = output
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "LoadError.OutOfMemory",
+            "LoadError.OutOfMemory",
+            "LoadError.OutOfMemory",
+            "loaded",
+            "loaded",
+            "warm",
+            "10",
+            "Result[(), i32].Err(-1)",
+            "True",
+            "released",
+            "AllocError.OutOfMemory",
+            "AllocError.OutOfMemory"
+        ]
+    );
+}
+
+#[test]
+fn partial_resolution_never_publishes_a_callable_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let producer = root.join("producer.plenty");
+    std::fs::write(&producer, "export def first() -> i32 = \"calc_first\":\n    1\nexport def second() -> i32 = \"calc_second\":\n    2\n").unwrap();
+    let native = root.join("libcalc.so");
+    let artifacts = plenty::compile_file_to_library(
+        &producer,
+        &native,
+        None,
+        &plenty::LibraryOptions::new("calc", plenty::LibraryKind::Shared),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("plugin.plentyi"),
+        plenty::runtime_interface_source(&producer, None, "calc").unwrap(),
+    )
+    .unwrap();
+    let contract = std::fs::read_to_string(artifacts.interface).unwrap();
+    let hash = plenty::read_library_interfaces(&native)
+        .unwrap()
+        .remove(0)
+        .fingerprint
+        .unwrap();
+    let bytes = contract
+        .bytes()
+        .map(|b| b.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    for guard in [false, true] {
+        let body = format!("#include <stddef.h>\n#include <stdio.h>\nstatic const unsigned char contract[] = {{{bytes}}};\nconst unsigned char *calc_plenty_interface_v1(size_t *len) {{ *len = sizeof(contract); return contract; }}\nint calc_first(void) {{ puts(\"must not run\"); return 1; }}\n{}", if guard { format!("void calc_plenty_contract_v1_{hash}(void) {{}}\n") } else { String::new() });
+        let fake = library(root, &body);
+        let output = run(
+            root,
+            &format!(
+                r#"
+import plugin
+def main() -> Result[(), Failure]:
+    path = "{}"
+    for n in range(20):
+        match plugin.load(&path):
+            case Ok(library):
+                print(library.first())?
+            case Err(error):
+                if n == 19:
+                    print(error)?
+    Ok(())
+"#,
+                fake.display()
+            ),
+        );
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(output.stdout, b"LoadError.MissingSymbol\n");
+    }
+}

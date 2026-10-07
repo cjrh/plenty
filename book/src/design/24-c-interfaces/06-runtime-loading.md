@@ -29,13 +29,22 @@ source does not run or link native code.
 Load opens the requested library, checks exact discovery metadata, requires its
 fingerprint guard, and resolves every export before returning a usable table.
 The private lookup lease is cleaned up on every exit. A `Library` stores cached
-addresses; calls use native indirect C instructions without repeated lookup or
-allocation. The table itself is an ordinary fallibly allocated Plenty class.
+addresses; calls use native indirect C instructions without repeated lookup.
+Scalar adapters do not allocate; native callees retain their own allocation
+behavior. The table itself is an ordinary fallibly allocated Plenty class.
 Its private fields prevent callers from constructing an unchecked table.
 Generation currently allows 128 functions including generated destructors, and
 240 parameters per method; names
 beginning with `_` are reserved for generated fields and lifecycle helpers.
 The exported class name `Library` is also reserved for the table.
+
+Loading performs three Plenty allocations: a temporary lease owner, a terminated
+path buffer, and the returned method table. Any can report `OutOfMemory`; the
+temporary values are reclaimed. Missing discovery/guard/export symbols never
+produce a partial public table. Runtime tests inject failures at each allocation,
+repeat incomplete lookups, and disable allocation across cached scalar calls,
+borrows, and loader-error handling. Native constructors and the OS loader can
+perform additional allocations outside this accounting.
 
 The allocation-free builtin `LoadError` distinguishes OutOfMemory, CapacityOverflow, InvalidPath, OpenFailed,
 InvalidSymbol, MissingSymbol, and IncompatibleContract. Generated loading uses
