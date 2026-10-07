@@ -35,6 +35,12 @@ lifetime. A mutable result requires a mutable reference input. An indirect call
 borrows that whole origin; it does not use a named function's more precise field
 projection summary. The loan remains live until the returned reference's last use.
 
-Currently only concrete named functions are values. Callable signatures exclude
-generator frames. Capture environments and anonymous bodies are
-not yet implemented. See the [backlog](../backlog.md) for remaining work.
+Multiline anonymous functions use `def(parameters) -> ResultType:` followed by an
+indented suite. They lower to ordinary native functions with no environment.
+They can be assigned, returned, and nested; enclosing generic type parameters are
+substituted. Their own value parameters and local bindings form an independent
+scope. Capturing a surrounding local is rejected, including locals that shadow a
+module function. Indented anonymous bodies inside delimiters are unsupported.
+
+Callable signatures exclude generator frames. Capture environments are not yet
+implemented. See the [backlog](../backlog.md) for remaining work.

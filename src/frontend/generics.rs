@@ -468,6 +468,13 @@ fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) -> Result<(
 }
 fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
+        Expression::Anonymous(function) => {
+            for (_, ty) in &mut function.inputs {
+                substitute(ty, substitutions)?;
+            }
+            substitute(&mut function.output, substitutions)?;
+            substitute_block(&mut function.body, substitutions)?;
+        }
         Expression::GenericValue(_, types) => {
             for ty in types {
                 substitute(ty, substitutions)?;

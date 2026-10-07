@@ -17,7 +17,9 @@ runtime loading with resident code, recoverable LoadError values, and ownership
 wrappers checked against their originating library instance.
 
 B08 is in progress: first-class concrete named functions and explicit callable
-signatures are implemented. Continue with multiline anonymous functions and checked captures. Settle
+signatures, indirect borrow checking, generic callable inference, explicit generic
+function values, and capture-free multiline anonymous functions are implemented.
+Continue with checked captures. Settle
 environment ownership, escape rules, and allocation behavior before higher-order
 APIs. Expanded C representations are B27; additional loader tooling and library
 lifecycle work are B28.

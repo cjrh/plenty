@@ -587,6 +587,7 @@ struct Expr {
 }
 #[derive(Clone)]
 enum Expression {
+    Anonymous(Box<Function>),
     GenericValue(String, Vec<TypeRef>),
     GenericCall(String, Vec<TypeRef>, Vec<Expr>),
     Tuple(Vec<Expr>, bool),
@@ -779,21 +780,29 @@ impl Parser {
         self.function_in(None)
     }
     fn function_in(&mut self, class: Option<&str>) -> Result<Function> {
-        self.function_header(class, false, false)
+        self.function_header(class, false, false, false)
     }
     fn function_header(
         &mut self,
         class: Option<&str>,
         foreign: bool,
         exported: bool,
+        anonymous: bool,
     ) -> Result<Function> {
         let at = self.take(); // def
-        let name = self.name()?;
+        let name = if anonymous {
+            "__plenty_anonymous".into()
+        } else {
+            self.name()?
+        };
         if class.is_none() && builtin(&name) {
             return Err(at.error("cannot redefine a builtin"));
         }
         let mut type_params = Vec::new();
         if self.eat("[") {
+            if anonymous {
+                return Err(at.error("anonymous functions use enclosing type parameters; they cannot declare their own"));
+            }
             if class.is_some() {
                 return Err(at.error("generic methods are not supported yet"));
             }
@@ -1139,7 +1148,9 @@ impl Parser {
                 }
             }
         };
-        self.kind(Kind::Newline, "the end of the statement")?;
+        if !matches!(self.tokens[self.pos - 1].kind, Kind::Dedent) {
+            self.kind(Kind::Newline, "the end of the statement")?;
+        }
         Ok(Stmt { at, kind })
     }
     fn parenthesized(&mut self) -> Result<Expression> {
@@ -1162,6 +1173,19 @@ impl Parser {
         Ok(Expression::Tuple(values, true))
     }
     fn expr(&mut self, min: u8) -> Result<Expr> {
+        if self.peek().is("def") {
+            if min != 0 {
+                return Err(self
+                    .peek()
+                    .error("a multiline anonymous function must be a complete expression"));
+            }
+            let at = self.peek().clone();
+            let function = self.function_header(None, false, false, true)?;
+            return Ok(Expr {
+                at,
+                kind: Expression::Anonymous(Box::new(function)),
+            });
+        }
         let at = self.take();
         let kind = match &at.kind {
             Kind::Number(n) => Expression::Number(n.clone()),
@@ -1708,6 +1732,17 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
+            Expression::Anonymous(function) => {
+                let mut function = (**function).clone();
+                function.name = format!("__plenty_anonymous_{}", self.generics.functions.len());
+                let name = function.name.clone();
+                register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
+                self.generics
+                    .functions
+                    .insert(name.clone(), function.clone());
+                self.generics.pending.push_back(function);
+                Some(self.function_value(&name, &e.at, ops)?)
+            }
             Expression::GenericValue(name, types) => {
                 let actual = types
                     .iter()

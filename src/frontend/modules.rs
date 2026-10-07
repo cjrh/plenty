@@ -136,7 +136,7 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
             if parser.eat("extern") {
                 parser.expect("def")?;
                 parser.pos -= 1;
-                let f = parser.function_header(None, true, false)?;
+                let f = parser.function_header(None, true, false, false)?;
                 let name = f.name.clone();
                 module.functions.push(f);
                 name
@@ -159,7 +159,7 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
         } else if parser.eat("export") {
             parser.expect("def")?;
             parser.pos -= 1;
-            let f = parser.function_header(None, false, true)?;
+            let f = parser.function_header(None, false, true, false)?;
             let name = f.name.clone();
             module.functions.push(f);
             name
@@ -395,6 +395,7 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
 
 #[derive(Clone)]
 struct Scope {
+    uncaptured: HashSet<String>,
     module: String,
     symbols: HashMap<String, String>,
     namespaces: HashMap<String, Rc<HashMap<String, String>>>,
@@ -535,6 +536,22 @@ impl Scope {
         Ok(())
     }
     fn expr(&self, e: &mut Expr, locals: &HashSet<String>) -> Result<()> {
+        fn root(e: &Expr) -> Option<&str> {
+            match &e.kind {
+                Expression::Name(n)
+                | Expression::Call(n, _)
+                | Expression::GenericCall(n, _, _)
+                | Expression::GenericValue(n, _) => n.split('.').next(),
+                Expression::Member(base, _) | Expression::Method(base, _, _) => root(base),
+                _ => None,
+            }
+        }
+        if let Some(name) = root(e).filter(|n| !locals.contains(*n) && self.uncaptured.contains(*n))
+        {
+            return Err(e.at.error(format!(
+                "anonymous functions cannot capture `{name}`; pass it as a parameter"
+            )));
+        }
         if let Expression::Name(name) | Expression::Call(name, _) = &e.kind {
             if self.type_params.contains(name) && locals.contains(name) {
                 return Err(e
@@ -631,6 +648,11 @@ impl Scope {
             _ => {}
         }
         match &mut e.kind {
+            Expression::Anonymous(function) => {
+                let mut scope = self.clone();
+                scope.uncaptured.extend(locals.iter().cloned());
+                scope.function(function)?;
+            }
             Expression::GenericValue(_, types) => {
                 for ty in types {
                     self.ty(ty)?;
@@ -738,6 +760,7 @@ fn resolve(
     };
     for (i, m) in modules.iter_mut().enumerate() {
         let mut scope = Scope {
+            uncaptured: HashSet::new(),
             type_params: HashSet::new(),
             module: m.name.clone(),
             symbols: m

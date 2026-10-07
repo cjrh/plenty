@@ -112,6 +112,7 @@
     - [Load a library at runtime](tutorial/62-load-a-library-at-runtime.md)
     - [Pass functions as values](tutorial/63-pass-functions-as-values.md)
     - [Generic function values](tutorial/64-generic-function-values.md)
+    - [Multiline anonymous functions](tutorial/65-multiline-anonymous-functions.md)
 
 # Reference
 
