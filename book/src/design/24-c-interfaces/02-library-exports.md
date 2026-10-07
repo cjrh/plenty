@@ -12,7 +12,8 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
 
 The initial subset accepts numeric scalar parameters, `&T` / `&mut T` borrows of
 numeric scalars, and numeric scalar, unit, or `Result[T, E]` returns where `T`
-is numeric or unit and `E` is numeric. Booleans, managed objects,
+is numeric or unit and `E` is numeric, `AllocError`, `ParseError`, or `Failure`.
+Booleans, managed objects,
 returned references, raw pointers, generic exports, and other aggregate results are
 rejected. The body can use ordinary language features
 internally. No native Plenty object layout becomes part of the C ABI.
@@ -91,6 +92,13 @@ from input borrows. Their previous values need not be initialized. Only the outp
 selected by the status is written; the other remains unchanged. The adapter does
 not allocate, expose the internal sum layout, or undo input mutations on `Err`.
 Generated Plenty wrappers reconstruct the declared `Result`, preserving `?`.
+
+Builtin marker errors use `uint32_t *out_error`: `AllocError.OutOfMemory` is 0,
+`AllocError.CapacityOverflow` is 1; `ParseError.Invalid` is 0,
+`ParseError.OutOfRange` is 1; `Failure.Unspecified` is 0. The generated header lists
+these codes next to each function. Reconstructing these errors in Plenty never
+allocates. A failure status is separate from its error code: error code 0 still
+means failure when the status is 1.
 
 The exact UTF-8 `.plentyi` bytes, including format version and target comments,
 are embedded in a retained `.plenty.interface.calc` section. They survive supported

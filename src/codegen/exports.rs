@@ -106,7 +106,17 @@ pub(super) fn emit(
                 b.switch_to_block(block);
                 b.seal_block(block);
                 if *ty != Ty::Unit {
-                    let target = clif_type(ty.clone());
+                    let marker = crate::exports::error_variants(ty).is_some();
+                    let value = if marker {
+                        b.ins().ushr_imm(value, 65)
+                    } else {
+                        value
+                    };
+                    let target = if marker {
+                        types::I32
+                    } else {
+                        clif_type(ty.clone())
+                    };
                     let bits = b.ins().ireduce(
                         if ty.is_float() {
                             if *ty == Ty::F32 {

@@ -20,13 +20,23 @@ pub(crate) fn check_signature(
         || output.as_ref().is_some_and(|ty| {
             !ty.is_numeric()
                 && !result_payloads(ty).is_some_and(|(ok, error)| {
-                    (*ok == Ty::Unit || ok.is_numeric()) && error.is_numeric()
+                    (*ok == Ty::Unit || ok.is_numeric())
+                        && (error.is_numeric() || error_variants(error).is_some())
                 })
         })
     {
-        return Err("C exports currently require numeric scalar parameters or scalar borrows, and a numeric scalar, (), or Result[scalar or (), scalar] return");
+        return Err("C exports currently require numeric scalar parameters or scalar borrows, and a numeric scalar, (), or Result[scalar or (), scalar/AllocError/ParseError/Failure] return");
     }
     Ok(())
+}
+
+pub(crate) fn error_variants(ty: &Ty) -> Option<&[crate::sum::Variant]> {
+    match ty {
+        Ty::Enum(t) if matches!(t.name.as_str(), "AllocError" | "ParseError" | "Failure") => {
+            Some(&t.variants)
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn result_payloads(ty: &Ty) -> Option<(&Ty, &Ty)> {
@@ -57,6 +67,7 @@ pub(crate) fn c_type(ty: &Ty) -> String {
         Ty::U64 => "uint64_t",
         Ty::F32 => "float",
         Ty::F64 => "double",
+        Ty::Enum(_) if error_variants(ty).is_some() => "uint32_t",
         _ => unreachable!("checked C export type"),
     }
     .into()
@@ -150,6 +161,14 @@ impl Interface {
                     parameters.push(format!("{} *out_ok", c_type(ok)));
                 }
                 parameters.push(format!("{} *out_error", c_type(error)));
+                if let Some(variants) = error_variants(error) {
+                    for (code, variant) in variants.iter().enumerate() {
+                        header.push_str(&format!(
+                            "/* out_error {code}: {error}.{} */\n",
+                            variant.name
+                        ));
+                    }
+                }
             }
             header.push_str(&format!(
                 "{} {}({});\n",
@@ -194,9 +213,23 @@ impl Interface {
                     args.push("&mut out_ok".into());
                     body.push_str(&format!("    mut out_ok: {ok} = 0\n"));
                 }
-                raw_parameters.push(format!("out_error: &mut {error}"));
+                let error_storage = if error_variants(error).is_some() {
+                    "u32".into()
+                } else {
+                    error.to_string()
+                };
+                raw_parameters.push(format!("out_error: &mut {error_storage}"));
                 args.push("&mut out_error".into());
-                body.push_str(&format!("    mut out_error: {error} = 0\n    status = {raw}({})\n    if status == 0:\n        Ok({})\n    else:\n        Err(out_error)\n", args.join(", "), if *ok == Ty::Unit { "()" } else { "out_ok" }));
+                body.push_str(&format!("    mut out_error: {error_storage} = 0\n    status = {raw}({})\n    if status == 0:\n        Ok({})\n    else:\n", args.join(", "), if *ok == Ty::Unit { "()" } else { "out_ok" }));
+                if let Some(variants) = error_variants(error) {
+                    if variants.len() == 1 {
+                        body.push_str(&format!("        Err({error}.{})\n", variants[0].name));
+                    } else {
+                        body.push_str(&format!("        if out_error == 0:\n            Err({error}.{})\n        else:\n            Err({error}.{})\n", variants[0].name, variants[1].name));
+                    }
+                } else {
+                    body.push_str("        Err(out_error)\n");
+                }
                 source.push_str(&format!(
                     "extern def {raw}({}) -> u32 = \"{}\"\npub def {}({}) -> {output}:\n{body}\n",
                     raw_parameters.join(", "),

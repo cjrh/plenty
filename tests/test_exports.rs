@@ -262,6 +262,17 @@ export def checked(x: i32) -> Result[f32, i16] = "calc_checked":
 export def touch(x: &mut i32) -> Result[(), u64] = "calc_touch":
     *x = *x + 1
     Err(18000000000)
+export def allocation(x: i32) -> Result[(), AllocError] = "calc_allocation":
+    if x == 0:
+        Ok(())
+    elif x == 1:
+        Err(AllocError.OutOfMemory)
+    else:
+        Err(AllocError.CapacityOverflow)
+export def parse() -> Result[i64, ParseError] = "calc_parse":
+    Err(ParseError.OutOfRange)
+export def failed() -> Result[(), Failure] = "calc_failed":
+    Err(Failure.Unspecified)
 "#;
     for kind in [LibraryKind::Static, LibraryKind::Shared] {
         let temp = tempfile::tempdir().unwrap();
@@ -284,6 +295,13 @@ int main(void) {
     uint64_t large = 0;
     assert(calc_touch(&x, &large) == 1);
     assert(x == 41 && large == UINT64_C(18000000000));
+    uint32_t code = 99;
+    assert(calc_allocation(0, &code) == 0 && code == 99);
+    assert(calc_allocation(1, &code) == 1 && code == 0);
+    assert(calc_allocation(2, &code) == 1 && code == 1);
+    int64_t unused = 42;
+    assert(calc_parse(&unused, &code) == 1 && code == 1 && unused == 42);
+    assert(calc_failed(&code) == 1 && code == 0);
     return 0;
 }
 "#,
@@ -306,14 +324,14 @@ int main(void) {
             success(Command::new(&executable).output().unwrap());
         }
         let app = root.join("main.plenty");
-        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    print(calc.checked(0))?\n    print(calc.checked(-1))?\n    mut x = 40i32\n    print(calc.touch(&mut x))?\n    print(x)?\n    Ok(())\n").unwrap();
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    print(calc.checked(0))?\n    print(calc.checked(-1))?\n    mut x = 40i32\n    print(calc.touch(&mut x))?\n    print(x)?\n    print(calc.allocation(0))?\n    print(calc.allocation(1))?\n    print(calc.allocation(2))?\n    print(calc.parse())?\n    print(calc.failed())?\n    Ok(())\n").unwrap();
         let options = plenty::CompileOptions {
             link_args: vec![library.into_os_string()],
             ..Default::default()
         };
         plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
         let output = success(Command::new(executable).output().unwrap());
-        assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, i16].Ok(1.25)\nResult[f32, i16].Err(-123)\nResult[(), u64].Err(18000000000)\n41\n");
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, i16].Ok(1.25)\nResult[f32, i16].Err(-123)\nResult[(), u64].Err(18000000000)\n41\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Err(AllocError.OutOfMemory)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[i64, ParseError].Err(ParseError.OutOfRange)\nResult[(), Failure].Err(Failure.Unspecified)\n");
     }
 }
 
