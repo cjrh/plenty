@@ -8,6 +8,7 @@ pub(super) fn loader_symbol(name: &str) -> bool {
             | "plenty_library_symbol_v1"
             | "plenty_library_close_v1"
             | "plenty_library_contract_v1"
+            | "plenty_library_require_origin_v1"
     )
 }
 
@@ -37,6 +38,7 @@ fn check_loader_signature(f: &Function, inputs: &[(String, Ty)], output: &Type) 
             shape == ["handle", "text", "output"] && *output == Some(Ty::U32)
         }
         "plenty_library_close_v1" => shape == ["handle"] && output.is_none(),
+        "plenty_library_require_origin_v1" => shape == ["handle", "handle"] && output.is_none(),
         "plenty_library_contract_v1" => {
             shape == ["handle", "text", "text"] && *output == Some(Ty::U32)
         }

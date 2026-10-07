@@ -145,6 +145,16 @@ pub(crate) unsafe extern "C" fn plenty_library_close_v1(handle: *mut c_void) {
 }
 
 #[no_mangle]
+pub(crate) extern "C" fn plenty_library_require_origin_v1(
+    expected: *const c_void,
+    actual: *const c_void,
+) {
+    if expected.is_null() || expected != actual {
+        crate::fail("library object belongs to a different loaded instance");
+    }
+}
+
+#[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_library_contract_v1(
     handle: *mut c_void,
     discovery: *const u8,

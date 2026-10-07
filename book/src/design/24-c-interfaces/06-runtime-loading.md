@@ -16,13 +16,36 @@ The private lookup lease is cleaned up on every exit. A `Library` stores cached
 addresses; calls use native indirect C instructions without repeated lookup or
 allocation. The table itself is an ordinary fallibly allocated Plenty class.
 Its private fields prevent callers from constructing an unchecked table.
-Generation currently allows 128 exports and 240 parameters per method; names
+Generation currently allows 128 functions including generated destructors, and
+240 parameters per method; names
 beginning with `_` are reserved for generated fields and lifecycle helpers.
+The exported class name `Library` is also reserved for the table.
 
 The allocation-free builtin `LoadError` distinguishes OutOfMemory, CapacityOverflow, InvalidPath, OpenFailed,
 InvalidSymbol, MissingSymbol, and IncompatibleContract. Generated loading uses
 the normal `Result` and `?` rules. Metadata agreement is compatibility checking,
 not authentication. Library bodies can still trap or violate their contracts.
+
+## Owned objects
+
+Generated loaders support the same `Result[Class, AllocError]` factories, class
+borrows, and consuming class arguments as linked exports. Each returned wrapper
+stores its native handle, originating library identity, and exact destructor
+address. Objects may outlive the `Library` table; dropping them still runs the
+originating destructor exactly once. Code residency supplies that lifetime.
+Constructing the Plenty wrapper requires one fallible allocation before native
+acquisition. On wrapper allocation failure, acquisition is skipped; on native
+failure the empty wrapper is cleaned up. Consumed arguments transfer on both Ok
+and Err, and returned owners receive a newly armed wrapper.
+
+Two files can have the same public contract and different private object layouts.
+Before passing any owned or borrowed class argument, a generated method compares
+its originating contract-guard address with the table's identity. Mixing objects
+from different loaded instances terminates with a diagnostic **before** crossing
+the C boundary. This is a programming-error check, separate from recoverable
+loading errors; it does not add an error variant to every exported method.
+Repeated loads of the same resident instance are compatible. Keep calls and
+objects on their creating thread, as required by the generated C contracts.
 
 ## Trusted binding primitives
 
@@ -38,6 +61,7 @@ extern def open_raw(path: &str as utf8, output: &mut Lease) -> u32 = "plenty_lib
 extern def symbol_raw(lease: Lease, name: &str as utf8, output: &mut Address) -> u32 = "plenty_library_symbol_v1"
 extern def close_raw(lease: Lease) -> () = "plenty_library_close_v1"
 extern def check_raw(lease: Lease, discovery: &str as utf8, expected: &str as utf8) -> u32 = "plenty_library_contract_v1"
+extern def require_origin(expected: Address, actual: Address) -> () = "plenty_library_require_origin_v1"
 ```
 
 Open and lookup return zero on success and write their output only on success.
@@ -71,3 +95,5 @@ incompatible contract. A missing discovery symbol is a missing-symbol error.
 The comparison allocates nothing. The discovery implementation is trusted to
 return valid readable memory; metadata checks cannot establish native memory
 safety or prevent constructors from having run already.
+`require_origin` compares two non-owning identity pointers. A null expected
+identity or a mismatch terminates with the instance-mismatch diagnostic.

@@ -22,7 +22,9 @@ block. The runtime now provides resident mappings and fallible lookup leases;
 fixed ABI-checked declarations now expose those helpers to trusted interfaces.
 Exact discovery-contract validation returns recoverable errors. Generated scalar
 loaders expose a typed Library with cached callable addresses, scalar borrows,
-and Result adapters. Owned handles and command-line generation remain in progress.
+and Result adapters. Owned factories, automatic destruction, class borrows and
+consuming methods preserve originating-library identity. Command-line generation
+and end-to-end allocation-failure validation remain in progress.
 
 ## Later candidates
 

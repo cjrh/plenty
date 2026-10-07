@@ -5,6 +5,7 @@ extern def _open(path: &str as utf8, output: &mut _LibraryLease) -> u32 = "plent
 extern def _symbol(lease: _LibraryLease, name: &str as utf8, output: &mut _FunctionAddress) -> u32 = "plenty_library_symbol_v1"
 extern def _close(lease: _LibraryLease) -> () = "plenty_library_close_v1"
 extern def _check(lease: _LibraryLease, discovery: &str as utf8, expected: &str as utf8) -> u32 = "plenty_library_contract_v1"
+extern def _require_origin(expected: _FunctionAddress, actual: _FunctionAddress) -> () = "plenty_library_require_origin_v1"
 
 def _error(status: u32) -> LoadError:
     if status == 1:

@@ -304,3 +304,91 @@ def main() -> Result[(), Failure]:
     assert!(output.status.success(), "{output:?}");
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, ParseError].Ok(1.25)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\n12\nResult[(), u64].Ok(())\nResult[(), u64].Err(18446744073709551615)\nResult[i32, AllocError].Err(AllocError.CapacityOverflow)\nResult[(), Failure].Err(Failure.Unspecified)\n5.0\n");
 }
+
+const OWNERS: &str = r#"
+class Counter:
+    value: i64
+    def __del__(self) -> ():
+        print("released").unwrap()
+export def create(value: i64) -> Result[Counter, AllocError] = "calc_create":
+    Counter(value)
+export def read(counter: &Counter) -> i64 = "calc_read":
+    counter.value
+export def bump(counter: &mut Counter) -> Result[(), i32] = "calc_bump":
+    counter.value = counter.value + 1
+    Err(-1)
+export def transfer(counter: Counter) -> Result[Counter, AllocError] = "calc_transfer":
+    Ok(counter)
+export def finish(counter: Counter) -> Result[(), i32] = "calc_finish":
+    Err(-2)
+"#;
+
+#[test]
+fn dynamic_owners_keep_destruction_and_instance_provenance() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let producer = root.join("producer.plenty");
+    std::fs::write(&producer, OWNERS).unwrap();
+    let options = plenty::LibraryOptions::new("calc", plenty::LibraryKind::Shared);
+    let first = root.join("first.so");
+    let second = root.join("second.so");
+    plenty::compile_file_to_library(&producer, &first, None, &options).unwrap();
+    plenty::compile_file_to_library(&producer, &second, None, &options).unwrap();
+    std::fs::write(
+        root.join("plugin.plentyi"),
+        plenty::runtime_interface_source(&producer, None, "calc").unwrap(),
+    )
+    .unwrap();
+    let output = run(
+        root,
+        &format!(
+            r#"
+import plugin
+def acquire(path: &str) -> Result[plugin.Counter, Failure]:
+    library = plugin.load(path)?
+    Ok(library.create(20)?)
+def main() -> Result[(), Failure]:
+    path = "{}"
+    library = plugin.load(&path)?
+    mut counter = acquire(&path)?
+    print(library.bump(&mut counter))?
+    print(library.read(&counter))?
+    counter = library.transfer(counter)?
+    print(library.finish(counter))?
+    last = library.create(42)?
+    drop(library)
+    drop(last)
+    Ok(())
+"#,
+            first.display()
+        ),
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        output.stdout,
+        b"Result[(), i32].Err(-1)\n21\nreleased\nResult[(), i32].Err(-2)\nreleased\n"
+    );
+    let output = run(
+        root,
+        &format!(
+            r#"
+import plugin
+def main() -> Result[(), Failure]:
+    a = "{}"
+    b = "{}"
+    first = plugin.load(&a)?
+    second = plugin.load(&b)?
+    owner = first.create(42)?
+    print(second.read(&owner))?
+    Ok(())
+"#,
+            first.display(),
+            second.display()
+        ),
+    );
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("different loaded instance"),
+        "{output:?}"
+    );
+}
