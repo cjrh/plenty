@@ -1717,6 +1717,10 @@ lookup requires no traits or user generics.
 
 ## Bounded stream operations
 
+`readline(count: i64)` uses the same scalar limits as `read(count)` but stops
+after the first translated newline. A negative count reads one complete line.
+The next call resumes a partial line; a zero limit does not consume a pending LF.
+
 File `read(count: i64)` reads at most that many Unicode scalars after universal
 newline translation. Zero returns an allocated empty string without consuming
 input; negative counts read to EOF. Bounded reads do not read past a scalar.

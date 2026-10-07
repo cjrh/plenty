@@ -227,6 +227,7 @@ pub(crate) fn read_chars(
     reader: &mut impl Read,
     skip_lf: &mut bool,
     count: u64,
+    line: bool,
 ) -> Result<*mut strings::Text, Error> {
     let mut bytes = Vec::new();
     for _ in 0..count {
@@ -236,6 +237,9 @@ pub(crate) fn read_chars(
         if first == b'\r' {
             *skip_lf = true;
             push(&mut bytes, b'\n')?;
+            if line {
+                break;
+            }
             continue;
         }
         let width = match first {
@@ -253,6 +257,9 @@ pub(crate) fn read_chars(
         std::str::from_utf8(&scalar[..width]).map_err(|_| Error::InvalidUtf8)?;
         for byte in &scalar[..width] {
             push(&mut bytes, *byte)?;
+        }
+        if line && first == b'\n' {
+            break;
         }
     }
     // Each appended scalar was validated above.
@@ -349,6 +356,33 @@ pub(crate) fn input() -> u128 {
 mod tests {
     use super::*;
     use crate::memory::{plenty_release, Header};
+    #[test]
+    fn bounded_reads_validate_scalars_and_preserve_exact_cursor_positions() {
+        let mut reader = std::io::Cursor::new("é🦀\r\nz".as_bytes());
+        let mut skip = false;
+        for (count, expected, position) in [(0, "", 0), (1, "é", 2), (8, "🦀\n", 7), (1, "z", 9)]
+        {
+            let text = read_chars(&mut reader, &mut skip, count, true).unwrap();
+            // SAFETY: each returned text has one live owner, released once.
+            unsafe {
+                assert_eq!(strings::utf8(text), expected);
+                plenty_release(text.cast());
+            }
+            assert_eq!(reader.position(), position);
+        }
+        for bad in [
+            &b"\xc0\x80"[..],
+            &b"\xed\xa0\x80"[..],
+            &b"\xf4\x90\x80\x80"[..],
+            &b"\xf0\x9f"[..],
+            &b"\x80"[..],
+        ] {
+            assert!(matches!(
+                read_chars(&mut std::io::Cursor::new(bad), &mut false, 1, false),
+                Err(Error::InvalidUtf8)
+            ));
+        }
+    }
     #[test]
     fn file_lines_preserve_terminators_without_reading_past_cr() {
         let mut reader = std::io::Cursor::new("a\ré\r\n\n\0last".as_bytes());

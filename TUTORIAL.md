@@ -3296,6 +3296,27 @@ Result[(), IoError].Ok(())
 ```
 
 
+`readline(count)` limits a line read in the same way. A long line can arrive in
+several pieces; a negative count reads the rest of the line.
+
+```plenty
+def demo() -> Result[(), IoError]:
+    write_text("lines.txt", "abcd\nnext")?
+    with open("lines.txt")? as file:
+        print(file.readline(2)?)
+        print(file.readline(2)?)
+        print(file.readline(2))
+    Ok(())
+def main() -> ():
+    print(demo())
+```
+```output
+ab
+cd
+Result[str, IoError].Ok("\n")
+Result[(), IoError].Ok(())
+```
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,

@@ -82,7 +82,7 @@ pub(crate) unsafe fn readline(pointer: *mut File) -> Result<u128, Error> {
     Ok(text_io::read_file_line(file, &mut owner.skip_lf)? as u128)
 }
 
-pub(crate) unsafe fn read_sized(pointer: *mut File, count: i64) -> Result<u128, Error> {
+pub(crate) unsafe fn read_sized(pointer: *mut File, count: i64, line: bool) -> Result<u128, Error> {
     // SAFETY: the compiler supplies a live exclusively borrowed owner.
     let owner = unsafe { &mut *pointer };
     let file = owner
@@ -90,9 +90,12 @@ pub(crate) unsafe fn read_sized(pointer: *mut File, count: i64) -> Result<u128, 
         .as_mut()
         .ok_or(std::io::ErrorKind::NotConnected)?;
     if count < 0 {
+        if line {
+            return Ok(text_io::read_file_line(file, &mut owner.skip_lf)? as u128);
+        }
         return Ok(text_io::read_remaining(file, &mut owner.skip_lf)? as u128);
     }
-    Ok(text_io::read_chars(file, &mut owner.skip_lf, count as u64)? as u128)
+    Ok(text_io::read_chars(file, &mut owner.skip_lf, count as u64, line)? as u128)
 }
 
 pub(crate) unsafe fn write(pointer: *mut File, text: &str) -> Result<u128, Error> {

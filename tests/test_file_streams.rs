@@ -40,6 +40,25 @@ print(work())
 }
 
 #[test]
+fn sized_readline_stops_at_limit_or_newline() {
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt")? as file:
+        print(file.readline(1))
+        print(file.readline(0))
+        print(file.readline(20))
+        print(file.readline(-1))
+        print(file.read(1))
+    Ok(())
+print(work())
+"#,
+        Some("é🦀\r\nnext\nz".as_bytes()),
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "Result[str, IoError].Ok(\"é\")\nResult[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"🦀\\n\")\nResult[str, IoError].Ok(\"next\\n\")\nResult[str, IoError].Ok(\"z\")\nResult[(), IoError].Ok(())\n");
+}
+
+#[test]
 fn files_are_owned_and_close_is_idempotent() {
     let (out, _) = run(
         r#"
@@ -113,6 +132,42 @@ print(work())
     assert!(text.contains("DataError.InvalidUtf8"), "{text}");
     assert!(text.contains(".Ok(\"ok\\n\")"), "{text}");
     assert!(text.contains("IoError.System(0)"), "{text}");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn bounded_reads_report_allocation_failure_and_remain_closable() {
+    for method in ["read", "readline"] {
+        for budget in 0..=2 {
+            let (out, _) = run(
+                &format!(
+                    r#"
+def work() -> Result[(), IoError]:
+    mut file = open("sample.txt")?
+    print("__test_fail_allocations_after_{budget}__")
+    result = file.{method}(2)
+    file.close()?
+    print("__test_restore_allocations__")
+    print(result)
+    print(file.closed)
+    Ok(())
+print(work())
+"#
+                ),
+                Some("é🦀".as_bytes()),
+            );
+            let text = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                text.contains(if budget < 2 {
+                    "OutOfMemory"
+                } else {
+                    ".Ok(\"é🦀\")"
+                }),
+                "{text}"
+            );
+            assert!(text.contains("\nTrue\n"), "{text}");
+        }
+    }
 }
 
 #[cfg(feature = "runtime-checks")]

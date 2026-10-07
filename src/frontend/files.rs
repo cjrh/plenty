@@ -36,13 +36,16 @@ impl Lower<'_> {
             "close" => CollectionOp::FileClose,
             "read" if !args.is_empty() => CollectionOp::FileReadSized,
             "read" => CollectionOp::FileRead,
+            "readline" if !args.is_empty() => CollectionOp::FileReadLineSized,
             "readline" => CollectionOp::FileReadLine,
             "write" => CollectionOp::FileWrite,
             "flush" => CollectionOp::FileFlush,
             "sync" => CollectionOp::FileSync,
             _ => return Err(base.at.error(format!("unknown File method `{name}`"))),
         };
-        let count = usize::from(name == "write" || (name == "read" && !args.is_empty()));
+        let count = usize::from(
+            name == "write" || (matches!(name, "read" | "readline") && !args.is_empty()),
+        );
         if args.len() != count {
             return Err(base.at.error(if count == 0 {
                 format!("{name} takes no arguments")
@@ -53,7 +56,11 @@ impl Lower<'_> {
         let mut reads = Vec::new();
         if let Some(arg) = args.first() {
             let (ty, loans) = self.observe(arg, ops)?;
-            let expected = if name == "read" { Ty::I64 } else { Ty::Str };
+            let expected = if matches!(name, "read" | "readline") {
+                Ty::I64
+            } else {
+                Ty::Str
+            };
             self.same(Some(ty), Some(expected), &arg.at)?;
             reads = loans;
         }
