@@ -8,6 +8,13 @@ value, or an internal address of owner-local inline range data. This
 representation preserves all integer and float bit patterns; it does
 not reserve a null pointer or numeric sentinel as a source-level value.
 
+`LoadError` is also an allocation-free builtin. Its seven fieldless variants use
+three terminal tag bits, preserved inside nested Option/Result values and normal
+storage. Those bits count toward the tag-path limit. Loader failures can therefore
+be constructed, matched, compared, returned, or propagated when allocation is
+disabled; printing them retains the ordinary fallible formatting cost. See
+[runtime loading](../24-c-interfaces/06-runtime-loading.md) for the variants.
+
 Construction, passing, returning, matching, and `?` do not allocate a standard
 sum wrapper. Copies of scalar-only sums and their equality comparisons are also
 allocation-free. Payload operations retain their existing costs: creating a list,

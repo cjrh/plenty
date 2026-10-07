@@ -6,8 +6,9 @@
 > and [reference](../design/index.md) for current behavior.
 
 Status: researched proposal, 2026-10-05. Scalar/opaque-pointer C imports and
-explicit static/shared linking are now implemented; see the
-[C interface reference](../design/24-c-interfaces.md). The code blocks below
+explicit static/shared linking, C exports, and typed resident runtime loading are
+now implemented; see the [C interface reference](../design/24-c-interfaces.md)
+and [runtime loading](../design/24-c-interfaces/06-runtime-loading.md). The code blocks below
 remain historical sketches, not runnable Plenty syntax.
 
 Plenty should support ordinary C libraries without making every application

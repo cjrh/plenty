@@ -232,6 +232,14 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
     resolve(vec![module], vec![vec![]], at, true)
 }
 
+pub(super) fn generated_interface(source: &str) -> Result<Resolved> {
+    let (module, at) = parse(source, Some(Path::new("generated.plentyi")), String::new())?;
+    if !module.imports.is_empty() {
+        return Err(at.error("generated runtime interfaces must be self-contained"));
+    }
+    resolve(vec![module], vec![vec![]], at, false)
+}
+
 pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Result<Resolved> {
     let entry = path
         .canonicalize()

@@ -73,3 +73,64 @@ fn command_generates_without_a_toolchain_and_preserves_source_files() {
         .success());
     assert!(!wrong_extension.exists());
 }
+
+#[test]
+fn generation_rejects_unusable_names_without_replacing_previous_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let producer = root.join("source.plenty");
+    let output = root.join("plugin.plentyi");
+    std::fs::write(&output, "previous").unwrap();
+    for name in ["new", "self", "_private"] {
+        std::fs::write(
+            &producer,
+            format!("export def {name}() -> i32 = \"calc_value\":\n    1\n"),
+        )
+        .unwrap();
+        let error = plenty::emit_runtime_interface(&producer, &output, None, "calc")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("reserved"), "{error}");
+        assert_eq!(std::fs::read_to_string(&output).unwrap(), "previous");
+    }
+    for name in ["Library", "load"] {
+        std::fs::write(&producer, format!("class {name}:\n    value: i32\nexport def create() -> Result[{name}, AllocError] = \"calc_create\":\n    {name}(1)\n")).unwrap();
+        let error = plenty::emit_runtime_interface(&producer, &output, None, "calc")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("runtime interface API"), "{error}");
+        assert_eq!(std::fs::read_to_string(&output).unwrap(), "previous");
+    }
+    std::fs::write(
+        &producer,
+        format!(
+            "export def value() -> i32 = \"calc_{}\":\n    1\n",
+            "x".repeat(512)
+        ),
+    )
+    .unwrap();
+    let error = plenty::emit_runtime_interface(&producer, &output, None, "calc")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("512 bytes"), "{error}");
+    assert_eq!(std::fs::read_to_string(&output).unwrap(), "previous");
+}
+
+#[test]
+fn loaded_wrappers_keep_raw_addresses_private_and_enforce_moves() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let producer = root.join("source.plenty");
+    std::fs::write(&producer, "class Resource:\n    value: i32\nexport def create() -> Result[Resource, AllocError] = \"calc_create\":\n    Resource(1)\nexport def read(value: &Resource) -> i32 = \"calc_read\":\n    value.value\nexport def finish(value: Resource) -> () = \"calc_finish\":\n    drop(value)\n").unwrap();
+    plenty::emit_runtime_interface(&producer, &root.join("plugin.plentyi"), None, "calc").unwrap();
+    let entry = root.join("main.plenty");
+    for (body, expected) in [
+        ("    address = library._origin\n", "private"),
+        ("    owner = library.create()?\n    library.finish(owner)\n    print(library.read(&owner))?\n", "moved"),
+        ("    owner = library.create()?\n    raw = owner._handle\n", "private"),
+    ] {
+        std::fs::write(&entry, format!("import plugin\ndef main() -> Result[(), Failure]:\n    path = \"./libcalc.so\"\n    library = plugin.load(&path)?\n{body}    Ok(())\n")).unwrap();
+        let error = plenty::check_file(&entry, None).unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}

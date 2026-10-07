@@ -2468,6 +2468,12 @@ pub(crate) fn compile_file(
     lower(modules::load(path, root, require_main)?, heap)
 }
 
+pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
+    let mut heap = Heap::default();
+    let program = lower(modules::generated_interface(source)?, &mut heap)?;
+    crate::op::check(&program.ops)
+}
+
 fn register_signature(
     f: &Function,
     aliases: &TypeAliases,

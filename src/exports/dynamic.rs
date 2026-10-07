@@ -16,6 +16,21 @@ fn literal(text: &str) -> String {
 }
 
 pub(super) fn generate(interface: &Interface, exports: &[Export]) -> Result<String> {
+    if interface.source.len() > 4 * 1024 * 1024 {
+        return Err("runtime interface contract exceeds the 4 MiB discovery limit".into());
+    }
+    if exports
+        .iter()
+        .map(|e| e.symbol.as_str())
+        .chain(interface.handles.iter().map(|h| h.destroy.as_str()))
+        .chain([
+            interface.discovery.as_str(),
+            interface.contract_guard.as_str(),
+        ])
+        .any(|symbol| symbol.len() >= 512)
+    {
+        return Err("runtime interface symbol names must be shorter than 512 bytes".into());
+    }
     if exports.len() + interface.handles.len() > 128 {
         return Err(
             "runtime interfaces support at most 128 functions including handle destructors".into(),
@@ -25,12 +40,32 @@ pub(super) fn generate(interface: &Interface, exports: &[Export]) -> Result<Stri
         if export.signature.inputs.len() > 240 {
             return Err("runtime interface methods support at most 240 parameters".into());
         }
-        if export.name.starts_with('_') {
-            return Err("runtime interface method names beginning with `_` are reserved".into());
+        let consumed = export
+            .signature
+            .inputs
+            .iter()
+            .filter(|(_, ty)| matches!(ty, crate::op::Ty::Class(_)))
+            .count();
+        if export.signature.inputs.len() + consumed * 2 > 240 {
+            return Err(
+                "runtime interface method exceeds parameter/ownership temporary slot limits".into(),
+            );
+        }
+        if export.name.starts_with('_') || matches!(export.name.as_str(), "new" | "self") {
+            return Err(
+                "runtime interface method names beginning with `_`, `new`, and `self` are reserved"
+                    .into(),
+            );
         }
     }
-    if interface.handles.iter().any(|h| h.name == "Library") {
-        return Err("exported class `Library` conflicts with the runtime interface table".into());
+    if interface
+        .handles
+        .iter()
+        .any(|h| matches!(h.name.as_str(), "Library" | "load"))
+    {
+        return Err(
+            "exported class `Library` or `load` conflicts with the runtime interface API".into(),
+        );
     }
     let methods: Vec<_> = exports
         .iter()

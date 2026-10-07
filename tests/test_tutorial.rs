@@ -2,6 +2,7 @@
 //! `output` fences; `plenty-error` fences require an `error` diagnostic
 //! substring. Preceding `plenty-file path.plenty` fences on the same page
 //! supply modules for that one example.
+//! `sh plenty-build` fences run explicit library/interface build commands.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -114,6 +115,7 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
     let mut examples = 0;
     let mut index = 0;
     let mut modules = Vec::new();
+    let mut builds = Vec::new();
     let mut failures = Vec::new();
     while index < fences.len() {
         let source = &fences[index];
@@ -136,6 +138,11 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
                 "duplicate tutorial module"
             );
             modules.push((path, source.body.clone(), page_of(&source.line)));
+            index += 1;
+            continue;
+        }
+        if source.language == "sh plenty-build" {
+            builds.push(source);
             index += 1;
             continue;
         }
@@ -176,6 +183,51 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, body).unwrap();
         }
+        let mut libraries = Vec::new();
+        for build in builds.drain(..) {
+            assert_eq!(
+                page_of(&build.line),
+                page_of(&source.line),
+                "library build is on another page"
+            );
+            for line in build.body.lines().filter(|line| !line.trim().is_empty()) {
+                // Intentionally no shell: lessons use the exact public CLI and
+                // cannot substitute arbitrary scripts for a language example.
+                let words: Vec<_> = line.split_whitespace().collect();
+                assert!(
+                    words.len() == 7
+                        && words[0] == "plenty"
+                        && matches!(words[1], "--shared-library" | "--runtime-interface")
+                        && words[3] == "--library-name"
+                        && words[5] == "-o",
+                    "unsupported tutorial build at {}: {line}",
+                    build.line
+                );
+                for path in [words[2], words[6]] {
+                    assert!(
+                        Path::new(path)
+                            .components()
+                            .all(|part| matches!(part, std::path::Component::Normal(_))),
+                        "invalid build path at {}",
+                        build.line
+                    );
+                }
+                let output = Command::new(binary)
+                    .args(&words[1..])
+                    .current_dir(&example_dir)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}: {line}\n{}",
+                    build.line,
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                if words[1] == "--shared-library" {
+                    libraries.push(PathBuf::from(words[6]));
+                }
+            }
+        }
         let source_path = example_dir.join("lesson.plenty");
         std::fs::write(&source_path, &source.body).unwrap();
         // Runtime examples may create files. Give each execution a separate
@@ -185,6 +237,13 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
         let native_dir = example_dir.join("native");
         std::fs::create_dir(&run_dir).unwrap();
         std::fs::create_dir(&native_dir).unwrap();
+        for library in libraries {
+            for directory in [&run_dir, &native_dir] {
+                let destination = directory.join(&library);
+                std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+                std::fs::copy(example_dir.join(&library), destination).unwrap();
+            }
+        }
         let run_output = Command::new(binary)
             .arg(&source_path)
             .current_dir(&run_dir)
@@ -266,6 +325,10 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
     assert!(
         modules.is_empty(),
         "orphan tutorial module without an example"
+    );
+    assert!(
+        builds.is_empty(),
+        "orphan tutorial library build without an example"
     );
     assert!(
         failures.is_empty(),

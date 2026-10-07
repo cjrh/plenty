@@ -109,6 +109,7 @@
     - [Own a foreign handle](tutorial/59-own-a-foreign-handle.md)
     - [Build a C library](tutorial/60-build-a-c-library.md)
     - [Export owned objects](tutorial/61-export-owned-objects.md)
+    - [Load a library at runtime](tutorial/62-load-a-library-at-runtime.md)
 
 # Reference
 

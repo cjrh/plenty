@@ -26,10 +26,9 @@ fn runtime_interface(
     crate::op::check(&program.ops)?;
     let interface = Interface::new(name, &program.exports)?;
     interface.validate_imports(&program.imported_symbols)?;
-    Ok((
-        interface.runtime_source(&program.exports)?,
-        program.source_paths,
-    ))
+    let source = interface.runtime_source(&program.exports)?;
+    crate::frontend::check_generated_interface(&source)?;
+    Ok((source, program.source_paths))
 }
 
 /// Publish a generated runtime interface without overwriting any loaded source.

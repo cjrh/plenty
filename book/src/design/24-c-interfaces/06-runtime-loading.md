@@ -15,6 +15,8 @@ The Rust API offers `emit_runtime_interface` with the same publication rules.
 This generated loader is distinct from the linked `calc.plentyi` contract;
 `--extract-interface` and `--verify-interface` still work with that linked
 contract. Runtime generation currently requires the original export source.
+The [runtime-loading lesson](../../tutorial/62-load-a-library-at-runtime.md)
+builds and runs a complete owned-object example during tutorial validation.
 
 `runtime_interface_source(path, root, library_name)` in the compiler's Rust API
 generates a trusted module from the same export source used to build a library.
@@ -24,7 +26,8 @@ export. Generated methods support numeric scalar inputs/results, shared or
 mutable scalar borrows, unit results, and the scalar/unit Result forms supported
 by C exports, plus owned handles described below. The exact error type and numeric width are preserved. Mutations to
 borrowed inputs remain visible on Err, as with linked calls. Generating the
-source does not run or link native code.
+source does not run or link native code. The compiler type-checks the generated
+module before returning or publishing it.
 
 Load opens the requested library, checks exact discovery metadata, requires its
 fingerprint guard, and resolves every export before returning a usable table.
@@ -34,9 +37,11 @@ Scalar adapters do not allocate; native callees retain their own allocation
 behavior. The table itself is an ordinary fallibly allocated Plenty class.
 Its private fields prevent callers from constructing an unchecked table.
 Generation currently allows 128 functions including generated destructors, and
-240 parameters per method; names
-beginning with `_` are reserved for generated fields and lifecycle helpers.
-The exported class name `Library` is also reserved for the table.
+240 parameters per method (consuming owners also need temporary slots). Names
+beginning with `_`, `new`, and `self` are reserved for generated fields and
+lifecycle helpers. Exported class names `Library` and `load` are reserved for the
+table and loader. Native symbol names must be shorter than 512 bytes, and the
+expected contract must fit the 4 MiB discovery bound.
 
 Loading performs three Plenty allocations: a temporary lease owner, a terminated
 path buffer, and the returned method table. Any can report `OutOfMemory`; the

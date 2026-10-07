@@ -12,22 +12,15 @@ stages describe technical dependencies, not a second priority list.
 
 ## Next batch
 
-The initial toolchain and C boundary batch (B01–B06) is complete. B07 is active:
-typed runtime loading of known interfaces with recoverable loading/compatibility
-errors, keeping loaded libraries resident. Build on the generated contracts,
-fingerprints, and ownership wrappers already checked by native C/C++ and Plenty
-integration tests. Expanded C representations are tracked separately as B27.
-Trusted indirect C calls are implemented as the first runtime-loading building
-block. The runtime now provides resident mappings and fallible lookup leases;
-fixed ABI-checked declarations now expose those helpers to trusted interfaces.
-Exact discovery-contract validation returns recoverable errors. Generated scalar
-loaders expose a typed Library with cached callable addresses, scalar borrows,
-and Result adapters. Owned factories, automatic destruction, class borrows and
-consuming methods preserve originating-library identity. CLI/API generation
-publishes checked loaders without a native toolchain. Allocation-failure injection
-covers lease/path/table construction, native acquisition, and consumed-owner
-cleanup; incomplete symbol resolution never exposes a partial table. The
-runnable teaching example remains in progress.
+The initial toolchain and C boundary batch (B01–B07) is complete, including typed
+runtime loading with resident code, recoverable LoadError values, and ownership
+wrappers checked against their originating library instance.
+
+B08 is next: start with first-class named functions and explicit callable
+signatures, then multiline anonymous functions and checked captures. Settle
+environment ownership, escape rules, and allocation behavior before higher-order
+APIs. Expanded C representations are B27; additional loader tooling and library
+lifecycle work are B28.
 
 ## Later candidates
 
@@ -36,7 +29,6 @@ guide breakdown when an item is selected; detailed syntax is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B07 | Runtime library loading | Typed loading of known interfaces with recoverable missing-library/symbol and incompatible-contract errors; validate generated interface metadata through versioned discovery. Initially keep loaded libraries resident; unloading, retained callbacks, foreign-thread callbacks, C record layout, and header-assisted bindings need further contracts. [FFI design](proposals/ffi-and-dynamic-libraries.md) and [export contracts](proposals/ffi-export-contracts.md). |
 | B08 | Function values and multiline closures | First-class named functions and callable signatures, then anonymous bodies and checked captures. Define borrowed versus owned environments, lifetime/escape rules, and fallible allocation before adding higher-order library APIs. |
 | B09 | Generic data types and richer protocols | Generic classes/enums and methods, with parameterized protocols or additional bounds when concrete library use cases justify them. Keep method lookup explicit and measure specialization cost. [Protocol design](proposals/protocols-generics-and-context-managers.md). |
 | B10 | Recursive data types | Define indirection, ownership, allocation failure, and bounded destruction for recursive classes/enums. Current acyclic forward declarations are already supported. [Sum-type design](proposals/sum-types.md). |
@@ -55,6 +47,7 @@ guide breakdown when an item is selected; detailed syntax is still open.
 | B23 | SIMD | Define vector values, contiguous numeric storage, supported operations, and scalar fallbacks. Ordinary generic lists are not automatically packed native arrays. [SIMD design](proposals/memory-parallelism-and-simd.md). |
 | B24 | Automatic parallelization | Research only after B22: require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |
+| B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/24-c-interfaces/06-runtime-loading.md). |
 
 ## Reconciled completed work
 
@@ -64,6 +57,7 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
+| B07: Initial runtime library loading | CLI/API generation emits self-contained typed loaders; exact discovery metadata and all symbols are checked before returning a table. Scalar/borrow/Result adapters and owned factories/transfers preserve signatures, destruction, and instance provenance. Allocation-free LoadError, injected failures, private-address checks, and the executable library tutorial cover the initial resident implementation. [Runtime reference](design/24-c-interfaces/06-runtime-loading.md). |
 | B06: Initial C library exports | Static/shared packaging, scalar and Result adapters, owned factories, matching destruction, shared/mutable and consuming handles, precise C contracts, embedded/extractable interfaces, SHA-256 link guards, explicit binary verification, and staged publication are implemented. Native callers and injected failures validate cleanup. [Library reference](design/24-c-interfaces/02-library-exports.md). |
 | B05: Ownership-aware C adapters | Scalar/pointer borrows and explicit UTF-8/C-string adapters integrate with normal borrowing. Private opaque pointers in classes provide owned handles and matching destruction; C fixtures verify partial acquisition, allocation errors, and conditional/unconditional transfer. Mutable/returned byte buffers remain outside this subset. See [adapters](design/24-c-interfaces/01-ownership-and-text-adapters.md). |
 | B04: Initial C imports | Trusted `.plentyi` declarations support sized C scalars and nominal opaque pointers. Native C fixtures cover static/shared linking and actual ABI calls; visibility and Plenty layouts remain separate. See [C interfaces](design/24-c-interfaces.md). |
