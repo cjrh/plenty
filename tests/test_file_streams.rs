@@ -45,6 +45,95 @@ print(work())
 }
 
 #[test]
+fn readline_preserves_line_endings_and_distinguishes_empty_lines_from_eof() {
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt")? as file:
+        for n in range(6):
+            print(file.readline())
+    Ok(())
+print(work())
+"#,
+        Some("é\r\n\r\n\n\0last".as_bytes()),
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "Result[str, IoError].Ok(\"é\\n\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"\\0last\")\nResult[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"\")\nResult[(), IoError].Ok(())\n");
+}
+
+#[test]
+fn readline_and_read_share_newline_state_and_recover_after_invalid_utf8() {
+    for input in [&b"one\r\ntwo\rthree"[..], &b"one\rtwo\rthree"[..]] {
+        let (out, _) = run(
+            r#"
+def work() -> Result[str, IoError]:
+    with open("sample.txt")? as file:
+        first = file.readline()?
+        return file.read()
+print(work())
+"#,
+            Some(input),
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "Result[str, IoError].Ok(\"two\\nthree\")\n"
+        );
+    }
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt")? as file:
+        print(file.readline())
+        print(file.readline())
+        file.close()?
+        print(file.readline())
+    Ok(())
+print(work())
+"#,
+        Some(b"\xff\r\nok\n"),
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("DataError.InvalidUtf8"), "{text}");
+    assert!(text.contains(".Ok(\"ok\\n\")"), "{text}");
+    assert!(text.contains("IoError.System(0)"), "{text}");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn readline_allocation_failure_preserves_a_valid_closable_owner() {
+    for budget in 0..=2 {
+        let (out, _) = run(
+            &format!(
+                r#"
+def read(file: &mut File) -> Result[str, IoError]:
+    with &mut file as stream:
+        return Ok(stream.readline()?)
+def work() -> Result[(), IoError]:
+    mut file = open("sample.txt")?
+    print("__test_fail_allocations_after_{budget}__")
+    result = read(&mut file)
+    print("__test_restore_allocations__")
+    print(result)
+    print(file.closed)
+    Ok(())
+print(work())
+"#
+            ),
+            Some(b"a\r\nb\n"),
+        );
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            text.contains(if budget < 2 {
+                "OutOfMemory"
+            } else {
+                ".Ok(\"a\\n\")"
+            }),
+            "{text}"
+        );
+        assert!(text.contains("\nTrue\n"), "{text}");
+    }
+}
+
+#[test]
 fn scoped_reads_return_owned_text_and_advance_to_eof() {
     let (out, _) = run(
         r#"

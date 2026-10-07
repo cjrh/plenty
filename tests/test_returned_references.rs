@@ -133,3 +133,43 @@ print(r)
         "9\n9\n",
     );
 }
+
+#[test]
+fn conditional_reference_values_do_not_guess_an_origin() {
+    reject(
+        r#"
+def view(value: &i64) -> &i64:
+    value
+left = 1
+right = 2
+prior = &left
+print(view(&left) if True else view(&right))
+"#,
+        "reference result requires",
+    );
+}
+
+#[test]
+fn projected_temporary_receivers_cannot_hide_returned_loan_origins() {
+    reject(
+        r#"
+class Point:
+    x: i64
+    def view(self) -> &i64:
+        &self.x
+print(Point(1).view())
+"#,
+        "require a named receiver",
+    );
+    reject(
+        r#"
+class Point:
+    x: i64
+    def view(self) -> &i64:
+        &self.x
+points = [Point(1)]
+print(points[0].view())
+"#,
+        "require a named receiver",
+    );
+}

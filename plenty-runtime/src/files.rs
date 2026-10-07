@@ -10,6 +10,7 @@ pub(crate) struct File {
     ty: &'static Type,
     file: Option<std::fs::File>,
     writable: bool,
+    skip_lf: bool,
 }
 
 pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Error> {
@@ -32,6 +33,7 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
                     ty,
                     file: Some(file),
                     writable,
+                    skip_lf: false,
                 });
             }
             Ok(pointer as u128)
@@ -62,9 +64,22 @@ pub(crate) unsafe fn closed(pointer: *const File) -> bool {
 
 pub(crate) unsafe fn read(pointer: *mut File) -> Result<u128, Error> {
     // SAFETY: the compiler supplies a live exclusively borrowed owner.
-    let file = unsafe { &mut (*pointer).file };
-    let file = file.as_mut().ok_or(std::io::ErrorKind::NotConnected)?;
-    Ok(text_io::read_all(file)? as u128)
+    let owner = unsafe { &mut *pointer };
+    let file = owner
+        .file
+        .as_mut()
+        .ok_or(std::io::ErrorKind::NotConnected)?;
+    Ok(text_io::read_remaining(file, &mut owner.skip_lf)? as u128)
+}
+
+pub(crate) unsafe fn readline(pointer: *mut File) -> Result<u128, Error> {
+    // SAFETY: the compiler supplies a live exclusively borrowed owner.
+    let owner = unsafe { &mut *pointer };
+    let file = owner
+        .file
+        .as_mut()
+        .ok_or(std::io::ErrorKind::NotConnected)?;
+    Ok(text_io::read_file_line(file, &mut owner.skip_lf)? as u128)
 }
 
 pub(crate) unsafe fn write(pointer: *mut File, text: &str) -> Result<u128, Error> {
@@ -128,6 +143,7 @@ mod tests {
                 ty: &TYPE,
                 file: None,
                 writable: false,
+                skip_lf: false,
             });
             memory::plenty_retain(pointer.cast());
             memory::plenty_release(pointer.cast());

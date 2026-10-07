@@ -220,16 +220,7 @@ impl Lower<'_> {
             _ => {
                 let ty = self.value(e, ops)?;
                 if let Ty::Ref(inner, _) = ty {
-                    let id = match ops.iter().rev().find_map(|op| {
-                        if let Op::Loan(l) = op {
-                            Some(l.id)
-                        } else {
-                            None
-                        }
-                    }) {
-                        Some(id) => id,
-                        None => return Err(e.at.error("reference origin unavailable")),
-                    };
+                    let id = self.reference_origin(e, ops)?;
                     ops.push(Op::ReadRef((*inner).clone()));
                     Ok(((*inner).clone(), vec![id]))
                 } else {

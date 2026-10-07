@@ -93,7 +93,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and scoped File open/read/write/flush/sync/close implemented; line reads remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and scoped File open/read/readline/write/flush/sync/close implemented; seeking, bounded reads, and file iteration remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -1635,7 +1635,18 @@ unbuffered so it validates the open state and normally does no extra work.
 metadata. Neither close nor flush substitutes for sync. Filesystem, device, and
 directory-entry durability rules still apply; sync is not an atomic-save API.
 Both methods require exclusive access and report errors without allocating.
-Line reads remain future work.
+`file.readline() -> Result[str, IoError]` retains a line's terminating newline,
+normalizing LF, CRLF, or bare CR to LF. EOF returns `""`; an empty line is `"\n"`.
+A final unterminated line is returned without adding a newline. It validates
+UTF-8 per line and allocates both its buffer and result fallibly. An error can
+consume part or all of a line; the owner remains valid for another operation or
+close. Reading EOF still constructs a fallible empty string.
+
+The reader stops at CR immediately and records a one-bit pending-LF state. Its
+next read consumes an optional LF, so it never reads beyond a line just to find
+out whether CR was followed by LF. `read()` honors the same state before resuming
+bulk reads. Line reading currently uses byte reads; buffering, bounded reads,
+seek/tell, file iteration, and configurable encodings remain future work.
 
 ## Returned references
 
@@ -1645,7 +1656,9 @@ produce a borrow originating in that parameter; local owners and owned value
 parameters cannot escape. No lifetime syntax or whole-program inference is needed.
 Direct parameter references, reborrows, field projections, and forwarding calls
 are supported, including branches with explicit returns. Conditional reference
-expressions are not supported yet.
+expressions are not supported yet. Reference-returning methods require a named
+receiver or class-field place; temporary and indexed receivers are rejected
+until their original place can be represented without a hidden owner alias.
 
 Callers may bind the result to an immutable reference binding and reborrow it.
 The result extends the input loan until its last use. The signature describes
@@ -1724,7 +1737,7 @@ implemented. The new design review changes the recommended priority:
    and checked character lookup, slices, replacement, and dictionary snapshots now have recoverable
    `try_` APIs). Numeric parsing/formatting, console I/O, argument snapshots,
    and Linux whole-file text helpers now have explicit failure contracts. Continue
-   with long-lived streams and the remaining construction/allocator gaps. Add allocation
+   with broader stream APIs and the remaining construction/allocator gaps. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration,
    and more precise returned-reference contracts. Concrete context managers now

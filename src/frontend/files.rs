@@ -35,6 +35,7 @@ impl Lower<'_> {
         let operation = match name {
             "close" => CollectionOp::FileClose,
             "read" => CollectionOp::FileRead,
+            "readline" => CollectionOp::FileReadLine,
             "write" => CollectionOp::FileWrite,
             "flush" => CollectionOp::FileFlush,
             "sync" => CollectionOp::FileSync,

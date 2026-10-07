@@ -2458,6 +2458,8 @@ def main() -> ():
 This method's result protects the whole borrowed `pair`, because its signature
 does not promise which field it returns. Direct `&mut pair.left` borrowing is
 more precise. A mutable returned reference requires a mutable reference parameter.
+Use a named receiver or class field for reference-returning methods; temporary
+and indexed receivers are not supported for those methods yet.
 
 ## 23. Cleanup and early drop
 
@@ -3098,6 +3100,38 @@ Returning the owned text closes the file first. `with &mut file as stream:`
 also closes on exit, while retaining the original owner in its closed state.
 Read errors may consume input before failing. Automatic context exit cannot
 report close errors; call `file.close()?` explicitly when those matter.
+
+## Reading lines
+
+`readline()` keeps the terminating newline, translating LF, CRLF, and bare CR
+to `"\n"`. An empty line is `"\n"`; EOF is `""`. The last line need not have a
+terminating newline. Unlike `input()`, line reading retains that terminator.
+
+Run this in a scratch directory: it replaces `plenty-lines.txt`.
+
+```plenty
+def count_lines() -> Result[i64, IoError]:
+    write_text("plenty-lines.txt", "first\r\n\rfinal")?
+    mut count = 0
+    with open("plenty-lines.txt")? as file:
+        while True:
+            line = file.readline()?
+            if line == "":
+                break
+            count = count + 1
+    Ok(count)
+
+def main() -> ():
+    print(count_lines())
+```
+```output
+Result[i64, IoError].Ok(3)
+```
+
+Each call reports decoding, I/O, or allocation failure through its Result. You
+can mix `readline()` and `read()` on the same file; both share newline state.
+Failures may consume input, so retrying is not a rollback. Direct `for line in
+file` iteration, size-limited reads, and seeking are not yet implemented.
 
 ## Writing through a file
 

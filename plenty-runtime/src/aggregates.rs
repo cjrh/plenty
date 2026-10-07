@@ -901,6 +901,7 @@ pub(crate) unsafe fn collection(
             90 => crate::text_io::result(crate::files::close(a as *mut crate::files::File)),
             91 => crate::files::closed(a as *const crate::files::File) as u128,
             92 => crate::text_io::result(crate::files::read(a as *mut crate::files::File)),
+            96 => crate::text_io::result(crate::files::readline(a as *mut crate::files::File)),
             93 => crate::text_io::result(crate::files::write(
                 a as *mut crate::files::File,
                 strings::utf8(b as *const Text),

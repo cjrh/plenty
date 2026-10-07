@@ -165,6 +165,62 @@ pub(crate) fn read_text(path: &str) -> Result<u128, Error> {
     Ok(read_all(&mut file)? as u128)
 }
 
+fn byte(reader: &mut impl Read) -> Result<Option<u8>, Error> {
+    let mut value = [0];
+    loop {
+        match reader.read(&mut value) {
+            Ok(0) => return Ok(None),
+            Ok(_) => return Ok(Some(value[0])),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+/// A preceding CR already ended a line. Consume an optional LF on the next
+/// operation, so readline never needs to read beyond its line terminator.
+fn next_byte(reader: &mut impl Read, skip_lf: &mut bool) -> Result<Option<u8>, Error> {
+    let value = byte(reader)?;
+    if std::mem::take(skip_lf) && value == Some(b'\n') {
+        byte(reader)
+    } else {
+        Ok(value)
+    }
+}
+
+pub(crate) fn read_file_line(
+    reader: &mut impl Read,
+    skip_lf: &mut bool,
+) -> Result<*mut strings::Text, Error> {
+    let mut bytes = Vec::new();
+    while let Some(byte) = next_byte(reader, skip_lf)? {
+        if byte == b'\r' {
+            *skip_lf = true;
+            push(&mut bytes, b'\n')?;
+            break;
+        }
+        push(&mut bytes, byte)?;
+        if byte == b'\n' {
+            break;
+        }
+    }
+    let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
+    Ok(strings::try_new(text)?)
+}
+
+pub(crate) fn read_remaining(
+    reader: &mut impl Read,
+    skip_lf: &mut bool,
+) -> Result<*mut strings::Text, Error> {
+    if *skip_lf {
+        if let Some(first) = next_byte(reader, skip_lf)? {
+            // The one-byte prefix lives on the stack; the rest still uses bulk reads.
+            return read_all(&mut std::io::Cursor::new([first]).chain(reader));
+        }
+    }
+    read_all(reader)
+}
+
 pub(crate) fn write_text(path: &str, text: &str, append: bool) -> Result<u128, Error> {
     let mut file = open_file(
         path,
@@ -254,6 +310,52 @@ pub(crate) fn input() -> u128 {
 mod tests {
     use super::*;
     use crate::memory::{plenty_release, Header};
+    #[test]
+    fn file_lines_preserve_terminators_without_reading_past_cr() {
+        let mut reader = std::io::Cursor::new("a\ré\r\n\n\0last".as_bytes());
+        let mut skip = false;
+        for (expected, position) in [("a\n", 2), ("é\n", 5), ("\n", 7), ("\0last", 12), ("", 12)] {
+            let text = read_file_line(&mut reader, &mut skip).unwrap();
+            // SAFETY: each freshly allocated text is observed then released once.
+            unsafe {
+                assert_eq!(strings::utf8(text), expected);
+                plenty_release(text.cast::<Header>());
+            }
+            assert_eq!(reader.position(), position);
+        }
+    }
+
+    #[test]
+    fn reading_remaining_text_handles_pending_crlf_and_invalid_lines() {
+        for (input, remaining) in [
+            ("a\r\nb\rc", "b\nc"),
+            ("a\rb", "b"),
+            ("a\r", ""),
+            ("a\r\r\n", "\n"),
+        ] {
+            let mut reader = std::io::Cursor::new(input.as_bytes());
+            let mut skip = false;
+            let first = read_file_line(&mut reader, &mut skip).unwrap();
+            let rest = read_remaining(&mut reader, &mut skip).unwrap();
+            unsafe {
+                assert_eq!(strings::utf8(first), "a\n");
+                assert_eq!(strings::utf8(rest), remaining);
+                plenty_release(first.cast::<Header>());
+                plenty_release(rest.cast::<Header>());
+            }
+        }
+        let mut reader = std::io::Cursor::new(b"\xff\r\nok\n");
+        let mut skip = false;
+        assert!(matches!(
+            read_file_line(&mut reader, &mut skip),
+            Err(Error::InvalidUtf8)
+        ));
+        let next = read_file_line(&mut reader, &mut skip).unwrap();
+        unsafe {
+            assert_eq!(strings::utf8(next), "ok\n");
+            plenty_release(next.cast::<Header>());
+        }
+    }
     #[test]
     fn complete_reads_translate_newlines_across_chunks() {
         let mut input = vec![b'x'; 8191];

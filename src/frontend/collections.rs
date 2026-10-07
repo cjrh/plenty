@@ -605,6 +605,15 @@ impl Lower<'_> {
         }
         let (ty, loans) = self.observe(base, ops)?;
         if let Ty::Class(class) = &ty {
+            if self
+                .sigs
+                .get(&crate::record::method(&class.name, name))
+                .is_some_and(|sig| matches!(sig.outputs.first(), Some(Ty::Ref(..))))
+            {
+                return Err(base
+                    .at
+                    .error("reference-returning methods require a named receiver or class field"));
+            }
             let slot = self.slot(ty.clone(), &base.at)?;
             ops.push(Op::StoreLocal(slot));
             let receiver = format!("__plenty_receiver_{slot}");
