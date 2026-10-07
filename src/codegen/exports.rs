@@ -8,6 +8,11 @@ pub(super) fn emit(
     module: &mut ObjectModule,
 ) -> Result<()> {
     for export in exports {
+        let result = export
+            .signature
+            .outputs
+            .first()
+            .and_then(crate::exports::result_payloads);
         let mut signature = module.make_signature();
         signature.params.extend(
             export
@@ -16,9 +21,17 @@ pub(super) fn emit(
                 .iter()
                 .map(|(_, ty)| foreign::parameter(ty)),
         );
-        signature
-            .returns
-            .extend(export.signature.outputs.iter().map(foreign::parameter));
+        if let Some((ok, _)) = result {
+            if *ok != Ty::Unit {
+                signature.params.push(AbiParam::new(PTR_TY));
+            }
+            signature.params.push(AbiParam::new(PTR_TY));
+            signature.returns.push(foreign::parameter(&Ty::U32));
+        } else {
+            signature
+                .returns
+                .extend(export.signature.outputs.iter().map(foreign::parameter));
+        }
         let id = module.declare_function(&export.symbol, Linkage::Export, &signature)?;
         let mut ctx = Context::new();
         ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
@@ -29,6 +42,7 @@ pub(super) fn emit(
         b.switch_to_block(block);
         b.seal_block(block);
         let mut arguments = b.block_params(block).to_vec();
+        let outputs = arguments.split_off(export.signature.inputs.len());
         let mut writebacks = Vec::new();
         for (argument, (_, ty)) in arguments.iter_mut().zip(&export.signature.inputs) {
             if let Ty::Ref(inner, mutable) = ty {
@@ -77,7 +91,52 @@ pub(super) fn emit(
                 0,
             );
         }
-        b.ins().return_(&results);
+        if let Some((ok, error)) = result {
+            let value = results[0];
+            let tags = b.ins().ushr_imm(value, 64);
+            let tag = b.ins().ireduce(types::I32, tags);
+            let tag = b.ins().band_imm(tag, 1);
+            let success = b.create_block();
+            let failure = b.create_block();
+            b.ins().brif(tag, failure, &[], success, &[]);
+            for (block, ty, destination) in [
+                (success, ok, outputs.first().copied()),
+                (failure, error, outputs.last().copied()),
+            ] {
+                b.switch_to_block(block);
+                b.seal_block(block);
+                if *ty != Ty::Unit {
+                    let target = clif_type(ty.clone());
+                    let bits = b.ins().ireduce(
+                        if ty.is_float() {
+                            if *ty == Ty::F32 {
+                                types::I32
+                            } else {
+                                types::I64
+                            }
+                        } else {
+                            target
+                        },
+                        value,
+                    );
+                    let scalar = if ty.is_float() {
+                        b.ins()
+                            .bitcast(target, cranelift_codegen::ir::MemFlags::new(), bits)
+                    } else {
+                        bits
+                    };
+                    b.ins().store(
+                        cranelift_codegen::ir::MemFlags::new(),
+                        scalar,
+                        destination.unwrap(),
+                        0,
+                    );
+                }
+                b.ins().return_(&[tag]);
+            }
+        } else {
+            b.ins().return_(&results);
+        }
         b.finalize();
         module.define_function(id, &mut ctx)?;
     }

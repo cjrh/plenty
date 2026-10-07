@@ -252,6 +252,72 @@ int main(void) {
 }
 
 #[test]
+fn result_exports_preserve_payloads_and_inactive_outputs() {
+    let source = r#"
+export def checked(x: i32) -> Result[f32, i16] = "calc_checked":
+    if x < 0:
+        Err(-123)
+    else:
+        Ok(1.25)
+export def touch(x: &mut i32) -> Result[(), u64] = "calc_touch":
+    *x = *x + 1
+    Err(18000000000)
+"#;
+    for kind in [LibraryKind::Static, LibraryKind::Shared] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (library, artifacts) = build(root, source, kind);
+        let c = root.join("result.c");
+        std::fs::write(
+            &c,
+            r#"
+#include "calc.h"
+#include <assert.h>
+int main(void) {
+    float value = 8.0f;
+    int16_t error = 90;
+    assert(calc_checked(0, &value, &error) == 0);
+    assert(value == 1.25f && error == 90);
+    assert(calc_checked(-1, &value, &error) == 1);
+    assert(value == 1.25f && error == -123);
+    int32_t x = 40;
+    uint64_t large = 0;
+    assert(calc_touch(&x, &large) == 1);
+    assert(x == 41 && large == UINT64_C(18000000000));
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+        let executable = root.join("caller");
+        let args = std::fs::read_to_string(artifacts.link_args).unwrap();
+        for compiler in ["cc", "c++"] {
+            success(
+                Command::new(compiler)
+                    .args(["-Wall", "-Wextra", "-Werror"])
+                    .arg(&c)
+                    .arg(&library)
+                    .args(args.lines())
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .unwrap(),
+            );
+            success(Command::new(&executable).output().unwrap());
+        }
+        let app = root.join("main.plenty");
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    print(calc.checked(0))?\n    print(calc.checked(-1))?\n    mut x = 40i32\n    print(calc.touch(&mut x))?\n    print(x)?\n    Ok(())\n").unwrap();
+        let options = plenty::CompileOptions {
+            link_args: vec![library.into_os_string()],
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
+        let output = success(Command::new(executable).output().unwrap());
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, i16].Ok(1.25)\nResult[f32, i16].Err(-123)\nResult[(), u64].Err(18000000000)\n41\n");
+    }
+}
+
+#[test]
 fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("source.plenty");

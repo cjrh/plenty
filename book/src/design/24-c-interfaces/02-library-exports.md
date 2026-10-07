@@ -11,8 +11,9 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
 ```
 
 The initial subset accepts numeric scalar parameters, `&T` / `&mut T` borrows of
-numeric scalars, and numeric scalar or unit returns. Booleans, managed objects,
-returned references, raw pointers, generic exports, and aggregate results are
+numeric scalars, and numeric scalar, unit, or `Result[T, E]` returns where `T`
+is numeric or unit and `E` is numeric. Booleans, managed objects,
+returned references, raw pointers, generic exports, and other aggregate results are
 rejected. The body can use ordinary language features
 internally. No native Plenty object layout becomes part of the C ABI.
 
@@ -37,7 +38,7 @@ private symbols. Application commands still produce applications; their
 
 Each build writes `calc.h`, `calc.plentyi`, and `calc.link-args.txt` beside the
 requested library. The header is usable from C and C++. The interface module
-contains generated `pub extern def` declarations that Plenty can import normally;
+contains generated declarations and adapters that Plenty can import normally;
 linking the matching binary remains explicit. Keep generated interfaces in the
 consumer's source root, without a competing `calc.plenty` module at the same path.
 
@@ -82,6 +83,14 @@ never need to allocate a Plenty value slot. No heap allocation is needed for thi
 adaptation. A runtime trap does not return, and does not promise copy-back or
 rollback. The generated `.plentyi` signatures preserve these loans for Plenty
 callers, where the ordinary borrow checker enforces them.
+
+`Result[T, E]` exports return a `uint32_t` status: 0 for `Ok`, 1 for `Err`.
+After the input parameters come `T *out_ok` (omitted for unit) and `E *out_error`.
+Both pointers must be non-null, aligned, writable, mutually disjoint, and disjoint
+from input borrows. Their previous values need not be initialized. Only the output
+selected by the status is written; the other remains unchanged. The adapter does
+not allocate, expose the internal sum layout, or undo input mutations on `Err`.
+Generated Plenty wrappers reconstruct the declared `Result`, preserving `?`.
 
 The exact UTF-8 `.plentyi` bytes, including format version and target comments,
 are embedded in a retained `.plenty.interface.calc` section. They survive supported
