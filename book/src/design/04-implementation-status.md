@@ -8,7 +8,7 @@ control flow, collections, classes, sum types, generators, ownership, and automa
 cleanup are implemented. It is still an early language implementation, with a
 small built-in library and important limits on borrowing. Basic console, argument,
 numeric text, and whole-file APIs now work. Important remaining gaps include
-recursive types, closures, broader borrowing, and public allocator control. An implemented row below describes the
+recursive types, capturing closures, broader borrowing, and public allocator control. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
 | Area | Status on this branch |
@@ -66,7 +66,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | User generic functions | `def f[T](...)`, argument-based inference or explicit `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
 | Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
-| Anonymous functions and closures | Not implemented |
+| Anonymous functions and closures | Multiline `def(...) -> T:` values are implemented without captures; borrowed and owned environments remain unsupported |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types or explicit erasure into `Failure`, and automatic early-exit cleanup |
 | `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
 | Recoverable allocation failure | Default literals/comprehensions and allocating constructors, mutation, copy, text, and formatting return `Result`; no `try_` alternatives. Explicit `?`, `match`, or `.unwrap()` handle outcomes |

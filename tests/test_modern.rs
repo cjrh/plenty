@@ -104,7 +104,7 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("__plenty_entry()", "expected an expression")]
 #[case(
     "def f() -> ():\n    def g() -> ():\n        pass",
-    "expected an expression"
+    "nested named functions are not supported"
 )]
 #[case("def f() -> ():\npass", "expected an indented block")]
 #[case("if True:\n    pass\n  pass", "indentation does not match")]

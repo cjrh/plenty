@@ -1174,6 +1174,13 @@ impl Parser {
     }
     fn expr(&mut self, min: u8) -> Result<Expr> {
         if self.peek().is("def") {
+            if self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| !t.is("(") && !t.is("["))
+            {
+                return Err(self.peek().error("nested named functions are not supported; assign an anonymous def expression instead"));
+            }
             if min != 0 {
                 return Err(self
                     .peek()
@@ -1556,12 +1563,9 @@ impl Lower<'_> {
             Expression::Member(..) | Expression::Index(..) => {
                 self.place_type(e).filter(Ty::is_numeric)
             }
-            Expression::Call(n, _) => self
-                .sigs
-                .get(n)
-                .and_then(|s| s.outputs.first().cloned())
-                .or_else(|| lookup_type(n, self.aliases).flatten())
-                .filter(Ty::is_numeric),
+            Expression::Call(..) | Expression::Invoke(..) | Expression::Method(..) => {
+                self.expression_type_hint(e).filter(Ty::is_numeric)
+            }
             Expression::Unary(op, inner) if op == "+" || op == "-" => self.numeric_hint(inner),
             Expression::Binary(op, a, b)
                 if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%") =>

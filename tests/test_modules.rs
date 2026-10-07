@@ -24,6 +24,22 @@ fn public_protocol_signatures_cannot_expose_private_requirements() {
 }
 
 #[test]
+fn function_values_keep_import_visibility_and_definition_scope() {
+    run(&[
+        ("api.plenty", "def hidden(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def make() -> Callable[[i64], i64]:\n    def(x: i64) -> i64:\n        hidden(x)\n"),
+        ("main.plenty", "import api\nfrom api import identity as keep\ndef main() -> Result[(), Failure]:\n    f = keep[u8]\n    print(f(7))?\n    print(api.make()(8))?\n    Ok(())\n"),
+    ], "main.plenty", "7\n9\n");
+    for api in [
+        "class Hidden:\n    value: i64\npub def leak(callback: Callable[[Hidden], i64]) -> ():\n    pass\n",
+        "class Hidden:\n    value: i64\npub def leak() -> Callable[[], Hidden]:\n    pass\n",
+    ] {
+        let dir = workspace(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> ():\n    pass\n")]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path())).unwrap_err().to_string();
+        assert!(error.contains("private"), "{error}");
+    }
+}
+
+#[test]
 fn explicit_generics_resolve_imports_aliases_and_definition_scope() {
     run(&[
         ("maths.plenty", "def helper(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def bumped[T: IntType](x: T) -> i64:\n    helper(i64(x))\n"),

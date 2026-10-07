@@ -9,6 +9,7 @@ Generic calls infer parameters inside callable inputs and results, for example
 `def apply[T](f: Callable[[T], T], x: T) -> T`. All argument evidence must agree;
 the compiler does not convert a concrete callable to a different signature.
 Callable values can themselves be concrete generic arguments.
+
 To take a generic function as a value, supply its type arguments without a call,
 such as `identity[u8]`. This uses the same specialization cache and bound checks
 as direct generic calls. A bare generic function name can instead be specialized
@@ -20,11 +21,21 @@ Function values are copyable code addresses. Creating, passing, returning, and
 calling them needs no heap allocation. Calls use Plenty's internal ABI, including
 caller-provided storage for inline results. They are not C function pointers.
 Allocations performed by the called function retain their ordinary Result API.
+Native regression tests disable heap allocation across callable creation,
+selection, copies, calls, and nested inline Result/Option/range returns.
 
 The called function can be selected by an arbitrary expression: `choose()(n)`, `(f)(n)`,
 `handlers[index](n)`, and `record.callback(n)` all work. A bracketed name rooted
 in a local value is indexing, while one rooted in a generic function is a type
 argument list.
+Evaluation proceeds once, left to right: the callee expression first, then its
+arguments. Propagation from a later argument releases pending owned arguments.
+Known callable result types also contextualize surrounding numeric literals.
+
+Function values display as `<function>`. Equality compares native code addresses;
+it does not compare function behavior. They cannot be dictionary keys or set
+elements. Imports and public signatures retain normal visibility rules, including
+types nested inside callable signatures.
 
 Each call checks argument and result types before code generation; the independent
 operation checker checks the indirect call as well. Builtins are not named source

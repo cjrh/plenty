@@ -1,7 +1,10 @@
 # Functions, expressions, and control flow
 
-All declarations are top-level, with complete signatures. There are no nested
-functions, closures, default/keyword arguments, overloads, or redefinitions.
+Named functions are declared at module scope or as class methods, with complete
+signatures. Capture-free multiline anonymous function expressions can appear in
+function bodies; see [function values](../25-function-values.md). There are no
+nested named functions, captured environments, default/keyword arguments,
+overloads, or redefinitions.
 Signatures are collected before any body is checked, allowing forward calls
 and mutual recursion. All declarations and statements are checked before any
 native code is emitted or executed.
@@ -36,6 +39,6 @@ def clamp_low(value: i64, minimum: i64) -> i64:
 `for` and `while` loops, including `break` and `continue`, are implemented.
 Tail calls in final expressions, final branches, and explicit return
 expressions (including early guard clauses) become tail-call operations.
-Cranelift emits `return_call` with the Tail calling
+Cranelift emits `return_call` or `return_call_indirect` with the Tail calling
 convention. Functions with resource-bearing parameters or locals retain ordinary
 calls so observable cleanup happens after the callee returns.

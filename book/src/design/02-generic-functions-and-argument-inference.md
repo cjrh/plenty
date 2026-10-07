@@ -6,7 +6,7 @@ Calls may supply all type arguments explicitly (`identity[list[i64]](values)`)
 or infer all of them from arguments (`identity(values)`). Inference structurally
 matches parameter types against concrete argument types: `&T` with `&Message`
 infers `T = Message`, and `&dict[K, V]` with `&dict[str, u8]` infers both parameters.
-Lists, sets, ranges, generators, tuples, Option, and Result participate too.
+Lists, sets, ranges, generators, tuples, Option, Result, and Callable signatures participate too.
 Repeated occurrences of a parameter must agree after alias resolution. No
 numeric widening, implicit borrowing, protocol implementation search, or runtime
 dispatch is introduced. Protocol constraints are checked after inference.
@@ -39,5 +39,11 @@ is registered before its body is queued. Explicit, inferred, alias-equivalent,
 and recursive calls share one cache keyed by function and resolved types; the
 backend still receives only concrete checked operations. This bounds expanding
 recursion without maintaining a second expression type checker. Generic classes,
-generic methods, reference/unit type arguments, and first-class generic functions
+generic methods, reference/unit type arguments, and polymorphic function values
 are deferred. A signature can borrow `T` directly using `&T` or `&mut T`.
+
+A generic function can become a concrete [function value](25-function-values.md)
+using `identity[u8]`, or using a concrete expected Callable annotation, parameter,
+or return type to infer its specialization. That value has one concrete signature.
+This contextual selection of a function value does not change the argument-only
+inference rules for ordinary generic calls described above.

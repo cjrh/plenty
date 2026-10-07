@@ -266,7 +266,11 @@ impl Lower<'_> {
         match &e.kind {
             Expression::Group(inner) => self.observe(inner, ops),
             Expression::Name(name) => {
-                if enums::prelude_variant(name) && !self.names.contains_key(name) {
+                if !self.names.contains_key(name)
+                    && (enums::prelude_variant(name)
+                        || self.sigs.contains_key(name)
+                        || self.generics.templates.contains_key(name))
+                {
                     return self.value(e, ops).map(|ty| (ty, vec![]));
                 }
                 let local = self.named_place(e)?;

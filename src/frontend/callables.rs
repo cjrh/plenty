@@ -33,6 +33,52 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
 }
 
 impl Lower<'_> {
+    /// Read already-known signatures without evaluating or specializing expressions.
+    pub(super) fn expression_type_hint(&self, e: &Expr) -> Type {
+        match &ungroup(e).kind {
+            Expression::Name(name) => self.names.get(name).map(|l| l.ty.clone()).or_else(|| {
+                self.sigs
+                    .get(name)
+                    .map(|sig| Ty::Callable(Rc::new(CallableSig::from_function(sig))))
+            }),
+            Expression::Call(name, _) => {
+                if let Some(local) = self.names.get(name) {
+                    if let Ty::Callable(sig) = &local.ty {
+                        sig.output.clone()
+                    } else {
+                        None
+                    }
+                } else {
+                    self.sigs
+                        .get(name)
+                        .and_then(|sig| sig.outputs.first().cloned())
+                        .or_else(|| lookup_type(name, self.aliases).flatten())
+                }
+            }
+            Expression::Invoke(callee, _) => {
+                let Ty::Callable(sig) = self.expression_type_hint(callee)? else {
+                    return None;
+                };
+                sig.output.clone()
+            }
+            Expression::GenericCall(name, types, _) => {
+                self.generics.explicit_output(name, types, self.aliases)
+            }
+            Expression::Method(base, name, _) => {
+                let field = Expr {
+                    at: e.at.clone(),
+                    kind: Expression::Member(base.clone(), name.clone()),
+                };
+                let Ty::Callable(sig) = self.place_type(&field)? else {
+                    return None;
+                };
+                sig.output.clone()
+            }
+            Expression::Member(..) | Expression::Index(..) => self.place_type(e),
+            _ => None,
+        }
+    }
+
     pub(super) fn function_value(
         &mut self,
         name: &str,
@@ -54,6 +100,9 @@ impl Lower<'_> {
     ) -> Result<Type> {
         let ty = self.value(callee, ops)?;
         let Ty::Callable(sig) = ty else {
+            if let Expression::Name(name) = &ungroup(callee).kind {
+                return Err(callee.at.error(format!("binding `{name}` is not callable")));
+            }
             return Err(callee
                 .at
                 .error(format!("value of type {ty} is not callable")));

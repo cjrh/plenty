@@ -18,7 +18,9 @@ wrappers checked against their originating library instance.
 
 B08 is in progress: first-class concrete named functions and explicit callable
 signatures, indirect borrow checking, generic callable inference, explicit generic
-function values, and capture-free multiline anonymous functions are implemented.
+function values, expected-signature specialization, capture-free multiline anonymous
+functions, and eligible indirect tail calls are implemented and tested with heap
+allocation disabled.
 Continue with checked captures. Settle
 environment ownership, escape rules, and allocation behavior before higher-order
 APIs. Expanded C representations are B27; additional loader tooling and library
@@ -31,7 +33,7 @@ guide breakdown when an item is selected; detailed syntax is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B08 | Function values and multiline closures | First-class named functions and callable signatures, then anonymous bodies and checked captures. Define borrowed versus owned environments, lifetime/escape rules, and fallible allocation before adding higher-order library APIs. |
+| B08 | Function values and multiline closures | In progress: allocation-free named/anonymous function values, generic signatures, indirect borrowing and tail calls are implemented. Next: explicit borrowed versus owned captures, environment lifetime/escape rules, and allocation behavior before higher-order library APIs. |
 | B09 | Generic data types and richer protocols | Generic classes/enums and methods, with parameterized protocols or additional bounds when concrete library use cases justify them. Keep method lookup explicit and measure specialization cost. [Protocol design](proposals/protocols-generics-and-context-managers.md). |
 | B10 | Recursive data types | Define indirection, ownership, allocation failure, and bounded destruction for recursive classes/enums. Current acyclic forward declarations are already supported. [Sum-type design](proposals/sum-types.md). |
 | B11 | Broader borrowing | Stored references, relationships among multiple reference parameters, and more precise collection loans. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
