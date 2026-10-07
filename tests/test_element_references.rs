@@ -39,6 +39,32 @@ print(counts)
 }
 
 #[test]
+fn a_borrowed_loop_can_return_an_element_from_its_parameter() {
+    let out = support::run(
+        r#"
+class Point:
+    x: i64
+def find(points: &list[Point], wanted: i64) -> &Point:
+    for point in points:
+        if point.x == wanted:
+            return point
+    &points[0]
+mut points = [Point(1), Point(2)]
+found = find(&points, 2)
+print(found.x)
+points.append(Point(3))
+print(len(points))
+"#,
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "2\n3\n");
+}
+
+#[test]
 fn element_loans_reject_invalidating_access() {
     for source in [
         "mut a = [1]\nr = &a[0]\na.append(2)\nprint(r)",

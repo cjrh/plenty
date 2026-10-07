@@ -1,6 +1,46 @@
 mod support;
 use std::process::Command;
 
+#[test]
+fn direct_returned_fields_allow_disjoint_access_without_losing_conflicts() {
+    run(
+        r#"
+class Point:
+    x: i64
+    y: i64
+class Pair:
+    left: Point
+    right: Point
+    def left_ref(self: &mut Pair) -> &mut Point:
+        &mut self.left
+mut pair = Pair(Point(1, 2), Point(3, 4))
+left = pair.left_ref()
+x = &mut left.x
+pair.right.x = 7
+*x = 9
+print(x)
+print(pair)
+"#,
+        "9\nPair(left=Point(x=9, y=2), right=Point(x=7, y=4))\n",
+    );
+    reject(
+        r#"
+class Pair:
+    x: i64
+    y: i64
+def select(p: &mut Pair, which: bool) -> &mut i64:
+    if which:
+        return &mut p.x
+    &mut p.y
+mut pair = Pair(1, 2)
+r = select(&mut pair, True)
+pair.y = 3
+print(r)
+"#,
+        "conflicting borrow",
+    );
+}
+
 fn run(source: &str, expected: &str) {
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("program");

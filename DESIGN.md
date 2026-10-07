@@ -120,7 +120,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
 | Unit values | Expressions, function returns, and enum payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
-| Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, and returned references tied to one reference parameter; element/stored references deferred |
+| Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; stored references deferred |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Shared list loops borrow owned elements; mutable list loops yield mutable element references. Shared copyable elements and dictionary keys remain values |
@@ -1851,14 +1851,17 @@ parameters cannot escape. No lifetime syntax or whole-program inference is neede
 Direct parameter references, reborrows, field projections, and forwarding calls
 are supported, including branches with explicit returns. Conditional reference
 expressions are not supported yet. Reference-returning methods require a named
-receiver or class-field place; temporary and indexed receivers are rejected
-until their original place can be represented without a hidden owner alias.
+receiver, class-field place, or indexed place in named storage; temporary
+receivers are rejected because their owner cannot outlive the returned loan.
 
 Callers may bind the result to an immutable reference binding and reborrow it.
-The result extends the input loan until its last use. The signature describes
-the origin but not an exact field mapping, so a returned reference conservatively
-protects the entire borrowed argument, even after further field projection.
-Ordinary direct field borrowing remains disjoint. References cannot be stored
+The result extends the input loan until its last use. A function whose entire
+body directly returns a parameter or a fixed field projection has a cached field
+summary. Its returned loan protects only that projection, allowing subsequent
+access to disjoint fields. Other bodies, indexed origins, and control-flow-dependent
+returns conservatively protect the entire borrowed argument even after further
+projection. Summaries do not narrow the access needed to make the original call.
+References cannot be stored
 in aggregates or retained across generator suspension. Reference returns keep
 normal calls where frame or cleanup lifetime requires them.
 

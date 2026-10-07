@@ -96,6 +96,7 @@ impl Lower<'_> {
         }
         ops.extend(enter);
         self.call_reference_result(
+            "", // Context entry keeps the whole manager borrowed until exit.
             &FnSig {
                 inputs: vec![("self".into(), receiver)],
                 outputs: entry.clone().into_iter().collect(),

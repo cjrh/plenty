@@ -1371,6 +1371,7 @@ struct Lower<'a> {
     expression_temps: Vec<u8>,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
+    returned_fields: &'a HashMap<String, Vec<usize>>,
 }
 impl Lower<'_> {
     fn numeric_hint(&self, e: &Expr) -> Type {
@@ -1921,7 +1922,7 @@ impl Lower<'_> {
         }
         let argument_loans = self.call_arguments(args, &sig.inputs, ops)?;
         ops.push(Op::Call(name.to_owned()));
-        self.call_reference_result(sig, &argument_loans, ops);
+        self.call_reference_result(name, sig, &argument_loans, ops);
         Self::end_reads(argument_loans, ops);
         Ok(sig.outputs.first().cloned())
     }
@@ -2404,6 +2405,12 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         let outputs = output.into_iter().collect();
         sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
     }
+    let returned_fields = functions
+        .iter()
+        .filter_map(|f| {
+            references::returned_fields(f, &sigs[&f.name]).map(|fields| (f.name.clone(), fields))
+        })
+        .collect();
     let returns_status = if require_main {
         let entry = functions.iter().find(|f| f.name == "main").ok_or_else(|| {
             at.error("binary application requires `def main() -> ()` or `def main() -> i32`")
@@ -2435,6 +2442,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             None
         };
         let mut lower = Lower {
+            returned_fields: &returned_fields,
             heap,
             sigs: &sigs,
             aliases: &aliases,

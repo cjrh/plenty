@@ -618,8 +618,8 @@ impl Lower<'_> {
         let (_, loan) = self.borrow(base, *mutable, ops)?;
         let mut loans = vec![loan];
         loans.extend(self.call_arguments(args, &sig.inputs[1..], ops)?);
-        ops.push(Op::Call(callee));
-        self.call_reference_result(&sig, &loans, ops);
+        ops.push(Op::Call(callee.clone()));
+        self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())
     }

@@ -1,6 +1,54 @@
 //! Source places and explicit loans with statically disjoint field projections.
 use super::*;
 
+/// Summarize only a single direct returned projection. More complicated bodies
+/// keep the conservative whole-argument footprint until flow summaries exist.
+pub(super) fn returned_fields(function: &Function, sig: &FnSig) -> Option<Vec<usize>> {
+    if !matches!(sig.outputs.first(), Some(Ty::Ref(..))) {
+        return None;
+    }
+    let (root, ty) = sig.inputs.iter().find(|(_, t)| matches!(t, Ty::Ref(..)))?;
+    let [stmt] = function.body.as_slice() else {
+        return None;
+    };
+    let expression = match &stmt.kind {
+        Statement::Expr(e) | Statement::Return(Some(e)) => ungroup(e),
+        _ => return None,
+    };
+    let place = match &expression.kind {
+        Expression::Unary(op, e) if op == "&" || op == "&mut" => ungroup(e),
+        Expression::Name(n) if n == root => return Some(vec![]),
+        _ => return None,
+    };
+    fn path(e: &Expr, root: &str, names: &mut Vec<String>) -> Option<()> {
+        match &ungroup(e).kind {
+            Expression::Name(n) if n == root => Some(()),
+            Expression::Member(base, name) => {
+                path(base, root, names)?;
+                names.push(name.clone());
+                Some(())
+            }
+            _ => None,
+        }
+    }
+    let mut names = Vec::new();
+    path(place, root, &mut names)?;
+    let Ty::Ref(inner, _) = ty else {
+        unreachable!()
+    };
+    let mut ty = &**inner;
+    let mut fields = Vec::new();
+    for name in names {
+        let Ty::Class(class) = ty else {
+            return None;
+        };
+        let index = class.fields.iter().position(|(n, _)| *n == name)?;
+        fields.push(index);
+        ty = &class.fields[index].1;
+    }
+    Some(fields)
+}
+
 impl Lower<'_> {
     pub(super) fn reference_origin(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
         if let Expression::Name(name) = &ungroup(e).kind {
@@ -41,6 +89,7 @@ impl Lower<'_> {
 
     pub(super) fn call_reference_result(
         &mut self,
+        name: &str,
         sig: &FnSig,
         loans: &[usize],
         ops: &mut Vec<Op>,
@@ -48,9 +97,17 @@ impl Lower<'_> {
         if let Some(Ty::Ref(_, mutable)) = sig.outputs.first() {
             let parent = loans[0];
             let id = self.new_loan(self.loans[parent].root, *mutable, Some(parent), ops);
-            self.loans[id].precise = false;
+            if let Some(fields) = self
+                .returned_fields
+                .get(name)
+                .filter(|_| self.loans[id].precise)
+            {
+                self.loans[id].fields.extend(fields);
+            } else {
+                self.loans[id].precise = false;
+            }
             if let Some(Op::Loan(fact)) = ops.last_mut() {
-                fact.precise = false;
+                *fact = self.loans[id].clone();
             }
         }
     }
