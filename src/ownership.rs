@@ -9,6 +9,8 @@ pub struct Loan {
     pub root: u8,
     /// Statically known field projections; an empty path covers the whole root.
     pub fields: Vec<usize>,
+    /// Calls expose an origin, not a field mapping. Descendants must retain its footprint.
+    pub precise: bool,
     pub mutable: bool,
     pub parent: Option<usize>,
 }

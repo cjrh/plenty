@@ -67,6 +67,11 @@ impl Lower<'_> {
             }
             if name == "__enter__" {
                 entry = sig.outputs.first().cloned();
+                if matches!(entry, Some(Ty::Ref(..))) {
+                    return Err(manager
+                        .at
+                        .error("reference entry results are not supported yet"));
+                }
             }
         }
         let context = Context {

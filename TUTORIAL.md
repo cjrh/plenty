@@ -2427,12 +2427,37 @@ borrow is live. Reference arguments automatically reborrow an existing reference
 they do not transfer the referenced owner.
 
 This subset borrows named bindings and their class fields. Reference bindings must
-be initialized directly with `&name` or `&mut name` (including field paths) and
-cannot be reassigned. References cannot
-be stored in collections, returned from functions, captured by generators, or
+be initialized with `&name`, `&mut name` (including field paths), or a call
+returning a reference, and cannot be reassigned. References cannot
+be stored in collections, captured by generators, or
 remain live across `yield`. Element references such as `&items[0]` are not yet
 supported. Use `next` through an exclusive generator reference when borrowing
 a generator; generator iteration still consumes its owner.
+
+Functions can return references when exactly one parameter is a reference. The
+returned value must borrow that parameter, never a local owner. The caller keeps
+the original value alive and borrowed until the result's last use.
+
+```plenty
+class Pair:
+    left: i64
+    right: i64
+    def left_ref(self: &mut Pair) -> &mut i64:
+        &mut self.left
+
+def main() -> ():
+    mut pair = Pair(1, 2)
+    left = pair.left_ref()
+    *left = 8
+    print(pair.left)
+```
+```output
+8
+```
+
+This method's result protects the whole borrowed `pair`, because its signature
+does not promise which field it returns. Direct `&mut pair.left` borrowing is
+more precise. A mutable returned reference requires a mutable reference parameter.
 
 ## 23. Cleanup and early drop
 
@@ -3112,7 +3137,7 @@ supported. Entry results cannot yet be references to the manager.
 
 
 This guide deliberately uses implemented features. Long-lived file stream objects,
-recursive types, element references, and stored or returned references remain future work. Traits and generics are deferred; async/await is out of
+recursive types, element references, and stored references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 
 When a lesson feels awkward, that is useful feedback for the language design.

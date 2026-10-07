@@ -72,7 +72,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
 | Unit values | Expressions, function returns, and enum payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
-| Local/parameter references and last-use borrow checking | Implemented for bindings and class fields; element/stored/returned references deferred |
+| Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, and returned references tied to one reference parameter; element/stored references deferred |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Copyable elements only; borrowing owned elements is not implemented |
@@ -116,7 +116,8 @@ Collections, classes, generators, and enums containing owned values transfer own
 owner early. Immutable strings and immutable enums may share storage. Collection
 updates operate in place. Named local and parameter references use `&T` / `&mut T`,
 with last-use loan checking over an access CFG. Class fields can also be borrowed;
-collection element references, stored references, and returned references are deferred.
+collection element references and stored references are deferred. Returned
+references must originate from a function's single reference parameter.
 
 The original four feature proposals are in [docs/proposals](docs/proposals).
 They record the reasoning and suggested staging; this document describes the
@@ -1511,8 +1512,8 @@ Borrowed parameters already carry an address. Internal retained operands protect
 temporary storage lifetime, but the static checker establishes access permissions.
 Reference calls retain the caller frame, so native tail calls do not invalidate it.
 
-Collection element references, partial moves, stored references, and returned
-references remain rejected. Class field loans distinguish disjoint projections,
+Collection element references, partial moves, and stored references remain
+rejected. Class field loans distinguish disjoint projections,
 including through reborrowed reference parameters. A generator cannot capture reference parameters or retain a live
 loan across `yield`; short borrows completed within one resume are permitted.
 No lifetime annotation syntax or general trait system is required for this subset.
@@ -1525,7 +1526,7 @@ The old standalone Datalog engine is not automatically the current rustc
 implementation. We should reuse concepts and test cases, not assume that
 adding a crate supplies a sound checker for Plenty.
 
-The first implementation supports local borrows without returned/stored references.
+The implementation supports local and restricted returned borrows without stored references.
 Once projected source places,
 aliasing, moves, reborrows, joins, and drop points are modeled, add a restricted
 reference-return rule whose origin is unambiguous from the signature. Reject
@@ -1581,6 +1582,24 @@ state-machine lowering, with no interpreter, C-stack suspension, or eager yield
 collection. The initial state dispatch is a linear comparison chain.
 Iteration wraps each resume result in an allocation-free inline `Option`.
 Optimizing frame liveness remains a later runtime improvement.
+
+## Returned references
+
+A function or method returning `&T` or `&mut T` must take exactly one reference
+parameter. A mutable result requires a mutable parameter. Every return path must
+produce a borrow originating in that parameter; local owners and owned value
+parameters cannot escape. No lifetime syntax or whole-program inference is needed.
+Direct parameter references, reborrows, field projections, and forwarding calls
+are supported, including branches with explicit returns. Conditional reference
+expressions are not supported yet.
+
+Callers may bind the result to an immutable reference binding and reborrow it.
+The result extends the input loan until its last use. The signature describes
+the origin but not an exact field mapping, so a returned reference conservatively
+protects the entire borrowed argument, even after further field projection.
+Ordinary direct field borrowing remains disjoint. References cannot be stored
+in aggregates or retained across generator suspension. Reference returns keep
+normal calls where frame or cleanup lifetime requires them.
 
 ## Concrete context managers
 
@@ -1648,8 +1667,8 @@ implemented. The new design review changes the recommended priority:
    with long-lived streams and the remaining construction/allocator gaps. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration,
-   and restricted returned references. Add concrete context managers using the
-   same cleanup machinery; stored references remain a later extension.
+   and more precise returned-reference contracts. Concrete context managers now
+   use the same cleanup machinery; stored references remain a later extension.
 5. Add explicit generic functions and structural protocol constraints, with direct
    inherent-method lookup and measured instantiation caching. No import-sensitive
    method activation, specialization search, or implicit dynamic interface values.

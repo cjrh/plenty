@@ -2,6 +2,59 @@
 use super::*;
 
 impl Lower<'_> {
+    pub(super) fn reference_origin(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
+        if let Expression::Name(name) = &ungroup(e).kind {
+            if let Some(local) = self.names.get(name) {
+                if let Some(id) = self.reference_locals.get(&local.slot) {
+                    return Ok(*id);
+                }
+            }
+        }
+        if matches!(&ungroup(e).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
+            || matches!(
+                &ungroup(e).kind,
+                Expression::Call(..) | Expression::Method(..)
+            )
+        {
+            if let Some(id) = ops.iter().rev().find_map(|op| {
+                if let Op::Loan(l) = op {
+                    Some(l.id)
+                } else {
+                    None
+                }
+            }) {
+                return Ok(id);
+            }
+        }
+        Err(e.at.error("reference result requires a named reference, direct borrow, or reference-returning call"))
+    }
+
+    pub(super) fn check_return_reference(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
+        let id = self.reference_origin(e, ops)?;
+        if Some(self.loans[id].root) != self.return_origin {
+            return Err(e
+                .at
+                .error("returned reference must originate from the reference parameter"));
+        }
+        Ok(id)
+    }
+
+    pub(super) fn call_reference_result(
+        &mut self,
+        sig: &FnSig,
+        loans: &[usize],
+        ops: &mut Vec<Op>,
+    ) {
+        if let Some(Ty::Ref(_, mutable)) = sig.outputs.first() {
+            let parent = loans[0];
+            let id = self.new_loan(self.loans[parent].root, *mutable, Some(parent), ops);
+            self.loans[id].precise = false;
+            if let Some(Op::Loan(fact)) = ops.last_mut() {
+                fact.precise = false;
+            }
+        }
+    }
+
     pub(super) fn new_loan(
         &mut self,
         root: u8,
@@ -16,6 +69,7 @@ impl Lower<'_> {
             fields: parent
                 .map(|id| self.loans[id].fields.clone())
                 .unwrap_or_default(),
+            precise: parent.is_none_or(|id| self.loans[id].precise),
             mutable,
             parent,
         };
@@ -55,7 +109,9 @@ impl Lower<'_> {
             };
             let index = classes::field_index(class, name, &e.at)?;
             modules::check_member(self.access, &class.name, name, &e.at)?;
-            self.loans[loan].fields.push(index);
+            if self.loans[loan].precise {
+                self.loans[loan].fields.push(index);
+            }
             // Recursive projections refine the one loan created at the root.
             // Update its emitted fact before any checker sees the final place.
             for op in ops.iter_mut().rev() {

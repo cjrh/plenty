@@ -1195,6 +1195,7 @@ struct Lower<'a> {
     reference_locals: HashMap<u8, usize>,
     expression_temps: Vec<u8>,
     contexts: Vec<contexts::Context>,
+    return_origin: Option<u8>,
 }
 impl Lower<'_> {
     fn number(&self, text: &str, negative: bool, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
@@ -1375,25 +1376,19 @@ impl Lower<'_> {
                         .map(|(ty, _)| Some(ty));
                 }
                 if op == "*" {
-                    let reference = match &ungroup(value).kind {
-                        Expression::Name(n) => self
-                            .names
-                            .get(n)
-                            .is_some_and(|l| matches!(l.ty, Ty::Ref(..))),
-                        Expression::Unary(op, _) => op == "&" || op == "&mut",
-                        _ => false,
-                    };
-                    if !reference {
+                    let Ty::Ref(ty, _) = self.value(value, ops)? else {
                         return Err(value.at.error("dereference requires a reference"));
-                    }
-                    let (ty, loans) = self.observe(value, ops)?;
+                    };
+                    let loan = self.reference_origin(value, ops)?;
                     if ty.affine() {
                         return Err(e
                             .at
                             .error("cannot move out of a reference; use copy or borrow"));
                     }
-                    Self::end_reads(loans, ops);
-                    return Ok(Some(ty));
+                    ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
+                    ops.push(Op::ReadRef((*ty).clone()));
+                    ops.push(Op::UseLoan(loan));
+                    return Ok(Some((*ty).clone()));
                 }
                 if op == "-" {
                     if let Expression::Number(n) = &value.kind {
@@ -1632,6 +1627,7 @@ impl Lower<'_> {
         }
         let argument_loans = self.call_arguments(args, &sig.inputs, ops)?;
         ops.push(Op::Call(name.to_owned()));
+        self.call_reference_result(sig, &argument_loans, ops);
         Self::end_reads(argument_loans, ops);
         Ok(sig.outputs.first().cloned())
     }
@@ -1717,15 +1713,22 @@ impl Lower<'_> {
                         BlockResult::Exits => return exited_block(body, i),
                     }
                 }
-                Statement::Expr(e) => self.expr_expected(
-                    e,
-                    if last {
-                        self.return_type.clone().flatten()
-                    } else {
-                        None
-                    },
-                    ops,
-                )?,
+                Statement::Expr(e) => {
+                    let ty = self.expr_expected(
+                        e,
+                        if last {
+                            self.return_type.clone().flatten()
+                        } else {
+                            None
+                        },
+                        ops,
+                    )?;
+                    if last && self.return_origin.is_some() && matches!(ty, Some(Ty::Ref(..))) {
+                        let loan = self.check_return_reference(e, ops)?;
+                        ops.push(Op::UseLoan(loan));
+                    }
+                    ty
+                }
                 Statement::Return(e) => {
                     if self.yield_type.is_some() && e.is_some() {
                         return Err(stmt.at.error("a generator may only use bare return"));
@@ -1740,11 +1743,19 @@ impl Lower<'_> {
                         None => None,
                     };
                     self.same(ty, expected, &stmt.at)?;
+                    let returned_loan = if self.return_origin.is_some() {
+                        Some(self.check_return_reference(e.as_ref().unwrap(), &returned)?)
+                    } else {
+                        None
+                    };
                     self.finish_temporaries(temporary_start, &mut returned);
-                    if self.contexts.is_empty() {
+                    if self.contexts.is_empty() && returned_loan.is_none() {
                         finish_return(&mut returned);
                     } else {
                         self.cleanup(0, &mut returned);
+                        if let Some(loan) = returned_loan {
+                            returned.push(Op::UseLoan(loan));
+                        }
                         returned.push(Op::Return);
                     }
                     ops.extend(returned);
@@ -1820,7 +1831,6 @@ impl Lower<'_> {
                             "reference bindings cannot be reassigned; create a new borrow",
                         ));
                     }
-                    let loan_start = self.loans.len();
                     let context = if let Some(ann) = annotation {
                         ann.resolve(self.aliases)?
                     } else {
@@ -1838,10 +1848,14 @@ impl Lower<'_> {
                     let reference = matches!(ty, Ty::Ref(..));
                     if reference
                         && (*mutable
-                            || !matches!(&ungroup(value).kind, Expression::Unary(op, _) if op == "&" || op == "&mut"))
+                            || !matches!(&ungroup(value).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
+                                && !matches!(
+                                    &ungroup(value).kind,
+                                    Expression::Call(..) | Expression::Method(..)
+                                ))
                     {
                         return Err(stmt.at.error(
-                            "reference bindings require a direct borrow and cannot be mut",
+                            "reference bindings require a direct borrow or reference-returning call and cannot be mut",
                         ));
                     }
                     let slot = if let Some(local) = self.names.get(name) {
@@ -1874,10 +1888,8 @@ impl Lower<'_> {
                     };
                     ops.push(Op::StoreLocal(slot));
                     if reference {
-                        if self.loans.len() != loan_start + 1 {
-                            return Err(stmt.at.error("reference origin unavailable"));
-                        }
-                        self.reference_locals.insert(slot, loan_start);
+                        let origin = self.reference_origin(value, ops)?;
+                        self.reference_locals.insert(slot, origin);
                     }
                     None
                 }
@@ -2057,8 +2069,21 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             inputs.push((name.clone(), resolved));
         }
         let output = f.output.resolve(&aliases)?;
-        if matches!(output, Some(Ty::Ref(..))) {
-            return Err(f.at.error("returned references are not supported yet"));
+        if let Some(Ty::Ref(_, mutable)) = &output {
+            let references: Vec<_> = inputs
+                .iter()
+                .filter(|(_, ty)| matches!(ty, Ty::Ref(..)))
+                .collect();
+            if references.len() != 1 {
+                return Err(f
+                    .at
+                    .error("returned references require exactly one reference parameter"));
+            }
+            if *mutable && !matches!(&references[0].1, Ty::Ref(_, true)) {
+                return Err(f
+                    .at
+                    .error("mutable returned references require a mutable reference parameter"));
+            }
         }
         let outputs = output.into_iter().collect();
         sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
@@ -2113,6 +2138,14 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             reference_locals: HashMap::new(),
             expression_temps: Vec::new(),
             contexts: Vec::new(),
+            return_origin: if matches!(sig.outputs.first(), Some(Ty::Ref(..))) {
+                sig.inputs
+                    .iter()
+                    .position(|(_, ty)| matches!(ty, Ty::Ref(..)))
+                    .map(|i| i as u8)
+            } else {
+                None
+            },
         };
         for (i, (name, ty)) in sig.inputs.iter().enumerate() {
             lower.names.insert(
