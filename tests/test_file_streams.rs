@@ -22,6 +22,24 @@ fn reject(source: &str, expected: &str) {
 }
 
 #[test]
+fn sized_read_counts_unicode_and_translated_newlines() {
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt")? as file:
+        print(file.read(0))
+        print(file.read(2))
+        print(file.read(1))
+        print(file.read(-1))
+    Ok(())
+print(work())
+"#,
+        Some("é🦀\r\nlast".as_bytes()),
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "Result[str, IoError].Ok(\"\")\nResult[str, IoError].Ok(\"é🦀\")\nResult[str, IoError].Ok(\"\\n\")\nResult[str, IoError].Ok(\"last\")\nResult[(), IoError].Ok(())\n");
+}
+
+#[test]
 fn files_are_owned_and_close_is_idempotent() {
     let (out, _) = run(
         r#"
@@ -222,8 +240,8 @@ fn file_reads_require_exclusive_access() {
         "shared reference as mutable",
     );
     reject(
-        "def read(file: &mut File) -> Result[str, IoError]:\n    file.read(1)\n",
-        "takes no arguments",
+        "def read(file: &mut File) -> Result[str, IoError]:\n    file.read(1, 2)\n",
+        "takes one argument",
     );
 }
 

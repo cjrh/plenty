@@ -3131,7 +3131,8 @@ Result[i64, IoError].Ok(3)
 Each call reports decoding, I/O, or allocation failure through its Result. You
 can mix `readline()` and `read()` on the same file; both share newline state.
 Failures may consume input, so retrying is not a rollback. Direct `for line in
-file` iteration, size-limited reads, and seeking are not yet implemented.
+file` iteration and seeking are not yet implemented. Size-limited reads are
+introduced below.
 
 ## Writing through a file
 
@@ -3273,8 +3274,29 @@ def main() -> ():
 7
 ```
 
-## Where the language goes next
+## Bounded stream reads
 
+Read a bounded number of characters with `read(count)`. The count is Unicode
+characters, not UTF-8 bytes. Zero consumes nothing; a negative count reads to EOF.
+
+```plenty
+def demo() -> Result[(), IoError]:
+    write_text("bounded.txt", "é🦀hello")?
+    with open("bounded.txt")? as file:
+        print(file.read(2)?)
+        print(file.read()?)
+    Ok(())
+def main() -> ():
+    print(demo())
+```
+```output
+é🦀
+hello
+Result[(), IoError].Ok(())
+```
+
+
+## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,
 recursive types, element references, and stored references remain future work. Traits and generics are deferred; async/await is out of

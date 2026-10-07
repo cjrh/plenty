@@ -34,6 +34,7 @@ impl Lower<'_> {
     ) -> Result<Type> {
         let operation = match name {
             "close" => CollectionOp::FileClose,
+            "read" if !args.is_empty() => CollectionOp::FileReadSized,
             "read" => CollectionOp::FileRead,
             "readline" => CollectionOp::FileReadLine,
             "write" => CollectionOp::FileWrite,
@@ -41,18 +42,19 @@ impl Lower<'_> {
             "sync" => CollectionOp::FileSync,
             _ => return Err(base.at.error(format!("unknown File method `{name}`"))),
         };
-        let count = usize::from(name == "write");
+        let count = usize::from(name == "write" || (name == "read" && !args.is_empty()));
         if args.len() != count {
             return Err(base.at.error(if count == 0 {
                 format!("{name} takes no arguments")
             } else {
-                "write takes one string argument".into()
+                format!("{name} takes one argument")
             }));
         }
         let mut reads = Vec::new();
         if let Some(arg) = args.first() {
             let (ty, loans) = self.observe(arg, ops)?;
-            self.same(Some(ty), Some(Ty::Str), &arg.at)?;
+            let expected = if name == "read" { Ty::I64 } else { Ty::Str };
+            self.same(Some(ty), Some(expected), &arg.at)?;
             reads = loans;
         }
         let (_, loan) = self.borrow(base, true, ops)?;

@@ -93,7 +93,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and scoped File open/read/readline/write/flush/sync/close implemented; seeking, bounded reads, and file iteration remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and scoped File open/read/readline/write/flush/sync/close implemented, including bounded read; seeking and file iteration remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -1645,7 +1645,7 @@ close. Reading EOF still constructs a fallible empty string.
 The reader stops at CR immediately and records a one-bit pending-LF state. Its
 next read consumes an optional LF, so it never reads beyond a line just to find
 out whether CR was followed by LF. `read()` honors the same state before resuming
-bulk reads. Line reading currently uses byte reads; buffering, bounded reads,
+bulk reads. Line reading currently uses byte reads; buffering,
 seek/tell, file iteration, and configurable encodings remain future work.
 
 ## Returned references
@@ -1714,6 +1714,14 @@ manager's exit call. Owned entry results may still be moved out normally.
 `yield` inside
 `with` is rejected until generator frames can retain exit obligations. Concrete
 lookup requires no traits or user generics.
+
+## Bounded stream operations
+
+File `read(count: i64)` reads at most that many Unicode scalars after universal
+newline translation. Zero returns an allocated empty string without consuming
+input; negative counts read to EOF. Bounded reads do not read past a scalar.
+Malformed or truncated UTF-8 returns `IoError.Data(InvalidUtf8)`; errors may
+consume input, and allocation failure leaves the owner valid for cleanup.
 
 ## Next milestones
 

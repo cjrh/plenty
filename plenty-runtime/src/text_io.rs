@@ -221,6 +221,45 @@ pub(crate) fn read_remaining(
     read_all(reader)
 }
 
+/// Decode one scalar at a time so a bounded read never splits UTF-8 or
+/// consumes the first scalar of the next call. Newlines count after translation.
+pub(crate) fn read_chars(
+    reader: &mut impl Read,
+    skip_lf: &mut bool,
+    count: u64,
+) -> Result<*mut strings::Text, Error> {
+    let mut bytes = Vec::new();
+    for _ in 0..count {
+        let Some(first) = next_byte(reader, skip_lf)? else {
+            break;
+        };
+        if first == b'\r' {
+            *skip_lf = true;
+            push(&mut bytes, b'\n')?;
+            continue;
+        }
+        let width = match first {
+            0..=0x7f => 1,
+            0xc2..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf4 => 4,
+            _ => return Err(Error::InvalidUtf8),
+        };
+        let mut scalar = [0; 4];
+        scalar[0] = first;
+        for slot in &mut scalar[1..width] {
+            *slot = byte(reader)?.ok_or(Error::InvalidUtf8)?;
+        }
+        std::str::from_utf8(&scalar[..width]).map_err(|_| Error::InvalidUtf8)?;
+        for byte in &scalar[..width] {
+            push(&mut bytes, *byte)?;
+        }
+    }
+    // Each appended scalar was validated above.
+    let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
+    Ok(strings::try_new(text)?)
+}
+
 pub(crate) fn write_text(path: &str, text: &str, append: bool) -> Result<u128, Error> {
     let mut file = open_file(
         path,
