@@ -6,8 +6,9 @@ releases its frame and captures without resuming it. Wrapping does not permit
 generators in collection/class storage, printing, comparison, or nested yields.
 References remain prohibited in standard sum payloads.
 
-`generator_function(arguments)` and its `.new(arguments)` alias return
-`Result[Generator[T], AllocError]`. Arguments evaluate first and move into the
+Use ordinary call syntax to construct a generator: `generator_function(arguments)`
+returns `Result[Generator[T], AllocError]`. The `.new(arguments)` spelling remains
+an equivalent alias. Arguments evaluate first and move into the
 constructor. Allocation failure releases them; success transfers them into the
 frame without executing the body. There is no public aborting frame constructor.
 Frame destruction remains allocation-free and does not resume the body.

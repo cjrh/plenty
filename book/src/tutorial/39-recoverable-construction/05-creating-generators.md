@@ -8,7 +8,7 @@ def numbers() -> Generator[i64]:
     yield 20
 
 def source() -> Result[Generator[i64], AllocError]:
-    numbers.new()
+    numbers()
 
 def total() -> Result[i64, AllocError]:
     mut values = source()?
@@ -25,7 +25,9 @@ def main() -> Result[(), IoError]:
 Result[i64, AllocError].Ok(30)
 ```
 
-`numbers()` and its `numbers.new()` alias return `Result[Generator[T], AllocError]`.
-Argument expressions retain
-their own failure behavior, and moved arguments are dropped on allocation failure.
+Call a generator function like any other function: `numbers()` returns
+`Result[Generator[i64], AllocError]`. Creating the generator allocates its frame
+but does not execute its body. Use `numbers()?` to propagate an allocation failure.
+Argument expressions retain their own failure behavior, and moved arguments are
+dropped on allocation failure.
 Dropping a wrapped generator releases its captures without executing its body.
