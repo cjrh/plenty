@@ -4,8 +4,11 @@
 generates a trusted module from the same export source used to build a library.
 Save it as, for example, `plugin.plentyi`. Its public API is `load(path: &str) ->
 Result[Library, LoadError]`, and the returned `Library` has a method for each
-export. Initial generated methods support numeric scalar inputs/results and
-unit results. Generating the source does not run or link native code.
+export. Generated methods support numeric scalar inputs/results, shared or
+mutable scalar borrows, unit results, and the scalar/unit Result forms supported
+by C exports. The exact error type and numeric width are preserved. Mutations to
+borrowed inputs remain visible on Err, as with linked calls. Generating the
+source does not run or link native code.
 
 Load opens the requested library, checks exact discovery metadata, requires its
 fingerprint guard, and resolves every export before returning a usable table.
@@ -13,6 +16,8 @@ The private lookup lease is cleaned up on every exit. A `Library` stores cached
 addresses; calls use native indirect C instructions without repeated lookup or
 allocation. The table itself is an ordinary fallibly allocated Plenty class.
 Its private fields prevent callers from constructing an unchecked table.
+Generation currently allows 128 exports and 240 parameters per method; names
+beginning with `_` are reserved for generated fields and lifecycle helpers.
 
 The allocation-free builtin `LoadError` distinguishes OutOfMemory, CapacityOverflow, InvalidPath, OpenFailed,
 InvalidSymbol, MissingSymbol, and IncompatibleContract. Generated loading uses

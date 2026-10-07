@@ -21,8 +21,8 @@ Trusted indirect C calls are implemented as the first runtime-loading building
 block. The runtime now provides resident mappings and fallible lookup leases;
 fixed ABI-checked declarations now expose those helpers to trusted interfaces.
 Exact discovery-contract validation returns recoverable errors. Generated scalar
-loaders now expose a typed Library with cached callable addresses; richer
-adapters and command-line generation remain in progress.
+loaders expose a typed Library with cached callable addresses, scalar borrows,
+and Result adapters. Owned handles and command-line generation remain in progress.
 
 ## Later candidates
 

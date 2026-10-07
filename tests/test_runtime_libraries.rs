@@ -236,3 +236,71 @@ def main() -> Result[(), Failure]:
     assert!(output.status.success(), "{output:?}");
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "1\n2\n3\n4\n5\n6\n7\nFalse\nResult[Option[LoadError], LoadError].Ok(Option[LoadError].Some(LoadError.IncompatibleContract))\n");
 }
+
+#[test]
+fn generated_methods_preserve_result_payloads_and_scalar_borrow_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let producer = root.join("producer.plenty");
+    std::fs::write(
+        &producer,
+        r#"
+export def change(value: &mut i16, fail: i32) -> Result[f32, ParseError] = "calc_change":
+    *value = *value + 1
+    if fail != 0:
+        Err(ParseError.OutOfRange)
+    else:
+        Ok(1.25)
+export def numeric(fail: i32) -> Result[(), u64] = "calc_numeric":
+    if fail != 0:
+        Err(18446744073709551615u64)
+    else:
+        Ok(())
+export def allocation() -> Result[i32, AllocError] = "calc_allocation":
+    Err(AllocError.CapacityOverflow)
+export def failure() -> Result[(), Failure] = "calc_failure":
+    Err(Failure.Unspecified)
+export def read(a: &f64, b: &f64) -> f64 = "calc_read":
+    *a + *b
+"#,
+    )
+    .unwrap();
+    let native = root.join("libcalc.so");
+    plenty::compile_file_to_library(
+        &producer,
+        &native,
+        None,
+        &plenty::LibraryOptions::new("calc", plenty::LibraryKind::Shared),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("plugin.plentyi"),
+        plenty::runtime_interface_source(&producer, None, "calc").unwrap(),
+    )
+    .unwrap();
+    let output = run(
+        root,
+        &format!(
+            r#"
+import plugin
+def main() -> Result[(), Failure]:
+    path = "{}"
+    library = plugin.load(&path)?
+    mut value: i16 = 10
+    print(library.change(&mut value, 0))?
+    print(library.change(&mut value, 1))?
+    print(value)?
+    print(library.numeric(0))?
+    print(library.numeric(1))?
+    print(library.allocation())?
+    print(library.failure())?
+    number: f64 = 2.5
+    print(library.read(&number, &number))?
+    Ok(())
+"#,
+            native.display()
+        ),
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, ParseError].Ok(1.25)\nResult[f32, ParseError].Err(ParseError.OutOfRange)\n12\nResult[(), u64].Ok(())\nResult[(), u64].Err(18446744073709551615)\nResult[i32, AllocError].Err(AllocError.CapacityOverflow)\nResult[(), Failure].Err(Failure.Unspecified)\n5.0\n");
+}
