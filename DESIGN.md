@@ -1592,7 +1592,13 @@ Exclusive creation uses the OS atomic create-new operation and fails if the path
 already exists, including a symlink; it never truncates an existing destination.
 The initial backend is Linux, with the same flags, permissions, path rules, and
 unsupported-host behavior as the whole-file helpers. Binary modes, encodings,
-update modes, and public descriptors are not exposed yet.
+and public descriptors are not exposed yet.
+Modes `r+`, `w+`, `a+`, and `x+` add both read and write capabilities with the same
+existence/truncation rules. `a+` initially seeks to EOF; all append writes use
+OS append semantics even after seeking. Other modes begin at byte zero.
+Update streams are unbuffered, so switching operations needs no flush. Writes
+use the physical byte position, may overwrite part of a UTF-8 sequence, and
+nonempty writes discard pending CRLF translation state. They do not insert text.
 
 `file.closed` observes its state. `file.close() -> Result[(), IoError]` requires
 exclusive access; it marks the owner closed before closing the descriptor and is

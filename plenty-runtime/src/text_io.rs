@@ -1,6 +1,6 @@
 //! Fallible text I/O. No infallible growing buffers or allocated diagnostics.
 use crate::{aggregates::wrap, memory::AllocError, strings};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 static ARG_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -72,6 +72,10 @@ pub(crate) enum OpenMode {
     Replace,
     Append,
     CreateNew,
+    ReadWrite,
+    ReplaceRead,
+    AppendRead,
+    CreateNewRead,
 }
 
 pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Error> {
@@ -102,13 +106,21 @@ pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Err
                 OpenMode::Replace => 0o1 | 0o100 | 0o1000,
                 OpenMode::Append => 0o1 | 0o100 | 0o2000,
                 OpenMode::CreateNew => 0o1 | 0o100 | 0o200,
+                OpenMode::ReadWrite => 0o2,
+                OpenMode::ReplaceRead => 0o2 | 0o100 | 0o1000,
+                OpenMode::AppendRead => 0o2 | 0o100 | 0o2000,
+                OpenMode::CreateNewRead => 0o2 | 0o100 | 0o200,
             };
         let fd = unsafe { open(name.as_ptr().cast(), flags, 0o666u32) };
         if fd < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
         // SAFETY: open returned a new descriptor; File takes sole ownership.
-        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+        let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+        if matches!(mode, OpenMode::AppendRead) {
+            file.seek(std::io::SeekFrom::End(0))?;
+        }
+        Ok(file)
     }
     #[cfg(not(target_os = "linux"))]
     {

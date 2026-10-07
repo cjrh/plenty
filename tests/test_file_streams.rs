@@ -492,6 +492,44 @@ print(work())
     );
 }
 
+#[test]
+fn update_modes_read_write_and_preserve_their_creation_contracts() {
+    let (out, dir) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt", "r+")? as file:
+        print(file.readable()?)
+        print(file.writable()?)
+        print(file.read(2)?)
+        file.write("X")?
+        print(file.read()?)
+    with open("sample.txt", "a+")? as file:
+        print(file.read())
+        file.write("!")?
+    Ok(())
+print(work())
+"#,
+        Some(b"abcde"),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "True\nTrue\nab\nde\nResult[str, IoError].Ok(\"\")\nResult[(), IoError].Ok(())\n"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"abXde!"
+    );
+    for mode in ["w+", "x+"] {
+        let (_, dir) = run(&format!("def work() -> Result[(), IoError]:\n    with open(\"sample.txt\", \"{mode}\")? as file:\n        file.write(\"ok\")?\n    Ok(())\nprint(work())"), None);
+        assert_eq!(std::fs::read(dir.path().join("sample.txt")).unwrap(), b"ok");
+    }
+    let (out, dir) = run("print(open(\"sample.txt\", \"r+\"))", None);
+    assert!(String::from_utf8_lossy(&out.stdout).contains(".Err("));
+    assert!(!dir.path().join("sample.txt").exists());
+    let (_, dir) = run("file = open(\"sample.txt\", \"w+\")", Some(b"old"));
+    assert_eq!(std::fs::read(dir.path().join("sample.txt")).unwrap(), b"");
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn exclusive_creation_allocation_failures_leave_no_file() {

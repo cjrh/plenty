@@ -16,11 +16,16 @@ pub(crate) struct File {
 
 pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Error> {
     let writable = mode != "r";
+    let readable = mode == "r" || mode.ends_with('+');
     let mode = match mode {
         "r" => OpenMode::Read,
         "w" => OpenMode::Replace,
         "a" => OpenMode::Append,
         "x" => OpenMode::CreateNew,
+        "r+" => OpenMode::ReadWrite,
+        "w+" => OpenMode::ReplaceRead,
+        "a+" => OpenMode::AppendRead,
+        "x+" => OpenMode::CreateNewRead,
         _ => return Err(std::io::ErrorKind::InvalidInput.into()),
     };
     // Reserve the owner before opening/truncating anything. Path allocation in
@@ -35,7 +40,7 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
                     ty,
                     file: Some(file),
                     writable,
-                    readable: !writable,
+                    readable,
                     skip_lf: false,
                 });
             }
@@ -120,6 +125,9 @@ pub(crate) unsafe fn write(pointer: *mut File, text: &str) -> Result<u128, Error
         .ok_or(std::io::ErrorKind::NotConnected)?;
     if !owner.writable {
         return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    if !text.is_empty() {
+        owner.skip_lf = false;
     }
     file.write_all(text.as_bytes())?;
     Ok(text.chars().count() as u128)
