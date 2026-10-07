@@ -7,10 +7,18 @@ design goals.
 
 This branch implements the typed AOT language, including collections, concrete
 enums, fixed-layout classes, generators, explicit copying, and checked references.
-Owned values clean up automatically, including custom `__del__` methods. The full contract and roadmap are in [DESIGN.md](DESIGN.md).
+Owned values clean up automatically, including custom `__del__` methods. The full contract and roadmap are in the [reference](book/src/design/index.md).
 
-Start with [TUTORIAL.md](TUTORIAL.md) to learn the language through runnable
-examples. Its code and expected diagnostics are tested as the compiler evolves.
+Start with [Learn Plenty](book/src/tutorial/index.md) to learn the language
+through runnable examples. Its code and expected diagnostics are tested as the
+compiler evolves.
+
+All docs are an [mdBook](https://rust-lang.github.io/mdBook/) in `book/`. To
+read them in a browser:
+
+```sh
+mdbook serve book --open
+```
 
 ```python
 type int = i64
@@ -141,9 +149,9 @@ tail recursion, executable tutorial lessons, and historical backend regressions.
 
 The old stack syntax is available only through `--legacy` (before a filename
 or `--compile`) and `compile_legacy_source_to_executable` while backend
-regressions remain useful. It also uses AOT. Its [tutorial](docs/legacy-tutorial.md)
-and [design](docs/legacy-design.md) are historical archives; they do not define
-the new language or current execution modes.
+regressions remain useful. It also uses AOT. Its old tutorial and design are
+in git history only; they do not define the new language or current execution
+modes.
 `compile_source_to_executable` and `check_source` accept isolated binary source
 strings with `main` and reject filesystem imports. For projects, use
 `compile_file_to_executable(path, output, root)` and `check_file(path, root)`;

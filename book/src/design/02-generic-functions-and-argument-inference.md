@@ -1,0 +1,43 @@
+# Generic functions and argument inference
+
+Functions may declare type parameters, for example
+`def identity[T](value: T) -> T:` or `def add[T: IntType](a: T, b: T) -> T:`.
+Calls may supply all type arguments explicitly (`identity[list[i64]](values)`)
+or infer all of them from arguments (`identity(values)`). Inference structurally
+matches parameter types against concrete argument types: `&T` with `&Message`
+infers `T = Message`, and `&dict[K, V]` with `&dict[str, u8]` infers both parameters.
+Lists, sets, ranges, generators, tuples, Option, and Result participate too.
+Repeated occurrences of a parameter must agree after alias resolution. No
+numeric widening, implicit borrowing, protocol implementation search, or runtime
+dispatch is introduced. Protocol constraints are checked after inference.
+
+Inference is local to the call and uses the ordinary expression checker. Arguments
+are evaluated once in source order. A generic parameter position supplies no
+expected type to its argument: unsuffixed integers default to `i64` and floats to
+`f64`, independently of other arguments or the expected result. Thus
+`add(1u8, 2u8)` works, while `add(1u8, 2)` and `add(1, 2u8)` conflict; use
+`add[u8](1, 2)` to guide unsuffixed literals. Nongeneric parameter positions keep
+their usual contextual typing. Empty literals and incomplete sum constructors
+can require an annotated binding or explicit type arguments. All parameters
+must be determined by inputs: output-only/unused parameters require an explicit
+type argument list. Partial explicit lists and inference from expected return
+types remain deferred. Existing builtin range inference is unchanged.
+`IntType` accepts the eight fixed-width integer types, including aliases; it is
+a constraint rather than a value type. Unconstrained parameters are also allowed.
+
+The frontend creates one concrete function for each distinct function/type tuple.
+Alias-equivalent arguments and recursive calls reuse the same instance. Generated
+bodies pass through ordinary type, ownership, and borrow checking. Generic body
+operations are checked when instantiated; unused generic bodies are not checked
+against every possible type. Module names are resolved in the definition's scope,
+and importing a function does not alter which methods are available.
+
+Specialization is requested during typed body lowering and uses a work queue,
+with at most 256 concrete generic instances per compilation and the existing
+type depth/name limits. Each concrete signature and returned-reference summary
+is registered before its body is queued. Explicit, inferred, alias-equivalent,
+and recursive calls share one cache keyed by function and resolved types; the
+backend still receives only concrete checked operations. This bounds expanding
+recursion without maintaining a second expression type checker. Generic classes,
+generic methods, reference/unit type arguments, and first-class generic functions
+are deferred. A signature can borrow `T` directly using `&T` or `&mut T`.

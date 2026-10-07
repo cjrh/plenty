@@ -1247,7 +1247,7 @@ impl Lowerer<'_, '_> {
     /// into the address of `plenty_readline_eof_empty` (the `""` data
     /// symbol) so the `Ty::Str` we push is always dereferenceable; the
     /// "got a line?" Bool is `ptr != 0`. The user discriminates via
-    /// `match` on the Bool — see DESIGN.md §11.8 for the surface.
+    /// `match` on the Bool.
     fn lower_readline(&mut self) -> Result<()> {
         let readline = self
             .module

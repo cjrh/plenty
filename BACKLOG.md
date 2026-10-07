@@ -2,7 +2,7 @@
 
 Implementation work for the AOT-only compiler. These are candidate approaches,
 not committed milestones. The language contract and roadmap are in
-[`DESIGN.md`](DESIGN.md).
+[reference](book/src/design/index.md).
 
 ---
 
@@ -58,7 +58,7 @@ the table block.
 `compile_source_to_executable` writes the embedded runtime C source
 to a tempfile per invocation and lets `cc` recompile it. Both `plenty FILE`
 and `plenty --compile` pay this cost. Measure runtime compilation and linking
-separately before optimizing; the baseline in DESIGN.md measures the complete
+separately before optimizing; the baseline in the reference measures the complete
 AOT pipeline, not runtime compilation alone. A candidate approach is:
 a `build.rs` that compiles `plenty_runtime.c` into
 `libplenty_runtime.a` at crate build time, an `include_bytes!` of

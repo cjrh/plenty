@@ -1,3 +1,6 @@
-- Always aim to keep `DESIGN.md` up to date with the latest design decisions and architectural changes.
-- ...and likewise, always aim to keep the implementation up to date with the latest design decisions in `DESIGN.md`.
-- Keep `TUTORIAL.md` up to date with learner-visible language changes. Teach implemented behavior with runnable examples; `tests/test_tutorial.rs` checks the guide's examples and expected diagnostics directly.
+- Docs are an mdBook in `book/src/`. `SUMMARY.md` lists every page in reading order.
+- Always aim to keep the reference (`book/src/design/`) up to date with the latest design decisions and architectural changes.
+- ...and likewise, always aim to keep the implementation up to date with the latest design decisions in the reference.
+- Keep the tutorial (`book/src/tutorial/`) up to date with learner-visible language changes. Teach implemented behavior with runnable examples; `tests/test_tutorial.rs` checks the guide's examples and expected diagnostics directly.
+- Keep pages small. Add a new page to `SUMMARY.md`; `tests/test_tutorial.rs` fails if a page is missing from it.
+- A `plenty-file` companion module must be on the same page as the example that uses it.

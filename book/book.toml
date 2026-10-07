@@ -1,0 +1,10 @@
+[book]
+title = "Plenty"
+description = "A statically typed language with Python-shaped syntax and native compilation."
+authors = ["Caleb Hattingh"]
+language = "en"
+src = "src"
+
+[output.html]
+# highlight.js has no Plenty grammar. Python is the closest match.
+additional-js = ["theme/plenty-highlight.js"]
