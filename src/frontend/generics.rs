@@ -487,7 +487,7 @@ fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
                 substitute_expr(arg, substitutions)?;
             }
         }
-        Expression::Method(base, _, args) => {
+        Expression::Method(base, _, args) | Expression::Invoke(base, args) => {
             substitute_expr(base, substitutions)?;
             for arg in args {
                 substitute_expr(arg, substitutions)?;

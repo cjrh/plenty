@@ -320,7 +320,7 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                 | Expression::Group(a)
                 | Expression::Unary(_, a)
                 | Expression::Try(a) => self.expr(a, initialized)?,
-                Expression::Method(a, _, args) => {
+                Expression::Method(a, _, args) | Expression::Invoke(a, args) => {
                     self.expr(a, initialized)?;
                     for arg in args {
                         self.expr(arg, initialized)?;

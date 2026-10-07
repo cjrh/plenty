@@ -23,3 +23,21 @@ def main() -> Result[(), Failure]:
 
 Function values can also be returned and reassigned through `mut` bindings.
 Copying a function value copies its code address; no allocation is needed.
+
+You can call a value selected from a collection directly:
+
+```plenty
+def increment(value: i64) -> i64:
+    value + 1
+
+def main() -> Result[(), Failure]:
+    handlers = [increment]?
+    index = 0
+    print(handlers[index](41))?
+    Ok(())
+```
+```output
+42
+```
+
+Here the list allocates; the function value and the call do not.

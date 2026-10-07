@@ -1056,6 +1056,13 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        let field = Expr {
+            at: base.at.clone(),
+            kind: Expression::Member(Box::new(base.clone()), name.into()),
+        };
+        if matches!(self.place_type(&field), Some(Ty::Callable(_))) {
+            return self.call_value(&field, args, ops);
+        }
         if name == "null" {
             if let Some(ty @ Ty::ForeignPtr(_)) = self.qualified_type(base)? {
                 if !args.is_empty() {

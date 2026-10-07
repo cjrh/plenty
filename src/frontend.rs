@@ -609,6 +609,7 @@ enum Expression {
     Group(Box<Expr>),
     Name(String),
     Call(String, Vec<Expr>),
+    Invoke(Box<Expr>, Vec<Expr>),
     Unary(String, Box<Expr>),
     Binary(String, Box<Expr>, Box<Expr>),
     Conditional {
@@ -1211,6 +1212,14 @@ impl Parser {
         };
         let mut left = Expr { at, kind };
         loop {
+            if self.eat("(") {
+                let args = self.arguments()?;
+                left = Expr {
+                    at: left.at.clone(),
+                    kind: Expression::Invoke(Box::new(left), args),
+                };
+                continue;
+            }
             if self.peek().is("[") {
                 fn path(e: &Expr) -> Option<String> {
                     match &e.kind {
@@ -2064,6 +2073,7 @@ impl Lower<'_> {
                     self.call_named(name, args, &e.at, ops)?
                 }
             }
+            Expression::Invoke(callee, args) => self.call_value(callee, args, ops)?,
         };
         Ok(ty)
     }

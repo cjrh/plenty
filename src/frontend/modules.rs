@@ -544,7 +544,37 @@ impl Scope {
         }
         if let Expression::GenericCall(name, _, _) = &e.kind {
             if locals.contains(name.split('.').next().unwrap()) {
-                return Err(e.at.error("a local binding shadows this generic function"));
+                let Expression::GenericCall(name, types, args) = &mut e.kind else {
+                    unreachable!()
+                };
+                let [index] = types.as_slice() else {
+                    return Err(e.at.error("indexing takes one expression"));
+                };
+                let Some(index_name) = index.name.as_ref().filter(|_| index.args.is_empty()) else {
+                    return Err(e.at.error("a local binding shadows this generic function"));
+                };
+                fn name_path(name: &str, at: &Token) -> Expr {
+                    let mut parts = name.split('.');
+                    let mut e = Expr {
+                        at: at.clone(),
+                        kind: Expression::Name(parts.next().unwrap().into()),
+                    };
+                    for part in parts {
+                        e = Expr {
+                            at: at.clone(),
+                            kind: Expression::Member(Box::new(e), part.into()),
+                        };
+                    }
+                    e
+                }
+                let callee = Expr {
+                    at: e.at.clone(),
+                    kind: Expression::Index(
+                        Box::new(name_path(name, &e.at)),
+                        Box::new(name_path(index_name, &index.at)),
+                    ),
+                };
+                e.kind = Expression::Invoke(Box::new(callee), std::mem::take(args));
             }
         }
         fn path(e: &Expr) -> Option<String> {
@@ -607,7 +637,7 @@ impl Scope {
             | Expression::Group(base)
             | Expression::Unary(_, base)
             | Expression::Try(base) => self.expr(base, locals)?,
-            Expression::Method(base, _, args) => {
+            Expression::Method(base, _, args) | Expression::Invoke(base, args) => {
                 self.expr(base, locals)?;
                 for arg in args {
                     self.expr(arg, locals)?;
