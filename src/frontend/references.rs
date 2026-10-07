@@ -239,6 +239,27 @@ impl Lower<'_> {
             }
             Expression::Index(base, index) => {
                 let (ty, loans) = self.observe(base, ops)?;
+                if let Ty::Enum(t) = &ty {
+                    if t.tuple() {
+                        let Expression::Number(n) = &ungroup(index).kind else {
+                            return Err(index
+                                .at
+                                .error("tuple index must be a nonnegative integer literal"));
+                        };
+                        let i = n.parse::<usize>().map_err(|_| {
+                            index
+                                .at
+                                .error("tuple index must be a nonnegative integer literal")
+                        })?;
+                        let value = t.variants[0]
+                            .fields
+                            .get(i)
+                            .ok_or_else(|| index.at.error("tuple index out of bounds"))?
+                            .clone();
+                        ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
+                        return Ok((value, loans));
+                    }
+                }
                 let (key, value) = match &ty {
                     Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
                     Ty::List(_) | Ty::Str | Ty::Range => (Ty::I64, ty.element().unwrap()),

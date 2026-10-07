@@ -75,6 +75,130 @@ impl Parser {
 }
 
 impl Lower<'_> {
+    pub(super) fn unpack_tuple(
+        &mut self,
+        names: &[String],
+        mutable: bool,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let ty = self.value(value, ops)?;
+        let Ty::Enum(t) = &ty else {
+            return Err(value.at.error("unpacking requires a tuple"));
+        };
+        if !t.tuple() {
+            return Err(value.at.error("unpacking requires a tuple"));
+        }
+        let fields = &t.variants[0].fields;
+        if fields.len() != names.len() {
+            return Err(value.at.error("unpacking arity does not match tuple"));
+        }
+        let source = self.slot(ty.clone(), &value.at)?;
+        ops.push(Op::StoreLocal(source));
+        let mut seen = HashSet::new();
+        for (i, (name, ty)) in names.iter().zip(fields).enumerate() {
+            if name != "_" && !seen.insert(name) {
+                return Err(value.at.error("duplicate unpacking binding"));
+            }
+            ops.push(Op::LoadLocal(source));
+            ops.push(Op::Enum(if ty.affine() {
+                crate::sum::EnumOp::Take(t.clone(), 0, i)
+            } else {
+                crate::sum::EnumOp::Field(t.clone(), 0, i)
+            }));
+            if name == "_" {
+                ops.push(Op::Drop);
+                continue;
+            }
+            if *ty == Ty::Unit {
+                return Err(value.at.error("unit bindings are not supported yet; use _"));
+            }
+            let slot = if let Some(local) = self.names.get(name) {
+                if mutable || !local.mutable {
+                    return Err(value
+                        .at
+                        .error(format!("`{name}` is already bound or immutable")));
+                }
+                self.same(Some(ty.clone()), Some(local.ty.clone()), &value.at)?;
+                local.slot
+            } else {
+                let slot = self.slot(ty.clone(), &value.at)?;
+                self.names.insert(
+                    name.clone(),
+                    Local {
+                        slot,
+                        ty: ty.clone(),
+                        mutable,
+                    },
+                );
+                slot
+            };
+            ops.push(Op::StoreLocal(slot));
+        }
+        ops.push(Op::DropLocal(source));
+        Ok(())
+    }
+    pub(super) fn tuple(
+        &mut self,
+        values: &[Expr],
+        fallible: bool,
+        expected: Type,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let expected = if fallible {
+            match expected {
+                Some(Ty::Enum(t)) if t.name.starts_with("Result[") => {
+                    Some(t.variants[0].fields[0].clone())
+                }
+                _ => None,
+            }
+        } else {
+            expected
+        };
+        let fields = match &expected {
+            Some(Ty::Enum(t)) if t.tuple() => Some(&t.variants[0].fields),
+            _ => None,
+        };
+        if fields.is_some_and(|f| f.len() != values.len()) {
+            return Err(at.error("tuple arity does not match its annotation"));
+        }
+        let mut types = Vec::new();
+        for (i, value) in values.iter().enumerate() {
+            let expected = fields.map(|f| f[i].clone());
+            let actual = self
+                .expr_expected(value, expected.clone(), ops)?
+                .unwrap_or(Ty::Unit);
+            if let Some(expected) = expected {
+                self.same(Some(actual.clone()), Some(expected), &value.at)?;
+            }
+            if actual.restricted_storage() {
+                return Err(value
+                    .at
+                    .error("references and generators cannot be stored in tuples"));
+            }
+            if actual == Ty::Unit {
+                ops.push(Op::PushUnit);
+            }
+            types.push(actual);
+        }
+        if types.iter().map(|t| t.to_string().len()).sum::<usize>() > 16_384
+            || types.iter().any(|t| t.layout_depth() >= 64)
+        {
+            return Err(at.error("tuple exceeds the implementation type nesting limit"));
+        }
+        let Ty::Enum(t) = crate::sum::tuple(types) else {
+            unreachable!()
+        };
+        let op = if fallible {
+            crate::sum::EnumOp::TryNew(t, 0)
+        } else {
+            crate::sum::EnumOp::New(t, 0)
+        };
+        let output = op.signature().unwrap().1;
+        ops.push(Op::Enum(op));
+        Ok(output)
+    }
     pub(super) fn system_call(
         &mut self,
         operation: CollectionOp,
@@ -115,6 +239,9 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         match &e.kind {
+            Expression::Tuple(values, fallible) => self
+                .tuple(values, *fallible, expected, &e.at, ops)
+                .map(Some),
             Expression::Call(name, args)
                 if enums::prelude_variant(name) && !self.names.contains_key(name) =>
             {
@@ -612,6 +739,33 @@ impl Lower<'_> {
 
     pub(super) fn index(&mut self, base: &Expr, index: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
         let (ty, loans) = self.observe(base, ops)?;
+        if let Ty::Enum(t) = &ty {
+            if t.tuple() {
+                let Expression::Number(n) = &ungroup(index).kind else {
+                    return Err(index
+                        .at
+                        .error("tuple index must be a nonnegative integer literal"));
+                };
+                let i = n.parse::<usize>().map_err(|_| {
+                    index
+                        .at
+                        .error("tuple index must be a nonnegative integer literal")
+                })?;
+                let value = t.variants[0]
+                    .fields
+                    .get(i)
+                    .ok_or_else(|| index.at.error("tuple index out of bounds"))?
+                    .clone();
+                if value.affine() {
+                    return Err(index
+                        .at
+                        .error("cannot move out of a tuple index; unpack the tuple instead"));
+                }
+                ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
+                Self::end_reads(loans, ops);
+                return Ok(value);
+            }
+        }
         let (key, value) = match &ty {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),

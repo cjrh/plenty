@@ -841,9 +841,12 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             ),
             b'C' | b'E' => {
                 let r = value as *const Record;
-                out.extend_from_slice(ty.name.as_bytes());
+                let tuple = ty.kind == b'E' && ty.name.starts_with("tuple[");
+                if !tuple {
+                    out.extend_from_slice(ty.name.as_bytes());
+                }
                 let count = record_count(ty, (*r).tag_or_hook);
-                if ty.kind == b'E' {
+                if ty.kind == b'E' && !tuple {
                     out.push(b'.');
                     out.extend_from_slice(ty.variants[(*r).tag_or_hook as usize].name.as_bytes());
                 }
@@ -865,6 +868,9 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                             field_type(ty, (*r).tag_or_hook, i),
                             out,
                         );
+                    }
+                    if tuple && count == 1 {
+                        out.push(b',');
                     }
                     out.push(b')');
                 }

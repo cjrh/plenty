@@ -3726,6 +3726,37 @@ def main() -> ():
 [12, 22]
 ```
 
+## Returning and unpacking tuples
+
+A tuple groups values with different types. Write `(value,)` for one component;
+parentheses without a comma simply group an expression. Function signatures may
+spell a tuple as `(i64, str)` or `tuple[i64, str]`. Unpacking transfers owned
+components, and `_` discards a component. Indices must be integer literals.
+
+```plenty
+def measurement() -> (i64, str):
+    (42, "cm")
+
+def main() -> ():
+    value, unit = measurement()
+    print(value)
+    print(unit)
+    for number, word in [(1, "one"), (2, "two")]:
+        print((number, word))
+    print(try (3, "three"))
+```
+```output
+42
+cm
+(1, "one")
+(2, "two")
+Result[tuple[i64, str], AllocError].Ok((3, "three"))
+```
+
+Tuple storage currently allocates. `try (a, b)` makes that allocation recoverable;
+it consumes its evaluated components even on failure. As with fallible collection
+displays, use checked operations separately inside component expressions.
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,

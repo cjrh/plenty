@@ -362,6 +362,27 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == "tuple" {
+            if self.args.is_empty() {
+                return Err(self.at.error("use () for the empty tuple"));
+            }
+            let fields = self
+                .args
+                .iter()
+                .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
+                .collect::<Result<Vec<_>>>()?;
+            if fields.iter().any(Ty::restricted_storage) {
+                return Err(self
+                    .at
+                    .error("references and generators cannot be stored in tuples"));
+            }
+            if fields.iter().map(|t| t.to_string().len()).sum::<usize>() > 16_384 {
+                return Err(self
+                    .at
+                    .error("concrete type name exceeds the implementation limit"));
+            }
+            return Ok(Some(crate::sum::tuple(fields)));
+        }
         if matches!(name.as_str(), "&" | "&mut") {
             let inner = self.args[0]
                 .resolve(aliases)?
@@ -465,6 +486,11 @@ struct Stmt {
     kind: Statement,
 }
 enum Statement {
+    Unpack {
+        names: Vec<String>,
+        mutable: bool,
+        value: Expr,
+    },
     With {
         manager: Expr,
         name: Option<String>,
@@ -511,6 +537,7 @@ struct Expr {
     kind: Expression,
 }
 enum Expression {
+    Tuple(Vec<Expr>, bool),
     Try(Box<Expr>),
     FallibleCollection(Box<Expr>),
     ClassNew(Rc<crate::record::ClassType>, bool),
@@ -614,11 +641,22 @@ impl Parser {
             });
         }
         if self.eat("(") {
-            self.expect(")")?;
+            let mut args = Vec::new();
+            while !self.eat(")") {
+                args.push(self.ty()?);
+                if self.eat(")") {
+                    break;
+                }
+                self.expect(",")?;
+            }
             return Ok(TypeRef {
                 at,
-                name: None,
-                args: Vec::new(),
+                name: if args.is_empty() {
+                    None
+                } else {
+                    Some("tuple".into())
+                },
+                args,
             });
         }
         let t = self.take();
@@ -831,10 +869,34 @@ impl Parser {
         }
         if self.peek().is("for") {
             let at = self.take();
-            let name = self.name()?;
+            let mut names = vec![self.name()?];
+            while self.eat(",") {
+                names.push(self.name()?);
+            }
+            let name = if names.len() == 1 {
+                names[0].clone()
+            } else {
+                format!("__plenty_unpack_{}_{}", at.line, at.column)
+            };
             self.expect("in")?;
             let iterable = self.expr(0)?;
-            let body = self.suite()?;
+            let mut body = self.suite()?;
+            if names.len() > 1 {
+                body.insert(
+                    0,
+                    Stmt {
+                        at: at.clone(),
+                        kind: Statement::Unpack {
+                            names,
+                            mutable: false,
+                            value: Expr {
+                                at: at.clone(),
+                                kind: Expression::Name(name.clone()),
+                            },
+                        },
+                    },
+                );
+            }
             if self.peek().is("else") {
                 return Err(self.peek().error("loop else is not supported"));
             }
@@ -869,9 +931,29 @@ impl Parser {
                     && self
                         .tokens
                         .get(self.pos + 1)
-                        .is_some_and(|t| t.is("=") || t.is(":"));
+                        .is_some_and(|t| t.is("=") || t.is(":") || t.is(","));
             if assignment {
                 let name = self.name()?;
+                if self.eat(",") {
+                    let mut names = vec![name];
+                    loop {
+                        names.push(self.name()?);
+                        if !self.eat(",") {
+                            break;
+                        }
+                    }
+                    self.expect("=")?;
+                    let value = self.expr(0)?;
+                    self.kind(Kind::Newline, "the end of the statement")?;
+                    return Ok(Stmt {
+                        at,
+                        kind: Statement::Unpack {
+                            names,
+                            mutable,
+                            value,
+                        },
+                    });
+                }
                 let annotation = if self.eat(":") {
                     Some(self.ty()?)
                 } else {
@@ -899,6 +981,25 @@ impl Parser {
         self.kind(Kind::Newline, "the end of the statement")?;
         Ok(Stmt { at, kind })
     }
+    fn parenthesized(&mut self) -> Result<Expression> {
+        if self.eat(")") {
+            return Ok(Expression::Unit);
+        }
+        let first = self.expr(0)?;
+        if self.eat(")") {
+            return Ok(Expression::Group(Box::new(first)));
+        }
+        self.expect(",")?;
+        let mut values = vec![first];
+        while !self.eat(")") {
+            values.push(self.expr(0)?);
+            if self.eat(")") {
+                break;
+            }
+            self.expect(",")?;
+        }
+        Ok(Expression::Tuple(values, false))
+    }
     fn expr(&mut self, min: u8) -> Result<Expr> {
         let at = self.take();
         let kind = match &at.kind {
@@ -911,11 +1012,19 @@ impl Parser {
                 let Kind::Symbol(symbol) = &open.kind else {
                     return Err(open.error("try requires a list, dictionary, or set display"));
                 };
-                if !matches!(symbol.as_str(), "[" | "{") {
-                    return Err(open.error("try requires a list, dictionary, or set display"));
+                if symbol == "(" {
+                    let kind = self.parenthesized()?;
+                    let Expression::Tuple(values, _) = kind else {
+                        return Err(open.error("try requires a tuple or collection display"));
+                    };
+                    Expression::Tuple(values, true)
+                } else {
+                    if !matches!(symbol.as_str(), "[" | "{") {
+                        return Err(open.error("try requires a list, dictionary, or set display"));
+                    }
+                    let kind = self.collection_display(symbol)?;
+                    Expression::FallibleCollection(Box::new(Expr { at: open, kind }))
                 }
-                let kind = self.collection_display(symbol)?;
-                Expression::FallibleCollection(Box::new(Expr { at: open, kind }))
             }
             Kind::Symbol(s) if s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
@@ -924,15 +1033,7 @@ impl Parser {
             Kind::Symbol(s) if s == "-" || s == "+" || s == "*" => {
                 Expression::Unary(s.clone(), Box::new(self.expr(7)?))
             }
-            Kind::Symbol(s) if s == "(" => {
-                if self.eat(")") {
-                    Expression::Unit
-                } else {
-                    let e = self.expr(0)?;
-                    self.expect(")")?;
-                    Expression::Group(Box::new(e))
-                }
-            }
+            Kind::Symbol(s) if s == "(" => self.parenthesized()?,
             Kind::Symbol(s) if s == "[" || s == "{" => self.collection_display(s)?,
             Kind::Word(s) if !reserved(s) && !s.starts_with("__plenty_") => {
                 if matches!(s.as_str(), "Option" | "Result") && self.peek().is("[") {
@@ -1108,6 +1209,7 @@ fn builtin(name: &str) -> bool {
                 | "Option"
                 | "Result"
                 | "Generator"
+                | "tuple"
                 | "next"
                 | "copy"
                 | "try_copy"
@@ -1351,6 +1453,9 @@ impl Lower<'_> {
                     Self::end_reads(loans, ops);
                     Some(ty)
                 }
+            }
+            Expression::Tuple(values, fallible) => {
+                Some(self.tuple(values, *fallible, None, &e.at, ops)?)
             }
             Expression::Collection { .. } => Some(self.collection(e, None, ops)?),
             Expression::FallibleCollection(inner) => Some(self.fallible_display(inner, None, ops)?),
@@ -1865,6 +1970,14 @@ impl Lower<'_> {
                     } else {
                         self.set_index(target, value, ops)?;
                     }
+                    None
+                }
+                Statement::Unpack {
+                    names,
+                    mutable,
+                    value,
+                } => {
+                    self.unpack_tuple(names, *mutable, value, ops)?;
                     None
                 }
                 Statement::Assign {

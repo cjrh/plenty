@@ -406,6 +406,10 @@ impl Scope {
                     self.expr(value, locals)?;
                     locals.insert(name.clone());
                 }
+                Statement::Unpack { names, value, .. } => {
+                    self.expr(value, locals)?;
+                    locals.extend(names.iter().cloned());
+                }
                 Statement::SetIndex { target, value } => {
                     self.expr(target, locals)?;
                     self.expr(value, locals)?;
@@ -491,7 +495,7 @@ impl Scope {
             _ => {}
         }
         match &mut e.kind {
-            Expression::Call(_, args) => {
+            Expression::Call(_, args) | Expression::Tuple(args, _) => {
                 for arg in args {
                     self.expr(arg, locals)?;
                 }

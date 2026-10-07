@@ -76,6 +76,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Shared list loops borrow owned elements; mutable list loops yield mutable element references. Shared copyable elements and dictionary keys remain values |
+| Tuples and unpacking | `(a, b)`, `(a,)`, `tuple[A, B]` / `(A, B)` annotations, literal indexing, flat binding/loop unpacking, and recoverable `try (a, b)` |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, explicit-separator splitting, sized numeric parsing, and fallible scalar formatting |
 | Tuples, unpacking, dictionary `items()` | Not implemented |
@@ -1587,6 +1588,18 @@ Partial moves and stored references remain rejected. Class field loans distingui
 including through reborrowed reference parameters. A generator cannot capture reference parameters or retain a live
 loan across `yield`; short borrows completed within one resume are permitted.
 No lifetime annotation syntax or general trait system is required for this subset.
+
+Tuples are immutable structural products. A tuple containing owned fields is
+affine; whole-tuple unpacking transfers each component and `_` drops a component.
+Copyable tuples share immutable storage on assignment. The initial implementation
+uses the existing heap record representation and cleanup machinery. Ordinary
+tuple displays may abort on allocation failure; `try (a, b)` returns
+`Result[tuple[A, B], AllocError]` and consumes and cleans up evaluated components
+on failure. Component expressions retain their own allocation/error contracts.
+Indices must be nonnegative integer literals, checked against the tuple's arity;
+owned fields can be observed or explicitly copied, but ownership extraction
+requires unpacking. References and generators cannot be stored in tuples yet.
+Empty `()` remains unit. Nested/starred unpacking is deferred.
 
 Shared iteration over a list of owned elements binds `&T`; mutable list iteration
 binds `&mut T`, including scalar elements. Shared iteration over copyable elements

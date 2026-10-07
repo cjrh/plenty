@@ -27,6 +27,9 @@ impl Hash for EnumType {
     }
 }
 impl EnumType {
+    pub fn tuple(&self) -> bool {
+        self.name.starts_with("tuple[")
+    }
     /// Builtin sums have one payload and a binary discriminant at each level.
     pub fn inline(&self) -> bool {
         self.propagatable()
@@ -106,6 +109,30 @@ pub fn parse_error() -> Ty {
 pub struct Variant {
     pub name: String,
     pub fields: Vec<Ty>,
+}
+
+/// Structural products reuse the checked record storage and field operations.
+pub fn tuple(fields: Vec<Ty>) -> Ty {
+    Ty::Enum(Rc::new(EnumType {
+        name: format!(
+            "tuple[{}]",
+            fields
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        depth: 1 + fields.iter().map(Ty::layout_depth).max().unwrap_or(0),
+        affine: fields.iter().any(Ty::affine),
+        copyable: fields.iter().all(Ty::can_copy),
+        has_destructor: fields.iter().any(Ty::has_destructor),
+        restricted_storage: fields.iter().any(Ty::restricted_storage),
+        managed: true,
+        variants: vec![Variant {
+            name: String::new(),
+            fields,
+        }],
+    }))
 }
 
 pub fn option(element: Ty) -> Ty {

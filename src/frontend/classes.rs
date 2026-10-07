@@ -332,7 +332,9 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                         self.expr(arg, initialized)?;
                     }
                 }
-                Expression::Call(_, args) | Expression::Constructor(_, args) => {
+                Expression::Call(_, args)
+                | Expression::Constructor(_, args)
+                | Expression::Tuple(args, _) => {
                     for arg in args {
                         self.expr(arg, initialized)?;
                     }
@@ -412,6 +414,12 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                             }
                         }
                         self.expr(target, &set)?;
+                    }
+                    Statement::Unpack { names, value, .. } => {
+                        for name in names {
+                            self.binding(name, &stmt.at)?;
+                        }
+                        self.expr(value, &set)?;
                     }
                     Statement::Assign { name, value, .. } => {
                         self.binding(name, &stmt.at)?;
