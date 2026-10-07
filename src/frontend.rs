@@ -842,7 +842,9 @@ impl Parser {
             self.expect("=")?;
             let symbol = self.take();
             if let Kind::Text(ref symbol_name) = symbol.kind {
-                foreign::check_symbol(symbol_name, &symbol)?;
+                if !(foreign && foreign::loader_symbol(symbol_name)) {
+                    foreign::check_symbol(symbol_name, &symbol)?;
+                }
                 Some(symbol_name.clone())
             } else if foreign {
                 address_parameter = Some(

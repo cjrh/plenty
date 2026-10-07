@@ -1,6 +1,49 @@
 //! Trusted declarations live only in explicit .plentyi interface modules.
 use super::*;
 
+pub(super) fn loader_symbol(name: &str) -> bool {
+    matches!(
+        name,
+        "plenty_library_open_v1" | "plenty_library_symbol_v1" | "plenty_library_close_v1"
+    )
+}
+
+fn check_loader_signature(f: &Function, inputs: &[(String, Ty)], output: &Type) -> Result<()> {
+    use crate::foreign::Argument;
+    let declaration = f.foreign.as_ref().unwrap();
+    let Some(symbol) = declaration.symbol().filter(|name| loader_symbol(name)) else {
+        return Ok(());
+    };
+    let shape: Vec<_> = inputs
+        .iter()
+        .zip(&declaration.arguments)
+        .map(|((_, ty), adapter)| match (ty, adapter) {
+            (Ty::ForeignPtr(_), Argument::Direct) => "handle",
+            (Ty::Ref(inner, true), Argument::Direct)
+                if matches!(inner.as_ref(), Ty::ForeignPtr(_)) =>
+            {
+                "output"
+            }
+            (Ty::Ref(inner, false), Argument::Utf8) if **inner == Ty::Str => "text",
+            _ => "invalid",
+        })
+        .collect();
+    let valid = match symbol {
+        "plenty_library_open_v1" => shape == ["text", "output"] && *output == Some(Ty::U32),
+        "plenty_library_symbol_v1" => {
+            shape == ["handle", "text", "output"] && *output == Some(Ty::U32)
+        }
+        "plenty_library_close_v1" => shape == ["handle"] && output.is_none(),
+        _ => unreachable!(),
+    };
+    if !valid {
+        return Err(f.at.error(format!(
+            "invalid fixed runtime loader signature for `{symbol}`"
+        )));
+    }
+    Ok(())
+}
+
 pub(super) fn check_symbol(name: &str, at: &Token) -> Result<()> {
     let mut chars = name.chars();
     if !chars
@@ -19,6 +62,7 @@ pub(super) fn check_symbol(name: &str, at: &Token) -> Result<()> {
 }
 
 pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Type) -> Result<()> {
+    check_loader_signature(f, inputs, output)?;
     use crate::foreign::Argument;
     let declaration = f.foreign.as_ref().unwrap();
     if let crate::foreign::Target::Parameter(index) = declaration.target {

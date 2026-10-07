@@ -19,7 +19,8 @@ fingerprints, and ownership wrappers already checked by native C/C++ and Plenty
 integration tests. Expanded C representations are tracked separately as B27.
 Trusted indirect C calls are implemented as the first runtime-loading building
 block. The runtime now provides resident mappings and fallible lookup leases;
-typed loading and recoverable contract validation are still in progress.
+fixed ABI-checked declarations now expose those helpers to trusted interfaces.
+Generated typed loading and recoverable contract validation are still in progress.
 
 ## Later candidates
 
