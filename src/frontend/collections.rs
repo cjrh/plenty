@@ -358,7 +358,8 @@ impl Lower<'_> {
             Some(Ty::Enum(t))
                 if t.propagatable()
                     && !t.is_option()
-                    && t.variants[1].fields == vec![crate::sum::alloc_error()] =>
+                    && (t.variants[1].fields == vec![crate::sum::alloc_error()]
+                        || t.discards_error()) =>
             {
                 Some(t.variants[0].fields[0].clone())
             }

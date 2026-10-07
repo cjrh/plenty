@@ -295,9 +295,18 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().brif(ready, success, &[], failure, &[]);
         self.bcx.switch_to_block(failure);
         self.bcx.seal_block(failure);
-        let residual = self.wrap_sum(payload, 1 - success_tag);
-        // The error operand has transferred into residual. Earlier operands and
-        // every initialized local still need normal early-return cleanup.
+        let residual = if target.discards_error() {
+            // Erasure consumes the original error, including its destructor,
+            // before cleaning up earlier operands and the enclosing scope.
+            self.release(payload, &source.variants[1].fields[0]);
+            let zero = self.bcx.ins().iconst(types::I64, 0);
+            let marker = self.bcx.ins().uextend(types::I128, zero);
+            self.wrap_sum(marker, 1)
+        } else {
+            self.wrap_sum(payload, 1 - success_tag)
+        };
+        // The error has either transferred into residual or been discarded.
+        // Earlier operands and locals still need normal early-return cleanup.
         let pending = self.stack.clone();
         self.release_stack();
         for op in cleanup {

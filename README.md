@@ -20,10 +20,11 @@ def sum_to(n: i64, total: i64) -> i64:
     else:
         sum_to(n - 1, total + n)
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     mut answer = sum_to(100, 0)
     answer = answer + 1
-    print(answer).unwrap()
+    print(answer)?
+    Ok(())
 ```
 
 Run and compile the example:
@@ -46,8 +47,8 @@ There is no interpreter, REPL, or planned JIT backend.
 
 Supported today:
 
-- An explicit, parameterless `main` returning `()` for success or `i32` for a
-  process exit status. Module scope contains declarations and imports; executable
+- An explicit, parameterless `main` returning `()`, `i32`, `Result[(), E]`, or
+  `Result[i32, E]`; an `Err` exits with status one. Module scope contains declarations and imports; executable
   statements belong inside functions.
 - Absolute imports (`import package.module`, `from package.module import Name`),
   aliases, and private-by-default declarations and class members with `pub`.
@@ -81,10 +82,12 @@ Supported today:
 - Tuple values and flat unpacking, plus borrowed dictionary `items()` loops.
 - Explicit generic functions with cached concrete specializations, `IntType`,
   and structural class-method protocol constraints.
-- Recoverable collection and tuple displays using `try`, fallible construction
-  and mutation APIs, `str.repr`, and `print`.
+- Allocation failures returned as Results from collection and tuple literals,
+  construction and mutation APIs, `str.repr`, and `print`.
 - Concrete `enum` types, exhaustive `match`/`case`, and typed `Option`/`Result`,
   including `Result[(), E]` and built-in `Some`, `Nothing`, `Ok`, and `Err`.
+- `?` propagation with cleanup; `Result[T, Failure]` explicitly discards error
+  details when only success or failure matters, without allocating a wrapper.
 - `Generator[T]` functions with `yield`, consuming iteration, and `next` returning
   `Option[T]`. Assignment and calls move generators; invalid reuse is checked.
 - One immutable `str` with explicit lengths and embedded NUL support. Managed
@@ -100,12 +103,13 @@ Supported today:
 Collections and comprehensions use familiar syntax with fixed element types:
 
 ```python
-def main() -> ():
-    squares: list[i64] = [n * n for n in range(10).unwrap() if n % 2 == 0].unwrap()
-    by_value: dict[i64, i64] = {n: n * n for n in &squares}.unwrap()
-    unique: set[i64] = set(copy(squares).unwrap()).unwrap()
+def main() -> Result[(), Failure]:
+    squares: list[i64] = [n * n for n in range(10)? if n % 2 == 0]?
+    by_value: dict[i64, i64] = {n: n * n for n in &squares}?
+    unique: set[i64] = set(copy(squares)?)?
     for n in &squares:
-        print(n).unwrap()
+        print(n)?
+    Ok(())
 ```
 
 Collection assignment transfers ownership. Use `copy(value)` for independent

@@ -1,13 +1,13 @@
 def even_squares(limit: i64) -> Result[list[i64], AllocError]:
     [n * n for n in range(limit)? if n % 2 == 0]
 
-def main() -> Result[(), AllocError]:
+def main() -> Result[(), Failure]:
     squares = even_squares(10)?
     by_value: dict[i64, i64] = {n: n * n for n in &squares}?
     unique = set(copy(squares)?)?
 
-    print(squares).unwrap()
+    print(squares)?
     for n in &by_value:
-        print(by_value[n]).unwrap()
-    print(len(unique)).unwrap()
+        print(by_value[n])?
+    print(len(unique))?
     Ok(())

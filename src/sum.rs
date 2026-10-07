@@ -35,7 +35,7 @@ impl EnumType {
         self.propagatable()
             || matches!(
                 self.name.as_str(),
-                "AllocError" | "ParseError" | "IoError" | "DataError"
+                "AllocError" | "ParseError" | "IoError" | "DataError" | "Failure"
             )
     }
     pub fn propagatable(&self) -> bool {
@@ -44,6 +44,28 @@ impl EnumType {
     pub fn is_option(&self) -> bool {
         self.name.starts_with("Option[")
     }
+    /// Only an explicitly declared Result[..., Failure] erases propagated errors.
+    pub fn discards_error(&self) -> bool {
+        self.name.starts_with("Result[")
+            && matches!(self.variants[1].fields.as_slice(), [Ty::Enum(t)] if t.name == "Failure")
+    }
+}
+
+/// A payload-free marker for callers that deliberately discard error details.
+pub fn failure() -> Ty {
+    Ty::Enum(Rc::new(EnumType {
+        restricted_storage: false,
+        name: "Failure".into(),
+        variants: vec![Variant {
+            name: "Unspecified".into(),
+            fields: vec![],
+        }],
+        depth: 1,
+        affine: false,
+        copyable: true,
+        has_destructor: false,
+        managed: false,
+    }))
 }
 
 /// An allocation error must itself be constructible without allocating.

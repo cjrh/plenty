@@ -117,11 +117,11 @@ def main() -> ():
 fn main_propagates_io_errors_and_drops_owned_errors() {
     let output = support::run(
         r#"
-class Failure:
+class OwnedError:
     def __del__(self) -> ():
         print("cleaned").unwrap()
-def main() -> Result[(), Failure]:
-    Err(Failure().unwrap())
+def main() -> Result[(), OwnedError]:
+    Err(OwnedError().unwrap())
 "#,
     );
     assert_eq!(output.status.code(), Some(1));

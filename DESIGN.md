@@ -148,7 +148,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
-| `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
+| `?` error propagation | Implemented for `Result` and `Option`, with matching error types or explicit erasure into `Failure`, and automatic early-exit cleanup |
 | `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
 | Recoverable allocation failure | Default literals/comprehensions and allocating constructors, mutation, copy, text, and formatting return `Result`; no `try_` alternatives. Explicit `?`, `match`, or `.unwrap()` handle outcomes |
 | Recoverable duplication | `copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
@@ -297,17 +297,18 @@ def choose(flag: bool, first: i64, second: i64) -> i64:
     """Choose one of two integers."""
     first if flag else second
 
-def countdown(n: i64) -> ():
+def countdown(n: i64) -> Result[(), IoError]:
     if n == 0:
-        pass
+        Ok(())
     else:
-        print(n).unwrap()
+        print(n)?
         countdown(n - 1)
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     mut answer: i64 = choose(True, 40, 0)
     answer = answer + 2
-    print(answer).unwrap()
+    print(answer)?
+    Ok(())
 ```
 
 ### Syntax and values
@@ -1318,9 +1319,29 @@ depending on a platform's C ABI for `u128`. Neither representation is a public F
 Postfix `value?` evaluates its operand exactly once. `Ok(value)` and `Some(value)`
 produce the payload. `Err(error)` returns `Err(error)` from the enclosing function;
 `Nothing` returns `Nothing`. The enclosing function must return the same sum
-family, and `Result` error types must be identical after alias resolution. Success
-types can differ. There are no implicit error conversions or Result/Option
+family, and `Result` error types must be identical after alias resolution unless
+the enclosing function explicitly returns `Result[T, Failure]`. Success types can
+differ. There are no other implicit error conversions or Result/Option
 conversions. `?` on a unit success payload is a unit expression.
+
+`Failure` is a builtin, allocation-free, copyable enum with one nullary variant,
+`Failure.Unspecified`. It deliberately retains no error details. In a function
+returning `Result[T, Failure]` (including aliases), `?` accepts any Result error
+type. On failure it consumes and drops the original error payload, including any
+custom destructor, then returns `Err(Failure.Unspecified)` after the normal
+pending-operand, context-manager, and local cleanup. On success it extracts the
+original success payload unchanged. Erasure and its Result wrapper do not
+allocate; user-defined cleanup keeps its own behavior and allocation costs.
+This rule applies in helpers as well as `main`; it requires no error protocol,
+boxing, or dynamic dispatch. It does not catch traps or convert `Nothing`.
+
+Erasure happens only at `?`: assignment, argument passing, direct returns, and
+`Err(payload)` still require the declared error type. Explicit construction uses
+`Err(Failure.Unspecified)`. Success remains explicit (`Ok(())` for unit success).
+An allocating literal can use the expected success type through `?`, but its
+own Result still carries `AllocError`. `main` keeps its existing exit-status
+rules: `Ok(())` is zero, `Ok(i32)` supplies the status, and `Err` is one without
+printing a diagnostic. Typed error unions and general conversions remain deferred.
 
 Propagation is an expression and can appear in calls, conditions, loops, and
 comprehensions. It binds with other postfix operations, so `values?[0]` indexes

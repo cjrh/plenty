@@ -15,14 +15,16 @@ class Resource:
     def __del__(self) -> ():
         print(("release " + self.name).unwrap()).unwrap()
 
-def work() -> ():
-    resource = Resource("example").unwrap()
-    print(resource).unwrap()
+def work() -> Result[(), Failure]:
+    resource = Resource("example")?
+    print(resource)?
+    Ok(())
 
-def main() -> ():
-    mut point = Point(3, 4).unwrap()
-    print(point.squared_length()).unwrap()
+def main() -> Result[(), Failure]:
+    mut point = Point(3, 4)?
+    print(point.squared_length())?
     point.shift(1)
-    print(point).unwrap()
+    print(point)?
 
-    work()
+    work()?
+    Ok(())

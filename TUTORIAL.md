@@ -14,9 +14,10 @@ but values have fixed types and function interfaces always declare their types.
 Save this in `hello.plenty`:
 
 ```plenty
-def main() -> ():
-    print("Hello, Plenty!").unwrap()
-    print(6 * 7).unwrap()
+def main() -> Result[(), IoError]:
+    print("Hello, Plenty!")?
+    print(6 * 7)?
+    Ok(())
 ```
 
 Output:
@@ -46,10 +47,15 @@ and compiling require the system linker driver `cc` on PATH. Checking does not.
 The Rust runtime is already packaged with Plenty; you do not need `cargo` or
 `rustc` to compile Plenty programs.
 
-`print` returns `Result[(), IoError]`. In the early examples, `.unwrap()` explicitly
-extracts success or terminates the program on failure. It is not an implicit
-allocation policy: allocating expressions always return results. Lesson 19
-teaches `?` propagation and `match` for recovery.
+`print` returns `Result[(), IoError]`: either successful completion (`Ok(())`) or
+an output error. The trailing `?` continues on success, or returns the error
+from `main` after cleaning up its local values. The final `Ok(())` explicitly
+reports success. Lesson 19 explains results and recovery in detail.
+
+Examples that combine different error types use `Result[(), Failure]`.
+`Failure` means that the caller only needs to know whether the work succeeded:
+each `?` drops the original error details and propagates a small, allocation-free
+marker. Use a specific type such as `IoError` when the caller needs those details.
 
 Execution starts by calling `main` once. Every binary application must declare
 `main` with no parameters. It can return `()`, `i32`, `Result[(), E]`, or
@@ -71,12 +77,12 @@ program exits, including when it returns a nonzero status. Operating systems
 limit the range of observable exit statuses; use small nonnegative codes for
 portable command-line programs.
 
-Here is a complete program that explicitly returns success:
+You can also choose the successful process status explicitly:
 
 ```plenty
-def main() -> i32:
-    print("ready").unwrap()
-    0i32
+def main() -> Result[i32, IoError]:
+    print("ready")?
+    Ok(0i32)
 ```
 
 ```output
@@ -116,12 +122,13 @@ Use `=` to create a binding. Plenty infers the type of a local value, so you
 usually do not need an annotation:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     # Comments begin with a hash.
     price = 20
     quantity = 3
     total = price * quantity
-    print(total).unwrap()
+    print(total)?
+    Ok(())
 ```
 
 ```output
@@ -146,10 +153,11 @@ The diagnostic includes:
 Use `mut` when a value needs to change. Write it once, at the declaration:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     mut score: i64 = 10
     score = score + 5
-    print(score).unwrap()
+    print(score)?
+    Ok(())
 ```
 
 ```output
@@ -178,13 +186,14 @@ there is no annotation, parameter, return type, or typed arithmetic context.
 Append a built-in integer type to choose another width:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     small: u8 = 200u8
     offset: i32 = -12i32
     large: u64 = 1_000_000u64
-    print(small).unwrap()
-    print(offset).unwrap()
-    print(large).unwrap()
+    print(small)?
+    print(offset)?
+    print(large)?
+    Ok(())
 ```
 
 ```output
@@ -211,10 +220,11 @@ expected u8, got i64
 Choose a matching literal or explicitly convert a value:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     small = 7u8
-    print(small + 1u8).unwrap()
-    print(i64(small) + 1).unwrap()
+    print(small + 1u8)?
+    print(i64(small) + 1)?
+    Ok(())
 ```
 
 ```output
@@ -232,10 +242,11 @@ Use casts deliberately; they are not range-validation functions.
 and rounds down, including for negative values:
 
 ```plenty
-def main() -> ():
-    print(1 + 2 * 3).unwrap()
-    print((1 + 2) * 3).unwrap()
-    print(-7 // 3).unwrap()
+def main() -> Result[(), IoError]:
+    print(1 + 2 * 3)?
+    print((1 + 2) * 3)?
+    print(-7 // 3)?
+    Ok(())
 ```
 
 ```output
@@ -252,14 +263,15 @@ A decimal or exponent literal defaults to `f64`. Use an `f32` suffix when you
 want 32-bit arithmetic. Both operands must have the same type; casts are explicit:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     distance: f64 = 7.5
     time: f64 = 2.0
-    print(distance / time).unwrap()
-    print(1.25f32 + 0.5f32).unwrap()
-    print(2.5e-2).unwrap()
-    print(f64(3) / 2.0).unwrap()
-    print(i32(-2.75)).unwrap()
+    print(distance / time)?
+    print(1.25f32 + 0.5f32)?
+    print(2.5e-2)?
+    print(f64(3) / 2.0)?
+    print(i32(-2.75))?
+    Ok(())
 ```
 
 ```output
@@ -289,12 +301,13 @@ NaN is unequal to everything, including itself; ordered comparisons with it are
 false. The same comparison rules apply inside collections and enum payloads.
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     zero = 0.0
-    print(1.0 / zero).unwrap()
+    print(1.0 / zero)?
     unknown = zero / zero
-    print(unknown == unknown).unwrap()
-    print(unknown != unknown).unwrap()
+    print(unknown == unknown)?
+    print(unknown != unknown)?
+    Ok(())
 ```
 
 ```output
@@ -317,8 +330,9 @@ def double(value: i64) -> i64:
     """Return twice the supplied value."""
     value * 2
 
-def main() -> ():
-    print(double(21)).unwrap()
+def main() -> Result[(), IoError]:
+    print(double(21))?
+    Ok(())
 ```
 
 ```output
@@ -354,8 +368,9 @@ def maximum(first: i64, second: i64) -> i64:
     else:
         second
 
-def main() -> ():
-    print(maximum(7, 12)).unwrap()
+def main() -> Result[(), IoError]:
+    print(maximum(7, 12))?
+    Ok(())
 ```
 
 ```output
@@ -366,10 +381,11 @@ Both continuing branches need the same type. Use `elif` for additional cases.
 For a short choice, Python's conditional expression is also supported:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     age = 20
     category = "adult" if age >= 18 else "child"
-    print(category).unwrap()
+    print(category)?
+    Ok(())
 ```
 
 ```output
@@ -380,11 +396,12 @@ adult
 `not` negates a boolean. All three require boolean operands:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     divisor = 0
     safe = divisor != 0 and 10 // divisor > 1
-    print(safe).unwrap()
-    print(not safe).unwrap()
+    print(safe)?
+    print(not safe)?
+    Ok(())
 ```
 
 ```output
@@ -405,9 +422,10 @@ def clamp_low(value: i64, minimum: i64) -> i64:
         return minimum
     value
 
-def main() -> ():
-    print(clamp_low(3, 10)).unwrap()
-    print(clamp_low(12, 10)).unwrap()
+def main() -> Result[(), IoError]:
+    print(clamp_low(3, 10))?
+    print(clamp_low(12, 10))?
+    Ok(())
 ```
 
 ```output
@@ -435,30 +453,34 @@ expected i64, got ()
 
 ## 7. Do work without returning data
 
-The unit type, written `()`, describes a function that completes without
-producing data. It is not a missing-value marker:
+The unit type, written `()`, describes completion without producing data.
+It is not a missing-value marker. A fallible function with no success data
+returns `Result[(), E]`:
 
 ```plenty
-def greet(name: str) -> ():
-    print(("Hello, " + name).unwrap()).unwrap()
+def greet(name: str) -> Result[(), Failure]:
+    print(("Hello, " + name)?)?
+    Ok(())
 
-def greet_if(enabled: bool, name: str) -> ():
+def greet_if(enabled: bool, name: str) -> Result[(), Failure]:
     if not enabled:
-        return
+        return Ok(())
     greet(name)
 
-def main() -> ():
-    greet_if(False, "Ada")
-    greet_if(True, "Ada")
+def main() -> Result[(), Failure]:
+    greet_if(False, "Ada")?
+    greet_if(True, "Ada")?
+    Ok(())
 ```
 
 ```output
 Hello, Ada
 ```
 
-A bare `return` returns unit. `print` also returns unit. Use `pass` for an
-intentionally empty block. Unit can be a return type, but unit parameters and
-stored unit bindings are not supported yet.
+A bare `return` returns unit in a function declared `-> ()`. `print` returns
+unit inside a Result, so `print(value)?` has a unit success value. Use `pass`
+for an intentionally empty block. Unit can be a return type, but unit parameters
+and stored unit bindings are not supported yet.
 
 There is no `None` value and no implicit nullable type. Lesson 19 introduces
 `Option` for absence and `Result` for recoverable errors.
@@ -473,9 +495,10 @@ type int = i32
 def increment(value: int) -> int:
     value + int(1)
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     answer: int = increment(int(41))
-    print(answer).unwrap()
+    print(answer)?
+    Ok(())
 ```
 
 ```output
@@ -497,8 +520,9 @@ type ItemCount = Count
 def add_one(count: ItemCount) -> ItemCount:
     count + 1u32
 
-def main() -> ():
-    print(add_one(41u32)).unwrap()
+def main() -> Result[(), IoError]:
+    print(add_one(41u32))?
+    Ok(())
 ```
 
 ```output
@@ -521,13 +545,14 @@ Assignments to an existing mutable binding survive a branch. New names declared
 inside a branch belong to that branch:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     mut price = 100
     discounted = True
     if discounted:
         discount = 20
         price = price - discount
-    print(price).unwrap()
+    print(price)?
+    Ok(())
 ```
 
 ```output
@@ -545,10 +570,11 @@ physical newlines. Common escapes include `\n`, `\r`, `\t`, escaped quotes,
 and `\\`. Strings support UTF-8 and embedded NUL using `\0`.
 
 ```plenty
-def main() -> ():
-    message = ('Hello, ' + "Plenty!").unwrap()
-    print(message).unwrap()
-    print(contains(message, "Plenty")).unwrap()
+def main() -> Result[(), Failure]:
+    message = ('Hello, ' + "Plenty!")?
+    print(message)?
+    print(contains(message, "Plenty"))?
+    Ok(())
 ```
 
 ```output
@@ -566,12 +592,13 @@ so an embedded NUL does not end a string. Interpolation and general conversion
 to strings are not available yet.
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), Failure]:
     text = "é\0😀"
-    print(len(text)).unwrap()
-    print(text[-1].unwrap()).unwrap()
-    print("\0" in text).unwrap()
-    print([text].unwrap()).unwrap()
+    print(len(text))?
+    print(text[-1]?)?
+    print("\0" in text)?
+    print([text]?)?
+    Ok(())
 ```
 
 ```output
@@ -592,8 +619,9 @@ def sum_to(n: i64, total: i64) -> i64:
         return total
     sum_to(n - 1, total + n)
 
-def main() -> ():
-    print(sum_to(100, 0)).unwrap()
+def main() -> Result[(), IoError]:
+    print(sum_to(100, 0))?
+    Ok(())
 ```
 
 ```output
@@ -627,15 +655,16 @@ A list contains values of one type. Use `list[T]` in signatures and annotations.
 An empty list needs an annotation or a typed constructor such as `list[i64]()`.
 
 ```plenty
-def main() -> ():
-    mut original: list[i64] = [10, 20].unwrap()
-    mut changed = copy(original).unwrap()
-    changed.append(30).unwrap()
+def main() -> Result[(), Failure]:
+    mut original: list[i64] = [10, 20]?
+    mut changed = copy(original)?
+    changed.append(30)?
     changed[0] = 99
-    print(original).unwrap()
-    print(changed).unwrap()
-    print(changed[-1]).unwrap()
-    print(len(changed)).unwrap()
+    print(original)?
+    print(changed)?
+    print(changed[-1])?
+    print(len(changed))?
+    Ok(())
 ```
 
 ```output
@@ -654,10 +683,10 @@ Negative indices count from the end. Invalid indices stop the program with a
 runtime error.
 
 `copy(original)` returns a `Result`, as do all allocating operations. The
-examples here explicitly unwrap it; lesson 19 shows propagation with `?`.
+examples here propagate failures with `?`; lesson 19 shows how to recover instead.
 
 Collections can nest. To update an inner list while keeping the outer collection,
-use `mut child = copy(rows[0]).unwrap()`, update `child`, then assign it back with
+use `mut child = copy(rows[0])?`, update `child`, then assign it back with
 `rows[0] = child`. This last assignment transfers the child into the collection. Direct nested
 assignment such as `rows[0][0] = 1` is not implemented.
 
@@ -667,20 +696,21 @@ Dictionaries map a single key type to a single value type. Keys and set elements
 may be integers, booleans, or strings. Dictionary values can include collections.
 
 ```plenty
-def main() -> ():
-    mut scores: dict[str, i64] = {"Ada": 10, "Grace": 20}.unwrap()
+def main() -> Result[(), Failure]:
+    mut scores: dict[str, i64] = {"Ada": 10, "Grace": 20}?
     scores["Ada"] = 12
-    scores.insert("Lin", 30).unwrap()
-    print(scores["Ada"]).unwrap()
-    print("Grace" in scores).unwrap()
-    print(scores.keys().unwrap()).unwrap()
-    print(scores.values().unwrap()).unwrap()
+    scores.insert("Lin", 30)?
+    print(scores["Ada"])?
+    print("Grace" in scores)?
+    print(scores.keys()?)?
+    print(scores.values()?)?
 
-    mut names: set[str] = set().unwrap()
-    names.add("Ada").unwrap()
-    names.add("Ada").unwrap()
-    print(len(names)).unwrap()
-    print("Ada" in names).unwrap()
+    mut names: set[str] = set()?
+    names.add("Ada")?
+    names.add("Ada")?
+    print(len(names))?
+    print("Ada" in names)?
+    Ok(())
 ```
 
 ```output
@@ -704,16 +734,17 @@ absence is expected. It returns an `Option`: `Some(value)` if found, or `Nothing
 if absent. Match the two possibilities explicitly:
 
 ```plenty
-def main() -> ():
-    scores = {"Ada": 12, "Grace": 0}.unwrap()
+def main() -> Result[(), Failure]:
+    scores = {"Ada": 12, "Grace": 0}?
     match scores.get("Ada"):
         case Some(score):
-            print(score).unwrap()
+            print(score)?
         case Nothing:
-            print("unknown player").unwrap()
-    print(scores.get("Grace")).unwrap()
-    print(scores.get("Lin")).unwrap()
-    print(scores["Ada"]).unwrap()
+            print("unknown player")?
+    print(scores.get("Grace"))?
+    print(scores.get("Lin"))?
+    print(scores["Ada"])?
+    Ok(())
 ```
 
 ```output
@@ -746,17 +777,18 @@ when the key is absent. It requires a mutable dictionary and transfers ownership
 of the stored value, so it works with lists and classes too:
 
 ```plenty
-def main() -> ():
-    mut groups = {"ready": [1, 2].unwrap(), "waiting": [3].unwrap()}.unwrap()
+def main() -> Result[(), Failure]:
+    mut groups = {"ready": [1, 2]?, "waiting": [3]?}?
     match groups.pop("ready"):
         case Some(items):
             mut work = items
-            work.append(4).unwrap()
-            print(work).unwrap()
+            work.append(4)?
+            print(work)?
         case Nothing:
-            print("no work").unwrap()
-    print(groups).unwrap()
-    print(groups.pop("missing")).unwrap()
+            print("no work")?
+    print(groups)?
+    print(groups.pop("missing"))?
+    Ok(())
 ```
 
 ```output
@@ -781,15 +813,16 @@ there is no default argument. Sets use `discard`, described below.
 for an out-of-range index. It takes one `i64` index, including negative indices:
 
 ```plenty
-def main() -> ():
-    names = ["Ada", "Bea"].unwrap()
-    print(names.get(-1)).unwrap()
+def main() -> Result[(), Failure]:
+    names = ["Ada", "Bea"]?
+    print(names.get(-1))?
     match names.get(2):
         case Some(name):
-            print(name).unwrap()
+            print(name)?
         case Nothing:
-            print("no name at that position").unwrap()
-    print(names).unwrap()
+            print("no name at that position")?
+    print(names)?
+    Ok(())
 ```
 
 ```output
@@ -814,19 +847,20 @@ Lists also have `pop`. With no argument it removes the last element; an `i64`
 index selects another position. Negative indices count from the end:
 
 ```plenty
-def main() -> ():
-    mut tasks = [[1].unwrap(), [2].unwrap(), [3].unwrap()].unwrap()
+def main() -> Result[(), Failure]:
+    mut tasks = [[1]?, [2]?, [3]?]?
     match tasks.pop(1):
         case Some(task):
             mut work = task
-            work.append(4).unwrap()
-            print(work).unwrap()
+            work.append(4)?
+            print(work)?
         case Nothing:
-            print("no task").unwrap()
-    print(tasks).unwrap()
-    print(tasks.pop()).unwrap()
-    print(tasks.pop(-1)).unwrap()
-    print(tasks.pop()).unwrap()
+            print("no task")?
+    print(tasks)?
+    print(tasks.pop())?
+    print(tasks.pop(-1))?
+    print(tasks.pop())?
+    Ok(())
 ```
 
 ```output
@@ -850,16 +884,17 @@ Use `values.discard(value)` to remove a member from a mutable set. It returns
 `True` if the member was present and removed, or `False` if it was absent:
 
 ```plenty
-def main() -> ():
-    mut names = {"Ada", "Bea"}.unwrap()
+def main() -> Result[(), Failure]:
+    mut names = {"Ada", "Bea"}?
     name = "Ada"
-    print(names.discard(name)).unwrap()
-    print(names.discard(name)).unwrap()
-    print(name).unwrap()
-    print("Bea" in names).unwrap()
-    print(len(names)).unwrap()
-    names.add(name).unwrap()
-    print(len(names)).unwrap()
+    print(names.discard(name))?
+    print(names.discard(name))?
+    print(name)?
+    print("Bea" in names)?
+    print(len(names))?
+    names.add(name)?
+    print(len(names))?
+    Ok(())
 ```
 
 ```output
@@ -886,19 +921,20 @@ Collection equality compares contents; dictionary and set order do not matter.
 characters of a string. A character is a one-character `str`.
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), Failure]:
     mut total = 0
-    for n in range(1, 5).unwrap():
+    for n in range(1, 5)?:
         total = total + n
-    print(total).unwrap()
+    print(total)?
 
-    scores = {"Ada": 10, "Grace": 20}.unwrap()
+    scores = {"Ada": 10, "Grace": 20}?
     for name in &scores:
-        print(name).unwrap()
-        print(scores[name]).unwrap()
+        print(name)?
+        print(scores[name])?
 
-    print(list(range(5, 0, -2).unwrap()).unwrap()).unwrap()
-    print([character.unwrap() for character in "hé"].unwrap()).unwrap()
+    print(list(range(5, 0, -2)?)?)?
+    print([character? for character in "hé"]?)?
+    Ok(())
 ```
 
 ```output
@@ -938,12 +974,13 @@ A comprehension produces a new collection from an iterable and optional filters.
 The element expression runs only after the filters pass.
 
 ```plenty
-def main() -> ():
-    squares = [n * n for n in range(8).unwrap() if n % 2 == 0].unwrap()
-    print(squares).unwrap()
-    print({n: n * n for n in [2, 3].unwrap()}.unwrap()).unwrap()
-    print(len({n // 2 for n in range(8).unwrap()}.unwrap())).unwrap()
-    print([x * 10 + y for x in range(3).unwrap() for y in range(x).unwrap()].unwrap()).unwrap()
+def main() -> Result[(), Failure]:
+    squares = [n * n for n in range(8)? if n % 2 == 0]?
+    print(squares)?
+    print({n: n * n for n in [2, 3]?}?)?
+    print(len({n // 2 for n in range(8)?}?))?
+    print([x * 10 + y for x in range(3)? for y in range(x)?]?)?
+    Ok(())
 ```
 
 ```output
@@ -983,12 +1020,13 @@ Use `while` when a condition determines how long to repeat. The condition must
 be `bool`, and it is checked before every iteration, including the first:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     mut remaining = 3
     while remaining > 0:
-        print(remaining).unwrap()
+        print(remaining)?
         remaining = remaining - 1
-    print("go").unwrap()
+    print("go")?
+    Ok(())
 ```
 
 ```output
@@ -1001,7 +1039,7 @@ go
 `continue` skips the rest of the current iteration. `break` exits the loop:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     mut n = 0
     while True:
         n = n + 1
@@ -1009,7 +1047,8 @@ def main() -> ():
             continue
         if n > 5:
             break
-        print(n).unwrap()
+        print(n)?
+    Ok(())
 ```
 
 ```output
@@ -1023,13 +1062,14 @@ Update the condition's inputs before a `continue` when needed; otherwise a
 advances to the next element:
 
 ```plenty
-def main() -> ():
-    for n in range(6).unwrap():
+def main() -> Result[(), Failure]:
+    for n in range(6)?:
         if n == 1:
             continue
         if n == 4:
             break
-        print(n).unwrap()
+        print(n)?
+    Ok(())
 ```
 
 ```output
@@ -1079,10 +1119,11 @@ def describe(reading: Reading) -> str:
         case Reading.Invalid(reason):
             reason
 
-def main() -> ():
-    print(describe((Reading.Missing).unwrap())).unwrap()
-    print(describe(Reading.Value(42).unwrap())).unwrap()
-    print(describe(Reading.Invalid("sensor offline").unwrap())).unwrap()
+def main() -> Result[(), Failure]:
+    print(describe((Reading.Missing)?))?
+    print(describe(Reading.Value(42)?))?
+    print(describe(Reading.Invalid("sensor offline")?))?
+    Ok(())
 ```
 
 ```output
@@ -1131,13 +1172,14 @@ def first_positive(values: list[i64]) -> Option[i64]:
             return Some(value)
     Nothing
 
-def main() -> ():
-    for values in [[-1, 0].unwrap(), [-1, 42].unwrap()].unwrap():
+def main() -> Result[(), Failure]:
+    for values in [[-1, 0]?, [-1, 42]?]?:
         match first_positive(values):
             case Some(value):
-                print(value).unwrap()
+                print(value)?
             case Nothing:
-                print("not found").unwrap()
+                print("not found")?
+    Ok(())
 ```
 
 ```output
@@ -1154,13 +1196,14 @@ def divide(left: i64, right: i64) -> Result[i64, str]:
         return Err("division by zero")
     Ok(left // right)
 
-def main() -> ():
-    for result in [divide(8, 2), divide(8, 0)].unwrap():
+def main() -> Result[(), Failure]:
+    for result in [divide(8, 2), divide(8, 0)]?:
         match result:
             case Ok(value):
-                print(value).unwrap()
+                print(value)?
             case Err(message):
-                print(message).unwrap()
+                print(message)?
+    Ok(())
 ```
 
 ```output
@@ -1175,18 +1218,19 @@ information from a binding annotation, function parameter, or return signature.
 variant's type from context:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     found = Some(42)
     missing: Option[i64] = Nothing
     success: Result[i64, str] = Ok(42)
     failure: Result[i64, str] = Err("not ready")
-    print(found == Some(42)).unwrap()
-    print(missing == Option[i64].Nothing).unwrap()
+    print(found == Some(42))?
+    print(missing == Option[i64].Nothing)?
     match failure:
         case Ok(value):
-            print(value).unwrap()
+            print(value)?
         case Err(message):
-            print(message).unwrap()
+            print(message)?
+    Ok(())
 ```
 
 ```output
@@ -1217,13 +1261,14 @@ def validate(name: str) -> Result[(), str]:
         return Err("name is empty")
     Ok(())
 
-def main() -> ():
-    for result in [validate("Plenty"), validate("")].unwrap():
+def main() -> Result[(), Failure]:
+    for result in [validate("Plenty"), validate("")]?:
         match result:
             case Ok(_):
-                print("valid").unwrap()
+                print("valid")?
             case Err(message):
-                print(message).unwrap()
+                print(message)?
+    Ok(())
 ```
 
 ```output
@@ -1247,22 +1292,23 @@ def validate(name: str) -> Result[(), str]:
         return Err("name is empty")
     Ok(())
 
-def greeting(name: str) -> Result[str, str]:
+def checked_name(name: str) -> Result[str, str]:
     validate(name)?
-    Ok(("Hello, " + name).unwrap())
+    Ok(name)
 
-def main() -> ():
-    print(greeting("Plenty")).unwrap()
-    print(greeting("")).unwrap()
+def main() -> Result[(), IoError]:
+    print(checked_name("Plenty"))?
+    print(checked_name(""))?
+    Ok(())
 ```
 
 ```output
-Result[str, str].Ok("Hello, Plenty")
+Result[str, str].Ok("Plenty")
 Result[str, str].Err("name is empty")
 ```
 
 Here `validate(name)?` has a unit success value, so it can stand alone. On
-failure, the string concatenation never runs. Live local values and previously
+failure, the final `Ok(name)` never runs. Live local values and previously
 evaluated expression temporaries are cleaned up automatically, just as for
 an explicit `return`.
 
@@ -1275,9 +1321,10 @@ def positive(n: i64) -> Option[i64]:
 def doubled(n: i64) -> Option[i64]:
     Some(positive(n)? * 2)
 
-def main() -> ():
-    print(doubled(21)).unwrap()
-    print(doubled(-1)).unwrap()
+def main() -> Result[(), IoError]:
+    print(doubled(21))?
+    print(doubled(-1))?
+    Ok(())
 ```
 
 ```output
@@ -1287,8 +1334,9 @@ Option[i64].Nothing
 
 The enclosing function must return the same family: `Result` for a `Result`
 operand or `Option` for an `Option` operand. Success payload types can differ,
-but `Result` error types must match exactly. Convert errors explicitly with
-`match` when needed. `?` is not supported inside generators.
+but `Result` error types must match exactly unless the function explicitly
+chooses `Failure`, described below. Use `match` when you need to convert errors
+while preserving details. `?` is not supported inside generators.
 
 ```plenty-error
 def read_number() -> Result[i64, str]:
@@ -1311,6 +1359,61 @@ list, but adds no wrapper allocation. Returning or propagating an existing sum
 does not allocate a wrapper either. Printing and operations on the payload can
 still allocate, and report failures through their own results.
 
+### Discard error details deliberately
+
+When callers only need success or failure, declare `Result[T, Failure]`.
+Each `?` can then propagate a different error type:
+
+```plenty
+def work(text: str) -> Result[list[u8], Failure]:
+    n = u8.parse(text)?               # ParseError
+    values = [n, n + 1u8]?           # AllocError
+    print("built values")?          # IoError
+    Ok(values)
+
+def main() -> Result[(), IoError]:
+    print(work("41"))?
+    print(work("invalid"))?
+    Ok(())
+```
+
+```output
+built values
+Result[list[u8], Failure].Ok([41, 42])
+Result[list[u8], Failure].Err(Failure.Unspecified)
+```
+
+`Failure.Unspecified` is the type's only value. On an error path, `?` drops the
+original error and propagates this marker, with normal scope cleanup. The
+conversion and marker do not allocate; custom cleanup can still perform its
+own operations. This works in helpers as well as `main`. A `main` that returns
+`Err` exits with status one and does not automatically print the error.
+
+This choice discards details, so use a concrete error type when a caller needs
+to inspect or report the cause. It only changes `?`: returning an existing
+`Result[T, IoError]` directly from a `Result[T, Failure]` function is still a type
+error. To report failure yourself, use `Err(Failure.Unspecified)`. End successful
+paths explicitly with `Ok(value)` or `Ok(())`.
+
+`Failure` does not catch runtime traps and does not turn `Option.Nothing` into an
+error. `.unwrap()` is a separate, explicit choice to terminate immediately on
+`Err` or `Nothing`, without normal scope cleanup. For example:
+
+```plenty
+def main() -> Result[(), IoError]:
+    found = Some(42)
+    print(found.unwrap())?
+    Ok(())
+```
+
+```output
+42
+```
+
+Use `?` for propagation and `match` for recovery; reserve `.unwrap()` for places
+where termination is the intended policy, including the destructor and generator
+examples below whose signatures cannot propagate errors.
+
 ### Handle collection allocation failures
 
 Start with `list[T].new()` when you need to handle failure while creating an
@@ -1328,16 +1431,17 @@ def answers() -> Result[list[i64], AllocError]:
     values.append(42)?
     Ok(values)
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     match answers():
         case Ok(values):
-            print(values).unwrap()
+            print(values)?
         case Err(error):
             match error:
                 case AllocError.OutOfMemory:
-                    print("not enough memory").unwrap()
+                    print("not enough memory")?
                 case AllocError.CapacityOverflow:
-                    print("requested capacity is too large").unwrap()
+                    print("requested capacity is too large")?
+    Ok(())
 ```
 
 ```output
@@ -1361,17 +1465,18 @@ def add_answers(values: &mut list[i64]) -> Result[(), AllocError]:
     values.append(42)?
     Ok(())
 
-def main() -> ():
-    mut values: list[i64] = [].unwrap()
+def main() -> Result[(), Failure]:
+    mut values: list[i64] = []?
     match add_answers(&mut values):
         case Ok(done):
-            print(values).unwrap()
+            print(values)?
         case Err(error):
             match error:
                 case AllocError.OutOfMemory:
-                    print("not enough memory").unwrap()
+                    print("not enough memory")?
                 case AllocError.CapacityOverflow:
-                    print("requested capacity is too large").unwrap()
+                    print("requested capacity is too large")?
+    Ok(())
 ```
 
 ```output
@@ -1384,14 +1489,15 @@ the requested size cannot be represented; a negative reservation is also a
 capacity error. You can handle a failure without terminating the program:
 
 ```plenty
-def main() -> ():
-    mut values = [1, 2].unwrap()
+def main() -> Result[(), Failure]:
+    mut values = [1, 2]?
     match values.reserve(-1):
         case Ok(done):
-            print("reserved").unwrap()
+            print("reserved")?
         case Err(error):
-            print(error).unwrap()
-    print(values).unwrap()
+            print(error)?
+    print(values)?
+    Ok(())
 ```
 
 ```output
@@ -1427,10 +1533,11 @@ def extended(source: &list[i64]) -> Result[list[i64], AllocError]:
     result.append(30)?
     Ok(result)
 
-def main() -> ():
-    original = [10, 20].unwrap()
-    print(extended(&original)).unwrap()
-    print(original).unwrap()
+def main() -> Result[(), Failure]:
+    original = [10, 20]?
+    print(extended(&original))?
+    print(original)?
+    Ok(())
 ```
 
 ```output
@@ -1459,13 +1566,14 @@ def names(scores: &dict[str, i64]) -> Result[list[str], AllocError]:
     result = scores.keys()?
     Ok(result)
 
-def main() -> ():
-    mut scores = {"Ada": 10, "Bea": 20}.unwrap()
+def main() -> Result[(), Failure]:
+    mut scores = {"Ada": 10, "Bea": 20}?
     saved = scores.values()
     scores["Ada"] = 30
-    print(names(&scores)).unwrap()
-    print(saved).unwrap()
-    print(scores).unwrap()
+    print(names(&scores))?
+    print(saved)?
+    print(scores)?
+    Ok(())
 ```
 
 ```output
@@ -1488,10 +1596,11 @@ original:
 def rows(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]:
     copy(data)?.values()
 
-def main() -> ():
-    data = {"first": [1, 2].unwrap(), "second": [3].unwrap()}.unwrap()
-    print(rows(&data)).unwrap()
-    print(data).unwrap()
+def main() -> Result[(), Failure]:
+    data = {"first": [1, 2]?, "second": [3]?}?
+    print(rows(&data))?
+    print(data)?
+    Ok(())
 ```
 
 ```output
@@ -1517,12 +1626,13 @@ There are no separate aborting snapshot methods.
 def flip(items: &mut list[i64]) -> ():
     items.reverse()
 
-def main() -> ():
-    mut items = [10, 20, 30].unwrap()
+def main() -> Result[(), Failure]:
+    mut items = [10, 20, 30]?
     flip(&mut items)
-    print(items).unwrap()
+    print(items)?
     items.reverse()
-    print(items).unwrap()
+    print(items)?
+    Ok(())
 ```
 
 ```output
@@ -1540,15 +1650,16 @@ Lists, dictionaries, and sets have `clear() -> ()`. The method requires mutable
 access, drops the contents, and retains capacity for later insertions:
 
 ```plenty
-def main() -> ():
-    mut items = [10, 20].unwrap()
+def main() -> Result[(), Failure]:
+    mut items = [10, 20]?
     items.clear()
-    print(items).unwrap()
-    print(items.append(30)).unwrap()
-    print(items).unwrap()
-    mut scores = {"Ada": 10}.unwrap()
+    print(items)?
+    print(items.append(30))?
+    print(items)?
+    mut scores = {"Ada": 10}?
     scores.clear()
-    print(scores).unwrap()
+    print(scores)?
+    Ok(())
 ```
 
 ```output
@@ -1570,12 +1681,13 @@ from another list of the same type after reserving space:
 ```plenty
 def combined() -> Result[list[i64], AllocError]:
     mut items = list[i64].new()?
-    more = [10, 20, 30].unwrap()
+    more = [10, 20, 30]?
     items.extend(more)?
     Ok(items)
 
-def main() -> ():
-    print(combined()).unwrap()
+def main() -> Result[(), IoError]:
+    print(combined())?
+    Ok(())
 ```
 
 ```output
@@ -1600,11 +1712,12 @@ new keys appear in source insertion order:
 def merge(destination: &mut dict[str, i64], source: dict[str, i64]) -> Result[(), AllocError]:
     destination.update(source)
 
-def main() -> ():
-    mut scores = {"Ada": 10, "Bea": 20}.unwrap()
-    changes = {"Bea": 25, "Cam": 30, "Ada": 15}.unwrap()
-    print(merge(&mut scores, changes)).unwrap()
-    print(scores).unwrap()
+def main() -> Result[(), Failure]:
+    mut scores = {"Ada": 10, "Bea": 20}?
+    changes = {"Bea": 25, "Cam": 30, "Ada": 15}?
+    print(merge(&mut scores, changes))?
+    print(scores)?
+    Ok(())
 ```
 
 ```output
@@ -1626,12 +1739,13 @@ Sets also support `update(source) -> Result[(), AllocError]`. Members already
 present are kept, and missing members transfer from the source:
 
 ```plenty
-def main() -> ():
-    mut names = {"Ada", "Bea"}.unwrap()
-    more = {"Bea", "Cam"}.unwrap()
-    print(names.update(more)).unwrap()
-    print(len(names)).unwrap()
-    print("Ada" in names and "Bea" in names and "Cam" in names).unwrap()
+def main() -> Result[(), Failure]:
+    mut names = {"Ada", "Bea"}?
+    more = {"Bea", "Cam"}?
+    print(names.update(more))?
+    print(len(names))?
+    print("Ada" in names and "Bea" in names and "Cam" in names)?
+    Ok(())
 ```
 
 ```output
@@ -1651,13 +1765,14 @@ members too. Set iteration order remains unspecified.
 Set relationships borrow both sets and allocate nothing:
 
 ```plenty
-def main() -> ():
-    needed = {"read"}.unwrap()
-    available = {"read", "write"}.unwrap()
-    print(needed.issubset(available)).unwrap()
-    print(available.issuperset(needed)).unwrap()
-    print(needed.isdisjoint({"write"}.unwrap())).unwrap()
-    print(len(needed)).unwrap()
+def main() -> Result[(), Failure]:
+    needed = {"read"}?
+    available = {"read", "write"}?
+    print(needed.issubset(available))?
+    print(available.issuperset(needed))?
+    print(needed.isdisjoint({"write"}?))?
+    print(len(needed))?
+    Ok(())
 ```
 
 ```output
@@ -1678,16 +1793,17 @@ and disjoint from every set; neither operand is consumed.
 def merged(a: &set[i64], b: &set[i64]) -> Result[set[i64], AllocError]:
     a.union(b)
 
-def main() -> ():
-    a = {1, 2}.unwrap()
-    b = {2, 3}.unwrap()
+def main() -> Result[(), Failure]:
+    a = {1, 2}?
+    b = {2, 3}?
     match merged(&a, &b):
         case Ok(values):
-            print(len(values)).unwrap()
-            print(1 in values and 3 in values).unwrap()
+            print(len(values))?
+            print(1 in values and 3 in values)?
         case Err(error):
-            print(error).unwrap()
-    print(len(a)).unwrap()
+            print(error)?
+    print(len(a))?
+    Ok(())
 ```
 
 ```output
@@ -1701,13 +1817,14 @@ An allocation failure preserves the inputs. Set iteration order is unspecified.
 Find common members with `intersection`:
 
 ```plenty
-def main() -> ():
-    match {1, 2}.unwrap().intersection({2, 3}.unwrap()):
+def main() -> Result[(), Failure]:
+    match {1, 2}?.intersection({2, 3}?):
         case Ok(common):
-            print(len(common)).unwrap()
-            print(2 in common).unwrap()
+            print(len(common))?
+            print(2 in common)?
         case Err(error):
-            print(error).unwrap()
+            print(error)?
+    Ok(())
 ```
 
 ```output
@@ -1718,16 +1835,17 @@ True
 Use `difference` to remove another set's members from a new result:
 
 ```plenty
-def main() -> ():
-    wanted = {1, 2, 3}.unwrap()
-    completed = {2, 3, 4}.unwrap()
+def main() -> Result[(), Failure]:
+    wanted = {1, 2, 3}?
+    completed = {2, 3, 4}?
     match wanted.difference(completed):
         case Ok(remaining):
-            print(len(remaining)).unwrap()
-            print(1 in remaining).unwrap()
+            print(len(remaining))?
+            print(1 in remaining)?
         case Err(error):
-            print(error).unwrap()
-    print(len(wanted)).unwrap()
+            print(error)?
+    print(len(wanted))?
+    Ok(())
 ```
 
 ```output
@@ -1741,14 +1859,15 @@ The receiver determines which members can appear in the result. Both inputs rema
 `symmetric_difference` keeps members found in exactly one of the two inputs:
 
 ```plenty
-def main() -> ():
-    match {1, 2}.unwrap().symmetric_difference({2, 3}.unwrap()):
+def main() -> Result[(), Failure]:
+    match {1, 2}?.symmetric_difference({2, 3}?):
         case Ok(changed):
-            print(len(changed)).unwrap()
-            print(1 in changed and 3 in changed).unwrap()
-            print(2 in changed).unwrap()
+            print(len(changed))?
+            print(1 in changed and 3 in changed)?
+            print(2 in changed)?
         case Err(error):
-            print(error).unwrap()
+            print(error)?
+    Ok(())
 ```
 
 ```output
@@ -1763,14 +1882,15 @@ False
 other set, returns unit, and reuses existing storage without allocating:
 
 ```plenty
-def main() -> ():
-    mut selected = {1, 2, 3}.unwrap()
-    allowed = {2, 3, 4}.unwrap()
+def main() -> Result[(), Failure]:
+    mut selected = {1, 2, 3}?
+    allowed = {2, 3, 4}?
     selected.intersection_update(allowed)
-    print(len(selected)).unwrap()
-    print(1 in selected).unwrap()
-    print(2 in selected and 3 in selected).unwrap()
-    print(len(allowed)).unwrap()
+    print(len(selected))?
+    print(1 in selected)?
+    print(2 in selected and 3 in selected)?
+    print(len(allowed))?
+    Ok(())
 ```
 
 ```output
@@ -1786,13 +1906,14 @@ mutated. Use `intersection` when you want an independent result instead.
 Use `difference_update` to remove the other set's members in place:
 
 ```plenty
-def main() -> ():
-    mut pending = {1, 2, 3}.unwrap()
-    done = {2, 3, 4}.unwrap()
+def main() -> Result[(), Failure]:
+    mut pending = {1, 2, 3}?
+    done = {2, 3, 4}?
     pending.difference_update(done)
-    print(len(pending)).unwrap()
-    print(1 in pending).unwrap()
-    print(len(done)).unwrap()
+    print(len(pending))?
+    print(1 in pending)?
+    print(len(done))?
+    Ok(())
 ```
 
 ```output
@@ -1810,13 +1931,14 @@ without needing another set, use `clear()`.
 `isspace()` checks for nonempty text containing only Unicode whitespace:
 
 ```plenty
-def main() -> ():
-    print("hello".isascii()).unwrap()
-    print("é".isascii()).unwrap()
-    print("".isascii()).unwrap()
-    print(" \t\n".isspace()).unwrap()
-    print(" x ".isspace()).unwrap()
-    print("".isspace()).unwrap()
+def main() -> Result[(), IoError]:
+    print("hello".isascii())?
+    print("é".isascii())?
+    print("".isascii())?
+    print(" \t\n".isspace())?
+    print(" x ".isspace())?
+    print("".isspace())?
+    Ok(())
 ```
 
 ```output
@@ -1841,11 +1963,12 @@ independent string inside a `Result`, leaving the original usable:
 def title(name: &str) -> Result[str, AllocError]:
     name.removeprefix("draft-")?.removesuffix(".txt")
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     name = "draft-notes.txt"
-    print(title(&name)).unwrap()
-    print("abab".removeprefix("ab")).unwrap()
-    print("notes.txt".removesuffix(".csv")).unwrap()
+    print(title(&name))?
+    print("abab".removeprefix("ab"))?
+    print("notes.txt".removesuffix(".csv"))?
+    Ok(())
 ```
 
 ```output
@@ -1863,12 +1986,13 @@ For lists of integers, floats, booleans, or strings, these queries borrow their
 inputs and allocate nothing:
 
 ```plenty
-def main() -> ():
-    names = ["Ada", "Lin", "Ada"].unwrap()
-    print(names.count("Ada")).unwrap()
-    print(names.find("Ada")).unwrap()
-    print(names.rfind("Ada")).unwrap()
-    print(names.find("missing")).unwrap()
+def main() -> Result[(), Failure]:
+    names = ["Ada", "Lin", "Ada"]?
+    print(names.count("Ada"))?
+    print(names.find("Ada"))?
+    print(names.rfind("Ada"))?
+    print(names.find("missing"))?
+    Ok(())
 ```
 
 ```output
@@ -1892,12 +2016,13 @@ outside the list clamp to its ends:
 def middle(items: &list[i64]) -> Result[list[i64], AllocError]:
     items.slice(1, -1)
 
-def main() -> ():
-    items = [10, 20, 30, 40].unwrap()
-    print(middle(&items)).unwrap()
-    print(items.slice(-100, 100)).unwrap()
-    print(items.slice(3, 1)).unwrap()
-    print(items).unwrap()
+def main() -> Result[(), Failure]:
+    items = [10, 20, 30, 40]?
+    print(middle(&items))?
+    print(items.slice(-100, 100))?
+    print(items.slice(3, 1))?
+    print(items)?
+    Ok(())
 ```
 
 ```output
@@ -1925,12 +2050,13 @@ the temporary is cleaned up in full; a borrowed source remains unchanged.
 Matches are literal and case-sensitive; an empty prefix or suffix always matches.
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     name = "report.plenty"
-    print(name.startswith("report")).unwrap()
-    print(name.endswith(".plenty")).unwrap()
-    print(name.endswith(".PLENTY")).unwrap()
-    print("".startswith("")).unwrap()
+    print(name.startswith("report"))?
+    print(name.endswith(".plenty"))?
+    print(name.endswith(".PLENTY"))?
+    print("".startswith(""))?
+    Ok(())
 ```
 
 ```output
@@ -1949,12 +2075,13 @@ of alternative patterns are not supported yet.
 `-1` sentinel, a missing match is `Nothing`. Positions count Unicode scalars:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     text = "é🙂é🙂"
-    print(text.find("🙂")).unwrap()
-    print(text.rfind("🙂")).unwrap()
-    print(text.find("missing")).unwrap()
-    print(text.rfind("")).unwrap()
+    print(text.find("🙂"))?
+    print(text.rfind("🙂"))?
+    print(text.find("missing"))?
+    print(text.rfind(""))?
+    Ok(())
 ```
 
 ```output
@@ -1975,12 +2102,13 @@ bounds and regexes are not supported.
 and do not overlap. An empty needle counts Unicode scalar boundaries:
 
 ```plenty
-def main() -> ():
-    print("banana".count("ana")).unwrap()
-    print("aaaaa".count("aa")).unwrap()
-    print("é🙂".count("")).unwrap()
-    print("".count("")).unwrap()
-    print("text".count("missing")).unwrap()
+def main() -> Result[(), IoError]:
+    print("banana".count("ana"))?
+    print("aaaaa".count("aa"))?
+    print("é🙂".count(""))?
+    print("".count(""))?
+    print("text".count("missing"))?
+    Ok(())
 ```
 
 ```output
@@ -1999,12 +2127,13 @@ The method borrows both strings and takes exactly one pattern argument.
 from both ends, the left end, or the right end. Each returns `Result[str, AllocError]`:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     text = "  é🙂  "
-    print(text.strip()).unwrap()
-    print(text.lstrip()).unwrap()
-    print(text.rstrip()).unwrap()
-    print(" \t\n".strip()).unwrap()
+    print(text.strip())?
+    print(text.lstrip())?
+    print(text.rstrip())?
+    print(" \t\n".strip())?
+    Ok(())
 ```
 
 ```output
@@ -2025,11 +2154,12 @@ and take no arguments; custom character sets are not supported yet.
 Zero and negative counts produce an empty string:
 
 ```plenty
-def main() -> ():
-    print("é🙂".repeat(3)).unwrap()
-    print("x".repeat(0)).unwrap()
-    print("x".repeat(-2)).unwrap()
-    print("x".repeat(9223372036854775807)).unwrap()
+def main() -> Result[(), IoError]:
+    print("é🙂".repeat(3))?
+    print("x".repeat(0))?
+    print("x".repeat(-2))?
+    print("x".repeat(9223372036854775807))?
+    Ok(())
 ```
 
 ```output
@@ -2051,12 +2181,13 @@ same required `i64` bounds and clamping rules as lists. Positions count Unicode
 scalar values, just like `len` and indexing:
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     text = "Aé🙂Z"
-    print(text.slice(1, -1)).unwrap()
-    print(text.slice(-100, 100)).unwrap()
-    print(text.slice(3, 1)).unwrap()
-    print(text).unwrap()
+    print(text.slice(1, -1))?
+    print(text.slice(-100, 100))?
+    print(text.slice(3, 1))?
+    print(text)?
+    Ok(())
 ```
 
 ```output
@@ -2083,13 +2214,14 @@ def rename(text: &str) -> Result[str, AllocError]:
     updated = text.replace("Plenty", "plenty")?
     Ok(updated)
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     original = "Plenty is Plenty"
-    print(rename(&original)).unwrap()
-    print(original).unwrap()
-    print("aaaaa".replace("aa", "X")).unwrap()
-    print("Aé".replace("", "-")).unwrap()
-    print("banana".replace("na", "")).unwrap()
+    print(rename(&original))?
+    print(original)?
+    print("aaaaa".replace("aa", "X"))?
+    print("Aé".replace("", "-"))?
+    print("banana".replace("na", ""))?
+    Ok(())
 ```
 
 ```output
@@ -2121,11 +2253,12 @@ def greeting(names: &list[str]) -> Result[str, AllocError]:
     joined = ", ".join(names)?
     "Hello, ".concat(joined)?.concat("!")
 
-def main() -> ():
-    names = ["Ada", "Bea"].unwrap()
-    print(greeting(&names)).unwrap()
-    print(names).unwrap()
-    print("-".join([].unwrap())).unwrap()
+def main() -> Result[(), Failure]:
+    names = ["Ada", "Bea"]?
+    print(greeting(&names))?
+    print(names)?
+    print("-".join([]?))?
+    Ok(())
 ```
 
 ```output
@@ -2154,16 +2287,17 @@ returns `Result[list[str], AllocError]`, so `?` can propagate allocation failure
 def fields(line: &str) -> Result[list[str], AllocError]:
     line.split("::")
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     line = "Ada::Bea::::"
     match fields(&line):
         case Ok(parts):
-            print(parts).unwrap()
-            print(" / ".join(parts)).unwrap()
+            print(parts)?
+            print(" / ".join(parts))?
         case Err(error):
-            print(error).unwrap()
-    print(line).unwrap()
-    print("".split(",")).unwrap()
+            print(error)?
+    print(line)?
+    print("".split(","))?
+    Ok(())
 ```
 
 ```output
@@ -2194,30 +2328,31 @@ allocation might fail. It returns `Result[Option[str], AllocError]`: `Result`
 reports allocation failure, while `Option` tells you whether the index exists.
 
 ```plenty
-def show_character(text: &str, index: i64) -> Result[(), AllocError]:
+def show_character(text: &str, index: i64) -> Result[(), Failure]:
     character = text.get(index)?
     match character:
         case Some(value):
-            print(value).unwrap()
+            print(value)?
         case Nothing:
-            print("missing").unwrap()
+            print("missing")?
     Ok(())
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     text = "café🙂"
-    print(show_character(&text, -1)).unwrap()
-    print(show_character(&text, 3)).unwrap()
-    print(show_character(&text, 5)).unwrap()
-    print(text).unwrap()
+    print(show_character(&text, -1))?
+    print(show_character(&text, 3))?
+    print(show_character(&text, 5))?
+    print(text)?
+    Ok(())
 ```
 
 ```output
 🙂
-Result[(), AllocError].Ok(())
+Result[(), Failure].Ok(())
 é
-Result[(), AllocError].Ok(())
+Result[(), Failure].Ok(())
 missing
-Result[(), AllocError].Ok(())
+Result[(), Failure].Ok(())
 café🙂
 ```
 
@@ -2230,7 +2365,7 @@ allocates, and the original string remains available on every outcome.
 In the example, `?` handles the allocation-error path and leaves an `Option[str]`
 for the match. `Nothing` is a successful lookup with no character, so it does not
 propagate an error. Ordinary `text[index]` still terminates the program for a
-missing index or allocation failure. Both forms scan UTF-8 to reach the requested
+missing index; allocation failure is returned in its Result. Both forms scan UTF-8 to reach the requested
 scalar; repeated indexing is not a constant-time way to traverse text.
 
 ## 20. Produce values lazily with generators
@@ -2245,11 +2380,12 @@ def countdown(start: i64) -> Generator[i64]:
         yield remaining
         remaining = remaining - 1
 
-def main() -> ():
-    numbers = countdown(3).unwrap()
-    print("created").unwrap()
+def main() -> Result[(), Failure]:
+    numbers = countdown(3)?
+    print("created")?
     for number in numbers:
-        print(number).unwrap()
+        print(number)?
+    Ok(())
 ```
 
 ```output
@@ -2272,9 +2408,10 @@ def numbers(limit: i64) -> Generator[i64]:
     for n in range(limit).unwrap():
         yield n
 
-def main() -> ():
-    print([n * n for n in numbers(6).unwrap() if n % 2 == 1].unwrap()).unwrap()
-    print(list(numbers(3).unwrap()).unwrap()).unwrap()
+def main() -> Result[(), Failure]:
+    print([n * n for n in numbers(6)? if n % 2 == 1]?)?
+    print(list(numbers(3)?)?)?
+    Ok(())
 ```
 
 ```output
@@ -2289,11 +2426,12 @@ It returns `Some(value)` or `Nothing`; exhaustion stays exhausted:
 def once() -> Generator[str]:
     yield "hello"
 
-def main() -> ():
-    mut messages = once().unwrap()
-    print(next(messages)).unwrap()
-    print(next(messages)).unwrap()
-    print(next(messages)).unwrap()
+def main() -> Result[(), Failure]:
+    mut messages = once()?
+    print(next(messages))?
+    print(next(messages))?
+    print(next(messages))?
+    Ok(())
 ```
 
 ```output
@@ -2325,10 +2463,11 @@ that owner instead of copying the position:
 def once() -> Generator[i64]:
     yield 42
 
-def main() -> ():
-    first = once().unwrap()
+def main() -> Result[(), Failure]:
+    first = once()?
     second = first
-    print(list(second).unwrap()).unwrap()
+    print(list(second)?)?
+    Ok(())
 ```
 
 ```output
@@ -2377,14 +2516,16 @@ def total(values: &list[i64]) -> i64:
         result = result + value
     result
 
-def add(values: &mut list[i64], value: i64) -> ():
-    values.append(value).unwrap()
+def add(values: &mut list[i64], value: i64) -> Result[(), AllocError]:
+    values.append(value)?
+    Ok(())
 
-def main() -> ():
-    mut numbers = [1, 2].unwrap()
-    print(total(&numbers)).unwrap()
-    add(&mut numbers, 3)
-    print(numbers).unwrap()
+def main() -> Result[(), Failure]:
+    mut numbers = [1, 2]?
+    print(total(&numbers))?
+    add(&mut numbers, 3)?
+    print(numbers)?
+    Ok(())
 ```
 
 ```output
@@ -2398,13 +2539,14 @@ the target. Collection operations such as `append`, indexing, and `len` work
 through references directly.
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     mut score = 10
     reference = &mut score
     *reference = *reference + 5
-    print(*reference).unwrap()
+    print(*reference)?
     score = 20
-    print(score).unwrap()
+    print(score)?
+    Ok(())
 ```
 
 ```output
@@ -2452,11 +2594,12 @@ class Pair:
     def left_ref(self: &mut Pair) -> &mut i64:
         &mut self.left
 
-def main() -> ():
-    mut pair = Pair(1, 2).unwrap()
+def main() -> Result[(), Failure]:
+    mut pair = Pair(1, 2)?
     left = pair.left_ref()
     *left = 8
-    print(pair.left).unwrap()
+    print(pair.left)?
+    Ok(())
 ```
 ```output
 8
@@ -2482,15 +2625,16 @@ def pending() -> Generator[i64]:
     print("started").unwrap()
     yield 1
 
-def main() -> ():
-    mut numbers = [1, 2, 3].unwrap()
+def main() -> Result[(), Failure]:
+    mut numbers = [1, 2, 3]?
     drop(numbers)
-    numbers = [4].unwrap()
-    print(numbers).unwrap()
+    numbers = [4]?
+    print(numbers)?
 
-    task = pending().unwrap()
+    task = pending()?
     drop(task)
-    print("done").unwrap()
+    print("done")?
+    Ok(())
 ```
 
 ```output
@@ -2525,14 +2669,15 @@ class Point:
         self.x = self.x + amount
         self.y = self.y + amount
 
-def main() -> ():
-    mut point = Point(3, 4).unwrap()
-    print(point.squared_length()).unwrap()
+def main() -> Result[(), Failure]:
+    mut point = Point(3, 4)?
+    print(point.squared_length())?
     point.shift(1)
-    mut changed = copy(point).unwrap()
+    mut changed = copy(point)?
     changed.x = 20
-    print(point).unwrap()
-    print(changed).unwrap()
+    print(point)?
+    print(changed)?
+    Ok(())
 ```
 
 ```output
@@ -2573,10 +2718,11 @@ class Span:
     def length(self) -> i64:
         self.end - self.start
 
-def main() -> ():
-    span = Span(10, 5).unwrap()
-    print(span).unwrap()
-    print(span.length()).unwrap()
+def main() -> Result[(), Failure]:
+    span = Span(10, 5)?
+    print(span)?
+    print(span.length())?
+    Ok(())
 ```
 
 ```output
@@ -2614,13 +2760,14 @@ class Basket:
     count: i64
     items: list[str]
 
-def main() -> ():
-    mut basket = Basket(0, [].unwrap()).unwrap()
+def main() -> Result[(), Failure]:
+    mut basket = Basket(0, []?)?
     count = &mut basket.count
     *count = 2
-    basket.items.append("apple").unwrap()
-    basket.items.append("pear").unwrap()
-    print(basket).unwrap()
+    basket.items.append("apple")?
+    basket.items.append("pear")?
+    print(basket)?
+    Ok(())
 ```
 
 ```output
@@ -2639,14 +2786,15 @@ class Position:
     x: i64
     y: i64
 
-def main() -> ():
-    mut position = Position(1, 2).unwrap()
+def main() -> Result[(), Failure]:
+    mut position = Position(1, 2)?
     x = &mut position.x
     y = &mut position.y
     *x = 10
     *y = 20
-    print(*x).unwrap()
-    print(*y).unwrap()
+    print(*x)?
+    print(*y)?
+    Ok(())
 ```
 ```output
 10
@@ -2671,14 +2819,16 @@ class Pair:
     def __del__(self) -> ():
         print("release pair").unwrap()
 
-def work() -> ():
-    pair = Pair(Resource("first").unwrap(), Resource("second").unwrap()).unwrap()
-    spare = Resource("spare").unwrap()
-    print("working").unwrap()
+def work() -> Result[(), Failure]:
+    pair = Pair(Resource("first")?, Resource("second")?)?
+    spare = Resource("spare")?
+    print("working")?
+    Ok(())
 
-def main() -> ():
-    work()
-    print("done").unwrap()
+def main() -> Result[(), Failure]:
+    work()?
+    print("done")?
+    Ok(())
 ```
 
 ```output
@@ -2721,8 +2871,8 @@ pub class Point:
     pub def squared_length(self) -> i64:
         self.x * self.x + self.y * self.y
 
-pub def make_point() -> Point:
-    Point(3, 4).unwrap()
+pub def make_point() -> Result[Point, AllocError]:
+    Point(3, 4)
 ```
 
 Save the application beside it, for example as `main.plenty`:
@@ -2731,10 +2881,11 @@ Save the application beside it, for example as `main.plenty`:
 import geometry
 from geometry import Point as Position
 
-def main() -> ():
-    point: Position = geometry.make_point()
-    print(point.squared_length()).unwrap()
-    print(point.x).unwrap()
+def main() -> Result[(), Failure]:
+    point: Position = geometry.make_point()?
+    print(point.squared_length())?
+    print(point.x)?
+    Ok(())
 ```
 
 ```output
@@ -2792,10 +2943,11 @@ Application:
 ```plenty
 from counter import Counter
 
-def main() -> ():
-    mut count = Counter(41).unwrap()
+def main() -> Result[(), Failure]:
+    mut count = Counter(41)?
     count.increment()
-    print(count.read()).unwrap()
+    print(count.read())?
+    Ok(())
 ```
 
 ```output
@@ -2846,10 +2998,11 @@ are accepted, with surrounding Unicode whitespace ignored. Numeric prefixes,
 underscores, and non-ASCII digits are not accepted.
 
 ```plenty
-def main() -> ():
-    print(u8.parse(" 255 ")).unwrap()
-    print(u8.parse("256")).unwrap()
-    print(i64.parse("hello")).unwrap()
+def main() -> Result[(), IoError]:
+    print(u8.parse(" 255 "))?
+    print(u8.parse("256"))?
+    print(i64.parse("hello"))?
+    Ok(())
 ```
 ```output
 Result[u8, ParseError].Ok(255)
@@ -2866,10 +3019,11 @@ Overflow returns `OutOfRange`; underflow can round to zero. Explicit `inf`,
 `infinity`, and `nan` are accepted case-insensitively, with optional signs.
 
 ```plenty
-def main() -> ():
-    print(f32.parse("1.25e2")).unwrap()
-    print(f32.parse("1e100")).unwrap()
-    print(f64.parse("-0.0")).unwrap()
+def main() -> Result[(), IoError]:
+    print(f32.parse("1.25e2"))?
+    print(f32.parse("1e100"))?
+    print(f64.parse("-0.0"))?
+    Ok(())
 ```
 ```output
 Result[f32, ParseError].Ok(125.0)
@@ -2884,10 +3038,11 @@ allocation. It returns `Result[str, AllocError]`, so it combines with `?` and
 the existing fallible string operations. Floats use shortest round-trip text.
 
 ```plenty
-def main() -> ():
-    print(str.from(42)).unwrap()
-    print(str.from(-0.0f32)).unwrap()
-    print(str.from(True)).unwrap()
+def main() -> Result[(), IoError]:
+    print(str.from(42))?
+    print(str.from(-0.0f32))?
+    print(str.from(True))?
+    Ok(())
 ```
 ```output
 Result[str, AllocError].Ok("42")
@@ -2902,9 +3057,10 @@ newline. Success returns the number of Unicode characters. An I/O error can
 follow a partial write, so retrying the whole string can duplicate output.
 
 ```plenty
-def main() -> ():
+def main() -> Result[(), IoError]:
     result = write_stdout("Hello!\n")
-    print(result).unwrap()
+    print(result)?
+    Ok(())
 ```
 ```output
 Hello!
@@ -2928,8 +3084,9 @@ def report() -> Result[(), IoError]:
     flush_stdout()?
     Ok(())
 
-def main() -> ():
-    print(report()).unwrap()
+def main() -> Result[(), IoError]:
+    print(report())?
+    Ok(())
 ```
 ```output
 readyResult[(), IoError].Ok(())
@@ -2956,8 +3113,9 @@ def echo_line() -> Result[bool, IoError]:
         case Nothing:
             Ok(False)
 
-def main() -> ():
-    print("echo_line is ready").unwrap()
+def main() -> Result[(), IoError]:
+    print("echo_line is ready")?
+    Ok(())
 ```
 ```output
 echo_line is ready
@@ -2976,8 +3134,9 @@ def count_arguments() -> Result[bool, IoError]:
     values = args()?
     Ok(len(values) >= 1)
 
-def main() -> ():
-    print(count_arguments()).unwrap()
+def main() -> Result[(), IoError]:
+    print(count_arguments())?
+    Ok(())
 ```
 ```output
 Result[bool, IoError].Ok(True)
@@ -2998,8 +3157,9 @@ types without depending on a file on your machine.
 def configuration(path: &str) -> Result[str, IoError]:
     read_text(path)
 
-def main() -> ():
-    print("configuration reader is ready").unwrap()
+def main() -> Result[(), IoError]:
+    print("configuration reader is ready")?
+    Ok(())
 ```
 ```output
 configuration reader is ready
@@ -3020,8 +3180,9 @@ def save_and_read() -> Result[str, IoError]:
     write_text("plenty-example.txt", "Hello, é!\n")?
     read_text("plenty-example.txt")
 
-def main() -> ():
-    print(save_and_read()).unwrap()
+def main() -> Result[(), IoError]:
+    print(save_and_read())?
+    Ok(())
 ```
 ```output
 Result[str, IoError].Ok("Hello, é!\n")
@@ -3045,8 +3206,9 @@ def log_example() -> Result[str, IoError]:
     append_text("plenty-log.txt", "finished\n")?
     read_text("plenty-log.txt")
 
-def main() -> ():
-    print(log_example()).unwrap()
+def main() -> Result[(), IoError]:
+    print(log_example())?
+    Ok(())
 ```
 ```output
 Result[str, IoError].Ok("started\nfinished\n")
@@ -3067,14 +3229,15 @@ Run this in a scratch directory: it replaces `plenty-handle.txt`.
 ```plenty
 def inspect_file() -> Result[(), IoError]:
     mut file = open("plenty-handle.txt", "w")?
-    print(file.closed).unwrap()
+    print(file.closed)?
     file.close()?
-    print(file.closed).unwrap()
+    print(file.closed)?
     file.close()?
     Ok(())
 
-def main() -> ():
-    print(inspect_file()).unwrap()
+def main() -> Result[(), IoError]:
+    print(inspect_file())?
+    Ok(())
 ```
 ```output
 False
@@ -3097,8 +3260,9 @@ def read_example() -> Result[str, IoError]:
     with open("plenty-reading.txt")? as file:
         return Ok(file.read()?)
 
-def main() -> ():
-    print(read_example()).unwrap()
+def main() -> Result[(), IoError]:
+    print(read_example())?
+    Ok(())
 ```
 ```output
 Result[str, IoError].Ok("hello\nworld")
@@ -3116,11 +3280,12 @@ report close errors; call `file.close()?` explicitly when those matter.
 Borrow an element when you want to inspect or change it without moving its owner:
 
 ```plenty
-def main() -> ():
-    mut counts = {"visits": 1}.unwrap()
+def main() -> Result[(), Failure]:
+    mut counts = {"visits": 1}?
     value = &mut counts["visits"]
     *value = 2
-    print(counts).unwrap()
+    print(counts)?
+    Ok(())
 ```
 ```output
 {"visits": 2}
@@ -3136,10 +3301,11 @@ as potentially overlapping. Missing keys and out-of-range indices still trap.
 reporting formatting allocation failures and output errors:
 
 ```plenty
-def main() -> ():
-    values = [1, 2].unwrap()
-    print(str.repr(values)).unwrap()
-    print(print(values)).unwrap()
+def main() -> Result[(), Failure]:
+    values = [1, 2]?
+    print(str.repr(values))?
+    print(print(values))?
+    Ok(())
 ```
 ```output
 Result[str, AllocError].Ok("[1, 2]")
@@ -3204,8 +3370,9 @@ def collect() -> Result[list[i64], AllocError]:
     source = numbers.new()?
     list[i64].from(source)
 
-def main() -> ():
-    print(collect()).unwrap()
+def main() -> Result[(), IoError]:
+    print(collect())?
+    Ok(())
 ```
 ```output
 Result[list[i64], AllocError].Ok([3, 6])
@@ -3218,15 +3385,16 @@ allocations inside the generator body still follow that body's chosen APIs.
 Sets provide the same constructor, removing duplicates in first-seen order:
 
 ```plenty
-def main() -> ():
-    print(set[i64].from([3, 1, 3, 2].unwrap())).unwrap()
+def main() -> Result[(), Failure]:
+    print(set[i64].from([3, 1, 3, 2]?))?
+    Ok(())
 ```
 ```output
 Result[set[i64], AllocError].Ok({3, 1, 2})
 ```
 
-The example explicitly unwraps input construction. Use `[3, 1, 3, 2]?` instead
-to propagate that failure from a suitable function. Dictionary sources iterate
+The example propagates input construction failure with `[3, 1, 3, 2]?`.
+Dictionary sources iterate
 over keys; borrowed sources and string iteration are not supported by `from`.
 
 ### Creating generators
@@ -3248,8 +3416,9 @@ def total() -> Result[i64, AllocError]:
         result = result + n
     Ok(result)
 
-def main() -> ():
-    print(total()).unwrap()
+def main() -> Result[(), IoError]:
+    print(total())?
+    Ok(())
 ```
 ```output
 Result[i64, AllocError].Ok(30)
@@ -3269,9 +3438,10 @@ enum Message:
     Empty
     Text(str)
 
-def main() -> ():
-    print(Message.Text.new("hello")).unwrap()
-    print(Message.Empty.new()).unwrap()
+def main() -> Result[(), IoError]:
+    print(Message.Text.new("hello"))?
+    print(Message.Empty.new())?
+    Ok(())
 ```
 ```output
 Result[Message, AllocError].Ok(Message.Text("hello"))
@@ -3294,8 +3464,9 @@ class Point:
 def point() -> Result[Point, AllocError]:
     Ok(Point.new(3, 4)?)
 
-def main() -> ():
-    print(point()).unwrap()
+def main() -> Result[(), IoError]:
+    print(point())?
+    Ok(())
 ```
 ```output
 Result[Point, AllocError].Ok(Point(x=3, y=4))
@@ -3316,8 +3487,9 @@ class Buffer:
         self.values = list[i64].with_capacity(size)?
         Ok(())
 
-def main() -> ():
-    print(Buffer.new(8)).unwrap()
+def main() -> Result[(), IoError]:
+    print(Buffer.new(8))?
+    Ok(())
 ```
 ```output
 Result[Buffer, AllocError].Ok(Buffer(values=[]))
@@ -3348,8 +3520,9 @@ def count_lines() -> Result[i64, IoError]:
             count = count + 1
     Ok(count)
 
-def main() -> ():
-    print(count_lines()).unwrap()
+def main() -> Result[(), IoError]:
+    print(count_lines())?
+    Ok(())
 ```
 ```output
 Result[i64, IoError].Ok(3)
@@ -3373,7 +3546,7 @@ Run this in a scratch directory: it replaces `plenty-stream.txt`.
 ```plenty
 def write_example() -> Result[(), IoError]:
     with open("plenty-stream.txt", "w")? as file:
-        print(file.write("hello\n")?).unwrap()
+        print(file.write("hello\n")?)?
         file.flush()?
         file.sync()?
         file.close()?
@@ -3381,8 +3554,9 @@ def write_example() -> Result[(), IoError]:
         file.write("goodbye\n")?
     Ok(())
 
-def main() -> ():
-    print(write_example()).unwrap()
+def main() -> Result[(), IoError]:
+    print(write_example())?
+    Ok(())
 ```
 ```output
 6
@@ -3409,10 +3583,11 @@ class Message:
     def __exit__(self: &mut Message) -> ():
         print("exit").unwrap()
 
-def main() -> ():
-    with Message("hello").unwrap() as text:
-        print(text).unwrap()
-    print("after").unwrap()
+def main() -> Result[(), Failure]:
+    with Message("hello")? as text:
+        print(text)?
+    print("after")?
+    Ok(())
 ```
 ```output
 enter
@@ -3441,11 +3616,12 @@ class Counter:
     def __exit__(self: &mut Counter) -> ():
         self.count = self.count + 10
 
-def main() -> ():
-    mut counter = Counter(0).unwrap()
+def main() -> Result[(), Failure]:
+    mut counter = Counter(0)?
     with &mut counter as n:
-        print(n).unwrap()
-    print(counter.count).unwrap()
+        print(n)?
+    print(counter.count)?
+    Ok(())
 ```
 ```output
 1
@@ -3465,9 +3641,10 @@ class Label:
     def __exit__(self: &mut Label) -> ():
         print(self.text).unwrap()
 
-def main() -> ():
-    with Label("first").unwrap() as first, Label("second").unwrap() as second:
-        print("body").unwrap()
+def main() -> Result[(), Failure]:
+    with Label("first")? as first, Label("second")? as second:
+        print("body")?
+    Ok(())
 ```
 ```output
 first
@@ -3493,9 +3670,10 @@ class Counter:
     def __exit__(self: &mut Counter) -> ():
         print(self.count).unwrap()
 
-def main() -> ():
-    with Counter(1).unwrap() as counter:
+def main() -> Result[(), Failure]:
+    with Counter(1)? as counter:
         counter.count = 7
+    Ok(())
 ```
 ```output
 7
@@ -3510,11 +3688,12 @@ characters, not UTF-8 bytes. Zero consumes nothing; a negative count reads to EO
 def demo() -> Result[(), IoError]:
     write_text("bounded.txt", "é🦀hello")?
     with open("bounded.txt")? as file:
-        print(file.read(2)?).unwrap()
-        print(file.read()?).unwrap()
+        print(file.read(2)?)?
+        print(file.read()?)?
     Ok(())
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 é🦀
@@ -3530,12 +3709,13 @@ several pieces; a negative count reads the rest of the line.
 def demo() -> Result[(), IoError]:
     write_text("lines.txt", "abcd\nnext")?
     with open("lines.txt")? as file:
-        print(file.readline(2)?).unwrap()
-        print(file.readline(2)?).unwrap()
-        print(file.readline(2)).unwrap()
+        print(file.readline(2)?)?
+        print(file.readline(2)?)?
+        print(file.readline(2))?
     Ok(())
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 ab
@@ -3552,11 +3732,12 @@ Closed files return an error; `closed` itself remains an infallible property.
 ```plenty
 def demo() -> Result[(), IoError]:
     with open("capabilities.txt", "w")? as file:
-        print(file.readable()?).unwrap()
-        print(file.writable()?).unwrap()
+        print(file.readable()?)?
+        print(file.writable()?)?
     Ok(())
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 False
@@ -3573,10 +3754,11 @@ atomically during creation, so there is no separate existence-check race.
 def demo() -> Result[(), IoError]:
     with open("new.txt", "x")? as file:
         file.write("first version")?
-    print(read_text("new.txt")?).unwrap()
+    print(read_text("new.txt")?)?
     Ok(())
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 first version
@@ -3594,10 +3776,11 @@ def demo() -> Result[(), IoError]:
     with open("update.txt", "r+")? as file:
         file.read(1)?
         file.write("a")?
-    print(read_text("update.txt")?).unwrap()
+    print(read_text("update.txt")?)?
     Ok(())
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 hallo
@@ -3617,12 +3800,13 @@ def demo() -> Result[(), IoError]:
     with open("positions.txt")? as file:
         file.readline()?
         saved = file.tell()?
-        print(file.read()?).unwrap()
+        print(file.read()?)?
         file.seek(saved)?
-        print(file.read()?).unwrap()
+        print(file.read()?)?
     Ok(())
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 two
@@ -3640,11 +3824,12 @@ def demo() -> Result[(), IoError]:
     write_text("short.txt", "keep rest")?
     with open("short.txt", "r+")? as file:
         file.read(4)?
-        print(file.truncate()?).unwrap()
-    print(read_text("short.txt")?).unwrap()
+        print(file.truncate()?)?
+    print(read_text("short.txt")?)?
     Ok(())
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 4
@@ -3664,8 +3849,9 @@ def demo() -> Result[list[str], IoError]:
     write_text("collection.txt", "first\r\n\nlast")?
     with open("collection.txt")? as file:
         return file.readlines()
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 Result[list[str], IoError].Ok(["first\n", "\n", "last"])
@@ -3676,21 +3862,22 @@ newlines: include them in the strings when wanted. The operation returns
 `Result[(), IoError]`; an error may leave a partially written file.
 
 ```plenty
-def demo() -> Result[(), IoError]:
-    lines = ["one\n", "two\n"].unwrap()
+def demo() -> Result[(), Failure]:
+    lines = ["one\n", "two\n"]?
     with open("written.txt", "w")? as file:
         file.writelines(lines)?
-    print(len(lines)).unwrap()
+    print(len(lines))?
     with open("written.txt")? as file:
-        print(file.readlines()?).unwrap()
+        print(file.readlines()?)?
     Ok(())
-def main() -> ():
-    print(demo()).unwrap()
+def main() -> Result[(), IoError]:
+    print(demo())?
+    Ok(())
 ```
 ```output
 2
 ["one\n", "two\n"]
-Result[(), IoError].Ok(())
+Result[(), Failure].Ok(())
 ```
 
 ## Splitting text that is already in memory
@@ -3702,10 +3889,11 @@ also recognizes Unicode line/paragraph separators and the other Python-style
 text line boundaries.
 
 ```plenty
-def main() -> ():
-    print("first\r\n\nlast\n".splitlines()).unwrap()
-    print("first\r\nlast".splitlines(True)).unwrap()
-    print("".splitlines()).unwrap()
+def main() -> Result[(), IoError]:
+    print("first\r\n\nlast\n".splitlines())?
+    print("first\r\nlast".splitlines(True))?
+    print("".splitlines())?
+    Ok(())
 ```
 ```output
 Result[list[str], AllocError].Ok(["first", "", "last"])
@@ -3725,15 +3913,16 @@ values, as they did before.
 class Score:
     value: i64
 
-def main() -> ():
-    mut scores = [Score(2).unwrap(), Score(5).unwrap()].unwrap()
+def main() -> Result[(), Failure]:
+    mut scores = [Score(2)?, Score(5)?]?
     for score in &mut scores:
         score.value = score.value + 1
-    print([score.value for score in &scores].unwrap()).unwrap()
-    mut numbers = [10, 20].unwrap()
+    print([score.value for score in &scores]?)?
+    mut numbers = [10, 20]?
     for number in &mut numbers:
         *number = *number + 2
-    print(numbers).unwrap()
+    print(numbers)?
+    Ok(())
 ```
 ```output
 [3, 6]
@@ -3748,16 +3937,17 @@ spell a tuple as `(i64, str)` or `tuple[i64, str]`. Unpacking transfers owned
 components, and `_` discards a component. Indices must be integer literals.
 
 ```plenty
-def measurement() -> (i64, str):
-    (42, "cm").unwrap()
+def measurement() -> Result[(i64, str), AllocError]:
+    (42, "cm")
 
-def main() -> ():
-    value, unit = measurement()
-    print(value).unwrap()
-    print(unit).unwrap()
-    for number, word in [(1, "one").unwrap(), (2, "two").unwrap()].unwrap():
-        print((number, word).unwrap()).unwrap()
-    print((3, "three")).unwrap()
+def main() -> Result[(), Failure]:
+    value, unit = measurement()?
+    print(value)?
+    print(unit)?
+    for number, word in [(1, "one")?, (2, "two")?]?:
+        print((number, word)?)?
+    print((3, "three"))?
+    Ok(())
 ```
 ```output
 42
@@ -3779,12 +3969,13 @@ are shared references; scalar and string values remain values. Use an exclusive
 borrow to update values. Keys stay immutable.
 
 ```plenty
-def main() -> ():
-    mut counts = {"apple": 2, "pear": 3}.unwrap()
+def main() -> Result[(), Failure]:
+    mut counts = {"apple": 2, "pear": 3}?
     for fruit, count in (&mut counts).items():
         *count = *count + 1
-    print([(fruit, count).unwrap() for fruit, count in counts.items()].unwrap()).unwrap()
-    print([a + b for a, b in [(1, 2).unwrap(), (3, 4).unwrap()].unwrap()].unwrap()).unwrap()
+    print([(fruit, count)? for fruit, count in counts.items()]?)?
+    print([a + b for a, b in [(1, 2)?, (3, 4)?]?]?)?
+    Ok(())
 ```
 ```output
 [("apple", 3), ("pear", 4)]
@@ -3802,17 +3993,18 @@ Type arguments go before the call: `range[u8](8)`. A collection annotation or
 function return type can also guide a directly written range comprehension.
 
 ```plenty
-def squares() -> list[u8]:
-    [n * n for n in range(8).unwrap() if n % 2 == 0].unwrap()
+def squares() -> Result[list[u8], AllocError]:
+    [n * n for n in range(8)? if n % 2 == 0]
 
-def main() -> ():
-    print(squares()).unwrap()
-    print([n * n for n in range[u8](8).unwrap() if n % 2 == 0].unwrap()).unwrap()
-    small: list[u16] = [n + 1 for n in range(3).unwrap()].unwrap()
-    print(small).unwrap()
-    print(list(range[u8](5, 0, -2).unwrap()).unwrap()).unwrap()
+def main() -> Result[(), Failure]:
+    print(squares()?)?
+    print([n * n for n in range[u8](8)? if n % 2 == 0]?)?
+    small: list[u16] = [n + 1 for n in range(3)?]?
+    print(small)?
+    print(list(range[u8](5, 0, -2)?)?)?
     fraction: f32 = 3.5
-    print(fraction * 2).unwrap()
+    print(fraction * 2)?
+    Ok(())
 ```
 ```output
 [0, 4, 16, 36]
@@ -3842,20 +4034,21 @@ list, while a function taking `&T` borrows its argument.
 def identity[T](value: T) -> T:
     value
 
-def sum_to[T: IntType](stop: T) -> T:
+def sum_to[T: IntType](stop: T) -> Result[T, AllocError]:
     mut total: T = 0
-    for n in range[T](stop).unwrap():
+    for n in range[T](stop)?:
         total = total + n
-    total
+    Ok(total)
 
 def first[T](values: &list[T]) -> &T:
     &values[0]
 
-def main() -> ():
-    print(sum_to[u16](5)).unwrap()
-    values = identity[list[i64]]([3, 4].unwrap())
-    print(first[i64](&values)).unwrap()
-    print(values).unwrap()
+def main() -> Result[(), Failure]:
+    print(sum_to[u16](5)?)?
+    values = identity[list[i64]]([3, 4]?)
+    print(first[i64](&values))?
+    print(values)?
+    Ok(())
 ```
 ```output
 10
@@ -3887,9 +4080,10 @@ class Message:
 def read_message[T: Readable](source: &T) -> str:
     source.read()
 
-def main() -> ():
-    message = Message("hello").unwrap()
-    print(read_message[Message](&message)).unwrap()
+def main() -> Result[(), Failure]:
+    message = Message("hello")?
+    print(read_message[Message](&message))?
+    Ok(())
 ```
 ```output
 hello
@@ -3917,12 +4111,13 @@ class Pair:
     def x_ref(self: &mut Pair) -> &mut i64:
         &mut self.x
 
-def main() -> ():
-    mut pair = Pair(1, 2).unwrap()
+def main() -> Result[(), Failure]:
+    mut pair = Pair(1, 2)?
     x = pair.x_ref()
     pair.y = 7
     *x = 9
-    print(pair).unwrap()
+    print(pair)?
+    Ok(())
 ```
 ```output
 Pair(x=9, y=7)

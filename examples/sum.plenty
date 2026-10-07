@@ -5,7 +5,8 @@ def sum_to(n: i64, total: i64) -> i64:
     else:
         sum_to(n - 1, total + n)
 
-def main() -> ():
+def main() -> Result[(), IoError]:
     mut answer = sum_to(100, 0)
     answer = answer + 1
-    print(answer).unwrap()
+    print(answer)?
+    Ok(())

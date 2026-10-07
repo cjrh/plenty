@@ -1205,6 +1205,7 @@ fn named_type(name: &str) -> Type {
         "ParseError" => crate::sum::parse_error(),
         "DataError" => crate::sum::data_error(),
         "IoError" => crate::sum::io_error(),
+        "Failure" => crate::sum::failure(),
         _ => return None,
     })
 }
@@ -1518,7 +1519,10 @@ impl Lower<'_> {
                 "`?` operand and function return must use the same Result or Option family",
             ));
         }
-        if !source.is_option() && source.variants[1].fields != target.variants[1].fields {
+        if !source.is_option()
+            && !target.discards_error()
+            && source.variants[1].fields != target.variants[1].fields
+        {
             return Err(e
                 .at
                 .error("`?` requires identical Result error types; convert the error explicitly"));
