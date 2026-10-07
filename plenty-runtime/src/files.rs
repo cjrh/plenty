@@ -186,6 +186,27 @@ pub(crate) unsafe fn flush(pointer: *mut File, durable: bool) -> Result<u128, Er
     Ok(0)
 }
 
+pub(crate) unsafe fn truncate(pointer: *mut File, size: Option<i64>) -> Result<u128, Error> {
+    // SAFETY: a live exclusively borrowed owner is supplied by the compiler.
+    let owner = unsafe { &mut *pointer };
+    let file = owner
+        .file
+        .as_mut()
+        .ok_or(std::io::ErrorKind::NotConnected)?;
+    if !owner.writable {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    let size = match size {
+        Some(size) => u64::try_from(size).map_err(|_| std::io::ErrorKind::InvalidInput)?,
+        None => file.stream_position()?,
+    };
+    if size > i64::MAX as u64 {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    }
+    file.set_len(size)?;
+    Ok(size as u128)
+}
+
 unsafe extern "C" fn destroy(pointer: *mut Header) {
     let file = pointer.cast::<File>();
     // SAFETY: the reference count reached zero. Rust's sole descriptor owner

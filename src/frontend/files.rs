@@ -45,6 +45,8 @@ impl Lower<'_> {
             "writable" => CollectionOp::FileWritable,
             "tell" => CollectionOp::FileTell,
             "seek" => CollectionOp::FileSeek,
+            "truncate" if args.is_empty() => CollectionOp::FileTruncate,
+            "truncate" => CollectionOp::FileTruncateSized,
             _ => return Err(base.at.error(format!("unknown File method `{name}`"))),
         };
         let (inputs, output) = operation.signature();

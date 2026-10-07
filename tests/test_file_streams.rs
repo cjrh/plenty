@@ -467,6 +467,82 @@ fn file_ownership_types_and_mutability_are_checked() {
 }
 
 #[test]
+fn truncate_uses_byte_lengths_without_moving_the_cursor() {
+    let (out, dir) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt", "r+")? as file:
+        file.read(1)?
+        before = file.tell()?
+        print(file.truncate()?)
+        print(file.tell()? == before)
+        print(file.truncate(4)?)
+        print(file.read())
+        print(file.truncate(-1))
+        print(file.truncate(1)?)
+        file.seek(0u64)?
+        print(file.read())
+    Ok(())
+print(work())
+"#,
+        Some("éhello".as_bytes()),
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.starts_with("2\nTrue\n4\nResult[str, IoError].Ok(\"\\0\\0\")\n"),
+        "{text}"
+    );
+    assert!(text.contains("IoError.System(0)"), "{text}");
+    assert!(text.contains("DataError.InvalidUtf8"), "{text}");
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"\xc3"
+    );
+    let (out, dir) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    mut file = open("sample.txt")?
+    print(file.truncate(0))
+    file.close()?
+    print(file.truncate())
+    Ok(())
+print(work())
+"#,
+        Some(b"keep"),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout)
+            .matches(".Err(")
+            .count(),
+        2
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"keep"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn truncate_does_not_allocate() {
+    let (out, dir) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt", "r+")? as file:
+        print("__test_fail_allocations_after_0__")
+        result = file.truncate(2)
+        print("__test_restore_allocations__")
+        print(result)
+    Ok(())
+print(work())
+"#,
+        Some(b"abcdef"),
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Result[i64, IoError].Ok(2)"));
+    assert_eq!(std::fs::read(dir.path().join("sample.txt")).unwrap(), b"ab");
+}
+
+#[test]
 fn text_positions_restore_unicode_and_pending_crlf_state() {
     for input in ["é\r\n🦀end", "é\r🦀end"] {
         let (out, _) = run(

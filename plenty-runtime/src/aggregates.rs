@@ -906,6 +906,10 @@ pub(crate) unsafe fn collection(
             )),
             92 => crate::text_io::result(crate::files::read(a as *mut crate::files::File)),
             101 => crate::text_io::result(crate::files::tell(a as *mut crate::files::File)),
+            103 | 104 => crate::text_io::result(crate::files::truncate(
+                a as *mut crate::files::File,
+                (op == 104).then_some(b as i64),
+            )),
             102 => {
                 crate::text_io::result(crate::files::seek(a as *mut crate::files::File, b as u64))
             }

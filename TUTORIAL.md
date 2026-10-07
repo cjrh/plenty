@@ -3403,6 +3403,28 @@ two
 Result[(), IoError].Ok(())
 ```
 
+`truncate(size)` resizes a writable file in **bytes** and returns its new length.
+With no size, it truncates at the current physical position. Neither form moves
+the cursor. A text-position cookie is not a byte size. Cutting through a multibyte
+character makes the file invalid UTF-8; a later read reports that error.
+
+```plenty
+def demo() -> Result[(), IoError]:
+    write_text("short.txt", "keep rest")?
+    with open("short.txt", "r+")? as file:
+        file.read(4)?
+        print(file.truncate()?)
+    print(read_text("short.txt")?)
+    Ok(())
+def main() -> ():
+    print(demo())
+```
+```output
+4
+keep
+Result[(), IoError].Ok(())
+```
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,
