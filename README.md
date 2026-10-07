@@ -13,18 +13,19 @@ Start with [TUTORIAL.md](TUTORIAL.md) to learn the language through runnable
 examples. Its code and expected diagnostics are tested as the compiler evolves.
 
 ```python
-def sum_to(n: i64, total: i64) -> i64:
+type int = i64
+
+def sum_to(n: int, total: int) -> int:
     """Sum the integers from 1 through n, using constant call-stack space."""
     if n == 0:
         total
     else:
         sum_to(n - 1, total + n)
 
-def main() -> Result[(), IoError]:
+def main() -> ():
     mut answer = sum_to(100, 0)
     answer = answer + 1
-    print(answer)?
-    Ok(())
+    print(answer).unwrap()
 ```
 
 Run and compile the example:
