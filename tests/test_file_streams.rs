@@ -467,6 +467,80 @@ fn file_ownership_types_and_mutability_are_checked() {
 }
 
 #[test]
+fn writelines_borrows_strings_and_preserves_exact_contents() {
+    let (out, dir) = run(
+        r#"
+def save(file: &mut File, lines: &list[str]) -> Result[(), IoError]:
+    file.writelines(lines)
+def work() -> Result[(), IoError]:
+    lines = ["é\r\n", "\0", "🦀"]
+    with open("sample.txt", "w")? as file:
+        save(&mut file, &lines)?
+        file.writelines([])?
+        file.writelines(["!"])?
+    print(lines)
+    Ok(())
+print(work())
+"#,
+        None,
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("[\"é\\r\\n\", \"\\0\", \"🦀\"]"));
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        "é\r\n\0🦀!".as_bytes()
+    );
+    reject(
+        "def bad(file: &mut File) -> Result[(), IoError]:\n    file.writelines([1])",
+        "expected list[str]",
+    );
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    mut file = open("sample.txt")?
+    print(file.writelines([]))
+    file.close()?
+    print(file.writelines([]))
+    with open("/dev/full", "w")? as full:
+        print(full.writelines(["x"]))
+    Ok(())
+print(work())
+"#,
+        Some(b"existing"),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout)
+            .matches(".Err(")
+            .count(),
+        3
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn writelines_needs_no_allocation_after_argument_construction() {
+    let (out, dir) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    lines = ["one\n", "two"]
+    with open("sample.txt", "w")? as file:
+        print("__test_fail_allocations_after_0__")
+        result = file.writelines(lines)
+        print("__test_restore_allocations__")
+        print(result)
+    print(lines)
+    Ok(())
+print(work())
+"#,
+        None,
+    );
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(".Err("));
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"one\ntwo"
+    );
+}
+
+#[test]
 fn readlines_owns_normalized_lines_and_distinguishes_eof() {
     let (out, _) = run(
         r#"

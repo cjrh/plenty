@@ -20,6 +20,7 @@ pub enum CollectionOp {
     FileTruncate,
     FileTruncateSized,
     FileReadLines,
+    FileWriteLines,
     WriteStdout,
     WriteStderr,
     FlushStdout,
@@ -156,6 +157,10 @@ impl CollectionOp {
             FileReadLines => (
                 vec![Ty::File],
                 crate::sum::result(Ty::List(std::rc::Rc::new(Ty::Str)), crate::sum::io_error()),
+            ),
+            FileWriteLines => (
+                vec![Ty::File, Ty::List(std::rc::Rc::new(Ty::Str))],
+                crate::sum::result(Ty::Unit, crate::sum::io_error()),
             ),
             FileTruncateSized => (
                 vec![Ty::File, Ty::I64],
@@ -374,6 +379,7 @@ impl CollectionOp {
             Self::FileTruncate => 103,
             Self::FileTruncateSized => 104,
             Self::FileReadLines => 105,
+            Self::FileWriteLines => 106,
             Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,

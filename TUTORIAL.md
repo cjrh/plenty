@@ -3444,6 +3444,28 @@ def main() -> ():
 Result[list[str], IoError].Ok(["first\n", "\n", "last"])
 ```
 
+`writelines(lines)` writes a `list[str]` without consuming it. It inserts no
+newlines: include them in the strings when wanted. The operation returns
+`Result[(), IoError]`; an error may leave a partially written file.
+
+```plenty
+def demo() -> Result[(), IoError]:
+    lines = ["one\n", "two\n"]
+    with open("written.txt", "w")? as file:
+        file.writelines(lines)?
+    print(len(lines))
+    with open("written.txt")? as file:
+        print(file.readlines()?)
+    Ok(())
+def main() -> ():
+    print(demo())
+```
+```output
+2
+["one\n", "two\n"]
+Result[(), IoError].Ok(())
+```
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,

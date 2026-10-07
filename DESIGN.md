@@ -1745,6 +1745,13 @@ invalid text or surprising positions. Relative/end seeks remain deferred.
 
 ## Bounded stream operations
 
+`writelines(lines: list[str]) -> Result[(), IoError]` observes the list (or a
+shared list reference) once before borrowing the destination exclusively. It
+writes each string's exact UTF-8 bytes, inserts no separators, and leaves the
+list available. After argument construction it allocates nothing. Empty lists
+still validate the file and write capability. Errors may leave a written prefix;
+the list and file remain valid. Generic iterable sources are deferred.
+
 `readlines() -> Result[list[str], IoError]` reads the remaining lines into an
 independent list, keeping translated terminators and omitting a synthetic empty
 line at EOF. Empty input yields an empty list. Every buffer, line, and list growth

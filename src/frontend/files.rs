@@ -45,6 +45,7 @@ impl Lower<'_> {
             "writable" => CollectionOp::FileWritable,
             "tell" => CollectionOp::FileTell,
             "readlines" => CollectionOp::FileReadLines,
+            "writelines" => CollectionOp::FileWriteLines,
             "seek" => CollectionOp::FileSeek,
             "truncate" if args.is_empty() => CollectionOp::FileTruncate,
             "truncate" => CollectionOp::FileTruncateSized,
@@ -61,10 +62,15 @@ impl Lower<'_> {
         }
         let mut reads = Vec::new();
         if let Some(arg) = args.first() {
-            let (ty, loans) = self.observe(arg, ops)?;
             let expected = inputs[1].clone();
-            self.same(Some(ty), Some(expected), &arg.at)?;
-            reads = loans;
+            if matches!(ungroup(arg).kind, Expression::Collection { .. }) {
+                let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
+                self.same(ty, Some(expected), &arg.at)?;
+            } else {
+                let (ty, loans) = self.observe(arg, ops)?;
+                self.same(Some(ty), Some(expected), &arg.at)?;
+                reads = loans;
+            }
         }
         let (_, loan) = self.borrow(base, !matches!(name, "readable" | "writable"), ops)?;
         ops.push(Op::ReadRef(Ty::File));

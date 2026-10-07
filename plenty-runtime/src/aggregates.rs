@@ -603,6 +603,22 @@ pub(crate) unsafe fn try_reader_lines(
     }
 }
 
+unsafe fn write_file_lines(
+    file: *mut crate::files::File,
+    lines: *const Collection,
+) -> Result<u128, crate::text_io::Error> {
+    // SAFETY: the compiler retains a shared list[str] loan and exclusive File
+    // access. No callbacks or mutations of the list occur during these writes.
+    unsafe {
+        // Validate state even for an empty list; an empty write preserves CRLF state.
+        crate::files::write(file, "")?;
+        for entry in &(*lines).entries {
+            crate::files::write(file, strings::utf8(entry.key as *const Text))?;
+        }
+    }
+    Ok(0)
+}
+
 /// Count the selected unique members before allocating. Inputs stay borrowed;
 /// output members retain immutable keys only after all storage is reserved.
 unsafe fn try_set_from_entries<'a>(
@@ -933,6 +949,10 @@ pub(crate) unsafe fn collection(
             )),
             92 => crate::text_io::result(crate::files::read(a as *mut crate::files::File)),
             101 => crate::text_io::result(crate::files::tell(a as *mut crate::files::File)),
+            106 => crate::text_io::result(write_file_lines(
+                a as *mut crate::files::File,
+                b as *const Collection,
+            )),
             105 => crate::text_io::result(crate::files::readlines(
                 a as *mut crate::files::File,
                 (*descriptor).variants[0].fields[0],
