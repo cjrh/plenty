@@ -25,7 +25,7 @@ def numbers() -> Generator[i64]:
     yield 6
 
 def collect() -> Result[list[i64], AllocError]:
-    source = numbers()?
+    source = numbers()
     list[i64].from(source)
 
 def main() -> Result[(), IoError]:

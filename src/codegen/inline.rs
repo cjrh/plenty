@@ -1,10 +1,10 @@
-//! Inline range ownership. Runtime operands stay scalar-sized addresses, while
-//! every escaping value is copied into storage belonging to its new owner.
+//! Inline value storage. Runtime operands carry scalar-sized addresses, while
+//! escaping ranges and generator frames live in storage belonging to their owner.
 use super::*;
 use cranelift_codegen::ir::{MemFlags, Value as NativeValue};
 
 impl Lowerer<'_, '_> {
-    pub(super) fn range_storage(&mut self, bytes: usize) -> NativeValue {
+    pub(super) fn inline_storage(&mut self, bytes: usize) -> NativeValue {
         let slot = self
             .bcx
             .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
@@ -15,34 +15,34 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().stack_addr(PTR_TY, slot, 0)
     }
 
-    pub(super) fn copy_range_to(
+    pub(super) fn copy_inline_to(
         &mut self,
         value: NativeValue,
         ty: &Ty,
         destination: NativeValue,
     ) -> NativeValue {
-        if !ty.has_inline_range() {
+        if !ty.has_inline_storage() {
             return value;
         }
         let packed = self.pack(value, ty);
         let copied = self
             .collection_call(117, &[packed, destination], Some(ty))
-            .expect("inline range metadata");
+            .expect("inline payload metadata");
         self.unpack(copied, ty)
     }
 
-    pub(super) fn snapshot_range(&mut self, value: NativeValue, ty: &Ty) -> NativeValue {
-        if !ty.has_inline_range() {
+    pub(super) fn snapshot_inline(&mut self, value: NativeValue, ty: &Ty) -> NativeValue {
+        if !ty.has_inline_storage() {
             return value;
         }
-        let destination = self.range_storage(32);
-        self.copy_range_to(value, ty, destination)
+        let destination = self.inline_storage(ty.inline_bytes());
+        self.copy_inline_to(value, ty, destination)
     }
 
     pub(super) fn store_slot(&mut self, slot: NativeValue, value: NativeValue, ty: &Ty) {
-        let value = if ty.has_inline_range() {
+        let value = if ty.has_inline_storage() {
             let destination = self.bcx.ins().iadd_imm(slot, 16);
-            self.copy_range_to(value, ty, destination)
+            self.copy_inline_to(value, ty, destination)
         } else {
             value
         };
@@ -61,13 +61,13 @@ impl Lowerer<'_, '_> {
         let mut offset = 0;
         let mut returned = Vec::new();
         for (value, ty) in values {
-            let value = if ty.has_inline_range() {
+            let value = if ty.has_inline_storage() {
                 let base = self
-                    .return_range
-                    .expect("caller-owned range return storage");
+                    .return_storage
+                    .expect("caller-owned inline return storage");
                 let destination = self.bcx.ins().iadd_imm(base, offset);
-                offset += 32;
-                self.copy_range_to(value, &ty, destination)
+                offset += ty.inline_bytes() as i64;
+                self.copy_inline_to(value, &ty, destination)
             } else {
                 value
             };

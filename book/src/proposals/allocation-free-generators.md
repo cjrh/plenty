@@ -1,10 +1,10 @@
 # Allocation-free generator frames and ranges
 
-> Generator design under discussion, not implemented behavior. Ranges are now
-> allocation-free independently of generators. Active work and ordering
-> live in the [backlog](../backlog.md). The
-> [generator reference](../design/16-native-generators.md) describes today's ABI
-> and source contract.
+> Implemented design record. Concrete inline frames, direct construction, and
+> specialization of generator parameters are now implemented. The original
+> alternatives below explain the decision; the
+> [generator reference](../design/16-native-generators.md) owns the current ABI,
+> source contract, and limits. Active work lives in the [backlog](../backlog.md).
 
 ## Objective and boundary
 
@@ -26,8 +26,8 @@ not an optional optimization limited to immediately consumed generators.
 
 ## Concrete types and source annotations
 
-Today's `Generator[T]` identifies only the yielded type. A pointer to a heap
-frame lets unrelated bodies, with different frame sizes, use that one type.
+The previous `Generator[T]` identified only the yielded type. A pointer to a heap
+frame let unrelated bodies, with different frame sizes, use that one type.
 Inline storage needs to preserve more information.
 
 The recommended design gives each generator body and concrete specialization
@@ -36,12 +36,11 @@ its own compiler-inferred type and finite layout. Users would still declare
 while the function identity determines the concrete returned frame. No user
 needs to spell a generated type name.
 
-This choice is deferred with the generator work. The alternative is keeping a uniform,
+The concrete-type design is implemented. The alternative was keeping a uniform,
 size-erased owned type with fallible allocation; that cannot provide the same
 general inline-storage guarantee.
 
-Factories, annotated parameters, and standard sum wrappers need an explicit
-contract before implementation:
+The original design questions were:
 
 - A factory returning `Generator[T]` should resolve to one concrete frame shape
   for each specialization. Returning different shapes on different branches

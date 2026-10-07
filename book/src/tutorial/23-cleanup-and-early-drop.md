@@ -18,7 +18,7 @@ def main() -> Result[(), Failure]:
     numbers = [4]?
     print(numbers)?
 
-    task = pending()?
+    task = pending()
     drop(task)
     print("done")?
     Ok(())

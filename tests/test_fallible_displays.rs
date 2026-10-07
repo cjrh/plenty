@@ -50,7 +50,7 @@ def values() -> Generator[i64]:
     yield 1
     print("unexpected resume").unwrap()
     yield 2
-source = values().unwrap()
+source = values()
 print("__test_fail_allocations_after_1__").unwrap()
 result = [n for n in source]
 print("__test_restore_allocations__").unwrap()

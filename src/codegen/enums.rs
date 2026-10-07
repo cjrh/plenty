@@ -69,7 +69,7 @@ impl Lowerer<'_, '_> {
                 let index = self.bcx.ins().iconst(types::I64, *i as i64);
                 let value = self.collection_call(31, &[owner, index], None)?;
                 let value = self.unpack(value, &output);
-                let value = self.snapshot_range(value, &output);
+                let value = self.snapshot_inline(value, &output);
                 self.release(owner, &inputs[0]);
                 self.pack(value, &output)
             }
@@ -201,7 +201,7 @@ impl Lowerer<'_, '_> {
             }
         };
         let result = self.unpack(result, &output);
-        let result = self.snapshot_range(result, &output);
+        let result = self.snapshot_inline(result, &output);
         for (value, ty) in values.iter().zip(&inputs) {
             self.release(*value, ty);
         }

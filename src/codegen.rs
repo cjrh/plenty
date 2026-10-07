@@ -64,8 +64,8 @@ use crate::lexer;
 mod collections;
 mod enums;
 mod generators;
+mod inline;
 mod metadata;
-mod ranges;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
@@ -296,7 +296,7 @@ struct Runtime {
     collection: FuncId,
     retain: FuncId,
     release: FuncId,
-    generator_try_new: FuncId,
+    generator_init: FuncId,
     generator_finish: FuncId,
     print_i8: FuncId,
     print_i16: FuncId,
@@ -365,11 +365,11 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
-        generator_try_new: {
+        generator_init: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
             sig.params.extend([AbiParam::new(types::I64); 6]);
-            module.declare_function("plenty_generator_try_new", Linkage::Import, &sig)?
+            module.declare_function("plenty_generator_init", Linkage::Import, &sig)?
         },
         generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
@@ -517,7 +517,7 @@ fn user_fn_signature(module: &ObjectModule, sig: &FnSig) -> Signature {
     for ty in &sig.outputs {
         cl.returns.push(AbiParam::new(clif_type(ty.clone())));
     }
-    if sig.outputs.iter().any(Ty::has_inline_range) {
+    if sig.outputs.iter().any(Ty::has_inline_storage) {
         cl.params.push(AbiParam::new(PTR_TY));
     }
     cl
@@ -564,9 +564,7 @@ fn collect_user_fns(
                         },
                         id,
                         generator: f.generator.clone(),
-                        resume: if f.generator.is_some()
-                            && !name.starts_with("__plenty_try_generator_")
-                        {
+                        resume: if f.generator.is_some() {
                             Some(module.declare_function(
                                 &format!("__plenty_resume_{name}"),
                                 Linkage::Local,
@@ -662,7 +660,7 @@ fn emit_user_function(
         }
 
         let local_frame = if needs_local_addresses(&decl.body)
-            || locals.iter().any(|(_, t)| t.has_inline_range())
+            || locals.iter().any(|(_, t)| t.has_inline_storage())
         {
             let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
                 cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
@@ -692,11 +690,11 @@ fn emit_user_function(
         } else {
             None
         };
-        let return_range = decl
+        let return_storage = decl
             .sig
             .outputs
             .iter()
-            .any(Ty::has_inline_range)
+            .any(Ty::has_inline_storage)
             .then(|| bcx.block_params(entry)[decl.sig.inputs.len()]);
         let mut lower = Lowerer {
             bcx: &mut bcx,
@@ -711,13 +709,13 @@ fn emit_user_function(
             loop_targets: Vec::new(),
             generator: None,
             local_frame,
-            return_range,
+            return_storage,
             collection_scratch: None,
         };
         // Argument addresses belong to the caller. Snapshot inline values into
         // this function's locals before any mutation or nested call can occur.
         for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
-            if ty.has_inline_range() {
+            if ty.has_inline_storage() {
                 let value = lower.read_local(i as u8);
                 lower.write_local(i as u8, value);
             }
@@ -810,7 +808,7 @@ fn emit_main(
             loop_targets: Vec::new(),
             generator: None,
             local_frame: None,
-            return_range: None,
+            return_storage: None,
             collection_scratch: None,
         };
         for op in ops {
@@ -942,7 +940,7 @@ struct Lowerer<'a, 'b> {
     loop_targets: Vec<(Block, Block)>,
     generator: Option<GeneratorContext>,
     local_frame: Option<cranelift_codegen::ir::Value>,
-    return_range: Option<cranelift_codegen::ir::Value>,
+    return_storage: Option<cranelift_codegen::ir::Value>,
     /// Reused across non-overlapping runtime calls; callbacks have their own frame.
     collection_scratch: Option<cranelift_codegen::ir::StackSlot>,
 }
@@ -965,7 +963,7 @@ impl Lowerer<'_, '_> {
         }
     }
     fn release(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
-        if ty.inline_sum() {
+        if ty.inline_sum() || matches!(ty, Ty::Generator(_)) {
             if ty.managed() {
                 self.collection_call(27, &[value], Some(ty))
                     .expect("sum metadata");
@@ -1004,7 +1002,7 @@ impl Lowerer<'_, '_> {
         } else {
             self.bcx.use_var(var)
         };
-        self.snapshot_range(value, &ty)
+        value
     }
     fn write_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
         let (var, ty) = self.locals[i as usize].clone();
@@ -1069,7 +1067,11 @@ impl Lowerer<'_, '_> {
                     0,
                 );
                 let value = self.unpack(packed, ty);
-                let value = self.snapshot_range(value, ty);
+                let value = if ty.can_copy() {
+                    self.snapshot_inline(value, ty)
+                } else {
+                    value
+                };
                 self.retain(value, ty);
                 self.stack.push((value, ty.clone()));
             }
@@ -1097,6 +1099,7 @@ impl Lowerer<'_, '_> {
             Op::MoveLocal(i, _) => {
                 let value = self.read_local(*i);
                 let ty = self.locals[*i as usize].1.clone();
+                let value = self.snapshot_inline(value, &ty);
                 let zero = self.bcx.ins().iconst(types::I64, 0);
                 let zero = self.unpack(zero, &ty);
                 self.write_local(*i, zero);
@@ -1774,6 +1777,11 @@ impl Lowerer<'_, '_> {
                 format!("AOT: LoadLocal({i}) has no matching input").into()
             })?;
         let v = self.read_local(i);
+        let v = if ty.can_copy() {
+            self.snapshot_inline(v, &ty)
+        } else {
+            v
+        };
         self.retain(v, &ty);
         self.stack.push((v, ty));
         Ok(())
@@ -1808,9 +1816,9 @@ impl Lowerer<'_, '_> {
         let (decl, mut args) = self.pop_call_args(name)?;
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
-        let ranges = outputs.iter().filter(|t| t.has_inline_range()).count();
-        if ranges != 0 {
-            args.push(self.range_storage(ranges * 32));
+        let bytes = outputs.iter().map(Ty::inline_bytes).sum();
+        if bytes != 0 {
+            args.push(self.inline_storage(bytes));
         }
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
         let inst = self.bcx.ins().call(funcref, &args);
@@ -1829,8 +1837,9 @@ impl Lowerer<'_, '_> {
     /// and the outer loop stops feeding ops to this lowerer.
     fn lower_tail_call(&mut self, name: &str) -> Result<()> {
         let signature = &self.user_fns[name].sig;
-        if signature.inputs.iter().any(|(_, t)| t.has_inline_range())
-            || signature.outputs.iter().any(Ty::has_inline_range)
+        if signature.inputs.iter().any(|(_, t)| {
+            t.has_inline_storage() || matches!(t, Ty::Ref(inner, _) if inner.has_inline_storage())
+        }) || signature.outputs.iter().any(Ty::has_inline_storage)
         {
             self.lower_call(name)?;
             self.return_values(self.stack.clone());

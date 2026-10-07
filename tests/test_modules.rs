@@ -133,7 +133,7 @@ def main() -> ():
 }
 
 #[test]
-fn fallible_nominal_and_generator_constructors_resolve_imports() {
+fn nominal_and_generator_constructors_resolve_imports() {
     run(&[
         ("data.plenty", r#"
 pub class Number:
@@ -147,7 +147,7 @@ pub def numbers() -> Generator[i64]:
 import data
 from data import Number as N
 def collect() -> Result[list[i64], AllocError]:
-    source = data.numbers.new()?
+    source = data.numbers()
     list[i64].from(source)
 def main() -> ():
     print(N.new(3)).unwrap()
@@ -438,7 +438,7 @@ fn in_memory_api_never_searches_the_filesystem_for_imports() {
 #[test]
 fn imported_generators_enums_and_tail_recursion_keep_their_identities() {
     run(&[
-        ("main.plenty", "import data\ndef main() -> ():\n    for value in data.values().unwrap():\n        match value:\n            case data.Reading.Value(n):\n                print(n).unwrap()\n            case data.Reading.Empty:\n                pass\n    print(data.count(100_000)).unwrap()\n"),
+        ("main.plenty", "import data\ndef main() -> ():\n    for value in data.values():\n        match value:\n            case data.Reading.Value(n):\n                print(n).unwrap()\n            case data.Reading.Empty:\n                pass\n    print(data.count(100_000)).unwrap()\n"),
         ("data.plenty", "pub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42).unwrap()\n    yield (Reading.Empty).unwrap()\npub def count(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        count(n - 1)\n"),
     ], "main.plenty", "42\n0\n");
 }

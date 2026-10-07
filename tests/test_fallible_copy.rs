@@ -185,7 +185,7 @@ print(source).unwrap()
 #[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = Guard().unwrap()\ncopy(source)", "cannot be copied")]
 #[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = [Guard().unwrap()].unwrap()\ncopy(source)", "cannot be copied")]
 #[case(
-    "def values() -> Generator[i64]:\n    yield 1\nsource = values().unwrap()\ncopy(source)",
+    "def values() -> Generator[i64]:\n    yield 1\nsource = values()\ncopy(source)",
     "cannot be copied"
 )]
 #[case(

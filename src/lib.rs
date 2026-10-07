@@ -9,6 +9,7 @@
 mod codegen;
 mod collection;
 mod frontend;
+mod generator;
 mod lexer;
 mod op;
 mod ownership;

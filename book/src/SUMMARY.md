@@ -60,6 +60,7 @@
         - [Split text into fields](tutorial/19-represent-absence-and-failure-explicitly/26-split-text-into-fields.md)
         - [Look up a character without trapping](tutorial/19-represent-absence-and-failure-explicitly/27-look-up-a-character-without-trapping.md)
     - [20. Produce values lazily with generators](tutorial/20-produce-values-lazily-with-generators.md)
+      - [Passing and returning generators](tutorial/20-produce-values-lazily-with-generators/01-passing-and-returning-generators.md)
     - [21. Understand which values copy and which move](tutorial/21-understand-which-values-copy-and-which-move.md)
     - [22. Borrow instead of transferring ownership](tutorial/22-borrow-instead-of-transferring-ownership.md)
     - [23. Cleanup and early drop](tutorial/23-cleanup-and-early-drop.md)

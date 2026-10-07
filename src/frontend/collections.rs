@@ -1061,9 +1061,14 @@ impl Lower<'_> {
         }
         if name == "new" {
             if let Expression::Name(function) = &ungroup(base).kind {
-                let constructor = generators::constructor(function);
-                if !self.names.contains_key(function) && self.sigs.contains_key(&constructor) {
-                    return self.call_named(&constructor, args, &base.at, ops);
+                if !self.names.contains_key(function)
+                    && self
+                        .generics
+                        .functions
+                        .get(function)
+                        .is_some_and(|f| generators::yields(&f.body))
+                {
+                    return self.call_named(function, args, &base.at, ops);
                 }
             }
             if let Expression::Member(owner, variant) = &ungroup(base).kind {

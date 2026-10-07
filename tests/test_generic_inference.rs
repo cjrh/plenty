@@ -101,7 +101,7 @@ def identity[T](x: T) -> T:
     x
 def main() -> Result[(), Failure]:
     print(down(10000i32))?
-    print(collect(once(8u8)?)?)?
+    print(collect(once(8u8))?)?
     values = [Some(2u8), Nothing]?
     for value in values:
         match value:

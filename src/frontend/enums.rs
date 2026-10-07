@@ -197,6 +197,7 @@ pub(super) fn resolve_types(
                             name: e.name.clone(),
                             managed: true,
                             inline_range: false,
+                            payload_bytes: std::cell::OnceCell::new(),
                             affine: variants.iter().flat_map(|v| &v.fields).any(Ty::affine),
                             copyable: variants.iter().flat_map(|v| &v.fields).all(Ty::can_copy),
                             has_destructor: variants
@@ -313,7 +314,7 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        let Ty::Enum(t) = ty else {
+        let Ty::Enum(mut t) = ty else {
             return Err(at.error("variant qualification requires an enum type"));
         };
         if !t.inline() && t.depth >= 64 {
@@ -324,7 +325,7 @@ impl Lower<'_> {
             .iter()
             .position(|v| v.name == name)
             .ok_or_else(|| at.error(format!("unknown variant `{}.{name}`", t.name)))?;
-        let fields = &t.variants[tag].fields;
+        let fields = t.variants[tag].fields.clone();
         if fields.is_empty() && args.is_some() {
             return Err(at.error("nullary variants do not take parentheses"));
         }
@@ -334,14 +335,28 @@ impl Lower<'_> {
                 fields.len()
             )));
         }
-        for (arg, field) in args.unwrap_or(&[]).iter().zip(fields) {
+        for (arg, field) in args.unwrap_or(&[]).iter().zip(&fields) {
             let expected = if *field == Ty::Unit {
                 None
             } else {
                 Some(field.clone())
             };
             let actual = self.expr_expected(arg, expected.clone(), ops)?;
-            self.same(actual, expected, &arg.at)?;
+            self.same(actual.clone(), expected, &arg.at)?;
+            if t.propagatable() && field.unresolved_generator() {
+                let resolved = crate::generator::refine(field, &actual.unwrap()).unwrap();
+                let updated = if t.is_option() {
+                    crate::sum::option(resolved)
+                } else if tag == 0 {
+                    crate::sum::result(resolved, t.variants[1].fields[0].clone())
+                } else {
+                    crate::sum::result(t.variants[0].fields[0].clone(), resolved)
+                };
+                let Ty::Enum(updated) = updated else {
+                    unreachable!()
+                };
+                t = updated;
+            }
             if *field == Ty::Unit {
                 ops.push(Op::PushUnit);
             }

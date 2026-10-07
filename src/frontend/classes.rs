@@ -109,6 +109,7 @@ impl ClassDecl {
 
 fn type_ref(at: &Token, name: &str) -> TypeRef {
     TypeRef {
+        concrete: None,
         at: at.clone(),
         name: Some(name.into()),
         args: vec![],
@@ -142,6 +143,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             let mut inputs = vec![(
                 "self".into(),
                 TypeRef {
+                    concrete: None,
                     at: at.clone(),
                     name: Some("&mut".into()),
                     args: vec![type_ref(at, &class.name)],
@@ -170,6 +172,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 at: at.clone(),
                 inputs,
                 output: TypeRef {
+                    concrete: None,
                     at: at.clone(),
                     name: None,
                     args: vec![],
@@ -222,6 +225,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             let init = expression(at, Expression::Call(method(&class.name, "__init__"), args));
             let allocation = expression(at, Expression::ClassNew(ty.clone()));
             let output = TypeRef {
+                concrete: None,
                 at: at.clone(),
                 name: Some("Result".into()),
                 args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],

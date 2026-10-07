@@ -16,7 +16,7 @@ def once() -> Generator[i64]:
     yield 42
 
 def main() -> Result[(), Failure]:
-    first = once()?
+    first = once()
     second = first
     print(list(second)?)?
     Ok(())
@@ -33,7 +33,7 @@ def once() -> Generator[i64]:
     yield 42
 
 def main() -> ():
-    first = once().unwrap()
+    first = once()
     second = first
     list(first).unwrap()
     pass

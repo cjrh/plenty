@@ -17,7 +17,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// unsigned, so the program's memory footprint and overflow semantics are
 /// declared on the surface rather than hidden behind a polymorphic "Int".
 /// Collections, enums, and generators carry resolved concrete type metadata;
-/// user generics remain deferred.
+/// generic functions are specialized before native lowering.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     I8,
@@ -41,22 +41,18 @@ pub enum Ty {
     Range(Rc<Ty>),
     Enum(Rc<crate::sum::EnumType>),
     Class(Rc<crate::record::ClassType>),
-    Generator(Rc<Ty>),
+    Generator(Rc<crate::generator::GeneratorType>),
     Ref(Rc<Ty>, bool),
 }
 
 impl Ty {
-    /// A runtime slot carries its normal bits followed by an inline range when
-    /// needed. Standard sum tags remain in the ordinary 128-bit representation.
+    /// Range payloads also occur inside standard sums. Tags remain in the
+    /// ordinary 128-bit representation; slot_bytes includes owner-local payloads.
     pub fn has_inline_range(&self) -> bool {
         matches!(self, Self::Range(_)) || matches!(self, Self::Enum(t) if t.inline_range)
     }
     pub fn slot_bytes(&self) -> usize {
-        if self.has_inline_range() {
-            48
-        } else {
-            16
-        }
+        16 + self.inline_bytes()
     }
     pub fn inline_sum(&self) -> bool {
         matches!(self, Self::Enum(t) if t.inline())
@@ -69,7 +65,8 @@ impl Ty {
     }
     pub fn layout_depth(&self) -> usize {
         match self {
-            Self::List(t) | Self::Set(t) | Self::Generator(t) => 1 + t.layout_depth(),
+            Self::List(t) | Self::Set(t) => 1 + t.layout_depth(),
+            Self::Generator(t) => 1 + t.element.layout_depth(),
             Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
             Self::Enum(t) => t.depth,
             Self::Class(t) => t.depth,
@@ -118,7 +115,8 @@ impl Ty {
             _ => false,
         }
     }
-    /// Heap values have one owner per operand/local; scalars are copied as bits.
+    /// Values requiring cleanup have one owner per operand/local. This includes
+    /// inline generators as well as heap-backed values; scalars copy as bits.
     pub fn managed(&self) -> bool {
         if let Self::Enum(t) = self {
             if t.inline() {
@@ -194,7 +192,13 @@ impl fmt::Display for Ty {
             }
             Ty::Enum(t) => return f.write_str(&t.name),
             Ty::Class(t) => return f.write_str(&t.name),
-            Ty::Generator(t) => return write!(f, "Generator[{t}]"),
+            Ty::Generator(t) => {
+                write!(f, "Generator[{}]", t.element)?;
+                if let Some(name) = &t.name {
+                    write!(f, " from `{name}`")?;
+                }
+                return Ok(());
+            }
             Ty::Ref(t, mutable) => return write!(f, "&{}{t}", if *mutable { "mut " } else { "" }),
         })
     }
@@ -1200,7 +1204,7 @@ fn step(
             let Some(Ty::Generator(element)) = locals.get(*slot as usize) else {
                 return Err("next requires a generator local".into());
             };
-            stack.push(crate::sum::option((**element).clone()));
+            stack.push(crate::sum::option(element.element.clone()));
         }
         Op::DropLocal(i) => {
             locals.get(*i as usize).ok_or("invalid drop local")?;

@@ -25,7 +25,7 @@ def numbers() -> Generator[i64]:
     yield 2
     yield 4
 print(list[i64].from(range(3))).unwrap()
-print(list[i64].from(numbers().unwrap())).unwrap()
+print(list[i64].from(numbers())).unwrap()
 print(list[list[i64]].from([[1].unwrap(), [2].unwrap()].unwrap())).unwrap()
 "#, "Result[list[i64], AllocError].Ok([0, 1, 2])\nResult[list[i64], AllocError].Ok([2, 4])\nResult[list[list[i64]], AllocError].Ok([[1], [2]])");
 }
@@ -96,7 +96,7 @@ def numbers(r: Resource) -> Generator[i64]:
     yield 4
     print("unexpected continuation").unwrap()
     yield r.n
-source = numbers(Resource(7).unwrap()).unwrap()
+source = numbers(Resource(7).unwrap())
 print("__test_fail_allocations_after_1__").unwrap()
 result = set[i64].from(source)
 print("__test_restore_allocations__").unwrap()

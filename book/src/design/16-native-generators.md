@@ -7,14 +7,25 @@ generators in collection/class storage, printing, comparison, or nested yields.
 References remain prohibited in standard sum payloads.
 
 Use ordinary call syntax to construct a generator: `generator_function(arguments)`
-returns `Result[Generator[T], AllocError]`. The `.new(arguments)` spelling remains
-an equivalent alias. Arguments evaluate first and move into the
-constructor. Allocation failure releases them; success transfers them into the
-frame without executing the body. There is no public aborting frame constructor.
-Frame destruction remains allocation-free and does not resume the body.
+returns the generator directly. The `.new(arguments)` spelling remains an
+equivalent alias. Frame construction needs no heap allocation and does not run
+the body. Arguments evaluate first and move into the frame; their own allocation
+and error contracts still apply. Frame destruction needs no allocation and does
+not resume the body.
 
-Generator construction uses one emitted resume function and one immutable frame
-descriptor; selecting the checked constructor never duplicates the body.
+Each generator body and specialization has a distinct concrete frame type,
+one emitted resume function, and one immutable frame descriptor.
+`Generator[T]` in source describes the yield contract. Local annotations preserve
+the initializer's concrete type. Parameters, including references and standard
+sum wrappers, specialize by the actual frame types supplied at the call site.
+Aliases obey the same rules, and explicit generic type arguments remain optional
+when inferred from arguments.
+
+A factory returning `Generator[T]` must resolve to one concrete producer per
+specialization; different producers cannot join merely because they yield the
+same type. Standard sum payloads each retain their own concrete identity.
+An empty-only factory cannot infer a producer from `Nothing` or `Err` alone.
+No hidden boxing or size-erased owned generator is introduced.
 
 A function containing `yield` declares `Generator[T]`. Calls evaluate arguments
 and create an owned frame without running the body. Each resume executes native
@@ -38,18 +49,28 @@ Each generator has a concrete constructor and native resume function. The frame
 owns parameters and all locals in typed slots, plus immutable slot-type metadata,
 resume callback, continuation state, and reentrancy guard. Resume has the internal
 C ABI `(frame, out_slot) -> ready`; successful yields transfer an owned value.
-Completion clears owned slots and marks exhaustion. Dropping any state frees
+Completion clears owned slots and marks exhaustion. Dropping any state releases
 remaining captures without resuming the source body.
 
 Ordinary slots use 16 bytes. A range or standard sum containing a range adds a
 32-byte inline payload, so ranges captured or created in a suspended frame do not
 refer to expired caller/resume storage. Yielded ranges copy into caller-provided
-storage. Generator frames themselves still allocate.
+storage. Generator slots reserve their complete concrete payload after the
+ordinary value bits. Standard sums reserve the largest possible inline payload
+among their variants. Frames can contain other generator frames.
 
-The runtime also supports initializing frames in caller-owned storage, moving
-their nested inline payloads, and destroying them synchronously without freeing
-the enclosing storage. Native generator calls still use heap frames until the
-compiler preserves concrete frame layouts throughout type checking and lowering.
+Constructors and returning functions use caller-owned output storage. Moves
+relocate nested inline payloads without allocating, and cleanup finishes
+synchronously before the enclosing storage expires, including inside drop hooks.
+Calls passing or returning inline storage (or references to it) use ordinary
+calls when a native tail call could invalidate that storage.
+
+Frame layouts are cached per concrete producer. Recursive inline layouts are
+rejected; nested layouts are limited to 64 levels and native frame offsets to
+signed 32-bit sizes. Consumer specializations are cached and limited to 256 per
+compilation. Factories whose return annotations contain unresolved frames are
+checked again with the inferred return context, so empty sum variants and early
+propagation use the same layout on every path.
 
 Integration deliberately reuses the checked structured operation tree instead
 of introducing a second source IR in this batch. `Yield` requires an empty

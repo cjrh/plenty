@@ -99,7 +99,8 @@ Supported today:
 - `?` propagation with cleanup; `Result[T, Failure]` explicitly discards error
   details when only success or failure matters, without allocating a wrapper.
 - `Generator[T]` functions with `yield`, consuming iteration, and `next` returning
-  `Option[T]`. Assignment and calls move generators; invalid reuse is checked.
+  `Option[T]`. Frames are allocation-free and construction returns the generator
+  directly. Assignment and calls move generators; invalid reuse is checked.
 - One immutable `str` with explicit lengths and embedded NUL support. Managed
   values are reclaimed automatically; `drop(value)` allows early cleanup.
 - `class` records with typed fields, generated field constructors or explicit

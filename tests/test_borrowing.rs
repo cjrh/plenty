@@ -50,8 +50,8 @@ use std::process::Command;
 )]
 #[case("def add(xs: &mut list[i64]) -> ():\n    xs.append(len(xs)).unwrap()\ndef twice(xs: &mut list[i64]) -> ():\n    add(xs)\n    add(&mut xs)\nmut a = [7].unwrap()\ntwice(&mut a)\nprint(a).unwrap()", "[7, 1, 2]\n")]
 #[case("def count(xs: &list[i64]) -> i64:\n    mut n = 0\n    for x in xs:\n        n = n + x\n    n\na = [1, 2, 3].unwrap()\nprint(count(&a)).unwrap()\nprint(a).unwrap()", "6\n[1, 2, 3]\n")]
-#[case("def g() -> Generator[i64]:\n    yield 3\ndef advance(g: &mut Generator[i64]) -> Option[i64]:\n    next(g)\nmut it = g().unwrap()\nprint(advance(&mut it)).unwrap()\nprint(next(it)).unwrap()", "Option[i64].Some(3)\nOption[i64].Nothing\n")]
-#[case("def g() -> Generator[i64]:\n    mut a = [1].unwrap()\n    r = &mut a\n    r.append(2).unwrap()\n    yield len(a)\n    yield 3\nprint(list(g().unwrap()).unwrap()).unwrap()", "[2, 3]\n")]
+#[case("def g() -> Generator[i64]:\n    yield 3\ndef advance(g: &mut Generator[i64]) -> Option[i64]:\n    next(g)\nmut it = g()\nprint(advance(&mut it)).unwrap()\nprint(next(it)).unwrap()", "Option[i64].Some(3)\nOption[i64].Nothing\n")]
+#[case("def g() -> Generator[i64]:\n    mut a = [1].unwrap()\n    r = &mut a\n    r.append(2).unwrap()\n    yield len(a)\n    yield 3\nprint(list(g()).unwrap()).unwrap()", "[2, 3]\n")]
 #[case(
     "mut a = [1].unwrap()\nr = &a\nif True:\n    print(r).unwrap()\nelse:\n    print(r).unwrap()\na.append(2).unwrap()\nprint(a).unwrap()",
     "[1]\n[1, 2]\n"
@@ -145,7 +145,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 #[case("x = 1\nprint(*x).unwrap()", "dereference requires")]
 #[case("a = [1].unwrap()\nx = [&a].unwrap()", "cannot be stored")]
 #[case(
-    "def g() -> Generator[i64]:\n    yield 1\nmut it = g().unwrap()\nfor x in &it:\n    pass",
+    "def g() -> Generator[i64]:\n    yield 1\nmut it = g()\nfor x in &it:\n    pass",
     "borrowed generator iteration"
 )]
 #[case(

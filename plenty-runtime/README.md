@@ -33,6 +33,10 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   start/stop/step/length. Those payloads live in the same local, aggregate buffer,
   record, or generator frame as their slots; relocations repair their private
   addresses. Plain ranges have no ownership header or separate heap allocation.
+  Generator slots reserve their concrete frame size, and standard sums reserve
+  the largest inline payload of their variants. Moving a frame rebases nested
+  frames and ranges. Inline generator cleanup completes synchronously without
+  freeing its owner-provided storage, including during a user destructor.
   Floats use their IEEE bit patterns (`f32` in the low 32 bits), and unit payloads
   use zero. Aggregate calls pass aligned input/output slot pointers, avoiding a
   dependency on the platform's C ABI for 128-bit integers. Float equality follows IEEE
@@ -241,7 +245,8 @@ Cranelift-generated machine code.
 Aggregate opcode 108 allocates a checked class/enum record and returns an inline
 Result. Opcode 109 activates a class destructor only after successful field
 initialization. Partial instances release fields without calling the class hook.
-`plenty_generator_try_new` consumes a capture buffer into a frame or releases its
-entries on allocation failure, returning a Result through an aligned output slot.
-Its resume callback and metadata are shared with ordinary generator construction.
+`plenty_generator_init` transfers captures into caller-owned frame storage without
+allocating or executing the body. The compiler supplies the exact frame layout,
+resume callback, and immutable slot metadata. Arguments and generator bodies
+retain their own fallible allocation operations.
 These interfaces are internal compiler/runtime ABIs, not public foreign layouts.

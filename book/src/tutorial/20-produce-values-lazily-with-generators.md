@@ -11,7 +11,7 @@ def countdown(start: i64) -> Generator[i64]:
         remaining = remaining - 1
 
 def main() -> Result[(), Failure]:
-    numbers = countdown(3)?
+    numbers = countdown(3)
     print("created")?
     for number in numbers:
         print(number)?
@@ -26,10 +26,12 @@ starting
 1
 ```
 
+Construction returns the generator directly, with no heap allocation or `?`.
 Calling the function evaluates its arguments immediately, but its body starts
 only when iteration requests the first value. Each yield pauses the body and
 keeps its locals for the next request. A bare return or the end of the body
-finishes the generator. It cannot return a value.
+finishes the generator. It cannot return a value. Allocating expressions in its
+arguments or body still require their usual error handling.
 
 Comprehensions and collection constructors also consume generators:
 
@@ -39,8 +41,8 @@ def numbers(limit: i64) -> Generator[i64]:
         yield n
 
 def main() -> Result[(), Failure]:
-    print([n * n for n in numbers(6)? if n % 2 == 1]?)?
-    print(list(numbers(3)?)?)?
+    print([n * n for n in numbers(6) if n % 2 == 1]?)?
+    print(list(numbers(3))?)?
     Ok(())
 ```
 
@@ -57,7 +59,7 @@ def once() -> Generator[str]:
     yield "hello"
 
 def main() -> Result[(), Failure]:
-    mut messages = once()?
+    mut messages = once()
     print(next(messages))?
     print(next(messages))?
     print(next(messages))?
@@ -73,5 +75,6 @@ Option[str].Nothing
 Breaking out of consuming iteration drops the suspended generator without
 executing the statements after its last yield. There are no generator expressions,
 `yield from`, `send`, or async operations. Yielded owned values transfer ownership; use `yield copy(value)` to retain an
-independent mutable value in the generator. A generator may yield strings,
+independent mutable value in the generator (handle the copy's `Result` first).
+A generator may yield strings,
 collections, classes, and enums, but not another generator.

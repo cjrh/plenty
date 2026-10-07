@@ -64,7 +64,7 @@ def values() -> Generator[str]:
     yield "é\0🦀"
 
 def main() -> ():
-    print(list(values().unwrap()).unwrap()).unwrap()
+    print(list(values()).unwrap()).unwrap()
     drop(Resource("done").unwrap())
 "#,
     )

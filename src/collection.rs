@@ -119,7 +119,7 @@ impl Ty {
             Self::List(t) | Self::Set(t) | Self::Dict(t, _) => Some((**t).clone()),
             Self::Range(t) => Some((**t).clone()),
             Self::Str => Some(crate::sum::result(Self::Str, crate::sum::alloc_error())),
-            Self::Generator(t) => Some((**t).clone()),
+            Self::Generator(t) => Some(t.element.clone()),
             _ => None,
         }
     }

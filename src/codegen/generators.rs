@@ -26,10 +26,7 @@ pub(super) fn emit_generator(
     module: &mut ObjectModule,
 ) -> Result<()> {
     let decl = &fns[name];
-    // Both entry points use the same frame shape and compiled resume body.
-    let original = name.strip_prefix("__plenty_try_generator_").unwrap_or(name);
-    let fallible = original != name;
-    let resume_id = fns[original].resume.unwrap();
+    let resume_id = decl.resume.unwrap();
     let slot_types: Vec<_> = decl
         .sig
         .inputs
@@ -38,12 +35,12 @@ pub(super) fn emit_generator(
         .chain(decl.locals.iter().cloned())
         .collect();
     let mask_id = module.declare_data(
-        &format!("__plenty_frame_{original}"),
+        &format!("__plenty_frame_{name}"),
         Linkage::Local,
         false,
         false,
     )?;
-    if !fallible {
+    {
         let mut mask = DataDescription::new();
         mask.define(vec![0; slot_types.len().max(1) * 8].into_boxed_slice());
         mask.set_align(8);
@@ -87,28 +84,15 @@ pub(super) fn emit_generator(
             b.ins()
                 .store(MemFlags::trusted(), value, captures, i as i32 * 16);
         }
-        let out = b.ins().iadd_imm(captures, (n * 16) as i64);
+        let frame = b.block_params(entry)[n];
         let n = b.ins().iconst(types::I64, n as i64);
-        let new = module.declare_func_in_func(runtime.generator_try_new, b.func);
+        let init = module.declare_func_in_func(runtime.generator_init, b.func);
         b.ins()
-            .call(new, &[callback, count, mask, captures, n, out]);
-        let result = b.ins().load(types::I128, MemFlags::trusted(), out, 0);
-        if fallible {
-            b.ins().return_(&[result]);
-        } else {
-            let tags = b.ins().ushr_imm(result, 64);
-            let tags = b.ins().ireduce(types::I64, tags);
-            b.ins().trapnz(tags, TrapCode::unwrap_user(4));
-            let frame = b.ins().ireduce(PTR_TY, result);
-            b.ins().return_(&[frame]);
-        }
+            .call(init, &[frame, callback, count, mask, captures, n]);
+        b.ins().return_(&[frame]);
         b.finalize();
     }
     module.define_function(decl.id, &mut ctx)?;
-
-    if fallible {
-        return Ok(());
-    }
 
     let mut ctx = Context::new();
     ctx.func = Function::with_name_signature(
@@ -143,7 +127,7 @@ pub(super) fn emit_generator(
             terminated: false,
             loop_targets: Vec::new(),
             local_frame: None,
-            return_range: None,
+            return_storage: None,
             collection_scratch: None,
             generator: Some(GeneratorContext {
                 frame,
@@ -186,10 +170,10 @@ impl Lowerer<'_, '_> {
         let Ty::Generator(element) = self.locals[slot as usize].1.clone() else {
             return Err("next requires generator".into());
         };
-        let output = crate::sum::option((*element).clone());
+        let output = crate::sum::option(element.element.clone());
         let frame = self.read_local(slot);
         let value = self.collection_call(24, &[frame], Some(&output))?;
-        let value = self.snapshot_range(value, &output);
+        let value = self.snapshot_inline(value, &output);
         self.stack.push((value, output));
         Ok(())
     }
@@ -200,7 +184,7 @@ impl Lowerer<'_, '_> {
         }
         let out = self.generator.as_ref().unwrap().out;
         let destination = self.bcx.ins().iadd_imm(out, 16);
-        let value = self.copy_range_to(value, ty, destination);
+        let value = self.copy_inline_to(value, ty, destination);
         let value = self.pack(value, ty);
         let g = self.generator.as_mut().ok_or("yield outside generator")?;
         let next = self.bcx.create_block();

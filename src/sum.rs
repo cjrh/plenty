@@ -15,6 +15,8 @@ pub struct EnumType {
     pub has_destructor: bool,
     pub managed: bool,
     pub inline_range: bool,
+    /// Layout cache, excluded from nominal type equality and hashing.
+    pub payload_bytes: std::cell::OnceCell<usize>,
 }
 impl PartialEq for EnumType {
     fn eq(&self, other: &Self) -> bool {
@@ -67,6 +69,7 @@ pub fn failure() -> Ty {
         has_destructor: false,
         managed: false,
         inline_range: false,
+        payload_bytes: std::cell::OnceCell::new(),
     }))
 }
 
@@ -88,6 +91,7 @@ pub fn alloc_error() -> Ty {
         has_destructor: false,
         managed: false,
         inline_range: false,
+        payload_bytes: std::cell::OnceCell::new(),
     }))
 }
 
@@ -154,6 +158,7 @@ pub fn tuple(fields: Vec<Ty>) -> Ty {
         restricted_storage: fields.iter().any(Ty::restricted_storage),
         managed: true,
         inline_range: false,
+        payload_bytes: std::cell::OnceCell::new(),
         variants: vec![Variant {
             name: String::new(),
             fields,
@@ -171,6 +176,7 @@ pub fn option(element: Ty) -> Ty {
         has_destructor: element.has_destructor(),
         managed: element.managed(),
         inline_range: element.has_inline_range(),
+        payload_bytes: std::cell::OnceCell::new(),
         variants: vec![
             Variant {
                 name: "Nothing".into(),
@@ -193,6 +199,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
         has_destructor: ok.has_destructor() || error.has_destructor(),
         managed: ok.managed() || error.managed(),
         inline_range: ok.has_inline_range() || error.has_inline_range(),
+        payload_bytes: std::cell::OnceCell::new(),
         variants: vec![
             Variant {
                 name: "Ok".into(),

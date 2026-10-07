@@ -112,9 +112,9 @@ print(h).unwrap()
 mut items: list[Result[Option[u64], str]] = [Ok(Some(18446744073709551615u64)), Err("bad")].unwrap()
 print(copy(items).unwrap()).unwrap()
 print(items[0]).unwrap()
-for value in values(Ok(Some(-0.0))).unwrap():
+for value in values(Ok(Some(-0.0))):
     print(value).unwrap()
-mut it = values(Ok(Nothing)).unwrap()
+mut it = values(Ok(Nothing))
 print(next(it)).unwrap()
 drop(it)
 "#, "Holder(value=Option[list[i64]].Some([9]))\n[Result[Option[u64], str].Ok(Option[u64].Some(18446744073709551615)), Result[Option[u64], str].Err(\"bad\")]\nResult[Option[u64], str].Ok(Option[u64].Some(18446744073709551615))\nResult[Option[f64], str].Ok(Option[f64].Some(-0.0))\nResult[Option[f64], str].Err(\"end\")\nOption[Result[Option[f64], str]].Some(Result[Option[f64], str].Ok(Option[f64].Nothing))\n");
@@ -244,7 +244,7 @@ fn generator_next_and_stored_sum_reads_add_no_allocations() {
 def values() -> Generator[i64]:
     yield 42
 def main() -> ():
-    mut it = values().unwrap()
+    mut it = values()
     stored = [Some(7)].unwrap()
     print("__test_begin_no_allocations__").unwrap()
     first = next(it)

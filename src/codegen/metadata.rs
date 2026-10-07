@@ -25,6 +25,10 @@ fn define(
 fn word(bytes: &mut [u8], offset: usize, value: usize) {
     bytes[offset..offset + 8].copy_from_slice(&(value as u64).to_ne_bytes());
 }
+#[expect(
+    clippy::mutable_key_type,
+    reason = "generator layout caches never participate in type equality or hashing"
+)]
 fn reflexive(ty: &Ty, seen: &mut std::collections::HashSet<Ty>) -> bool {
     if !seen.insert(ty.clone()) {
         return true;
@@ -84,6 +88,7 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
     bytes[1] = u8::from(ty.affine());
     bytes[2] = u8::from(reflexive(ty, &mut Default::default()));
     bytes[3] = u8::from(ty.has_inline_range());
+    bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());
     let mut links = Vec::new();
     match ty {
         Ty::List(t) | Ty::Set(t) | Ty::Range(t) => links.push((8, declare(module, runtime, t)?)),

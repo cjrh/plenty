@@ -26,7 +26,7 @@ def numbers() -> Generator[i64]:
     yield 4
     yield 8
 def build() -> Result[Generator[i64], AllocError]:
-    Ok(numbers().unwrap())
+    Ok(numbers())
 def consume() -> Result[i64, AllocError]:
     mut source = build()?
     mut total = 0
@@ -50,21 +50,21 @@ class Resource:
 def numbers(resource: Resource) -> Generator[i64]:
     print("resumed").unwrap()
     yield resource.n
-drop(Some(numbers(Resource(7).unwrap()).unwrap()))
+drop(Some(numbers(Resource(7).unwrap())))
 "#,
         "7",
     );
 }
 
 #[test]
-fn checked_generator_constructor_defers_execution_and_propagates() {
+fn generator_constructor_defers_execution() {
     native(
         r#"
 def numbers(n: i64) -> Generator[i64]:
     print("resumed").unwrap()
     yield n
 def consume() -> Result[i64, AllocError]:
-    mut source = numbers.new(12)?
+    mut source = numbers.new(12)
     print("created").unwrap()
     match next(source):
         case Some(n):
@@ -88,7 +88,7 @@ fn generator_entry_points_share_native_resume_code() {
 def numbers() -> Generator[i64]:
     yield 5
 def main() -> ():
-    print(list(numbers().unwrap()).unwrap()).unwrap()
+    print(list(numbers()).unwrap()).unwrap()
     drop(numbers.new())
 "#,
     )
@@ -120,7 +120,7 @@ def main() -> ():
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn checked_frame_failure_releases_moved_captures() {
+fn inline_frame_creation_and_drop_release_captures_with_allocation_disabled() {
     native(
         r#"
 def numbers(values: list[i64]) -> Generator[i64]:
@@ -129,15 +129,12 @@ def numbers(values: list[i64]) -> Generator[i64]:
         yield n
 values = [1, 2].unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
-result = numbers.new(values)
+source = numbers(values)
+drop(source)
 print("__test_restore_allocations__").unwrap()
-match result:
-    case Ok(source):
-        print("unexpected success").unwrap()
-    case Err(error):
-        print(error).unwrap()
+print("finished").unwrap()
 drop(numbers.new([3].unwrap()))
 "#,
-        "AllocError.OutOfMemory",
+        "finished",
     );
 }

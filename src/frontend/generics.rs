@@ -38,6 +38,11 @@ pub(super) fn prepare(
         templates: HashMap::new(),
         cache: HashMap::new(),
         pending: VecDeque::new(),
+        functions: HashMap::new(),
+        compiled: Vec::new(),
+        active: HashSet::new(),
+        completed: HashSet::new(),
+        frames: HashMap::new(),
     };
     let mut names = HashSet::new();
     for f in functions {
@@ -48,6 +53,7 @@ pub(super) fn prepare(
             )));
         }
         if f.type_params.is_empty() {
+            engine.functions.insert(f.name.clone(), f.clone());
             engine.pending.push_back(f);
         } else {
             if f.name == "main" {
@@ -80,19 +86,24 @@ pub(super) struct Engine {
     pub(super) templates: HashMap<String, Rc<Function>>,
     cache: HashMap<(String, Vec<Ty>), String>,
     pub(super) pending: VecDeque<Function>,
+    pub(super) functions: HashMap<String, Function>,
+    pub(super) compiled: Vec<Op>,
+    pub(super) active: HashSet<String>,
+    pub(super) completed: HashSet<String>,
+    pub(super) frames: HashMap<(String, Vec<Ty>), String>,
 }
 
 type Substitution = HashMap<String, TypeRef>;
 
 /// Reify concrete types without parsing their display names or losing nominal identity.
-fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
+pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
     let (name, children): (Option<String>, Vec<&Ty>) = match ty {
         Ty::Unit => (None, vec![]),
         Ty::List(t) => (Some("list".into()), vec![t]),
         Ty::Set(t) => (Some("set".into()), vec![t]),
         Ty::Dict(k, v) => (Some("dict".into()), vec![k, v]),
         Ty::Range(t) => (Some("range".into()), vec![t]),
-        Ty::Generator(t) => (Some("Generator".into()), vec![t]),
+        Ty::Generator(t) => (Some("Generator".into()), vec![&t.element]),
         Ty::Ref(t, mutable) => (Some(if *mutable { "&mut" } else { "&" }.into()), vec![t]),
         Ty::Enum(t) if t.is_option() => (Some("Option".into()), vec![&t.variants[1].fields[0]]),
         Ty::Enum(t) if t.propagatable() => (
@@ -103,6 +114,7 @@ fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         _ => (Some(ty.to_string()), vec![]),
     };
     TypeRef {
+        concrete: Some(ty.clone()),
         at: at.clone(),
         name,
         args: children.into_iter().map(|t| type_ref(t, at)).collect(),
@@ -147,16 +159,16 @@ fn infer(
     }
     if !mentions_parameter(pattern, template) {
         let expected = pattern.resolve(aliases)?.unwrap_or(Ty::Unit);
-        if expected != *actual {
+        if crate::generator::refine(&expected, actual).is_none() {
             return Err(at.error(format!("expected {expected}, got {actual}")));
         }
         return Ok(());
     }
     let children: Option<Vec<&Ty>> = match (pattern.name.as_deref(), actual) {
-        (Some("list"), Ty::List(t))
-        | (Some("set"), Ty::Set(t))
-        | (Some("range"), Ty::Range(t))
-        | (Some("Generator"), Ty::Generator(t)) => Some(vec![t]),
+        (Some("list"), Ty::List(t)) | (Some("set"), Ty::Set(t)) | (Some("range"), Ty::Range(t)) => {
+            Some(vec![t])
+        }
+        (Some("Generator"), Ty::Generator(t)) => Some(vec![&t.element]),
         (Some("dict"), Ty::Dict(k, v)) => Some(vec![k, v]),
         (Some("&"), Ty::Ref(t, false)) | (Some("&mut"), Ty::Ref(t, true)) => Some(vec![t]),
         (Some("Option"), Ty::Enum(t)) if t.is_option() => Some(vec![&t.variants[1].fields[0]]),
@@ -182,7 +194,14 @@ impl Lower<'_> {
                 .instantiate(name, actual, at, self.aliases, self.access)?;
         if let Some(f) = function {
             register_signature(&f, self.aliases, self.sigs, self.returned_fields)?;
-            self.generics.pending.push_back(f);
+            self.generics.functions.insert(f.name.clone(), f.clone());
+            if !self.sigs[&f.name]
+                .inputs
+                .iter()
+                .any(|(_, t)| t.unresolved_generator())
+            {
+                self.generics.pending.push_back(f);
+            }
         }
         Ok(symbol)
     }
@@ -219,10 +238,16 @@ impl Lower<'_> {
         }
         let mut inferred = HashMap::new();
         let mut loans = Vec::new();
+        let mut arguments = Vec::new();
         // Lower once, left to right, using ordinary ownership and borrow rules.
         // Generic positions get no contextual type: literals use their defaults.
         for (arg, (_, pattern)) in args.iter().zip(&template.inputs) {
-            let ty = if !mentions_parameter(pattern, &template) {
+            let ty = if !mentions_parameter(pattern, &template)
+                && !pattern
+                    .resolve(self.aliases)?
+                    .as_ref()
+                    .is_some_and(Ty::unresolved_generator)
+            {
                 let expected = pattern
                     .resolve(self.aliases)?
                     .ok_or_else(|| pattern.at.error("unit parameters are not supported yet"))?;
@@ -248,17 +273,13 @@ impl Lower<'_> {
                 self.aliases,
                 &arg.at,
             )?;
+            arguments.push(ty);
         }
         let actual = template.type_params.iter().map(|(param, _)| {
             inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from its arguments; supply explicit type arguments")))
         }).collect::<Result<_>>()?;
         let symbol = self.specialize(name, actual, at)?;
-        let constructor = generators::constructor(&symbol);
-        let callee = if self.sigs.contains_key(&constructor) {
-            constructor
-        } else {
-            symbol
-        };
+        let callee = self.specialize_frames(&symbol, arguments, at)?;
         let sig = self.sigs[&callee].clone();
         ops.push(Op::Call(callee.clone()));
         self.call_reference_result(&callee, &sig, &loans, ops);
@@ -518,6 +539,45 @@ fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_generator_calls_share_consumer_specializations_and_resume_bodies() {
+        let mut source = String::from("def values() -> Generator[i64]:\n    yield 1\ndef factory() -> Generator[i64]:\n    values()\ndef consume(source: Generator[i64]) -> ():\n    drop(source)\ndef main() -> ():\n");
+        for _ in 0..100 {
+            source.push_str("    consume(factory())\n    consume(values())\n");
+        }
+        source.push_str("    pass\n");
+        let program = compile(&source, &mut Heap::default()).unwrap();
+        let functions: Vec<_> = program
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::DefineFn(name, f) => Some((name, f)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            functions
+                .iter()
+                .filter(|(name, _)| name.starts_with("__plenty_frame_call_"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            functions
+                .iter()
+                .filter(|(_, f)| f.generator.is_some())
+                .count(),
+            1
+        );
+        assert_eq!(
+            functions
+                .iter()
+                .filter(|(name, _)| *name == "factory")
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn explicit_inferred_alias_and_recursive_calls_share_one_specialization() {

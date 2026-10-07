@@ -346,6 +346,8 @@ struct Function {
 
 #[derive(Clone)]
 struct TypeRef {
+    /// Internal substitutions preserve inferred frame identities directly.
+    concrete: Type,
     at: Token,
     /// None denotes unit, spelled `()`.
     name: Option<String>,
@@ -363,6 +365,9 @@ impl TypeRef {
         Ok(ty)
     }
     fn resolve_inner(&self, aliases: &TypeAliases) -> Result<Type> {
+        if let Some(ty) = &self.concrete {
+            return Ok(Some(ty.clone()));
+        }
         let Some(name) = &self.name else {
             return Ok(None);
         };
@@ -418,7 +423,7 @@ impl TypeRef {
             if element.restricted_storage() {
                 return Err(self.at.error("generators cannot yield generators"));
             }
-            return Ok(Some(Ty::Generator(Rc::new(element))));
+            return Ok(Some(crate::generator::ty(element, None)));
         }
         if matches!(name.as_str(), "Option" | "Result") {
             let count = if name == "Option" { 1 } else { 2 };
@@ -656,6 +661,7 @@ impl Parser {
         if self.eat("&") {
             let name = if self.eat("mut") { "&mut" } else { "&" };
             return Ok(TypeRef {
+                concrete: None,
                 at,
                 name: Some(name.into()),
                 args: vec![self.ty()?],
@@ -671,6 +677,7 @@ impl Parser {
                 self.expect(",")?;
             }
             return Ok(TypeRef {
+                concrete: None,
                 at,
                 name: if args.is_empty() {
                     None
@@ -689,6 +696,7 @@ impl Parser {
                     name.push_str(&self.name()?);
                 }
                 return Ok(TypeRef {
+                    concrete: None,
                     at,
                     name: Some(name),
                     args: self.type_arguments()?,
@@ -760,6 +768,7 @@ impl Parser {
                 class.filter(|_| param == "self" && inputs.is_empty() && !self.peek().is(":"))
             {
                 TypeRef {
+                    concrete: None,
                     at: at.clone(),
                     name: Some(
                         if matches!(name.as_str(), "__init__" | "__del__") {
@@ -770,6 +779,7 @@ impl Parser {
                         .into(),
                     ),
                     args: vec![TypeRef {
+                        concrete: None,
                         at: at.clone(),
                         name: Some(class.into()),
                         args: vec![],
@@ -1471,7 +1481,9 @@ impl Lower<'_> {
         }
     }
     fn same(&self, got: Type, expected: Type, at: &Token) -> Result<()> {
-        if got == expected {
+        if got == expected
+            || matches!((&expected, &got), (Some(a), Some(b)) if crate::generator::refine(a, b).is_some())
+        {
             Ok(())
         } else {
             Err(at.error(format!(
@@ -1923,12 +1935,14 @@ impl Lower<'_> {
         if self.generics.templates.contains_key(name) {
             return self.generic_call(name, None, args, at, ops);
         }
-        let constructor = generators::constructor(name);
-        let name = if self.sigs.contains_key(&constructor) {
-            &constructor
-        } else {
-            name
-        };
+        if self
+            .sigs
+            .get(name)
+            .is_some_and(|s| s.inputs.iter().any(|(_, t)| t.unresolved_generator()))
+        {
+            return self.frame_call(name, args, at, ops);
+        }
+        self.ensure_concrete_output(name, at)?;
         let sig = self
             .sigs
             .get(name)
@@ -2049,6 +2063,9 @@ impl Lower<'_> {
                         let loan = self.check_return_reference(e, ops)?;
                         ops.push(Op::UseLoan(loan));
                     }
+                    if last && self.yield_type.is_none() {
+                        self.refine_return(ty.clone(), &e.at)?;
+                    }
                     ty
                 }
                 Statement::Return(e) => {
@@ -2064,7 +2081,7 @@ impl Lower<'_> {
                         Some(e) => self.expr_expected(e, expected.clone(), &mut returned)?,
                         None => None,
                     };
-                    self.same(ty, expected, &stmt.at)?;
+                    self.refine_return(ty, &stmt.at)?;
                     let returned_loan = if self.return_origin.is_some() {
                         Some(self.check_return_reference(e.as_ref().unwrap(), &returned)?)
                     } else {
@@ -2390,7 +2407,7 @@ fn register_signature(
             .ok_or_else(|| ty.at.error("unit parameters are not supported yet"))?;
         inputs.push((name.clone(), resolved));
     }
-    let output = f.output.resolve(aliases)?;
+    let mut output = f.output.resolve(aliases)?;
     if let Some(Ty::Ref(_, mutable)) = &output {
         let references: Vec<_> = inputs
             .iter()
@@ -2408,15 +2425,11 @@ fn register_signature(
         }
     }
     if generators::yields(&f.body) {
-        if let Some(Ty::Generator(_)) = &output {
-            let result = crate::sum::result(output.clone().unwrap(), crate::sum::alloc_error());
-            sigs.insert(
-                generators::constructor(&f.name),
-                Rc::new(FnSig {
-                    inputs: inputs.clone(),
-                    outputs: vec![result],
-                }),
-            );
+        if let Some(Ty::Generator(t)) = &output {
+            output = Some(crate::generator::ty(
+                t.element.clone(),
+                Some(f.name.clone()),
+            ));
         }
     }
     let outputs = output.into_iter().collect();
@@ -2425,6 +2438,142 @@ fn register_signature(
     if let Some(fields) = references::returned_fields(f, &sigs[&f.name]) {
         returned_fields.insert(f.name.clone(), fields);
     }
+    Ok(())
+}
+
+fn lower_function(
+    f: Function,
+    heap: &mut Heap,
+    sigs: &mut HashMap<String, Rc<FnSig>>,
+    generics: &mut generics::Engine,
+    aliases: &TypeAliases,
+    access: &modules::AccessMap,
+    returned_fields: &mut HashMap<String, Vec<usize>>,
+) -> Result<()> {
+    if generics.completed.contains(&f.name) {
+        return Ok(());
+    }
+    if !generics.active.insert(f.name.clone()) {
+        return Err(f.at.error("recursive generator factory requires a concrete return type; recursive inline frames are not supported"));
+    }
+    let mut sig = Rc::clone(&sigs[&f.name]);
+    let yield_type = if generators::yields(&f.body) {
+        let Some(Ty::Generator(element)) = sig.outputs.first() else {
+            return Err(f
+                .at
+                .error("yield requires a function returning Generator[T]"));
+        };
+        Some(element.element.clone())
+    } else {
+        None
+    };
+    let mut lower = Lower {
+        returned_fields,
+        heap,
+        sigs,
+        generics,
+        aliases,
+        access,
+        names: HashMap::new(),
+        locals: Vec::new(),
+        parameters: sig.inputs.len(),
+        return_type: Some(if yield_type.is_some() {
+            None
+        } else {
+            sig.outputs.first().cloned()
+        }),
+        loop_steps: Vec::new(),
+        loop_scopes: Vec::new(),
+        yield_type: yield_type.clone(),
+        loans: Vec::new(),
+        reference_locals: HashMap::new(),
+        expression_temps: Vec::new(),
+        contexts: Vec::new(),
+        return_origin: if matches!(sig.outputs.first(), Some(Ty::Ref(..))) {
+            sig.inputs
+                .iter()
+                .position(|(_, ty)| matches!(ty, Ty::Ref(..)))
+                .map(|i| i as u8)
+        } else {
+            None
+        },
+    };
+    for (i, (name, ty)) in sig.inputs.iter().enumerate() {
+        lower.names.insert(
+            name.clone(),
+            Local {
+                slot: i as u8,
+                ty: ty.clone(),
+                mutable: false,
+            },
+        );
+    }
+    let mut body = Vec::new();
+    for (i, (_, ty)) in sig.inputs.iter().enumerate() {
+        if let Ty::Ref(_, mutable) = ty {
+            if yield_type.is_some() {
+                return Err(f.at.error("generators cannot capture references"));
+            }
+            let loan = lower.new_loan(i as u8, *mutable, None, &mut body);
+            lower.reference_locals.insert(i as u8, loan);
+        }
+    }
+    if let BlockResult::Continues(output) = lower.block(&f.body, &mut body, yield_type.is_none())? {
+        lower.refine_return(output, &f.at)?;
+    }
+    if yield_type.is_none() {
+        let output = lower.return_type.clone().flatten();
+        if output.as_ref().is_some_and(Ty::unresolved_generator) {
+            return Err(f
+                .at
+                .error("cannot infer the concrete generator returned by this function"));
+        }
+        let inferred_frame = sig.outputs.iter().any(Ty::unresolved_generator);
+        sig = Rc::new(FnSig {
+            inputs: sig.inputs.clone(),
+            outputs: output.into_iter().collect(),
+        });
+        lower.sigs.insert(f.name.clone(), sig.clone());
+        if inferred_frame {
+            // Check empty variants and propagation paths again with the resolved
+            // return context. Calls/specializations are cached across this pass.
+            drop(lower);
+            generics.active.remove(&f.name);
+            return lower_function(f, heap, sigs, generics, aliases, access, returned_fields);
+        }
+    } else if let Some(Ty::Generator(t)) = sig.outputs.first() {
+        t.set_slots(
+            sig.inputs
+                .iter()
+                .map(|(_, t)| t.clone())
+                .chain(lower.locals.iter().cloned())
+                .collect(),
+        )
+        .map_err(|message| f.at.error(message))?;
+    }
+    if yield_type.is_none() {
+        mark_tail_calls(&mut body);
+    }
+    if sig.inputs.iter().any(|(_, t)| t.has_destructor())
+        || lower.locals.iter().any(Ty::has_destructor)
+    {
+        classes::preserve_drop_order(&mut body);
+    }
+    let compiled = CompiledFn {
+        location: f
+            .at
+            .source
+            .as_ref()
+            .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
+        generator: yield_type,
+        sig,
+        doc: f.doc.into(),
+        body: body.into(),
+        locals: lower.locals.into(),
+    };
+    generics.active.remove(&f.name);
+    generics.completed.insert(f.name.clone());
+    generics.compiled.push(Op::DefineFn(f.name, compiled));
     Ok(())
 }
 
@@ -2471,110 +2620,46 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     } else {
         false
     };
-    let mut ops = Vec::new();
+    generics.pending.retain(|f| {
+        !sigs[&f.name]
+            .inputs
+            .iter()
+            .any(|(_, t)| t.unresolved_generator())
+    });
     while let Some(f) = generics.pending.pop_front() {
-        let sig = Rc::clone(&sigs[&f.name]);
-        let yield_type = if generators::yields(&f.body) {
-            let Some(Ty::Generator(element)) = sig.outputs.first() else {
-                return Err(f
-                    .at
-                    .error("yield requires a function returning Generator[T]"));
-            };
-            Some((**element).clone())
-        } else {
-            None
-        };
-        let mut lower = Lower {
-            returned_fields: &mut returned_fields,
+        lower_function(
+            f,
             heap,
-            sigs: &mut sigs,
-            generics: &mut generics,
-            aliases: &aliases,
-            access: &access,
-            names: HashMap::new(),
-            locals: Vec::new(),
-            parameters: sig.inputs.len(),
-            return_type: Some(if yield_type.is_some() {
-                None
-            } else {
-                sig.outputs.first().cloned()
-            }),
-            loop_steps: Vec::new(),
-            loop_scopes: Vec::new(),
-            yield_type: yield_type.clone(),
-            loans: Vec::new(),
-            reference_locals: HashMap::new(),
-            expression_temps: Vec::new(),
-            contexts: Vec::new(),
-            return_origin: if matches!(sig.outputs.first(), Some(Ty::Ref(..))) {
-                sig.inputs
-                    .iter()
-                    .position(|(_, ty)| matches!(ty, Ty::Ref(..)))
-                    .map(|i| i as u8)
-            } else {
-                None
-            },
-        };
-        for (i, (name, ty)) in sig.inputs.iter().enumerate() {
-            lower.names.insert(
-                name.clone(),
-                Local {
-                    slot: i as u8,
-                    ty: ty.clone(),
-                    mutable: false,
-                },
-            );
-        }
-        let mut body = Vec::new();
-        for (i, (_, ty)) in sig.inputs.iter().enumerate() {
-            if let Ty::Ref(_, mutable) = ty {
-                if yield_type.is_some() {
-                    return Err(f.at.error("generators cannot capture references"));
-                }
-                let loan = lower.new_loan(i as u8, *mutable, None, &mut body);
-                lower.reference_locals.insert(i as u8, loan);
+            &mut sigs,
+            &mut generics,
+            &aliases,
+            &access,
+            &mut returned_fields,
+        )?;
+    }
+    let mut ops = std::mem::take(&mut generics.compiled);
+    for op in &ops {
+        if let Op::DefineFn(_, f) = op {
+            let mut frame_bytes = 0usize;
+            for ty in f
+                .sig
+                .inputs
+                .iter()
+                .map(|(_, t)| t)
+                .chain(&f.sig.outputs)
+                .chain(f.locals.iter())
+            {
+                let bytes = crate::generator::layout(ty, &mut Vec::new())
+                    .map_err(|message| at.error(message))?;
+                frame_bytes = frame_bytes
+                    .checked_add(16 + bytes)
+                    .filter(|n| *n <= i32::MAX as usize)
+                    .ok_or_else(|| {
+                        at.error("inline values exceed the native stack-layout limit")
+                    })?;
             }
+            crate::generator::validate_ops(&f.body).map_err(|message| at.error(message))?;
         }
-        if let BlockResult::Continues(output) =
-            lower.block(&f.body, &mut body, yield_type.is_none())?
-        {
-            lower.same(
-                output,
-                if yield_type.is_some() {
-                    None
-                } else {
-                    sig.outputs.first().cloned()
-                },
-                &f.at,
-            )?;
-        }
-        if yield_type.is_none() {
-            mark_tail_calls(&mut body);
-        }
-        if sig.inputs.iter().any(|(_, t)| t.has_destructor())
-            || lower.locals.iter().any(Ty::has_destructor)
-        {
-            classes::preserve_drop_order(&mut body);
-        }
-        let compiled = CompiledFn {
-            location: f
-                .at
-                .source
-                .as_ref()
-                .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
-            generator: yield_type,
-            sig,
-            doc: f.doc.into(),
-            body: body.into(),
-            locals: lower.locals.into(),
-        };
-        if compiled.generator.is_some() {
-            let name = generators::constructor(&f.name);
-            let mut fallible = compiled.clone();
-            fallible.sig = sigs[&name].clone();
-            ops.push(Op::DefineFn(name, fallible));
-        }
-        ops.push(Op::DefineFn(f.name, compiled));
     }
     if require_main {
         ops.push(Op::Call("main".into()));

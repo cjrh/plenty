@@ -50,7 +50,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | In-place set filtering | `intersection_update` retains common members; `difference_update` removes them; both borrow the source and reuse destination capacity |
 | Fallible set algebra | `union`, `intersection`, `difference`, and `symmetric_difference` return independent sets and preserve both same-typed inputs |
 | While loops, break/continue | Implemented |
-| Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
+| Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented with allocation-free concrete frames, direct construction, specialized consumers, and moves through factories and standard sums; recursive inline layouts are rejected |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
 | Modern program input, file I/O, and command-line argument APIs | Recoverable console I/O, arguments, Linux whole-file helpers, and scoped File operations implemented, including bounded reads, capability queries, update/exclusive modes, saved text positions, truncation, `readlines`, and `writelines`; direct file iteration remains deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |

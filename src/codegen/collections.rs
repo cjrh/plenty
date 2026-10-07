@@ -99,7 +99,7 @@ impl Lowerer<'_, '_> {
         };
         let result = self.collection_call(operation.opcode(), &values, descriptor)?;
         let result = self.unpack(result, &output);
-        let result = self.snapshot_range(result, &output);
+        let result = self.snapshot_inline(result, &output);
         for (value, ty) in values.iter().zip(&inputs) {
             self.release(*value, ty);
         }

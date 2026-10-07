@@ -87,7 +87,7 @@ def produce(r: range[i64]) -> Generator[range[i64]]:
     yield saved
     yield range(7, 9)
 def make_generator() -> Generator[range[i64]]:
-    produce(range(3)).unwrap()
+    produce(range(3))
 mut b = Box(11, range(2), Nothing, 22).unwrap()
 replace(&mut b.values)
 replace_optional(&mut b.optional)

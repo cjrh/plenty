@@ -200,11 +200,11 @@ def values(a: Resource, b: Resource) -> Generator[i64]:
     c = Resource("local").unwrap()
     yield 1
     print("complete").unwrap()
-drop(values(Resource("unstarted a").unwrap(), Resource("unstarted b").unwrap()).unwrap())
-mut it = values(Resource("a").unwrap(), Resource("b").unwrap()).unwrap()
+drop(values(Resource("unstarted a").unwrap(), Resource("unstarted b").unwrap()))
+mut it = values(Resource("a").unwrap(), Resource("b").unwrap())
 print(next(it)).unwrap()
 drop(it)
-mut done = values(Resource("finished a").unwrap(), Resource("finished b").unwrap()).unwrap()
+mut done = values(Resource("finished a").unwrap(), Resource("finished b").unwrap())
 next(done)
 next(done)
 "#), "unstarted b\nunstarted a\nOption[i64].Some(1)\nlocal\nb\na\ncomplete\nlocal\nfinished b\nfinished a\n");
@@ -464,7 +464,7 @@ fn generator_yields_transfer_class_ownership() {
 def resources() -> Generator[Resource]:
     yield Resource("a").unwrap()
     yield Resource("b").unwrap()
-for r in resources().unwrap():
+for r in resources():
     print("body").unwrap()
 print("after").unwrap()
 "#
