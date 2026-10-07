@@ -17,7 +17,8 @@ exports, scalar borrowing, static/shared packaging, and generated/embedded `.ple
 contracts, Result adapters, and owned factories with matching destruction are
 implemented, including shared/mutable borrows and consuming handle arguments.
 Embedded extraction and fingerprint-specific link guards are implemented; next
-add explicit pre-link interface validation and artifact reliability.
+explicit pre-link interface validation is also implemented. Next harden generated
+names and artifact publication.
 Acceptance includes actual C/C++ and Plenty
 callers, contract comments, metadata retention, and failure-path cleanup.
 

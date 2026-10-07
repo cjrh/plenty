@@ -70,6 +70,7 @@ If you only have the binary, recover its Plenty interface without loading it:
 
 ```sh
 plenty --extract-interface build/libcalc.so --library-name calc -o calc.plentyi
+plenty --verify-interface build/libcalc.so calc.plentyi
 ```
 
 For a static archive, use `--static-library` instead. Pass the native arguments

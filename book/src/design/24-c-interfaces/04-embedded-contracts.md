@@ -48,3 +48,20 @@ Inspection checks the embedded hash and guard declaration. Older format-1
 interfaces without fingerprints can still be extracted; `LibraryInterface`
 reports `fingerprint: None` for those. A matching hash detects mismatched contracts,
 not malicious libraries or implementation bugs.
+
+For an explicit pre-link check, run:
+
+```sh
+plenty --verify-interface build/libcalc.so calc.plentyi
+```
+
+The Rust API is `verify_library_interface(binary, interface)`. It requires a
+fingerprinted generated interface, validates both inputs, compares the exact
+contract, and checks that the corresponding function symbol is defined. For a
+shared library, the symbol must be present in the dynamic symbol table. Metadata
+alone, without its implementation symbol, cannot pass. Older interfaces must be
+regenerated to use this check. No linker or library code runs during verification.
+
+Verification is a build-time check, not a lock on a file: replacing the binary
+afterward still requires the normal link/symbol guard. Arbitrary `--link-arg`
+arguments are not interpreted as paths to inspect automatically.

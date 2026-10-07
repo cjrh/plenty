@@ -12,6 +12,7 @@ Usage: plenty FILE
        plenty --shared-library FILE --library-name NAME -o OUT
        plenty --static-library FILE --library-name NAME -o OUT
        plenty --extract-interface LIBRARY --library-name NAME -o OUT
+       plenty --verify-interface LIBRARY INTERFACE
        plenty --emit-runtime DIR
        plenty --print-target
        plenty -h | --help
@@ -27,6 +28,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --library-name NAME: namespace for C exports, header, and generated .plentyi.
 --archiver PATH: ar-compatible archiver for --static-library (default: ar).
 --extract-interface: read embedded .plentyi metadata without executing library code.
+--verify-interface: check a generated interface against a binary before linking.
 --emit-runtime: extract the matching runtime archive and native link arguments.
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
@@ -131,12 +133,16 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
                         | "--emit-object"
                         | "--emit-runtime"
                         | "--extract-interface"
+                        | "--verify-interface"
                 )
             }))
     {
         return Err("linker options require compilation or execution".into());
     }
     match args.as_slice() {
+        [flag, binary, interface] if flag == "--verify-interface" && !legacy && root.is_none() => {
+            plenty::verify_library_interface(Path::new(binary), Path::new(interface))?;
+        }
         [flag, source, option, output]
             if flag == "--extract-interface"
                 && !legacy

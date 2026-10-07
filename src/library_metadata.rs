@@ -1,5 +1,5 @@
 //! Read embedded source contracts as bounded file data, without loading code.
-use object::{Object, ObjectSection};
+use object::{Object, ObjectSection, ObjectSymbol};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -82,36 +82,119 @@ impl LibraryInterface {
 /// Extract all Plenty interfaces from an ELF object/shared object/executable or
 /// a regular static archive. Never executes the input or follows archive paths.
 pub fn read_library_interfaces(path: &Path) -> Result<Vec<LibraryInterface>> {
+    let data = read_bounded(path, MAX_BINARY)?;
+    inspect(&data)
+}
+
+fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     let file = std::fs::File::open(path)?;
-    if file.metadata()?.len() > MAX_BINARY {
-        return Err("library exceeds the 512 MiB inspection limit".into());
+    if file.metadata()?.len() > limit {
+        return Err(format!(
+            "{} exceeds the {limit}-byte inspection limit",
+            path.display()
+        )
+        .into());
     }
     let mut data = Vec::new();
-    file.take(MAX_BINARY + 1).read_to_end(&mut data)?;
-    if data.len() as u64 > MAX_BINARY {
-        return Err("library exceeds the 512 MiB inspection limit".into());
+    file.take(limit + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > limit {
+        return Err(format!(
+            "{} exceeds the {limit}-byte inspection limit",
+            path.display()
+        )
+        .into());
     }
+    Ok(data)
+}
+
+fn inspect(data: &[u8]) -> Result<Vec<LibraryInterface>> {
     let mut interfaces = BTreeMap::new();
     let mut total = 0;
     if data.starts_with(&object::archive::MAGIC) || data.starts_with(&object::archive::THIN_MAGIC) {
-        let archive = object::read::archive::ArchiveFile::parse(data.as_slice())?;
+        let archive = object::read::archive::ArchiveFile::parse(data)?;
         if archive.is_thin() {
             return Err("thin archives are not supported for interface inspection".into());
         }
         for member in archive.members() {
             let member = member?;
-            let bytes = member.data(data.as_slice())?;
+            let bytes = member.data(data)?;
             if bytes.starts_with(b"\x7fELF") {
                 read_object(bytes, &mut interfaces, &mut total)?;
             }
         }
     } else {
-        read_object(&data, &mut interfaces, &mut total)?;
+        read_object(data, &mut interfaces, &mut total)?;
     }
     if interfaces.is_empty() {
         return Err("no embedded Plenty interfaces found".into());
     }
     Ok(interfaces.into_values().collect())
+}
+
+/// Verify an exact generated interface and its defined compatibility symbol
+/// before invoking a linker. Reads each input once and never executes code.
+pub fn verify_library_interface(binary: &Path, interface: &Path) -> Result<()> {
+    let source = read_bounded(interface, MAX_CONTRACT as u64)?;
+    let name = std::str::from_utf8(&source)?
+        .lines()
+        .nth(1)
+        .and_then(|s| s.strip_prefix("# library: "))
+        .ok_or("missing interface library name")?;
+    let expected = LibraryInterface::parse(name, &source)?;
+    let hash = expected
+        .fingerprint
+        .as_ref()
+        .ok_or("interface has no compatibility fingerprint; regenerate it")?;
+    let data = read_bounded(binary, MAX_BINARY)?;
+    let interfaces = inspect(&data)?;
+    let actual = interfaces
+        .iter()
+        .find(|i| i.name == name)
+        .ok_or_else(|| format!("binary has no interface for library `{name}`"))?;
+    if actual.source != expected.source {
+        return Err(format!(
+            "incompatible interface for `{name}`: expected {hash}, binary has {}",
+            actual.fingerprint.as_deref().unwrap_or("no fingerprint")
+        )
+        .into());
+    }
+    let symbol = format!("{name}_plenty_contract_v1_{hash}");
+    let defined = if data.starts_with(&object::archive::MAGIC) {
+        let archive = object::read::archive::ArchiveFile::parse(data.as_slice())?;
+        let mut found = false;
+        for member in archive.members() {
+            let member = member?;
+            let bytes = member.data(data.as_slice())?;
+            if bytes.starts_with(b"\x7fELF") && defines_symbol(bytes, &symbol)? {
+                found = true;
+            }
+        }
+        found
+    } else {
+        defines_symbol(&data, &symbol)?
+    };
+    if !defined {
+        return Err(format!(
+            "binary metadata matches but compatibility symbol `{symbol}` is not defined/exported"
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn defines_symbol(data: &[u8], name: &str) -> Result<bool> {
+    let file = object::File::parse(data)?;
+    let valid = |symbol: object::Symbol<'_, '_>| {
+        !symbol.is_undefined()
+            && symbol.is_global()
+            && symbol.kind() == object::SymbolKind::Text
+            && symbol.name().ok() == Some(name)
+    };
+    Ok(if file.kind() == object::ObjectKind::Dynamic {
+        file.dynamic_symbols().any(valid)
+    } else {
+        file.symbols().any(valid)
+    })
 }
 
 fn read_object(

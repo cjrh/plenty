@@ -48,7 +48,29 @@ fn extracts_exact_contract_from_static_shared_and_stripped_artifacts() {
                 .unwrap()
                 .success());
         }
-        let expected = std::fs::read_to_string(artifacts.interface).unwrap();
+        plenty::verify_library_interface(&library, &artifacts.interface).unwrap();
+        let verification = Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .arg("--verify-interface")
+            .arg(&library)
+            .arg(&artifacts.interface)
+            .output()
+            .unwrap();
+        assert!(
+            verification.status.success(),
+            "{}",
+            String::from_utf8_lossy(&verification.stderr)
+        );
+        let expected = std::fs::read_to_string(&artifacts.interface).unwrap();
+        let metadata_only = temp.path().join("metadata-only.o");
+        std::fs::write(
+            &metadata_only,
+            object(&[(".plenty.interface.calc", expected.as_bytes())]),
+        )
+        .unwrap();
+        let error = plenty::verify_library_interface(&metadata_only, &artifacts.interface)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not defined/exported"), "{error}");
         let interfaces = plenty::read_library_interfaces(&library).unwrap();
         assert_eq!(interfaces.len(), 1);
         assert_eq!(interfaces[0].name, "calc");
@@ -172,6 +194,10 @@ fn fingerprints_are_deterministic_and_stale_interfaces_fail_to_link() {
             build("export def answer(value: i64) -> i64 = \"calc_answer\":\n    value + 1\n");
         assert_ne!(original.fingerprint, changed_type.fingerprint);
         std::fs::write(temp.path().join("calc.plentyi"), original.source).unwrap();
+        let error = plenty::verify_library_interface(&library, &temp.path().join("calc.plentyi"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("incompatible interface"), "{error}");
         let app = temp.path().join("main.plenty");
         std::fs::write(
             &app,
@@ -203,4 +229,30 @@ fn fingerprints_are_deterministic_and_stale_interfaces_fail_to_link() {
             .to_string();
         assert!(error.contains("fingerprint mismatch"), "{error}");
     }
+}
+
+#[test]
+fn verification_rejects_unfingerprinted_and_modified_source_interfaces() {
+    let temp = tempfile::tempdir().unwrap();
+    let interface = temp.path().join("calc.plentyi");
+    let binary = temp.path().join("input.o");
+    let source = contract("calc");
+    std::fs::write(&interface, &source).unwrap();
+    std::fs::write(
+        &binary,
+        object(&[(".plenty.interface.calc", source.as_bytes())]),
+    )
+    .unwrap();
+    let error = plenty::verify_library_interface(&binary, &interface)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("no compatibility fingerprint"), "{error}");
+    let result = Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg("--verify-interface")
+        .arg(&binary)
+        .arg(&interface)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("regenerate"));
 }
