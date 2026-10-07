@@ -1,312 +1,161 @@
-# plenty
-Stack-based Programming language
+# Plenty
 
-## Tutorial
+Plenty is becoming a statically typed language with Python-shaped syntax,
+expression-valued blocks, explicit mutability, and native compilation through
+Cranelift. Fast compilation and a small, understandable language are primary
+design goals.
 
-Plenty is a stack language: a program is a stream of whitespace-separated
-words, and each word either pushes a value onto the stack or operates on the
-values already there. Start the REPL with `cargo run`, or run a file with
-`cargo run -- path/to/script.plenty`.
+This branch implements the typed AOT language, including collections, concrete
+enums, fixed-layout classes, generators, explicit copying, and checked references.
+Owned values clean up automatically, including custom `__del__` methods. The full contract and roadmap are in [DESIGN.md](DESIGN.md).
 
-Each example below shows a program followed by the stack it leaves behind —
-which is what the `.` word prints.
+Start with [TUTORIAL.md](TUTORIAL.md) to learn the language through runnable
+examples. Its code and expected diagnostics are tested as the compiler evolves.
 
-<!-- BEGIN TUTORIAL: generated from tests/tutorial.rs - do not edit by hand, run `UPDATE_README=1 cargo test` -->
+```python
+def sum_to(n: i64, total: i64) -> i64:
+    """Sum the integers from 1 through n, using constant call-stack space."""
+    if n == 0:
+        total
+    else:
+        sum_to(n - 1, total + n)
 
-### The stack and numbers
-
-A program is a stream of whitespace-separated words. A number is a word that pushes itself onto the stack.
-
-```forth
-1 2 3
+def main() -> Result[(), IoError]:
+    mut answer = sum_to(100, 0)
+    answer = answer + 1
+    print(answer)?
+    Ok(())
 ```
 
-```
-[1i64 2i64 3i64]
-```
-
-### Arithmetic
-
-`+`, `-`, `*` and `/` each pop the top two values and push the result. They read in stack order, so `10 2 -` means `10 - 2`.
-
-```forth
-10 2 -
-```
-
-```
-[8i64]
-```
-
-### Operators consume only what they need
-
-An operator touches just the top two values; everything below it on the stack is left alone.
-
-```forth
-1 2 3 4 +
-```
-
-```
-[1i64 2i64 7i64]
-```
-
-### Clearing the stack
-
-`:clear` discards every value on the stack.
-
-```forth
-1 2 3 :clear
-```
-
-```
-[]
-```
-
-### Text
-
-A bare word that is not a number or an operator is text. `+` joins two pieces of text instead of adding them.
-
-```forth
-hello world +
-```
-
-```
-["helloworld"]
-```
-
-### Quoted strings
-
-Wrap text in double quotes to push it as a single string. Spaces, operators, and other special characters inside the quotes are taken verbatim.
-
-```forth
-"hello world" " and goodbye" +
-```
-
-```
-["hello world and goodbye"]
-```
-
-### Functions
-
-Define a function with `: name { signature } ["docstring"] body... ;`. The signature lists inputs as `name Type` pairs, then `->`, then output types; `{ x i64 -> i64 }` reads as "takes one `i64` named `x`, leaves one `i64`". Inside the body, those input names refer to the values passed in — so the body can mention `x` instead of juggling the stack. A docstring is optional but, when present, must immediately follow the header. If a function starts by pushing text, write an empty docstring first: `"" "text"`. Call a function by prefixing its name with a colon.
-
-```forth
-: double { x i64 -> i64 } "Double an integer." x 2 * ;
-5 :double
-```
-
-```
-[10i64]
-```
-
-### Functions calling functions
-
-A function body may call other functions. Defining a function never disturbs the stack.
-
-```forth
-: double { x i64 -> i64 } "Double an integer." x 2 * ;
-: quad { x i64 -> i64 } "Multiply by four." x :double :double ;
-3 :quad
-```
-
-```
-[12i64]
-```
-
-### Comments, compact delimiters, and small helpers
-
-`#` starts a comment through the next newline. `{`, `}`, `[`, `]`, and `;` do not need surrounding spaces. A function may omit its docstring. Inside a function, unknown bare words are errors, so write text as `"..."`.
-
-```forth
-# A compact definition with no docstring.
-: id{x i64 -> i64}x;
-42 :id
-```
-
-```
-[42i64]
-```
-
-### Named inputs replace stack juggling
-
-Each input named in the signature is in scope for the whole body — write the name to load it. A function with several inputs can refer to each by name, in any order, as many times as it likes, without `dup`, `swap`, or `rot`.
-
-```forth
-: hypot-sq { a i64 b i64 -> i64 } "Square the hypotenuse: a*a + b*b." a a * b b * + ;
-3 4 :hypot-sq
-```
-
-```
-[25i64]
-```
-
-### Booleans and comparisons
-
-`true` and `false` are the `Bool` literals. The comparison operators `=`, `<`, and `>` pop two values and push a `Bool`; `not` negates one. `=` accepts any two values of the same type (`i64`, `Str`, or `Bool`); `<` and `>` are integers only. A `Bool` is *not* an integer: there is no "zero is false" convention. The only way to get a `Bool` is to produce one.
-
-```forth
-1 2 <  3 3 =  true not
-```
-
-```
-[true true false]
-```
-
-### Branching with `match`
-
-`match` is the only branching primitive. It pops the top-of-stack value and runs the bracketed body of the first arm whose pattern matches; `end` closes the construct. Every match must be exhaustive — for a `Bool`, that means both `true` and `false` arms (or a wildcard). There is no `if` and no `else`: `match` covers both jobs without privileging `Bool` over any other finite type.
-
-```forth
-: describe { flag Bool -> Str } "Render a Bool as text."
-  flag match
-    true  [ "yes" ]
-    false [ "no"  ]
-  end ;
-true :describe  false :describe
-```
-
-```
-["yes" "no"]
-```
-
-### Wildcards for the open cases
-
-`i64` and `Str` have unbounded value spaces, so a match on either must include a wildcard arm — `_` — that catches everything not named above. Patterns are tested in order, so specific arms first and `_` last. The arm body sees the surrounding stack and the surrounding function's locals; the brackets are syntactic structure, not a separate sub-stack.
-
-```forth
-: name-it { n i64 -> Str }
-  "Name a small integer; anything else is 'many'."
-  n match
-    0 [ "zero" ]
-    1 [ "one"  ]
-    2 [ "two"  ]
-    _ [ "many" ]
-  end ;
-1 :name-it  7 :name-it
-```
-
-```
-["one" "many"]
-```
-
-### Iteration is recursion
-
-Plenty has no `for` or `while`. A function that needs to repeat calls itself, and the compiler detects when that recursive call sits in *tail* position — the last thing the function would do before returning — and reuses the current call's frame instead of stacking a new one. A million tail calls cost the same call-stack space as one. The pattern is always the same: thread the running total through an accumulator argument so the recursive call ends the body.
-
-```forth
-: sum-to { n i64 acc i64 -> i64 }
-  "Tail-recursive accumulator: 1 + 2 + ... + n + acc."
-  n 0 = match
-    true  [ acc ]
-    false [ n 1 - acc n + :sum-to ]
-  end ;
-100 0 :sum-to
-```
-
-```
-[5050i64]
-```
-
-### Picking a width
-
-Numbers in source default to `i64`. Add a suffix for a direct width: `200u8`, `-1i8`, or `42i32`. A suffixed literal must fit its type. Use an explicit cast — `:as-i8`, `:as-u8`, and so on — when you intentionally truncate or reinterpret a value. Arithmetic is same-width, so `i32 + i64` is a type error.
-
-```forth
-200u8 50u8 +
-```
-
-```
-[250u8]
-```
-
-### Small stack operations
-
-`drop` discards the top value, `dup` copies it, and `swap` exchanges the top two values. They work on every type. Use them for small local adjustments; named function inputs stay clearer for larger work.
-
-```forth
-1 true swap dup drop
-```
-
-```
-[true 1i64]
-```
-
-### More comparisons and Boolean values
-
-`!=`, `<=`, and `>=` complete the comparison set. `and` and `or` combine already-evaluated `Bool` values; use `match` when one path must not run.
-
-```forth
-1 2 !=  2 2 <=  true false or
-```
-
-```
-[true true true]
-```
-
-<!-- END TUTORIAL -->
-
-### Output words
-
-- `.` prints the whole stack and leaves it unchanged. Use it to inspect state.
-- `:print` pops one value and renders it without a newline. For example,
-  `42 :print` writes `42i64`.
-- `:println` pops one `Str` and writes its raw bytes with a newline.
-
-## Example: an AOT-compiled stdin filter
-
-The `:readline`, `:contains`, and `:println` words are the small I/O surface
-Plenty exposes. Together with `drop` and tail recursion (DESIGN.md §11.8), a
-complete stream-filter program fits in a handful of definitions. The program
-below reads newline-delimited strings from stdin and writes back only the lines
-containing the letter `m`.
-
-```forth
-: handle-line { line Str -> }
-    "Print `line` to stdout if it contains the substring \"m\",
-     otherwise drop it. The decision happens here so the recursion
-     in :filter does not need to dup the line value."
-    line "m" :contains match
-        true  [ line :println ]
-        false [ ]
-    end ;
-
-: filter { -> }
-    "Read newline-delimited strings from stdin until EOF, printing
-     only those that contain the letter m. Iteration is recursion plus
-     mandatory TCO (DESIGN.md §11.8); the :readline match dispatches
-     on the got-a-line? bool and the recursive call sits at the tail
-     of the true arm."
-    :readline match
-        true  [ :handle-line :filter ]
-        false [ drop ]
-    end ;
-
-:filter
-```
-
-Compile it to a native executable:
+Run and compile the example:
 
 ```sh
-cargo run -- --compile examples/filter_m.plenty -o filter_m
+cargo run -- examples/sum.plenty
+cargo run -- --check examples/sum.plenty
+cargo run -- --compile examples/sum.plenty -o /tmp/plenty-sum
+/tmp/plenty-sum
 ```
 
-Run it against a stream of lines:
+Plenty uses Cranelift AOT exclusively. Running a file compiles it into a
+temporary executable, runs it, and removes it when execution finishes. Both
+running and compiling require the system linker driver `cc` on PATH; `--check`
+does not. The separate [plenty-runtime](plenty-runtime/README.md) Rust crate is
+compiled when Plenty is built and embedded as a static library. Running or
+compiling Plenty programs needs no Rust toolchain or runtime source files. Running with no arguments prints help.
+
+There is no interpreter, REPL, or planned JIT backend.
+
+Supported today:
+
+- An explicit, parameterless `main` returning `()`, `i32`, `Result[(), E]`, or
+  `Result[i32, E]`; an `Err` exits with status one. Module scope contains declarations and imports; executable
+  statements belong inside functions.
+- Absolute imports (`import package.module`, `from package.module import Name`),
+  aliases, and private-by-default declarations and class members with `pub`.
+  Use `--module-root DIR` for a project source root, or the entry file's directory
+  by default. `--check-module FILE` checks libraries without requiring `main`.
+- `def name(parameter: type, ...) -> type:` with required types, optional
+  docstrings, forward references, and direct/mutual tail-call optimization.
+- `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool`, `str`, and `()`
+  for no return value. Sized literals such as `42u8` and explicit casts such
+  as `i64(value)`. Integer arithmetic is checked; there are no implicit conversions.
+- Transparent type aliases, such as `type Count = u32`. There is no built-in
+  `int`; users may explicitly choose `type int = i32` or `type int = i64`.
+  `f32` and `f64` support IEEE arithmetic and explicit numeric casts.
+- Infix arithmetic and comparisons, `True`/`False`, short-circuit `and`/`or`,
+  `not`, parentheses, and Python's `a if condition else b` expression.
+- Indented `if`/`elif`/`else` blocks. A final expression supplies a block's
+  result; continuing branches must agree. Conditions require `bool`.
+- Early `return value` and unit `return`, including nested guard branches.
+  Each return must match the declared result type. Returning branches do not
+  participate in later joins; code after a guaranteed exit is rejected.
+- Inferred bindings (`answer = 42`), annotated bindings (`answer: i64 = 42`),
+  explicit mutable bindings (`mut answer = 42`), and reassignment.
+- `print(value)` and `contains(haystack, needle)`. Strings support single,
+  double, and triple quotes, UTF-8, and `\0`, `\n`, `\r`, `\t`, quote/backslash escapes.
+- Typed `list[T]`, `dict[K, V]`, and `set[T]`, including nested values, literals,
+  indexing, membership, moves, explicit `copy`, and in-place updates through `mut` owners.
+- `for` loops over collections, strings, ranges, and lazy generators; list, dict,
+  and set comprehensions with multiple iteration and filter clauses.
+- `range[T](...)` for explicit integer widths; annotations and typed arithmetic
+  guide unsuffixed literals without converting already typed values.
+- Tuple values and flat unpacking, plus borrowed dictionary `items()` loops.
+- Explicit generic functions with cached concrete specializations, `IntType`,
+  and structural class-method protocol constraints.
+- Allocation failures returned as Results from collection and tuple literals,
+  construction and mutation APIs, `str.repr`, and `print`.
+- Concrete `enum` types, exhaustive `match`/`case`, and typed `Option`/`Result`,
+  including `Result[(), E]` and built-in `Some`, `Nothing`, `Ok`, and `Err`.
+- `?` propagation with cleanup; `Result[T, Failure]` explicitly discards error
+  details when only success or failure matters, without allocating a wrapper.
+- `Generator[T]` functions with `yield`, consuming iteration, and `next` returning
+  `Option[T]`. Assignment and calls move generators; invalid reuse is checked.
+- One immutable `str` with explicit lengths and embedded NUL support. Managed
+  values are reclaimed automatically; `drop(value)` allows early cleanup.
+- `class` records with typed fields, generated field constructors or explicit
+  `__init__`, associated methods, and deterministic `__del__` cleanup.
+- `&T` and `&mut T` for locals, parameters, class fields, and collection elements,
+  with last-use checking across branches, loops, and reborrows. Returned references
+  originate in one reference parameter; stored references remain deferred.
+- Integer `//` rounds toward negative infinity; `%` follows the divisor's sign.
+  `/` divides same-width floating-point operands.
+
+Collections and comprehensions use familiar syntax with fixed element types:
+
+```python
+def main() -> Result[(), Failure]:
+    squares: list[i64] = [n * n for n in range(10)? if n % 2 == 0]?
+    by_value: dict[i64, i64] = {n: n * n for n in &squares}?
+    unique: set[i64] = set(copy(squares)?)?
+    for n in &squares:
+        print(n)?
+    Ok(())
+```
+
+Collection assignment transfers ownership. Use `copy(value)` for independent
+contents, `&value` for shared access, and `&mut value` for exclusive access.
+Updates happen in place. Owned iteration consumes collections; borrowed iteration
+supports shared owned-list elements and mutable element references. Unused storage
+is released when owners are replaced, explicitly dropped, or leave scope.
+General iterator protocols remain deferred. `while` loops and
+`break`/`continue` in both loop forms are supported; loop `else` is not.
+
+Guard clauses can return early while the main path uses an implicit result:
+
+```python
+def clamp_low(value: i64, minimum: i64) -> i64:
+    if value < minimum:
+        return minimum
+    value
+```
+
+There is no `None` or implicit nullable type. `()` describes successful
+completion without a value; it is not a marker for a missing value.
+
+Run `cargo test` for frontend diagnostics, native execution, deep
+tail recursion, executable tutorial lessons, and historical backend regressions.
+`cargo test --test test_tutorial` checks the learning guide specifically.
+`cargo clippy --all-targets -- -D warnings` checks the Rust implementation.
+
+The old stack syntax is available only through `--legacy` (before a filename
+or `--compile`) and `compile_legacy_source_to_executable` while backend
+regressions remain useful. It also uses AOT. Its [tutorial](docs/legacy-tutorial.md)
+and [design](docs/legacy-design.md) are historical archives; they do not define
+the new language or current execution modes.
+`compile_source_to_executable` and `check_source` accept isolated binary source
+strings with `main` and reject filesystem imports. For projects, use
+`compile_file_to_executable(path, output, root)` and `check_file(path, root)`;
+`check_module_file(path, root)` checks libraries without requiring `main`.
+Checking validates without executing code or invoking the linker.
+
+To measure compiler latency without adding a benchmark dependency:
 
 ```sh
-printf 'apple\nbanana\nmango\ncherry\nmelon\nplum\norange\n' | ./filter_m
+cargo run --release --example compile_bench -- 1000 10
+cargo run --release --example compile_bench -- 1000 10 --aot
 ```
 
-Output:
-
-```
-mango
-melon
-plum
-```
-
-## Keeping the tutorial honest
-
-The tutorial section above is generated from `tests/tutorial.rs`, where every
-example is also a test. `cargo test` runs each example, checks the stack it
-produces, and fails if this README is out of date. `UPDATE_README=1 cargo test`
-regenerates the section. The examples therefore cannot drift from the
-interpreter.
+The first number is the generated function count, the second is repetitions.
+The harness warms up once and reports median check time; `--aot` additionally
+measures the complete native compilation and link pipeline. Rust's own build
+time and generated program execution are excluded.

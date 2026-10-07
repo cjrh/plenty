@@ -1,2 +1,3 @@
 - Always aim to keep `DESIGN.md` up to date with the latest design decisions and architectural changes.
 - ...and likewise, always aim to keep the implementation up to date with the latest design decisions in `DESIGN.md`.
+- Keep `TUTORIAL.md` up to date with learner-visible language changes. Teach implemented behavior with runnable examples; `tests/test_tutorial.rs` checks the guide's examples and expected diagnostics directly.

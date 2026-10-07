@@ -1,0 +1,1878 @@
+//! Exercise raw ABI boundaries without generated machine code, also under Miri.
+use crate::aggregates::collection;
+use crate::aggregates::{Type, Variant};
+use crate::generators::{plenty_generator_new, Generator};
+use crate::memory::{plenty_release, plenty_retain, Header};
+use crate::strings::{self, plenty_concat, plenty_contains, plenty_str_eq};
+use std::cell::RefCell;
+use std::ptr;
+
+thread_local! { static TRACE: RefCell<Vec<u128>> = const { RefCell::new(Vec::new()) }; }
+const fn scalar(kind: u8) -> Type {
+    Type {
+        kind,
+        affine: false,
+        reflexive: kind != b'f' && kind != b'd',
+        key: None,
+        value: None,
+        name: "",
+        variants: &[],
+    }
+}
+const fn list(key: &'static Type) -> Type {
+    Type {
+        kind: b'L',
+        affine: true,
+        reflexive: key.reflexive,
+        key: Some(key),
+        ..scalar(b'L')
+    }
+}
+static INTEGER: Type = scalar(b'4');
+static UNSIGNED: Type = scalar(b'8');
+static UNSIGNED_RANGE: Type = Type {
+    key: Some(&UNSIGNED),
+    ..scalar(b'R')
+};
+
+#[test]
+fn unsigned_ranges_keep_full_width_bounds_and_signed_steps() {
+    // SAFETY: all operands and metadata match the runtime ABI; owners are released.
+    unsafe {
+        let stop = u64::MAX as u128;
+        let range = collection(10, stop - 3, stop, 1, &UNSIGNED_RANGE);
+        assert_eq!(collection(5, range, 0, 0, ptr::null()), 3);
+        assert_eq!(collection(4, range, 2, 0, ptr::null()), stop - 1);
+        assert_eq!(collection(7, stop - 2, range, 0, ptr::null()), 1);
+        plenty_release(range as *mut Header);
+        let range = collection(10, stop, stop - 3, (-1i64) as u128, &UNSIGNED_RANGE);
+        assert_eq!(collection(4, range, 2, 0, ptr::null()), stop - 2);
+        plenty_release(range as *mut Header);
+    }
+}
+static UNIT: Type = scalar(b'v');
+static FLOAT32: Type = scalar(b'f');
+static FLOAT64: Type = scalar(b'd');
+static LIST_F32: Type = list(&FLOAT32);
+static LIST_F64: Type = list(&FLOAT64);
+static LIST_INT: Type = list(&INTEGER);
+static LIST_LIST: Type = list(&LIST_INT);
+static GUARD: Type = Type {
+    affine: true,
+    name: "Guard",
+    variants: &[Variant {
+        name: "id",
+        fields: &[&INTEGER],
+    }],
+    ..scalar(b'C')
+};
+static LIST_GUARD: Type = list(&GUARD);
+static DONE: Type = Type {
+    name: "Done",
+    variants: &[Variant {
+        name: "Ok",
+        fields: &[&UNIT],
+    }],
+    ..scalar(b'E')
+};
+static POINT: Type = Type {
+    affine: true,
+    name: "Point",
+    variants: &[Variant {
+        name: "x",
+        fields: &[&INTEGER],
+    }],
+    ..scalar(b'C')
+};
+static PAIR: Type = Type {
+    affine: true,
+    name: "Pair",
+    variants: &[
+        Variant {
+            name: "a",
+            fields: &[&POINT],
+        },
+        Variant {
+            name: "b",
+            fields: &[&POINT],
+        },
+    ],
+    ..scalar(b'C')
+};
+static DICT: Type = Type {
+    affine: true,
+    key: Some(&INTEGER),
+    value: Some(&LIST_INT),
+    ..scalar(b'D')
+};
+static DICT_TEXT: Type = Type {
+    affine: true,
+    key: Some(&TEXT),
+    value: Some(&TEXT),
+    ..scalar(b'D')
+};
+static GENERATOR: Type = scalar(b'G');
+static OPTION_GUARD: Type = Type {
+    affine: true,
+    name: "Option[Guard]",
+    variants: &[
+        Variant {
+            name: "Nothing",
+            fields: &[],
+        },
+        Variant {
+            name: "Some",
+            fields: &[&GUARD],
+        },
+    ],
+    ..scalar(b'B')
+};
+static RESULT_OPTION: Type = Type {
+    affine: true,
+    name: "Result[Option[Guard], i64]",
+    variants: &[
+        Variant {
+            name: "Ok",
+            fields: &[&OPTION_GUARD],
+        },
+        Variant {
+            name: "Err",
+            fields: &[&INTEGER],
+        },
+    ],
+    ..scalar(b'B')
+};
+static LIST_RESULT: Type = list(&RESULT_OPTION);
+static TEXT: Type = scalar(b's');
+static LIST_TEXT: Type = list(&TEXT);
+
+#[test]
+fn reader_lines_release_partial_prefixes_and_own_their_results() {
+    unsafe {
+        let lines = crate::aggregates::try_reader_lines(
+            &mut std::io::Cursor::new(b"one\r\ntwo"),
+            &mut false,
+            &LIST_TEXT,
+        )
+        .unwrap();
+        assert_eq!(collection(5, lines, 0, 0, ptr::null()), 2);
+        let last = collection(4, lines, 1, 0, ptr::null());
+        plenty_release(lines as *mut Header);
+        assert_eq!(strings::utf8(last as *const strings::Text), "two");
+        plenty_release(last as *mut Header);
+        assert!(crate::aggregates::try_reader_lines(
+            &mut std::io::Cursor::new(b"one\n\xff\n"),
+            &mut false,
+            &LIST_TEXT
+        )
+        .is_err());
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn reader_line_prefix_cleanup_survives_allocation_failures() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    let mut success = false;
+    for budget in 0..=12 {
+        let result = {
+            let _restore = Restore;
+            crate::accounting::fail_after(Some(budget));
+            unsafe {
+                crate::aggregates::try_reader_lines(
+                    &mut std::io::Cursor::new(b"one\ntwo\nthree"),
+                    &mut false,
+                    &LIST_TEXT,
+                )
+            }
+        };
+        if let Ok(value) = result {
+            success = true;
+            unsafe {
+                plenty_release(value as *mut Header);
+            }
+        }
+    }
+    assert!(success);
+}
+
+#[test]
+fn text_snapshots_own_members_and_clean_partial_validation_failures() {
+    unsafe {
+        let value =
+            crate::aggregates::try_text_list([Ok("first"), Ok("é\0")].into_iter(), &LIST_TEXT)
+                .unwrap();
+        let text = collection(4, value, 1, 0, ptr::null());
+        plenty_release(value as *mut Header);
+        assert_eq!(strings::utf8(text as *const strings::Text), "é\0");
+        plenty_release(text as *mut Header);
+        assert!(crate::aggregates::try_text_list(
+            [Ok("first"), Err(crate::text_io::Error::InvalidUtf8)].into_iter(),
+            &LIST_TEXT
+        )
+        .is_err());
+    }
+}
+static ALLOC_ERROR: Type = Type {
+    name: "AllocError",
+    variants: &[
+        Variant {
+            name: "OutOfMemory",
+            fields: &[],
+        },
+        Variant {
+            name: "CapacityOverflow",
+            fields: &[],
+        },
+    ],
+    ..scalar(b'B')
+};
+static RESULT_TEXT_LIST: Type = Type {
+    affine: true,
+    name: "Result[list[str], AllocError]",
+    variants: &[
+        Variant {
+            name: "Ok",
+            fields: &[&LIST_TEXT],
+        },
+        Variant {
+            name: "Err",
+            fields: &[&ALLOC_ERROR],
+        },
+    ],
+    ..scalar(b'B')
+};
+
+#[test]
+fn split_line_results_own_members_after_source_destruction() {
+    unsafe {
+        let source = strings::new("é\u{2028}\u{85}🦀\r\n".as_bytes());
+        let result = collection(107, source as u128, 0, 0, &RESULT_TEXT_LIST);
+        assert_eq!(result >> 64, 0);
+        plenty_release(source.cast());
+        assert_eq!(collection(5, result, 0, 0, ptr::null()), 3);
+        let last = collection(4, result, 2, 0, ptr::null());
+        plenty_release(result as *mut Header);
+        assert_eq!(strings::utf8(last as *const strings::Text), "🦀");
+        plenty_release(last as *mut Header);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn split_line_prefixes_are_cleaned_on_allocation_failure() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=5 {
+        unsafe {
+            let source = strings::new(b"one\ntwo\nthree");
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(107, source as u128, 1, 0, &RESULT_TEXT_LIST)
+            };
+            assert_eq!(result >> 64, u128::from(budget < 5));
+            plenty_release(source.cast());
+            crate::aggregates::release(result, &RESULT_TEXT_LIST);
+        }
+    }
+}
+static OPTION_TEXT: Type = Type {
+    name: "Option[str]",
+    variants: &[
+        Variant {
+            name: "Nothing",
+            fields: &[],
+        },
+        Variant {
+            name: "Some",
+            fields: &[&TEXT],
+        },
+    ],
+    ..scalar(b'B')
+};
+static RESULT_OPTION_TEXT: Type = Type {
+    name: "Result[Option[str], AllocError]",
+    variants: &[
+        Variant {
+            name: "Ok",
+            fields: &[&OPTION_TEXT],
+        },
+        Variant {
+            name: "Err",
+            fields: &[&ALLOC_ERROR],
+        },
+    ],
+    ..scalar(b'B')
+};
+
+#[test]
+fn optional_dictionary_lookup_retains_values_across_update_and_destruction() {
+    unsafe {
+        let dictionary = collection(0, 0, 0, 0, &DICT_TEXT);
+        let key = strings::new("é\0".as_bytes());
+        let equal_key = strings::new("é\0".as_bytes());
+        let value = strings::new("Ada🙂".as_bytes());
+        let replacement = strings::new(b"Bea");
+        plenty_release(
+            collection(1, dictionary, key as u128, value as u128, ptr::null()) as *mut Header,
+        );
+        let found = collection(38, dictionary, equal_key as u128, 0, ptr::null());
+        assert_eq!(found >> 64, 1);
+        assert_eq!(
+            collection(38, dictionary, replacement as u128, 0, ptr::null()),
+            0
+        );
+        plenty_release(
+            collection(3, dictionary, key as u128, replacement as u128, ptr::null()) as *mut Header,
+        );
+        plenty_release(dictionary as *mut Header);
+        for text in [key, equal_key, value, replacement] {
+            plenty_release(text.cast());
+        }
+        assert_eq!(strings::utf8(found as *const strings::Text), "Ada🙂");
+        crate::aggregates::retain(found, &OPTION_TEXT);
+        crate::aggregates::release(found, &OPTION_TEXT);
+        assert_eq!(strings::utf8(found as *const strings::Text), "Ada🙂");
+        crate::aggregates::release(found, &OPTION_TEXT);
+    }
+}
+
+#[test]
+fn dictionary_removal_transfers_owned_payload_and_repairs_hash_storage() {
+    static OPTION_INT_LIST: Type = Type {
+        affine: true,
+        name: "Option[list[i64]]",
+        variants: &[
+            Variant {
+                name: "Nothing",
+                fields: &[],
+            },
+            Variant {
+                name: "Some",
+                fields: &[&LIST_INT],
+            },
+        ],
+        ..scalar(b'B')
+    };
+    unsafe {
+        let dictionary = collection(0, 0, 0, 0, &DICT);
+        for key in 0..32 {
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, child, key, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, dictionary, key, child, ptr::null()) as *mut Header);
+            plenty_release(child as *mut Header);
+        }
+        for key in (0..32).step_by(2) {
+            let before = collection(4, dictionary, key, 0, ptr::null());
+            let removed = collection(39, dictionary, key, 0, ptr::null());
+            assert_eq!(removed >> 64, 1);
+            assert_eq!(crate::aggregates::payload(removed), before);
+            plenty_release(before as *mut Header);
+            assert_eq!(collection(39, dictionary, key, 0, ptr::null()), 0);
+            assert_eq!(
+                collection(4, crate::aggregates::payload(removed), 0, 0, ptr::null()),
+                key
+            );
+            crate::aggregates::release(removed, &OPTION_INT_LIST);
+        }
+        for key in (1..32).step_by(2) {
+            let child = collection(4, dictionary, key, 0, ptr::null());
+            assert_eq!(collection(4, child, 0, 0, ptr::null()), key);
+            plenty_release(child as *mut Header);
+        }
+        let last = collection(39, dictionary, 31, 0, ptr::null());
+        plenty_release(dictionary as *mut Header);
+        assert_eq!(
+            collection(4, crate::aggregates::payload(last), 0, 0, ptr::null()),
+            31
+        );
+        crate::aggregates::release(last, &OPTION_INT_LIST);
+    }
+}
+
+#[test]
+fn list_removal_transfers_payload_and_preserves_remaining_order() {
+    unsafe {
+        let list = collection(0, 0, 0, 0, &LIST_LIST);
+        let mut children = [0; 3];
+        for (i, child) in children.iter_mut().enumerate() {
+            *child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, list, *child, 0, ptr::null()) as *mut Header);
+            plenty_release(*child as *mut Header);
+        }
+        for index in [i64::MIN, -4, 3, i64::MAX] {
+            assert_eq!(collection(40, list, index as u128, 0, ptr::null()), 0);
+        }
+        let removed = collection(40, list, 1, 0, ptr::null());
+        assert_eq!(removed >> 64, 1);
+        assert_eq!(crate::aggregates::payload(removed), children[1]);
+        assert_eq!(collection(5, list, 0, 0, ptr::null()), 2);
+        for (index, expected) in [children[0], children[2]].into_iter().enumerate() {
+            let child = collection(4, list, index as u128, 0, ptr::null());
+            assert_eq!(child, expected);
+            plenty_release(child as *mut Header);
+        }
+        plenty_release(list as *mut Header);
+        let owned = crate::aggregates::payload(removed);
+        assert_eq!(collection(4, owned, 0, 0, ptr::null()), 1);
+        plenty_release(owned as *mut Header);
+    }
+}
+
+#[test]
+fn set_discard_releases_stored_strings_and_keeps_query_owners_valid() {
+    static SET_TEXT: Type = Type {
+        affine: true,
+        key: Some(&TEXT),
+        ..scalar(b'S')
+    };
+    unsafe {
+        let set = collection(0, 0, 0, 0, &SET_TEXT);
+        for text in ["é\0🙂", "other"] {
+            let stored = strings::new(text.as_bytes());
+            plenty_release(collection(1, set, stored as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(stored.cast());
+        }
+        let query = strings::new("é\0🙂".as_bytes());
+        let other = strings::new(b"other");
+        assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 1);
+        assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 0);
+        assert_eq!(strings::utf8(query), "é\0🙂");
+        assert_eq!(collection(7, other as u128, set, 0, ptr::null()), 1);
+        plenty_release(collection(1, set, query as u128, 0, ptr::null()) as *mut Header);
+        assert_eq!(collection(7, query as u128, set, 0, ptr::null()), 1);
+        assert_eq!(collection(41, set, other as u128, 0, ptr::null()), 1);
+        assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 1);
+        assert_eq!(collection(5, set, 0, 0, ptr::null()), 0);
+        plenty_release(set as *mut Header);
+        assert_eq!(strings::utf8(query), "é\0🙂");
+        plenty_release(query.cast());
+        plenty_release(other.cast());
+    }
+}
+
+#[test]
+fn set_relations_allow_identical_borrowed_operands() {
+    static SET: Type = Type {
+        affine: true,
+        key: Some(&TEXT),
+        ..scalar(b'S')
+    };
+    unsafe {
+        let a = collection(0, 0, 0, 0, &SET);
+        let b = collection(0, 0, 0, 0, &SET);
+        assert_eq!(collection(64, a, a, 0, ptr::null()), 1);
+        for set in [a, b] {
+            let text = strings::new("é\0🙂".as_bytes());
+            plenty_release(collection(1, set, text as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(text.cast());
+        }
+        assert_eq!(collection(62, a, b, 0, ptr::null()), 1);
+        assert_eq!(collection(63, b, a, 0, ptr::null()), 1);
+        assert_eq!(collection(64, a, a, 0, ptr::null()), 0);
+        plenty_release(a as *mut Header);
+        plenty_release(b as *mut Header);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn set_algebra_cleans_partial_storage_and_retains_result_members() {
+    static SET: Type = Type {
+        affine: true,
+        key: Some(&TEXT),
+        ..scalar(b'S')
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (op, length) in [(65, 3), (66, 1), (67, 1), (68, 2)] {
+        for budget in 0..=3 {
+            unsafe {
+                let a = collection(0, 0, 0, 0, &SET);
+                let b = collection(0, 0, 0, 0, &SET);
+                for (set, words) in [(a, ["é", "left"]), (b, ["é", "right"])] {
+                    for word in words {
+                        let text = strings::new(word.as_bytes());
+                        plenty_release(
+                            collection(1, set, text as u128, 0, ptr::null()) as *mut Header
+                        );
+                        plenty_release(text.cast());
+                    }
+                }
+                let reset = Restore;
+                crate::accounting::fail_after(Some(budget));
+                let result = collection(op, a, b, 0, ptr::null());
+                drop(reset);
+                assert_eq!(collection(5, a, 0, 0, ptr::null()), 2);
+                assert_eq!(collection(5, b, 0, 0, ptr::null()), 2);
+                plenty_release(a as *mut Header);
+                plenty_release(b as *mut Header);
+                if budget < 3 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    let result = crate::aggregates::payload(result);
+                    assert_eq!(collection(5, result, 0, 0, ptr::null()), length);
+                    // Reads after both inputs die validate retained string owners.
+                    for i in 0..length {
+                        let text = collection(6, result, i, 0, ptr::null());
+                        assert!(!strings::utf8(text as *const strings::Text).is_empty());
+                        plenty_release(text as *mut Header);
+                    }
+                    plenty_release(result as *mut Header);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn list_lookup_retains_string_payload_without_transferring_the_entry() {
+    unsafe {
+        let list = collection(0, 0, 0, 0, &LIST_TEXT);
+        let text = strings::new("é\0🙂".as_bytes());
+        plenty_release(collection(1, list, text as u128, 0, ptr::null()) as *mut Header);
+        plenty_release(text.cast());
+        for index in [i64::MIN, -2, 1, i64::MAX] {
+            assert_eq!(collection(42, list, index as u128, 0, ptr::null()), 0);
+        }
+        let found = collection(42, list, (-1i64) as u128, 0, ptr::null());
+        assert_eq!(found >> 64, 1);
+        assert_eq!(crate::aggregates::payload(found), text as u128);
+        assert_eq!(collection(5, list, 0, 0, ptr::null()), 1);
+        let again = collection(42, list, 0, 0, ptr::null());
+        assert_eq!(found, again);
+        crate::aggregates::release(again, &OPTION_TEXT);
+        plenty_release(list as *mut Header);
+        assert_eq!(strings::utf8(text), "é\0🙂");
+        crate::aggregates::release(found, &OPTION_TEXT);
+    }
+}
+
+#[test]
+fn set_filter_releases_removed_strings_and_keeps_source_owners() {
+    static SET: Type = Type {
+        affine: true,
+        key: Some(&TEXT),
+        ..scalar(b'S')
+    };
+    for (op, expected) in [(69, "é"), (70, "remove")] {
+        unsafe {
+            let target = collection(0, 0, 0, 0, &SET);
+            let other = collection(0, 0, 0, 0, &SET);
+            for (set, words) in [(target, ["é", "remove"]), (other, ["é", "extra"])] {
+                for word in words {
+                    let text = strings::new(word.as_bytes());
+                    plenty_release(collection(1, set, text as u128, 0, ptr::null()) as *mut Header);
+                    plenty_release(text.cast());
+                }
+            }
+            plenty_release(collection(op, target, other, 0, ptr::null()) as *mut Header);
+            plenty_release(other as *mut Header);
+            assert_eq!(collection(5, target, 0, 0, ptr::null()), 1);
+            let kept = collection(6, target, 0, 0, ptr::null());
+            assert_eq!(strings::utf8(kept as *const strings::Text), expected);
+            plenty_release(target as *mut Header);
+            assert_eq!(strings::utf8(kept as *const strings::Text), expected);
+            plenty_release(kept as *mut Header);
+        }
+    }
+}
+
+#[test]
+fn list_queries_compare_float_values_and_return_inline_positions() {
+    unsafe {
+        let list = collection(0, 0, 0, 0, &LIST_F64);
+        for value in [f64::NAN, -0.0, 1.5, 0.0] {
+            plenty_release(
+                collection(1, list, value.to_bits() as u128, 0, ptr::null()) as *mut Header
+            );
+        }
+        assert_eq!(collection(73, list, 0, 0, ptr::null()), 2);
+        assert_eq!(collection(74, list, 0, 0, ptr::null()), (1u128 << 64) | 1);
+        assert_eq!(collection(75, list, 0, 0, ptr::null()), (1u128 << 64) | 3);
+        for op in [73, 74, 75] {
+            assert_eq!(
+                collection(op, list, f64::NAN.to_bits() as u128, 0, ptr::null()),
+                0
+            );
+        }
+        plenty_release(list as *mut Header);
+    }
+}
+
+#[test]
+fn classification_reads_utf8_with_explicit_lengths() {
+    unsafe {
+        for (text, ascii, space) in [
+            ("", 1, 0),
+            (" \t", 1, 1),
+            ("\0", 1, 0),
+            ("\u{a0}\u{3000}", 0, 1),
+            ("\u{200b}", 0, 0),
+        ] {
+            let text = strings::new(text.as_bytes());
+            assert_eq!(collection(76, text as u128, 0, 0, ptr::null()), ascii);
+            assert_eq!(collection(77, text as u128, 0, 0, ptr::null()), space);
+            plenty_release(text.cast());
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn removed_affixes_have_independent_storage_and_recoverable_failure() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (op, expected) in [(71, "🙂é"), (72, "é🙂")] {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new("é🙂é".as_bytes());
+                let affix = strings::new("é".as_bytes());
+                let reset = Restore;
+                crate::accounting::fail_after(Some(budget));
+                let result = collection(op, source as u128, affix as u128, 0, ptr::null());
+                drop(reset);
+                plenty_release(source.cast());
+                plenty_release(affix.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    let result = crate::aggregates::payload(result) as *mut strings::Text;
+                    assert_eq!(strings::utf8(result), expected);
+                    assert_eq!((*result).scalar_len, 2);
+                    plenty_release(result.cast());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn set_update_preserves_string_owners_across_duplicate_and_failure_paths() {
+    static SET_TEXT: Type = Type {
+        kind: b'S',
+        ..list(&TEXT)
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=2 {
+        unsafe {
+            let target = collection(0, 0, 0, 0, &SET_TEXT);
+            let stored = strings::new(b"key0");
+            plenty_release(collection(1, target, stored as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(stored.cast());
+            let source = collection(0, 0, 0, 0, &SET_TEXT);
+            let query = strings::new(b"key0");
+            plenty_release(collection(1, source, query as u128, 0, ptr::null()) as *mut Header);
+            for n in 1..10 {
+                let text = strings::new(format!("key{n}").as_bytes());
+                plenty_release(collection(1, source, text as u128, 0, ptr::null()) as *mut Header);
+                plenty_release(text.cast());
+            }
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(61, target, source, 0, ptr::null())
+            };
+            assert_eq!(result, if budget < 2 { 1u128 << 64 } else { 0 });
+            assert_eq!(
+                collection(5, target, 0, 0, ptr::null()),
+                if budget < 2 { 1 } else { 10 }
+            );
+            assert_eq!(
+                collection(5, source, 0, 0, ptr::null()),
+                if budget < 2 { 10 } else { 0 }
+            );
+            assert_eq!(collection(7, query as u128, target, 0, ptr::null()), 1);
+            plenty_release(source as *mut Header);
+            plenty_release(target as *mut Header);
+            assert_eq!(strings::utf8(query), "key0");
+            plenty_release(query.cast());
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn dictionary_update_reserves_all_storage_before_transferring_owned_values() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=2 {
+        unsafe {
+            let target = collection(0, 0, 0, 0, &DICT);
+            let old = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, old, 99, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, target, 0, old, ptr::null()) as *mut Header);
+            plenty_release(old as *mut Header);
+            let source = collection(0, 0, 0, 0, &DICT);
+            for n in 0..10 {
+                let child = collection(0, 0, 0, 0, &LIST_INT);
+                plenty_release(collection(1, child, n, 0, ptr::null()) as *mut Header);
+                plenty_release(collection(1, source, n, child, ptr::null()) as *mut Header);
+                plenty_release(child as *mut Header);
+            }
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(60, target, source, 0, ptr::null())
+            };
+            assert_eq!(result, if budget < 2 { 1u128 << 64 } else { 0 });
+            assert_eq!(
+                collection(5, target, 0, 0, ptr::null()),
+                if budget < 2 { 1 } else { 10 }
+            );
+            assert_eq!(
+                collection(5, source, 0, 0, ptr::null()),
+                if budget < 2 { 10 } else { 0 }
+            );
+            plenty_release(source as *mut Header);
+            for n in 0..if budget < 2 { 1 } else { 10 } {
+                let child = collection(4, target, n, 0, ptr::null());
+                assert_eq!(
+                    collection(4, child, 0, 0, ptr::null()),
+                    if budget < 2 { 99 } else { n }
+                );
+                plenty_release(child as *mut Header);
+            }
+            plenty_release(target as *mut Header);
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn list_extension_reserves_before_transferring_owned_entries() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=1 {
+        unsafe {
+            let destination = collection(0, 0, 0, 0, &LIST_LIST);
+            let source = collection(0, 0, 0, 0, &LIST_LIST);
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
+            plenty_release(child as *mut Header);
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(59, destination, source, 0, ptr::null())
+            };
+            assert_eq!(result, if budget == 0 { 1u128 << 64 } else { 0 });
+            assert_eq!(
+                collection(5, destination, 0, 0, ptr::null()),
+                budget as u128
+            );
+            assert_eq!(
+                collection(5, source, 0, 0, ptr::null()),
+                (1 - budget) as u128
+            );
+            if budget == 1 {
+                plenty_release(source as *mut Header);
+                let stored = collection(4, destination, 0, 0, ptr::null());
+                assert_eq!(stored, child);
+                assert_eq!(collection(4, stored, 0, 0, ptr::null()), 42);
+                plenty_release(stored as *mut Header);
+            } else {
+                plenty_release(source as *mut Header);
+            }
+            plenty_release(destination as *mut Header);
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn dictionary_clear_releases_entries_but_reuses_buffers() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let source = collection(0, 0, 0, 0, &DICT_TEXT);
+        let text = strings::new("é\0🙂".as_bytes());
+        plenty_release(
+            collection(1, source, text as u128, text as u128, ptr::null()) as *mut Header,
+        );
+        let saved = collection(4, source, text as u128, 0, ptr::null());
+        plenty_release(text.cast());
+        let inserted = {
+            let _restore = Restore;
+            crate::accounting::fail_after(Some(0));
+            plenty_release(collection(58, source, 0, 0, ptr::null()) as *mut Header);
+            collection(29, source, saved, saved, ptr::null())
+        };
+        assert_eq!(inserted, 0);
+        assert_eq!(collection(5, source, 0, 0, ptr::null()), 1);
+        assert_eq!(collection(7, saved, source, 0, ptr::null()), 1);
+        plenty_release(source as *mut Header);
+        assert_eq!(strings::utf8(saved as *const _), "é\0🙂");
+        plenty_release(saved as *mut Header);
+    }
+}
+
+#[test]
+fn list_reverse_reorders_owned_slots_without_duplication() {
+    unsafe {
+        let source = collection(0, 0, 0, 0, &LIST_LIST);
+        let child = collection(0, 0, 0, 0, &LIST_INT);
+        plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
+        plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
+        let other = collection(0, 0, 0, 0, &LIST_INT);
+        plenty_release(collection(1, source, other, 0, ptr::null()) as *mut Header);
+        plenty_release(child as *mut Header);
+        plenty_release(other as *mut Header);
+        plenty_release(collection(57, source, 0, 0, ptr::null()) as *mut Header);
+        let found = collection(4, source, 1, 0, ptr::null());
+        assert_eq!(found, child);
+        plenty_release(source as *mut Header);
+        assert_eq!(collection(4, found, 0, 0, ptr::null()), 42);
+        plenty_release(found as *mut Header);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn repeated_strings_fill_checked_storage_without_temporary_allocations() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for count in [-1i64, 0, 1, 2, 3, 7, 31] {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new("é\0🙂".as_bytes());
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(56, source as u128, count as u128, 0, ptr::null())
+                };
+                plenty_release(source.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
+                    assert_eq!(strings::utf8(output), "é\0🙂".repeat(count.max(0) as usize));
+                    assert_eq!((*output).scalar_len, count.max(0) as u64 * 3);
+                    plenty_release(output.cast());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn trimmed_strings_have_independent_storage_and_recover_from_allocation_failure() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (op, expected) in [(53, "é\0🙂"), (54, "é\0🙂 "), (55, "　é\0🙂")] {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new("　é\0🙂 ".as_bytes());
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(op, source as u128, 0, 0, ptr::null())
+                };
+                assert_eq!(strings::utf8(source), "　é\0🙂 ");
+                plenty_release(source.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
+                    assert_eq!(strings::utf8(output), expected);
+                    assert_eq!((*output).scalar_len, expected.chars().count() as u64);
+                    plenty_release(output.cast());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn text_search_returns_scalar_positions_without_borrowed_result_storage() {
+    unsafe {
+        let text = strings::new("é🙂\0é🙂".as_bytes());
+        let needle = strings::new("🙂".as_bytes());
+        let first = collection(50, text as u128, needle as u128, 0, ptr::null());
+        let last = collection(51, text as u128, needle as u128, 0, ptr::null());
+        plenty_release(text.cast());
+        plenty_release(needle.cast());
+        assert_eq!(first, (1u128 << 64) | 1);
+        assert_eq!(last, (1u128 << 64) | 4);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn string_replacement_is_fallible_and_outputs_survive_all_inputs() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (text, old, new, expected) in [
+        ("Aé\0🙂é", "é", "中🙂", "A中🙂\0🙂中🙂"),
+        ("é\0", "", "🙂", "🙂é🙂\0🙂"),
+        ("", "", "", ""),
+        ("abc", "x", "y", "abc"),
+        ("abc", "abc", "", ""),
+    ] {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new(text.as_bytes());
+                let old_text = strings::new(old.as_bytes());
+                let new_text = strings::new(new.as_bytes());
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(
+                        47,
+                        source as u128,
+                        old_text as u128,
+                        new_text as u128,
+                        ptr::null(),
+                    )
+                };
+                assert_eq!(strings::utf8(source), text);
+                assert_eq!(strings::utf8(old_text), old);
+                assert_eq!(strings::utf8(new_text), new);
+                plenty_release(source.cast());
+                plenty_release(old_text.cast());
+                plenty_release(new_text.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
+                    assert_eq!(strings::utf8(output), expected);
+                    assert_eq!((*output).scalar_len, expected.chars().count() as u64);
+                    plenty_release(output.cast());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn string_slice_failure_and_utf8_result_lifetime() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (start, stop, expected) in [(1, 4, "é\0🙂"), (4, 1, ""), (i64::MIN, i64::MAX, "Aé\0🙂Z")]
+    {
+        for budget in 0..=1 {
+            unsafe {
+                let source = strings::new("Aé\0🙂Z".as_bytes());
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(46, source as u128, start as u128, stop as u128, ptr::null())
+                };
+                assert_eq!(strings::utf8(source), "Aé\0🙂Z");
+                plenty_release(source.cast());
+                if budget == 0 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let text = crate::aggregates::payload(result) as *mut crate::strings::Text;
+                    assert_eq!(strings::utf8(text), expected);
+                    assert_eq!((*text).scalar_len, expected.chars().count() as u64);
+                    plenty_release(text.cast());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn list_slices_transfer_only_selected_payloads_after_reserving_storage() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=2 {
+        unsafe {
+            let source = collection(0, 0, 0, 0, &LIST_LIST);
+            let mut children = [0; 3];
+            for (i, child) in children.iter_mut().enumerate() {
+                *child = collection(0, 0, 0, 0, &LIST_INT);
+                plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
+                plenty_release(collection(1, source, *child, 0, ptr::null()) as *mut Header);
+                plenty_release(*child as *mut Header);
+            }
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(45, source, 1, 2, &LIST_LIST)
+            };
+            if budget < 2 {
+                assert_eq!(result, 1u128 << 64);
+                for (i, child) in children.iter().enumerate() {
+                    let stored = collection(4, source, i as u128, 0, ptr::null());
+                    assert_eq!(stored, *child);
+                    plenty_release(stored as *mut Header);
+                }
+                plenty_release(source as *mut Header);
+            } else {
+                assert_eq!(result >> 64, 0);
+                plenty_release(source as *mut Header);
+                let output = crate::aggregates::payload(result);
+                let child = collection(4, output, 0, 0, ptr::null());
+                assert_eq!(child, children[1]);
+                assert_eq!(collection(4, child, 0, 0, ptr::null()), 1);
+                plenty_release(child as *mut Header);
+                plenty_release(output as *mut Header);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn dictionary_snapshots_retain_strings_only_after_successful_reservation() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for op in [43, 44] {
+        for budget in 0..=2 {
+            unsafe {
+                let source = collection(0, 0, 0, 0, &DICT_TEXT);
+                let key = strings::new(b"key");
+                let value = strings::new("é\0🙂".as_bytes());
+                plenty_release(
+                    collection(1, source, key as u128, value as u128, ptr::null()) as *mut Header,
+                );
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(op, source, 0, 0, &RESULT_TEXT_LIST)
+                };
+                let stored = collection(4, source, key as u128, 0, ptr::null());
+                assert_eq!(stored, value as u128);
+                plenty_release(stored as *mut Header);
+                plenty_release(key.cast());
+                plenty_release(value.cast());
+                plenty_release(source as *mut Header);
+                if budget < 2 {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let list = crate::aggregates::payload(result);
+                    let item = collection(4, list, 0, 0, ptr::null());
+                    assert_eq!(item, if op == 43 { key as u128 } else { value as u128 });
+                    assert_eq!(
+                        strings::utf8(item as *const _),
+                        if op == 43 { "key" } else { "é\0🙂" }
+                    );
+                    plenty_release(item as *mut Header);
+                    crate::aggregates::release(result, &RESULT_TEXT_LIST);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn dictionary_snapshot_transfers_owned_payload_only_on_success() {
+    static RESULT_LISTS: Type = Type {
+        affine: true,
+        variants: &[
+            Variant {
+                name: "Ok",
+                fields: &[&LIST_LIST],
+            },
+            Variant {
+                name: "Err",
+                fields: &[&ALLOC_ERROR],
+            },
+        ],
+        ..scalar(b'B')
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=2 {
+        unsafe {
+            let source = collection(0, 0, 0, 0, &DICT);
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, source, 1, child, ptr::null()) as *mut Header);
+            plenty_release(child as *mut Header);
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(44, source, 0, 0, &RESULT_LISTS)
+            };
+            if budget < 2 {
+                assert_eq!(result, 1u128 << 64);
+                let stored = collection(4, source, 1, 0, ptr::null());
+                assert_eq!(stored, child);
+                plenty_release(stored as *mut Header);
+            }
+            plenty_release(source as *mut Header);
+            if budget == 2 {
+                assert_eq!(result >> 64, 0);
+                let list = crate::aggregates::payload(result);
+                let stored = collection(4, list, 0, 0, ptr::null());
+                assert_eq!(stored, child);
+                assert_eq!(collection(4, stored, 0, 0, ptr::null()), 42);
+                plenty_release(stored as *mut Header);
+                crate::aggregates::release(result, &RESULT_LISTS);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn dictionary_lookup_succeeds_when_allocation_is_disabled() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let dictionary = collection(0, 0, 0, 0, &DICT_TEXT);
+        let key = strings::new(b"key");
+        let equal_key = strings::new(b"key");
+        let value = strings::new(b"value");
+        plenty_release(
+            collection(1, dictionary, key as u128, value as u128, ptr::null()) as *mut Header,
+        );
+        let (found, missing) = {
+            let _restore = Restore;
+            crate::accounting::fail_after(Some(0));
+            (
+                collection(38, dictionary, equal_key as u128, 0, ptr::null()),
+                collection(38, dictionary, value as u128, 0, ptr::null()),
+            )
+        };
+        assert_eq!(found >> 64, 1);
+        assert_eq!(missing, 0);
+        crate::aggregates::release(found, &OPTION_TEXT);
+        plenty_release(dictionary as *mut Header);
+        for text in [key, equal_key, value] {
+            plenty_release(text.cast());
+        }
+    }
+}
+
+#[test]
+fn checked_character_results_use_inline_tags_and_outlive_the_source() {
+    unsafe {
+        let text = strings::new("é🙂\0".as_bytes());
+        for index in [i64::MIN, -4, 3, i64::MAX] {
+            assert_eq!(
+                collection(37, text as u128, index as u128, 0, ptr::null()),
+                0
+            );
+        }
+        let result = collection(37, text as u128, (-2i64) as u128, 0, ptr::null());
+        assert_eq!(result >> 64, 2);
+        let character = result as *const strings::Text;
+        plenty_release(text.cast());
+        assert_eq!(strings::utf8(character), "🙂");
+        assert_eq!((*character).byte_len, 4);
+        assert_eq!((*character).scalar_len, 1);
+        crate::aggregates::retain(result, &RESULT_OPTION_TEXT);
+        crate::aggregates::release(result, &RESULT_OPTION_TEXT);
+        assert_eq!(strings::utf8(character), "🙂");
+        crate::aggregates::release(result, &RESULT_OPTION_TEXT);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn checked_character_allocation_failure_and_missing_index_are_distinct() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let text = strings::new("é🙂\0".as_bytes());
+        for budget in 0..=1 {
+            let (missing, present) = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                (
+                    collection(37, text as u128, 3, 0, ptr::null()),
+                    collection(37, text as u128, 2, 0, ptr::null()),
+                )
+            };
+            assert_eq!(missing, 0);
+            if budget == 0 {
+                assert_eq!(present, 1u128 << 64);
+            } else {
+                assert_eq!(present >> 64, 2);
+                assert_eq!(strings::bytes(present as *const strings::Text), b"\0");
+            }
+            crate::aggregates::release(present, &RESULT_OPTION_TEXT);
+            assert_eq!(strings::utf8(text), "é🙂\0");
+        }
+        plenty_release(text.cast());
+    }
+}
+
+#[test]
+fn split_output_outlives_inputs_and_preserves_exact_utf8() {
+    unsafe {
+        let text = strings::new("é\0::🙂::::".as_bytes());
+        let separator = strings::new(b"::");
+        let result = collection(36, text as u128, separator as u128, 0, &RESULT_TEXT_LIST);
+        plenty_release(text.cast());
+        plenty_release(separator.cast());
+        assert_eq!(result >> 64, 0);
+        let list = crate::aggregates::payload(result);
+        assert_eq!(collection(5, list, 0, 0, ptr::null()), 4);
+        for (i, expected) in ["é\0", "🙂", "", ""].iter().enumerate() {
+            let part = collection(4, list, i as u128, 0, ptr::null()) as *mut strings::Text;
+            assert_eq!(strings::utf8(part), *expected);
+            assert_eq!((*part).scalar_len, expected.chars().count() as u64);
+            plenty_release(part.cast());
+        }
+        crate::aggregates::release(result, &RESULT_TEXT_LIST);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn partial_split_cleanup_handles_every_allocation_failure() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let text = strings::new("é\0::🙂::::".as_bytes());
+        let separator = strings::new(b"::");
+        // Buffer + owner + four output strings, including the empty pieces.
+        for budget in 0..=6 {
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(36, text as u128, separator as u128, 0, &RESULT_TEXT_LIST)
+            };
+            if budget < 6 {
+                assert_eq!(result, 1u128 << 64);
+            } else {
+                assert_eq!(result >> 64, 0);
+            }
+            crate::aggregates::release(result, &RESULT_TEXT_LIST);
+            assert_eq!(strings::utf8(text), "é\0::🙂::::");
+            assert_eq!(strings::utf8(separator), "::");
+        }
+        plenty_release(text.cast());
+        plenty_release(separator.cast());
+    }
+}
+
+#[test]
+fn fallible_text_builders_copy_exact_bytes_and_unicode_lengths() {
+    unsafe {
+        let first = strings::new("é\0".as_bytes());
+        let second = strings::new("🙂".as_bytes());
+        let separator = strings::new("界".as_bytes());
+        let joined = strings::try_join(
+            Some(separator),
+            [first.cast_const(), second.cast_const(), first.cast_const()].into_iter(),
+        )
+        .unwrap();
+        assert_eq!(strings::bytes(joined), "é\0界🙂界é\0".as_bytes());
+        assert_eq!((*joined).scalar_len, 7);
+        let combined = strings::try_concat(first, second).unwrap();
+        assert_eq!(strings::bytes(combined), "é\0🙂".as_bytes());
+        assert_eq!((*combined).scalar_len, 3);
+        let empty = strings::try_join(Some(separator), [].into_iter()).unwrap();
+        assert!(strings::bytes(empty).is_empty());
+        assert_eq!((*empty).scalar_len, 0);
+        for text in [joined, combined, empty, first, second, separator] {
+            plenty_release(text.cast());
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn text_builders_recover_from_allocation_failure_without_consuming_inputs() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    unsafe {
+        let a = strings::new(b"a\0");
+        let b = strings::new(b"b");
+        for budget in 0..=1 {
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                strings::try_concat(a, b)
+            };
+            if budget == 0 {
+                assert_eq!(result, Err(crate::memory::AllocError::OutOfMemory));
+            } else {
+                let result = result.unwrap();
+                assert_eq!(strings::bytes(result), b"a\0b");
+                plenty_release(result.cast());
+            }
+            assert_eq!(strings::bytes(a), b"a\0");
+            assert_eq!(strings::bytes(b), b"b");
+        }
+        plenty_release(a.cast());
+        plenty_release(b.cast());
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn partial_record_and_nested_collection_copies_release_only_owned_values() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for records in [false, true] {
+        let ty = if records { &PAIR } else { &LIST_LIST };
+        let allocations = if records { 3 } else { 6 };
+        unsafe {
+            let source = collection(if records { 30 } else { 0 }, 0, 0, 0, ty);
+            for i in 0..2 {
+                let child = if records {
+                    let child = collection(30, 0, 0, 0, &POINT);
+                    collection(21, child, 0, i + 1, ptr::null());
+                    collection(21, source, i, child, ptr::null());
+                    child
+                } else {
+                    let child = collection(0, 0, 0, 0, &LIST_INT);
+                    plenty_release(collection(1, child, i + 1, 0, ptr::null()) as *mut Header);
+                    plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
+                    child
+                };
+                plenty_release(child as *mut Header);
+            }
+            for budget in 0..=allocations {
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(33, source, 0, 0, ty)
+                };
+                if budget < allocations {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    let copied = crate::aggregates::payload(result);
+                    assert_ne!(copied, source);
+                    assert_eq!(collection(8, source, copied, 0, ty), 1);
+                    plenty_release(copied as *mut Header);
+                }
+            }
+            plenty_release(source as *mut Header);
+        }
+    }
+}
+
+#[test]
+fn fallible_collection_headers_and_buffers_use_matching_layouts() {
+    static SET: Type = Type {
+        kind: b'S',
+        ..list(&INTEGER)
+    };
+    static MAP: Type = Type {
+        kind: b'D',
+        value: Some(&INTEGER),
+        ..list(&INTEGER)
+    };
+    for ty in [&LIST_INT, &SET, &MAP] {
+        for capacity in [0, 16] {
+            unsafe {
+                let result = collection(32, capacity, 0, 0, ty);
+                assert_eq!(result >> 64, 0);
+                let c = crate::aggregates::payload(result);
+                assert_ne!(c, 0);
+                for n in 0..16 {
+                    assert_eq!(collection(29, c, n, n + 1, ptr::null()), 0);
+                }
+                assert_eq!(collection(5, c, 0, 0, ptr::null()), 16);
+                plenty_release(c as *mut Header);
+                assert_eq!(collection(32, u64::MAX as u128, 0, 0, ty), 3u128 << 64);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn partial_constructor_buffers_are_freed_on_each_allocation_failure() {
+    static MAP: Type = Type {
+        kind: b'D',
+        value: Some(&INTEGER),
+        ..list(&INTEGER)
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for (ty, allocations) in [(&LIST_INT, 2), (&MAP, 3)] {
+        for budget in 0..=allocations {
+            unsafe {
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(32, 8, 0, 0, ty)
+                };
+                if budget < allocations {
+                    assert_eq!(result, 1u128 << 64);
+                } else {
+                    assert_eq!(result >> 64, 0);
+                    plenty_release(crate::aggregates::payload(result) as *mut Header);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn fallible_reservation_and_growth_preserve_hash_lookups() {
+    static SET: Type = Type {
+        kind: b'S',
+        ..list(&INTEGER)
+    };
+    static MAP: Type = Type {
+        kind: b'D',
+        value: Some(&INTEGER),
+        ..list(&INTEGER)
+    };
+    for ty in [&LIST_INT, &SET, &MAP] {
+        unsafe {
+            let c = collection(0, 0, 0, 0, ty);
+            assert_eq!(collection(28, c, 0, 0, ptr::null()), 0);
+            assert_eq!(collection(28, c, 32, 0, ptr::null()), 0);
+            for n in 0..32 {
+                assert_eq!(collection(29, c, n, n + 1, ptr::null()), 0);
+            }
+            // Both negative lengths and impossible layouts return the inline
+            // Err(CapacityOverflow) tag path, without touching existing entries.
+            for count in [u64::MAX as u128, i64::MAX as u128] {
+                assert_eq!(collection(28, c, count, 0, ptr::null()), 3u128 << 64);
+            }
+            for n in 0..32 {
+                assert_eq!(collection(7, n, c, 0, ptr::null()), 1);
+                if ty.kind == b'D' {
+                    assert_eq!(collection(4, c, n, 0, ptr::null()), n + 1);
+                }
+            }
+            plenty_release(c as *mut Header);
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn actual_allocator_failures_preserve_empty_and_populated_hash_tables() {
+    static MAP: Type = Type {
+        kind: b'D',
+        value: Some(&INTEGER),
+        ..list(&INTEGER)
+    };
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for len in [0, 8] {
+        for budget in 0..=2 {
+            unsafe {
+                let c = collection(0, 0, 0, 0, &MAP);
+                for n in 0..len {
+                    assert_eq!(collection(29, c, n, n, ptr::null()), 0);
+                }
+                let result = {
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(budget));
+                    collection(29, c, 42, 42, ptr::null())
+                };
+                assert_eq!(result, if budget == 2 { 0 } else { 1u128 << 64 });
+                assert_eq!(
+                    collection(5, c, 0, 0, ptr::null()),
+                    len + u128::from(budget == 2)
+                );
+                for n in 0..len {
+                    assert_eq!(collection(4, c, n, 0, ptr::null()), n);
+                }
+                assert_eq!(collection(29, c, 42, 99, ptr::null()), 0);
+                assert_eq!(collection(4, c, 42, 0, ptr::null()), 99);
+                plenty_release(c as *mut Header);
+            }
+        }
+    }
+}
+
+#[test]
+fn inline_payloads_retain_and_drop_through_runtime_slots() {
+    use crate::aggregates::{release, wrap};
+    unsafe {
+        let first = wrap(wrap(guard(42), 1), 0);
+        let list = collection(0, 0, 0, 0, &LIST_RESULT);
+        plenty_release(collection(1, list, first, 0, ptr::null()) as *mut Header);
+        release(first, &RESULT_OPTION);
+        let moved = collection(15, list, 0, 0, ptr::null());
+        plenty_release(list as *mut Header);
+        assert!(trace().is_empty());
+        release(moved, &RESULT_OPTION);
+        assert_eq!(trace(), [42]);
+        // These inactive branches must never interpret scalar data as pointers.
+        release(wrap(u64::MAX as u128, 1), &RESULT_OPTION);
+        release(wrap(wrap(0, 0), 0), &RESULT_OPTION);
+    }
+}
+
+#[test]
+fn float_slots_preserve_bits_and_ieee_equality_and_unit_payloads() {
+    unsafe {
+        for (descriptor, negative_zero, nan) in [
+            (
+                &LIST_F32,
+                u128::from((-0.0f32).to_bits()),
+                u128::from(f32::NAN.to_bits()),
+            ),
+            (
+                &LIST_F64,
+                u128::from((-0.0f64).to_bits()),
+                u128::from(f64::NAN.to_bits()),
+            ),
+        ] {
+            let a = collection(0, 0, 0, 0, descriptor);
+            let b = collection(0, 0, 0, 0, descriptor);
+            plenty_release(collection(1, a, negative_zero, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, b, 0, 0, ptr::null()) as *mut Header);
+            assert_eq!(collection(4, a, 0, 0, ptr::null()), negative_zero);
+            assert_eq!(collection(8, a, b, 0, ptr::null()), 1);
+            plenty_release(collection(3, a, 0, nan, ptr::null()) as *mut Header);
+            assert_eq!(collection(8, a, a, 0, ptr::null()), 0);
+            assert_eq!(collection(7, nan, a, 0, ptr::null()), 0);
+            plenty_release(a as *mut Header);
+            plenty_release(b as *mut Header);
+        }
+        let done = collection(20, 0, 0, 0, &DONE);
+        collection(21, done, 0, 0, ptr::null());
+        assert_eq!(collection(23, done, 0, 0, ptr::null()), 0);
+        plenty_release(done as *mut Header);
+    }
+}
+
+unsafe fn guard(id: u128) -> u128 {
+    unsafe {
+        let value = collection(30, hook as *const () as u128, 0, 0, &GUARD);
+        *((value as *mut u8).add(32).cast::<u128>()) = id;
+        value
+    }
+}
+unsafe extern "C" fn hook(owner: *mut u128) {
+    unsafe {
+        let object = *owner as *mut u8;
+        let id = *object.add(32).cast::<u128>();
+        TRACE.with(|trace| trace.borrow_mut().push(id));
+        // Reading the dying receiver may retain/release its immortalized header.
+        plenty_retain(object.cast());
+        plenty_release(object.cast());
+        if id == 9 {
+            plenty_release(guard(77) as *mut Header);
+            TRACE.with(|trace| trace.borrow_mut().push(99));
+        }
+    }
+}
+fn trace() -> Vec<u128> {
+    TRACE.with(|trace| std::mem::take(&mut *trace.borrow_mut()))
+}
+
+#[test]
+fn strings_keep_lengths_utf8_and_nul_bytes() {
+    unsafe {
+        let a = strings::new("é\0".as_bytes());
+        let b = strings::new("🦀".as_bytes());
+        let joined = plenty_concat(a, b);
+        assert_eq!(strings::utf8(joined), "é\0🦀");
+        assert_eq!((*joined).byte_len, 7);
+        assert_eq!((*joined).scalar_len, 3);
+        assert_eq!(plenty_contains(joined, b), 1);
+        let last = strings::at(joined, -1);
+        assert_eq!(plenty_str_eq(last, b), 1);
+        for p in [a, b, joined, last] {
+            plenty_release(p.cast());
+        }
+    }
+}
+
+#[test]
+fn compiler_literal_prefix_is_read_only_and_immortal() {
+    #[repr(C)]
+    struct Literal {
+        header: Header,
+        byte_len: u64,
+        scalar_len: u64,
+        bytes: [u8; 3],
+    }
+    static LITERAL: Literal = Literal {
+        header: Header {
+            refs: u64::MAX,
+            destroy: None,
+        },
+        byte_len: 3,
+        scalar_len: 3,
+        bytes: *b"a\0b",
+    };
+    unsafe {
+        let pointer = std::ptr::addr_of!(LITERAL).cast::<strings::Text>();
+        plenty_retain(pointer.cast_mut().cast());
+        plenty_release(pointer.cast_mut().cast());
+        assert_eq!(strings::bytes(pointer), b"a\0b");
+        let copy = plenty_concat(pointer, pointer);
+        assert_eq!(strings::bytes(copy), b"a\0ba\0b");
+        plenty_release(copy.cast());
+    }
+}
+
+#[test]
+fn destruction_queue_preserves_children_and_nested_drops() {
+    unsafe {
+        let list = collection(0, 0, 0, 0, &LIST_GUARD);
+        for id in [9, 2, 3] {
+            let value = guard(id);
+            let retained = collection(1, list, value, 0, ptr::null());
+            plenty_release(retained as *mut Header);
+            plenty_release(value as *mut Header);
+        }
+        plenty_release(list as *mut Header);
+        assert_eq!(trace(), [9, 77, 99, 2, 3]);
+    }
+}
+
+#[test]
+fn owned_iteration_removes_the_source_owner() {
+    unsafe {
+        let list = collection(0, 0, 0, 0, &LIST_GUARD);
+        let value = guard(5);
+        let retained = collection(1, list, value, 0, ptr::null());
+        plenty_release(retained as *mut Header);
+        plenty_release(value as *mut Header);
+        let taken = collection(15, list, 0, 0, ptr::null());
+        plenty_release(taken as *mut Header);
+        assert_eq!(trace(), [5]);
+        plenty_release(list as *mut Header);
+        assert!(trace().is_empty());
+    }
+}
+
+#[test]
+fn shared_descriptor_graphs_and_recursive_copies() {
+    unsafe {
+        // Pair contains two Points; both fields reference the same immutable metadata.
+        let pair = collection(30, 0, 0, 0, &PAIR);
+        let a = collection(30, 0, 0, 0, &POINT);
+        let b = collection(30, 0, 0, 0, &POINT);
+        *((a as *mut u8).add(32).cast::<u128>()) = 3;
+        *((b as *mut u8).add(32).cast::<u128>()) = 4;
+        *((pair as *mut u8).add(32).cast::<u128>()) = a;
+        *((pair as *mut u8).add(48).cast::<u128>()) = b;
+        let copy = collection(14, pair, 0, 0, ptr::null());
+        assert_eq!(collection(8, pair, copy, 0, ptr::null()), 1);
+        *((a as *mut u8).add(32).cast::<u128>()) = 10;
+        assert_eq!(collection(8, pair, copy, 0, ptr::null()), 0);
+        plenty_release(pair as *mut Header);
+        plenty_release(copy as *mut Header);
+    }
+}
+
+#[test]
+fn dictionaries_preserve_order_and_copy_owned_contents() {
+    unsafe {
+        let dict = collection(0, 0, 0, 0, &DICT);
+        let list = collection(0, 0, 0, 0, &LIST_INT);
+        plenty_release(collection(1, list, 42, 0, ptr::null()) as *mut Header);
+        plenty_release(collection(1, dict, 1, list, ptr::null()) as *mut Header);
+        plenty_release(list as *mut Header);
+        let independent = collection(14, dict, 0, 0, ptr::null());
+        assert_eq!(collection(8, dict, independent, 0, ptr::null()), 1);
+        let values = collection(11, dict, 0, 0, &LIST_LIST);
+        let copied_values = collection(14, values, 0, 0, ptr::null());
+        let item = collection(15, values, 0, 0, ptr::null());
+        plenty_release(collection(2, item, 7, 0, ptr::null()) as *mut Header);
+        let copied_item = collection(15, copied_values, 0, 0, ptr::null());
+        assert_eq!(collection(5, copied_item, 0, 0, ptr::null()), 1);
+        for object in [dict, independent, values, copied_values, item, copied_item] {
+            plenty_release(object as *mut Header);
+        }
+    }
+}
+
+unsafe extern "C" fn never_resume(_: *mut Generator, _: *mut u128) -> u8 {
+    panic!("dropping must not resume a generator")
+}
+#[test]
+fn oversized_generator_frame_fails_before_reading_metadata() {
+    let result = unsafe { crate::generators::try_new(never_resume, u64::MAX, ptr::null()) };
+    assert_eq!(
+        result.unwrap_err(),
+        crate::memory::AllocError::CapacityOverflow
+    );
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn native_checked_generator_abi_consumes_captures_on_both_paths() {
+    static MANAGED: [&Type; 1] = [&LIST_INT];
+    for budget in 0..=1 {
+        unsafe {
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            let captures = [child];
+            let mut out = 0;
+            crate::accounting::fail_after(Some(budget));
+            crate::generators::plenty_generator_try_new(
+                never_resume,
+                1,
+                MANAGED.as_ptr().cast(),
+                captures.as_ptr(),
+                1,
+                &mut out,
+            );
+            crate::accounting::fail_after(None);
+            if budget == 0 {
+                assert_eq!(out, crate::aggregates::wrap(0, 1));
+            } else {
+                assert_eq!(out >> 64, 0);
+                plenty_release(out as *mut Header);
+            }
+        }
+    }
+}
+
+#[test]
+fn partial_class_cleanup_skips_hook_until_explicitly_armed() {
+    unsafe {
+        let partial = collection(108, 0, 0, 0, &GUARD);
+        assert_eq!(partial >> 64, 0);
+        *((partial as *mut u8).add(32).cast::<u128>()) = 41;
+        plenty_release(partial as *mut Header);
+        assert!(trace().is_empty());
+        let complete = collection(108, 0, 0, 0, &GUARD);
+        *((complete as *mut u8).add(32).cast::<u128>()) = 42;
+        collection(109, complete, hook as *const () as u128, 0, ptr::null());
+        plenty_release(complete as *mut Header);
+        assert_eq!(trace(), [42]);
+    }
+}
+
+#[test]
+fn element_addresses_survive_shared_projection_and_allow_exclusive_writes() {
+    unsafe {
+        let owner = collection(0, 0, 0, 0, &LIST_INT);
+        plenty_release(collection(1, owner, 4, 0, ptr::null()) as *mut Header);
+        plenty_release(collection(1, owner, 8, 0, ptr::null()) as *mut Header);
+        let slot = owner;
+        let first = collection(112, &slot as *const u128 as u128, 0, 0, ptr::null()) as *mut u128;
+        let second = collection(112, &slot as *const u128 as u128, 1, 0, ptr::null()) as *mut u128;
+        assert_eq!((*first, *second), (4, 8));
+        *first = 12;
+        assert_eq!(collection(4, owner, 0, 0, ptr::null()), 12);
+        plenty_release(owner as *mut Header);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn generator_frame_failure_does_not_consume_captures() {
+    static MANAGED: [&Type; 1] = [&GENERATOR];
+    unsafe {
+        let child = guard(77);
+        crate::accounting::fail_after(Some(0));
+        let result = crate::generators::try_new(never_resume, 1, MANAGED.as_ptr().cast());
+        crate::accounting::fail_after(None);
+        assert_eq!(result.unwrap_err(), crate::memory::AllocError::OutOfMemory);
+        assert!(trace().is_empty());
+        let frame = crate::generators::try_new(never_resume, 1, MANAGED.as_ptr().cast()).unwrap();
+        *frame.cast::<u8>().add(64).cast::<u128>() = child;
+        plenty_release(frame.cast());
+        assert_eq!(trace(), [77]);
+    }
+}
+#[test]
+fn deeply_nested_generator_frames_drop_iteratively() {
+    static MANAGED: [&Type; 1] = [&GENERATOR];
+    unsafe {
+        let mut child = guard(1);
+        for _ in 0..1000 {
+            let frame = plenty_generator_new(never_resume, 1, MANAGED.as_ptr().cast());
+            *frame.cast::<u8>().add(64).cast::<u128>() = child;
+            child = frame as u128;
+        }
+        plenty_release(child as *mut Header);
+        assert_eq!(trace(), [1]);
+    }
+}

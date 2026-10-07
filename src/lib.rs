@@ -1,21 +1,57 @@
-//! Plenty — a stack-based language built around a small memory footprint.
-//!
-//! Source flows through three layers, each its own module:
+//! Plenty — a statically typed, Python-shaped language with Cranelift AOT.
 //!
 //! ```text
-//!   text --lexer::lex--> Tok --op::compile--> Op --Vm::exec--> effects
+//! source → frontend (AST, names, types) → checked Op → Cranelift → object → executable
 //! ```
 //!
-//! [`value`] sits underneath all three: the [`Value`]s that live on the stack,
-//! kept to 16 bytes apiece, and the heap that backs the variable-sized ones.
+//! Compile with [`compile_source_to_executable`] or validate with [`check_source`].
 
 mod codegen;
+mod collection;
+mod frontend;
 mod lexer;
 mod op;
+mod ownership;
+mod record;
+mod sum;
 mod value;
-mod vm;
 
-pub use codegen::compile_source_to_executable;
-pub use op::{FnSig, Ty};
-pub use value::{StrId, Value};
-pub use vm::Vm;
+pub use codegen::{
+    compile_file_to_executable, compile_legacy_source_to_executable, compile_source_to_executable,
+};
+
+/// Parse and type-check a standalone modern Plenty binary without executing
+/// it or generating native code. Requires a parameterless `main` returning
+/// `()` or `i32`, just like [`compile_source_to_executable`].
+pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut heap = value::Heap::default();
+    let program = frontend::compile(source, &mut heap)?;
+    op::check(&program.ops)
+}
+
+/// Check a complete application, resolving imports from the supplied root or
+/// the entry file's directory. No native code is emitted or executed.
+pub fn check_file(
+    path: &std::path::Path,
+    root: Option<&std::path::Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    check_file_mode(path, root, true)
+}
+
+/// Check a library module and its imports without requiring an application main.
+pub fn check_module_file(
+    path: &std::path::Path,
+    root: Option<&std::path::Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    check_file_mode(path, root, false)
+}
+
+fn check_file_mode(
+    path: &std::path::Path,
+    root: Option<&std::path::Path>,
+    require_main: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut heap = value::Heap::default();
+    let program = frontend::compile_file(path, root, require_main, &mut heap)?;
+    op::check(&program.ops)
+}

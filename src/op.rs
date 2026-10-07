@@ -1,9 +1,5 @@
-//! The operation layer: the instruction set the VM executes, and the step that
-//! turns lexed words into instructions.
-//!
-//! An [`Op`] is fully resolved — numbers parsed, string literals already in the
-//! heap, function bodies compiled to nested `Op` sequences. A compiled program
-//! is just a `Vec<Op>`, run without ever re-lexing its source.
+//! Typed operations and independent checking before native code generation.
+//! Also contains the historical stack-syntax lowering used by backend tests.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -20,9 +16,9 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// Sized integers (§11.2): the user picks an exact bit width, signed or
 /// unsigned, so the program's memory footprint and overflow semantics are
 /// declared on the surface rather than hidden behind a polymorphic "Int".
-/// `Str` and `Bool` round out the vocabulary. Arrays and sum types are
-/// deferred (§12.7, §12.14); so are floating-point types (§12).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// Collections, enums, and generators carry resolved concrete type metadata;
+/// user generics remain deferred.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     I8,
     I16,
@@ -32,16 +28,106 @@ pub enum Ty {
     U16,
     U32,
     U64,
+    F32,
+    F64,
+    /// Stored enum payload marker; source-level unit expressions have no operand.
+    Unit,
     Str,
+    File,
     Bool,
+    List(Rc<Ty>),
+    Set(Rc<Ty>),
+    Dict(Rc<Ty>, Rc<Ty>),
+    Range(Rc<Ty>),
+    Enum(Rc<crate::sum::EnumType>),
+    Class(Rc<crate::record::ClassType>),
+    Generator(Rc<Ty>),
+    Ref(Rc<Ty>, bool),
 }
 
 impl Ty {
-    /// `true` for every integer width. The two non-integer types (`Str`,
-    /// `Bool`) return `false`. Used by the checker to enforce the
-    /// "arithmetic and ordering work on same-width integers only" rule
-    /// without naming each width in eight places.
-    pub fn is_int(self) -> bool {
+    pub fn inline_sum(&self) -> bool {
+        matches!(self, Self::Enum(t) if t.inline())
+    }
+    pub fn is_float(&self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
+    }
+    pub fn is_numeric(&self) -> bool {
+        self.is_int() || self.is_float()
+    }
+    pub fn layout_depth(&self) -> usize {
+        match self {
+            Self::List(t) | Self::Set(t) | Self::Generator(t) => 1 + t.layout_depth(),
+            Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
+            Self::Enum(t) => t.depth,
+            Self::Class(t) => t.depth,
+            _ => 0,
+        }
+    }
+    pub fn affine(&self) -> bool {
+        matches!(
+            self,
+            Self::List(_)
+                | Self::Set(_)
+                | Self::Dict(_, _)
+                | Self::Generator(_)
+                | Self::Class(_)
+                | Self::File
+        ) || matches!(self, Self::Enum(t) if t.affine)
+    }
+    pub fn restricted_storage(&self) -> bool {
+        match self {
+            Self::Generator(_) | Self::Ref(..) => true,
+            Self::Enum(t) => t.restricted_storage,
+            _ => false,
+        }
+    }
+    pub fn contains_reference(&self) -> bool {
+        // Composite references are rejected at their construction boundary.
+        matches!(self, Self::Ref(..))
+    }
+    pub fn can_copy(&self) -> bool {
+        match self {
+            Self::Generator(_) | Self::Ref(..) | Self::File => false,
+            Self::Class(t) => t.copyable,
+            Self::Enum(t) => t.copyable,
+            Self::List(t) | Self::Set(t) => t.can_copy(),
+            Self::Dict(k, v) => k.can_copy() && v.can_copy(),
+            _ => true,
+        }
+    }
+    pub fn has_destructor(&self) -> bool {
+        match self {
+            Self::Generator(_) | Self::File => true,
+            Self::Class(t) => t.has_destructor,
+            Self::Enum(t) => t.has_destructor,
+            Self::List(t) | Self::Set(t) => t.has_destructor(),
+            Self::Dict(k, v) => k.has_destructor() || v.has_destructor(),
+            _ => false,
+        }
+    }
+    /// Heap values have one owner per operand/local; scalars are copied as bits.
+    pub fn managed(&self) -> bool {
+        if let Self::Enum(t) = self {
+            if t.inline() {
+                return t.managed;
+            }
+        }
+        matches!(
+            self,
+            Self::Str
+                | Self::File
+                | Self::List(_)
+                | Self::Set(_)
+                | Self::Dict(_, _)
+                | Self::Range(_)
+                | Self::Enum(_)
+                | Self::Class(_)
+                | Self::Generator(_)
+        )
+    }
+    /// True for the eight explicit-width integer types.
+    pub fn is_int(&self) -> bool {
         matches!(
             self,
             Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64 | Ty::U8 | Ty::U16 | Ty::U32 | Ty::U64
@@ -52,7 +138,7 @@ impl Ty {
     /// this integer type, or `None` for non-integer types. Used to check
     /// that pattern literals (parsed as `i64`) fit the scrutinee's type
     /// at compile time, before the runtime narrowing of `pattern_matches`.
-    pub fn int_range(self) -> Option<(i128, i128)> {
+    pub fn int_range(&self) -> Option<(i128, i128)> {
         let r = match self {
             Ty::I8 => (i8::MIN as i128, i8::MAX as i128 + 1),
             Ty::I16 => (i16::MIN as i128, i16::MAX as i128 + 1),
@@ -62,7 +148,7 @@ impl Ty {
             Ty::U16 => (0, u16::MAX as i128 + 1),
             Ty::U32 => (0, u32::MAX as i128 + 1),
             Ty::U64 => (0, u64::MAX as i128 + 1),
-            Ty::Str | Ty::Bool => return None,
+            _ => return None,
         };
         Some(r)
     }
@@ -79,16 +165,31 @@ impl fmt::Display for Ty {
             Ty::U16 => "u16",
             Ty::U32 => "u32",
             Ty::U64 => "u64",
-            Ty::Str => "Str",
-            Ty::Bool => "Bool",
+            Ty::F32 => "f32",
+            Ty::F64 => "f64",
+            Ty::Unit => "()",
+            Ty::Str => "str",
+            Ty::File => "File",
+            Ty::Bool => "bool",
+            Ty::List(t) => return write!(f, "list[{t}]"),
+            Ty::Set(t) => return write!(f, "set[{t}]"),
+            Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
+            Ty::Range(t) => {
+                return if **t == Ty::I64 {
+                    f.write_str("range")
+                } else {
+                    write!(f, "range[{t}]")
+                }
+            }
+            Ty::Enum(t) => return f.write_str(&t.name),
+            Ty::Class(t) => return f.write_str(&t.name),
+            Ty::Generator(t) => return write!(f, "Generator[{t}]"),
+            Ty::Ref(t, mutable) => return write!(f, "&{}{t}", if *mutable { "mut " } else { "" }),
         })
     }
 }
 
-/// Every `Value` has an unambiguous `Ty` — the value's runtime tag and the
-/// checker's type lattice line up one-to-one. This lets the REPL seed the
-/// checker's abstract stack from the live runtime stack, so a line containing
-/// only `+` sees the values left by the previous line (§11.6).
+/// The concrete type of a sized integer literal.
 impl From<Value> for Ty {
     fn from(v: Value) -> Ty {
         match v {
@@ -100,8 +201,6 @@ impl From<Value> for Ty {
             Value::U16(_) => Ty::U16,
             Value::U32(_) => Ty::U32,
             Value::U64(_) => Ty::U64,
-            Value::Str(_) => Ty::Str,
-            Value::Bool(_) => Ty::Bool,
         }
     }
 }
@@ -118,39 +217,75 @@ pub struct FnSig {
     pub outputs: Vec<Ty>,
 }
 
-/// A single instruction for the Plenty VM.
+/// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    /// Unwrap a standard sum or return its residual, releasing pending operands.
+    Try {
+        source: Rc<crate::sum::EnumType>,
+        target: Rc<crate::sum::EnumType>,
+        cleanup: Rc<[Op]>,
+    },
+    Class(crate::record::ClassOp),
+    BorrowLocal(u8, bool),
+    ReadRef(Ty),
+    Reborrow(Ty),
+    WriteRef(Ty),
+    Loan(crate::ownership::Loan),
+    UseLoan(usize),
+    Access(u8, bool, Option<usize>),
+    Yield(Ty),
+    Next(u8, String),
+    MoveLocal(u8, String),
+    DropLocal(u8),
+    Enum(crate::sum::EnumOp),
+    /// Defensive trap after an exhaustive finite-domain match.
+    Unreachable,
+    Collection(crate::collection::CollectionOp),
+    /// The condition leaves bool; a continuing body preserves the operand stack.
+    Loop {
+        condition: Rc<[Op]>,
+        body: Rc<[Op]>,
+    },
     /// Push an integer literal onto the stack. The payload is always an
     /// integer `Value`; retaining its width makes suffixed literals direct.
     PushInt(Value),
+    PushFloat {
+        bits: u64,
+        ty: Ty,
+    },
+    PushUnit,
+    FloatNeg,
     /// Push a string literal — already stored in the heap — onto the stack.
     PushStr(StrId),
     /// Push a `Bool` literal onto the stack (`true` / `false`).
     PushBool(bool),
     /// Pop two values; push their sum (integers) or concatenation (text).
     Add,
-    /// Pop two integers `a b`; push `a - b`.
+    /// Pop two same-typed numbers `a b`; push `a - b`.
     Sub,
-    /// Pop two integers `a b`; push `a * b`.
+    /// Pop two same-typed numbers `a b`; push `a * b`.
     Mul,
-    /// Pop two integers `a b`; push `a / b`.
+    /// Divide same-typed numbers (legacy integer division truncates).
     Div,
+    /// Integer division rounded toward negative infinity (modern `//`).
+    FloorDiv,
+    Modulo,
     /// Pop two values; push `true` if they are equal, `false` otherwise.
     /// Polymorphic over Int/Str/Bool (§11.8); mixed-type pairs are rejected
     /// by the type checker, never reached at runtime by a compiled source.
     Eq,
-    /// Pop two integers `a b`; push `a < b`.
+    /// Pop two same-typed numbers `a b`; push `a < b`.
     Lt,
-    /// Pop two integers `a b`; push `a > b`.
+    /// Pop two same-typed numbers `a b`; push `a > b`.
     Gt,
     /// Pop a `Bool`; push its negation.
     Not,
     /// Pop two same-typed values; push whether they differ.
     Ne,
-    /// Pop two same-width integers; push whether the first is at most the second.
+    /// Pop two same-typed numbers; push whether the first is at most the second.
     Le,
-    /// Pop two same-width integers; push whether the first is at least the second.
+    /// Pop two same-typed numbers; push whether the first is at least the second.
     Ge,
     /// Pop two `Bool`s; push their strict conjunction.
     And,
@@ -168,19 +303,24 @@ pub enum Op {
     Clear,
     /// Define a function: bind `name` to an already-compiled body and docstring.
     ///
-    /// The body is carved out of the token stream at compile time, so running
-    /// this op never touches the runtime stack — whatever is on it stays put.
+    /// This declaration emits a native function without affecting operand values.
     DefineFn(String, CompiledFn),
     /// Invoke a user-defined function by name. Non-tail position.
     Call(String),
     /// Invoke a user-defined function by name from tail position (§11.8).
-    /// The interpreter reuses the enclosing call's locals frame; the call
-    /// stack does not grow. Emitted only by the post-compile tail-call pass.
+    /// Native lowering reuses the caller's frame. Emitted by tail-call marking.
     TailCall(String),
+    /// Leave the current function with its declared results on the stack.
+    /// Unlike the end of a match arm, this exits the entire call frame.
+    Return,
+    /// Transfer control to the innermost loop's exit or condition.
+    Break,
+    Continue,
     /// Push the value of the `i`-th input local of the enclosing call's frame
-    /// (§11.5). Only emitted inside function bodies, so the VM always has at
-    /// least one frame on its frame stack when it runs one.
+    /// Only emitted inside function bodies.
     LoadLocal(u8),
+    /// Pop a value into an already allocated, statically typed local slot.
+    StoreLocal(u8),
     /// Pop the top of the stack and dispatch on it (§11.8). The first arm
     /// whose pattern matches runs; the value itself is *consumed* by the
     /// match. Exhaustiveness has been checked at compile time, so on a
@@ -203,8 +343,7 @@ pub enum Op {
     ReadLine,
     /// Pop two strings `haystack needle`; push `true` if `needle` is a
     /// substring of `haystack`, `false` otherwise. Byte-level match
-    /// (`strstr` semantics in the AOT runtime, `str::contains` in the
-    /// interpreter — both byte-equivalent for valid UTF-8).
+    /// using `strstr` semantics in the native runtime.
     Contains,
     /// Pop one string; write its bytes to stdout followed by a `\n`.
     /// This is the bare-text output primitive; `.` remains the stack
@@ -244,14 +383,17 @@ pub enum Pattern {
 /// A compiled function: the signature (§11.2), the docstring (§11.7), and
 /// the body.
 ///
-/// All three fields are `Rc`-shared so that defining a function — at either
-/// compile time (`Op::DefineFn` carries one) or run time (the VM stores it
-/// in the dictionary) — never copies the body, the docstring, or the sig.
+/// Shared fields avoid copying bodies and signatures during compiler passes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledFn {
+    /// Source location for diagnostics from the independent IR/ownership checker.
+    pub location: Option<Rc<str>>,
+    pub generator: Option<Ty>,
     pub sig: Rc<FnSig>,
     pub doc: Rc<str>,
     pub body: Rc<[Op]>,
+    /// Types of local slots after the parameters. Allocated once per call.
+    pub locals: Rc<[Ty]>,
 }
 
 /// Compile lexed words into ops, interning string literals into `heap`.
@@ -305,7 +447,7 @@ impl Compiler<'_, '_> {
     /// consuming the terminating delimiter where there is one.
     fn compile_seq(&mut self, stop: Stop) -> Result<Vec<Op>> {
         let mut ops = Vec::new();
-        while let Some(tok) = self.toks.get(self.pos).copied() {
+        while let Some(tok) = self.toks.get(self.pos).cloned() {
             self.pos += 1;
             match tok {
                 Tok::Word(";") if stop == Stop::Semicolon => return Ok(ops),
@@ -352,7 +494,7 @@ impl Compiler<'_, '_> {
     /// inside the body is handled by the recursive `compile_seq` call, so
     /// definitions nest.
     fn compile_definition(&mut self) -> Result<Op> {
-        let name = match self.toks.get(self.pos).copied() {
+        let name = match self.toks.get(self.pos).cloned() {
             Some(Tok::Word(w)) if w != ":" && w != ";" => w.to_string(),
             Some(Tok::Word(_)) | None => {
                 return Err("':' must be followed by a function name".into())
@@ -377,7 +519,7 @@ impl Compiler<'_, '_> {
         }
         // A docstring is optional. When present, it must immediately follow
         // the header, so tools can still identify it without parsing a body.
-        let doc: Rc<str> = match self.toks.get(self.pos).copied() {
+        let doc: Rc<str> = match self.toks.get(self.pos).cloned() {
             Some(Tok::Text(s)) => {
                 self.pos += 1;
                 unescape(s)?.into()
@@ -400,9 +542,12 @@ impl Compiler<'_, '_> {
         Ok(Op::DefineFn(
             name,
             CompiledFn {
+                location: None,
                 sig,
                 doc,
+                generator: None,
                 body: body.into(),
+                locals: Rc::from([]),
             },
         ))
     }
@@ -414,7 +559,7 @@ impl Compiler<'_, '_> {
         let mut arms: Vec<MatchArm> = Vec::new();
         loop {
             // Pattern or end-of-match.
-            let pattern = match self.toks.get(self.pos).copied() {
+            let pattern = match self.toks.get(self.pos).cloned() {
                 Some(Tok::Word("end")) => {
                     self.pos += 1;
                     break;
@@ -435,7 +580,7 @@ impl Compiler<'_, '_> {
                 }
             };
             // Opening bracket — patterns are followed *only* by `[`.
-            match self.toks.get(self.pos).copied() {
+            match self.toks.get(self.pos).cloned() {
                 Some(Tok::Word("[")) => self.pos += 1,
                 _ => {
                     return Err(
@@ -463,7 +608,7 @@ impl Compiler<'_, '_> {
     /// The `->` is mandatory; both sides may be empty. `fn_name` is used for
     /// error messages only.
     fn compile_sig(&mut self, fn_name: &str) -> Result<FnSig> {
-        match self.toks.get(self.pos).copied() {
+        match self.toks.get(self.pos).cloned() {
             Some(Tok::Word("{")) => self.pos += 1,
             _ => {
                 return Err(format!(
@@ -476,7 +621,7 @@ impl Compiler<'_, '_> {
 
         let mut inputs = Vec::new();
         loop {
-            match self.toks.get(self.pos).copied() {
+            match self.toks.get(self.pos).cloned() {
                 Some(Tok::Word("->")) => {
                     self.pos += 1;
                     break;
@@ -518,7 +663,7 @@ impl Compiler<'_, '_> {
 
         let mut outputs = Vec::new();
         loop {
-            match self.toks.get(self.pos).copied() {
+            match self.toks.get(self.pos).cloned() {
                 Some(Tok::Word("}")) => {
                     self.pos += 1;
                     break;
@@ -548,7 +693,7 @@ impl Compiler<'_, '_> {
 
     /// Consume one token and require it to name a Plenty type.
     fn consume_type(&mut self, fn_name: &str) -> Result<Ty> {
-        match self.toks.get(self.pos).copied() {
+        match self.toks.get(self.pos).cloned() {
             Some(Tok::Word(w)) => match parse_type(w) {
                 Some(ty) => {
                     self.pos += 1;
@@ -658,7 +803,7 @@ fn parse_integer_literal(word: &str) -> Result<Option<IntLiteral>> {
                 .parse::<u64>()
                 .map(Value::U64)
                 .map_err(|_| format!("integer literal `{word}` does not fit {ty}"))?,
-            Ty::Str | Ty::Bool => unreachable!("only integer suffixes are listed"),
+            _ => unreachable!("only integer suffixes are listed"),
         };
         return Ok(Some(IntLiteral {
             value,
@@ -827,7 +972,7 @@ fn is_valid_input_name(name: &str) -> bool {
 /// non-tail calls anywhere else stay `Call`. Match arms are stored as
 /// `Rc<[Op]>`, so mutating an arm body means rebuilding it; we only do that
 /// for arms that actually contain a tail call.
-fn mark_tail_calls(body: &mut [Op]) {
+pub(crate) fn mark_tail_calls(body: &mut [Op]) {
     let Some(last) = body.last_mut() else {
         return;
     };
@@ -856,46 +1001,55 @@ fn mark_tail_calls(body: &mut [Op]) {
 
 // --- type checking (§11.6) -------------------------------------------------
 
-/// Type-check a compiled op stream against a side table of function sigs.
-///
-/// Forward abstract interpretation of `ops` over a tiny type lattice
-/// (§11.6). Each op is treated as a stack effect: pop its declared inputs,
-/// error on underflow or mismatch, push its outputs. Every function body
-/// inside `ops` is recursively checked against its declared sig; top-level
-/// ops have no declared sig, so they are checked op-by-op without an
-/// end-of-stream invariant (the REPL case).
-///
-/// `initial_stack` seeds the abstract stack the checker starts with — for
-/// the REPL, the types of the values already on the runtime stack from
-/// previous `run` calls. This makes `+` on a line by itself well-typed
-/// when the previous line left two compatible values; without it, the
-/// checker would treat every line as if the stack were empty.
-///
-/// `prior_sigs` is the caller's already-known dictionary — typically the
-/// VM's `functions` map. The checker also collects sigs from every
-/// `DefineFn` reachable from `ops` (top-level and nested) into a single
-/// table, so forward references *within* this source resolve cleanly.
-/// References to functions that are neither in `prior_sigs` nor defined
-/// in `ops` are rejected here, before any op executes.
-///
-/// Returns `Ok(())` if the program is well-typed; otherwise a stringly
-/// error per §12.10. Error messages are name-bearing where they can be —
-/// stack-language errors are hard to localise, so anchoring them to a
-/// function name helps.
-pub fn check(
-    ops: &[Op],
-    initial_stack: Vec<Ty>,
-    prior_sigs: &HashMap<String, Rc<FnSig>>,
-) -> Result<()> {
-    let mut sigs = prior_sigs.clone();
+/// Independently check a complete module's operations and function signatures.
+/// Abstract operand stacks track concrete types without executing the program.
+pub fn check(ops: &[Op]) -> Result<()> {
+    let mut sigs = HashMap::new();
     collect_sigs(ops, &mut sigs);
     // Top-level: locals are empty (the compiler will never have emitted a
     // `LoadLocal` here either), and there is no end-of-stream invariant.
-    let mut stack = initial_stack;
-    for op in ops {
-        step(op, &mut stack, &[], &sigs)?;
-    }
+    let mut stack = Vec::new();
+    check_sequence(ops, &mut stack, &[], &sigs, None, None, None)?;
     Ok(())
+}
+
+/// Only paths that continue participate in a branch's stack-shape join.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Flow {
+    Continues,
+    Exits,
+}
+
+fn check_sequence(
+    ops: &[Op],
+    stack: &mut Vec<Ty>,
+    locals: &[Ty],
+    sigs: &HashMap<String, Rc<FnSig>>,
+    returns: Option<&[Ty]>,
+    loop_stack: Option<&[Ty]>,
+    yield_ty: Option<&Ty>,
+) -> Result<Flow> {
+    let mut flow = Flow::Continues;
+    for op in ops {
+        if flow == Flow::Exits {
+            return Err("unreachable operation after a control-flow exit".into());
+        }
+        flow = step(op, stack, locals, sigs, returns, loop_stack, yield_ty)?;
+    }
+    Ok(flow)
+}
+
+fn check_return(stack: &[Ty], returns: Option<&[Ty]>) -> Result<Flow> {
+    let expected = returns.ok_or("return outside a function")?;
+    if stack != expected {
+        return Err(format!(
+            "function exit leaves [{}], but signature declares outputs [{}]",
+            fmt_types(stack),
+            fmt_types(expected),
+        )
+        .into());
+    }
+    Ok(Flow::Exits)
 }
 
 /// Add the sig of every `DefineFn` reachable from `ops` — top-level and
@@ -912,6 +1066,10 @@ fn collect_sigs(ops: &[Op], out: &mut HashMap<String, Rc<FnSig>>) {
             Op::DefineFn(name, f) => {
                 out.insert(name.clone(), Rc::clone(&f.sig));
                 collect_sigs(&f.body, out);
+            }
+            Op::Loop { condition, body } => {
+                collect_sigs(condition, out);
+                collect_sigs(body, out);
             }
             Op::Match(arms) => {
                 for arm in arms.iter() {
@@ -933,21 +1091,160 @@ fn step(
     stack: &mut Vec<Ty>,
     locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
-) -> Result<()> {
+    returns: Option<&[Ty]>,
+    loop_stack: Option<&[Ty]>,
+    yield_ty: Option<&Ty>,
+) -> Result<Flow> {
     match op {
+        Op::Try {
+            source,
+            target,
+            cleanup,
+        } => {
+            let mut empty = Vec::new();
+            check_sequence(
+                cleanup, &mut empty, locals, sigs, returns, loop_stack, yield_ty,
+            )?;
+            if !empty.is_empty() {
+                return Err("propagation cleanup must return unit".into());
+            }
+            if !source.propagatable()
+                || !target.propagatable()
+                || source.is_option() != target.is_option()
+                || (!source.is_option()
+                    && !target.discards_error()
+                    && source.variants[1].fields != target.variants[1].fields)
+                || yield_ty.is_some()
+                || returns != Some(&[Ty::Enum(target.clone())][..])
+                || stack.pop() != Some(Ty::Enum(source.clone()))
+            {
+                return Err("invalid Result/Option propagation".into());
+            }
+            stack.push(source.variants[usize::from(source.is_option())].fields[0].clone());
+        }
+        Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
+        Op::BorrowLocal(i, mutable) => {
+            let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;
+            stack.push(Ty::Ref(Rc::new(ty.clone()), *mutable));
+        }
+        Op::ReadRef(ty) => {
+            if !matches!(stack.pop(), Some(Ty::Ref(t, _)) if t.as_ref() == ty) {
+                return Err("invalid reference read".into());
+            }
+            stack.push(ty.clone());
+        }
+        Op::Reborrow(target) => {
+            let Some(Ty::Ref(source, writable)) = stack.pop() else {
+                return Err("invalid reborrow".into());
+            };
+            let Ty::Ref(inner, mutable) = target else {
+                return Err("invalid reborrow target".into());
+            };
+            if source != *inner || (*mutable && !writable) {
+                return Err("invalid reborrow permissions".into());
+            }
+            stack.push(target.clone());
+        }
+        Op::WriteRef(ty) => {
+            if stack.pop() != Some(Ty::Ref(Rc::new(ty.clone()), true))
+                || stack.pop().as_ref() != Some(ty)
+            {
+                return Err("invalid reference write".into());
+            }
+        }
+        Op::Collection(operation) => {
+            let (inputs, output) = operation.signature();
+            if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
+                return Err("collection operation type mismatch".into());
+            }
+            stack.truncate(stack.len() - inputs.len());
+            stack.push(output);
+        }
+        Op::Class(operation) => {
+            let (inputs, output) = operation.signature().ok_or("invalid class operation")?;
+            if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
+                return Err("class operation type mismatch".into());
+            }
+            stack.truncate(stack.len() - inputs.len());
+            stack.push(output);
+        }
+        Op::Enum(operation) => {
+            let (inputs, output) = operation.signature().ok_or("invalid enum operation")?;
+            if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
+                return Err("enum operation type mismatch".into());
+            }
+            stack.truncate(stack.len() - inputs.len());
+            stack.push(output);
+        }
+        Op::Unreachable => return Ok(Flow::Exits),
+        Op::Yield(ty) => {
+            if yield_ty != Some(ty) || stack.pop().as_ref() != Some(ty) || !stack.is_empty() {
+                return Err(
+                    "yield requires its declared element type and an empty residual operand stack"
+                        .into(),
+                );
+            }
+        }
+        Op::Next(slot, _) => {
+            let Some(Ty::Generator(element)) = locals.get(*slot as usize) else {
+                return Err("next requires a generator local".into());
+            };
+            stack.push(crate::sum::option((**element).clone()));
+        }
+        Op::DropLocal(i) => {
+            locals.get(*i as usize).ok_or("invalid drop local")?;
+        }
+        Op::Loop { condition, body } => {
+            let initial = stack.clone();
+            let mut cond = initial.clone();
+            if check_sequence(condition, &mut cond, locals, sigs, returns, None, yield_ty)?
+                != Flow::Continues
+                || cond.pop() != Some(Ty::Bool)
+                || cond != initial
+            {
+                return Err("loop condition must produce bool".into());
+            }
+            let mut iter = initial.clone();
+            if check_sequence(
+                body,
+                &mut iter,
+                locals,
+                sigs,
+                returns,
+                Some(&initial),
+                yield_ty,
+            )? == Flow::Continues
+                && iter != initial
+            {
+                return Err("loop body must preserve operand types".into());
+            }
+        }
         // Unsuffixed integer literals are `i64`; a suffix records its chosen
         // width directly in the `Value` carried by the operation.
         Op::PushInt(value) => stack.push(Ty::from(*value)),
+        Op::PushFloat { ty, .. } => {
+            if !ty.is_float() {
+                return Err("float literal requires a float type".into());
+            }
+            stack.push(ty.clone());
+        }
+        Op::PushUnit => stack.push(Ty::Unit),
+        Op::FloatNeg => {
+            let ty = stack.last().ok_or("stack underflow on float negation")?;
+            if !ty.is_float() {
+                return Err("float negation requires a float".into());
+            }
+        }
         Op::PushStr(_) => stack.push(Ty::Str),
         Op::PushBool(_) => stack.push(Ty::Bool),
         Op::Add => {
             let (a, b) = pop2(stack, "+")?;
-            let out = match (a, b) {
+            let out = match (a.clone(), b.clone()) {
                 (Ty::Str, Ty::Str) => Ty::Str,
-                (a, b) if a == b && a.is_int() => a,
+                (a, b) if a == b && a.is_numeric() => a,
                 _ => {
                     return Err(format!(
-                        "`+` requires same-width integers or (Str Str), got ({a} {b})"
+                        "`+` requires same-typed numbers or (Str Str), got ({a} {b})"
                     )
                     .into())
                 }
@@ -957,6 +1254,12 @@ fn step(
         Op::Sub => arith(stack, "-")?,
         Op::Mul => arith(stack, "*")?,
         Op::Div => arith(stack, "/")?,
+        Op::FloorDiv | Op::Modulo => {
+            if !stack.last().is_some_and(Ty::is_int) {
+                return Err("floor division and modulo require integers".into());
+            }
+            arith(stack, "// or %")?;
+        }
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;
             if a != b {
@@ -998,7 +1301,7 @@ fn step(
             stack.pop().ok_or("stack underflow on `drop`")?;
         }
         Op::Dup => {
-            let top = *stack.last().ok_or("stack underflow on `dup`")?;
+            let top = stack.last().ok_or("stack underflow on `dup`")?.clone();
             stack.push(top);
         }
         Op::Swap => {
@@ -1014,23 +1317,53 @@ fn step(
         }
         Op::Display => {}
         Op::Clear => stack.clear(),
-        Op::LoadLocal(i) => {
-            let ty = locals.get(*i as usize).copied().ok_or_else(|| {
+        Op::LoadLocal(i) | Op::MoveLocal(i, _) => {
+            let ty = locals.get(*i as usize).cloned().ok_or_else(|| {
                 format!("LoadLocal({i}) has no matching input in the enclosing function")
             })?;
             stack.push(ty);
         }
-        Op::DefineFn(name, f) => check_body(name, &f.sig, &f.body, sigs)?,
-        Op::Call(name) | Op::TailCall(name) => check_call(name, stack, sigs)?,
-        Op::Match(arms) => check_match(arms, stack, locals, sigs)?,
+        Op::StoreLocal(i) => {
+            let expected = locals.get(*i as usize).ok_or("invalid local slot")?;
+            if stack.pop().as_ref() != Some(expected) {
+                return Err("local assignment type mismatch".into());
+            }
+        }
+        Op::DefineFn(name, f) => {
+            check_body(name, &f.sig, &f.body, &f.locals, sigs, f.generator.as_ref()).map_err(
+                |e| -> Box<dyn std::error::Error> {
+                    match &f.location {
+                        Some(at) => format!("{at}: {e}").into(),
+                        None => e,
+                    }
+                },
+            )?
+        }
+        Op::Call(name) => check_call(name, stack, sigs)?,
+        Op::TailCall(name) => {
+            check_call(name, stack, sigs)?;
+            return check_return(stack, returns);
+        }
+        Op::Return => return check_return(stack, returns),
+        Op::Break | Op::Continue => {
+            let expected = loop_stack.ok_or("loop control outside a loop")?;
+            if stack != expected {
+                return Err("loop control must preserve operand types".into());
+            }
+            return Ok(Flow::Exits);
+        }
+        Op::Match(arms) => {
+            return check_match(arms, stack, locals, sigs, returns, loop_stack, yield_ty)
+        }
         Op::Cast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;
-            if !top.is_int() {
-                return Err(
-                    format!("cast `:as-{target}` requires an integer source, got {top}").into(),
-                );
+            if !top.is_numeric() || !target.is_numeric() {
+                return Err(format!(
+                    "cast `:as-{target}` requires numeric source and target types, got {top}"
+                )
+                .into());
             }
-            stack.push(*target);
+            stack.push(target.clone());
         }
         Op::ReadLine => {
             stack.push(Ty::Str);
@@ -1053,7 +1386,7 @@ fn step(
             stack.pop().ok_or("stack underflow on `:print`")?;
         }
     }
-    Ok(())
+    Ok(Flow::Continues)
 }
 
 /// Pop two values off the abstract stack; produce a uniform underflow
@@ -1071,24 +1404,24 @@ fn pop2(stack: &mut Vec<Ty>, op_label: &str) -> Result<(Ty, Ty)> {
     Ok((a, b))
 }
 
-/// Stack effect for `-`, `*`, `/`: same-width integers in, same width out.
+/// Stack effect for `-`, `*`, `/`: same-typed numbers in, same type out.
 /// No implicit widening — the operands' types must match exactly, which is
 /// the hard rule §11.2 commits to over the convenience of mixed-width
 /// arithmetic.
 fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if !a.is_int() || a != b {
-        return Err(format!("`{op_label}` requires same-width integers, got ({a} {b})").into());
+    if !a.is_numeric() || a != b {
+        return Err(format!("`{op_label}` requires same-typed numbers, got ({a} {b})").into());
     }
     stack.push(a);
     Ok(())
 }
 
-/// Stack effect for integer ordering: same-width integers in, Bool out.
+/// Stack effect for numeric ordering: same-typed numbers in, Bool out.
 fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if !a.is_int() || a != b {
-        return Err(format!("`{op_label}` requires same-width integers, got ({a} {b})").into());
+    if !a.is_numeric() || a != b {
+        return Err(format!("`{op_label}` requires same-typed numbers, got ({a} {b})").into());
     }
     stack.push(Ty::Bool);
     Ok(())
@@ -1109,12 +1442,10 @@ fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Rc<FnSig>>
         )
         .into());
     }
-    // `inputs[0]` is the deepest value on the stack at call time — same
-    // direction as the runtime drain in `Vm::call`. So the type at
-    // `stack[split + i]` must match `inputs[i]`.
+    // Inputs appear in declaration order, deepest operand first.
     let split = stack.len() - n;
     for (i, (param, expected)) in sig.inputs.iter().enumerate() {
-        let actual = stack[split + i];
+        let actual = stack[split + i].clone();
         if actual != *expected {
             return Err(format!(
                 "calling `{name}`: argument `{param}` (position {i}) \
@@ -1125,14 +1456,15 @@ fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Rc<FnSig>>
     }
     stack.truncate(split);
     for out in &sig.outputs {
-        stack.push(*out);
+        stack.push(out.clone());
     }
     Ok(())
 }
 
 /// Stack effect for `match`: pop the matched value's type, type-check
-/// every arm body against a copy of the abstract stack, require all arm
-/// results to agree pointwise, and require exhaustiveness (§11.8).
+/// every arm body against a copy of the abstract stack, require continuing
+/// arms to agree pointwise, and require exhaustiveness (§11.8). Exiting arms
+/// are checked against the enclosing function's return signature instead.
 ///
 /// The agreed-on shape becomes the post-match stack.
 fn check_match(
@@ -1140,7 +1472,10 @@ fn check_match(
     stack: &mut Vec<Ty>,
     locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
-) -> Result<()> {
+    returns: Option<&[Ty]>,
+    loop_stack: Option<&[Ty]>,
+    yield_ty: Option<&Ty>,
+) -> Result<Flow> {
     let matched_ty = stack
         .pop()
         .ok_or("stack underflow on `match` (no value to match against)")?;
@@ -1154,7 +1489,7 @@ fn check_match(
     // the arm could never fire after the runtime narrowing in
     // `pattern_matches`).
     for arm in arms {
-        let compatible = match (matched_ty, arm.pattern) {
+        let compatible = match (matched_ty.clone(), arm.pattern) {
             (_, Pattern::Wildcard) => true,
             (Ty::Str, Pattern::Str(_)) => true,
             (Ty::Bool, Pattern::Bool(_)) => true,
@@ -1217,21 +1552,30 @@ fn check_match(
     }
 
     // Check every arm body against a fresh copy of the abstract stack;
-    // require all arms to leave the stack in the same shape.
+    // require all continuing arms to leave the stack in the same shape.
     let snapshot = stack.clone();
     let mut joined: Option<Vec<Ty>> = None;
     for (i, arm) in arms.iter().enumerate() {
         let mut arm_stack = snapshot.clone();
-        for op in arm.body.iter() {
-            step(op, &mut arm_stack, locals, sigs)?;
+        if check_sequence(
+            &arm.body,
+            &mut arm_stack,
+            locals,
+            sigs,
+            returns,
+            loop_stack,
+            yield_ty,
+        )? == Flow::Exits
+        {
+            continue;
         }
         match &joined {
             None => joined = Some(arm_stack),
             Some(expected) => {
                 if &arm_stack != expected {
                     return Err(format!(
-                        "match arm {i} leaves [{}], but the first arm leaves [{}] \
-                         (every arm must produce the same stack effect)",
+                        "match arm {i} leaves [{}], but the first continuing arm leaves [{}] \
+                         (every continuing arm must produce the same stack effect)",
                         fmt_types(&arm_stack),
                         fmt_types(expected),
                     )
@@ -1240,8 +1584,13 @@ fn check_match(
             }
         }
     }
-    *stack = joined.expect("arms.is_empty() is rejected above");
-    Ok(())
+    match joined {
+        Some(joined) => {
+            *stack = joined;
+            Ok(Flow::Continues)
+        }
+        None => Ok(Flow::Exits),
+    }
 }
 
 /// Check one function body against its declared sig.
@@ -1255,15 +1604,34 @@ fn check_body(
     fn_name: &str,
     sig: &FnSig,
     body: &[Op],
+    extra_locals: &[Ty],
     sigs: &HashMap<String, Rc<FnSig>>,
+    yield_ty: Option<&Ty>,
 ) -> Result<()> {
-    let locals: Vec<Ty> = sig.inputs.iter().map(|(_, t)| *t).collect();
+    let locals: Vec<Ty> = sig
+        .inputs
+        .iter()
+        .map(|(_, t)| t.clone())
+        .chain(extra_locals.iter().cloned())
+        .collect();
     let mut stack: Vec<Ty> = Vec::new();
-    for op in body {
-        step(op, &mut stack, &locals, sigs)
-            .map_err(|e| -> Box<dyn Error> { format!("in `{fn_name}`: {e}").into() })?;
-    }
-    if stack != sig.outputs {
+    let returns = if yield_ty.is_some() {
+        &[][..]
+    } else {
+        &sig.outputs
+    };
+    crate::ownership::check(body, &locals, sig.inputs.len())?;
+    let flow = check_sequence(
+        body,
+        &mut stack,
+        &locals,
+        sigs,
+        Some(returns),
+        None,
+        yield_ty,
+    )
+    .map_err(|e| -> Box<dyn Error> { format!("in `{fn_name}`: {e}").into() })?;
+    if flow == Flow::Continues && stack != returns {
         return Err(format!(
             "function `{fn_name}` body leaves [{}], but signature declares outputs [{}]",
             fmt_types(&stack),

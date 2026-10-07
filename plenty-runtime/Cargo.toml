@@ -1,0 +1,14 @@
+[package]
+name = "plenty-runtime"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[features]
+allocation-checks = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(plenty_runtime_embedded)'] }
