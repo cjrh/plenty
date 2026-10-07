@@ -38,7 +38,7 @@ pub enum Ty {
     List(Rc<Ty>),
     Set(Rc<Ty>),
     Dict(Rc<Ty>, Rc<Ty>),
-    Range,
+    Range(Rc<Ty>),
     Enum(Rc<crate::sum::EnumType>),
     Class(Rc<crate::record::ClassType>),
     Generator(Rc<Ty>),
@@ -120,7 +120,7 @@ impl Ty {
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
-                | Self::Range
+                | Self::Range(_)
                 | Self::Enum(_)
                 | Self::Class(_)
                 | Self::Generator(_)
@@ -174,7 +174,13 @@ impl fmt::Display for Ty {
             Ty::List(t) => return write!(f, "list[{t}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),
             Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
-            Ty::Range => "range",
+            Ty::Range(t) => {
+                return if **t == Ty::I64 {
+                    f.write_str("range")
+                } else {
+                    write!(f, "range[{t}]")
+                }
+            }
             Ty::Enum(t) => return f.write_str(&t.name),
             Ty::Class(t) => return f.write_str(&t.name),
             Ty::Generator(t) => return write!(f, "Generator[{t}]"),

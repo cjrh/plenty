@@ -849,7 +849,7 @@ fn clif_type(ty: Ty) -> types::Type {
         | Ty::List(_)
         | Ty::Set(_)
         | Ty::Dict(_, _)
-        | Ty::Range
+        | Ty::Range(_)
         | Ty::Class(_)
         | Ty::Enum(_)
         | Ty::Generator(_)

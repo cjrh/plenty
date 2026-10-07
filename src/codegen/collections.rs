@@ -74,7 +74,9 @@ impl Lowerer<'_, '_> {
             | CollectionOp::FormatScalar(ty)
             | CollectionOp::FormatValue(ty)
             | CollectionOp::TryPrint(ty) => Some(ty),
-            CollectionOp::Next(_) | CollectionOp::Values(_) | CollectionOp::Range => Some(&output),
+            CollectionOp::Next(_) | CollectionOp::Values(_) | CollectionOp::Range(_) => {
+                Some(&output)
+            }
             CollectionOp::Copy(ty) | CollectionOp::TryCopy(ty) => Some(ty),
             CollectionOp::New(ty) | CollectionOp::TryNew(ty) | CollectionOp::ListTrySlice(ty) => {
                 Some(ty)

@@ -70,7 +70,7 @@ fn aliases_are_transparent(#[case] source: &str, #[case] ty: &str, #[case] expec
 #[case("def f(x: int) -> i64:\n    x", "unknown type `int`")]
 #[case("int(42)", "unknown function `int`")]
 #[case("42int", "invalid integer suffix")]
-#[case("type int = i32\nx: int = 42", "expected i32, got i64")]
+#[case("type int = i32\nx: int = 42i64", "expected i32, got i64")]
 #[case("type int = i32\n42int", "invalid integer suffix")]
 #[case("type A = Missing", "unknown type `Missing`")]
 #[case("type A = A", "cyclic type alias")]

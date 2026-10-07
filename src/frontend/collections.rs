@@ -242,6 +242,40 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         match &e.kind {
+            Expression::Call(name, args)
+                if name == "range"
+                    && matches!(expected, Some(Ty::Range(_)))
+                    && !self.names.contains_key(name) =>
+            {
+                let Some(Ty::Range(t)) = expected else {
+                    unreachable!()
+                };
+                self.range(args, (*t).clone(), &e.at, ops).map(Some)
+            }
+            Expression::Number(n)
+                if expected.as_ref().is_some_and(Ty::is_numeric) && !numeric_suffix(n) =>
+            {
+                self.number(&format!("{n}{}", expected.unwrap()), false, &e.at, ops)
+                    .map(Some)
+            }
+            Expression::Unary(op, inner)
+                if op == "-"
+                    && expected.as_ref().is_some_and(Ty::is_numeric)
+                    && matches!(&ungroup(inner).kind, Expression::Number(n) if !numeric_suffix(n)) =>
+            {
+                let Expression::Number(n) = &ungroup(inner).kind else {
+                    unreachable!()
+                };
+                self.number(&format!("{n}{}", expected.unwrap()), true, &e.at, ops)
+                    .map(Some)
+            }
+            Expression::Binary(op, left, right)
+                if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%")
+                    && expected.as_ref().is_some_and(Ty::is_numeric) =>
+            {
+                self.numeric_binary(op, left, right, expected.unwrap(), &e.at, ops)
+                    .map(Some)
+            }
             Expression::Tuple(values, fallible) => self
                 .tuple(values, *fallible, expected, &e.at, ops)
                 .map(Some),
@@ -437,7 +471,12 @@ impl Lower<'_> {
                     mut body,
                     step,
                     ..
-                } = self.iteration(name, iterable, ops)?;
+                } = self.iteration(
+                    name,
+                    iterable,
+                    comprehension_hint(name, entries, ty.as_ref()),
+                    ops,
+                )?;
                 let temporary_start = self.expression_temps.len();
                 self.comprehension(rest, entries, kind, result, ty, pending, &mut body)?;
                 self.finish_temporaries(temporary_start, &mut body);
@@ -623,6 +662,7 @@ impl Lower<'_> {
         &mut self,
         names: &[String],
         iterable: &Expr,
+        hint: Option<Ty>,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
         if let Some((base, mutable)) = dictionary_items(iterable) {
@@ -642,7 +682,31 @@ impl Lower<'_> {
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(..))));
         let mutable = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&mut")
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(_, true))));
-        let (ty, loans) = if mutable {
+        let range_args = match &iterable.kind {
+            Expression::Call(function, args)
+                if function == "range" && !self.names.contains_key(function) =>
+            {
+                Some(args)
+            }
+            _ => None,
+        };
+        let (ty, loans) = if let Some(args) = range_args {
+            (
+                self.range(
+                    args,
+                    hint.unwrap_or_else(|| {
+                        args.iter()
+                            .take(2)
+                            .find_map(|e| self.numeric_hint(e))
+                            .filter(Ty::is_int)
+                            .unwrap_or(Ty::I64)
+                    }),
+                    &iterable.at,
+                    ops,
+                )?,
+                vec![],
+            )
+        } else if mutable {
             let base = match &iterable.kind {
                 Expression::Unary(_, base) => &**base,
                 _ => iterable,
@@ -852,7 +916,7 @@ impl Lower<'_> {
             mut body,
             step,
             ..
-        } = self.iteration(name, iterable, ops)?;
+        } = self.iteration(name, iterable, None, ops)?;
         self.loop_steps.push(step.clone());
         self.loop_scopes.push(self.locals.len());
         let result = self.block(statements, &mut body, false);
@@ -903,7 +967,7 @@ impl Lower<'_> {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
             Ty::Str => (Ty::I64, Ty::Str),
-            Ty::Range => (Ty::I64, Ty::I64),
+            Ty::Range(t) => (Ty::I64, (**t).clone()),
             _ => return Err(base.at.error("indexing requires list, dict, str, or range")),
         };
         if value.affine() {
@@ -1641,7 +1705,7 @@ impl Lower<'_> {
             let source = self.value(&args[0], ops)?;
             if !matches!(
                 source,
-                Ty::List(_) | Ty::Set(_) | Ty::Dict(..) | Ty::Range | Ty::Generator(_)
+                Ty::List(_) | Ty::Set(_) | Ty::Dict(..) | Ty::Range(_) | Ty::Generator(_)
             ) {
                 return Err(at.error("try_from requires an owned collection, range, or generator"));
             }
@@ -1729,6 +1793,31 @@ impl Lower<'_> {
         Ok(Some(crate::sum::allocation_result()))
     }
 
+    pub(super) fn range(
+        &mut self,
+        args: &[Expr],
+        element: Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        if args.is_empty() || args.len() > 3 {
+            return Err(at.error("range takes one to three arguments"));
+        }
+        if args.len() == 1 {
+            ops.push(Op::PushInt(integer(&format!("0{element}"), false, at)?));
+        }
+        for (i, arg) in args.iter().enumerate() {
+            let expected = if i == 2 { Ty::I64 } else { element.clone() };
+            let actual = self.expr_expected(arg, Some(expected.clone()), ops)?;
+            self.same(actual, Some(expected), &arg.at)?;
+        }
+        if args.len() < 3 {
+            ops.push(Op::PushInt(Value::I64(1)));
+        }
+        ops.push(Op::Collection(CollectionOp::Range(element.clone())));
+        Ok(Ty::Range(Rc::new(element)))
+    }
+
     pub(super) fn builtin_collection(
         &mut self,
         name: &str,
@@ -1737,21 +1826,16 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         if name == "range" {
-            if args.is_empty() || args.len() > 3 {
-                return Err(at.error("range takes one to three i64 arguments"));
-            }
-            if args.len() == 1 {
-                ops.push(Op::PushInt(Value::I64(0)));
-            }
-            for arg in args {
-                let ty = self.expr(arg, ops)?;
-                self.same(ty, Some(Ty::I64), &arg.at)?;
-            }
-            if args.len() < 3 {
-                ops.push(Op::PushInt(Value::I64(1)));
-            }
-            ops.push(Op::Collection(CollectionOp::Range));
-            return Ok(Ty::Range);
+            return self.range(
+                args,
+                args.iter()
+                    .take(2)
+                    .find_map(|e| self.numeric_hint(e))
+                    .filter(Ty::is_int)
+                    .unwrap_or(Ty::I64),
+                at,
+                ops,
+            );
         }
         if args.len() != 1 {
             return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
@@ -1789,6 +1873,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        if let Ty::Range(element) = &ty {
+            return self.range(args, (**element).clone(), at, ops);
+        }
         if !matches!(ty, Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _)) {
             return Err(at.error("expected a collection type"));
         }
@@ -1913,6 +2000,33 @@ impl Lower<'_> {
         ops.push(Op::LoadLocal(result));
         self.cleanup(start, ops);
         Ok(output)
+    }
+}
+
+fn comprehension_hint(names: &[String], entries: &[(Expr, Option<Expr>)], ty: Option<&Ty>) -> Type {
+    fn uses(e: &Expr, name: &str) -> bool {
+        match &ungroup(e).kind {
+            Expression::Name(n) => n == name,
+            Expression::Unary(op, e) if op == "+" || op == "-" => uses(e, name),
+            Expression::Binary(op, a, b)
+                if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%") =>
+            {
+                uses(a, name) || uses(b, name)
+            }
+            _ => false,
+        }
+    }
+    if names.len() != 1 {
+        return None;
+    }
+    let (key, value) = entries.first()?;
+    match ty? {
+        Ty::List(t) | Ty::Set(t) if t.is_int() && uses(key, &names[0]) => Some((**t).clone()),
+        Ty::Dict(k, _) if k.is_int() && uses(key, &names[0]) => Some((**k).clone()),
+        Ty::Dict(_, v) if v.is_int() && value.as_ref().is_some_and(|e| uses(e, &names[0])) => {
+            Some((**v).clone())
+        }
+        _ => None,
     }
 }
 

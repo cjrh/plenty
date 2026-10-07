@@ -29,6 +29,27 @@ const fn list(key: &'static Type) -> Type {
     }
 }
 static INTEGER: Type = scalar(b'4');
+static UNSIGNED: Type = scalar(b'8');
+static UNSIGNED_RANGE: Type = Type {
+    key: Some(&UNSIGNED),
+    ..scalar(b'R')
+};
+
+#[test]
+fn unsigned_ranges_keep_full_width_bounds_and_signed_steps() {
+    // SAFETY: all operands and metadata match the runtime ABI; owners are released.
+    unsafe {
+        let stop = u64::MAX as u128;
+        let range = collection(10, stop - 3, stop, 1, &UNSIGNED_RANGE);
+        assert_eq!(collection(5, range, 0, 0, ptr::null()), 3);
+        assert_eq!(collection(4, range, 2, 0, ptr::null()), stop - 1);
+        assert_eq!(collection(7, stop - 2, range, 0, ptr::null()), 1);
+        plenty_release(range as *mut Header);
+        let range = collection(10, stop, stop - 3, (-1i64) as u128, &UNSIGNED_RANGE);
+        assert_eq!(collection(4, range, 2, 0, ptr::null()), stop - 2);
+        plenty_release(range as *mut Header);
+    }
+}
 static UNIT: Type = scalar(b'v');
 static FLOAT32: Type = scalar(b'f');
 static FLOAT64: Type = scalar(b'd');

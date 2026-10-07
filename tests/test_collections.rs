@@ -123,7 +123,7 @@ fn collections_preserve_typed_function_results() {
 #[case("d = {}", "empty collection needs")]
 #[case("s = set()", "empty collection needs")]
 #[case("xs = [1, True]", "expected list[i64]")]
-#[case("xs: list[i32] = [1]", "expected list[i32]")]
+#[case("xs: list[i32] = [1i64]", "expected list[i32]")]
 #[case("xs: list[()] = []", "cannot be unit")]
 #[case("d: dict[list[i64], i64] = {}", "dictionary keys")]
 #[case("s = {[1]}", "set elements")]

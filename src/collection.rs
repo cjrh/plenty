@@ -1,5 +1,6 @@
 //! Statically typed collection operations shared by checking and native lowering.
 use crate::op::Ty;
+use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
@@ -72,7 +73,7 @@ pub enum CollectionOp {
     IterGet(Ty),
     IterTake(Ty),
     Contains(Ty),
-    Range,
+    Range(Ty),
     Values(Ty),
     TryKeys(Ty),
     TryValues(Ty),
@@ -112,13 +113,13 @@ impl Ty {
     pub fn is_collection(&self) -> bool {
         matches!(
             self,
-            Self::List(_) | Self::Set(_) | Self::Dict(_, _) | Self::Range
+            Self::List(_) | Self::Set(_) | Self::Dict(_, _) | Self::Range(_)
         )
     }
     pub fn element(&self) -> Option<Ty> {
         match self {
             Self::List(t) | Self::Set(t) | Self::Dict(t, _) => Some((**t).clone()),
-            Self::Range => Some(Self::I64),
+            Self::Range(t) => Some((**t).clone()),
             Self::Str => Some(Self::Str),
             Self::Generator(t) => Some((**t).clone()),
             _ => None,
@@ -358,7 +359,10 @@ impl CollectionOp {
             Len(t) => (vec![t.clone()], Ty::I64),
             IterGet(t) | IterTake(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
             Contains(t) => (vec![t.element().unwrap(), t.clone()], Ty::Bool),
-            Range => (vec![Ty::I64, Ty::I64, Ty::I64], Ty::Range),
+            Range(t) => (
+                vec![t.clone(), t.clone(), Ty::I64],
+                Ty::Range(Rc::new(t.clone())),
+            ),
             Values(t) => {
                 let Ty::Dict(_, v) = t else { unreachable!() };
                 (vec![t.clone()], Ty::List(v.clone()))
@@ -448,7 +452,7 @@ impl CollectionOp {
             Self::IterGet(_) => 6,
             Self::IterTake(_) => 15,
             Self::Contains(_) => 7,
-            Self::Range => 10,
+            Self::Range(_) => 10,
             Self::Values(_) => 11,
             Self::TryKeys(_) => 43,
             Self::TryValues(_) => 44,

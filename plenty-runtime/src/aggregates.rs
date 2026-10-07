@@ -65,8 +65,8 @@ struct Collection {
     ty: *const Type,
     entries: Vec<Entry>,
     table: Vec<usize>,
-    start: i64,
-    stop: i64,
+    start: i128,
+    stop: i128,
     step: i64,
     range_len: usize,
 }
@@ -440,7 +440,7 @@ impl Collection {
 
     unsafe fn at(&self, index: usize) -> u128 {
         if self.ty().kind == b'R' {
-            (self.start as i128 + index as i128 * self.step as i128) as u128
+            (self.start + index as i128 * self.step as i128) as u128
         } else {
             unsafe {
                 let value = self.entries[index].key;
@@ -1407,7 +1407,12 @@ pub(crate) unsafe fn collection(
             7 => {
                 let c = &*(b as *const Collection);
                 if c.ty().kind == b'R' {
-                    let delta = a as i64 as i128 - c.start as i128;
+                    let number = if c.ty().key().kind <= b'4' {
+                        a as i64 as i128
+                    } else {
+                        a as u64 as i128
+                    };
+                    let delta = number - c.start;
                     (c.len() > 0
                         && delta % c.step as i128 == 0
                         && delta / c.step as i128 >= 0
@@ -1449,16 +1454,25 @@ pub(crate) unsafe fn collection(
             }
             10 => {
                 let c = collection_new(&*descriptor);
-                (*c).start = a as i64;
-                (*c).stop = b as i64;
+                let signed = (*descriptor).key().kind <= b'4';
+                (*c).start = if signed {
+                    a as i64 as i128
+                } else {
+                    a as u64 as i128
+                };
+                (*c).stop = if signed {
+                    b as i64 as i128
+                } else {
+                    b as u64 as i128
+                };
                 (*c).step = value as i64;
                 if (*c).step == 0 {
                     crate::fail("range step cannot be zero");
                 }
                 let distance = if (*c).step > 0 {
-                    (*c).stop as i128 - (*c).start as i128
+                    (*c).stop - (*c).start
                 } else {
-                    (*c).start as i128 - (*c).stop as i128
+                    (*c).start - (*c).stop
                 };
                 let step = ((*c).step as i128).abs();
                 let len = if distance <= 0 {

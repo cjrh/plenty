@@ -69,7 +69,7 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
         Ty::List(_) => b'L',
         Ty::Set(_) => b'S',
         Ty::Dict(..) => b'D',
-        Ty::Range => b'R',
+        Ty::Range(_) => b'R',
         Ty::Class(_) => b'C',
         Ty::Generator(_) => b'G',
         Ty::Enum(t) => {
@@ -85,7 +85,7 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
     bytes[2] = u8::from(reflexive(ty, &mut Default::default()));
     let mut links = Vec::new();
     match ty {
-        Ty::List(t) | Ty::Set(t) => links.push((8, declare(module, runtime, t)?)),
+        Ty::List(t) | Ty::Set(t) | Ty::Range(t) => links.push((8, declare(module, runtime, t)?)),
         Ty::Dict(k, v) => {
             links.push((8, declare(module, runtime, k)?));
             links.push((16, declare(module, runtime, v)?));

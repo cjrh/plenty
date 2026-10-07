@@ -104,7 +104,7 @@ fn invalid_entrypoints_are_rejected_before_execution_or_artifact_creation() {
             "cannot be a generator",
         ),
         ("def main() -> ():\n    yield 1\n", "cannot be a generator"),
-        ("def main() -> i32:\n    0\n", "expected i32, got i64"),
+        ("def main() -> i32:\n    0i64\n", "expected i32, got i64"),
         ("def main() -> ():\n    42\n", "expected (), got i64"),
         (
             "def main() -> ():\n    pass\ndef main() -> ():\n    pass\n",

@@ -85,7 +85,7 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("1 < 2 < 3", "chained comparisons")]
 #[case("1 / 2", "use `//`")]
 #[case("True + 1", "expected bool, got i64")]
-#[case("1i8 + 1", "expected i8, got i64")]
+#[case("1i8 + 1i64", "expected i8, got i64")]
 #[case("None", "expected an expression")]
 #[case("missing", "unknown binding")]
 #[case("missing()", "unknown function")]

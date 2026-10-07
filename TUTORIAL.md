@@ -50,7 +50,7 @@ Execution starts by calling `main` once. Every binary application must declare
 `def main() -> ()` or `def main() -> i32`, with no parameters. The `()` form
 finishes successfully with exit status zero. The `i32` form returns a process
 exit status: zero means success, and nonzero means failure. Use an `i32` literal
-such as `0i32` or `1i32`; an unsuffixed integer is an `i64`.
+such as `0i32` or `1i32`; return annotations also guide unsuffixed literals.
 
 Keep executable statements inside functions. Module scope contains `def`,
 `class`, `enum`, and `type` declarations, plus imports. Bindings inside `main`
@@ -165,7 +165,8 @@ For example, `i8` can hold -128 through 127, and `u8` can hold 0 through 255.
 Floating-point numbers use `f32` or `f64`; other primitive value types include
 `bool` and `str`.
 
-A whole-number literal without a suffix, such as `42`, has type `i64`.
+A whole-number literal without a suffix, such as `42`, defaults to `i64` when
+there is no annotation, parameter, return type, or typed arithmetic context.
 Append a built-in integer type to choose another width:
 
 ```plenty
@@ -184,15 +185,15 @@ def main() -> ():
 1000000
 ```
 
-An annotation checks a type; it does not convert the initializer. For example,
-`small: u8 = 200` fails because `200` is an `i64`. Use `200u8` or `u8(200)`.
+An annotation guides an unsuffixed literal, so `small: u8 = 200` works.
+It does not convert an already typed initializer: use an explicit cast for that.
 
 Arithmetic requires matching types:
 
 ```plenty-error
 def main() -> ():
     small = 7u8
-    print(small + 1)
+    print(small + 1i64)
 ```
 
 ```error
@@ -267,7 +268,7 @@ outside the integer's range; NaN converts to zero. Integer-to-float casts and
 
 ```plenty-error
 def main() -> ():
-    small: f32 = 1.5
+    small: f32 = 1.5f64
 ```
 
 ```error
@@ -475,8 +476,8 @@ def main() -> ():
 
 `type int = i32` declares a type alias. `int(41)` is exactly the integer cast
 `i32(41)`. Another program can choose `type int = i64` instead. Aliases do not
-change the type of unsuffixed literals: `41` remains an `i64` in either program.
-Use `41i32` or `int(41)` when the alias means `i32`. Aliases are not literal
+change unconstrained literal defaults, but `answer: int = 41` uses the annotation
+to choose the literal's width. `41i32` and `int(41)` are also explicit choices. Aliases are not literal
 suffixes, so `41int` is not valid syntax.
 
 Names that describe your data can make interfaces easier to read:
@@ -904,19 +905,19 @@ Grace
 step, but never zero. The stop value is excluded. A range stores its bounds
 without building a list; `list(range(...))` materializes its values.
 
-Currently, range arguments and yielded elements are `i64`. A `list[u8]`
-annotation does not change a range's element type. Numeric suffixes such as
-`2u8` and `3.5f32` work for literals, but `range[u8](8)` is not implemented yet.
+Ranges default to `i64`; `range[u8](8)` explicitly produces u8 values. Start
+and stop must fit the chosen type. Step remains signed i64, so unsigned ranges
+can descend too. A typed bound can also select the element type.
 
 The iterable is evaluated once. Iterating an owned collection transfers it into
 the loop; use `for item in &values` to preserve the owner. Borrowed iteration
-prevents conflicting mutation, and currently supports only copyable elements
-(scalars, strings, and enums without mutable payloads). To iterate a snapshot while
+prevents conflicting mutation; owned list elements become shared references.
+Use `&mut values` for mutable element references. To iterate a snapshot while
 mutating the original, request it explicitly with `for item in copy(values)`.
 Generators are consumed by iteration. Loop variables and new body bindings do not
 escape the loop; changes to enclosing `mut` bindings persist. A loop has unit
 result. `return` can exit a containing function from a loop. Lesson 17 covers
-`break` and `continue`. Tuple unpacking and `items()` are not implemented yet.
+`break` and `continue`. Tuple unpacking and dictionary `items()` are taught below.
 
 ## 16. Build collections with comprehensions
 
@@ -3781,6 +3782,42 @@ The first comprehension explicitly builds a snapshot of tuples. For dictionaries
 containing owned values, use `copy(value)` (or `try_copy(value)?`) when a snapshot
 needs independent owned values. The dictionary cannot grow or shrink while an
 item loop is using it. An `items()` view cannot yet be stored in a variable.
+
+## Choosing numeric types in expressions
+
+Type arguments go before the call: `range[u8](8)`. A collection annotation or
+function return type can also guide a directly written range comprehension.
+
+```plenty
+def squares() -> list[u8]:
+    [n * n for n in range(8) if n % 2 == 0]
+
+def main() -> ():
+    print(squares())
+    print([n * n for n in range[u8](8) if n % 2 == 0])
+    small: list[u16] = [n + 1 for n in range(3)]
+    print(small)
+    print(list(range[u8](5, 0, -2)))
+    fraction: f32 = 3.5
+    print(fraction * 2)
+```
+```output
+[0, 4, 16, 36]
+[0, 4, 16, 36]
+[1, 2, 3]
+[5, 3, 1]
+7.0
+```
+
+Context guides unsuffixed literals, never changes an existing value's type.
+`x: u8 = 256` fails, as does assigning an i64 binding to a u8 binding. Explicit
+suffixes remain authoritative. A range's bounds must fit its element type;
+`range[u8](256)` therefore fails even though its stop is exclusive.
+
+Inference stays within straightforward expressions. It does not infer a range
+type backward through filters, arbitrary calls, or a previously stored range.
+Use explicit `range[T]` in those cases. There is no silent numeric widening or
+narrowing.
 
 ## Where the language goes next
 

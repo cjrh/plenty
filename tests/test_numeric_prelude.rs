@@ -42,8 +42,8 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 }
 
 #[rstest]
-#[case("print(1.0 + 1)", "expected f64, got i64")]
-#[case("x: f32 = 1.0", "expected f32, got f64")]
+#[case("print(1.0f64 + 1i64)", "expected f64, got i64")]
+#[case("x: f32 = 1.0f64", "expected f32, got f64")]
 #[case("print(1f32 + 1f64)", "expected f32, got f64")]
 #[case("print(1 / 2)", "use `//`")]
 #[case("print(1.0 // 2.0)", "require integers")]

@@ -383,6 +383,18 @@ impl TypeRef {
             }
             return Ok(Some(crate::sum::tuple(fields)));
         }
+        if name == "range" && !self.args.is_empty() {
+            if self.args.len() != 1 {
+                return Err(self.at.error("range requires one integer type argument"));
+            }
+            let ty = self.args[0]
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("range requires an integer type"))?;
+            if !ty.is_int() {
+                return Err(self.at.error("range requires an integer type"));
+            }
+            return Ok(Some(Ty::Range(Rc::new(ty))));
+        }
         if matches!(name.as_str(), "&" | "&mut") {
             let inner = self.args[0]
                 .resolve(aliases)?
@@ -1018,7 +1030,9 @@ impl Parser {
                 if matches!(s.as_str(), "Option" | "Result") && self.peek().is("[") {
                     self.pos -= 1;
                     Expression::Type(self.ty()?)
-                } else if matches!(s.as_str(), "list" | "dict" | "set") && self.peek().is("[") {
+                } else if matches!(s.as_str(), "list" | "dict" | "set" | "range")
+                    && self.peek().is("[")
+                {
                     self.pos -= 1;
                     let ty = self.ty()?;
                     if self.peek().is(".") {
@@ -1146,7 +1160,7 @@ fn named_type(name: &str) -> Type {
         "bool" => Ty::Bool,
         "str" => Ty::Str,
         "File" => Ty::File,
-        "range" => Ty::Range,
+        "range" => Ty::Range(Rc::new(Ty::I64)),
         "AllocError" => crate::sum::alloc_error(),
         "ParseError" => crate::sum::parse_error(),
         "DataError" => crate::sum::data_error(),
@@ -1238,6 +1252,13 @@ fn reserved(name: &str) -> bool {
 fn is_comparison(op: &str) -> bool {
     matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not in")
 }
+fn numeric_suffix(text: &str) -> bool {
+    [
+        "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64",
+    ]
+    .iter()
+    .any(|suffix| text.ends_with(suffix))
+}
 fn binary(t: &Token) -> Option<(String, u8)> {
     let s = match &t.kind {
         Kind::Word(s) | Kind::Symbol(s) => s,
@@ -1297,6 +1318,70 @@ struct Lower<'a> {
     return_origin: Option<u8>,
 }
 impl Lower<'_> {
+    fn numeric_hint(&self, e: &Expr) -> Type {
+        match &ungroup(e).kind {
+            Expression::Number(n) if numeric_suffix(n) => {
+                self.number(n, false, &e.at, &mut Vec::new()).ok()
+            }
+            Expression::Name(n) => self
+                .names
+                .get(n)
+                .map(|l| l.ty.clone())
+                .filter(Ty::is_numeric),
+            Expression::Member(..) | Expression::Index(..) => {
+                self.place_type(e).filter(Ty::is_numeric)
+            }
+            Expression::Call(n, _) => self
+                .sigs
+                .get(n)
+                .and_then(|s| s.outputs.first().cloned())
+                .or_else(|| lookup_type(n, self.aliases).flatten())
+                .filter(Ty::is_numeric),
+            Expression::Unary(op, inner) if op == "+" || op == "-" => self.numeric_hint(inner),
+            Expression::Binary(op, a, b)
+                if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%") =>
+            {
+                self.numeric_hint(a).or_else(|| self.numeric_hint(b))
+            }
+            _ => None,
+        }
+    }
+    fn numeric_binary(
+        &mut self,
+        op: &str,
+        left: &Expr,
+        right: &Expr,
+        ty: Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let a = self.expr_expected(left, Some(ty.clone()), ops)?;
+        self.same(a, Some(ty.clone()), &left.at)?;
+        let b = self.expr_expected(right, Some(ty.clone()), ops)?;
+        self.same(b, Some(ty.clone()), &right.at)?;
+        if op == "/" && !ty.is_float() {
+            return Err(at.error("use `//` for integer division; `/` requires floats"));
+        }
+        if matches!(op, "//" | "%") && ty.is_float() {
+            return Err(at.error("floor division and modulo currently require integers"));
+        }
+        ops.push(match op {
+            "+" => Op::Add,
+            "-" => Op::Sub,
+            "*" => Op::Mul,
+            "/" => Op::Div,
+            "//" => Op::FloorDiv,
+            "%" => Op::Modulo,
+            "==" => Op::Eq,
+            "!=" => Op::Ne,
+            "<" => Op::Lt,
+            ">" => Op::Gt,
+            "<=" => Op::Le,
+            ">=" => Op::Ge,
+            _ => unreachable!(),
+        });
+        Ok(if is_comparison(op) { Ty::Bool } else { ty })
+    }
     fn number(&self, text: &str, negative: bool, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
         if text.contains(['.', 'e', 'E']) || text.ends_with("f32") || text.ends_with("f64") {
             let (digits, ty) = if let Some(s) = text.strip_suffix("f32") {
@@ -1558,9 +1643,25 @@ impl Lower<'_> {
                 Some(Ty::Bool)
             }
             Expression::Binary(op, left, right) => {
+                if op != "and" && op != "or" {
+                    if let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right))
+                    {
+                        return self
+                            .numeric_binary(op, left, right, hint, &e.at, ops)
+                            .map(Some);
+                    }
+                }
                 let (a, mut loans) = self.observe(left, ops)?;
                 let mut rhs = Vec::new();
-                let (b, other_loans) = self.observe(right, &mut rhs)?;
+                let (b, other_loans) = if a.is_numeric() {
+                    (
+                        self.expr_expected(right, Some(a.clone()), &mut rhs)?
+                            .ok_or_else(|| right.at.error("expected a numeric value"))?,
+                        vec![],
+                    )
+                } else {
+                    self.observe(right, &mut rhs)?
+                };
                 if op == "and" || op == "or" {
                     Self::end_reads(other_loans, &mut rhs);
                 } else {

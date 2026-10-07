@@ -98,7 +98,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
-| Typed ranges and contextual numeric inference | Proposed: `range[u8](8)` and expression-local constraints from annotations; ranges currently yield `i64` |
+| Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
 | `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
@@ -277,16 +277,18 @@ To return a string directly without a docstring, use `return "text"`.
 The current primitive types are `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`,
 `u64`, `bool`, and `str`. Numeric built-ins use explicit-width names; there is
 no built-in `int`. Floating-point types are `f32` and `f64`. Unsuffixed integer
-literals are `i64`; decimal/exponent literals default to `f64`. Suffixes select
+literals default to `i64`; decimal/exponent literals default to `f64`. Suffixes select
 widths, including `1f32`, `1.5f32`, and `1e-3f64`. Decimal forms such as `.5`
 and `1.` are also accepted.
-No contextual numeric literal inference or implicit numeric widening.
+Numeric annotations, parameters, returns, and typed arithmetic operands guide
+unsuffixed literals within the expression. Already typed values and suffixed
+literals must match exactly; there is no implicit numeric widening.
 
 The [typed-range and inference proposal](docs/proposals/typed-ranges-and-expression-inference.md)
 recommends square-bracket function type arguments, deferred literal defaults,
 and context flowing through one initializer or return expression. It also records
 integer-family constraints, unsigned range boundary choices, and requirements
-for future multiline closures. These are design proposals; the numeric rules
+for future multiline closures. Broader inference remains proposed; the numeric rules
 in this section continue to describe implemented behavior.
 
 Integer casts use truncation/sign-extension like the historical backend.
@@ -337,9 +339,9 @@ i32`, `int(42)` is exactly `i32(42)`, including truncation semantics. Boolean,
 string, and unit aliases do not introduce constructors or conversions. Existing
 restrictions on storing or passing unit still apply through aliases.
 
-Aliases never change literal defaults or add literal suffixes. With the alias
-above, `x: int = 42` fails because the unsuffixed literal is still `i64`; write
-`x: int = 42i32` or `x: int = int(42)`. `42int` is not a valid suffix. Current
+Aliases do not change unconstrained literal defaults or add literal suffixes.
+With the alias above, `x: int = 42` uses its `i32` annotation as literal context.
+`x: int = 42i32` and `x: int = int(42)` also work. `42int` is not a valid suffix. Current
 examples use explicit numeric widths unless they are teaching aliases.
 
 Aliases belong to their source module. Type lookup uses a separate namespace
@@ -425,7 +427,8 @@ have exactly the same type. Empty literals need context from an annotation,
 parameter, or return type; typed constructors such as `list[i64]()`,
 `dict[str, i64]()`, and `set[i64]()` also work. `{}` always means dictionary.
 Nonempty literals infer their type from the first element; integer literals still
-default to i64 without implicit narrowing. Aliases may name collection types.
+default to i64 without context; collection annotations guide literal entries.
+Already typed entries never implicitly narrow. Aliases may name collection types.
 
 Assignment, owned arguments, and returns move collections. Independent duplication
 requires `copy(value)`, which recursively copies mutable contents while retaining
@@ -687,12 +690,25 @@ allocations for nonempty slices, one for empty slices). Capacity/layout overflow
 and exhaustion return `AllocError`; input construction and user cleanup retain
 their own policies.
 
-`range(stop)`, `range(start, stop)`, and `range(start, stop, step)` use i64
-arguments, exclude stop, and store only start/stop/step/length. A zero step or
-length exceeding i64 is a runtime error. Negative steps and extreme i64 bounds
-are checked using wider intermediate arithmetic. Range membership is constant
+`range(stop)`, `range(start, stop)`, and `range(start, stop, step)` exclude stop
+and store only start/stop/step/length. `range[T](...)` chooses any integer type;
+start and stop have type T, while step is always signed i64, permitting descending
+unsigned ranges. Without explicit type arguments, a typed bound or range
+annotation supplies T, otherwise it defaults to i64. Bounds must fit T, so an
+exclusive u8 stop of 256 is rejected; choose a wider range for that boundary.
+A zero step or length exceeding i64 is a runtime error. Bounds and length use
+wider intermediate arithmetic, including the full u64 domain. Range membership is constant
 time. `%` uses the divisor's sign, like Python; division by zero is an error,
 while `INT_MIN % -1` is zero.
+
+For a directly written range in a list/set/dict comprehension, a numeric output
+annotation can guide its loop variable through direct arithmetic in the output
+expression. For example `squares: list[u8] = [n * n for n in range(8)]` selects
+u8. Function return types supply the same context. This is bounded expression
+inference, not whole-program inference: constraints are not inferred backward
+through arbitrary calls, filters, stored range bindings, or explicit range type
+arguments. Use `range[u8](...)` at those boundaries. Arithmetic retains the
+existing fixed-width overflow rules.
 
 `for name in iterable:` evaluates its iterable once and consumes owned collections
 and generators. `for name in &collection` borrows instead; owned list elements
