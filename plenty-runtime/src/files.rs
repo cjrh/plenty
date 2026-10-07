@@ -10,6 +10,7 @@ pub(crate) struct File {
     ty: &'static Type,
     file: Option<std::fs::File>,
     writable: bool,
+    readable: bool,
     skip_lf: bool,
 }
 
@@ -33,6 +34,7 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
                     ty,
                     file: Some(file),
                     writable,
+                    readable: !writable,
                     skip_lf: false,
                 });
             }
@@ -65,6 +67,9 @@ pub(crate) unsafe fn closed(pointer: *const File) -> bool {
 pub(crate) unsafe fn read(pointer: *mut File) -> Result<u128, Error> {
     // SAFETY: the compiler supplies a live exclusively borrowed owner.
     let owner = unsafe { &mut *pointer };
+    if !owner.readable {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
     let file = owner
         .file
         .as_mut()
@@ -75,6 +80,9 @@ pub(crate) unsafe fn read(pointer: *mut File) -> Result<u128, Error> {
 pub(crate) unsafe fn readline(pointer: *mut File) -> Result<u128, Error> {
     // SAFETY: the compiler supplies a live exclusively borrowed owner.
     let owner = unsafe { &mut *pointer };
+    if !owner.readable {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
     let file = owner
         .file
         .as_mut()
@@ -85,6 +93,9 @@ pub(crate) unsafe fn readline(pointer: *mut File) -> Result<u128, Error> {
 pub(crate) unsafe fn read_sized(pointer: *mut File, count: i64, line: bool) -> Result<u128, Error> {
     // SAFETY: the compiler supplies a live exclusively borrowed owner.
     let owner = unsafe { &mut *pointer };
+    if !owner.readable {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
     let file = owner
         .file
         .as_mut()
@@ -111,6 +122,19 @@ pub(crate) unsafe fn write(pointer: *mut File, text: &str) -> Result<u128, Error
     }
     file.write_all(text.as_bytes())?;
     Ok(text.chars().count() as u128)
+}
+
+pub(crate) unsafe fn capability(pointer: *const File, write: bool) -> Result<u128, Error> {
+    // SAFETY: capability queries only inspect a live shared owner.
+    let owner = unsafe { &*pointer };
+    if owner.file.is_none() {
+        return Err(std::io::ErrorKind::NotConnected.into());
+    }
+    Ok(if write {
+        owner.writable
+    } else {
+        owner.readable
+    } as u128)
 }
 
 pub(crate) unsafe fn flush(pointer: *mut File, durable: bool) -> Result<u128, Error> {
@@ -159,6 +183,7 @@ mod tests {
                 ty: &TYPE,
                 file: None,
                 writable: false,
+                readable: true,
                 skip_lf: false,
             });
             memory::plenty_retain(pointer.cast());

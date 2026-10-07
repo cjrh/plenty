@@ -1717,6 +1717,11 @@ lookup requires no traits or user generics.
 
 ## Bounded stream operations
 
+`File.readable()` and `File.writable()` return `Result[bool, IoError]` using
+shared access and no allocation. They report the open mode's capabilities,
+not a guarantee that a future OS operation will succeed. Closed files return an
+error. All reads, including zero-length reads, reject write-only files.
+
 `readline(count: i64)` uses the same scalar limits as `read(count)` but stops
 after the first translated newline. A negative count reads one complete line.
 The next call resumes a partial line; a zero limit does not consume a pending LF.

@@ -82,6 +82,30 @@ print(work())
 }
 
 #[test]
+fn file_capabilities_use_shared_references_and_validate_closed_state() {
+    let (out, _) = run(
+        r#"
+def inspect(file: &File) -> Result[(), IoError]:
+    print(file.readable()?)
+    print(file.writable()?)
+    Ok(())
+def work() -> Result[(), IoError]:
+    mut file = open("sample.txt")?
+    inspect(&file)?
+    file.close()?
+    print(file.readable())
+    with open("sample.txt", "w")? as stream:
+        inspect(&stream)?
+        print(stream.read(0))
+    Ok(())
+print(work())
+"#,
+        Some(b"hello"),
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "True\nFalse\nResult[bool, IoError].Err(IoError.System(0))\nFalse\nTrue\nResult[str, IoError].Err(IoError.System(0))\nResult[(), IoError].Ok(())\n");
+}
+
+#[test]
 fn readline_preserves_line_endings_and_distinguishes_empty_lines_from_eof() {
     let (out, _) = run(
         r#"

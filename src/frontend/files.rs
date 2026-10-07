@@ -41,6 +41,8 @@ impl Lower<'_> {
             "write" => CollectionOp::FileWrite,
             "flush" => CollectionOp::FileFlush,
             "sync" => CollectionOp::FileSync,
+            "readable" => CollectionOp::FileReadable,
+            "writable" => CollectionOp::FileWritable,
             _ => return Err(base.at.error(format!("unknown File method `{name}`"))),
         };
         let count = usize::from(
@@ -64,7 +66,7 @@ impl Lower<'_> {
             self.same(Some(ty), Some(expected), &arg.at)?;
             reads = loans;
         }
-        let (_, loan) = self.borrow(base, true, ops)?;
+        let (_, loan) = self.borrow(base, !matches!(name, "readable" | "writable"), ops)?;
         ops.push(Op::ReadRef(Ty::File));
         if count == 1 {
             ops.push(Op::Swap);
