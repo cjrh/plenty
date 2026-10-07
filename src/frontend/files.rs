@@ -32,16 +32,19 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if name != "close" {
-            return Err(base.at.error(format!("unknown File method `{name}`")));
-        }
+        let operation = match name {
+            "close" => CollectionOp::FileClose,
+            "read" => CollectionOp::FileRead,
+            _ => return Err(base.at.error(format!("unknown File method `{name}`"))),
+        };
         if !args.is_empty() {
-            return Err(base.at.error("close takes no arguments"));
+            return Err(base.at.error(format!("{name} takes no arguments")));
         }
         let (_, loan) = self.borrow(base, true, ops)?;
         ops.push(Op::ReadRef(Ty::File));
-        ops.push(Op::Collection(CollectionOp::FileClose));
+        let output = operation.signature().1;
+        ops.push(Op::Collection(operation));
         ops.push(Op::UseLoan(loan));
-        Ok(Some(CollectionOp::FileClose.signature().1))
+        Ok(Some(output))
     }
 }

@@ -93,7 +93,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and owned File open/close implemented; stream reads/writes remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and scoped File open/read/close implemented; stream writes remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -185,7 +185,7 @@ Tutorial executions use separate temporary working directories for each mode.
 It creates a missing file, including for empty text. Each OS write appends at the
 current end; a logical call may require multiple writes and is not an atomic
 record against concurrent writers. Allocation fails before opening; OS failures
-can leave an appended prefix. Long-lived streams remain future work.
+can leave an appended prefix. Owned File streams are described below.
 
 These initial functions are explicit prelude builtins. Future standard-library
 modules and stream methods can build on their error, encoding, and resource
@@ -1604,8 +1604,23 @@ Both the owner header and path conversion allocate fallibly before opening the
 descriptor, so allocation failure cannot truncate a destination. Open failures
 release the reserved owner. The Rust runtime owns the native descriptor in an
 Option and uses the ordinary intrusive destruction queue; File adds no public
-ABI layout or descriptor escape hatch. Streaming operations and builtin context
-support follow separately.
+ABI layout or descriptor escape hatch.
+
+`file.read() -> Result[str, IoError]` exclusively borrows a live file and reads
+from its current position to EOF. It returns independent UTF-8 text with CRLF
+and bare CR normalized to LF, preserving NUL. EOF returns an empty string.
+Closed handles return `IoError.System(0)`; wrong access mode and OS errors retain
+native codes. Read or allocation errors may advance the position, and invalid
+UTF-8 is reported after consuming input. No rollback or concurrent-file snapshot
+is promised. Output and temporary buffers allocate fallibly.
+
+File implements an intrinsic context protocol: entry returns `&mut File`, exit
+closes it, and normal destruction releases its owner. It uses the same checked
+loans and exit paths as user-defined classes. `with &mut file as stream:` leaves
+the original owner closed on exit. Entry of an already closed file is allowed;
+operations report the closed-state error. Automatic exit discards close errors
+to preserve the body's control flow; use explicit `close()?` in the body when
+the caller must handle them. Stream writes and line reads remain future work.
 
 ## Returned references
 

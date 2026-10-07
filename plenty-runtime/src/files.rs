@@ -56,6 +56,13 @@ pub(crate) unsafe fn closed(pointer: *const File) -> bool {
     unsafe { (*pointer).file.is_none() }
 }
 
+pub(crate) unsafe fn read(pointer: *mut File) -> Result<u128, Error> {
+    // SAFETY: the compiler supplies a live exclusively borrowed owner.
+    let file = unsafe { &mut (*pointer).file };
+    let file = file.as_mut().ok_or(std::io::ErrorKind::NotConnected)?;
+    Ok(text_io::read_all(file)? as u128)
+}
+
 unsafe extern "C" fn destroy(pointer: *mut Header) {
     let file = pointer.cast::<File>();
     // SAFETY: the reference count reached zero. Rust's sole descriptor owner

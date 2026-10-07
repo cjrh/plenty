@@ -45,6 +45,100 @@ print(work())
 }
 
 #[test]
+fn scoped_reads_return_owned_text_and_advance_to_eof() {
+    let (out, _) = run(
+        r#"
+def work() -> Result[str, IoError]:
+    with open("sample.txt")? as file:
+        text = file.read()?
+        print(file.read()?)
+        return Ok(text)
+print(work())
+"#,
+        Some("é\r\nhello\r\0".as_bytes()),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "\nResult[str, IoError].Ok(\"é\\nhello\\n\\0\")\n"
+    );
+}
+
+#[test]
+fn borrowed_file_context_closes_on_return_and_read_errors() {
+    for input in [&b"valid"[..], &b"\xff"[..]] {
+        let (out, _) = run(
+            r#"
+def read(file: &mut File) -> Result[str, IoError]:
+    with &mut file as stream:
+        return stream.read()
+def work() -> Result[(), IoError]:
+    mut file = open("sample.txt")?
+    print(read(&mut file))
+    print(file.closed)
+    print(file.read())
+    Ok(())
+print(work())
+"#,
+            Some(input),
+        );
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            text.contains("\nTrue\nResult[str, IoError].Err(IoError.System(0))"),
+            "{text}"
+        );
+        if input == b"\xff" {
+            assert!(text.contains("DataError.InvalidUtf8"), "{text}");
+        }
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn scoped_read_allocation_failures_release_file_without_allocating() {
+    for budget in 0..=2 {
+        let (out, _) = run(
+            &format!(
+                r#"
+def read(file: File) -> Result[str, IoError]:
+    with file as stream:
+        return Ok(stream.read()?)
+def work() -> Result[(), IoError]:
+    file = open("sample.txt")?
+    print("__test_fail_allocations_after_{budget}__")
+    result = read(file)
+    print("__test_restore_allocations__")
+    print(result)
+    Ok(())
+print(work())
+"#
+            ),
+            Some(b"text"),
+        );
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            text.contains(if budget < 2 {
+                "OutOfMemory"
+            } else {
+                ".Ok(\"text\")"
+            }),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn file_reads_require_exclusive_access() {
+    reject(
+        "def read(file: &File) -> Result[str, IoError]:\n    file.read()\n",
+        "shared reference as mutable",
+    );
+    reject(
+        "def read(file: &mut File) -> Result[str, IoError]:\n    file.read(1)\n",
+        "takes no arguments",
+    );
+}
+
+#[test]
 fn open_modes_create_truncate_or_preserve_and_errors_are_recoverable() {
     for (mode, expected) in [("r", &b"old"[..]), ("w", &b""[..]), ("a", &b"old"[..])] {
         let (_, dir) = run(

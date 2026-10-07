@@ -121,7 +121,7 @@ impl From<std::io::ErrorKind> for Error {
     }
 }
 
-fn read_all(reader: &mut impl Read) -> Result<*mut strings::Text, Error> {
+pub(crate) fn read_all(reader: &mut impl Read) -> Result<*mut strings::Text, Error> {
     let mut bytes = Vec::new();
     let mut chunk = [0; 8192];
     loop {

@@ -6,6 +6,7 @@ pub enum CollectionOp {
     OpenFile,
     FileClose,
     FileClosed,
+    FileRead,
     WriteStdout,
     WriteStderr,
     FlushStdout,
@@ -123,6 +124,10 @@ impl CollectionOp {
                 crate::sum::result(Ty::Unit, crate::sum::io_error()),
             ),
             FileClosed => (vec![Ty::File], Ty::Bool),
+            FileRead => (
+                vec![Ty::File],
+                crate::sum::result(Ty::Str, crate::sum::io_error()),
+            ),
             WriteText | AppendText => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
@@ -306,6 +311,7 @@ impl CollectionOp {
             Self::OpenFile => 89,
             Self::FileClose => 90,
             Self::FileClosed => 91,
+            Self::FileRead => 92,
             Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,

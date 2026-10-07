@@ -4,7 +4,7 @@ use crate::record::method;
 
 pub(super) struct Context {
     pub slot: u8,
-    pub exit: String,
+    pub exit: Vec<Op>,
     pub loan: Option<usize>,
 }
 
@@ -31,49 +31,58 @@ impl Lower<'_> {
         } else {
             (self.value(manager, ops)?, None)
         };
-        let class = match &ty {
-            Ty::Class(class) => class.clone(),
-            Ty::Ref(inner, true) if loan.is_some() => {
-                let Ty::Class(class) = inner.as_ref() else {
-                    return Err(manager.at.error("with requires a class instance"));
-                };
-                class.clone()
-            }
-            _ => {
-                return Err(manager
-                    .at
-                    .error("with requires an owned class instance or explicit &mut borrow"))
-            }
+        let owner = match &ty {
+            Ty::Ref(inner, true) if loan.is_some() => (**inner).clone(),
+            ty => ty.clone(),
         };
+        if !matches!(owner, Ty::Class(_) | Ty::File) {
+            return Err(manager
+                .at
+                .error("with requires an owned class instance or File, or explicit &mut borrow"));
+        }
         let slot = self.slot(ty, &manager.at)?;
         ops.push(Op::StoreLocal(slot));
-        let mut entry = None;
-        for name in ["__enter__", "__exit__"] {
-            modules::check_member(self.access, &class.name, name, &manager.at)?;
-            let callee = method(&class.name, name);
-            let sig = self
-                .sigs
-                .get(&callee)
-                .ok_or_else(|| manager.at.error(format!("context manager requires {name}")))?;
-            if sig.inputs.len() != 1
-                || sig.inputs[0].1 != Ty::Ref(Rc::new(Ty::Class(class.clone())), true)
-            {
-                return Err(manager
-                    .at
-                    .error(format!("{name} requires only self: &mut {}", class.name)));
+        let receiver = Ty::Ref(Rc::new(owner.clone()), true);
+        let (entry, enter, exit) = if let Ty::Class(class) = &owner {
+            let mut entry = None;
+            for name in ["__enter__", "__exit__"] {
+                modules::check_member(self.access, &class.name, name, &manager.at)?;
+                let callee = method(&class.name, name);
+                let sig = self
+                    .sigs
+                    .get(&callee)
+                    .ok_or_else(|| manager.at.error(format!("context manager requires {name}")))?;
+                if sig.inputs.len() != 1 || sig.inputs[0].1 != receiver {
+                    return Err(manager
+                        .at
+                        .error(format!("{name} requires only self: &mut {}", class.name)));
+                }
+                if name == "__exit__" && !sig.outputs.is_empty() {
+                    return Err(manager.at.error("__exit__ must return ()"));
+                }
+                if name == "__enter__" {
+                    entry = sig.outputs.first().cloned();
+                }
             }
-            if name == "__exit__" && !sig.outputs.is_empty() {
-                return Err(manager.at.error("__exit__ must return ()"));
-            }
-            if name == "__enter__" {
-                entry = sig.outputs.first().cloned();
-            }
-        }
-        let context = Context {
-            slot,
-            exit: method(&class.name, "__exit__"),
-            loan,
+            (
+                entry,
+                vec![Op::Call(method(&class.name, "__enter__"))],
+                vec![Op::Call(method(&class.name, "__exit__"))],
+            )
+        } else {
+            // File's intrinsic entry returns its receiver. Exit closes without
+            // replacing an in-flight body error; explicit close reports errors.
+            (
+                Some(receiver.clone()),
+                vec![],
+                vec![
+                    Op::ReadRef(Ty::File),
+                    Op::Collection(CollectionOp::FileClose),
+                    Op::Drop,
+                ],
+            )
         };
+        let context = Context { slot, exit, loan };
         let entry_loan = self.new_loan(
             loan.map(|id| self.loans[id].root).unwrap_or(slot),
             true,
@@ -85,9 +94,15 @@ impl Lower<'_> {
         } else {
             ops.push(Op::BorrowLocal(slot, true));
         }
-        let enter = method(&class.name, "__enter__");
-        ops.push(Op::Call(enter.clone()));
-        self.call_reference_result(&self.sigs[&enter].clone(), &[entry_loan], ops);
+        ops.extend(enter);
+        self.call_reference_result(
+            &FnSig {
+                inputs: vec![("self".into(), receiver)],
+                outputs: entry.clone().into_iter().collect(),
+            },
+            &[entry_loan],
+            ops,
+        );
         ops.push(Op::UseLoan(entry_loan));
         let result_loan = matches!(entry, Some(Ty::Ref(..))).then(|| self.loans.len() - 1);
         self.contexts.push(context);
