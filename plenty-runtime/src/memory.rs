@@ -1,5 +1,5 @@
 //! Intrusive, reentrant destruction without recursion through owned object graphs.
-use std::alloc::{alloc_zeroed, dealloc, handle_alloc_error, Layout};
+use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::cell::Cell;
 use std::ptr;
 
@@ -150,15 +150,6 @@ pub(crate) fn try_allocate<H, E>(count: usize) -> Result<*mut H, AllocError> {
     } else {
         Ok(pointer.cast())
     }
-}
-pub(crate) fn allocate<H, E>(count: usize) -> *mut H {
-    let layout = flex_layout::<H, E>(count);
-    // SAFETY: nonzero header size and layout-checked array length/alignment.
-    let pointer = unsafe { alloc_zeroed(layout) };
-    if pointer.is_null() {
-        handle_alloc_error(layout);
-    }
-    pointer.cast()
 }
 pub(crate) unsafe fn free<H, E>(pointer: *mut H, count: usize) {
     // SAFETY: pointer/count must match allocate; all owned payloads are released.

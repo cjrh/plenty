@@ -45,7 +45,20 @@ pub(crate) unsafe extern "C" fn plenty_generator_new(
     count: u64,
     managed: *const *const Type,
 ) -> *mut Generator {
-    let g = memory::allocate::<Generator, u128>(count as usize);
+    // SAFETY: forwarded callback and metadata retain the constructor contract.
+    unsafe { try_new(resume, count, managed) }
+        .unwrap_or_else(|_| crate::fail("generator allocation failed"))
+}
+
+/// Allocate only the frame. Callers transfer captures after success, and retain
+/// responsibility for them on failure. The managed mask must outlive the frame.
+pub(crate) unsafe fn try_new(
+    resume: Resume,
+    count: u64,
+    managed: *const *const Type,
+) -> Result<*mut Generator, memory::AllocError> {
+    let slots = usize::try_from(count).map_err(|_| memory::AllocError::CapacityOverflow)?;
+    let g = memory::try_allocate::<Generator, u128>(slots)?;
     unsafe {
         g.write(Generator {
             header: Header::new(destroy),
@@ -57,7 +70,7 @@ pub(crate) unsafe extern "C" fn plenty_generator_new(
             slots: [],
         });
     }
-    g
+    Ok(g)
 }
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_generator_resume(g: *mut Generator, out: *mut u128) -> u8 {

@@ -1555,6 +1555,11 @@ Sources informing this design:
 
 ## Native generators
 
+The runtime has a checked frame allocator that reports capacity overflow or OOM
+before consuming captures. Ordinary source generator calls still abort on frame
+allocation failure; exposing the checked path requires a source-level constructor
+boundary. Frame destruction remains allocation-free and does not resume the body.
+
 A function containing `yield` declares `Generator[T]`. Calls evaluate arguments
 and create an owned frame without running the body. Each resume executes native
 code until a statement-only `yield value`, bare `return`, or fallthrough.

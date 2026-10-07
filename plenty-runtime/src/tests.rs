@@ -1755,6 +1755,32 @@ unsafe extern "C" fn never_resume(_: *mut Generator, _: *mut u128) -> u8 {
     panic!("dropping must not resume a generator")
 }
 #[test]
+fn oversized_generator_frame_fails_before_reading_metadata() {
+    let result = unsafe { crate::generators::try_new(never_resume, u64::MAX, ptr::null()) };
+    assert_eq!(
+        result.unwrap_err(),
+        crate::memory::AllocError::CapacityOverflow
+    );
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn generator_frame_failure_does_not_consume_captures() {
+    static MANAGED: [&Type; 1] = [&GENERATOR];
+    unsafe {
+        let child = guard(77);
+        crate::accounting::fail_after(Some(0));
+        let result = crate::generators::try_new(never_resume, 1, MANAGED.as_ptr().cast());
+        crate::accounting::fail_after(None);
+        assert_eq!(result.unwrap_err(), crate::memory::AllocError::OutOfMemory);
+        assert!(trace().is_empty());
+        let frame = crate::generators::try_new(never_resume, 1, MANAGED.as_ptr().cast()).unwrap();
+        *frame.cast::<u8>().add(64).cast::<u128>() = child;
+        plenty_release(frame.cast());
+        assert_eq!(trace(), [77]);
+    }
+}
+#[test]
 fn deeply_nested_generator_frames_drop_iteratively() {
     static MANAGED: [&Type; 1] = [&GENERATOR];
     unsafe {
