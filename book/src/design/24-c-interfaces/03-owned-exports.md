@@ -32,8 +32,8 @@ ordinary Plenty ownership rules. The wrapper adds one fallible allocation and
 never exposes the native object's fields or permits copying the owner.
 
 Only allocation-error factories are supported for class results. Other error
-types need a way to represent wrapper-allocation failure. Consuming class inputs
-and automatically exported methods are outside this subset.
+types need a way to represent wrapper-allocation failure. Automatically exported
+methods are outside this subset; export explicit free-function adapters instead.
 
 ## Borrowing handles
 
@@ -51,3 +51,17 @@ must not overlap.
 Generated Plenty wrappers preserve these reference signatures, so callers get
 normal loan checking. Borrow adaptation itself does not allocate. Exported free
 functions can call the class's ordinary methods internally.
+
+## Consuming handles
+
+A class parameter passed by value becomes an owned C handle argument. The C call
+consumes it on entry, even when the result is `Err`. It cannot alias another input
+or have outstanding borrows. The caller must neither access nor destroy the old
+handle afterward. The callee may return ownership explicitly through a supported
+class result; only that returned owner is then usable.
+
+Generated Plenty wrappers take their class arguments by value. They clear their
+private pointer immediately before the native call so automatic cleanup cannot
+destroy a transferred owner again. If an output wrapper allocation fails before
+the native call, the input owners are still cleaned up normally. The source call
+consumes its arguments on every path, and borrow checking rejects later reuse.

@@ -505,6 +505,112 @@ int main(void) {
 }
 
 #[test]
+fn consuming_handle_exports_transfer_on_success_error_and_wrapper_failure() {
+    let source = r#"
+class Resource:
+    value: i64
+    def __del__(self) -> ():
+        print("released").unwrap()
+export def create(value: i64) -> Result[Resource, AllocError] = "calc_create":
+    Resource(value)
+export def consume(owner: Resource, fail: i32) -> Result[i64, i32] = "calc_consume":
+    if fail != 0:
+        Err(-1)
+    else:
+        Ok(owner.value)
+export def discard(owner: Resource) -> () = "calc_discard":
+    drop(owner)
+export def identity(owner: Resource) -> Result[Resource, AllocError] = "calc_identity":
+    Ok(owner)
+"#;
+    for kind in [LibraryKind::Static, LibraryKind::Shared] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (library, artifacts) = build(root, source, kind);
+        let header = std::fs::read_to_string(&artifacts.header).unwrap();
+        assert!(header.contains("Consumes p0 on entry, on both Ok and Err"));
+        let c = root.join("transfer.c");
+        std::fs::write(
+            &c,
+            r#"
+#include "calc.h"
+#include <assert.h>
+int main(void) {
+    calc_Resource *owner = 0;
+    uint32_t alloc = 99;
+    int64_t value = 90;
+    int32_t error = 50;
+    assert(calc_create(11, &owner, &alloc) == 0);
+    assert(calc_consume(owner, 0, &value, &error) == 0 && value == 11 && error == 50);
+    assert(calc_create(22, &owner, &alloc) == 0);
+    assert(calc_consume(owner, 1, &value, &error) == 1 && value == 11 && error == -1);
+    assert(calc_create(33, &owner, &alloc) == 0);
+    calc_discard(owner);
+    assert(calc_create(44, &owner, &alloc) == 0);
+    calc_Resource *returned = 0;
+    assert(calc_identity(owner, &returned, &alloc) == 0 && returned == owner);
+    calc_Resource_destroy(returned);
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+        let executable = root.join("caller");
+        let args = std::fs::read_to_string(artifacts.link_args).unwrap();
+        for compiler in ["cc", "c++"] {
+            success(
+                Command::new(compiler)
+                    .args(["-Wall", "-Wextra", "-Werror"])
+                    .arg(&c)
+                    .arg(&library)
+                    .args(args.lines())
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .unwrap(),
+            );
+            assert_eq!(
+                success(Command::new(&executable).output().unwrap()).stdout,
+                b"released\nreleased\nreleased\nreleased\n"
+            );
+        }
+        let app = root.join("main.plenty");
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    print(calc.consume(calc.create(11)?, 0))?\n    print(calc.consume(calc.create(22)?, 1))?\n    calc.discard(calc.create(33)?)\n    drop(calc.identity(calc.create(44)?)?)\n    Ok(())\n").unwrap();
+        let options = plenty::CompileOptions {
+            link_args: vec![library.into_os_string()],
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
+        assert_eq!(
+            success(Command::new(&executable).output().unwrap()).stdout,
+            b"released\nResult[i64, i32].Ok(11)\nreleased\nResult[i64, i32].Err(-1)\nreleased\nreleased\n"
+        );
+        if cfg!(feature = "runtime-checks") {
+            std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    owner = calc.create(55)?\n    print(\"__test_fail_allocations_after_0__\").unwrap()\n    result = calc.identity(owner)\n    print(\"__test_restore_allocations__\").unwrap()\n    match result:\n        case Ok(unexpected):\n            print(\"unexpected success\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n").unwrap();
+            // Warm the producer's output before injecting process allocation failure.
+            let text = std::fs::read_to_string(&app).unwrap().replace(
+                "    owner =",
+                "    calc.discard(calc.create(0)?)\n    owner =",
+            );
+            std::fs::write(&app, text).unwrap();
+            plenty::compile_file_to_executable_with_options(&app, &executable, None, &options)
+                .unwrap();
+            let output = success(Command::new(&executable).output().unwrap());
+            let visible = String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .filter(|line| !line.starts_with("__test_"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert_eq!(visible, "released\nreleased\nAllocError.OutOfMemory");
+        }
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    owner = calc.create(11)?\n    calc.discard(owner)\n    calc.discard(owner)\n    Ok(())\n").unwrap();
+        let error = plenty::check_file(&app, None).unwrap_err().to_string();
+        assert!(error.contains("moved"), "{error}");
+    }
+}
+
+#[test]
 fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("source.plenty");

@@ -18,7 +18,7 @@ pub(crate) fn check_signature(
 ) -> Result<(), &'static str> {
     if inputs
         .iter()
-        .any(|(_, ty)| !ty.is_numeric() && !matches!(ty, Ty::Ref(inner, _) if inner.is_numeric() || matches!(inner.as_ref(), Ty::Class(_))))
+        .any(|(_, ty)| !ty.is_numeric() && !matches!(ty, Ty::Class(_)) && !matches!(ty, Ty::Ref(inner, _) if inner.is_numeric() || matches!(inner.as_ref(), Ty::Class(_))))
         || output.as_ref().is_some_and(|ty| {
             !ty.is_numeric()
                 && !result_payloads(ty).is_some_and(|(ok, error)| {
@@ -138,10 +138,19 @@ impl Interface {
             if let Some((Ty::Class(class), _)) = result {
                 let handle = handles.iter().find(|h| h.class.name == class.name).unwrap();
                 header.push_str(&format!(" * On Ok, out_ok receives one non-null owned handle from this library.\n * Release it exactly once with {}; never use free().\n * On Err no handle is transferred and out_ok is unchanged.\n", handle.destroy));
-            } else {
+            } else if !export
+                .signature
+                .inputs
+                .iter()
+                .any(|(_, ty)| matches!(ty, Ty::Class(_)))
+            {
                 header.push_str(" * No ownership crosses this interface.\n");
             }
             for (i, (_, ty)) in export.signature.inputs.iter().enumerate() {
+                if let Ty::Class(class) = ty {
+                    let handle = handles.iter().find(|h| h.class.name == class.name).unwrap();
+                    header.push_str(&format!(" * Requires p{i}: one live non-null owned {} handle from this library\n * instance, on its creating thread, with no outstanding borrows or aliases\n * accessing it. It must not alias any other handle argument.\n * Consumes p{i} on entry, on both Ok and Err. Never access or destroy the\n * original handle after calling; only a newly returned owner may be used.\n", handle.c_name));
+                }
                 if let Ty::Ref(inner, mutable) = ty {
                     if let Ty::Class(class) = inner.as_ref() {
                         let handle = handles.iter().find(|h| h.class.name == class.name).unwrap();
@@ -239,7 +248,7 @@ impl Interface {
                         format!("export name `{raw}` conflicts with a generated adapter").into(),
                     );
                 }
-                let (mut raw_parameters, mut args) = handles::arguments(export);
+                let (mut raw_parameters, mut args, transfers) = handles::arguments(export);
                 let mut body = String::new();
                 let owner = if let Ty::Class(class) = ok {
                     handles.iter().find(|h| h.class.name == class.name)
@@ -266,6 +275,7 @@ impl Interface {
                 };
                 raw_parameters.push(format!("out_error: &mut {error_storage}"));
                 args.push("&mut out_error".into());
+                body.push_str(&transfers);
                 body.push_str(&format!("    mut out_error: {error_storage} = 0\n    status = {raw}({})\n    if status == 0:\n", args.join(", ")));
                 if owner.is_some() {
                     body.push_str("        owner._handle = out_ok\n        Ok(owner)\n");
@@ -293,7 +303,7 @@ impl Interface {
                     parameters.join(", ")
                 ));
             } else {
-                let (raw_parameters, args) = handles::arguments(export);
+                let (raw_parameters, args, transfers) = handles::arguments(export);
                 if raw_parameters == parameters {
                     source.push_str(&format!(
                         "pub extern def {}({}) -> {output} = \"{}\"\n",
@@ -309,7 +319,7 @@ impl Interface {
                         )
                         .into());
                     }
-                    source.push_str(&format!("extern def {raw}({}) -> {output} = \"{}\"\npub def {}({}) -> {output}:\n    {raw}({})\n\n", raw_parameters.join(", "), export.symbol, export.name, parameters.join(", "), args.join(", ")));
+                    source.push_str(&format!("extern def {raw}({}) -> {output} = \"{}\"\npub def {}({}) -> {output}:\n{transfers}    {raw}({})\n\n", raw_parameters.join(", "), export.symbol, export.name, parameters.join(", "), args.join(", ")));
                 }
             }
         }

@@ -87,13 +87,19 @@ pub(super) fn source_type(ty: &Ty) -> String {
     }
 }
 
-pub(super) fn arguments(export: &Export) -> (Vec<String>, Vec<String>) {
-    export
+pub(super) fn arguments(export: &Export) -> (Vec<String>, Vec<String>, String) {
+    let mut transfers = String::new();
+    let (parameters, arguments) = export
         .signature
         .inputs
         .iter()
         .enumerate()
         .map(|(i, (_, ty))| {
+            if let Ty::Class(class) = ty {
+                let pointer = format!("_plenty_handle_{}", short_name(class));
+                transfers.push_str(&format!("    mut consumed{i} = p{i}\n    raw{i} = consumed{i}._handle\n    consumed{i}._handle = {pointer}.null()\n"));
+                return (format!("p{i}: {pointer}"), format!("raw{i}"));
+            }
             if let Ty::Ref(inner, _) = ty {
                 if let Ty::Class(class) = inner.as_ref() {
                     let pointer = format!("_plenty_handle_{}", short_name(class));
@@ -102,7 +108,8 @@ pub(super) fn arguments(export: &Export) -> (Vec<String>, Vec<String>) {
             }
             (format!("p{i}: {ty}"), format!("p{i}"))
         })
-        .unzip()
+        .unzip();
+    (parameters, arguments, transfers)
 }
 
 impl Handle {
