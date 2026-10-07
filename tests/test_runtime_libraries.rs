@@ -47,6 +47,51 @@ pub def calculate(path: &str) -> i32:
 "#;
 
 #[test]
+fn discovery_compares_exact_contract_bytes_and_rejects_bad_descriptors() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let lib = library(
+        root,
+        r#"
+#include <stddef.h>
+const unsigned char *fixture_good(size_t *len) { *len = 8; return (const unsigned char *)"contract"; }
+const unsigned char *fixture_stale(size_t *len) { *len = 8; return (const unsigned char *)"contracX"; }
+const unsigned char *fixture_null(size_t *len) { *len = 8; return NULL; }
+const unsigned char *fixture_huge(size_t *len) { *len = (size_t)-1; return (const unsigned char *)"x"; }
+const unsigned char *fixture_short(size_t *len) { *len = 1; return (const unsigned char *)"x"; }
+"#,
+    );
+    std::fs::write(root.join("native.plentyi"), format!(r#"{RAW}
+extern def check_raw(lease: Lease, discovery: &str as utf8, expected: &str as utf8) -> u32 = "plenty_library_contract_v1"
+pub def check(path: &str, discovery: &str, expected: &str) -> u32:
+    mut lease = Lease.null()
+    status = open_raw(path, &mut lease)
+    if status != 0:
+        return status
+    checked = check_raw(lease, discovery, expected)
+    close_raw(lease)
+    checked
+"#)).unwrap();
+    let output = run(
+        root,
+        &format!(
+            r#"
+import native
+def main() -> Result[(), Failure]:
+    path = "{}"
+    expected = "contract"
+    for name in ["fixture_good", "fixture_stale", "fixture_null", "fixture_huge", "fixture_short", "fixture_missing"]?:
+        print(native.check(&path, &name, &expected))?
+    Ok(())
+"#,
+            lib.display()
+        ),
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"0\n7\n7\n7\n7\n6\n");
+}
+
+#[test]
 fn runtime_helpers_load_without_a_link_time_dependency() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

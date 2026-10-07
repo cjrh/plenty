@@ -24,6 +24,7 @@ pub(crate) enum LoadError {
     OpenFailed = 4,
     InvalidSymbol = 5,
     MissingSymbol = 6,
+    IncompatibleContract = 7,
 }
 
 impl From<AllocError> for LoadError {
@@ -140,6 +141,40 @@ pub(crate) unsafe extern "C" fn plenty_library_close_v1(handle: *mut c_void) {
     // releases the lookup lease, never unmaps NODELETE code or its static state.
     if !handle.is_null() {
         unsafe { dlclose(handle) };
+    }
+}
+
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_library_contract_v1(
+    handle: *mut c_void,
+    discovery: *const u8,
+    discovery_len: usize,
+    expected: *const u8,
+    expected_len: usize,
+) -> u32 {
+    // SAFETY: trusted wrappers supply byte slices and a live lookup lease.
+    // The discovery function's native implementation is trusted to return live,
+    // immutable bytes. Bounds reject malformed sizes; they cannot sandbox C.
+    unsafe {
+        if expected_len == 0 || expected_len > 4 * 1024 * 1024 {
+            return LoadError::IncompatibleContract as u32;
+        }
+        let address = match symbol(handle, std::slice::from_raw_parts(discovery, discovery_len)) {
+            Ok(address) => address,
+            Err(error) => return error as u32,
+        };
+        let discover: unsafe extern "C" fn(*mut usize) -> *const u8 = std::mem::transmute(address);
+        let mut actual_len = 0;
+        let actual = discover(&mut actual_len);
+        if actual.is_null() || actual_len != expected_len {
+            return LoadError::IncompatibleContract as u32;
+        }
+        if std::slice::from_raw_parts(actual, actual_len)
+            != std::slice::from_raw_parts(expected, expected_len)
+        {
+            return LoadError::IncompatibleContract as u32;
+        }
+        0
     }
 }
 

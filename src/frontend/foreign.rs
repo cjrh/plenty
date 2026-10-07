@@ -4,7 +4,10 @@ use super::*;
 pub(super) fn loader_symbol(name: &str) -> bool {
     matches!(
         name,
-        "plenty_library_open_v1" | "plenty_library_symbol_v1" | "plenty_library_close_v1"
+        "plenty_library_open_v1"
+            | "plenty_library_symbol_v1"
+            | "plenty_library_close_v1"
+            | "plenty_library_contract_v1"
     )
 }
 
@@ -34,6 +37,9 @@ fn check_loader_signature(f: &Function, inputs: &[(String, Ty)], output: &Type) 
             shape == ["handle", "text", "output"] && *output == Some(Ty::U32)
         }
         "plenty_library_close_v1" => shape == ["handle"] && output.is_none(),
+        "plenty_library_contract_v1" => {
+            shape == ["handle", "text", "text"] && *output == Some(Ty::U32)
+        }
         _ => unreachable!(),
     };
     if !valid {
