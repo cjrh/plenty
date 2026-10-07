@@ -324,7 +324,8 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                 Expression::Member(a, _)
                 | Expression::Group(a)
                 | Expression::Unary(_, a)
-                | Expression::Try(a) => self.expr(a, initialized)?,
+                | Expression::Try(a)
+                | Expression::FallibleCollection(a) => self.expr(a, initialized)?,
                 Expression::Method(a, _, args) => {
                     self.expr(a, initialized)?;
                     for arg in args {

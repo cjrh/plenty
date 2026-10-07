@@ -512,6 +512,7 @@ struct Expr {
 }
 enum Expression {
     Try(Box<Expr>),
+    FallibleCollection(Box<Expr>),
     ClassNew(Rc<crate::record::ClassType>, bool),
     ClassReady(Rc<crate::record::ClassType>, Box<Expr>),
     Type(TypeRef),
@@ -905,6 +906,17 @@ impl Parser {
             Kind::Text(s) => Expression::Text(s.clone()),
             Kind::Word(s) if s == "True" || s == "False" => Expression::Bool(s == "True"),
             Kind::Word(s) if s == "not" => Expression::Unary(s.clone(), Box::new(self.expr(3)?)),
+            Kind::Word(s) if s == "try" => {
+                let open = self.take();
+                let Kind::Symbol(symbol) = &open.kind else {
+                    return Err(open.error("try requires a list, dictionary, or set display"));
+                };
+                if !matches!(symbol.as_str(), "[" | "{") {
+                    return Err(open.error("try requires a list, dictionary, or set display"));
+                }
+                let kind = self.collection_display(symbol)?;
+                Expression::FallibleCollection(Box::new(Expr { at: open, kind }))
+            }
             Kind::Symbol(s) if s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
                 Expression::Unary(op.into(), Box::new(self.expr(7)?))
@@ -1106,6 +1118,7 @@ fn reserved(name: &str) -> bool {
     matches!(
         name,
         "def"
+            | "try"
             | "with"
             | "type"
             | "return"
@@ -1339,6 +1352,7 @@ impl Lower<'_> {
                 }
             }
             Expression::Collection { .. } => Some(self.collection(e, None, ops)?),
+            Expression::FallibleCollection(inner) => Some(self.fallible_display(inner, None, ops)?),
             Expression::Index(base, index) => Some(self.index(base, index, ops)?),
             Expression::Method(base, name, args) => self.method(base, name, args, ops)?,
             Expression::Constructor(ty, args) => {

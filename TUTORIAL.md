@@ -3103,6 +3103,29 @@ report close errors; call `file.close()?` explicitly when those matter.
 
 ## Recoverable construction
 
+### Collection literals
+
+Prefix a collection literal with `try` to handle its allocation failures:
+
+```plenty
+def build() -> Result[list[list[i64]], AllocError]:
+    try [(try [1, 2])?, (try [3])?]
+
+def main() -> ():
+    print(try {"answer": 42})
+    print(build())
+```
+```output
+Result[dict[str, i64], AllocError].Ok({"answer": 42})
+Result[list[list[i64]], AllocError].Ok([[1, 2], [3]])
+```
+
+Construction stops at its first allocation failure, drops the partial collection,
+and skips later entries. Nested expressions keep their own allocation behavior;
+the nested `try` displays above make both inner lists recoverable too. Each `?`
+propagates to the enclosing function. Empty displays need a Result annotation,
+such as `values: Result[list[i64], AllocError] = try []`.
+
 ### Collecting iterators
 
 Collect an owned iterator with recoverable list growth:

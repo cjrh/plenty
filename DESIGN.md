@@ -373,6 +373,16 @@ calls so observable cleanup happens after the callee returns.
 
 ### Collections and iteration
 
+`try [elements]`, `try {elements}`, and `try {key: value}` construct a collection
+with recoverable output allocation, returning `Result[collection, AllocError]`.
+An expected Result type supplies empty-display element types. The owner is
+allocated first, then entries evaluate left to right; the first failed insertion
+stops construction and releases the initialized prefix. Unevaluated entries have
+no effects. Nested ordinary expressions retain their own allocation contracts;
+use nested `try` displays and explicit `?` for their failures. `?` still propagates
+from the enclosing function, not into a surrounding display's Result. This is
+an explicit construction expression, not exception handling.
+
 `list[T].try_from(source)` and `set[T].try_from(source)` consume an owned
 collection, range, or generator and return `Result[list[T], AllocError]` or
 `Result[set[T], AllocError]`. Output construction and growth are fallible.

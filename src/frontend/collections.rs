@@ -126,6 +126,9 @@ impl Lower<'_> {
                 self.prelude_constructor(name, None, expected, &e.at, ops)
             }
             Expression::Collection { .. } => self.collection(e, expected, ops).map(Some),
+            Expression::FallibleCollection(inner) => {
+                self.fallible_display(inner, expected, ops).map(Some)
+            }
             Expression::Call(name, args)
                 if matches!(name.as_str(), "list" | "dict" | "set")
                     && args.is_empty()
@@ -170,7 +173,7 @@ impl Lower<'_> {
         let mut ty = expected;
         let mut body = Vec::new();
         let saved = self.names.clone();
-        self.comprehension(clauses, entries, kind, result, &mut ty, &mut body)?;
+        self.comprehension(clauses, entries, kind, result, &mut ty, None, &mut body)?;
         self.names = saved;
         let ty = ty.ok_or_else(|| {
             e.at.error("empty collection needs a type annotation or typed constructor")
@@ -184,6 +187,114 @@ impl Lower<'_> {
         Ok(ty)
     }
 
+    pub(super) fn fallible_display(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        use crate::sum::EnumOp;
+        let Expression::Collection {
+            kind,
+            entries,
+            clauses,
+        } = &e.kind
+        else {
+            unreachable!()
+        };
+        // The initial milestone supports literals; comprehensions use this same
+        // builder once their failure-driven iteration contract is enabled.
+        if !clauses.is_empty() {
+            return Err(e
+                .at
+                .error("fallible comprehensions are not implemented yet"));
+        }
+        let expected = match expected {
+            Some(Ty::Enum(t))
+                if t.propagatable()
+                    && !t.is_option()
+                    && t.variants[1].fields == vec![crate::sum::alloc_error()] =>
+            {
+                Some(t.variants[0].fields[0].clone())
+            }
+            None => None,
+            _ => {
+                return Err(e
+                    .at
+                    .error("try display requires a Result[collection, AllocError] context"))
+            }
+        };
+        if expected.as_ref().is_some_and(|ty| !kind_matches(kind, ty)) {
+            return Err(e.at.error("collection type does not match its annotation"));
+        }
+        let start = self.locals.len();
+        let owner = self.slot(Ty::I64, &e.at)?;
+        let pending = self.slot(crate::sum::allocation_result(), &e.at)?;
+        let mut ty = expected;
+        let mut body = Vec::new();
+        let saved = self.names.clone();
+        self.comprehension(
+            clauses,
+            entries,
+            kind,
+            owner,
+            &mut ty,
+            Some(pending),
+            &mut body,
+        )?;
+        self.names = saved;
+        let ty = ty.ok_or_else(|| {
+            e.at.error("empty collection needs a Result type annotation")
+        })?;
+        if ty.layout_depth() >= 64 {
+            return Err(e
+                .at
+                .error("type nesting exceeds the implementation limit of 64"));
+        }
+        self.locals[owner as usize - self.parameters] = ty.clone();
+        let output = crate::sum::result(ty.clone(), crate::sum::alloc_error());
+        let Ty::Enum(result_type) = &output else {
+            unreachable!()
+        };
+        let Ty::Enum(mutation) = crate::sum::allocation_result() else {
+            unreachable!()
+        };
+        let result = self.slot(output.clone(), &e.at)?;
+        ops.extend([
+            Op::PushInt(Value::I64(0)),
+            Op::Collection(CollectionOp::TryNew(ty)),
+            Op::StoreLocal(result),
+            Op::LoadLocal(result),
+            Op::Enum(EnumOp::Tag(result_type.clone())),
+            Op::PushInt(Value::I64(0)),
+            Op::Eq,
+        ]);
+        let mut success = vec![
+            Op::LoadLocal(result),
+            Op::Enum(EnumOp::Field(result_type.clone(), 0, 0)),
+            Op::StoreLocal(owner),
+            Op::PushUnit,
+            Op::Enum(EnumOp::New(mutation.clone(), 0)),
+            Op::StoreLocal(pending),
+        ];
+        success.extend(body);
+        success.extend(allocation_succeeded(pending));
+        success.push(branch(
+            vec![],
+            vec![
+                Op::MoveLocal(pending, "display allocation failure".into()),
+                Op::Enum(EnumOp::Take(mutation, 1, 0)),
+                Op::Enum(EnumOp::New(result_type.clone(), 1)),
+                Op::StoreLocal(result),
+            ],
+        ));
+        ops.push(branch(success, vec![]));
+        ops.push(Op::LoadLocal(result));
+        self.cleanup(start, ops);
+        Ok(output)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn comprehension(
         &mut self,
         clauses: &[Clause],
@@ -191,6 +302,7 @@ impl Lower<'_> {
         kind: &str,
         result: u8,
         ty: &mut Type,
+        pending: Option<u8>,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         match clauses.split_first() {
@@ -204,7 +316,7 @@ impl Lower<'_> {
                     ..
                 } = self.iteration(name, iterable, ops)?;
                 let temporary_start = self.expression_temps.len();
-                self.comprehension(rest, entries, kind, result, ty, &mut body)?;
+                self.comprehension(rest, entries, kind, result, ty, pending, &mut body)?;
                 self.finish_temporaries(temporary_start, &mut body);
                 body.extend(step);
                 ops.push(Op::Loop {
@@ -220,11 +332,12 @@ impl Lower<'_> {
                 self.same(cond, Some(Ty::Bool), &condition.at)?;
                 self.finish_temporaries(temporary_start, ops);
                 let mut body = Vec::new();
-                self.comprehension(rest, entries, kind, result, ty, &mut body)?;
+                self.comprehension(rest, entries, kind, result, ty, pending, &mut body)?;
                 ops.push(branch(body, Vec::new()));
             }
             None => {
                 for (key, value) in entries {
+                    let entry_start = ops.len();
                     ops.push(Op::LoadLocal(result));
                     let element = ty.as_ref().and_then(Ty::element);
                     let k = self
@@ -263,8 +376,16 @@ impl Lower<'_> {
                         return Err(key.at.error("generators cannot be stored in collections"));
                     }
                     *ty = Some(inferred.clone());
-                    ops.push(Op::Collection(CollectionOp::Insert(inferred)));
-                    ops.push(Op::StoreLocal(result));
+                    if let Some(pending) = pending {
+                        ops.push(Op::Collection(CollectionOp::TryInsert(inferred)));
+                        ops.push(Op::StoreLocal(pending));
+                        let entry = ops.split_off(entry_start);
+                        ops.extend(allocation_succeeded(pending));
+                        ops.push(branch(entry, vec![]));
+                    } else {
+                        ops.push(Op::Collection(CollectionOp::Insert(inferred)));
+                        ops.push(Op::StoreLocal(result));
+                    }
                 }
             }
         }
@@ -1431,6 +1552,18 @@ fn kind_matches(name: &str, ty: &Ty) -> bool {
         (name, ty),
         ("list", Ty::List(_)) | ("set", Ty::Set(_)) | ("dict", Ty::Dict(_, _))
     )
+}
+
+fn allocation_succeeded(slot: u8) -> Vec<Op> {
+    let Ty::Enum(ty) = crate::sum::allocation_result() else {
+        unreachable!()
+    };
+    vec![
+        Op::LoadLocal(slot),
+        Op::Enum(crate::sum::EnumOp::Tag(ty)),
+        Op::PushInt(Value::I64(0)),
+        Op::Eq,
+    ]
 }
 
 fn increment(index: u8, ops: &mut Vec<Op>) {

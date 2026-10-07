@@ -1,56 +1,60 @@
 # Proposed next work queue
 
-Status: proposed priorities after commit `4f63036`; these are not implemented
-features or a promise that each item fits one implementation cycle.
+Status: proposed priorities after commit `47888d0`. Each item may take several
+implementation/test/commit cycles; this is not a promise of ten commits.
 
-Update after the next ten-cycle batch: the allocation audit, fallible class/enum
-and generator construction, partial initializer cleanup, and fallible list/set
-collection are implemented. Ordinary literals/comprehensions, remaining implicit
-allocation paths, and allocator provenance are still the next priorities. The
-numbered list below records the original queue rather than current status; see
-`DESIGN.md` for implemented contracts.
+Completed in the last batch: the allocation audit, fallible class/enum/generator
+constructors, partial initializer cleanup, generators inside Option/Result,
+shared generator resume code, and fallible list/set collection from iterators.
+See `DESIGN.md` for the implemented contracts.
 
 The next priority is to finish the recoverable-allocation foundation, then expand
 borrowing and generic programming. Text file I/O now has a useful baseline;
 buffering and additional stream conveniences can wait.
 
-1. **Audit the remaining allocation paths.** Inventory literals, comprehensions,
-   classes, user enums, generators, formatting, and runtime bookkeeping. Identify
-   which failures still abort, and specify how each operation exposes failure.
-   Decide the source syntax before changing existing construction behavior.
-2. **Make class and user-enum construction recoverable.** Reclaim already
-   initialized fields on failure, preserve ownership correctly, and ensure that
-   reporting an allocation error does not itself need an allocation.
-3. **Make generator creation recoverable.** Cover frame allocation and captured
-   owners, including failures before iteration starts and early abandonment.
-4. **Close the literal, comprehension, and remaining runtime allocation gaps.**
-   Provide a consistent propagation story, including cleanup after partial
-   construction. Failure-injection tests should establish the precise guarantee;
-   having fallible methods alone does not make an entire program OOM-recoverable.
-5. **Introduce allocator provenance.** Design how storage remembers its allocator
+1. **Fallible collection literals.** Choose a concise, explicit construction
+   syntax for lists, dictionaries, and sets. Today, passing a literal to
+   `list[T].try_from(...)` still builds that literal using ordinary allocation
+   first. Cover evaluation order, failure propagation, and partial cleanup.
+2. **Fallible comprehensions.** Build on the literal and iterator machinery so
+   output allocation failures can be handled without rewriting comprehensions as
+   manual loops. Specify separately how failures inside element expressions,
+   filters, and iterator bodies propagate.
+3. **Remaining implicit allocation and formatting gaps.** Provide a recoverable
+   path for common output/aggregate formatting and finish the runtime bookkeeping
+   audit. Preserve a precise distinction between fallible APIs and convenience
+   operations that can abort. Failure injection should verify cleanup at every
+   new boundary; these APIs alone cannot guarantee recovery from all process OOM.
+4. **Introduce allocator provenance.** Design how storage remembers its allocator
    and how growth, movement, copying, and destruction preserve that association.
-   Start with a small allocator interface and one explicit construction path;
-   global selection and per-container selection must have clear lifetime rules.
-6. **Borrow collection elements.** Add shared and mutable element access, reject
+   Start with internal plumbing and an explicit construction path. Decide allocator
+   lifetimes before exposing global or per-container selection; the general
+   user-defined allocator interface may depend on protocols below.
+5. **Borrow collection elements.** Add shared and mutable element access, reject
    invalidating mutations while a reference is live, and define bounds/missing-key
    behavior. Start conservatively before supporting disjoint element loans.
-7. **Iterate over owned elements by borrowing.** Allow inspecting lists of classes
+6. **Iterate over owned elements by borrowing.** Allow inspecting lists of classes
    and other owned values without moving or copying every element. Build this on
    the element-reference rules, then improve returned-reference precision.
-8. **Add tuples, unpacking, and dictionary item iteration.** This unlocks ordinary
+7. **Add tuples, unpacking, and dictionary item iteration.** This unlocks ordinary
    Python-style key/value loops and convenient multiple return values. Define
    ownership of tuple components and distinguish borrowed items from snapshots.
-9. **Implement typed ranges and contextual numeric inference.** Support the
+8. **Implement typed ranges and contextual numeric inference.** Support the
    proposed `range[u8](8)` and annotated comprehension examples. Specify overflow,
    argument compatibility, and inference boundaries so errors remain predictable.
-10. **Implement explicit generic functions, then structural protocols.** Begin
-    with explicit type arguments and cached concrete instantiations. Add checked
-    protocol requirements without import-sensitive method activation. Numeric
-    constraints such as the proposed `IntType` should fit this design.
+   This can begin with the compiler-known range operation while reserving syntax
+   compatible with user generics.
+9. **Explicit generic functions.** Begin with explicit type arguments and cached
+   concrete instantiations. Measure compilation cost and give useful diagnostics
+   before broadening inference or adding more generic declaration forms.
+10. **Structural protocols.** Check required methods and their ownership/borrowing
+    signatures at compile time, without import-sensitive method activation or
+    implicit dynamic dispatch. Numeric constraints such as the proposed `IntType`
+    need a deliberate builtin constraint design alongside ordinary protocols.
 
-Items 2–5 and 10 may each require several focused implementation/test/commit
-cycles. The first audit may change their boundaries or reveal dependencies; this
-list is a priority order, not ten predetermined commits.
+The immediate recommendation is items 1–2. Allocator work should establish the
+necessary ownership rules without holding up all borrowing and generic-language
+work until a complete custom-allocator ecosystem exists.
 
 ## Following these foundations
 
