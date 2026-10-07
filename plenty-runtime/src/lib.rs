@@ -16,6 +16,7 @@ mod generators;
 mod io;
 mod memory;
 mod numbers;
+mod render_buffer;
 mod strings;
 #[cfg(test)]
 mod tests;

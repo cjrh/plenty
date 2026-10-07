@@ -3103,6 +3103,26 @@ report close errors; call `file.close()?` explicitly when those matter.
 
 ## Recoverable construction
 
+### Formatting and output
+
+`str.try_repr` formats a borrowed value; `try_print` writes a value and newline,
+reporting formatting allocation failures and output errors:
+
+```plenty
+def main() -> ():
+    values = [1, 2]
+    print(str.try_repr(values))
+    print(try_print(values))
+```
+```output
+Result[str, AllocError].Ok("[1, 2]")
+[1, 2]
+Result[(), IoError].Ok(())
+```
+
+Formatting failure writes nothing. An output error can leave a partial write.
+The source remains usable; neither call copies a mutable collection.
+
 ### Collection literals
 
 Prefix a collection literal with `try` to handle its allocation failures:

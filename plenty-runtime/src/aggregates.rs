@@ -808,7 +808,10 @@ unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
     }
 }
 
-unsafe fn render(value: u128, ty: &Type, out: &mut Vec<u8>) {
+unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer) {
+    if out.failed() {
+        return;
+    }
     unsafe {
         match ty.kind {
             b'B' => {
@@ -847,6 +850,9 @@ unsafe fn render(value: u128, ty: &Type, out: &mut Vec<u8>) {
                 if count > 0 || ty.kind == b'C' {
                     out.push(b'(');
                     for i in 0..count {
+                        if out.failed() {
+                            break;
+                        }
                         if i != 0 {
                             out.extend_from_slice(b", ");
                         }
@@ -875,6 +881,9 @@ unsafe fn render(value: u128, ty: &Type, out: &mut Vec<u8>) {
                 }
                 out.push(if ty.kind == b'L' { b'[' } else { b'{' });
                 for (i, entry) in c.entries.iter().enumerate() {
+                    if out.failed() {
+                        break;
+                    }
                     if i != 0 {
                         out.extend_from_slice(b", ");
                     }
@@ -934,7 +943,7 @@ pub(crate) unsafe fn collection(
                 }
             };
         }
-        if !descriptor.is_null() && (*descriptor).kind == b's' {
+        if !descriptor.is_null() && (*descriptor).kind == b's' && !matches!(op, 110 | 111) {
             let text = a as *const Text;
             return match op {
                 5 => (*text).scalar_len as u128,
@@ -946,6 +955,35 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            110 | 111 => {
+                let mut out = crate::render_buffer::Buffer::default();
+                if op == 111 && (*descriptor).kind == b's' {
+                    out.extend_from_slice(strings::bytes(a as *const Text));
+                } else {
+                    render(a, &*descriptor, &mut out);
+                }
+                if op == 111 {
+                    out.push(b'\n');
+                    let result =
+                        out.finish()
+                            .map_err(crate::text_io::Error::from)
+                            .and_then(|bytes| {
+                                std::io::stdout()
+                                    .lock()
+                                    .write_all(&bytes)
+                                    .map(|()| 0)
+                                    .map_err(crate::text_io::Error::from)
+                            });
+                    crate::text_io::result(result)
+                } else {
+                    match out.finish().and_then(|bytes| {
+                        strings::try_new(std::str::from_utf8(&bytes).expect("renderer emits UTF-8"))
+                    }) {
+                        Ok(text) => wrap(text as u128, 0),
+                        Err(error) => wrap(wrap(0, error as u64), 1),
+                    }
+                }
+            }
             89 => crate::text_io::result(crate::files::open(
                 strings::utf8(a as *const Text),
                 strings::utf8(b as *const Text),
@@ -1370,7 +1408,7 @@ pub(crate) unsafe fn collection(
                 },
             ) as u128,
             9 => {
-                let mut out = Vec::new();
+                let mut out = crate::render_buffer::Buffer::default();
                 render(
                     a,
                     if descriptor.is_null() {
@@ -1381,7 +1419,10 @@ pub(crate) unsafe fn collection(
                     &mut out,
                 );
                 out.push(b'\n');
-                crate::io::output(&out);
+                crate::io::output(
+                    &out.finish()
+                        .unwrap_or_else(|_| crate::fail("format allocation failed")),
+                );
                 0
             }
             10 => {

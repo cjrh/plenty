@@ -676,6 +676,20 @@ impl Lower<'_> {
                     ops,
                 );
             }
+            if ty == Ty::Str && name == "try_repr" {
+                if args.len() != 1 {
+                    return Err(base.at.error("str.try_repr takes one value"));
+                }
+                let (source, loans) = self.observe(&args[0], ops)?;
+                if source.restricted_storage() {
+                    return Err(base.at.error("generators cannot be formatted"));
+                }
+                let operation = CollectionOp::FormatValue(source);
+                let output = operation.signature().1;
+                ops.push(Op::Collection(operation));
+                Self::end_reads(loans, ops);
+                return Ok(Some(output));
+            }
             if ty == Ty::Str && name == "try_from" {
                 if args.len() != 1 {
                     return Err(base

@@ -1111,6 +1111,7 @@ fn builtin(name: &str) -> bool {
                 | "next"
                 | "copy"
                 | "try_copy"
+                | "try_print"
                 | "drop"
         )
 }
@@ -1550,6 +1551,20 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if name == "try_print" {
+                    if args.len() != 1 {
+                        return Err(e.at.error("try_print takes one argument"));
+                    }
+                    let (ty, loans) = self.observe(&args[0], ops)?;
+                    if ty.restricted_storage() {
+                        return Err(e.at.error("generators cannot be printed"));
+                    }
+                    let operation = CollectionOp::TryPrint(ty);
+                    let output = operation.signature().1;
+                    ops.push(Op::Collection(operation));
+                    Self::end_reads(loans, ops);
+                    return Ok(Some(output));
+                }
                 if name == "open" {
                     return self.open_file(args, &e.at, ops);
                 }

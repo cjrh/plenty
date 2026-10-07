@@ -32,6 +32,8 @@ pub enum CollectionOp {
     AppendText,
     ParseNumber(Ty),
     FormatScalar(Ty),
+    FormatValue(Ty),
+    TryPrint(Ty),
     Copy(Ty),
     TryCopy(Ty),
     Next(Ty),
@@ -206,7 +208,11 @@ impl CollectionOp {
                 vec![Ty::Str],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
-            FormatScalar(t) => (
+            TryPrint(t) => (
+                vec![t.clone()],
+                crate::sum::result(Ty::Unit, crate::sum::io_error()),
+            ),
+            FormatScalar(t) | FormatValue(t) => (
                 vec![t.clone()],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
@@ -389,6 +395,8 @@ impl CollectionOp {
             Self::FileReadLines => 105,
             Self::FileWriteLines => 106,
             Self::FormatScalar(_) => 79,
+            Self::FormatValue(_) => 110,
+            Self::TryPrint(_) => 111,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,
             Self::TryCopy(_) => 33,

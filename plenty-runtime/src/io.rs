@@ -42,10 +42,13 @@ pub(crate) fn flush() {
     let _ = std::io::stdout().lock().flush();
 }
 
-pub(crate) unsafe fn repr(text: *const Text, legacy: bool, out: &mut Vec<u8>) {
+pub(crate) unsafe fn repr(text: *const Text, legacy: bool, out: &mut crate::render_buffer::Buffer) {
     out.push(b'"');
     // SAFETY: the caller borrows a live, validated string throughout rendering.
     for &byte in unsafe { strings::bytes(text) } {
+        if out.failed() {
+            return;
+        }
         match byte {
             b'"' => out.extend_from_slice(b"\\\""),
             b'\\' => out.extend_from_slice(b"\\\\"),
@@ -63,11 +66,14 @@ pub(crate) unsafe fn repr(text: *const Text, legacy: bool, out: &mut Vec<u8>) {
 }
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_print_str(text: *const Text) {
-    let mut out = Vec::new();
+    let mut out = crate::render_buffer::Buffer::default();
     unsafe {
         repr(text, true, &mut out);
     }
-    output(&out);
+    output(
+        &out.finish()
+            .unwrap_or_else(|_| crate::fail("format allocation failed")),
+    );
 }
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_println(text: *const Text) {

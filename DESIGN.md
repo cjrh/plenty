@@ -214,6 +214,14 @@ format specifications remain deferred.
 
 ### Allocation policy
 
+`str.try_repr(value)` borrows any printable value and returns
+`Result[str, AllocError]`, including escaped strings and structural aggregates.
+`try_print(value)` borrows the value and returns `Result[(), IoError]`. It uses
+the same rendering as print (raw top-level strings), with a trailing newline.
+Both use checked temporary buffer growth. Formatting failure emits no bytes;
+an I/O error during the final write can leave partial output. Neither invokes
+user-defined formatting methods. Ordinary `print` retains terminal failures.
+
 New practical I/O APIs must return explicit errors, including allocation failure
 in their own buffers and result construction. They must not hide infallible
 `String` growth behind a fallible public signature. Input consumption and partial

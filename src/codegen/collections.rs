@@ -70,7 +70,10 @@ impl Lowerer<'_, '_> {
             CollectionOp::Args | CollectionOp::OpenFile | CollectionOp::FileReadLines => {
                 Some(&output)
             }
-            CollectionOp::ParseNumber(ty) | CollectionOp::FormatScalar(ty) => Some(ty),
+            CollectionOp::ParseNumber(ty)
+            | CollectionOp::FormatScalar(ty)
+            | CollectionOp::FormatValue(ty)
+            | CollectionOp::TryPrint(ty) => Some(ty),
             CollectionOp::Next(_) | CollectionOp::Values(_) | CollectionOp::Range => Some(&output),
             CollectionOp::Copy(ty) | CollectionOp::TryCopy(ty) => Some(ty),
             CollectionOp::New(ty) | CollectionOp::TryNew(ty) | CollectionOp::ListTrySlice(ty) => {
