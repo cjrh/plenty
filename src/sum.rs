@@ -150,6 +150,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
 #[derive(Clone, Debug, PartialEq)]
 pub enum EnumOp {
     New(Rc<EnumType>, usize),
+    TryNew(Rc<EnumType>, usize),
     Tag(Rc<EnumType>),
     Field(Rc<EnumType>, usize, usize),
     Take(Rc<EnumType>, usize, usize),
@@ -158,6 +159,10 @@ impl EnumOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
             Self::New(t, tag) => (t.variants.get(*tag)?.fields.clone(), Ty::Enum(t.clone())),
+            Self::TryNew(t, tag) => (
+                t.variants.get(*tag)?.fields.clone(),
+                result(Ty::Enum(t.clone()), alloc_error()),
+            ),
             Self::Tag(t) => (vec![Ty::Enum(t.clone())], Ty::I64),
             Self::Field(t, tag, field) | Self::Take(t, tag, field) => (
                 vec![Ty::Enum(t.clone())],

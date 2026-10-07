@@ -497,6 +497,41 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if name == "try_new" {
+            if let Expression::Member(owner, variant) = &ungroup(base).kind {
+                if let Some(Ty::Enum(t)) = self.qualified_type(owner)? {
+                    if t.depth >= 64 {
+                        return Err(base
+                            .at
+                            .error("type nesting exceeds the implementation limit of 64"));
+                    }
+                    let nullary = t
+                        .variants
+                        .iter()
+                        .find(|v| v.name == *variant)
+                        .is_some_and(|v| v.fields.is_empty());
+                    let ty = self.variant(
+                        Ty::Enum(t.clone()),
+                        variant,
+                        if nullary && args.is_empty() {
+                            None
+                        } else {
+                            Some(args)
+                        },
+                        &base.at,
+                        ops,
+                    )?;
+                    let Some(Op::Enum(crate::sum::EnumOp::New(t, tag))) = ops.pop() else {
+                        unreachable!()
+                    };
+                    ops.push(Op::Enum(crate::sum::EnumOp::TryNew(t, tag)));
+                    return Ok(Some(crate::sum::result(
+                        ty.unwrap(),
+                        crate::sum::alloc_error(),
+                    )));
+                }
+            }
+        }
         if let Some(ty) = self.qualified_type(base)? {
             if let Ty::Class(class) = &ty {
                 if name != "try_new" {

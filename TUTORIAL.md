@@ -3103,6 +3103,25 @@ report close errors; call `file.close()?` explicitly when those matter.
 
 ## Recoverable class construction
 
+Enum variants also offer explicit fallible construction:
+
+```plenty
+enum Message:
+    Empty
+    Text(str)
+
+def main() -> ():
+    print(Message.Text.try_new("hello"))
+    print(Message.Empty.try_new())
+```
+```output
+Result[Message, AllocError].Ok(Message.Text("hello"))
+Result[Message, AllocError].Ok(Message.Empty)
+```
+
+Payload arguments move into the constructor and are dropped if its allocation
+fails. Nullary variants take no arguments to `try_new`.
+
 Use `Class.try_new(...)` to handle failure to allocate instance storage. It takes
 the same arguments as the ordinary constructor and works with `?`:
 

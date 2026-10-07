@@ -1085,6 +1085,12 @@ reject embedded NUL when the external API cannot represent it.
 
 ## Concrete enums and sum types
 
+`Enum.Variant.try_new(payloads)` returns `Result[Enum, AllocError]`. Nullary
+variants use `.try_new()` with no arguments. Payloads evaluate before allocation
+and move into the call; failure drops them. Inline standard variants need no
+allocation and produce `Ok` directly. This API does not make payload expressions
+fallible automatically.
+
 ```python
 enum Reading:
     Missing

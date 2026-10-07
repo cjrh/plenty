@@ -97,13 +97,15 @@ impl Lowerer<'_, '_> {
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
         let t = match op {
-            EnumOp::New(t, _) | EnumOp::Tag(t) | EnumOp::Field(t, _, _) | EnumOp::Take(t, _, _) => {
-                t
-            }
+            EnumOp::New(t, _)
+            | EnumOp::TryNew(t, _)
+            | EnumOp::Tag(t)
+            | EnumOp::Field(t, _, _)
+            | EnumOp::Take(t, _, _) => t,
         };
         if t.inline() {
             let result = match op {
-                EnumOp::New(_, tag) => {
+                EnumOp::New(_, tag) | EnumOp::TryNew(_, tag) => {
                     let payload = if let Some(ty) = inputs.first() {
                         let (v, _) = self.pop_typed(ty.clone())?;
                         self.pack(v, ty)
@@ -111,7 +113,12 @@ impl Lowerer<'_, '_> {
                         let zero = self.bcx.ins().iconst(types::I64, 0);
                         self.bcx.ins().uextend(types::I128, zero)
                     };
-                    self.wrap_sum(payload, *tag)
+                    let value = self.wrap_sum(payload, *tag);
+                    if matches!(op, EnumOp::TryNew(..)) {
+                        self.wrap_sum(value, 0)
+                    } else {
+                        value
+                    }
                 }
                 EnumOp::Tag(_) => {
                     let (value, _) = self.pop_typed(inputs[0].clone())?;
@@ -137,6 +144,28 @@ impl Lowerer<'_, '_> {
         }
         values.reverse();
         let result = match op {
+            EnumOp::TryNew(t, tag) => {
+                let tag = self.bcx.ins().iconst(types::I64, *tag as i64);
+                let result = self.collection_call(108, &[tag], Some(&Ty::Enum(t.clone())))?;
+                let success = self.bcx.create_block();
+                let done = self.bcx.create_block();
+                self.bcx.append_block_param(done, types::I128);
+                let failed = self.sum_tag(result);
+                self.bcx
+                    .ins()
+                    .brif(failed, done, &[result.into()], success, &[]);
+                self.bcx.switch_to_block(success);
+                self.bcx.seal_block(success);
+                let record = self.sum_payload(result);
+                for (i, value) in values.iter().enumerate() {
+                    let field = self.bcx.ins().iconst(types::I64, i as i64);
+                    self.collection_call(21, &[record, field, *value], None)?;
+                }
+                self.bcx.ins().jump(done, &[result.into()]);
+                self.bcx.switch_to_block(done);
+                self.bcx.seal_block(done);
+                self.bcx.block_params(done)[0]
+            }
             EnumOp::New(t, tag) => {
                 let tag = self.bcx.ins().iconst(types::I64, *tag as i64);
                 let result = self.collection_call(20, &[tag], Some(&Ty::Enum(t.clone())))?;
