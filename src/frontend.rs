@@ -587,6 +587,7 @@ struct Expr {
 }
 #[derive(Clone)]
 enum Expression {
+    GenericValue(String, Vec<TypeRef>),
     GenericCall(String, Vec<TypeRef>, Vec<Expr>),
     Tuple(Vec<Expr>, bool),
     Try(Box<Expr>),
@@ -1236,6 +1237,8 @@ impl Parser {
                             left.kind = Expression::GenericCall(name, types, args);
                             continue;
                         }
+                        left.kind = Expression::GenericValue(name, types);
+                        continue;
                     }
                     self.pos = saved;
                 }
@@ -1705,6 +1708,17 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
+            Expression::GenericValue(name, types) => {
+                let actual = types
+                    .iter()
+                    .map(|t| {
+                        t.resolve(self.aliases)?
+                            .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))
+                    })
+                    .collect::<Result<_>>()?;
+                let symbol = self.specialize(name, actual, &e.at)?;
+                Some(self.function_value(&symbol, &e.at, ops)?)
+            }
             Expression::GenericCall(name, types, args) => {
                 self.generic_call(name, Some(types), args, &e.at, ops)?
             }
@@ -1771,6 +1785,9 @@ impl Lower<'_> {
                 }
                 if !self.names.contains_key(name) && self.sigs.contains_key(name) {
                     return self.function_value(name, &e.at, ops).map(Some);
+                }
+                if !self.names.contains_key(name) && self.generics.templates.contains_key(name) {
+                    return Err(e.at.error("generic function values require explicit type arguments, such as function[u8]"));
                 }
                 let local = self
                     .names

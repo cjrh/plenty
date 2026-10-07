@@ -201,7 +201,7 @@ fn infer(
 }
 
 impl Lower<'_> {
-    fn specialize(&mut self, name: &str, actual: Vec<Ty>, at: &Token) -> Result<String> {
+    pub(super) fn specialize(&mut self, name: &str, actual: Vec<Ty>, at: &Token) -> Result<String> {
         let (symbol, function) =
             self.generics
                 .instantiate(name, actual, at, self.aliases, self.access)?;
@@ -468,6 +468,11 @@ fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) -> Result<(
 }
 fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
+        Expression::GenericValue(_, types) => {
+            for ty in types {
+                substitute(ty, substitutions)?;
+            }
+        }
         Expression::GenericCall(_, types, args) => {
             for t in types.iter_mut() {
                 substitute(t, substitutions)?;

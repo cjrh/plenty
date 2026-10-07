@@ -202,3 +202,44 @@ def main() -> Result[(), Failure]:
     let error = check_source("def small(value: u8) -> u8:\n    value\ndef apply[T](op: Callable[[T], T], x: T) -> T:\n    op(x)\napply(small, 1i64)").unwrap_err().to_string();
     assert!(error.contains("conflicting types for `T`"), "{error}");
 }
+
+#[test]
+fn specialized_generic_functions_are_values() {
+    let output = run(r#"
+def identity[T](value: T) -> T:
+    value
+def first[A, B](value: A, ignored: B) -> A:
+    value
+def make[T]() -> Callable[[T], T]:
+    identity[T]
+def main() -> Result[(), Failure]:
+    saved = identity[u8]
+    print(saved(42))?
+    print((first[i32, bool])(7, True))?
+    print(make[str]()("hello"))?
+    handlers = [saved]?
+    index = 0
+    selected = handlers[index]
+    print(selected(9))?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n7\nhello\n9\n");
+    for (source, diagnostic) in [
+        (
+            "def identity[T](x: T) -> T:\n    x\nsaved = identity",
+            "explicit type arguments",
+        ),
+        (
+            "def identity[T: IntType](x: T) -> T:\n    x\nsaved = identity[str]",
+            "does not satisfy IntType",
+        ),
+    ] {
+        let error = check_source(source).unwrap_err().to_string();
+        assert!(error.contains(diagnostic), "{error}");
+    }
+}

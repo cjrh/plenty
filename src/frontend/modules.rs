@@ -542,10 +542,14 @@ impl Scope {
                     .error("a type parameter name cannot also name a value binding"));
             }
         }
-        if let Expression::GenericCall(name, _, _) = &e.kind {
+        if let Expression::GenericCall(name, _, _) | Expression::GenericValue(name, _) = &e.kind {
             if locals.contains(name.split('.').next().unwrap()) {
-                let Expression::GenericCall(name, types, args) = &mut e.kind else {
-                    unreachable!()
+                let (name, types, args) = match &mut e.kind {
+                    Expression::GenericCall(name, types, args) => {
+                        (name, types, Some(std::mem::take(args)))
+                    }
+                    Expression::GenericValue(name, types) => (name, types, None),
+                    _ => unreachable!(),
                 };
                 let [index] = types.as_slice() else {
                     return Err(e.at.error("indexing takes one expression"));
@@ -574,7 +578,11 @@ impl Scope {
                         Box::new(name_path(index_name, &index.at)),
                     ),
                 };
-                e.kind = Expression::Invoke(Box::new(callee), std::mem::take(args));
+                e.kind = if let Some(args) = args {
+                    Expression::Invoke(Box::new(callee), args)
+                } else {
+                    callee.kind
+                };
             }
         }
         fn path(e: &Expr) -> Option<String> {
@@ -608,7 +616,10 @@ impl Scope {
             }
         }
         match &mut e.kind {
-            Expression::Name(n) | Expression::Call(n, _) | Expression::GenericCall(n, _, _)
+            Expression::Name(n)
+            | Expression::Call(n, _)
+            | Expression::GenericCall(n, _, _)
+            | Expression::GenericValue(n, _)
                 if !locals.contains(n) && !self.type_params.contains(n) =>
             {
                 if let Some(symbol) = self.symbol(n, &e.at)? {
@@ -620,6 +631,11 @@ impl Scope {
             _ => {}
         }
         match &mut e.kind {
+            Expression::GenericValue(_, types) => {
+                for ty in types {
+                    self.ty(ty)?;
+                }
+            }
             Expression::GenericCall(_, types, args) => {
                 for ty in types {
                     self.ty(ty)?;

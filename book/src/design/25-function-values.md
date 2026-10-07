@@ -9,6 +9,9 @@ Generic calls infer parameters inside callable inputs and results, for example
 `def apply[T](f: Callable[[T], T], x: T) -> T`. All argument evidence must agree;
 the compiler does not convert a concrete callable to a different signature.
 Callable values can themselves be concrete generic arguments.
+To take a generic function as a value, supply its type arguments without a call,
+such as `identity[u8]`. This uses the same specialization cache and bound checks
+as direct generic calls. Bare generic function names require explicit arguments.
 
 Function values are copyable code addresses. Creating, passing, returning, and
 calling them needs no heap allocation. Calls use Plenty's internal ABI, including
