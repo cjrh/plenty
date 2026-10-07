@@ -27,16 +27,16 @@ const MANAGER: &str = r#"
 class Resource:
     name: str
     def __del__(self) -> ():
-        print(self.name)
+        print(self.name).unwrap()
 class Manager:
     name: str
     def __enter__(self: &mut Manager) -> Resource:
-        print(self.name)
-        Resource("entry dropped")
+        print(self.name).unwrap()
+        Resource("entry dropped").unwrap()
     def __exit__(self: &mut Manager) -> ():
-        print("exit")
+        print("exit").unwrap()
     def __del__(self) -> ():
-        print("manager dropped")
+        print("manager dropped").unwrap()
 "#;
 
 const BORROWING_MANAGER: &str = r#"
@@ -45,9 +45,9 @@ class Counter:
     def __enter__(self: &mut Counter) -> &mut Counter:
         &mut self
     def __exit__(self: &mut Counter) -> ():
-        print(self.count)
+        print(self.count).unwrap()
     def __del__(self) -> ():
-        print("drop")
+        print("drop").unwrap()
 "#;
 
 #[test]
@@ -55,12 +55,12 @@ fn entry_can_return_manager_borrow_for_owned_and_borrowed_contexts() {
     run(
         &format!(
             r#"{BORROWING_MANAGER}
-with Counter(1) as counter:
+with Counter(1).unwrap() as counter:
     counter.count = 2
-mut original = Counter(3)
+mut original = Counter(3).unwrap()
 with &mut original as counter:
     counter.count = 4
-print(original.count)
+print(original.count).unwrap()
 "#
         ),
         "2\ndrop\n4\n4\ndrop\n",
@@ -73,13 +73,13 @@ fn entry_borrow_ends_before_exit_on_propagation_and_loop_exits() {
         &format!(
             r#"{BORROWING_MANAGER}
 def work() -> Option[i64]:
-    with Counter(1) as counter:
+    with Counter(1).unwrap() as counter:
         counter.count = 8
         n: Option[i64] = Nothing
         return Some(n?)
-print(work())
-for n in range(2):
-    with Counter(n) as counter:
+print(work()).unwrap()
+for n in range(2).unwrap():
+    with Counter(n).unwrap() as counter:
         counter.count = counter.count + 10
         if n == 0:
             continue
@@ -96,7 +96,7 @@ fn manager_reference_cannot_escape_or_overlap_exit() {
         &format!(
             r#"{BORROWING_MANAGER}
 def bad(unrelated: &mut Counter) -> &mut Counter:
-    with Counter(1) as counter:
+    with Counter(1).unwrap() as counter:
         return counter
 "#
         ),
@@ -115,10 +115,10 @@ def bad(original: &mut Counter) -> &mut Counter:
     reject(
         &format!(
             r#"{BORROWING_MANAGER}
-mut original = Counter(1)
+mut original = Counter(1).unwrap()
 with &mut original as counter:
     original.count = 7
-    print(counter.count)
+    print(counter.count).unwrap()
 "#
         ),
         "conflicting borrow",
@@ -128,8 +128,8 @@ with &mut original as counter:
 #[test]
 fn multiple_managers_enter_left_to_right_and_share_prior_bindings() {
     run(&format!(r#"{MANAGER}
-with Manager("first") as first, Manager(first.name) as second:
-    print("body")
+with Manager("first").unwrap() as first, Manager(first.name).unwrap() as second:
+    print("body").unwrap()
 "#), "first\nentry dropped\nbody\nentry dropped\nexit\nmanager dropped\nentry dropped\nexit\nmanager dropped\n");
 }
 
@@ -141,10 +141,10 @@ fn later_acquisition_failure_exits_only_entered_managers() {
 def acquire() -> Option[Manager]:
     Nothing
 def work() -> Option[i64]:
-    with Manager("first") as first, acquire()? as second:
-        print("unreachable")
+    with Manager("first").unwrap() as first, acquire()? as second:
+        print("unreachable").unwrap()
     Some(1)
-print(work())
+print(work()).unwrap()
 "#
         ),
         "first\nentry dropped\nexit\nmanager dropped\nOption[i64].Nothing\n",
@@ -156,10 +156,10 @@ fn scope_cleanup_and_owned_entry() {
     run(
         &format!(
             r#"{MANAGER}
-with Manager("enter") as resource:
-    local = Resource("body dropped")
-    print(resource.name)
-print("after")
+with Manager("enter").unwrap() as resource:
+    local = Resource("body dropped").unwrap()
+    print(resource.name).unwrap()
+print("after").unwrap()
 "#
         ),
         "enter\nentry dropped\nbody dropped\nentry dropped\nexit\nmanager dropped\nafter\n",
@@ -178,15 +178,15 @@ class Counter:
     def __exit__(self: &mut Counter) -> ():
         self.count = self.count + 10
     def __del__(self) -> ():
-        print(self.count)
+        print(self.count).unwrap()
 def use(counter: &mut Counter) -> ():
     with &mut counter as n:
-        print(n)
-mut counter = Counter(0)
+        print(n).unwrap()
+mut counter = Counter(0).unwrap()
 use(&mut counter)
 with &mut counter as n:
-    print(n)
-print(counter.count)
+    print(n).unwrap()
+print(counter.count).unwrap()
 "#,
         "1\n12\n22\n22\n",
     );
@@ -195,15 +195,15 @@ print(counter.count)
 #[test]
 fn borrowed_manager_is_exclusive_until_exit_on_every_path() {
     reject(
-        &format!("{MANAGER}\nmut m = Manager(\"x\")\nwith &mut m as r:\n    print(m.name)\n"),
+        &format!("{MANAGER}\nmut m = Manager(\"x\").unwrap()\nwith &mut m as r:\n    print(m.name).unwrap()\n"),
         "conflicting borrow",
     );
     reject(
-        &format!("{MANAGER}\nmut m = Manager(\"x\")\nwith &mut m as r:\n    drop(m)\n"),
+        &format!("{MANAGER}\nmut m = Manager(\"x\").unwrap()\nwith &mut m as r:\n    drop(m)\n"),
         "moved binding",
     );
     reject(
-        &format!("{MANAGER}\nmut m = Manager(\"x\")\nwith &m as r:\n    pass\n"),
+        &format!("{MANAGER}\nmut m = Manager(\"x\").unwrap()\nwith &m as r:\n    pass\n"),
         "explicit &mut",
     );
     run(
@@ -213,9 +213,9 @@ def use(m: &mut Manager) -> Option[i64]:
     with &mut m as r:
         n: Option[i64] = Nothing
         return Some(n?)
-mut m = Manager("enter")
-print(use(&mut m))
-print(m.name)
+mut m = Manager("enter").unwrap()
+print(use(&mut m)).unwrap()
+print(m.name).unwrap()
 "#
         ),
         "enter\nentry dropped\nexit\nOption[i64].Nothing\nenter\nmanager dropped\n",
@@ -228,10 +228,10 @@ fn early_return_preserves_value_and_cleanup_order() {
         &format!(
             r#"{MANAGER}
 def obtain() -> Resource:
-    with Manager("enter") as resource:
+    with Manager("enter").unwrap() as resource:
         return resource
 r = obtain()
-print("returned")
+print("returned").unwrap()
 "#
         ),
         "enter\nexit\nmanager dropped\nreturned\nentry dropped\n",
@@ -244,19 +244,19 @@ fn propagation_cleans_nested_contexts_and_pending_operands() {
 def fail() -> Result[i64, i64]:
     Err(9)
 def work() -> Result[i64, i64]:
-    with Manager("outer") as a:
-        with Manager("inner") as b:
+    with Manager("outer").unwrap() as a:
+        with Manager("inner").unwrap() as b:
             value = fail()?
     Ok(1)
-print(work())
+print(work()).unwrap()
 "#), "outer\ninner\nentry dropped\nexit\nmanager dropped\nentry dropped\nexit\nmanager dropped\nResult[i64, i64].Err(9)\n");
 }
 
 #[test]
 fn loop_exits_cleanup_once_and_inner_loop_keeps_manager() {
     run(&format!(r#"{MANAGER}
-for n in range(2):
-    with Manager("enter") as r:
+for n in range(2).unwrap():
+    with Manager("enter").unwrap() as r:
         if n == 0:
             continue
         while True:
@@ -271,16 +271,16 @@ fn unit_entry_and_missing_as() {
         r#"
 class Manager:
     def __enter__(self: &mut Manager) -> ():
-        print("enter")
+        print("enter").unwrap()
     def __exit__(self: &mut Manager) -> ():
-        print("exit")
-with Manager():
-    print("body")
+        print("exit").unwrap()
+with Manager().unwrap():
+    print("body").unwrap()
 "#,
         "enter\nbody\nexit\n",
     );
     run(
-        &format!("{MANAGER}\nwith Manager(\"enter\"):\n    print(\"body\")\n"),
+        &format!("{MANAGER}\nwith Manager(\"enter\").unwrap():\n    print(\"body\").unwrap()\n"),
         "enter\nentry dropped\nbody\nexit\nmanager dropped\n",
     );
 }
@@ -289,20 +289,20 @@ with Manager():
 fn invalid_contexts_are_rejected() {
     reject("with 1:\n    pass\n", "with requires an owned class");
     reject(
-        "class Empty:\n    value: i64\nwith Empty(1):\n    pass\n",
+        "class Empty:\n    value: i64\nwith Empty(1).unwrap():\n    pass\n",
         "requires __enter__",
     );
     reject(
-        &format!("{MANAGER}\nwith Manager(\"x\") as r:\n    pass\nprint(r)\n"),
+        &format!("{MANAGER}\nwith Manager(\"x\").unwrap() as r:\n    pass\nprint(r).unwrap()\n"),
         "unknown binding",
     );
     reject(
         &format!(
-            "{MANAGER}\ndef gen() -> Generator[i64]:\n    with Manager(\"x\"):\n        yield 1\n"
+            "{MANAGER}\ndef gen() -> Generator[i64]:\n    with Manager(\"x\").unwrap():\n        yield 1\n"
         ),
         "yield inside with",
     );
-    reject("class Bad:\n    def __enter__(self) -> ():\n        pass\n    def __exit__(self: &mut Bad) -> ():\n        pass\nwith Bad():\n    pass\n", "__enter__ requires only self: &mut");
+    reject("class Bad:\n    def __enter__(self) -> ():\n        pass\n    def __exit__(self: &mut Bad) -> ():\n        pass\nwith Bad().unwrap():\n    pass\n", "__enter__ requires only self: &mut");
 }
 
 #[test]
@@ -313,11 +313,11 @@ fn borrowed_field_context_permits_sibling_access() {
 class Pair:
     left: Manager
     right: i64
-mut pair = Pair(Manager("enter"), 1)
+mut pair = Pair(Manager("enter").unwrap(), 1).unwrap()
 with &mut pair.left as value:
     pair.right = 2
-    print(pair.right)
-print(pair.right)
+    print(pair.right).unwrap()
+print(pair.right).unwrap()
 "#
         ),
         "enter\n2\nentry dropped\nexit\n2\nmanager dropped\n",

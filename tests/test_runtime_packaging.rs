@@ -59,13 +59,13 @@ exec {} "$@"
 class Resource:
     name: str
     def __del__(self) -> ():
-        print(self.name)
+        print(self.name).unwrap()
 def values() -> Generator[str]:
     yield "é\0🦀"
 
 def main() -> ():
-    print(list(values()))
-    drop(Resource("done"))
+    print(list(values().unwrap()).unwrap()).unwrap()
+    drop(Resource("done").unwrap())
 "#,
     )
     .unwrap();

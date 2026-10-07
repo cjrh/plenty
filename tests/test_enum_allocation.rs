@@ -25,10 +25,10 @@ enum Message:
     Empty
     Data(str, list[i64])
 def data() -> Result[Message, AllocError]:
-    Ok(Message.Data.try_new("hello", [1, 2])?)
-print(data())
-print(Message.Empty.try_new())
-print(Option[i64].Some.try_new(4))
+    Ok(Message.Data.new("hello", [1, 2].unwrap())?)
+print(data()).unwrap()
+print(Message.Empty.new()).unwrap()
+print(Option[i64].Some.new(4)).unwrap()
 "#, "Result[Message, AllocError].Ok(Message.Data(\"hello\", [1, 2]))\nResult[Message, AllocError].Ok(Message.Empty)\nResult[Option[i64], AllocError].Ok(Option[i64].Some(4))");
 }
 
@@ -41,12 +41,12 @@ fn allocation_failure_releases_owned_payloads() {
                 r#"
 enum Message:
     Data(list[i64], list[str])
-a = [1, 2]
-b = ["hello"]
-print("__test_fail_allocations_after_{budget}__")
-result = Message.Data.try_new(a, b)
-print("__test_restore_allocations__")
-print(result)
+a = [1, 2].unwrap()
+b = ["hello"].unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = Message.Data.new(a, b)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
 "#
             ),
             if budget == 0 {

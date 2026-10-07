@@ -29,9 +29,9 @@ class Number:
         self.value = n * 2
 type Alias = Point
 def build() -> Result[Point, AllocError]:
-    Ok(Alias.try_new(7)?)
-print(build())
-print(Number.try_new(4))
+    Ok(Alias.new(7)?)
+print(build()).unwrap()
+print(Number.new(4)).unwrap()
 "#,
         "Result[Point, AllocError].Ok(Point(x=7))\nResult[Number, AllocError].Ok(Number(value=8))",
     );
@@ -48,20 +48,20 @@ class Buffer:
     first: list[i64]
     second: list[i64]
     def __init__(self: &mut Buffer) -> Result[(), AllocError]:
-        self.first = list[i64].try_new()?
-        self.second = list[i64].try_new()?
+        self.first = list[i64].new()?
+        self.second = list[i64].new()?
         Ok(())
     def __del__(self: &mut Buffer) -> ():
-        print("complete drop")
-print("__test_fail_allocations_after_{budget}__")
-result = Buffer.try_new()
-print("__test_restore_allocations__")
+        print("complete drop").unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = Buffer.new()
+print("__test_restore_allocations__").unwrap()
 match result:
     case Ok(value):
-        print("ready")
+        print("ready").unwrap()
     case Err(error):
-        print(error)
-drop(Buffer.try_new())
+        print(error).unwrap()
+drop(Buffer.new())
 "#
             ),
             if budget == 3 {
@@ -83,27 +83,18 @@ class Number:
             return Err(AllocError.CapacityOverflow)
         self.value = n
         Ok(())
-print(Number.try_new(-1))
-print(Number.try_new(4))
+print(Number.new(-1)).unwrap()
+print(Number.new(4)).unwrap()
 "#, "Result[Number, AllocError].Err(AllocError.CapacityOverflow)\nResult[Number, AllocError].Ok(Number(value=4))");
 }
 
 #[test]
 fn fallible_initialization_still_requires_complete_success_and_checked_calls() {
     for (body, use_site, message) in [
-        (
-            "return Ok(())",
-            "drop(C.try_new())",
-            "fields not initialized",
-        ),
-        (
-            "self.n = 1\n        Ok(())",
-            "drop(C())",
-            "requires Class.try_new",
-        ),
+        ("return Ok(())", "drop(C.new())", "fields not initialized"),
         (
             "self.n = self.n\n        Ok(())",
-            "drop(C.try_new())",
+            "drop(C.new())",
             "not initialized",
         ),
     ] {
@@ -120,7 +111,7 @@ fn unused_fallible_constructor_does_not_reduce_the_class_depth_limit() {
         source.push_str(&format!("class C{i}:\n    value: C{}\n", i - 1));
     }
     support::check_source(&source).unwrap();
-    source.push_str("C63.try_new(0)\n");
+    source.push_str("C63.new(0)\n");
     let error = support::check_source(&source).unwrap_err().to_string();
     assert!(error.contains("type nesting exceeds"), "{error}");
 }
@@ -133,25 +124,25 @@ fn failed_storage_drops_arguments_without_initializing_an_instance() {
 class Resource:
     n: i64
     def __del__(self: &mut Resource) -> ():
-        print("__test_restore_allocations__")
-        print(self.n)
+        print("__test_restore_allocations__").unwrap()
+        print(self.n).unwrap()
 class Owner:
     resource: Resource
     def __init__(self: &mut Owner, r: Resource) -> ():
-        print("init")
+        print("init").unwrap()
         self.resource = r
     def __del__(self: &mut Owner) -> ():
-        print("owner drop")
-resource = Resource(42)
-print("__test_fail_allocations_after_0__")
-result = Owner.try_new(resource)
-print("__test_restore_allocations__")
+        print("owner drop").unwrap()
+resource = Resource(42).unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+result = Owner.new(resource)
+print("__test_restore_allocations__").unwrap()
 match result:
     case Ok(value):
-        print("unexpected")
+        print("unexpected").unwrap()
     case Err(error):
-        print(error)
-drop(Owner.try_new(Resource(7)))
+        print(error).unwrap()
+drop(Owner.new(Resource(7).unwrap()))
 "#,
         "42\nAllocError.OutOfMemory\ninit\nowner drop\n7",
     );

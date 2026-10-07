@@ -375,20 +375,14 @@ impl Lower<'_> {
         if !ty.can_copy() {
             return Err(at.error("this resource cannot be copied"));
         }
-        if name == "try_copy" {
-            if ty.layout_depth() >= 64 {
-                return Err(at.error("type nesting exceeds the implementation limit of 64"));
-            }
-            ops.push(Op::Collection(CollectionOp::TryCopy(ty.clone())));
-            Self::end_reads(loans, ops);
-            return Ok(Some(crate::sum::result(ty, crate::sum::alloc_error())));
+        if ty.layout_depth() >= 64 {
+            return Err(at.error("type nesting exceeds the implementation limit of 64"));
         }
-        if ty.affine() {
-            ops.push(Op::Collection(CollectionOp::Copy(ty.clone())));
-        }
+        ops.push(Op::Collection(CollectionOp::TryCopy(ty.clone())));
         Self::end_reads(loans, ops);
-        Ok(Some(ty))
+        Ok(Some(crate::sum::result(ty, crate::sum::alloc_error())))
     }
+
     pub(super) fn read_place(&mut self, local: &Local, ops: &mut Vec<Op>) -> (Ty, usize) {
         if let Ty::Ref(ty, _) = &local.ty {
             let parent = self.reference_locals[&local.slot];

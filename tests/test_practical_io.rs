@@ -29,12 +29,12 @@ fn with_input(source: &str, input: &[u8]) -> std::process::Output {
 #[test]
 fn input_distinguishes_empty_lines_eof_and_invalid_utf8() {
     let output = with_input(
-        "print(input())\nprint(input())\nprint(input())\nprint(input())",
+        "print(input()).unwrap()\nprint(input()).unwrap()\nprint(input()).unwrap()\nprint(input()).unwrap()",
         "é\0\r\n\nlast".as_bytes(),
     );
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "Result[Option[str], IoError].Ok(Option[str].Some(\"é\\0\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"last\"))\nResult[Option[str], IoError].Ok(Option[str].Nothing)\n");
-    let output = with_input("print(input())", b"\xff\n");
+    let output = with_input("print(input()).unwrap()", b"\xff\n");
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -50,10 +50,10 @@ fn input_allocation_failure_is_recoverable() {
         let output = with_input(
             &format!(
                 r#"
-print("__test_fail_allocations_after_{budget}__")
+print("__test_fail_allocations_after_{budget}__").unwrap()
 a = input()
-print("__test_restore_allocations__")
-print(a)
+print("__test_restore_allocations__").unwrap()
+print(a).unwrap()
 "#
             ),
             b"abc\n",
@@ -83,9 +83,9 @@ def send(text: &str) -> Result[i64, IoError]:
     Ok(write_stdout(text)?)
 text = "hé🙂\0"
 result = send(&text)
-print(result)
-print(text)
-print(write_stdout(""))
+print(result).unwrap()
+print(text).unwrap()
+print(write_stdout("")).unwrap()
 "#,
         "hé🙂\0Result[i64, IoError].Ok(4)\nhé🙂\0\nResult[i64, IoError].Ok(0)\n",
     );
@@ -96,9 +96,9 @@ fn io_errors_are_constructible_and_matchable() {
     native(r#"
 def error() -> Result[i64, IoError]:
     Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))
-print(error())
-print(IoError.System(5i32))
-print(IoError.Data(DataError.InvalidUtf8))
+print(error()).unwrap()
+print(IoError.System(5i32)).unwrap()
+print(IoError.Data(DataError.InvalidUtf8)).unwrap()
 "#, "Result[i64, IoError].Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))\nIoError.System(5)\nIoError.Data(DataError.InvalidUtf8)\n");
 }
 
@@ -123,14 +123,14 @@ def inspect() -> Result[(), IoError]:
     mut first = args()?
     second = args()?
     first.clear()
-    print(len(first))
-    print(len(second))
-    print(second[1])
-    print(second[2])
-    print(second[3])
+    print(len(first)).unwrap()
+    print(len(second)).unwrap()
+    print(second[1]).unwrap()
+    print(second[2]).unwrap()
+    print(second[3]).unwrap()
     Ok(())
 def main() -> ():
-    print(inspect())
+    print(inspect()).unwrap()
 "#,
         &executable,
     )
@@ -152,7 +152,7 @@ fn arguments_reject_invalid_utf8() {
     use std::os::unix::ffi::OsStrExt;
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("program");
-    support::compile_source_to_executable("print(args())", &executable).unwrap();
+    support::compile_source_to_executable("print(args()).unwrap()", &executable).unwrap();
     let output = std::process::Command::new(executable)
         .arg(std::ffi::OsStr::from_bytes(b"\xff"))
         .output()
@@ -167,14 +167,14 @@ fn argument_snapshot_cleans_up_every_failed_allocation() {
     for budget in 0..=3 {
         let output = support::run(&format!(
             r#"
-print("__test_fail_allocations_after_{budget}__")
+print("__test_fail_allocations_after_{budget}__").unwrap()
 a = args()
-print("__test_restore_allocations__")
+print("__test_restore_allocations__").unwrap()
 match a:
     case Ok(items):
-        print(len(items))
+        print(len(items)).unwrap()
     case Err(error):
-        print(error)
+        print(error).unwrap()
 "#
         ));
         assert!(
@@ -198,9 +198,9 @@ match a:
 fn stderr_is_separate_and_flush_returns_unit_result() {
     let output = support::run(
         r#"
-print(write_stderr("diagnostic é\n"))
-print(flush_stderr())
-print(flush_stdout())
+print(write_stderr("diagnostic é\n")).unwrap()
+print(flush_stderr()).unwrap()
+print(flush_stdout()).unwrap()
 "#,
     );
     assert!(output.status.success());
@@ -277,12 +277,12 @@ def main() -> i32:
 fn output_and_io_error_construction_do_not_allocate() {
     let output = support::run(
         r#"
-print("__test_fail_allocations_after_0__")
+print("__test_fail_allocations_after_0__").unwrap()
 a = write_stdout("hello\n")
 b = IoError.Data(DataError.Allocation(AllocError.OutOfMemory))
-print("__test_restore_allocations__")
-print(a)
-print(b)
+print("__test_restore_allocations__").unwrap()
+print(a).unwrap()
+print(b).unwrap()
 "#,
     );
     assert!(

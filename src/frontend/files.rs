@@ -63,7 +63,7 @@ impl Lower<'_> {
         let mut reads = Vec::new();
         if let Some(arg) = args.first() {
             let expected = inputs[1].clone();
-            if matches!(ungroup(arg).kind, Expression::Collection { .. }) {
+            if collections::contextual_display(arg) {
                 let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
                 self.same(ty, Some(expected), &arg.at)?;
             } else {

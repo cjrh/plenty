@@ -12,7 +12,7 @@ use rstest::rstest;
 #[case(" x ", "True\nFalse")]
 fn classification_observes_all_characters(#[case] text: &str, #[case] expected: &str) {
     native(
-        &format!("print({text:?}.isascii())\nprint({text:?}.isspace())"),
+        &format!("print({text:?}.isascii()).unwrap()\nprint({text:?}.isspace()).unwrap()"),
         expected,
     );
 }
@@ -23,18 +23,18 @@ fn whitespace_uses_the_same_unicode_property_as_stripping() {
 def blank(text: &str) -> bool:
     text.isspace()
 text = "UNICODE_SPACE"
-print(blank(&text))
-print(text.isascii())
-print("ZERO_WIDTH_SPACE".isspace())
-print("ZERO_WIDTH_SPACE".isascii())
+print(blank(&text)).unwrap()
+print(text.isascii()).unwrap()
+print("ZERO_WIDTH_SPACE".isspace()).unwrap()
+print("ZERO_WIDTH_SPACE".isascii()).unwrap()
 class Custom:
     def isascii(self) -> i64:
         42
-print(Custom().isascii())
+print(Custom().unwrap().isascii()).unwrap()
 def source() -> str:
-    print("receiver")
+    print("receiver").unwrap()
     " "
-print(source().isspace())
+print(source().isspace()).unwrap()
 "#
     .replace("UNICODE_SPACE", "\u{a0}\u{3000}")
     .replace("ZERO_WIDTH_SPACE", "\u{200b}");
@@ -46,20 +46,20 @@ print(source().isspace())
 fn classification_needs_no_allocation() {
     native(
         &r#"
-spaces = " " + "UNICODE_SPACE"
-text = "hé" + "llo"
-print("__test_fail_allocations_after_0__")
-print("__test_begin_no_allocations__")
+spaces = (" " + "UNICODE_SPACE").unwrap()
+text = ("hé" + "llo").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
 a = spaces.isspace()
 b = spaces.isascii()
 c = text.isascii()
 d = text.isspace()
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(a)
-print(b)
-print(c)
-print(d)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(a).unwrap()
+print(b).unwrap()
+print(c).unwrap()
+print(d).unwrap()
 "#
         .replace("UNICODE_SPACE", "\u{3000}"),
         "True\nFalse\nFalse\nFalse",
@@ -67,11 +67,11 @@ print(d)
 }
 
 #[rstest]
-#[case("print(\"x\".isascii(1))", "takes no arguments")]
-#[case("print(\"x\".isspace(\" \"))", "takes no arguments")]
-#[case("print([1].isspace())", "expected str")]
+#[case("print(\"x\".isascii(1)).unwrap()", "takes no arguments")]
+#[case("print(\"x\".isspace(\" \")).unwrap()", "takes no arguments")]
+#[case("print([1].unwrap().isspace()).unwrap()", "expected str")]
 #[case(
-    "mut text = \"x\"\nr = &mut text\nprint(text.isascii())\n*r = \"y\"",
+    "mut text = \"x\"\nr = &mut text\nprint(text.isascii()).unwrap()\n*r = \"y\"",
     "borrow"
 )]
 fn invalid_classification(#[case] source: &str, #[case] expected: &str) {
@@ -109,7 +109,7 @@ fn prefix_and_suffix_are_literal(
     #[case] expected: &str,
 ) {
     native(
-        &format!("print({text:?}.startswith({prefix:?}))\nprint({text:?}.endswith({suffix:?}))"),
+        &format!("print({text:?}.startswith({prefix:?})).unwrap()\nprint({text:?}.endswith({suffix:?})).unwrap()"),
         expected,
     );
 }
@@ -124,17 +124,17 @@ class Custom:
     def startswith(self) -> i64:
         42
 def text() -> str:
-    print("receiver")
+    print("receiver").unwrap()
     return "aba"
 def prefix() -> str:
-    print("argument")
+    print("argument").unwrap()
     return "a"
-value = "a" + "ba"
-part = "" + "a"
-print(check(&value, &part))
-print(value)
-print(text().startswith(prefix()))
-print(Custom().startswith())
+value = ("a" + "ba").unwrap()
+part = ("" + "a").unwrap()
+print(check(&value, &part)).unwrap()
+print(value).unwrap()
+print(text().startswith(prefix())).unwrap()
+print(Custom().unwrap().startswith()).unwrap()
 "#,
         "True\naba\nreceiver\nargument\nTrue\n42",
     );
@@ -145,36 +145,39 @@ print(Custom().startswith())
 fn prefix_and_suffix_checks_do_not_allocate() {
     native(
         r#"
-text = "é\0" + "🙂"
-prefix = "" + "é"
-suffix = "" + "🙂"
-print("__test_fail_allocations_after_0__")
-print("__test_begin_no_allocations__")
+text = ("é\0" + "🙂").unwrap()
+prefix = ("" + "é").unwrap()
+suffix = ("" + "🙂").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
 a = text.startswith(prefix)
 b = text.endswith(suffix)
 c = text.startswith("")
 d = text.endswith("missing")
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(a)
-print(b)
-print(c)
-print(d)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(a).unwrap()
+print(b).unwrap()
+print(c).unwrap()
+print(d).unwrap()
 "#,
         "True\nTrue\nTrue\nFalse",
     );
 }
 
 #[rstest]
-#[case("print(\"a\".startswith())", "startswith requires one argument")]
 #[case(
-    "print(\"a\".endswith(\"a\", \"b\"))",
+    "print(\"a\".startswith()).unwrap()",
+    "startswith requires one argument"
+)]
+#[case(
+    "print(\"a\".endswith(\"a\", \"b\")).unwrap()",
     "endswith requires one argument"
 )]
-#[case("print(\"a\".startswith(1))", "expected str")]
-#[case("print([1].endswith(\"a\"))", "expected str")]
+#[case("print(\"a\".startswith(1)).unwrap()", "expected str")]
+#[case("print([1].unwrap().endswith(\"a\")).unwrap()", "expected str")]
 #[case(
-    "mut text = \"a\"\nloan = &mut text\nprint(text.startswith(\"a\"))\n*loan = \"b\"",
+    "mut text = \"a\"\nloan = &mut text\nprint(text.startswith(\"a\")).unwrap()\n*loan = \"b\"",
     "borrow"
 )]
 fn invalid_prefix_queries(#[case] source: &str, #[case] expected: &str) {
@@ -198,7 +201,9 @@ fn searches_return_optional_scalar_positions(
     #[case] last: &str,
 ) {
     native(
-        &format!("print({text:?}.find({needle:?}))\nprint({text:?}.rfind({needle:?}))"),
+        &format!(
+            "print({text:?}.find({needle:?})).unwrap()\nprint({text:?}.rfind({needle:?})).unwrap()"
+        ),
         &format!("Option[i64].{first}\nOption[i64].{last}"),
     );
 }
@@ -213,18 +218,18 @@ class Custom:
     def find(self) -> i64:
         42
 def source() -> str:
-    print("receiver")
+    print("receiver").unwrap()
     return "aba"
 def needle() -> str:
-    print("argument")
+    print("argument").unwrap()
     return "a"
-text = "é" + "🙂"
+text = ("é" + "🙂").unwrap()
 part = "🙂"
-print(last(&text, &part))
-print(last(&text, &text))
-print(text.find("missing"))
-print(source().find(needle()))
-print(Custom().find())
+print(last(&text, &part)).unwrap()
+print(last(&text, &text)).unwrap()
+print(text.find("missing")).unwrap()
+print(source().find(needle())).unwrap()
+print(Custom().unwrap().find()).unwrap()
 "#, "Option[i64].Some(2)\nOption[i64].Some(1)\nOption[i64].Nothing\nreceiver\nargument\nOption[i64].Some(0)\n42");
 }
 
@@ -233,33 +238,33 @@ print(Custom().find())
 fn search_results_and_empty_patterns_need_no_allocation() {
     native(
         r#"
-text = "é🙂" + "é🙂"
-needle = "" + "🙂"
-print("__test_fail_allocations_after_0__")
-print("__test_begin_no_allocations__")
+text = ("é🙂" + "é🙂").unwrap()
+needle = ("" + "🙂").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
 a = text.find(needle)
 b = text.rfind(needle)
 c = text.rfind("")
 d = text.find("missing")
 drop(text)
 drop(needle)
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(a)
-print(b)
-print(c)
-print(d)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(a).unwrap()
+print(b).unwrap()
+print(c).unwrap()
+print(d).unwrap()
 "#,
         "Option[i64].Some(1)\nOption[i64].Some(3)\nOption[i64].Some(4)\nOption[i64].Nothing",
     );
 }
 
 #[rstest]
-#[case("print(\"a\".find())", "find requires one argument")]
-#[case("print(\"a\".rfind(\"a\", 0))", "rfind requires one argument")]
-#[case("print(\"a\".find(1))", "expected str")]
+#[case("print(\"a\".find()).unwrap()", "find requires one argument")]
+#[case("print(\"a\".rfind(\"a\", 0)).unwrap()", "rfind requires one argument")]
+#[case("print(\"a\".find(1)).unwrap()", "expected str")]
 #[case(
-    "mut text = \"a\"\nloan = &mut text\nprint(text.rfind(\"a\"))\n*loan = \"b\"",
+    "mut text = \"a\"\nloan = &mut text\nprint(text.rfind(\"a\")).unwrap()\n*loan = \"b\"",
     "borrow"
 )]
 fn invalid_search_queries(#[case] source: &str, #[case] expected: &str) {
@@ -282,7 +287,7 @@ fn counts_non_overlapping_literal_matches(
     #[case] expected: i64,
 ) {
     native(
-        &format!("print({text:?}.count({needle:?}))"),
+        &format!("print({text:?}.count({needle:?})).unwrap()"),
         &expected.to_string(),
     );
 }
@@ -297,17 +302,17 @@ class Custom:
     def count(self) -> i64:
         42
 def source() -> str:
-    print("receiver")
+    print("receiver").unwrap()
     return "aba"
 def needle() -> str:
-    print("argument")
+    print("argument").unwrap()
     return "a"
-text = "a" + "ba"
-part = "" + "a"
-print(count(&text, &part))
-print(text)
-print(source().count(needle()))
-print(Custom().count())
+text = ("a" + "ba").unwrap()
+part = ("" + "a").unwrap()
+print(count(&text, &part)).unwrap()
+print(text).unwrap()
+print(source().count(needle())).unwrap()
+print(Custom().unwrap().count()).unwrap()
 "#,
         "2\naba\nreceiver\nargument\n2\n42",
     );
@@ -318,27 +323,27 @@ print(Custom().count())
 fn counting_and_empty_pattern_handling_allocate_nothing() {
     native(
         r#"
-text = "é🙂" + "é🙂"
-needle = "" + "🙂"
-print("__test_fail_allocations_after_0__")
-print("__test_begin_no_allocations__")
+text = ("é🙂" + "é🙂").unwrap()
+needle = ("" + "🙂").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
 a = text.count(needle)
 b = text.count("")
 c = text.count("missing")
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(a)
-print(b)
-print(c)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(a).unwrap()
+print(b).unwrap()
+print(c).unwrap()
 "#,
         "2\n5\n0",
     );
 }
 
 #[rstest]
-#[case("print(\"a\".count())", "count requires one argument")]
-#[case("print(\"a\".count(\"a\", 0))", "count requires one argument")]
-#[case("print(\"a\".count(1))", "expected str")]
+#[case("print(\"a\".count()).unwrap()", "count requires one argument")]
+#[case("print(\"a\".count(\"a\", 0)).unwrap()", "count requires one argument")]
+#[case("print(\"a\".count(1)).unwrap()", "expected str")]
 fn invalid_count_queries(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

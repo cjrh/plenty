@@ -6,22 +6,22 @@ use rstest::rstest;
 fn splitlines_preserves_optional_terminators_and_independent_results() {
     native(r#"
 def lines(text: &str) -> Result[list[str], AllocError]:
-    text.try_splitlines()
-mut text = "é\r\n\n🦀\rlast" + ""
+    text.splitlines()
+mut text = ("é\r\n\n🦀\rlast" + "").unwrap()
 result = lines(&text)
-print(text.try_splitlines(True))
+print(text.splitlines(True)).unwrap()
 text = "changed"
 drop(text)
-print(result)
-print("".try_splitlines())
-print("\n".try_splitlines())
-print("a\nb\n".try_splitlines())
-print("a\0b".try_splitlines())
+print(result).unwrap()
+print("".splitlines()).unwrap()
+print("\n".splitlines()).unwrap()
+print("a\nb\n".splitlines()).unwrap()
+print("a\0b".splitlines()).unwrap()
 "#, "Result[list[str], AllocError].Ok([\"é\\r\\n\", \"\\n\", \"🦀\\r\", \"last\"])\nResult[list[str], AllocError].Ok([\"é\", \"\", \"🦀\", \"last\"])\nResult[list[str], AllocError].Ok([])\nResult[list[str], AllocError].Ok([\"\"])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[str], AllocError].Ok([\"a\\0b\"])");
     for source in [
-        "print(\"x\".try_splitlines(1))",
-        "print(\"x\".try_splitlines(True, False))",
-        "print([1].try_splitlines())",
+        "print(\"x\".splitlines(1)).unwrap()",
+        "print(\"x\".splitlines(True, False)).unwrap()",
+        "print([1].unwrap().splitlines()).unwrap()",
     ] {
         assert!(support::check_source(source).is_err());
     }
@@ -34,12 +34,12 @@ fn splitlines_recovers_from_each_allocation_and_preserves_source() {
         native(
             &format!(
                 r#"
-source = "one\ntwo\nthree" + ""
-print("__test_fail_allocations_after_{budget}__")
-result = source.try_splitlines()
-print("__test_restore_allocations__")
-print(result)
-print(len(source))
+source = ("one\ntwo\nthree" + "").unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = source.splitlines()
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(len(source)).unwrap()
 "#
             ),
             &format!(
@@ -55,18 +55,18 @@ print(len(source))
 }
 
 #[rstest]
-#[case("try_removeprefix", "abab", "ab", "ab")]
-#[case("try_removesuffix", "abab", "ab", "ab")]
-#[case("try_removeprefix", "é🙂é", "é", "🙂é")]
-#[case("try_removesuffix", "é🙂é", "é", "é🙂")]
-#[case("try_removeprefix", "\0x", "\0", "x")]
-#[case("try_removesuffix", "x\0", "\0", "x")]
-#[case("try_removeprefix", "abc", "bc", "abc")]
-#[case("try_removesuffix", "abc", "ab", "abc")]
-#[case("try_removeprefix", "abc", "abcd", "abc")]
-#[case("try_removesuffix", "abc", "abc", "")]
-#[case("try_removeprefix", "", "", "")]
-#[case("try_removesuffix", "abc", "", "abc")]
+#[case("removeprefix", "abab", "ab", "ab")]
+#[case("removesuffix", "abab", "ab", "ab")]
+#[case("removeprefix", "é🙂é", "é", "🙂é")]
+#[case("removesuffix", "é🙂é", "é", "é🙂")]
+#[case("removeprefix", "\0x", "\0", "x")]
+#[case("removesuffix", "x\0", "\0", "x")]
+#[case("removeprefix", "abc", "bc", "abc")]
+#[case("removesuffix", "abc", "ab", "abc")]
+#[case("removeprefix", "abc", "abcd", "abc")]
+#[case("removesuffix", "abc", "abc", "")]
+#[case("removeprefix", "", "", "")]
+#[case("removesuffix", "abc", "", "abc")]
 fn affix_removal_is_literal(
     #[case] method: &str,
     #[case] source: &str,
@@ -74,7 +74,7 @@ fn affix_removal_is_literal(
     #[case] expected: &str,
 ) {
     native(
-        &format!("print({source:?}.{method}({pattern:?}))"),
+        &format!("print({source:?}.{method}({pattern:?})).unwrap()"),
         &format!("Result[str, AllocError].Ok({expected:?})"),
     );
 }
@@ -83,32 +83,32 @@ fn affix_removal_is_literal(
 fn affix_arguments_are_observed_in_order_and_results_outlive_inputs() {
     native(r#"
 def source() -> str:
-    print("source")
+    print("source").unwrap()
     "pre-value"
 def pattern() -> str:
-    print("pattern")
+    print("pattern").unwrap()
     "pre-"
 def trim(text: &str, prefix: &str) -> Result[str, AllocError]:
-    text.try_removeprefix(prefix)?.try_removesuffix("-end")
-print(source().try_removeprefix(pattern()))
-mut text = "pre-é" + "-end"
-prefix = "pre" + "-"
+    text.removeprefix(prefix)?.removesuffix("-end")
+print(source().removeprefix(pattern())).unwrap()
+mut text = ("pre-é" + "-end").unwrap()
+prefix = ("pre" + "-").unwrap()
 result = trim(&text, &prefix)
 text = "changed"
 drop(text)
 drop(prefix)
-print(result)
+print(result).unwrap()
 class Custom:
-    def try_removeprefix(self) -> i64:
+    def removeprefix(self) -> i64:
         42
-print(Custom().try_removeprefix())
+print(Custom().unwrap().removeprefix()).unwrap()
 "#, "source\npattern\nResult[str, AllocError].Ok(\"value\")\nResult[str, AllocError].Ok(\"é\")\n42");
 }
 
 #[cfg(feature = "runtime-checks")]
 #[rstest]
 fn affix_removal_recovers_from_its_single_output_allocation(
-    #[values("try_removeprefix", "try_removesuffix")] method: &str,
+    #[values("removeprefix", "removesuffix")] method: &str,
     #[values("é", "missing", "")] pattern: &str,
     #[values(0, 1)] budget: usize,
 ) {
@@ -116,13 +116,13 @@ fn affix_removal_recovers_from_its_single_output_allocation(
     native(
         &format!(
             r#"
-source = "" + "é"
-pattern = "" + {pattern:?}
-print("__test_fail_allocations_after_{budget}__")
+source = ("" + "é").unwrap()
+pattern = ("" + {pattern:?}).unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
 result = source.{method}(pattern)
-print("__test_restore_allocations__")
-print(result)
-print(source)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(source).unwrap()
 "#
         ),
         &format!(
@@ -137,9 +137,9 @@ print(source)
 }
 
 #[rstest]
-#[case("print(\"x\".try_removeprefix())", "requires one argument")]
-#[case("print(\"x\".try_removesuffix(1))", "expected str")]
-#[case("print([1].try_removeprefix(\"x\"))", "expected str")]
+#[case("print(\"x\".removeprefix()).unwrap()", "requires one argument")]
+#[case("print(\"x\".removesuffix(1)).unwrap()", "expected str")]
+#[case("print([1].unwrap().removeprefix(\"x\")).unwrap()", "expected str")]
 fn invalid_affix_removal(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
@@ -162,18 +162,18 @@ fn native(source: &str, expected: &str) {
 }
 
 #[rstest]
-#[case("try_strip", "  a b  ", "a b")]
-#[case("try_lstrip", "  a b  ", "a b  ")]
-#[case("try_rstrip", "  a b  ", "  a b")]
-#[case("try_strip", "\t\r\né🙂\n\t", "é🙂")]
-#[case("try_strip", "", "")]
-#[case("try_strip", " \t\n", "")]
-#[case("try_lstrip", "x", "x")]
-#[case("try_rstrip", "x", "x")]
-#[case("try_strip", " \0 ", "\0")]
+#[case("strip", "  a b  ", "a b")]
+#[case("lstrip", "  a b  ", "a b  ")]
+#[case("rstrip", "  a b  ", "  a b")]
+#[case("strip", "\t\r\né🙂\n\t", "é🙂")]
+#[case("strip", "", "")]
+#[case("strip", " \t\n", "")]
+#[case("lstrip", "x", "x")]
+#[case("rstrip", "x", "x")]
+#[case("strip", " \0 ", "\0")]
 fn strip_keeps_inner_text(#[case] method: &str, #[case] text: &str, #[case] expected: &str) {
     native(
-        &format!("print({text:?}.{method}())"),
+        &format!("print({text:?}.{method}()).unwrap()"),
         &format!("Result[str, AllocError].Ok({expected:?})"),
     );
 }
@@ -182,19 +182,19 @@ fn strip_keeps_inner_text(#[case] method: &str, #[case] text: &str, #[case] expe
 fn stripping_uses_unicode_whitespace_and_borrows_references() {
     native(&r#"
 def strip(text: &str) -> Result[str, AllocError]:
-    result = text.try_strip()?
+    result = text.strip()?
     Ok(result)
 text = "　 é🙂 　"
-print(strip(&text))
-print(text.try_lstrip())
-print(text.try_rstrip())
-print(len(text))
-print(len("ZERO_WIDTH_SPACE"))
-print("ZERO_WIDTH_SPACE".try_strip())
+print(strip(&text)).unwrap()
+print(text.lstrip()).unwrap()
+print(text.rstrip()).unwrap()
+print(len(text)).unwrap()
+print(len("ZERO_WIDTH_SPACE")).unwrap()
+print("ZERO_WIDTH_SPACE".strip()).unwrap()
 class Custom:
-    def try_strip(self, value: i64) -> i64:
+    def strip(self, value: i64) -> i64:
         value
-print(Custom().try_strip(42))
+print(Custom().unwrap().strip(42)).unwrap()
 "#.replace("ZERO_WIDTH_SPACE", "\u{200b}"), "Result[str, AllocError].Ok(\"é🙂\")\nResult[str, AllocError].Ok(\"é🙂 　\")\nResult[str, AllocError].Ok(\"　 é🙂\")\n6\n1\nResult[str, AllocError].Ok(\"\u{200b}\")\n42");
 }
 
@@ -203,14 +203,14 @@ fn stripped_text_outlives_replaced_source_and_receiver_runs_once() {
     native(
         r#"
 def source() -> str:
-    print("receiver")
+    print("receiver").unwrap()
     return " x "
-mut text = " é" + "🙂 "
-saved = text.try_strip()
+mut text = (" é" + "🙂 ").unwrap()
+saved = text.strip()
 text = "changed"
 drop(text)
-print(saved)
-print(source().try_strip())
+print(saved).unwrap()
+print(source().strip()).unwrap()
 "#,
         "Result[str, AllocError].Ok(\"é🙂\")\nreceiver\nResult[str, AllocError].Ok(\"x\")",
     );
@@ -230,11 +230,11 @@ fn strip_has_one_recoverable_output_allocation_in_all_cases() {
                 &format!(
                     r#"
 text = {text:?}
-print("__test_fail_allocations_after_{budget}__")
-result = text.try_strip()
-print("__test_restore_allocations__")
-print(result)
-print(text.try_strip())
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = text.strip()
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(text.strip()).unwrap()
 "#
                 ),
                 &format!(
@@ -251,11 +251,11 @@ print(text.try_strip())
 }
 
 #[rstest]
-#[case("print(\"x\".try_strip(\"x\"))", "try_strip takes no arguments")]
-#[case("print(\"x\".try_lstrip(1))", "try_lstrip takes no arguments")]
-#[case("print([1].try_rstrip())", "expected str")]
+#[case("print(\"x\".strip(\"x\")).unwrap()", "strip takes no arguments")]
+#[case("print(\"x\".lstrip(1)).unwrap()", "lstrip takes no arguments")]
+#[case("print([1].unwrap().rstrip()).unwrap()", "expected str")]
 #[case(
-    "mut text = \"a\"\nloan = &mut text\nprint(text.try_strip())\n*loan = \"b\"",
+    "mut text = \"a\"\nloan = &mut text\nprint(text.strip()).unwrap()\n*loan = \"b\"",
     "borrow"
 )]
 fn invalid_strip(#[case] source: &str, #[case] expected: &str) {
@@ -277,7 +277,7 @@ fn repeat_handles_counts_and_exact_utf8(
     #[case] expected: &str,
 ) {
     native(
-        &format!("print({text:?}.try_repeat({count}))"),
+        &format!("print({text:?}.repeat({count})).unwrap()"),
         &format!("Result[str, AllocError].Ok({expected:?})"),
     );
 }
@@ -286,25 +286,25 @@ fn repeat_handles_counts_and_exact_utf8(
 fn repeat_borrows_operands_and_outlives_source_changes() {
     native(r#"
 def repeat(text: &str, count: &i64) -> Result[str, AllocError]:
-    output = text.try_repeat(count)?
+    output = text.repeat(count)?
     Ok(output)
-mut text = "é" + "🙂"
+mut text = ("é" + "🙂").unwrap()
 count = 3
 saved = repeat(&text, &count)
 text = "changed"
 drop(text)
-print(saved)
+print(saved).unwrap()
 class Custom:
-    def try_repeat(self) -> i64:
+    def repeat(self) -> i64:
         42
-print(Custom().try_repeat())
+print(Custom().unwrap().repeat()).unwrap()
 def source() -> str:
-    print("receiver")
+    print("receiver").unwrap()
     return "x"
 def copies() -> i64:
-    print("count")
+    print("count").unwrap()
     2
-print(source().try_repeat(copies()))
+print(source().repeat(copies())).unwrap()
 "#, "Result[str, AllocError].Ok(\"é🙂é🙂é🙂\")\n42\nreceiver\ncount\nResult[str, AllocError].Ok(\"xx\")");
 }
 
@@ -316,13 +316,13 @@ fn repetition_has_one_output_allocation_and_checked_capacity() {
             native(
                 &format!(
                     r#"
-text = "é" + "🙂"
-print("__test_fail_allocations_after_{budget}__")
-result = text.try_repeat({count})
-print("__test_restore_allocations__")
-print(result)
-print(text)
-print(text.try_repeat({count}))
+text = ("é" + "🙂").unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = text.repeat({count})
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(text).unwrap()
+print(text.repeat({count})).unwrap()
 "#
                 ),
                 &format!(
@@ -337,21 +337,21 @@ print(text.try_repeat({count}))
         }
     }
     native(r#"
-print("__test_fail_allocations_after_0__")
-print("__test_begin_no_allocations__")
-a = "x".try_repeat(9223372036854775807)
-b = "é🙂".try_repeat(9223372036854775807)
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(a)
-print(b)
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+a = "x".repeat(9223372036854775807)
+b = "é🙂".repeat(9223372036854775807)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(a).unwrap()
+print(b).unwrap()
 "#, "Result[str, AllocError].Err(AllocError.CapacityOverflow)\nResult[str, AllocError].Err(AllocError.CapacityOverflow)");
 }
 
 #[rstest]
-#[case("print(\"x\".try_repeat())", "try_repeat requires one argument")]
-#[case("print(\"x\".try_repeat(2u8))", "expected i64")]
-#[case("print([1].try_repeat(2))", "expected str")]
+#[case("print(\"x\".repeat()).unwrap()", "repeat requires one argument")]
+#[case("print(\"x\".repeat(2u8)).unwrap()", "expected i64")]
+#[case("print([1].unwrap().repeat(2)).unwrap()", "expected str")]
 fn invalid_repeat(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

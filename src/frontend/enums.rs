@@ -315,6 +315,9 @@ impl Lower<'_> {
         let Ty::Enum(t) = ty else {
             return Err(at.error("variant qualification requires an enum type"));
         };
+        if !t.inline() && t.depth >= 64 {
+            return Err(at.error("type nesting exceeds the implementation limit of 64"));
+        }
         let tag = t
             .variants
             .iter()
@@ -342,8 +345,14 @@ impl Lower<'_> {
                 ops.push(Op::PushUnit);
             }
         }
-        ops.push(Op::Enum(EnumOp::New(t.clone(), tag)));
-        Ok(Some(Ty::Enum(t)))
+        let op = if t.inline() {
+            EnumOp::New(t, tag)
+        } else {
+            EnumOp::TryNew(t, tag)
+        };
+        let output = op.signature().unwrap().1;
+        ops.push(Op::Enum(op));
+        Ok(Some(output))
     }
 
     pub(super) fn match_cases(

@@ -21,23 +21,23 @@ fn native(source: &str, expected: &str) {
 #[test]
 fn literals_preserve_types_order_and_duplicate_rules() {
     native(r#"
-print(try [1, 2, 3])
-print(try {3, 1, 3})
-print(try {"a": 1, "a": 2})
-empty: Result[list[u8], AllocError] = try []
-print(empty)
+print([1, 2, 3]).unwrap()
+print({3, 1, 3}).unwrap()
+print({"a": 1, "a": 2}).unwrap()
+empty: Result[list[u8], AllocError] = []
+print(empty).unwrap()
 def nested() -> Result[list[list[i64]], AllocError]:
-    try [(try [1, 2])?, (try [3])?]
-print(nested())
+    [([1, 2])?, ([3])?]
+print(nested()).unwrap()
 "#, "Result[list[i64], AllocError].Ok([1, 2, 3])\nResult[set[i64], AllocError].Ok({3, 1})\nResult[dict[str, i64], AllocError].Ok({\"a\": 2})\nResult[list[u8], AllocError].Ok([])\nResult[list[list[i64]], AllocError].Ok([[1, 2], [3]])");
 }
 
 #[test]
 fn comprehensions_support_nested_loops_filters_and_all_collection_kinds() {
     native(r#"
-print(try [a * b for a in range(3) for b in range(3) if b != 1])
-print(try {a % 2 for a in range(5)})
-print(try {a: a * a for a in range(3)})
+print([a * b for a in range(3).unwrap() for b in range(3).unwrap() if b != 1]).unwrap()
+print({a % 2 for a in range(5).unwrap()}).unwrap()
+print({a: a * a for a in range(3).unwrap()}).unwrap()
 "#, "Result[list[i64], AllocError].Ok([0, 0, 0, 2, 0, 4])\nResult[set[i64], AllocError].Ok({0, 1})\nResult[dict[i64, i64], AllocError].Ok({0: 0, 1: 1, 2: 4})");
 }
 
@@ -48,13 +48,13 @@ fn failed_comprehension_stops_before_advancing_its_generator() {
         r#"
 def values() -> Generator[i64]:
     yield 1
-    print("unexpected resume")
+    print("unexpected resume").unwrap()
     yield 2
-source = values()
-print("__test_fail_allocations_after_1__")
-result = try [n for n in source]
-print("__test_restore_allocations__")
-print(result)
+source = values().unwrap()
+print("__test_fail_allocations_after_1__").unwrap()
+result = [n for n in source]
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
 "#,
         "Result[list[i64], AllocError].Err(AllocError.OutOfMemory)",
     );
@@ -66,14 +66,14 @@ fn nested_failure_stops_both_loops() {
     native(
         r#"
 def mark(n: i64) -> i64:
-    print("entry")
+    print("entry").unwrap()
     n
-outer = [1, 2]
-inner = [3, 4]
-print("__test_fail_allocations_after_1__")
-result = try [mark(a + b) for a in outer for b in &inner]
-print("__test_restore_allocations__")
-print(result)
+outer = [1, 2].unwrap()
+inner = [3, 4].unwrap()
+print("__test_fail_allocations_after_1__").unwrap()
+result = [mark(a + b) for a in outer for b in &inner]
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
 "#,
         "entry\nResult[list[i64], AllocError].Err(AllocError.OutOfMemory)",
     );
@@ -86,11 +86,11 @@ fn comprehension_growth_failure_reclaims_owned_elements() {
         native(
             &format!(
                 r#"
-source = [[1], [2], [3], [4], [5], [6], [7], [8], [9]]
-print("__test_fail_allocations_after_{budget}__")
-result = try [value for value in source]
-print("__test_restore_allocations__")
-print(result)
+source = [[1].unwrap(), [2].unwrap(), [3].unwrap(), [4].unwrap(), [5].unwrap(), [6].unwrap(), [7].unwrap(), [8].unwrap(), [9].unwrap()].unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = [value for value in source]
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
 "#
             ),
             if budget == 4 {
@@ -119,7 +119,7 @@ fn failure_at_each_literal_allocation_is_recoverable() {
         ),
     ] {
         for budget in 0..=allocations {
-            let source = format!("print(\"__test_fail_allocations_after_{budget}__\")\nresult = try {literal}\nprint(\"__test_restore_allocations__\")\nprint(result)");
+            let source = format!("print(\"__test_fail_allocations_after_{budget}__\").unwrap()\nresult = {literal}\nprint(\"__test_restore_allocations__\").unwrap()\nprint(result).unwrap()");
             let failure = format!(
                 "{}.Err(AllocError.OutOfMemory)",
                 value.split(".Ok").next().unwrap()
@@ -142,12 +142,12 @@ fn failed_growth_skips_later_entry_expressions() {
     native(
         r#"
 def unexpected() -> i64:
-    print("unexpected")
+    print("unexpected").unwrap()
     2
-print("__test_fail_allocations_after_1__")
-result = try [1, unexpected()]
-print("__test_restore_allocations__")
-print(result)
+print("__test_fail_allocations_after_1__").unwrap()
+result = [1, unexpected()]
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
 "#,
         "Result[list[i64], AllocError].Err(AllocError.OutOfMemory)",
     );

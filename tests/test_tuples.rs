@@ -6,22 +6,22 @@ fn loops_and_comprehensions_unpack_tuples_and_borrow_dictionary_items() {
         r#"
 class Point:
     x: i64
-mut points = {"a": Point(1), "b": Point(2)}
+mut points = {"a": Point(1).unwrap(), "b": Point(2).unwrap()}.unwrap()
 for key, point in points.items():
-    print((key, point.x))
+    print((key, point.x).unwrap()).unwrap()
 for key, point in (&mut points).items():
     point.x = point.x + 10
-print([point.x for key, point in points.items() if key == "b"])
-print(points)
-mut counts = {"a": 1, "b": 2}
+print([point.x for key, point in points.items() if key == "b"].unwrap()).unwrap()
+print(points).unwrap()
+mut counts = {"a": 1, "b": 2}.unwrap()
 for key, value in &mut counts.items():
     *value = *value * 2
-print([(k, v) for k, v in counts.items()])
+print([(k, v).unwrap() for k, v in counts.items()].unwrap()).unwrap()
 x = 99
-print([x + y for x, y in [(1, 2), (3, 4)]])
-for x, y in [(5, 6)]:
-    print(x + y)
-print(x)
+print([x + y for x, y in [(1, 2).unwrap(), (3, 4).unwrap()].unwrap()].unwrap()).unwrap()
+for x, y in [(5, 6).unwrap()].unwrap():
+    print(x + y).unwrap()
+print(x).unwrap()
 "#,
     );
     assert!(
@@ -35,10 +35,10 @@ print(x)
 #[test]
 fn item_loans_reject_invalidation_and_illegal_moves() {
     for source in [
-        "mut d = {1: [2]}\nfor k, v in d.items():\n    d.clear()\n    print(v)",
-        "mut d = {1: [2]}\nfor k, v in d.items():\n    v.append(3)",
-        "mut d = {1: [2]}\nfor k, v in (&mut d).items():\n    d.pop(k)\n    print(v)",
-        "d = {1: 2}\nfor k, v in (&mut d).items():\n    print(v)",
+        "mut d = {1: [2].unwrap()}.unwrap()\nfor k, v in d.items():\n    d.clear()\n    print(v).unwrap()",
+        "mut d = {1: [2].unwrap()}.unwrap()\nfor k, v in d.items():\n    v.append(3).unwrap()",
+        "mut d = {1: [2].unwrap()}.unwrap()\nfor k, v in (&mut d).items():\n    d.pop(k)\n    print(v).unwrap()",
+        "d = {1: 2}.unwrap()\nfor k, v in (&mut d).items():\n    print(v).unwrap()",
     ] {
         assert!(support::check_source(source).is_err(), "{source}");
     }
@@ -52,14 +52,14 @@ fn checked_tuple_failure_releases_evaluated_owned_components() {
 class Resource:
     id: i64
     def __del__(self: &mut Resource) -> ():
-        print("__test_restore_allocations__")
-        print(self.id)
-a = Resource(1)
-b = Resource(2)
-print("__test_fail_allocations_after_0__")
-result = try (a, b)
-print("__test_restore_allocations__")
-print(result)
+        print("__test_restore_allocations__").unwrap()
+        print(self.id).unwrap()
+a = Resource(1).unwrap()
+b = Resource(2).unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+result = (a, b)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
 "#,
     );
     assert!(
@@ -87,15 +87,15 @@ fn tuple_values_support_signatures_indexing_comparison_and_checked_construction(
     let out = support::run(
         r#"
 def pair(x: i64) -> (i64, str):
-    (x, "answer")
+    (x, "answer").unwrap()
 p: tuple[i64, str] = pair(42)
-print(p)
-print(p[0])
-print(p[1])
-print((1,))
-print(p == (42, "answer"))
-print(try (1, "two"))
-print([(1, "one"), (2, "two")])
+print(p).unwrap()
+print(p[0]).unwrap()
+print(p[1]).unwrap()
+print((1,).unwrap()).unwrap()
+print(p == (42, "answer").unwrap()).unwrap()
+print((1, "two")).unwrap()
+print([(1, "one").unwrap(), (2, "two").unwrap()].unwrap()).unwrap()
 "#,
     );
     assert!(
@@ -111,10 +111,10 @@ fn tuple_shape_and_storage_errors_are_static() {
     for source in [
         "x: (i64, str) = (1, 2)",
         "x: (i64, i64) = (1,)",
-        "x = (1, 2)\nprint(x[2])",
-        "x = (1, 2)\ni = 1\nprint(x[i])",
-        "x = 1\ny = (&x, 2)",
-        "print(((), 1)[0])",
+        "x = (1, 2).unwrap()\nprint(x[2]).unwrap()",
+        "x = (1, 2).unwrap()\ni = 1\nprint(x[i]).unwrap()",
+        "x = 1\ny = (&x, 2).unwrap()",
+        "print(((), 1).unwrap()[0]).unwrap()",
     ] {
         assert!(support::check_source(source).is_err(), "{source}");
     }
@@ -122,7 +122,7 @@ fn tuple_shape_and_storage_errors_are_static() {
 
 #[test]
 fn unit_tuple_components_remain_unit_expressions() {
-    let out = support::run("def unit() -> ():\n    ((), 1)[0]\nunit()\n_, n = ((), 3)\nprint(n)");
+    let out = support::run("def unit() -> ():\n    ((), 1).unwrap()[0]\nunit()\n_, n = ((), 3).unwrap()\nprint(n).unwrap()");
     assert!(
         out.status.success(),
         "{}",
@@ -138,16 +138,16 @@ fn unpacking_moves_owned_components_and_cleans_discarded_fields() {
 class Resource:
     id: i64
     def __del__(self: &mut Resource) -> ():
-        print(self.id)
-pair = (Resource(1), Resource(2))
+        print(self.id).unwrap()
+pair = (Resource(1).unwrap(), Resource(2).unwrap()).unwrap()
 a, _ = pair
-print(a.id)
-mut x, y = (10, 20)
-x, y = (y, x)
-print((x, y))
-for number, text in [(1, "one"), (2, "two")]:
-    print(number)
-    print(text)
+print(a.id).unwrap()
+mut x, y = (10, 20).unwrap()
+x, y = (y, x).unwrap()
+print((x, y).unwrap()).unwrap()
+for number, text in [(1, "one").unwrap(), (2, "two").unwrap()].unwrap():
+    print(number).unwrap()
+    print(text).unwrap()
 "#,
     );
     assert!(
@@ -160,7 +160,7 @@ for number, text in [(1, "one"), (2, "two")]:
         "2\n1\n(20, 10)\n1\none\n2\ntwo\n1\n"
     );
     for source in [
-        "x = ([1], 2)\na, b = x\nprint(x)",
+        "x = ([1].unwrap(), 2).unwrap()\na, b = x\nprint(x).unwrap()",
         "x, y = (1, 2, 3)",
         "x, x = (1, 2)",
     ] {

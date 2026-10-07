@@ -27,7 +27,7 @@ fn public_protocol_signatures_cannot_expose_private_requirements() {
 fn explicit_generics_resolve_imports_aliases_and_definition_scope() {
     run(&[
         ("maths.plenty", "def helper(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def bumped[T: IntType](x: T) -> i64:\n    helper(i64(x))\n"),
-        ("main.plenty", "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> ():\n    print(keep[Count](7))\n    print(maths.identity[list[i64]]([1, 2]))\n    print(maths.bumped[u16](4))\n"),
+        ("main.plenty", "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> ():\n    print(keep[Count](7)).unwrap()\n    print(maths.identity[list[i64]]([1, 2].unwrap())).unwrap()\n    print(maths.bumped[u16](4)).unwrap()\n"),
     ], "main.plenty", "7\n[1, 2]\n5\n");
 }
 
@@ -36,7 +36,7 @@ fn protocol_imports_do_not_activate_methods_and_preserve_visibility() {
     let api = "pub protocol Readable:\n    def read(self) -> i64:\n        pass\npub def read[T: Readable](source: &T) -> i64:\n    source.read()\n";
     let implementation =
         "pub class Box:\n    pub value: i64\n    pub def read(self) -> i64:\n        self.value\n";
-    let main = "import api\nfrom data import Box\ndef main() -> ():\n    box = Box(7)\n    print(box.read())\n    print(api.read[Box](&box))\n";
+    let main = "import api\nfrom data import Box\ndef main() -> ():\n    box = Box(7).unwrap()\n    print(box.read()).unwrap()\n    print(api.read[Box](&box)).unwrap()\n";
     run(
         &[
             ("api.plenty", api),
@@ -47,7 +47,7 @@ fn protocol_imports_do_not_activate_methods_and_preserve_visibility() {
         "7\n7\n",
     );
     let private = implementation.replace("pub def", "def");
-    let private_main = main.replace("    print(box.read())\n", "");
+    let private_main = main.replace("    print(box.read()).unwrap()\n", "");
     let workspace = workspace(&[
         ("api.plenty", api),
         ("data.plenty", &private),
@@ -99,12 +99,12 @@ fn fallible_constructors_resolve_imported_collection_aliases() {
 import data
 from data import Numbers as Values
 def build() -> Result[data.Numbers, AllocError]:
-    mut values = Values.try_with_capacity(1)?
-    values.try_append(42)?
+    mut values = Values.with_capacity(1)?
+    values.append(42)?
     Ok(values)
 def main() -> ():
-    print(data.Numbers.try_new())
-    print(build())
+    print(data.Numbers.new()).unwrap()
+    print(build()).unwrap()
 "#,
             ),
         ],
@@ -128,12 +128,12 @@ pub def numbers() -> Generator[i64]:
 import data
 from data import Number as N
 def collect() -> Result[list[i64], AllocError]:
-    source = data.numbers.try_new()?
-    list[i64].try_from(source)
+    source = data.numbers.new()?
+    list[i64].from(source)
 def main() -> ():
-    print(N.try_new(3))
-    print(data.Message.Value.try_new(4))
-    print(collect())
+    print(N.new(3)).unwrap()
+    print(data.Message.Value.new(4)).unwrap()
+    print(collect()).unwrap()
 "#),
     ], "main.plenty", "Result[data.Number, AllocError].Ok(data.Number(value=3))\nResult[data.Message, AllocError].Ok(data.Message.Value(4))\nResult[list[i64], AllocError].Ok([5])\n");
 }
@@ -145,7 +145,7 @@ fn fallible_class_constructor_preserves_private_visibility() {
             ("data.plenty", "pub class Secret:\n    value: i64\n"),
             (
                 "main.plenty",
-                "import data\ndef main() -> ():\n    drop(data.Secret.try_new(1))\n",
+                "import data\ndef main() -> ():\n    drop(data.Secret.new(1))\n",
             ),
         ],
         "__new__` is private",
@@ -176,8 +176,8 @@ fn reject(files: &[(&str, &str)], expected: &str) {
 #[test]
 fn absolute_imports_aliases_forward_calls_and_private_helpers() {
     run(&[
-        ("app/main.plenty", "import math.arithmetic\nfrom math.arithmetic import twice as double\nimport math.arithmetic as numbers\ndef main() -> ():\n    print(math.arithmetic.twice(10))\n    print(double(11))\n    print(numbers.twice(12))\n"),
-        ("math/arithmetic.plenty", "pub def twice(n: i64) -> i64:\n    helper(n)\ndef helper(n: i64) -> i64:\n    n * 2\ndef main() -> ():\n    print('not an entrypoint')\n"),
+        ("app/main.plenty", "import math.arithmetic\nfrom math.arithmetic import twice as double\nimport math.arithmetic as numbers\ndef main() -> ():\n    print(math.arithmetic.twice(10)).unwrap()\n    print(double(11)).unwrap()\n    print(numbers.twice(12)).unwrap()\n"),
+        ("math/arithmetic.plenty", "pub def twice(n: i64) -> i64:\n    helper(n)\ndef helper(n: i64) -> i64:\n    n * 2\ndef main() -> ():\n    print('not an entrypoint').unwrap()\n"),
     ], "app/main.plenty", "20\n22\n24\n");
 }
 
@@ -196,7 +196,7 @@ fn imported_main_is_an_ordinary_function_and_library_check_needs_no_entry() {
         &[
             (
                 "main.plenty",
-                "import lib\ndef main() -> ():\n    print(lib.main(41))\n",
+                "import lib\ndef main() -> ():\n    print(lib.main(41)).unwrap()\n",
             ),
             ("lib.plenty", "pub def main(n: i64) -> i64:\n    n + 1\n"),
         ],
@@ -208,23 +208,23 @@ fn imported_main_is_an_ordinary_function_and_library_check_needs_no_entry() {
     assert!(plenty::check_file(&dir.path().join("empty.plenty"), None).is_err());
 }
 
-const MODEL: &str = "pub class Counter:\n    value: i64\n    pub def __init__(self, value: i64) -> ():\n        self.value = value\n    pub def get(self) -> i64:\n        self.value\n    pub def increment(self: &mut Counter) -> ():\n        self.value = self.value + 1\n    def hidden(self) -> i64:\n        self.value\n    def __del__(self) -> ():\n        print(self.value)\npub def peek(x: &Counter) -> i64:\n    x.value\n";
+const MODEL: &str = "pub class Counter:\n    value: i64\n    pub def __init__(self, value: i64) -> ():\n        self.value = value\n    pub def get(self) -> i64:\n        self.value\n    pub def increment(self: &mut Counter) -> ():\n        self.value = self.value + 1\n    def hidden(self) -> i64:\n        self.value\n    def __del__(self) -> ():\n        print(self.value).unwrap()\npub def peek(x: &Counter) -> i64:\n    x.value\n";
 
 #[test]
 fn public_methods_construction_and_private_drop_work_across_modules() {
     run(&[
-        ("main.plenty", "from model import Counter, peek\ndef main() -> ():\n    mut counter = Counter(40)\n    counter.increment()\n    print(counter.get())\n    print(peek(&counter))\n"),
+        ("main.plenty", "from model import Counter, peek\ndef main() -> ():\n    mut counter = Counter(40).unwrap()\n    counter.increment()\n    print(counter.get()).unwrap()\n    print(peek(&counter)).unwrap()\n"),
         ("model.plenty", MODEL),
     ], "main.plenty", "41\n41\n41\n");
     for operation in [
-        "print(c.value)",
+        "print(c.value).unwrap()",
         "c.value = 42",
         "r = &c.value",
         "r = &mut c.value",
-        "print(c.hidden())",
+        "print(c.hidden()).unwrap()",
     ] {
         let source = format!(
-            "import model\ndef main() -> ():\n    mut c = model.Counter(1)\n    {operation}\n"
+            "import model\ndef main() -> ():\n    mut c = model.Counter(1).unwrap()\n    {operation}\n"
         );
         reject(
             &[("main.plenty", &source), ("model.plenty", MODEL)],
@@ -236,7 +236,7 @@ fn public_methods_construction_and_private_drop_work_across_modules() {
 #[test]
 fn public_fields_generated_constructors_and_qualified_enum_patterns() {
     run(&[
-        ("main.plenty", "import model as m\nfrom model import Event as E, Count\ndef read(x: m.Event) -> i64:\n    match x:\n        case m.Event.Value(n):\n            n\n        case E.Empty:\n            0\ndef main() -> ():\n    mut p = m.Point(3)\n    p.x = 4\n    print(p.x)\n    print(read(m.Event.Value(42)))\n    n: Count = Count(7)\n    print(n)\n"),
+        ("main.plenty", "import model as m\nfrom model import Event as E, Count\ndef read(x: m.Event) -> i64:\n    match x:\n        case m.Event.Value(n):\n            n\n        case E.Empty:\n            0\ndef main() -> ():\n    mut p = m.Point(3).unwrap()\n    p.x = 4\n    print(p.x).unwrap()\n    print(read(m.Event.Value(42).unwrap())).unwrap()\n    n: Count = Count(7)\n    print(n).unwrap()\n"),
         ("model.plenty", "pub type Count = u32\npub class Point:\n    pub x: i64\npub enum Event:\n    Value(i64)\n    Empty\n"),
     ], "main.plenty", "4\n42\n7\n");
 }
@@ -248,13 +248,13 @@ fn private_constructors_and_aliases_cannot_bypass_visibility() {
         "pub class Secret:\n    pub value: i64\n    def __init__(self, value: i64) -> ():\n        self.value = value\n",
     ] {
         reject(&[
-            ("main.plenty", "from lib import Secret\ntype Alias = Secret\ndef main() -> ():\n    value = Alias(42)\n"),
+            ("main.plenty", "from lib import Secret\ntype Alias = Secret\ndef main() -> ():\n    value = Alias(42).unwrap()\n"),
             ("lib.plenty", body),
         ], "__new__` is private");
     }
     run(&[
-        ("main.plenty", "from lib import make\ndef main() -> ():\n    value = make()\n    print(value.get())\n"),
-        ("lib.plenty", "pub class Secret:\n    value: i64\n    pub def get(self) -> i64:\n        self.value\npub def make() -> Secret:\n    Secret(42)\n"),
+        ("main.plenty", "from lib import make\ndef main() -> ():\n    value = make()\n    print(value.get()).unwrap()\n"),
+        ("lib.plenty", "pub class Secret:\n    value: i64\n    pub def get(self) -> i64:\n        self.value\npub def make() -> Secret:\n    Secret(42).unwrap()\n"),
     ], "main.plenty", "42\n");
 }
 
@@ -265,7 +265,7 @@ fn public_signatures_cannot_expose_private_nominal_types() {
         "pub type Exposed = Alias\n",
         "pub enum Exposed:\n    Value(list[Alias])\n",
         "pub class Exposed:\n    pub value: Option[Alias]\n",
-        "pub def f() -> Result[Hidden, str]:\n    Ok(Hidden(1))\n",
+        "pub def f() -> Result[Hidden, str]:\n    Ok(Hidden(1).unwrap())\n",
     ] {
         let lib = format!("class Hidden:\n    value: i64\ntype Alias = Hidden\n{api}");
         reject(
@@ -284,11 +284,11 @@ fn diamond_imports_share_identity_and_same_named_types_stay_distinct() {
         &[
             (
                 "main.plenty",
-                "import left, right\ndef main() -> ():\n    print(right.read(left.make()))\n",
+                "import left, right\ndef main() -> ():\n    print(right.read(left.make())).unwrap()\n",
             ),
             (
                 "left.plenty",
-                "from model import Point\npub def make() -> Point:\n    Point(42)\n",
+                "from model import Point\npub def make() -> Point:\n    Point(42).unwrap()\n",
             ),
             (
                 "right.plenty",
@@ -303,7 +303,7 @@ fn diamond_imports_share_identity_and_same_named_types_stay_distinct() {
         &[
             (
                 "main.plenty",
-                "import left, right\ndef main() -> ():\n    p: left.Point = right.Point(1)\n",
+                "import left, right\ndef main() -> ():\n    p: left.Point = right.Point(1).unwrap()\n",
             ),
             ("left.plenty", "pub class Point:\n    pub x: i64\n"),
             ("right.plenty", "pub class Point:\n    pub x: i64\n"),
@@ -324,7 +324,7 @@ fn import_failures_do_not_run_initializers_or_expose_transitive_names() {
     reject(
         &[
             ("main.plenty", "import lib\ndef main() -> ():\n    pass\n"),
-            ("lib.plenty", "print('must not run')\n"),
+            ("lib.plenty", "print('must not run').unwrap()\n"),
         ],
         "module scope",
     );
@@ -419,8 +419,8 @@ fn in_memory_api_never_searches_the_filesystem_for_imports() {
 #[test]
 fn imported_generators_enums_and_tail_recursion_keep_their_identities() {
     run(&[
-        ("main.plenty", "import data\ndef main() -> ():\n    for value in data.values():\n        match value:\n            case data.Reading.Value(n):\n                print(n)\n            case data.Reading.Empty:\n                pass\n    print(data.count(100_000))\n"),
-        ("data.plenty", "pub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42)\n    yield Reading.Empty\npub def count(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        count(n - 1)\n"),
+        ("main.plenty", "import data\ndef main() -> ():\n    for value in data.values().unwrap():\n        match value:\n            case data.Reading.Value(n):\n                print(n).unwrap()\n            case data.Reading.Empty:\n                pass\n    print(data.count(100_000)).unwrap()\n"),
+        ("data.plenty", "pub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42).unwrap()\n    yield (Reading.Empty).unwrap()\npub def count(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        count(n - 1)\n"),
     ], "main.plenty", "42\n0\n");
 }
 
@@ -441,7 +441,7 @@ fn namespace_roots_and_locals_do_not_implicitly_import_names() {
         &[
             (
                 "main.plenty",
-                "import pkg.a, pkg.b\ndef main() -> ():\n    print(pkg.a.f() + pkg.b.f())\n",
+                "import pkg.a, pkg.b\ndef main() -> ():\n    print(pkg.a.f() + pkg.b.f()).unwrap()\n",
             ),
             ("pkg/a.plenty", "pub def f() -> i64:\n    1\n"),
             ("pkg/b.plenty", "pub def f() -> i64:\n    2\n"),
@@ -478,7 +478,7 @@ fn imported_ownership_errors_retain_the_defining_source_path() {
             ("main.plenty", "import lib\ndef main() -> ():\n    pass\n"),
             (
                 "lib.plenty",
-                "pub def bad() -> ():\n    a = [1]\n    b = a\n    print(a)\n",
+                "pub def bad() -> ():\n    a = [1].unwrap()\n    b = a\n    print(a).unwrap()\n",
             ),
         ],
         "lib.plenty",
@@ -490,7 +490,7 @@ fn imported_ownership_errors_retain_the_defining_source_path() {
 fn canonical_paths_deduplicate_symlinks_and_reject_root_escape() {
     use std::os::unix::fs::symlink;
     let dir = workspace(&[
-        ("main.plenty", "import original, alias\ndef main() -> ():\n    p: original.Point = alias.Point(42)\n    print(p.x)\n"),
+        ("main.plenty", "import original, alias\ndef main() -> ():\n    p: original.Point = alias.Point(42).unwrap()\n    print(p.x).unwrap()\n"),
         ("original.plenty", "pub class Point:\n    pub x: i64\n"),
     ]);
     symlink(

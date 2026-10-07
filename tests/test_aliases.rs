@@ -122,7 +122,7 @@ fn long_forward_alias_chains_do_not_require_recursive_resolution() {
 
 #[test]
 fn native_aliases_have_the_same_abi_and_cast_behavior_as_their_targets() {
-    let source = "type int = i32\ntype Byte = u8\ntype Count = int\ntype Text = str\ntype Flag = bool\ntype Done = ()\ndef bump(x: Count) -> int:\n    if x < 0i32:\n        return int(0)\n    x + 1i32\ndef done() -> Done:\n    return\ndef message() -> Text:\n    return 'hello'\ndef yes() -> Flag:\n    True\ndone()\nprint(bump(int(41)))\nprint(Byte(257))\nprint(message())\nprint(yes())";
+    let source = "type int = i32\ntype Byte = u8\ntype Count = int\ntype Text = str\ntype Flag = bool\ntype Done = ()\ndef bump(x: Count) -> int:\n    if x < 0i32:\n        return int(0)\n    x + 1i32\ndef done() -> Done:\n    return\ndef message() -> Text:\n    return 'hello'\ndef yes() -> Flag:\n    True\ndone()\nprint(bump(int(41))).unwrap()\nprint(Byte(257)).unwrap()\nprint(message()).unwrap()\nprint(yes()).unwrap()";
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let base = std::env::temp_dir().join(format!(
         "plenty-alias-{}-{}",

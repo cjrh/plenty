@@ -26,12 +26,12 @@ def read[T: Readable](source: &T) -> str:
     source.read()
 def increment[T: Incrementable](source: &mut T) -> ():
     source.increment(2)
-    print(source.view())
-text = Text("hello")
-print(read[Text](&text))
-mut counter = Counter(3)
+    print(source.view()).unwrap()
+text = Text("hello").unwrap()
+print(read[Text](&text)).unwrap()
+mut counter = Counter(3).unwrap()
 increment[Counter](&mut counter)
-print(counter.value)
+print(counter.value).unwrap()
 "#,
     );
     assert!(

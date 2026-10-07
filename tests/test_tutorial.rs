@@ -55,6 +55,7 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
     let mut examples = 0;
     let mut index = 0;
     let mut modules = Vec::new();
+    let mut failures = Vec::new();
     while index < fences.len() {
         let source = &fences[index];
         if let Some(path) = source.language.strip_prefix("plenty-file ") {
@@ -130,58 +131,63 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
             .arg(&executable)
             .output()
             .unwrap();
-        if valid {
-            assert!(
-                run_output.status.success(),
-                "TUTORIAL.md:{} run command: {}",
-                source.line,
-                String::from_utf8_lossy(&run_output.stderr)
-            );
-            assert!(
-                compiled.status.success(),
-                "TUTORIAL.md:{} compiler: {}",
-                source.line,
-                String::from_utf8_lossy(&compiled.stderr)
-            );
-            let native = Command::new(&executable)
-                .current_dir(&native_dir)
-                .output()
-                .unwrap();
-            assert!(
-                native.status.success(),
-                "TUTORIAL.md:{} native: {}",
-                source.line,
-                String::from_utf8_lossy(&native.stderr)
-            );
-            assert_eq!(
-                String::from_utf8_lossy(&run_output.stdout),
-                expected.body,
-                "TUTORIAL.md:{} run command output",
-                source.line
-            );
-            assert_eq!(
-                native.stdout, run_output.stdout,
-                "TUTORIAL.md:{} native output",
-                source.line
-            );
-        } else {
-            let message = expected.body.trim();
-            assert!(!message.is_empty());
-            for (backend, output) in [("run command", run_output), ("compiler", compiled)] {
+        let checked = std::panic::catch_unwind(|| {
+            if valid {
                 assert!(
-                    !output.status.success(),
-                    "TUTORIAL.md:{} {backend} accepted an invalid program",
+                    run_output.status.success(),
+                    "TUTORIAL.md:{} run command: {}",
+                    source.line,
+                    String::from_utf8_lossy(&run_output.stderr)
+                );
+                assert!(
+                    compiled.status.success(),
+                    "TUTORIAL.md:{} compiler: {}",
+                    source.line,
+                    String::from_utf8_lossy(&compiled.stderr)
+                );
+                let native = Command::new(&executable)
+                    .current_dir(&native_dir)
+                    .output()
+                    .unwrap();
+                assert!(
+                    native.status.success(),
+                    "TUTORIAL.md:{} native: {}",
+                    source.line,
+                    String::from_utf8_lossy(&native.stderr)
+                );
+                assert_eq!(
+                    String::from_utf8_lossy(&run_output.stdout),
+                    expected.body,
+                    "TUTORIAL.md:{} run command output",
                     source.line
                 );
-                assert!(output.stdout.is_empty(), "invalid program had effects");
-                assert!(
-                    String::from_utf8_lossy(&output.stderr).contains(message),
-                    "TUTORIAL.md:{} {backend}: expected {message:?}, got {}",
-                    source.line,
-                    String::from_utf8_lossy(&output.stderr)
+                assert_eq!(
+                    native.stdout, run_output.stdout,
+                    "TUTORIAL.md:{} native output",
+                    source.line
                 );
+            } else {
+                let message = expected.body.trim();
+                assert!(!message.is_empty());
+                for (backend, output) in [("run command", run_output), ("compiler", compiled)] {
+                    assert!(
+                        !output.status.success(),
+                        "TUTORIAL.md:{} {backend} accepted an invalid program",
+                        source.line
+                    );
+                    assert!(output.stdout.is_empty(), "invalid program had effects");
+                    assert!(
+                        String::from_utf8_lossy(&output.stderr).contains(message),
+                        "TUTORIAL.md:{} {backend}: expected {message:?}, got {}",
+                        source.line,
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                assert!(!executable.exists());
             }
-            assert!(!executable.exists());
+        });
+        if checked.is_err() {
+            failures.push(source.line);
         }
         examples += 1;
         index += 2;
@@ -193,5 +199,9 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
     assert!(
         modules.is_empty(),
         "orphan tutorial module without an example"
+    );
+    assert!(
+        failures.is_empty(),
+        "tutorial examples failed at lines {failures:?}"
     );
 }

@@ -1,56 +1,52 @@
 # Runtime allocation audit
 
-Initially audited after `4f63036`, updated through the collection, formatting,
-tuple, and allocator-provenance foundation work. This covers generated-program allocation, not compiler
-memory. Existing ordinary construction remains aborting; explicit `try_` entry
-points provide incremental recovery without silently changing expression types.
+Allocation is fallible by default in the current language. This audit covers
+generated programs, not compiler memory. Public allocating operations return
+`Result`; there are no `try_` alternatives or prefix `try` displays. Postfix `?`
+propagates failure, `match` handles it, and `.unwrap()` explicitly terminates on
+failure. Nonallocating operations keep their ordinary return types.
 
-| Path | Current mechanism | Next boundary |
-| --- | --- | --- |
-| Empty/reserved collections | `try_collection_new`, exposed by `try_new`/`try_with_capacity` | Already recoverable |
-| Collection growth and explicit duplication | Checked reservations and guarded partial copies | Already recoverable through `try_` methods |
-| Class storage | `Class.try_new`, optional `Result[(), AllocError]` initializer | Implemented, including partial-field cleanup |
-| User enum storage | `Enum.Variant.try_new` | Implemented; ordinary variants still abort |
-| Generator frame | `generator_function.try_new` | Implemented; ordinary calls still abort |
-| Eager iterator collection | `list[T].try_from` and `set[T].try_from` | Implemented; iterator body operations retain their own contracts |
-| Literals/comprehensions | Explicit `try [...]` / `try {...}` use checked construction and insertion | Implemented; failed growth stops iteration and cleans partial contents |
-| Tuple products | Existing record storage; `try (a, b)` checks allocation | Implemented; evaluated components are consumed and cleaned on failure |
-| Strings | Literals are immortal; builders have fallible alternatives | Audit implicit concatenation and formatting separately |
-| Console/file APIs | Explicit I/O results include allocation errors | Keep partial-read/write contracts |
-| Aggregate formatting/output | `str.try_repr` / `try_print` use checked buffers; output starts after formatting succeeds | Implemented; ordinary `print` and fatal diagnostics retain aborting allocation contracts |
-| Structural equality bookkeeping | Memoization of shared aggregate pairs may allocate | Still an ordinary aborting path; scalar/list query APIs document their supported nonallocating element types |
-| Destruction | Intrusive queue; no allocating work list | User destructor bodies can still allocate |
-| Allocator selection | Object prefix records its process-lifetime allocator table; internal `try_allocate_in` selects it | Growth buffers still use Rust's global allocator. Public allocator selection, state/lifetimes, and per-container buffers remain future work |
+| Path | Current contract |
+| --- | --- |
+| Collections and reservation | `list[T]()`, `new`, `with_capacity`, and `reserve` return checked results |
+| Growth and duplication | `append`, `add`, `insert`, `extend`, `update`, and `copy` use checked reservations and partial-owner guards |
+| Class storage | `Class(...)` and `Class.new(...)` return `Result[Class, AllocError]`; an initializer may also return an allocation result |
+| User enum storage | Heap variant constructors return `Result[Enum, AllocError]`; builtin inline sums and errors remain allocation-free |
+| Generator frames | A call to a yielding function returns `Result[Generator[T], AllocError]`; failure releases captures without executing the body |
+| Ranges | `range(...)` currently has a heap owner and returns `Result[range[T], AllocError]` |
+| Iterator collection | List/set construction and `from` check output growth; iterator bodies handle their own operations |
+| Literals/comprehensions | Construction returns `Result`; failed growth stops evaluation and cleans partial contents |
+| Tuples | Nonempty tuple displays return a checked allocation result; evaluated components are consumed and cleaned on failure |
+| Strings | Literals are immortal. `+`, indexing, builders, and snapshots return results. Iteration yields one `Result[str, AllocError]` per scalar |
+| Console/files | I/O results include allocation errors; partial reads/writes retain their documented effects |
+| Formatting | `str.repr` and `print` use checked buffers. Printing an existing string needs no formatting allocation |
+| Equality | A fixed 256-entry stack memo avoids heap allocation; eviction can repeat work on larger shared graphs |
+| Indexed replacement | List/dictionary replacement allocates nothing. Missing dictionary keys trap; adding keys uses `insert` |
+| Destruction | An intrusive queue needs no allocated work list. User destructor bodies handle their own operation results |
+| Allocator provenance | Object prefixes retain their process-lifetime allocator table; container buffers still use the global allocator |
 
-## Construction contract
+Class arguments evaluate left to right before allocation and move into the call
+on either outcome. Storage failure runs neither initializer nor destructor for
+the nonexistent instance. Initializer failure drops initialized fields; the
+instance's custom destructor becomes active only after successful initialization.
 
-The class API is `Class.try_new(arguments) -> Result[Class, AllocError]`.
-Arguments evaluate once, left to right, before allocation. Owned arguments move
-into the call even if allocation fails; failure drops them. Allocation failure
-must not run `__init__` or `__del__` for an instance that never existed. Successful
-construction uses the same initialization and destruction behavior as `Class(...)`.
-Allocations inside argument expressions or an ordinary `__init__` remain subject
-to their own contracts; this API does not catch aborts or arbitrary failures.
+Collection display owners are allocated before entries or iterables are evaluated.
+The first failed growth skips later expressions and releases the initialized
+prefix. A `?` inside an entry or filter returns from the enclosing function; the
+outer display is not an exception handler. Earlier side effects are not rolled back.
 
-Initialization can return `Result[(), AllocError]`. Initialized fields are dropped
-on failure; whole-instance `__del__` is activated only after success. Other
-initializer error types remain future work. Generator allocation failure releases
-captured arguments without executing the body.
+`Result` and `Option` wrappers, builtin error payloads, propagation, and native
+entrypoint status conversion need no allocation. A Result-returning `main` drops
+its error and exits with status one; it does not allocate an error diagnostic.
 
-## Validation obligations
+Failure sweeps exercise construction, growth, duplication, formatting buffers,
+final string storage, stopped comprehensions, and owned tuple components. Native
+allocation accounting checks reclamation; Miri checks runtime layouts and pointer
+access. Destructors used in allocation-failure tests either avoid allocation or
+restore the test budget before explicitly allocating output.
 
-For each exposed boundary, inject failure at every allocation, check cleanup and
-argument evaluation order, and retry afterward. Check successful construction
-with owned/nested fields and custom destructors. Exercise runtime pointer/layout
-changes under Miri and generated native code under allocation accounting.
-
-Remaining aborting paths must stay documented: a recoverable constructor does
-not establish a process-wide out-of-memory guarantee.
-
-Native failure sweeps cover each reached collection/format-buffer allocation,
-including final string storage, stopped comprehension loops, owned prefixes, and
-tuple component cleanup. A failed `try_print` format writes no prefix; a later
-I/O failure may still have written bytes. Runtime allocation accounting checks
-reclamation, and Miri covers the allocation prefix and element-pointer stability.
-The test-only failure budget is restored before destructor output in the tuple
-cleanup test: user destructor bodies retain their own allocation contracts.
+Explicit unwrapping, invalid operations such as out-of-bounds indexing, and fatal
+runtime invariants can still terminate without unwinding. Legacy backend test
+entrypoints retain their historical contracts and are not modern language APIs.
+Public allocator selection, lifetimes, and routing of container buffers remain
+future work.

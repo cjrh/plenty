@@ -23,7 +23,7 @@ def sum_to(n: i64, total: i64) -> i64:
 def main() -> ():
     mut answer = sum_to(100, 0)
     answer = answer + 1
-    print(answer)
+    print(answer).unwrap()
 ```
 
 Run and compile the example:
@@ -82,7 +82,7 @@ Supported today:
 - Explicit generic functions with cached concrete specializations, `IntType`,
   and structural class-method protocol constraints.
 - Recoverable collection and tuple displays using `try`, fallible construction
-  and mutation APIs, `str.try_repr`, and `try_print`.
+  and mutation APIs, `str.repr`, and `print`.
 - Concrete `enum` types, exhaustive `match`/`case`, and typed `Option`/`Result`,
   including `Result[(), E]` and built-in `Some`, `Nothing`, `Ok`, and `Err`.
 - `Generator[T]` functions with `yield`, consuming iteration, and `next` returning
@@ -101,11 +101,11 @@ Collections and comprehensions use familiar syntax with fixed element types:
 
 ```python
 def main() -> ():
-    squares: list[i64] = [n * n for n in range(10) if n % 2 == 0]
-    by_value: dict[i64, i64] = {n: n * n for n in &squares}
-    unique: set[i64] = set(copy(squares))
+    squares: list[i64] = [n * n for n in range(10).unwrap() if n % 2 == 0].unwrap()
+    by_value: dict[i64, i64] = {n: n * n for n in &squares}.unwrap()
+    unique: set[i64] = set(copy(squares).unwrap()).unwrap()
     for n in &squares:
-        print(n)
+        print(n).unwrap()
 ```
 
 Collection assignment transfers ownership. Use `copy(value)` for independent

@@ -211,15 +211,15 @@ fn run_command_cleans_temporary_files_after_success_and_failure() {
     std::fs::create_dir(&scratch).unwrap();
     let source = workspace.path().join("program.plenty");
     for (program, code, stdout, diagnostic) in [
-        ("def main() -> ():\n    print(42)\n", 0, "42\n", ""),
+        ("def main() -> ():\n    print(42).unwrap()\n", 0, "42\n", ""),
         (
-            "def main() -> ():\n    print(42)\n    1 // 0\n    pass\n",
+            "def main() -> ():\n    print(42).unwrap()\n    1 // 0\n    pass\n",
             1,
             "42\n",
             "division by zero",
         ),
         (
-            "def main() -> ():\n    print('must not execute')\n    missing()\n",
+            "def main() -> ():\n    print('must not execute').unwrap()\n    missing()\n",
             1,
             "",
             "unknown function",
@@ -252,7 +252,7 @@ fn checking_needs_no_linker_and_missing_linker_failure_cleans_up() {
     std::fs::create_dir(&empty_path).unwrap();
     std::fs::create_dir(&scratch).unwrap();
     let source = workspace.path().join("program.plenty");
-    std::fs::write(&source, "def main() -> ():\n    print(42)\n").unwrap();
+    std::fs::write(&source, "def main() -> ():\n    print(42).unwrap()\n").unwrap();
     let checked = Command::new(plenty_bin())
         .arg("--check")
         .arg(&source)

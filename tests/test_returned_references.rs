@@ -13,13 +13,13 @@ class Pair:
     right: Point
     def left_ref(self: &mut Pair) -> &mut Point:
         &mut self.left
-mut pair = Pair(Point(1, 2), Point(3, 4))
+mut pair = Pair(Point(1, 2).unwrap(), Point(3, 4).unwrap()).unwrap()
 left = pair.left_ref()
 x = &mut left.x
 pair.right.x = 7
 *x = 9
-print(x)
-print(pair)
+print(x).unwrap()
+print(pair).unwrap()
 "#,
         "9\nPair(left=Point(x=9, y=2), right=Point(x=7, y=4))\n",
     );
@@ -32,10 +32,10 @@ def select(p: &mut Pair, which: bool) -> &mut i64:
     if which:
         return &mut p.x
     &mut p.y
-mut pair = Pair(1, 2)
+mut pair = Pair(1, 2).unwrap()
 r = select(&mut pair, True)
 pair.y = 3
-print(r)
+print(r).unwrap()
 "#,
         "conflicting borrow",
     );
@@ -78,14 +78,14 @@ class Pair:
     y: i64
     def x_ref(self: &mut Pair) -> &mut i64:
         &mut self.x
-mut pair = Pair(2, 3)
+mut pair = Pair(2, 3).unwrap()
 x = pair.x_ref()
 *x = 5
 mut number = 7
 alias = identity(&mut number)
 *alias = *alias + 1
-print(*view(&number))
-print(pair.x)
+print(*view(&number)).unwrap()
+print(pair.x).unwrap()
 "#,
         "8\n5\n",
     );
@@ -102,10 +102,10 @@ def select(pair: &mut Pair, left: bool) -> &mut i64:
     if left:
         return &mut pair.x
     &mut pair.y
-mut p = Pair(1, 2)
+mut p = Pair(1, 2).unwrap()
 r = select(&mut p, False)
 *r = 8
-print(p)
+print(p).unwrap()
 "#,
         "Pair(x=1, y=8)\n",
     );
@@ -130,7 +130,7 @@ fn returned_borrows_preserve_conflicts_and_cannot_escape_owned_locals() {
         "mutable reference parameter",
     );
     reject(
-        "def view(a: &i64) -> &i64:\n    a\nmut n = 1\nr = view(&n)\nn = 2\nprint(r)\n",
+        "def view(a: &i64) -> &i64:\n    a\nmut n = 1\nr = view(&n)\nn = 2\nprint(r).unwrap()\n",
         "conflicting borrow",
     );
     reject(
@@ -149,11 +149,11 @@ class Pair:
     right: Point
 def right(pair: &mut Pair) -> &mut Point:
     &mut pair.right
-mut pair = Pair(Point(1), Point(2))
+mut pair = Pair(Point(1).unwrap(), Point(2).unwrap()).unwrap()
 r = right(&mut pair)
 x = &mut r.x
 pair.right.x = 9
-print(x)
+print(x).unwrap()
 "#;
     reject(source, "conflicting borrow");
 }
@@ -167,8 +167,8 @@ def forward(a: &i64) -> &i64:
     return r
 n = 9
 r = forward(&n)
-print(n)
-print(r)
+print(n).unwrap()
+print(r).unwrap()
 "#,
         "9\n9\n",
     );
@@ -183,7 +183,7 @@ def view(value: &i64) -> &i64:
 left = 1
 right = 2
 prior = &left
-print(view(&left) if True else view(&right))
+print(view(&left) if True else view(&right)).unwrap()
 "#,
         "reference result requires",
     );
@@ -197,7 +197,7 @@ class Point:
     x: i64
     def view(self) -> &i64:
         &self.x
-print(Point(1).view())
+print(Point(1).unwrap().view()).unwrap()
 "#,
         "require a named receiver",
     );
@@ -207,7 +207,7 @@ class Point:
     x: i64
     def view(self) -> &i64:
         &self.x
-print([Point(1)][0].view())
+print([Point(1).unwrap()].unwrap()[0].view()).unwrap()
 "#,
         "require a named receiver",
     );

@@ -182,6 +182,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
 pub enum EnumOp {
     New(Rc<EnumType>, usize),
     TryNew(Rc<EnumType>, usize),
+    Unwrap(Rc<EnumType>),
     Tag(Rc<EnumType>),
     Field(Rc<EnumType>, usize, usize),
     Take(Rc<EnumType>, usize, usize),
@@ -189,6 +190,11 @@ pub enum EnumOp {
 impl EnumOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
+            Self::Unwrap(t) if t.propagatable() => (
+                vec![Ty::Enum(t.clone())],
+                t.variants[usize::from(t.is_option())].fields[0].clone(),
+            ),
+            Self::Unwrap(_) => return None,
             Self::New(t, tag) => (t.variants.get(*tag)?.fields.clone(), Ty::Enum(t.clone())),
             Self::TryNew(t, tag) => (
                 t.variants.get(*tag)?.fields.clone(),

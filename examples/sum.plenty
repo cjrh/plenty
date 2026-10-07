@@ -8,4 +8,4 @@ def sum_to(n: i64, total: i64) -> i64:
 def main() -> ():
     mut answer = sum_to(100, 0)
     answer = answer + 1
-    print(answer)
+    print(answer).unwrap()

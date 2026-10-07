@@ -242,13 +242,28 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         match &e.kind {
+            Expression::Try(value) => self.propagate(e, value, expected, ops),
+            Expression::Method(base, name, args)
+                if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) =>
+            {
+                self.unwrap_result(base, args, expected, ops)
+            }
             Expression::Call(name, args)
                 if name == "range"
-                    && matches!(expected, Some(Ty::Range(_)))
+                    && matches!(&expected, Some(Ty::Range(_)) | Some(Ty::Enum(_)))
                     && !self.names.contains_key(name) =>
             {
-                let Some(Ty::Range(t)) = expected else {
-                    unreachable!()
+                let ty = match expected {
+                    Some(Ty::Enum(t)) if t.propagatable() && !t.is_option() => {
+                        t.variants[0].fields[0].clone()
+                    }
+                    Some(t) => t,
+                    None => unreachable!(),
+                };
+                let Ty::Range(t) = ty else {
+                    return Err(e
+                        .at
+                        .error("range context must be range[T] or Result[range[T], AllocError]"));
                 };
                 self.range(args, (*t).clone(), &e.at, ops).map(Some)
             }
@@ -289,15 +304,18 @@ impl Lower<'_> {
             {
                 self.prelude_constructor(name, None, expected, &e.at, ops)
             }
-            Expression::Collection { .. } => self.collection(e, expected, ops).map(Some),
-            Expression::FallibleCollection(inner) => {
-                self.fallible_display(inner, expected, ops).map(Some)
-            }
+            Expression::Collection { .. } => self.fallible_display(e, expected, ops).map(Some),
             Expression::Call(name, args)
                 if matches!(name.as_str(), "list" | "dict" | "set")
                     && args.is_empty()
                     && !self.names.contains_key(name) =>
             {
+                let expected = match expected {
+                    Some(Ty::Enum(t)) if t.propagatable() && !t.is_option() => {
+                        Some(t.variants[0].fields[0].clone())
+                    }
+                    other => other,
+                };
                 let ty = expected.ok_or_else(|| {
                     e.at.error("empty collection needs a type annotation or typed constructor")
                 })?;
@@ -319,36 +337,6 @@ impl Lower<'_> {
             }
             _ => self.expr(e, ops),
         }
-    }
-
-    pub(super) fn collection(&mut self, e: &Expr, expected: Type, ops: &mut Vec<Op>) -> Result<Ty> {
-        let Expression::Collection {
-            kind,
-            entries,
-            clauses,
-        } = &e.kind
-        else {
-            unreachable!()
-        };
-        if expected.as_ref().is_some_and(|ty| !kind_matches(kind, ty)) {
-            return Err(e.at.error("collection type does not match its annotation"));
-        }
-        let result = self.slot(Ty::I64, &e.at)?;
-        let mut ty = expected;
-        let mut body = Vec::new();
-        let saved = self.names.clone();
-        self.comprehension(clauses, entries, kind, result, &mut ty, None, &mut body)?;
-        self.names = saved;
-        let ty = ty.ok_or_else(|| {
-            e.at.error("empty collection needs a type annotation or typed constructor")
-        })?;
-        self.locals[result as usize - self.parameters] = ty.clone();
-        ops.push(Op::Collection(CollectionOp::New(ty.clone())));
-        ops.push(Op::StoreLocal(result));
-        ops.extend(body);
-        ops.push(Op::LoadLocal(result));
-        ops.push(Op::DropLocal(result));
-        Ok(ty)
     }
 
     pub(super) fn fallible_display(
@@ -378,7 +366,7 @@ impl Lower<'_> {
             _ => {
                 return Err(e
                     .at
-                    .error("try display requires a Result[collection, AllocError] context"))
+                    .error("collection literal returns Result[collection, AllocError]; use `?` to propagate allocation failure"))
             }
         };
         if expected.as_ref().is_some_and(|ty| !kind_matches(kind, ty)) {
@@ -682,7 +670,14 @@ impl Lower<'_> {
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(..))));
         let mutable = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&mut")
             || matches!(&iterable.kind, Expression::Name(n) if self.names.get(n).is_some_and(|l| matches!(l.ty, Ty::Ref(_, true))));
-        let range_args = match &iterable.kind {
+        let range_expr = match &iterable.kind {
+            Expression::Try(inner) => ungroup(inner),
+            Expression::Method(inner, name, args) if name == "unwrap" && args.is_empty() => {
+                ungroup(inner)
+            }
+            _ => iterable,
+        };
+        let range_args = match &range_expr.kind {
             Expression::Call(function, args)
                 if function == "range" && !self.names.contains_key(function) =>
             {
@@ -692,18 +687,18 @@ impl Lower<'_> {
         };
         let (ty, loans) = if let Some(args) = range_args {
             (
-                self.range(
-                    args,
-                    hint.unwrap_or_else(|| {
+                self.expr_expected(
+                    iterable,
+                    Some(Ty::Range(Rc::new(hint.unwrap_or_else(|| {
                         args.iter()
                             .take(2)
                             .find_map(|e| self.numeric_hint(e))
                             .filter(Ty::is_int)
                             .unwrap_or(Ty::I64)
-                    }),
-                    &iterable.at,
+                    })))),
                     ops,
-                )?,
+                )?
+                .ok_or_else(|| iterable.at.error("expected a range value"))?,
                 vec![],
             )
         } else if mutable {
@@ -882,10 +877,9 @@ impl Lower<'_> {
         let mut step = Vec::new();
         if text {
             step.extend([
+                Op::LoadLocal(source),
                 Op::LoadLocal(index),
-                Op::LoadLocal(target),
-                Op::Collection(CollectionOp::TextByteLen),
-                Op::Add,
+                Op::Collection(CollectionOp::TextNextByte),
                 Op::StoreLocal(index),
             ]);
         } else {
@@ -977,6 +971,11 @@ impl Lower<'_> {
         }
         let got = self.expr_expected(index, Some(key.clone()), ops)?;
         self.same(got, Some(key), &index.at)?;
+        if ty == Ty::Str {
+            ops.push(Op::Collection(CollectionOp::TextIndex));
+            Self::end_reads(loans, ops);
+            return Ok(CollectionOp::TextIndex.signature().1);
+        }
         ops.push(Op::Collection(CollectionOp::Get(ty)));
         Self::end_reads(loans, ops);
         Ok(value)
@@ -1030,6 +1029,34 @@ impl Lower<'_> {
         Ok(())
     }
 
+    fn unwrap_result(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if !args.is_empty() {
+            return Err(base.at.error("unwrap takes no arguments"));
+        }
+        let context = expected.map(|t| crate::sum::result(t, crate::sum::alloc_error()));
+        let Some(Ty::Enum(t)) = self.expr_expected(base, context, ops)? else {
+            return Err(base.at.error("unwrap requires a Result or Option"));
+        };
+        if !t.propagatable() {
+            return Err(base.at.error("unwrap requires a Result or Option"));
+        }
+        let operation = crate::sum::EnumOp::Unwrap(t);
+        let result = operation.signature().unwrap().1;
+        ops.push(Op::Enum(operation));
+        if result == Ty::Unit {
+            ops.push(Op::Drop);
+            Ok(None)
+        } else {
+            Ok(Some(result))
+        }
+    }
+
     pub(super) fn method(
         &mut self,
         base: &Expr,
@@ -1037,7 +1064,10 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if name == "try_new" {
+        if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) {
+            return self.unwrap_result(base, args, None, ops);
+        }
+        if name == "new" {
             if let Expression::Name(function) = &ungroup(base).kind {
                 let constructor = generators::constructor(function);
                 if !self.names.contains_key(function) && self.sigs.contains_key(&constructor) {
@@ -1056,7 +1086,7 @@ impl Lower<'_> {
                         .iter()
                         .find(|v| v.name == *variant)
                         .is_some_and(|v| v.fields.is_empty());
-                    let ty = self.variant(
+                    let result = self.variant(
                         Ty::Enum(t.clone()),
                         variant,
                         if nullary && args.is_empty() {
@@ -1067,23 +1097,25 @@ impl Lower<'_> {
                         &base.at,
                         ops,
                     )?;
-                    let Some(Op::Enum(crate::sum::EnumOp::New(t, tag))) = ops.pop() else {
-                        unreachable!()
-                    };
-                    ops.push(Op::Enum(crate::sum::EnumOp::TryNew(t, tag)));
-                    return Ok(Some(crate::sum::result(
-                        ty.unwrap(),
-                        crate::sum::alloc_error(),
-                    )));
+                    if t.inline() {
+                        let Ty::Enum(wrapper) =
+                            crate::sum::result(Ty::Enum(t), crate::sum::alloc_error())
+                        else {
+                            unreachable!()
+                        };
+                        ops.push(Op::Enum(crate::sum::EnumOp::New(wrapper.clone(), 0)));
+                        return Ok(Some(Ty::Enum(wrapper)));
+                    }
+                    return Ok(result);
                 }
             }
         }
         if let Some(ty) = self.qualified_type(base)? {
             if let Ty::Class(class) = &ty {
-                if name != "try_new" {
+                if name != "new" {
                     return Err(base
                         .at
-                        .error("class construction uses Class(...) or Class.try_new(...)"));
+                        .error("class construction uses Class(...) or Class.new(...)"));
                 }
                 if class.depth >= 64 {
                     return Err(base
@@ -1092,15 +1124,15 @@ impl Lower<'_> {
                 }
                 modules::check_member(self.access, &class.name, "__new__", &base.at)?;
                 return self.call_named(
-                    &crate::record::method(&class.name, "try_new"),
+                    &crate::record::method(&class.name, "new"),
                     args,
                     &base.at,
                     ops,
                 );
             }
-            if ty == Ty::Str && name == "try_repr" {
+            if ty == Ty::Str && name == "repr" {
                 if args.len() != 1 {
-                    return Err(base.at.error("str.try_repr takes one value"));
+                    return Err(base.at.error("str.repr takes one value"));
                 }
                 let (source, loans) = self.observe(&args[0], ops)?;
                 if source.restricted_storage() {
@@ -1112,17 +1144,15 @@ impl Lower<'_> {
                 Self::end_reads(loans, ops);
                 return Ok(Some(output));
             }
-            if ty == Ty::Str && name == "try_from" {
+            if ty == Ty::Str && name == "from" {
                 if args.len() != 1 {
-                    return Err(base
-                        .at
-                        .error("str.try_from takes one numeric or bool argument"));
+                    return Err(base.at.error("str.from takes one numeric or bool argument"));
                 }
                 let (source, loans) = self.observe(&args[0], ops)?;
                 if !source.is_numeric() && source != Ty::Bool {
                     return Err(args[0]
                         .at
-                        .error("str.try_from requires a numeric or bool value"));
+                        .error("str.from requires a numeric or bool value"));
                 }
                 let operation = CollectionOp::FormatScalar(source);
                 let (_, result) = operation.signature();
@@ -1156,37 +1186,8 @@ impl Lower<'_> {
         if matches!(name, "__init__" | "__del__" | "__new__") {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }
-        if matches!(
-            name,
-            "try_reserve" | "try_append" | "try_add" | "try_insert"
-        ) {
+        if matches!(name, "reserve" | "append" | "add" | "insert") {
             return self.fallible_mutation(base, name, args, ops);
-        }
-        if matches!(name, "append" | "add") {
-            let target_ty = self.place_type(base).ok_or_else(|| {
-                base.at
-                    .error("mutation requires a named binding or class field")
-            })?;
-            if !matches!(
-                (&target_ty, name),
-                (Ty::List(_), "append") | (Ty::Set(_), "add")
-            ) || args.len() != 1
-            {
-                return Err(base
-                    .at
-                    .error("append takes one list element; add takes one set element"));
-            }
-            let expected = target_ty.element().unwrap();
-            let actual = self.expr_expected(&args[0], Some(expected.clone()), ops)?;
-            self.same(actual, Some(expected.clone()), &args[0].at)?;
-            let argument = self.slot(expected, &args[0].at)?;
-            ops.push(Op::StoreLocal(argument));
-            let loan = self.mutation_place(base, ops)?;
-            ops.push(Op::MoveLocal(argument, "mutation argument".into()));
-            ops.push(Op::Collection(CollectionOp::Append(target_ty)));
-            ops.push(Op::Drop);
-            ops.push(Op::UseLoan(loan));
-            return Ok(None);
         }
         if name == "pop" && matches!(self.place_type(base), Some(Ty::Dict(..) | Ty::List(_))) {
             return self.collection_removal(base, args, ops);
@@ -1194,11 +1195,10 @@ impl Lower<'_> {
         if name == "reverse" && matches!(self.place_type(base), Some(Ty::List(_))) {
             return self.collection_unit_mutation(base, name, args, ops);
         }
-        if name == "try_extend" && matches!(self.place_type(base), Some(Ty::List(_))) {
+        if name == "extend" && matches!(self.place_type(base), Some(Ty::List(_))) {
             return self.fallible_mutation(base, name, args, ops);
         }
-        if name == "try_update" && matches!(self.place_type(base), Some(Ty::Dict(..) | Ty::Set(_)))
-        {
+        if name == "update" && matches!(self.place_type(base), Some(Ty::Dict(..) | Ty::Set(_))) {
             return self.fallible_mutation(base, name, args, ops);
         }
         if name == "clear"
@@ -1264,15 +1264,15 @@ impl Lower<'_> {
                 .at
                 .error("reverse requires a mutable list binding or class field"));
         }
-        if name == "try_extend" {
+        if name == "extend" {
             return Err(base
                 .at
-                .error("try_extend requires a mutable list binding or class field"));
+                .error("extend requires a mutable list binding or class field"));
         }
-        if name == "try_update" {
+        if name == "update" {
             return Err(base
                 .at
-                .error("try_update requires a mutable dictionary or set binding or class field"));
+                .error("update requires a mutable dictionary or set binding or class field"));
         }
         if matches!(name, "intersection_update" | "difference_update") {
             return Err(base.at.error(format!(
@@ -1284,12 +1284,10 @@ impl Lower<'_> {
                 "clear requires a mutable list, dictionary, or set binding or class field",
             ));
         }
-        if name == "try_splitlines" {
+        if name == "splitlines" {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if args.len() > 1 {
-                return Err(base
-                    .at
-                    .error("try_splitlines takes an optional bool argument"));
+                return Err(base.at.error("splitlines takes an optional bool argument"));
             }
             let mut reads = vec![];
             if let Some(arg) = args.first() {
@@ -1319,14 +1317,14 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(Ty::Bool));
         }
-        if matches!(name, "try_strip" | "try_lstrip" | "try_rstrip") {
+        if matches!(name, "strip" | "lstrip" | "rstrip") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
             }
             let operation = match name {
-                "try_strip" => CollectionOp::TextTryStrip,
-                "try_lstrip" => CollectionOp::TextTryLStrip,
+                "strip" => CollectionOp::TextTryStrip,
+                "lstrip" => CollectionOp::TextTryLStrip,
                 _ => CollectionOp::TextTryRStrip,
             };
             let (_, result) = operation.signature();
@@ -1334,25 +1332,21 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if name == "try_slice" {
+        if name == "slice" {
             if args.len() != 2 {
-                return Err(base.at.error("try_slice requires start and stop arguments"));
+                return Err(base.at.error("slice requires start and stop arguments"));
             }
             let operation = match &ty {
                 Ty::Str => CollectionOp::TextTrySlice,
                 Ty::List(element) => {
                     if element.affine() && !loans.is_empty() {
                         return Err(base.at.error(
-                            "try_slice with owned elements requires an owned temporary; use try_copy(items)?.try_slice(start, stop) for fallible duplication",
+                            "slice with owned elements requires an owned temporary; use copy(items)?.slice(start, stop) for fallible duplication",
                         ));
                     }
                     CollectionOp::ListTrySlice(ty.clone())
                 }
-                _ => {
-                    return Err(base
-                        .at
-                        .error("try_slice requires a list or string receiver"))
-                }
+                _ => return Err(base.at.error("slice requires a list or string receiver")),
             };
             let mut argument_loans = vec![];
             for argument in args {
@@ -1395,49 +1389,51 @@ impl Lower<'_> {
                 return Ok(Some(result));
             }
         }
-        if matches!(
-            name,
-            "try_concat"
-                | "try_join"
-                | "try_split"
-                | "try_get"
-                | "try_replace"
-                | "startswith"
-                | "endswith"
-                | "find"
-                | "rfind"
-                | "count"
-                | "try_repeat"
-                | "try_removeprefix"
-                | "try_removesuffix"
-        ) {
+        if (name != "get" || ty == Ty::Str)
+            && matches!(
+                name,
+                "concat"
+                    | "join"
+                    | "split"
+                    | "get"
+                    | "replace"
+                    | "startswith"
+                    | "endswith"
+                    | "find"
+                    | "rfind"
+                    | "count"
+                    | "repeat"
+                    | "removeprefix"
+                    | "removesuffix"
+            )
+        {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
-            let arity = if name == "try_replace" { 2 } else { 1 };
+            let arity = if name == "replace" { 2 } else { 1 };
             if args.len() != arity {
-                return Err(base.at.error(if name == "try_replace" {
-                    "try_replace requires old and new string arguments".to_owned()
+                return Err(base.at.error(if name == "replace" {
+                    "replace requires old and new string arguments".to_owned()
                 } else {
                     format!("{name} requires one argument")
                 }));
             }
             let (expected, operation) = match name {
-                "try_concat" => (Ty::Str, CollectionOp::TextTryConcat),
-                "try_split" => (Ty::Str, CollectionOp::TextTrySplit),
-                "try_get" => (Ty::I64, CollectionOp::TextTryGet),
-                "try_replace" => (Ty::Str, CollectionOp::TextTryReplace),
+                "concat" => (Ty::Str, CollectionOp::TextTryConcat),
+                "split" => (Ty::Str, CollectionOp::TextTrySplit),
+                "get" => (Ty::I64, CollectionOp::TextTryGet),
+                "replace" => (Ty::Str, CollectionOp::TextTryReplace),
                 "startswith" => (Ty::Str, CollectionOp::TextStartsWith),
                 "endswith" => (Ty::Str, CollectionOp::TextEndsWith),
                 "find" => (Ty::Str, CollectionOp::TextFind),
                 "rfind" => (Ty::Str, CollectionOp::TextRFind),
                 "count" => (Ty::Str, CollectionOp::TextCount),
-                "try_repeat" => (Ty::I64, CollectionOp::TextTryRepeat),
-                "try_removeprefix" => (Ty::Str, CollectionOp::TextTryRemovePrefix),
-                "try_removesuffix" => (Ty::Str, CollectionOp::TextTryRemoveSuffix),
+                "repeat" => (Ty::I64, CollectionOp::TextTryRepeat),
+                "removeprefix" => (Ty::Str, CollectionOp::TextTryRemovePrefix),
+                "removesuffix" => (Ty::Str, CollectionOp::TextTryRemoveSuffix),
                 _ => (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin),
             };
             let mut argument_loans = vec![];
             for argument in args {
-                if matches!(ungroup(argument).kind, Expression::Collection { .. }) {
+                if contextual_display(argument) {
                     let actual = self.expr_expected(argument, Some(expected.clone()), ops)?;
                     self.same(actual, Some(expected.clone()), &argument.at)?;
                 } else {
@@ -1457,10 +1453,10 @@ impl Lower<'_> {
             "issubset"
                 | "issuperset"
                 | "isdisjoint"
-                | "try_union"
-                | "try_intersection"
-                | "try_difference"
-                | "try_symmetric_difference"
+                | "union"
+                | "intersection"
+                | "difference"
+                | "symmetric_difference"
         ) {
             if !matches!(ty, Ty::Set(_)) {
                 return Err(base.at.error(format!("{name} requires a set receiver")));
@@ -1469,7 +1465,7 @@ impl Lower<'_> {
                 return Err(base.at.error(format!("{name} requires one set argument")));
             }
             let argument = &args[0];
-            let reads = if matches!(ungroup(argument).kind, Expression::Collection { .. }) {
+            let reads = if contextual_display(argument) {
                 let actual = self.expr_expected(argument, Some(ty.clone()), ops)?;
                 self.same(actual, Some(ty.clone()), &argument.at)?;
                 vec![]
@@ -1481,10 +1477,10 @@ impl Lower<'_> {
             let operation = match name {
                 "issubset" => CollectionOp::SetIsSubset(ty),
                 "issuperset" => CollectionOp::SetIsSuperset(ty),
-                "try_union" => CollectionOp::SetTryUnion(ty),
-                "try_intersection" => CollectionOp::SetTryIntersection(ty),
-                "try_difference" => CollectionOp::SetTryDifference(ty),
-                "try_symmetric_difference" => CollectionOp::SetTrySymmetricDifference(ty),
+                "union" => CollectionOp::SetTryUnion(ty),
+                "intersection" => CollectionOp::SetTryIntersection(ty),
+                "difference" => CollectionOp::SetTryDifference(ty),
+                "symmetric_difference" => CollectionOp::SetTrySymmetricDifference(ty),
                 _ => CollectionOp::SetIsDisjoint(ty),
             };
             let (_, result) = operation.signature();
@@ -1529,19 +1525,19 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        let Ty::Dict(k, v) = &ty else {
+        let Ty::Dict(_, v) = &ty else {
             return Err(base.at.error(format!("unsupported method `{name}`")));
         };
-        if matches!(name, "try_keys" | "try_values") {
+        if matches!(name, "keys" | "values") {
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
             }
-            if name == "try_values" && v.affine() && !loans.is_empty() {
+            if name == "values" && v.affine() && !loans.is_empty() {
                 return Err(base.at.error(
-                    "try_values with owned payloads requires an owned temporary; use try_copy(dictionary)?.try_values() for fallible duplication",
+                    "values with owned payloads requires an owned temporary; use copy(dictionary)?.values() for fallible duplication",
                 ));
             }
-            let operation = if name == "try_keys" {
+            let operation = if name == "keys" {
                 CollectionOp::TryKeys(ty)
             } else {
                 CollectionOp::TryValues(ty)
@@ -1551,30 +1547,9 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if !args.is_empty() {
-            return Err(base.at.error("keys and values take no arguments"));
-        }
-        if name == "values" {
-            if v.affine() && !loans.is_empty() {
-                return Err(base
-                    .at
-                    .error("values with owned payloads require copy(dictionary).values()"));
-            }
-            let out = Ty::List(v.clone());
-            ops.push(Op::Collection(CollectionOp::Values(ty)));
-            Self::end_reads(loans, ops);
-            Ok(Some(out))
-        } else if name == "keys" {
-            // Dictionaries already iterate over their keys.
-            let out = Ty::List(k.clone());
-            self.convert_on_stack(ty, out.clone(), &base.at, ops)?;
-            Self::end_reads(loans, ops);
-            Ok(Some(out))
-        } else {
-            Err(base.at.error(format!(
-                "unsupported dictionary method `{name}`; iterate keys and index values"
-            )))
-        }
+        Err(base
+            .at
+            .error(format!("unsupported dictionary method `{name}`")))
     }
 
     fn collection_removal(
@@ -1639,7 +1614,7 @@ impl Lower<'_> {
         }
         let ty = self.place_type(base).expect("set place");
         let argument = &args[0];
-        let reads = if matches!(ungroup(argument).kind, Expression::Collection { .. }) {
+        let reads = if contextual_display(argument) {
             let actual = self.expr_expected(argument, Some(ty.clone()), ops)?;
             self.same(actual, Some(ty.clone()), &argument.at)?;
             vec![]
@@ -1695,9 +1670,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if name == "try_from" && matches!(ty, Ty::List(_) | Ty::Set(_)) {
+        if name == "from" && matches!(ty, Ty::List(_) | Ty::Set(_)) {
             if args.len() != 1 {
-                return Err(at.error("try_from requires one owned iterable"));
+                return Err(at.error("from requires one owned iterable"));
             }
             if ty.layout_depth() >= 64 {
                 return Err(at.error("type nesting exceeds the implementation limit of 64"));
@@ -1707,14 +1682,14 @@ impl Lower<'_> {
                 source,
                 Ty::List(_) | Ty::Set(_) | Ty::Dict(..) | Ty::Range(_) | Ty::Generator(_)
             ) {
-                return Err(at.error("try_from requires an owned collection, range, or generator"));
+                return Err(at.error("from requires an owned collection, range, or generator"));
             }
             self.same(source.element(), ty.element(), at)?;
             return self.try_collect_on_stack(source, ty, at, ops).map(Some);
         }
         let arity = match name {
-            "try_new" => 0,
-            "try_with_capacity" => 1,
+            "new" => 0,
+            "with_capacity" => 1,
             _ => return Err(at.error(format!("unsupported collection type method `{name}`"))),
         };
         if args.len() != arity {
@@ -1746,11 +1721,11 @@ impl Lower<'_> {
                 .error("mutation requires a named binding or class field")
         })?;
         let inputs = match (&ty, name) {
-            (Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _), "try_reserve") => vec![Ty::I64],
-            (Ty::List(t), "try_append") | (Ty::Set(t), "try_add") => vec![(**t).clone()],
-            (Ty::List(_), "try_extend") => vec![ty.clone()],
-            (Ty::Dict(..) | Ty::Set(_), "try_update") => vec![ty.clone()],
-            (Ty::Dict(k, v), "try_insert") => vec![(**k).clone(), (**v).clone()],
+            (Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _), "reserve") => vec![Ty::I64],
+            (Ty::List(t), "append") | (Ty::Set(t), "add") => vec![(**t).clone()],
+            (Ty::List(_), "extend") => vec![ty.clone()],
+            (Ty::Dict(..) | Ty::Set(_), "update") => vec![ty.clone()],
+            (Ty::Dict(k, v), "insert") => vec![(**k).clone(), (**v).clone()],
             _ => {
                 return Err(base
                     .at
@@ -1776,11 +1751,11 @@ impl Lower<'_> {
         for slot in slots {
             ops.push(Op::MoveLocal(slot, "fallible mutation argument".into()));
         }
-        ops.push(Op::Collection(if name == "try_reserve" {
+        ops.push(Op::Collection(if name == "reserve" {
             CollectionOp::TryReserve(ty)
-        } else if name == "try_extend" {
+        } else if name == "extend" {
             CollectionOp::TryExtend(ty)
-        } else if name == "try_update" {
+        } else if name == "update" {
             if matches!(ty, Ty::Set(_)) {
                 CollectionOp::SetTryUpdate(ty)
             } else {
@@ -1815,7 +1790,10 @@ impl Lower<'_> {
             ops.push(Op::PushInt(Value::I64(1)));
         }
         ops.push(Op::Collection(CollectionOp::Range(element.clone())));
-        Ok(Ty::Range(Rc::new(element)))
+        Ok(crate::sum::result(
+            Ty::Range(Rc::new(element)),
+            crate::sum::alloc_error(),
+        ))
     }
 
     pub(super) fn builtin_collection(
@@ -1856,14 +1834,19 @@ impl Lower<'_> {
         let out = match name {
             "list" => Ty::List(Rc::new(element)),
             "set" if element.hashable() => Ty::Set(Rc::new(element)),
-            "dict" if matches!(ty, Ty::Dict(_, _)) => return Ok(ty),
+            "dict" if matches!(ty, Ty::Dict(_, _)) => {
+                let Ty::Enum(result) = crate::sum::result(ty, crate::sum::alloc_error()) else {
+                    unreachable!()
+                };
+                ops.push(Op::Enum(crate::sum::EnumOp::New(result.clone(), 0)));
+                return Ok(Ty::Enum(result));
+            }
             _ => {
                 return Err(at
                     .error("set elements must be hashable; dict conversion requires a dictionary"))
             }
         };
-        self.convert_on_stack(ty, out.clone(), at, ops)?;
-        Ok(out)
+        self.try_collect_on_stack(ty, out, at, ops)
     }
 
     pub(super) fn construct(
@@ -1880,54 +1863,25 @@ impl Lower<'_> {
             return Err(at.error("expected a collection type"));
         }
         if args.is_empty() {
-            ops.push(Op::Collection(CollectionOp::New(ty.clone())));
-        } else if args.len() == 1 {
-            let source = self.value(&args[0], ops)?;
-            if matches!(ty, Ty::Dict(_, _)) {
-                self.same(Some(source), Some(ty.clone()), at)?;
-            } else {
-                self.same(source.element(), ty.element(), at)?;
-                self.convert_on_stack(source, ty.clone(), at, ops)?;
-            }
-        } else {
+            return self
+                .fallible_constructor(ty, "new", args, at, ops)
+                .map(Option::unwrap);
+        }
+        if args.len() != 1 {
             return Err(at.error("collection constructor takes at most one iterable"));
         }
-        Ok(ty)
-    }
-
-    fn convert_on_stack(
-        &mut self,
-        source_ty: Ty,
-        target_ty: Ty,
-        at: &Token,
-        ops: &mut Vec<Op>,
-    ) -> Result<()> {
-        let start = self.locals.len();
-        let Iteration {
-            condition,
-            mut body,
-            step,
-            target,
-        } = self.iteration_on_stack(source_ty, at, ops)?;
-        let result = self.slot(target_ty.clone(), at)?;
-        ops.extend([
-            Op::Collection(CollectionOp::New(target_ty.clone())),
-            Op::StoreLocal(result),
-        ]);
-        body.extend([
-            Op::LoadLocal(result),
-            Op::LoadLocal(target),
-            Op::Collection(CollectionOp::Insert(target_ty)),
-            Op::StoreLocal(result),
-        ]);
-        body.extend(step);
-        ops.push(Op::Loop {
-            condition: condition.into(),
-            body: body.into(),
-        });
-        ops.push(Op::LoadLocal(result));
-        self.cleanup(start, ops);
-        Ok(())
+        let source = self.value(&args[0], ops)?;
+        if matches!(ty, Ty::Dict(..)) {
+            self.same(Some(source), Some(ty.clone()), at)?;
+            let Ty::Enum(result) = crate::sum::result(ty, crate::sum::alloc_error()) else {
+                unreachable!()
+            };
+            ops.push(Op::Enum(crate::sum::EnumOp::New(result.clone(), 0)));
+            Ok(Ty::Enum(result))
+        } else {
+            self.same(source.element(), ty.element(), at)?;
+            self.try_collect_on_stack(source, ty, at, ops)
+        }
     }
 
     /// Keep the output Result in a local throughout iteration. Replacing its Ok
@@ -2083,4 +2037,16 @@ fn increment(index: u8, ops: &mut Vec<Op>) {
         Op::Add,
         Op::StoreLocal(index),
     ]);
+}
+
+/// Context still reaches a literal after the caller explicitly handles its Result.
+pub(super) fn contextual_display(e: &Expr) -> bool {
+    match &ungroup(e).kind {
+        Expression::Collection { .. } | Expression::Tuple(..) => true,
+        Expression::Try(inner) => contextual_display(inner),
+        Expression::Method(inner, name, args) if name == "unwrap" && args.is_empty() => {
+            contextual_display(inner)
+        }
+        _ => false,
+    }
 }

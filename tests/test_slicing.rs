@@ -31,7 +31,7 @@ fn native(source: &str, expected: &str) {
 fn list_bounds_are_clamped(#[case] start: &str, #[case] stop: &str, #[case] expected: &str) {
     native(
         &format!(
-            "items = [10, 20, 30, 40]\nprint(items.try_slice({start}, {stop}))\nprint(len(items))"
+            "items = [10, 20, 30, 40].unwrap()\nprint(items.slice({start}, {stop})).unwrap()\nprint(len(items)).unwrap()"
         ),
         &format!("Result[list[i64], AllocError].Ok({expected})\n4"),
     );
@@ -40,17 +40,17 @@ fn list_bounds_are_clamped(#[case] start: &str, #[case] stop: &str, #[case] expe
 #[test]
 fn list_slice_retains_strings_and_nested_sum_tags_after_source_drop() {
     native(r#"
-mut items = ["A" + "da", "B" + "ea", "C" + "am"]
-slice = items.try_slice(1, 3)
+mut items = [("A" + "da").unwrap(), ("B" + "ea").unwrap(), ("C" + "am").unwrap()].unwrap()
+slice = items.slice(1, 3)
 items[1] = "changed"
 drop(items)
-print(slice)
-values: list[Option[str]] = [Nothing, Some("é" + "🙂")]
-result = values.try_slice(0, 2)
+print(slice).unwrap()
+values: list[Option[str]] = [Nothing, Some(("é" + "🙂").unwrap())].unwrap()
+result = values.slice(0, 2)
 drop(values)
-print(result)
-print(list[i64]().try_slice(-10, 10))
-print([1.5f32, 2.5f32].try_slice(1, 2))
+print(result).unwrap()
+print(list[i64]().unwrap().slice(-10, 10)).unwrap()
+print([1.5f32, 2.5f32].unwrap().slice(1, 2)).unwrap()
 "#, "Result[list[str], AllocError].Ok([\"Bea\", \"Cam\"])\nResult[list[Option[str]], AllocError].Ok([Option[str].Nothing, Option[str].Some(\"é🙂\")])\nResult[list[i64], AllocError].Ok([])\nResult[list[f32], AllocError].Ok([2.5])");
 }
 
@@ -60,19 +60,19 @@ fn slicing_borrows_fields_and_indices_and_evaluates_once_left_to_right() {
 class Data:
     items: list[i64]
 def slice(items: &list[i64], start: &i64, stop: &i64) -> Result[list[i64], AllocError]:
-    result = items.try_slice(start, stop)?
+    result = items.slice(start, stop)?
     Ok(result)
 def data() -> list[i64]:
-    print("receiver")
-    [1, 2, 3]
+    print("receiver").unwrap()
+    [1, 2, 3].unwrap()
 def index(n: i64) -> i64:
-    print(n)
+    print(n).unwrap()
     n
-mut record = Data([10, 20, 30])
+mut record = Data([10, 20, 30].unwrap()).unwrap()
 start = 0
 stop = 2
-print(slice(&record.items, &start, &stop))
-print(data().try_slice(index(1), index(3)))
+print(slice(&record.items, &start, &stop)).unwrap()
+print(data().slice(index(1), index(3))).unwrap()
 "#, "Result[list[i64], AllocError].Ok([10, 20])\nreceiver\n1\n3\nResult[list[i64], AllocError].Ok([2, 3])");
 }
 
@@ -81,14 +81,14 @@ fn explicit_copy_of_owned_elements_preserves_the_original() {
     native(
         r#"
 def middle(items: &list[list[i64]]) -> Result[list[list[i64]], AllocError]:
-    try_copy(items)?.try_slice(1, 2)
-items = [[1], [2], [3]]
-print(middle(&items))
-print(items)
+    copy(items)?.slice(1, 2)
+items = [[1].unwrap(), [2].unwrap(), [3].unwrap()].unwrap()
+print(middle(&items)).unwrap()
+print(items).unwrap()
 class Custom:
-    def try_slice(self, n: i64) -> i64:
+    def slice(self, n: i64) -> i64:
         n
-print(Custom().try_slice(42))
+print(Custom().unwrap().slice(42)).unwrap()
 "#,
         "Result[list[list[i64]], AllocError].Ok([[2]])\n[[1], [2], [3]]\n42",
     );
@@ -100,13 +100,13 @@ fn every_list_slice_allocation_failure_preserves_borrowed_sources() {
     for (start, stop, allocations, selected) in [(0, 2, 2, "[\"Ada\", \"Bea\"]"), (2, 0, 1, "[]")] {
         for budget in 0..=allocations {
             native(&format!(r#"
-items = ["A" + "da", "B" + "ea"]
-print("__test_fail_allocations_after_{budget}__")
-result = items.try_slice({start}, {stop})
-print("__test_restore_allocations__")
-print(result)
-print(items)
-print(items.try_slice({start}, {stop}))
+items = [("A" + "da").unwrap(), ("B" + "ea").unwrap()].unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = items.slice({start}, {stop})
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(items).unwrap()
+print(items.slice({start}, {stop})).unwrap()
 "#), &format!("Result[list[str], AllocError].{}\n[\"Ada\", \"Bea\"]\nResult[list[str], AllocError].Ok({selected})", if budget < allocations { "Err(AllocError.OutOfMemory)".to_owned() } else { format!("Ok({selected})") }));
         }
     }
@@ -122,18 +122,18 @@ fn temporary_slice_transfers_selected_owners_and_cleans_every_failure() {
 class Guard:
     id: i64
     def __del__(self) -> ():
-        print("__test_restore_allocations__")
-        print(self.id)
+        print("__test_restore_allocations__").unwrap()
+        print(self.id).unwrap()
 def consume(items: list[Guard]) -> list[Guard]:
     items
 def sliced(items: list[Guard]) -> Result[list[Guard], AllocError]:
-    print("__test_fail_allocations_after_{budget}__")
-    result = consume(items).try_slice(1, 2)?
-    print("__test_restore_allocations__")
-    print("success")
+    print("__test_fail_allocations_after_{budget}__").unwrap()
+    result = consume(items).slice(1, 2)?
+    print("__test_restore_allocations__").unwrap()
+    print("success").unwrap()
     Ok(result)
-result = sliced([Guard(10), Guard(20), Guard(30)])
-print("returned")
+result = sliced([Guard(10).unwrap(), Guard(20).unwrap(), Guard(30).unwrap()].unwrap())
+print("returned").unwrap()
 drop(result)
 "#
             ),
@@ -148,28 +148,28 @@ drop(result)
 
 #[rstest]
 #[case(
-    "print([1].try_slice(0))",
-    "try_slice requires start and stop arguments"
+    "print([1].unwrap().slice(0)).unwrap()",
+    "slice requires start and stop arguments"
 )]
 #[case(
-    "print([1].try_slice(0, 1, 1))",
-    "try_slice requires start and stop arguments"
+    "print([1].unwrap().slice(0, 1, 1)).unwrap()",
+    "slice requires start and stop arguments"
 )]
-#[case("print([1].try_slice(0u8, 1))", "expected i64")]
+#[case("print([1].unwrap().slice(0u8, 1)).unwrap()", "expected i64")]
 #[case(
-    "print({1: 2}.try_slice(0, 1))",
-    "try_slice requires a list or string receiver"
-)]
-#[case(
-    "items = [[1]]\nprint(items.try_slice(0, 1))",
-    "try_slice with owned elements requires an owned temporary"
+    "print({1: 2}.unwrap().slice(0, 1)).unwrap()",
+    "slice requires a list or string receiver"
 )]
 #[case(
-    "mut items = [[1]]\nloan = &mut items\nprint(loan.try_slice(0, 1))",
-    "try_slice with owned elements requires an owned temporary"
+    "items = [[1].unwrap()].unwrap()\nprint(items.slice(0, 1)).unwrap()",
+    "slice with owned elements requires an owned temporary"
 )]
 #[case(
-    "mut items = [1]\nloan = &mut items\nprint(items.try_slice(0, 1))\nloan.append(2)",
+    "mut items = [[1].unwrap()].unwrap()\nloan = &mut items\nprint(loan.slice(0, 1)).unwrap()",
+    "slice with owned elements requires an owned temporary"
+)]
+#[case(
+    "mut items = [1].unwrap()\nloan = &mut items\nprint(items.slice(0, 1)).unwrap()\nloan.append(2).unwrap()",
     "borrow"
 )]
 fn invalid_list_slices_are_rejected(#[case] source: &str, #[case] expected: &str) {
@@ -194,7 +194,7 @@ fn string_slices_use_scalar_bounds(
     #[case] expected: &str,
 ) {
     native(
-        &format!("text = \"Aé🙂\\0Z\"\nprint(text.try_slice({start}, {stop}))\nprint(len(text))"),
+        &format!("text = \"Aé🙂\\0Z\"\nprint(text.slice({start}, {stop})).unwrap()\nprint(len(text)).unwrap()"),
         &format!("Result[str, AllocError].Ok(\"{expected}\")\n5"),
     );
 }
@@ -205,17 +205,17 @@ fn string_slices_borrow_references_and_outlive_source_replacement() {
 class Message:
     text: str
 def slice(text: &str, start: &i64, stop: &i64) -> Result[str, AllocError]:
-    middle = text.try_slice(start, stop)?
+    middle = text.slice(start, stop)?
     Ok(middle)
-mut message = Message("Aé" + "🙂Z")
+mut message = Message(("Aé" + "🙂Z").unwrap()).unwrap()
 start = 1
 stop = 3
 saved = slice(&message.text, &start, &stop)
 message.text = "changed"
 drop(message)
-print(saved)
-print("".try_slice(0, 1))
-print("é".try_slice(1, 2))
+print(saved).unwrap()
+print("".slice(0, 1)).unwrap()
+print("é".slice(1, 2)).unwrap()
 "#, "Result[str, AllocError].Ok(\"é🙂\")\nResult[str, AllocError].Ok(\"\")\nResult[str, AllocError].Ok(\"́\")");
 }
 
@@ -223,20 +223,20 @@ print("é".try_slice(1, 2))
 fn string_slice_operands_run_once_in_source_order_and_short_circuit_errors() {
     native(r#"
 def text() -> str:
-    print("receiver")
+    print("receiver").unwrap()
     return "Aé🙂Z"
 def index(n: i64) -> Result[i64, AllocError]:
-    print(n)
+    print(n).unwrap()
     Ok(n)
 def good() -> Result[str, AllocError]:
-    text().try_slice(index(1)?, index(3)?)
+    text().slice(index(1)?, index(3)?)
 def missing() -> Result[i64, AllocError]:
-    print("missing")
+    print("missing").unwrap()
     Err(AllocError.CapacityOverflow)
 def bad() -> Result[str, AllocError]:
-    ("A" + "B").try_slice(missing()?, index(2)?)
-print(good())
-print(bad())
+    (("A" + "B").unwrap()).slice(missing()?, index(2)?)
+print(good()).unwrap()
+print(bad()).unwrap()
 "#, "receiver\n1\n3\nResult[str, AllocError].Ok(\"é🙂\")\nmissing\nResult[str, AllocError].Err(AllocError.CapacityOverflow)");
 }
 
@@ -248,13 +248,13 @@ fn string_slices_allocate_only_the_final_string_and_recover_on_failure() {
             native(
                 &format!(
                     r#"
-text = "Aé" + "🙂Z"
-print("__test_fail_allocations_after_{budget}__")
-result = text.try_slice({start}, {stop})
-print("__test_restore_allocations__")
-print(result)
-print(text)
-print(text.try_slice({start}, {stop}))
+text = ("Aé" + "🙂Z").unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = text.slice({start}, {stop})
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(text).unwrap()
+print(text.slice({start}, {stop})).unwrap()
 "#
                 ),
                 &format!(
@@ -272,16 +272,16 @@ print(text.try_slice({start}, {stop}))
 
 #[rstest]
 #[case(
-    "print(\"text\".try_slice())",
-    "try_slice requires start and stop arguments"
+    "print(\"text\".slice()).unwrap()",
+    "slice requires start and stop arguments"
 )]
 #[case(
-    "print(\"text\".try_slice(0, 1, 2))",
-    "try_slice requires start and stop arguments"
+    "print(\"text\".slice(0, 1, 2)).unwrap()",
+    "slice requires start and stop arguments"
 )]
-#[case("print(\"text\".try_slice(0, 1u8))", "expected i64")]
+#[case("print(\"text\".slice(0, 1u8)).unwrap()", "expected i64")]
 #[case(
-    "mut text = \"text\"\nloan = &mut text\nprint(text.try_slice(0, 1))\n*loan = \"changed\"",
+    "mut text = \"text\"\nloan = &mut text\nprint(text.slice(0, 1)).unwrap()\n*loan = \"changed\"",
     "borrow"
 )]
 fn invalid_string_slices_are_rejected(#[case] source: &str, #[case] expected: &str) {

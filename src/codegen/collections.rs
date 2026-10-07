@@ -74,13 +74,13 @@ impl Lowerer<'_, '_> {
             | CollectionOp::FormatScalar(ty)
             | CollectionOp::FormatValue(ty)
             | CollectionOp::TryPrint(ty) => Some(ty),
-            CollectionOp::Next(_) | CollectionOp::Values(_) | CollectionOp::Range(_) => {
-                Some(&output)
+            CollectionOp::Next(_) => Some(&output),
+            CollectionOp::Range(_) => {
+                let Ty::Enum(t) = &output else { unreachable!() };
+                Some(&t.variants[0].fields[0])
             }
-            CollectionOp::Copy(ty) | CollectionOp::TryCopy(ty) => Some(ty),
-            CollectionOp::New(ty) | CollectionOp::TryNew(ty) | CollectionOp::ListTrySlice(ty) => {
-                Some(ty)
-            }
+            CollectionOp::TryCopy(ty) => Some(ty),
+            CollectionOp::TryNew(ty) | CollectionOp::ListTrySlice(ty) => Some(ty),
             CollectionOp::TextTrySplit
             | CollectionOp::TextTrySplitLines
             | CollectionOp::TryKeys(_)
@@ -89,7 +89,7 @@ impl Lowerer<'_, '_> {
             | CollectionOp::Get(Ty::Str)
             | CollectionOp::IterGet(Ty::Str)
             | CollectionOp::Contains(Ty::Str) => Some(&Ty::Str),
-            CollectionOp::TextByteLen | CollectionOp::TextAtByte => Some(&Ty::Str),
+            CollectionOp::TextByteLen => Some(&Ty::Str),
             _ => None,
         };
         let result = self.collection_call(operation.opcode(), &values, descriptor)?;

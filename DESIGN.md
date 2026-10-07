@@ -98,8 +98,7 @@ control flow, collections, classes, sum types, generators, ownership, and automa
 cleanup are implemented. It is still an early language implementation, with a
 small built-in library and important limits on borrowing. Basic console, argument,
 numeric text, and whole-file APIs now work. Important remaining gaps include
-broader stream operations and borrowing, user generics, and complete allocation
-fallibility. An implemented row below describes the
+recursive types, closures, broader borrowing, and public allocator control. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
 | Area | Status on this branch |
@@ -111,12 +110,12 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Floating-point types and arithmetic (`f32`, `f64`, `/`) | Implemented with IEEE arithmetic and explicit numeric casts |
 | Transparent module-level type aliases | Implemented |
 | Cranelift AOT and compile-and-run file command | Implemented |
-| Explicit binary `main` entry point | Implemented: parameterless `main` returns `()` or an `i32` process status; module scope contains declarations and imports |
+| Explicit binary `main` entry point | Implemented: parameterless `main` returns `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`; module scope contains declarations and imports |
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
 | Direct and mutual tail calls | Implemented where borrowing and observable cleanup permit |
 | Early returns and return-aware branch checking | Implemented in AOT |
-| Concrete enums, tagged payloads, exhaustive matching | Implemented, including fallible `Enum.Variant.try_new` |
-| Fixed-layout classes, constructors, methods, custom cleanup | Implemented, including `Class.try_new`, fallible initializers, and partial-field cleanup |
+| Concrete enums, tagged payloads, exhaustive matching | Implemented, including fallible `Enum.Variant(...)` |
+| Fixed-layout classes, constructors, methods, custom cleanup | Implemented, including checked `Class(...)`, fallible initializers, and partial-field cleanup |
 | `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
 | Unit values | Expressions, function returns, enum and tuple payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
@@ -124,21 +123,21 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Borrowed collection iteration | Shared list loops borrow owned elements; mutable list loops yield mutable element references. Shared copyable elements and dictionary keys remain values |
-| Tuples and unpacking | `(a, b)`, `(a,)`, `tuple[A, B]` / `(A, B)` annotations, literal indexing, flat binding/loop unpacking, and recoverable `try (a, b)` |
+| Tuples and unpacking | `(a, b)`, `(a,)`, `tuple[A, B]` / `(A, B)` annotations, literal indexing, flat binding/loop unpacking, and checked tuple construction returning `Result` |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, explicit-separator splitting, sized numeric parsing, and fallible scalar formatting |
 | Dictionary `items()` | Borrowed key/value loops and comprehensions, including mutable value references; storable views and implicit snapshots are not supported |
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
 | Text classification | `isascii` checks ASCII membership; `isspace` requires nonempty Unicode White_Space text; neither allocates |
 | Allocation-free list queries | `count`, `find`, and `rfind` observe integer/float/bool/string lists; searches return `Option[i64]` |
-| Literal text affix removal | `try_removeprefix`/`try_removesuffix` remove one exact boundary match and return independent fallible strings |
-| Recoverable text trimming | `try_strip`, `try_lstrip`, and `try_rstrip` remove Unicode whitespace at selected ends |
-| Recoverable text repetition | `try_repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
+| Literal text affix removal | `removeprefix`/`removesuffix` remove one exact boundary match and return independent fallible strings |
+| Recoverable text trimming | `strip`, `lstrip`, and `rstrip` remove Unicode whitespace at selected ends |
+| Recoverable text repetition | `repeat(i64)` creates repeated UTF-8 with checked lengths and one output allocation |
 | In-place collection utilities | `list.reverse()` reorders elements; list/dictionary/set `clear()` drops contents while retaining capacity |
-| Recoverable bulk collection mutation | `list.try_extend(list)` and dictionary/set `try_update` consume same-typed sources and reserve before changing contents |
+| Recoverable bulk collection mutation | `list.extend(list)` and dictionary/set `update` consume same-typed sources and reserve before changing contents |
 | Set relationships | `issubset`, `issuperset`, and `isdisjoint` observe same-typed sets without allocating |
 | In-place set filtering | `intersection_update` retains common members; `difference_update` removes them; both borrow the source and reuse destination capacity |
-| Fallible set algebra | `try_union`, `try_intersection`, `try_difference`, and `try_symmetric_difference` return independent sets and preserve both same-typed inputs |
+| Fallible set algebra | `union`, `intersection`, `difference`, and `symmetric_difference` return independent sets and preserve both same-typed inputs |
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
@@ -151,11 +150,11 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
 | `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
-| Recoverable allocation failure | Collection, class, enum, and generator `try_new` constructors; fallible initializers; list/set `try_from`; checked growth/copy/text/I/O APIs. Ordinary literals/comprehensions, construction, and convenience formatting still have aborting paths |
-| Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
-| Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
-| Recoverable text operations | `str.try_concat(other)`, `str.try_join(parts)`, `str.try_slice(start, stop)`, and `str.try_replace(old, new)` return `Result[str, AllocError]`; `str.try_split(separator)` and `str.try_splitlines(keepends=False)` return `Result[list[str], AllocError]` |
-| Checked text lookup | `str.try_get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
+| Recoverable allocation failure | Default literals/comprehensions and allocating constructors, mutation, copy, text, and formatting return `Result`; no `try_` alternatives. Explicit `?`, `match`, or `.unwrap()` handle outcomes |
+| Recoverable duplication | `copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
+| Recoverable dictionary snapshots | `keys()` and `values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
+| Recoverable text operations | `str.concat(other)`, `str.join(parts)`, `str.slice(start, stop)`, and `str.replace(old, new)` return `Result[str, AllocError]`; `str.split(separator)` and `str.splitlines(keepends=False)` return `Result[list[str], AllocError]` |
+| Checked text lookup | `str.get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
 | Custom allocators and allocator provenance | Object allocations retain internal allocator identity; container buffers still use the global allocator. Public allocator selection and allocator lifetimes remain future work |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
 | Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
@@ -191,7 +190,7 @@ preserves a native OS error code (zero means a failure without an OS code).
 failure. These error values and their Result wrappers all have inline layouts.
 Writes may have visible partial effects before returning an error. Successful
 writes may still be buffered; neither writing nor ordinary flushing implies
-durable disk storage. Existing `print` retains its terminal error behavior.
+durable disk storage. `print` also returns `Result[(), IoError]`.
 
 `write_stderr(text)` has the same contract for the diagnostic stream.
 `flush_stdout()` and `flush_stderr()` return `Result[(), IoError]`, exposing
@@ -256,7 +255,7 @@ optional sign. Conversion rounds directly to the requested width. Finite input
 overflow returns `OutOfRange`; underflow may round to zero. Signed zero survives.
 Numeric separators and hexadecimal forms are rejected. Parsing allocates nothing.
 
-`str.try_from(number_or_bool) -> Result[str, AllocError]` renders a scalar through
+`str.from(number_or_bool) -> Result[str, AllocError]` renders a scalar through
 a bounded stack buffer and one fallible output allocation. Integers use decimal;
 floats use the same shortest round-trip representation as `print` (including
 `-0.0`, `inf`, and `NaN`); booleans use `True`/`False`. Aggregate formatting and
@@ -272,22 +271,24 @@ objects currently select the global allocator, and Vec-backed container buffers
 still use it directly. This is provenance groundwork, not a public custom-memory
 manager API or support for scoped allocator lifetimes.
 
-`str.try_repr(value)` borrows any printable value and returns
+`str.repr(value)` borrows any printable value and returns
 `Result[str, AllocError]`, including escaped strings and structural aggregates.
-`try_print(value)` borrows the value and returns `Result[(), IoError]`. It uses
-the same rendering as print (raw top-level strings), with a trailing newline.
-Both use checked temporary buffer growth. Formatting failure emits no bytes;
-an I/O error during the final write can leave partial output. Neither invokes
-user-defined formatting methods. Ordinary `print` retains terminal failures.
+`print(value)` borrows the value and returns `Result[(), IoError]`. It uses
+raw top-level strings and a trailing newline. String printing needs no temporary
+allocation; other formatting uses checked buffer growth. Formatting allocation
+failure emits no bytes; an I/O error can leave partial output. Neither invokes
+user-defined formatting methods. There is no separate aborting print API.
 
 New practical I/O APIs must return explicit errors, including allocation failure
 in their own buffers and result construction. They must not hide infallible
 `String` growth behind a fallible public signature. Input consumption and partial
 external writes cannot generally be rolled back; their contracts must say so.
-This does not retroactively make literals, comprehensions, ordinary class/generator
-construction, printing, or all runtime bookkeeping recoverable. Those existing
-terminal paths remain tracked work. Allocator provenance must be retained by an
-owner when custom allocators arrive; no public allocator switching API exists yet.
+All source-level heap construction and allocating operations use checked paths.
+Literals and comprehensions return `Result` directly; public API names have no
+`try_` prefix. `?` and `match` handle errors, while `.unwrap()` explicitly traps
+on `Err` or `Nothing`. Unwrapping moves owned payloads and allocates nothing.
+The trap terminates without unwinding; it is a deliberate caller choice.
+Allocator provenance stays with owners; no public allocator switching API exists.
 
 ### A small program
 
@@ -300,13 +301,13 @@ def countdown(n: i64) -> ():
     if n == 0:
         pass
     else:
-        print(n)
+        print(n).unwrap()
         countdown(n - 1)
 
 def main() -> ():
     mut answer: i64 = choose(True, 40, 0)
     answer = answer + 2
-    print(answer)
+    print(answer).unwrap()
 ```
 
 ### Syntax and values
@@ -441,22 +442,22 @@ calls so observable cleanup happens after the callee returns.
 
 ### Collections and iteration
 
-`try [elements]`, `try {elements}`, and `try {key: value}` construct a collection
+`[elements]`, `{elements}`, and `{key: value}` construct a collection
 with recoverable output allocation, returning `Result[collection, AllocError]`.
 An expected Result type supplies empty-display element types. The owner is
 allocated first, then entries evaluate left to right; the first failed insertion
 stops construction and releases the initialized prefix. Unevaluated entries have
-no effects. Nested ordinary expressions retain their own allocation contracts;
-use nested `try` displays and explicit `?` for their failures. `?` still propagates
+no effects. Nested expressions return their own results;
+use nested postfix `?` operations to extract their values and propagate failure. `?` still propagates
 from the enclosing function, not into a surrounding display's Result. This is
 an explicit construction expression, not exception handling.
 
-The same prefix supports comprehensions, including nested loops and filters.
+Comprehensions also return Result, including nested loops and filters.
 After output growth fails, no iterator advances or later filter/element expression
 runs. Active hidden iterators and yielded owners are cleaned up. Iterable
 construction and expressions inside the comprehension retain their own contracts.
 
-`list[T].try_from(source)` and `set[T].try_from(source)` consume an owned
+`list[T].from(source)` and `set[T].from(source)` consume an owned
 collection, range, or generator and return `Result[list[T], AllocError]` or
 `Result[set[T], AllocError]`. Output construction and growth are fallible.
 Sets require hashable elements and preserve the first occurrence of each value.
@@ -523,7 +524,7 @@ usable. Lookup is constant-time and does not allocate or change the list. Manage
 immutable results retain their existing storage, surviving entry replacement or
 list destruction. As with dictionary `get`, affine elements are rejected: use
 `pop` to remove and take ownership, or explicit copying with ordinary indexing.
-There is no default argument. Unlike string `try_get`, list lookup does not create
+There is no default argument. Unlike string `get`, list lookup does not create
 new character storage and therefore needs no allocation-error result. Constructing
 the receiver or index expression still follows its own allocation policy.
 
@@ -587,18 +588,18 @@ new lists. `values()` on mutable payloads requires an owned temporary such as
 `items()` is a borrowed loop/comprehension view, described below. Pair-iterable
 dictionary construction remains deferred.
 
-`dictionary.try_keys()` and `dictionary.try_values()` are fallible snapshot
+`dictionary.keys()` and `dictionary.values()` are fallible snapshot
 operations returning `Result[list[K], AllocError]` and
 `Result[list[V], AllocError]`. Both take no arguments, evaluate the receiver once,
 and preserve insertion order. They allocate a new list, retaining existing
 immutable element storage rather than deep-copying it. For non-affine values,
 the receiver is observed and can be a binding, field, or reference; the snapshot
-survives source updates and destruction. `try_keys()` also observes dictionaries
+survives source updates and destruction. `keys()` also observes dictionaries
 with affine values, without touching those values.
 
-Like `values()`, `try_values()` with affine payloads requires an owned temporary,
+Like `values()`, `values()` with affine payloads requires an owned temporary,
 whose values transfer to the result. A named binding or reference cannot expose
-mutable aliases through this operation. Use `try_copy(d)?.try_values()` to
+mutable aliases through this operation. Use `copy(d)?.values()` to
 explicitly request fallible duplication while preserving `d`, or call it on a
 function result to transfer its owned payloads, including custom-cleanup classes.
 The temporary is consumed on both success and failure; failed allocation cleans
@@ -629,13 +630,13 @@ unspecified. User cleanup retains its own allocation/effect policy. Empty clear
 is harmless, future insertions can reuse capacity, and independent immutable
 owners survive. Temporaries, shared references, and conflicting loans are rejected.
 
-`items.try_extend(other) -> Result[(), AllocError]` appends all elements of a
+`items.extend(other) -> Result[(), AllocError]` appends all elements of a
 same-typed owned list. The destination requires a named mutable binding, class
 field, or exclusive reference. The source is evaluated and moved before exclusive
-access to the destination, as with `try_append`. It is consumed on both outcomes:
+access to the destination, as with `append`. It is consumed on both outcomes:
 on success its elements transfer in order without cloning; on failure its owners
 are dropped. Destination contents stay unchanged on failure. Preserve a source
-explicitly with `items.try_extend(try_copy(source)?)`; references and arbitrary
+explicitly with `items.extend(copy(source)?)`; references and arbitrary
 iterables are not accepted as sources. Self-extension by moving the destination
 is rejected by ownership checking.
 
@@ -645,8 +646,8 @@ reservation returns `OutOfMemory` or `CapacityOverflow`. After reservation only
 slot transfer remains. All permitted list element types, including custom-cleanup
 classes, work. Input construction and user cleanup retain their own policies.
 
-`dictionary.try_update(other) -> Result[(), AllocError]` consumes a same-typed
-dictionary, with the same receiver and source ownership rules as `try_extend`.
+`dictionary.update(other) -> Result[(), AllocError]` consumes a same-typed
+dictionary, with the same receiver and source ownership rules as `extend`.
 Existing keys retain their insertion positions and stored key owners, while
 incoming values replace their payloads. New keys append in source insertion
 order. Count keys absent from the destination and reserve all entry/hash storage
@@ -659,37 +660,37 @@ drops old destination payloads in source traversal order, after installing each
 new payload. Incoming duplicate-key owners are released; new-key owners transfer.
 Replacing only existing keys, empty sources, and updates that fit reserved storage
 allocate nothing in the runtime. User cleanup keeps its own effect/allocation
-policy. Use `try_copy(source)?` to preserve an input; source references, pair
+policy. Use `copy(source)?` to preserve an input; source references, pair
 iterables, and keyword updates are deferred.
 
-`set.try_update(other) -> Result[(), AllocError]` consumes a same-typed set and
+`set.update(other) -> Result[(), AllocError]` consumes a same-typed set and
 adds its missing members. The destination requires exclusive access; the source
 is consumed even on failure. Count absent members and reserve entries/buckets
 before changing contents. Allocation failure leaves destination membership and
 lookup behavior unchanged. On success, transfer new member owners and release
 duplicate incoming owners while keeping the destination's existing owners.
 Empty and duplicate-only sources need no allocation; sufficient reserved capacity
-also avoids allocation. Set iteration order stays unspecified. Use `try_copy`
+also avoids allocation. Set iteration order stays unspecified. Use `copy`
 explicitly to preserve the source; general iterables, source references, and
 multi-source update calls are deferred. Hashing/comparison of permitted member
 types invokes no user code or allocation.
 
-`set.try_union(other) -> Result[set[T], AllocError]` observes both same-typed sets
+`set.union(other) -> Result[set[T], AllocError]` observes both same-typed sets
 and returns their unique members in an independent set. Inputs can be references
 or the same set. All output storage is reserved before retaining member owners;
 allocation failure leaves both inputs unchanged. Immutable strings may share
 storage. Nonempty results use three allocations (buckets, entries, owner header),
 empty results only the header. Iteration order is unspecified.
 
-`set.try_intersection(other)` has the same result and borrowing contract as
-`try_union`, selecting only common members. It reserves for the actual result
+`set.intersection(other)` has the same result and borrowing contract as
+`union`, selecting only common members. It reserves for the actual result
 size, so disjoint inputs need only an empty output owner header.
 
-`set.try_difference(other)` selects receiver members absent from `other`, using
+`set.difference(other)` selects receiver members absent from `other`, using
 the same fallible, borrowed, exact-capacity contract. Unlike union and intersection,
 the operands are not interchangeable; subtracting a set from itself yields empty.
 
-`set.try_symmetric_difference(other)` selects members present in exactly one
+`set.symmetric_difference(other)` selects members present in exactly one
 input. It shares the same fallible construction contract; equal inputs produce
 an empty result. Set algebra methods accept exactly one same-typed set, not
 arbitrary iterables, and do not imply overloaded arithmetic operators.
@@ -715,13 +716,12 @@ No iterable conversion, comparison operators, or heterogeneous key coercion is i
 return the first or last matching zero-based index as `Option[i64]`. Missing
 values produce `Nothing`, not a sentinel or exception. These methods currently
 support integer, float, bool, and string elements only, guaranteeing allocation-free
-comparison. Aggregate equality can allocate memoization storage and is deliberately
-excluded until its failure policy is addressed. Floats use IEEE equality (NaN
+comparison. Aggregate search remains outside this initial method subset. Floats use IEEE equality (NaN
 never matches; signed zeros compare equal). Both operands are observed once in
 source order, including references, and must have exactly matching element types.
 Optional bounds and Python's throwing `index` method are deferred.
 
-`items.try_slice(start, stop)` returns `Result[list[T], AllocError]` for a
+`items.slice(start, stop)` returns `Result[list[T], AllocError]` for a
 forward list slice. Both arguments are required `i64` indices; start is inclusive
 and stop exclusive. Negative bounds count from the end, bounds clamp to
 `[0, len(items)]`, and a stop before start yields an empty list. Extreme signed
@@ -733,7 +733,7 @@ The result is a new list. Immutable elements are retained, with no deep copy;
 its lifetime is independent of the source. Affine elements require an owned
 temporary receiver and transfer only the selected owners. The temporary's other
 elements are dropped in source order after the call; on failure all its elements
-are dropped. Use `try_copy(items)?.try_slice(start, stop)` for explicit duplication
+are dropped. Use `copy(items)?.slice(start, stop)` for explicit duplication
 that preserves an affine source. Borrowed sources remain unchanged on failure.
 The complete output buffer and header are reserved before any transfer (two
 allocations for nonempty slices, one for empty slices). Capacity/layout overflow
@@ -797,7 +797,7 @@ owned values become shared references. `(&mut dictionary).items()` (also
 values. No item tuples or snapshot buffers are allocated for these loops.
 `items()` is currently a loop/comprehension intrinsic rather than a storable
 iterator. A snapshot can be built explicitly with a comprehension, using `copy`
-or `try_copy` when values are owned. Dictionary mutations that could invalidate
+or `copy` when values are owned. Dictionary mutations that could invalidate
 iteration conflict with the source loan.
 
 Python's [display and comprehension rules](https://docs.python.org/3/reference/expressions.html#displays-for-lists-sets-and-dictionaries)
@@ -850,9 +850,11 @@ declarations. Parameters plus locals are currently limited to 256 slots per
 function, a checked implementation limit inherited from the compact IR.
 
 Binary applications require exactly one module-level `main` function with no
-parameters and a return type of `()` or `i32` (transparent aliases are accepted).
-The native wrapper calls it once: `()` maps to status zero and `i32` is returned
-as the process status. The operating system may truncate that status; small
+parameters and a return type of `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`
+(transparent aliases are accepted). The native wrapper calls it once: unit or
+`Ok(())` maps to zero, an `i32` or `Ok(i32)` supplies the status, and `Err` maps to
+one. Errors are dropped normally; status conversion allocates no diagnostic.
+Use explicit error handling to print an error message before returning. The operating system may truncate that status; small
 nonnegative values are portable. `main` follows ordinary function return typing,
 borrow checking, and deterministic cleanup, including early/nonzero returns.
 It cannot be a generator. Other functions, including forward declarations, are
@@ -1061,12 +1063,12 @@ not grapheme clusters; indexing (including negative indices) returns a one-scala
 `text.isascii() -> bool` is true when every character belongs to ASCII, including
 controls and NUL; it is true for empty text. `text.isspace() -> bool` requires at
 least one character and all characters to have Unicode's White_Space property,
-using the same bundled Rust tables as `try_strip`. NUL and U+200B are not whitespace.
+using the same bundled Rust tables as `strip`. NUL and U+200B are not whitespace.
 This is not a promise to reproduce Python's extra whitespace classifications.
 Both methods take no arguments, observe their receiver once, accept references,
 and allocate nothing.
 
-`text.try_removeprefix(prefix)` and `text.try_removesuffix(suffix)` return
+`text.removeprefix(prefix)` and `text.removesuffix(suffix)` return
 `Result[str, AllocError]`, removing at most one exact UTF-8 prefix or suffix.
 Empty patterns and missing matches preserve the contents; no normalization,
 character-set stripping, or repeated removal occurs. Receiver and argument are
@@ -1096,7 +1098,7 @@ Both strings are observed once in source order, including references. A source's
 validated byte length leaves room for the header, so its boundary count fits i64.
 There are no optional bounds, regexes, or normalization.
 
-`text.try_strip()`, `text.try_lstrip()`, and `text.try_rstrip()` return
+`text.strip()`, `text.lstrip()`, and `text.rstrip()` return
 `Result[str, AllocError]`, removing Unicode White_Space from both ends, the
 left end, or the right end respectively. The compiler's bundled Rust runtime
 provides the Unicode classification; NUL and zero-width space are not whitespace.
@@ -1106,7 +1108,7 @@ does not allocate; creating the independent result requires one allocation even
 for empty or unchanged output. Failures preserve the source, and the output
 outlives it. No case folding or normalization occurs.
 
-`text.try_repeat(count) -> Result[str, AllocError]` observes one `i64` count and
+`text.repeat(count) -> Result[str, AllocError]` observes one `i64` count and
 the receiver. Positive counts repeat the exact UTF-8 contents; zero and negative
 counts produce an empty string, like Python repetition. Empty input produces
 empty output for any count without iterating count times. Checked byte/scalar
@@ -1116,7 +1118,7 @@ returns `OutOfMemory`, and the source remains unchanged. The runtime fills the
 output by copying and doubling its initialized prefix without intermediate text.
 The result owns independent storage. String multiplication syntax is deferred.
 
-`text.try_slice(start, stop)` returns `Result[str, AllocError]`. It uses the list
+`text.slice(start, stop)` returns `Result[str, AllocError]`. It uses the list
 slice's two required `i64` bounds, negative indexing, exclusive stop, and clamping,
 but positions count Unicode scalars. Reversed bounds produce an empty string.
 The receiver and bounds are observed once in source order, including references.
@@ -1127,7 +1129,7 @@ without an intermediate array, then copies the byte interval. This is linear in
 the scanned text length; combining marks remain separate scalars and no Unicode
 normalization occurs. Slice syntax and steps remain deferred.
 
-`text.try_concat(other)` and `separator.try_join(parts)` return
+`text.concat(other)` and `separator.join(parts)` return
 `Result[str, AllocError]`. Both observe their inputs; `other` must be a `str`,
 and `parts` must be a `list[str]` (or a reference to one). Empty list displays
 receive that contextual type. Arbitrary iterables/generators are not accepted
@@ -1142,11 +1144,14 @@ bytes. This currently includes empty and singleton results. There is no intermed
 text buffer or allocated array of pieces. Length/layout overflow returns
 `CapacityOverflow`, allocator rejection returns `OutOfMemory`, and the inputs
 remain unchanged. Error transport uses the allocation-free standard sum ABI.
-Ordinary `+` shares the concatenation implementation but retains terminal failure
-behavior. Ordinary string indexing, input, and formatting retain terminal
-allocation failure behavior.
+String `+` and indexing return `Result[str, AllocError]`. Index bounds still
+trap; `get` returns `Result[Option[str], AllocError]` for recoverable absence.
+String iteration yields `Result[str, AllocError]` per scalar, and advances its
+byte cursor without allocation even after an error. String literals are immortal
+and need no allocation. Ranges currently have heap-backed storage: `range(...)`
+and `range[T](...)` return `Result[range[T], AllocError]`.
 
-`text.try_replace(old, new)` returns `Result[str, AllocError]`. It requires two
+`text.replace(old, new)` returns `Result[str, AllocError]`. It requires two
 `str` arguments (references are accepted) and observes receiver, old, and new
 once in that order. Replace every literal, non-overlapping match from left to
 right; inserted text is not searched again. An empty old string matches every
@@ -1162,7 +1167,7 @@ no intermediate strings, lists, or arrays of match positions. Overflow returns
 unchanged on either outcome, and successful output outlives them independently.
 Input construction retains its own allocation policy.
 
-`text.try_split(separator)` returns `Result[list[str], AllocError]`, observing
+`text.split(separator)` returns `Result[list[str], AllocError]`, observing
 both strings (including references) without consuming them. The explicit separator
 must be nonempty: an empty separator is an invalid-operation runtime error, like
 an out-of-bounds index, and terminates without unwinding. `AllocError` reports
@@ -1181,7 +1186,7 @@ The compiler supplies immutable result metadata; no descriptor allocation or
 intermediate array of substrings is needed. Input expression construction and
 ordinary indexing retain their existing failure policies.
 
-`text.try_get(index)` returns `Result[Option[str], AllocError]`. The `i64` index
+`text.get(index)` returns `Result[Option[str], AllocError]`. The `i64` index
 counts Unicode scalars, with negative indices relative to the end, just like
 ordinary indexing. An out-of-range index (including either extreme `i64` value)
 returns `Ok(Nothing)` without allocating. A valid index returns
@@ -1204,8 +1209,8 @@ reject embedded NUL when the external API cannot represent it.
 
 ## Concrete enums and sum types
 
-`Enum.Variant.try_new(payloads)` returns `Result[Enum, AllocError]`. Nullary
-variants use `.try_new()` with no arguments. Payloads evaluate before allocation
+`Enum.Variant.new(payloads)` returns `Result[Enum, AllocError]`. Nullary
+variants use `.new()` with no arguments. Payloads evaluate before allocation
 and move into the call; failure drops them. Inline standard variants need no
 allocation and produce `Ok` directly. This API does not make payload expressions
 fallible automatically.
@@ -1277,7 +1282,9 @@ tag, and one 128-bit slot per active payload field. Equality compares nominal ty
 payload contents, using IEEE comparisons for floats. Runtime metadata records
 whether equality is reflexive; float-containing values cannot use pointer identity
 as an equality shortcut because of NaN. Aggregate pairs are memoized during a
-structural comparison to avoid expanding shared payload graphs exponentially.
+structural comparison in a bounded 256-entry stack cache, with no allocator
+calls. Eviction may repeat work on very large shared graphs; recursive types are
+still rejected. Common shared graphs fit without exponential expansion.
 Printing uses qualified variant names. No niche optimization,
 stable external layout, or per-instantiation code generation is required.
 Frontend coverage lowers to the existing scalar-tag match with an invalid-tag
@@ -1337,15 +1344,15 @@ copying, comparing, matching, or propagating it inside a `Result` does not
 allocate. `AllocError` itself is not an operand or return family for `?`.
 Unsupported allocator layouts remain a future concern when custom allocators exist.
 
-Explicit collection types expose `try_new()` and `try_with_capacity(capacity: i64)`:
-`list[T].try_new()`, `set[T].try_with_capacity(n)`, and
-`dict[K, V].try_with_capacity(n)` return `Result` with the collection as its
+Explicit collection types expose `new()` and `with_capacity(capacity: i64)`:
+`list[T].new()`, `set[T].with_capacity(n)`, and
+`dict[K, V].with_capacity(n)` return `Result` with the collection as its
 success payload and `AllocError` as its error payload. Collection type aliases,
 including imported aliases, expose the same constructors. This is concrete
 builtin type-method syntax, not general generic functions or static class methods.
 
-Both constructors produce an empty collection. `try_new()` allocates only its
-owner header; `try_with_capacity(n)` also reserves room for at least `n` entries,
+Both constructors produce an empty collection. `new()` allocates only its
+owner header; `with_capacity(n)` also reserves room for at least `n` entries,
 including hash storage where needed. The capacity expression is evaluated once.
 Negative counts and impossible layouts return `CapacityOverflow` before attempting
 any allocation. Allocator rejection at any subsequent stage returns `OutOfMemory`.
@@ -1355,17 +1362,16 @@ No partially initialized collection or user destructor is exposed.
 The runtime validates and reserves buffers in a local Rust value before allocating
 and initializing its owner header. Rust cleanup handles partial reservation; after
 publication, the intrusive destruction queue releases buffers and frees the header
-with its matching layout. Existing infallible collection construction uses the
-same owner allocation/deallocation path with its existing terminal failure policy.
+with its matching layout. Ordinary constructor syntax uses this same checked path.
 
 The following exclusive methods return `Result[(), AllocError]`:
 
 | Receiver | Method | Contract |
 | --- | --- | --- |
-| `list[T]`, `set[T]`, `dict[K, V]` | `try_reserve(additional: i64)` | Reserve room for at least this many more entries beyond the current length |
-| `list[T]` | `try_append(value: T)` | Append one element |
-| `set[T]` | `try_add(value: T)` | Insert an element if absent |
-| `dict[K, V]` | `try_insert(key: K, value: V)` | Insert or replace a value, preserving key insertion order |
+| `list[T]`, `set[T]`, `dict[K, V]` | `reserve(additional: i64)` | Reserve room for at least this many more entries beyond the current length |
+| `list[T]` | `append(value: T)` | Append one element |
+| `set[T]` | `add(value: T)` | Insert an element if absent |
+| `dict[K, V]` | `insert(key: K, value: V)` | Insert or replace a value, preserving key insertion order |
 
 They work on mutable bindings, exclusive references, and mutable class fields.
 Callers handle the returned `Result` with `match` or propagate it with `?`.
@@ -1387,8 +1393,8 @@ input can reserve before moving it. The native helper borrows inputs and retains
 only successfully stored values; the compiler releases its input owners on both
 paths. The returned error needs neither formatting nor a heap-backed enum record.
 
-`try_copy(value)` returns `Result[T, AllocError]`, where `T` is the observed
-operand type. It uses the same borrowing and copyability rules as `copy`: an owned
+`copy(value)` returns `Result[T, AllocError]`, where `T` is the observed
+operand type. An owned
 binding is observed rather than consumed, reference operands copy the referred-to
 value, mutable contents are recursively duplicated, and immutable storage such as
 strings can be shared. Scalars and wholly immutable values require no allocation.
@@ -1402,18 +1408,14 @@ temporary ownership guards cover pending keys, pending values, and partial
 collections. Record copies track their initialized field prefix and release only
 that prefix on error, then free the header directly. They never run a whole-record
 destructor on a partial object. Active inline sum payloads follow the same rules;
-inactive owned variants require no allocation. Ordinary `copy` shares this runtime
-implementation but retains its existing terminal failure policy. Propagating a
-failed `try_copy` uses the ordinary `?` cleanup rules without allocating an error.
+inactive owned variants require no allocation. Propagating a
+failed `copy` uses the ordinary `?` cleanup rules without allocating an error.
 
-This is an incremental API: existing `append`, `add`, indexed assignment,
-literals, comprehensions, ordinary constructors, `copy`, string `+` and indexing,
-generators, comparisons
-that need memoization, and formatting retain their existing terminal failure
-policy. The `try_` prefix makes the currently recoverable operations explicit;
-it does not settle the eventual syntax for making *all* allocations fallible.
-Whole-program OOM recovery is not yet promised. Custom destructors must avoid
-allocating, or handle their own fallible operations, on an OOM recovery path.
+Dictionary indexed assignment replaces an existing entry without allocation;
+an absent key traps. Use `insert(key, value)` to add keys and handle its Result.
+List indexed replacement, clear/reverse/removal, and structural comparisons need
+no allocation. Custom destructors must avoid allocating or handle their own
+operation results on an OOM recovery path.
 
 Collection buffers remain owned by Rust `Vec` with the same fixed global allocator
 for growth and deallocation. Runtime allocator switching is not exposed. Per-value
@@ -1428,14 +1430,14 @@ cleanup, and allocation-free handling while allocation remains disabled.
 
 ## Classes: fixed-layout records
 
-`Class.try_new(arguments)` returns `Result[Class, AllocError]` and shares ordinary
-constructor visibility and argument types. Arguments evaluate before allocation;
+`Class(arguments)` and its `Class.new(arguments)` alias return
+`Result[Class, AllocError]`, with identical visibility and argument types. Arguments evaluate before allocation;
 failure drops moved arguments without calling `__init__` or `__del__`. This makes
 instance storage allocation recoverable, not allocations inside argument
-expressions or an ordinary initializer. `try_new` is a reserved class member.
+expressions or an ordinary initializer. `new` is a reserved class member.
 
 An explicit `__init__` may return `Result[(), AllocError]`. Such classes require
-`Class.try_new(...)`; `?` in initialization propagates through that constructor.
+checked construction; `?` in initialization propagates through the constructor.
 Failure drops initialized fields and remaining arguments, but skips the class's
 `__del__`. The custom destructor becomes active only after successful initialization.
 Every successful return must initialize every field. An explicit `return Err(...)`
@@ -1458,7 +1460,7 @@ class Point:
         self.y = self.y + amount
 
 def main() -> ():
-    mut point = Point(3, 4)
+    mut point = Point(3, 4).unwrap()
     point.shift(2)
 ```
 
@@ -1510,8 +1512,7 @@ destructor flags on nominal metadata.
 ## Ownership and reclamation
 
 Classes, mutable collections, and aggregates containing them move on assignment and owned
-argument passing; independent duplication requires `copy(value)` or a successful
-`try_copy(value)`. Immutable `str`
+argument passing; independent duplication requires a successful `copy(value)`. Immutable `str`
 and enums containing only immutable values may share storage. Copyability is
 cached on concrete enum and class metadata so shared type graphs are not traversed repeatedly.
 
@@ -1670,8 +1671,8 @@ No lifetime annotation syntax or general trait system is required for this subse
 Tuples are immutable structural products. A tuple containing owned fields is
 affine; whole-tuple unpacking transfers each component and `_` drops a component.
 Copyable tuples share immutable storage on assignment. The initial implementation
-uses the existing heap record representation and cleanup machinery. Ordinary
-tuple displays may abort on allocation failure; `try (a, b)` returns
+uses the existing heap record representation and cleanup machinery. A tuple
+display `(a, b)` returns
 `Result[tuple[A, B], AllocError]` and consumes and cleans up evaluated components
 on failure. Component expressions retain their own allocation/error contracts.
 Indices must be nonnegative integer literals, checked against the tuple's arity;
@@ -1724,15 +1725,14 @@ releases its frame and captures without resuming it. Wrapping does not permit
 generators in collection/class storage, printing, comparison, or nested yields.
 References remain prohibited in standard sum payloads.
 
-`generator_function.try_new(arguments)` returns
+`generator_function(arguments)` and its `.new(arguments)` alias return
 `Result[Generator[T], AllocError]`. Arguments evaluate first and move into the
 constructor. Allocation failure releases them; success transfers them into the
-frame without executing the body. Ordinary calls retain aborting frame allocation.
+frame without executing the body. There is no public aborting frame constructor.
 Frame destruction remains allocation-free and does not resume the body.
 
-Ordinary and fallible generator constructors share one emitted resume function
-and one immutable frame descriptor. Adding the checked entry point does not
-duplicate compilation of the generator body.
+Generator construction uses one emitted resume function and one immutable frame
+descriptor; selecting the checked constructor never duplicates the body.
 
 A function containing `yield` declares `Generator[T]`. Calls evaluate arguments
 and create an owned frame without running the body. Each resume executes native
@@ -1965,7 +1965,7 @@ consume input, and allocation failure leaves the owner valid for cleanup.
 
 ## Splitting existing text into lines
 
-`str.try_splitlines(keepends: bool = False) -> Result[list[str], AllocError]`
+`str.splitlines(keepends: bool = False) -> Result[list[str], AllocError]`
 returns independently owned lines. It recognizes LF, CR, CRLF, vertical tab,
 form feed, U+001C–U+001E, U+0085, U+2028, and U+2029. Empty text produces no
 lines, interior blank lines are retained, and a final terminator adds no extra
@@ -1997,9 +1997,9 @@ implemented. The new design review changes the recommended priority:
 3. Fallible allocation now covers collection construction,
    reservation, insertion, explicit copying, and text concatenation/joining/splitting
    and checked character lookup, slices, replacement, and dictionary snapshots through
-   `try_` APIs. Numeric parsing/formatting, console I/O, argument snapshots,
+   ordinary Result-returning APIs. Numeric parsing/formatting, console I/O, argument snapshots,
    and Linux whole-file text helpers now have explicit failure contracts. Continue
-   with public allocator lifetimes and buffer allocator selection. Explicit `try`
+   with public allocator lifetimes and buffer allocator selection. Default checked
    literals/comprehensions and aggregate formatting are implemented, as is internal
    object allocator provenance.
    Class/enum/generator checked constructors and list/set iterator collection are

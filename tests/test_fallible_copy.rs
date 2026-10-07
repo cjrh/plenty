@@ -25,21 +25,21 @@ class Point:
     x: i64
     values: list[i64]
 def changed(source: &Point) -> Result[Point, AllocError]:
-    mut result = try_copy(source)?
+    mut result = copy(source)?
     result.x = 99
-    result.values.try_append(42)?
+    result.values.append(42)?
     Ok(result)
 def change_dictionary(source: &dict[str, list[i64]]) -> Result[dict[str, list[i64]], AllocError]:
-    mut result = try_copy(source)?
-    result.try_insert("key", [99])?
+    mut result = copy(source)?
+    result.insert("key", [99].unwrap())?
     Ok(result)
-point = Point(1, [2, 3])
-mapping = {"key": [1]}
-print(changed(&point))
-print(point)
-print(change_dictionary(&mapping))
-print(mapping)
-print(try_copy({1, 2}))
+point = Point(1, [2, 3].unwrap()).unwrap()
+mapping = {"key": [1].unwrap()}.unwrap()
+print(changed(&point)).unwrap()
+print(point).unwrap()
+print(change_dictionary(&mapping)).unwrap()
+print(mapping).unwrap()
+print(copy({1, 2}.unwrap())).unwrap()
 "#, "Result[Point, AllocError].Ok(Point(x=99, values=[2, 3, 42]))\nPoint(x=1, values=[2, 3])\nResult[dict[str, list[i64]], AllocError].Ok({\"key\": [99]})\n{\"key\": [1]}\nResult[set[i64], AllocError].Ok({1, 2})");
 }
 
@@ -60,24 +60,24 @@ class Bundle:
     left: list[list[i64]]
     right: Result[Items, str]
 def duplicate(source: &Bundle) -> Result[Bundle, AllocError]:
-    try_copy(source)
-source = Bundle("cop" + "ied", [[1, 2], [3]], Ok(Items.Batch([4, 5])))
-print("__test_fail_allocations_after_{budget}__")
+    copy(source)
+source = Bundle(("cop" + "ied").unwrap(), [[1, 2].unwrap(), [3].unwrap()].unwrap(), Ok(Items.Batch([4, 5].unwrap()).unwrap())).unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
 result = duplicate(&source)
-print("__test_restore_allocations__")
+print("__test_restore_allocations__").unwrap()
 match result:
     case Ok(value):
-        print(value == source)
+        print(value == source).unwrap()
     case Err(error):
-        print(error)
-print(source.name)
-print(source.left)
-print(source.right)
+        print(error).unwrap()
+print(source.name).unwrap()
+print(source.left).unwrap()
+print(source.right).unwrap()
 match duplicate(&source):
     case Ok(value):
-        print(value == source)
+        print(value == source).unwrap()
     case Err(error):
-        print("retry failed")
+        print("retry failed").unwrap()
 "#
             ),
             &format!(
@@ -100,16 +100,16 @@ fn failed_dictionary_value_copy_releases_the_pending_key_and_prior_entries() {
         native(
             &format!(
                 r#"
-source = {{"fi" + "rst": [1], "sec" + "ond": [2]}}
-print("__test_fail_allocations_after_{budget}__")
-result = try_copy(source)
-print("__test_restore_allocations__")
+source = {{("fi" + "rst").unwrap(): [1].unwrap(), ("sec" + "ond").unwrap(): [2].unwrap()}}.unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = copy(source)
+print("__test_restore_allocations__").unwrap()
 match result:
     case Ok(value):
-        print(value == source)
+        print(value == source).unwrap()
     case Err(error):
-        print(error)
-print(source)
+        print(error).unwrap()
+print(source).unwrap()
 "#
             ),
             &format!(
@@ -130,28 +130,28 @@ fn immutable_values_and_inactive_owned_variants_copy_without_allocating() {
     native(r#"
 enum Label:
     Text(str)
-text = "hel" + "lo"
-label = Label.Text(text)
+text = ("hel" + "lo").unwrap()
+label = Label.Text(text).unwrap()
 absent: Option[list[i64]] = Nothing
 error: Result[list[i64], str] = Err(text)
-print("__test_begin_no_allocations__")
-print("__test_fail_allocations_after_0__")
-a = try_copy(text)
-b = try_copy(label)
-c = try_copy(absent)
-d = try_copy(error)
-e = try_copy(18446744073709551615u64)
-f = try_copy(-0.0f32)
-g = try_copy(AllocError.OutOfMemory)
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(a)
-print(b)
-print(c)
-print(d)
-print(e)
-print(f)
-print(g)
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+a = copy(text)
+b = copy(label)
+c = copy(absent)
+d = copy(error)
+e = copy(18446744073709551615u64)
+f = copy(-0.0f32)
+g = copy(AllocError.OutOfMemory)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(a).unwrap()
+print(b).unwrap()
+print(c).unwrap()
+print(d).unwrap()
+print(e).unwrap()
+print(f).unwrap()
+print(g).unwrap()
 "#, "Result[str, AllocError].Ok(\"hello\")\nResult[Label, AllocError].Ok(Label.Text(\"hello\"))\nResult[Option[list[i64]], AllocError].Ok(Option[list[i64]].Nothing)\nResult[Result[list[i64], str], AllocError].Ok(Result[list[i64], str].Err(\"hello\"))\nResult[u64, AllocError].Ok(18446744073709551615)\nResult[f32, AllocError].Ok(-0.0)\nResult[AllocError, AllocError].Ok(AllocError.OutOfMemory)");
 }
 
@@ -162,34 +162,34 @@ fn propagation_drops_locals_without_consuming_the_borrowed_source() {
         r#"
 class Guard:
     def __del__(self: &mut Guard) -> ():
-        print("dropped")
+        print("dropped").unwrap()
 def duplicate(source: &list[i64], guard: Guard) -> Result[list[i64], AllocError]:
-    result = try_copy(source)?
-    print("unreachable")
+    result = copy(source)?
+    print("unreachable").unwrap()
     Ok(result)
-source = [1, 2]
-guard = Guard()
-print("__test_fail_allocations_after_0__")
+source = [1, 2].unwrap()
+guard = Guard().unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
 result = duplicate(&source, guard)
-print("__test_restore_allocations__")
-print(result)
-print(source)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(source).unwrap()
 "#,
         "dropped\nResult[list[i64], AllocError].Err(AllocError.OutOfMemory)\n[1, 2]",
     );
 }
 
 #[rstest]
-#[case("try_copy()", "try_copy takes one argument")]
-#[case("try_copy(1, 2)", "try_copy takes one argument")]
-#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = Guard()\ntry_copy(source)", "cannot be copied")]
-#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = [Guard()]\ntry_copy(source)", "cannot be copied")]
+#[case("copy()", "copy takes one argument")]
+#[case("copy(1, 2)", "copy takes one argument")]
+#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = Guard().unwrap()\ncopy(source)", "cannot be copied")]
+#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = [Guard().unwrap()].unwrap()\ncopy(source)", "cannot be copied")]
 #[case(
-    "def values() -> Generator[i64]:\n    yield 1\nsource = values()\ntry_copy(source)",
+    "def values() -> Generator[i64]:\n    yield 1\nsource = values().unwrap()\ncopy(source)",
     "cannot be copied"
 )]
 #[case(
-    "source = [1]\nloan = &mut source\nresult = try_copy(source)\nloan.append(2)",
+    "source = [1].unwrap()\nloan = &mut source\nresult = copy(source)\nloan.append(2).unwrap()",
     "borrow"
 )]
 fn rejects_invalid_copies(#[case] source: &str, #[case] expected: &str) {

@@ -352,8 +352,6 @@ pub enum Op {
     /// Pop one value of any type and render it without a newline. The
     /// rendering matches one entry in the `.` stack display.
     Print,
-    /// Print one value naturally, followed by a newline (modern `print`).
-    PrintLine,
 }
 
 /// One arm of a [`Op::Match`]. The pattern is matched against the popped
@@ -1382,7 +1380,7 @@ fn step(
                 return Err(format!("`:println` requires Str, got {top}").into());
             }
         }
-        Op::Print | Op::PrintLine => {
+        Op::Print => {
             stack.pop().ok_or("stack underflow on `:print`")?;
         }
     }

@@ -21,46 +21,46 @@ fn native(source: &str, expected: &str) {
 #[test]
 fn pop_supports_default_positive_negative_and_extreme_indices() {
     native(r#"
-mut items = [10, 20, 30, 40, 50]
-print(items.pop())
-print(items.pop(1))
-print(items.pop(-2))
-print(items)
-print(items.pop(-3))
-print(items.pop(2))
-print(items.pop(-9223372036854775808))
-print(items.pop(9223372036854775807))
-print(items)
-print(items.pop(-2))
-print(items.pop(0))
-print(items.pop())
-print(items.pop(0))
-print(items)
+mut items = [10, 20, 30, 40, 50].unwrap()
+print(items.pop()).unwrap()
+print(items.pop(1)).unwrap()
+print(items.pop(-2)).unwrap()
+print(items).unwrap()
+print(items.pop(-3)).unwrap()
+print(items.pop(2)).unwrap()
+print(items.pop(-9223372036854775808)).unwrap()
+print(items.pop(9223372036854775807)).unwrap()
+print(items).unwrap()
+print(items.pop(-2)).unwrap()
+print(items.pop(0)).unwrap()
+print(items.pop()).unwrap()
+print(items.pop(0)).unwrap()
+print(items).unwrap()
 "#, "Option[i64].Some(50)\nOption[i64].Some(20)\nOption[i64].Some(30)\n[10, 40]\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\nOption[i64].Nothing\n[10, 40]\nOption[i64].Some(10)\nOption[i64].Some(40)\nOption[i64].Nothing\nOption[i64].Nothing\n[]");
 }
 
 #[test]
 fn pop_transfers_nested_values_and_preserves_inline_payloads() {
     native(r#"
-mut rows = [[1], [2], [3]]
+mut rows = [[1].unwrap(), [2].unwrap(), [3].unwrap()].unwrap()
 match rows.pop(1):
     case Some(row):
         mut changed = row
-        changed.append(4)
-        rows.append(changed)
+        changed.append(4).unwrap()
+        rows.append(changed).unwrap()
     case Nothing:
-        print("missing")
-print(rows)
-mut options: list[Option[list[i64]]] = [Nothing, Some([42])]
-print(options.pop())
-print(options.pop())
-print(options.pop())
-mut numbers = [2.5f32, 3.5f32]
-print(numbers.pop(0))
-mut words = ["é" + "🙂"]
+        print("missing").unwrap()
+print(rows).unwrap()
+mut options: list[Option[list[i64]]] = [Nothing, Some([42].unwrap())].unwrap()
+print(options.pop()).unwrap()
+print(options.pop()).unwrap()
+print(options.pop()).unwrap()
+mut numbers = [2.5f32, 3.5f32].unwrap()
+print(numbers.pop(0)).unwrap()
+mut words = [("é" + "🙂").unwrap()].unwrap()
 word = words.pop()
 drop(words)
-print(word)
+print(word).unwrap()
 "#, "[[1], [3], [2, 4]]\nOption[Option[list[i64]]].Some(Option[list[i64]].Some([42]))\nOption[Option[list[i64]]].Some(Option[list[i64]].Nothing)\nOption[Option[list[i64]]].Nothing\nOption[f32].Some(2.5)\nOption[str].Some(\"é🙂\")");
 }
 
@@ -71,16 +71,16 @@ fn removed_custom_cleanup_values_drop_once_under_the_new_owner() {
 class Guard:
     id: i64
     def __del__(self: &mut Guard) -> ():
-        print(self.id)
-mut guards = [Guard(10), Guard(20), Guard(30)]
+        print(self.id).unwrap()
+mut guards = [Guard(10).unwrap(), Guard(20).unwrap(), Guard(30).unwrap()].unwrap()
 removed = guards.pop(1)
-print("removed")
+print("removed").unwrap()
 drop(guards)
-print("list dropped")
+print("list dropped").unwrap()
 drop(removed)
-mut discarded = [Guard(40)]
+mut discarded = [Guard(40).unwrap()].unwrap()
 discarded.pop()
-print("done")
+print("done").unwrap()
 "#,
         "removed\n10\n30\nlist dropped\n20\n40\ndone",
     );
@@ -95,19 +95,19 @@ class Storage:
 def take(items: &mut list[i64], index: &i64) -> Option[i64]:
     items.pop(index)
 def index(items: &mut list[i64]) -> i64:
-    print("index")
-    items.append(30)
+    print("index").unwrap()
+    items.append(30).unwrap()
     0
 class Custom:
     def pop(self) -> i64:
         42
-mut storage = Storage([10, 20])
-print(storage.items.pop(index(&mut storage.items)))
+mut storage = Storage([10, 20].unwrap()).unwrap()
+print(storage.items.pop(index(&mut storage.items))).unwrap()
 position = -1
-print(take(&mut storage.items, &position))
-print(storage.items.pop(len(storage.items) - 1))
-print(storage.items)
-print(Custom().pop())
+print(take(&mut storage.items, &position)).unwrap()
+print(storage.items.pop(len(storage.items) - 1)).unwrap()
+print(storage.items).unwrap()
+print(Custom().unwrap().pop()).unwrap()
 "#,
         "index\nOption[i64].Some(10)\nOption[i64].Some(30)\nOption[i64].Some(20)\n[]\n42",
     );
@@ -120,11 +120,11 @@ fn missing_pop_propagates_and_skips_later_operations() {
 def take_two(items: &mut list[list[i64]]) -> Option[list[i64]]:
     first = items.pop()?
     second = items.pop()?
-    print("unreachable")
+    print("unreachable").unwrap()
     Some(second)
-mut rows = [[1]]
-print(take_two(&mut rows))
-print(rows)
+mut rows = [[1].unwrap()].unwrap()
+print(take_two(&mut rows)).unwrap()
+print(rows).unwrap()
 "#,
         "Option[list[i64]].Nothing\n[]",
     );
@@ -135,37 +135,40 @@ print(rows)
 fn removal_and_append_reuse_storage_without_allocating() {
     native(
         r#"
-mut rows = [[1], [2], [3]]
-print("__test_fail_allocations_after_0__")
-print("__test_begin_no_allocations__")
+mut rows = [[1].unwrap(), [2].unwrap(), [3].unwrap()].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
 missing = rows.pop(3)
 removed = rows.pop(1)
 match removed:
     case Some(row):
-        rows.append(row)
+        rows.append(row).unwrap()
     case Nothing:
-        print("unexpected")
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(missing)
-print(rows)
+        print("unexpected").unwrap()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(missing).unwrap()
+print(rows).unwrap()
 "#,
         "Option[list[i64]].Nothing\n[[1], [3], [2]]",
     );
 }
 
 #[rstest]
-#[case("items = [1]\nitems.pop()", "mutable")]
+#[case("items = [1].unwrap()\nitems.pop()", "mutable")]
 #[case(
-    "mut items = [1]\nitems.pop(0, 1)",
+    "mut items = [1].unwrap()\nitems.pop(0, 1)",
     "list pop takes at most one i64 index"
 )]
-#[case("mut items = [1]\nitems.pop(0u8)", "expected i64")]
-#[case("mut items = [1]\nitems.pop(0.0)", "expected i64")]
-#[case("[1].pop()", "pop requires a mutable list or dictionary")]
-#[case("mut items = [[1]]\nloan = &items\nitems.pop()\nprint(loan)", "borrow")]
+#[case("mut items = [1].unwrap()\nitems.pop(0u8)", "expected i64")]
+#[case("mut items = [1].unwrap()\nitems.pop(0.0)", "expected i64")]
+#[case("[1].unwrap().pop()", "pop requires a mutable list or dictionary")]
 #[case(
-    "mut items = [[1]]\nremoved = items.pop()\ndrop(removed)\nprint(removed)",
+    "mut items = [[1].unwrap()].unwrap()\nloan = &items\nitems.pop()\nprint(loan).unwrap()",
+    "borrow"
+)]
+#[case(
+    "mut items = [[1].unwrap()].unwrap()\nremoved = items.pop()\ndrop(removed)\nprint(removed).unwrap()",
     "moved"
 )]
 fn rejects_invalid_removal(#[case] source: &str, #[case] expected: &str) {

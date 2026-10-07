@@ -336,11 +336,6 @@ struct Runtime {
     /// primitive; `plenty_print_str` (the `.` path) escapes and
     /// quotes, `plenty_println` does not.
     println: FuncId,
-    println_signed: FuncId,
-    println_unsigned: FuncId,
-    println_bool: FuncId,
-    println_f32: FuncId,
-    println_f64: FuncId,
 }
 
 fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
@@ -418,11 +413,6 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         },
         contains: two_args_one_return(module, "plenty_contains", PTR_TY, PTR_TY, types::I8)?,
         println: one_arg(module, "plenty_println", PTR_TY)?,
-        println_signed: one_arg(module, "plenty_println_signed", types::I64)?,
-        println_unsigned: one_arg(module, "plenty_println_unsigned", types::I64)?,
-        println_bool: one_arg(module, "plenty_println_bool", types::I8)?,
-        println_f32: one_arg(module, "plenty_println_f32", types::F32)?,
-        println_f64: one_arg(module, "plenty_println_f64", types::F64)?,
     })
 }
 
@@ -1248,31 +1238,6 @@ impl Lowerer<'_, '_> {
             Op::Contains => self.lower_contains()?,
             Op::PrintLn => self.lower_println()?,
             Op::Print => self.lower_print()?,
-            Op::PrintLine => {
-                let (mut value, ty) = self.stack.pop().ok_or("empty print")?;
-                let helper = match ty.clone() {
-                    Ty::Str => self.runtime.println,
-                    Ty::Bool => self.runtime.println_bool,
-                    Ty::F32 => self.runtime.println_f32,
-                    Ty::F64 => self.runtime.println_f64,
-                    ty if ty.uses_value_runtime() => {
-                        self.collection_call(9, &[value], Some(&ty))?;
-                        self.release(value, &ty);
-                        return Ok(());
-                    }
-                    ty if is_signed(ty.clone()) => {
-                        value = self.cast(value, ty, Ty::I64);
-                        self.runtime.println_signed
-                    }
-                    ty => {
-                        value = self.cast(value, ty, Ty::U64);
-                        self.runtime.println_unsigned
-                    }
-                };
-                let f = self.module.declare_func_in_func(helper, self.bcx.func);
-                self.bcx.ins().call(f, &[value]);
-                self.release(value, &ty);
-            }
         }
         Ok(())
     }

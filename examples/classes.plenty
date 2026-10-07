@@ -13,16 +13,16 @@ class Resource:
     name: str
 
     def __del__(self) -> ():
-        print("release " + self.name)
+        print(("release " + self.name).unwrap()).unwrap()
 
 def work() -> ():
-    resource = Resource("example")
-    print(resource)
+    resource = Resource("example").unwrap()
+    print(resource).unwrap()
 
 def main() -> ():
-    mut point = Point(3, 4)
-    print(point.squared_length())
+    mut point = Point(3, 4).unwrap()
+    print(point.squared_length()).unwrap()
     point.shift(1)
-    print(point)
+    print(point).unwrap()
 
     work()

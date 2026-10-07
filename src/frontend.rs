@@ -560,8 +560,7 @@ enum Expression {
     GenericCall(String, Vec<TypeRef>, Vec<Expr>),
     Tuple(Vec<Expr>, bool),
     Try(Box<Expr>),
-    FallibleCollection(Box<Expr>),
-    ClassNew(Rc<crate::record::ClassType>, bool),
+    ClassNew(Rc<crate::record::ClassType>),
     ClassReady(Rc<crate::record::ClassType>, Box<Expr>),
     Type(TypeRef),
     Member(Box<Expr>, String),
@@ -1022,7 +1021,7 @@ impl Parser {
             }
             self.expect(",")?;
         }
-        Ok(Expression::Tuple(values, false))
+        Ok(Expression::Tuple(values, true))
     }
     fn expr(&mut self, min: u8) -> Result<Expr> {
         let at = self.take();
@@ -1032,23 +1031,7 @@ impl Parser {
             Kind::Word(s) if s == "True" || s == "False" => Expression::Bool(s == "True"),
             Kind::Word(s) if s == "not" => Expression::Unary(s.clone(), Box::new(self.expr(3)?)),
             Kind::Word(s) if s == "try" => {
-                let open = self.take();
-                let Kind::Symbol(symbol) = &open.kind else {
-                    return Err(open.error("try requires a list, dictionary, or set display"));
-                };
-                if symbol == "(" {
-                    let kind = self.parenthesized()?;
-                    let Expression::Tuple(values, _) = kind else {
-                        return Err(open.error("try requires a tuple or collection display"));
-                    };
-                    Expression::Tuple(values, true)
-                } else {
-                    if !matches!(symbol.as_str(), "[" | "{") {
-                        return Err(open.error("try requires a list, dictionary, or set display"));
-                    }
-                    let kind = self.collection_display(symbol)?;
-                    Expression::FallibleCollection(Box::new(Expr { at: open, kind }))
-                }
+                return Err(at.error("collection literals already return Result; remove `try` and use postfix `?` to propagate errors"));
             }
             Kind::Symbol(s) if s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
@@ -1130,7 +1113,11 @@ impl Parser {
                 continue;
             }
             if self.eat(".") {
-                let name = self.name()?;
+                let name = if self.eat("from") {
+                    "from".into()
+                } else {
+                    self.name()?
+                };
                 let at = left.at.clone();
                 left = if self.eat("(") {
                     let args = self.arguments()?;
@@ -1259,8 +1246,6 @@ fn builtin(name: &str) -> bool {
                 | "IntType"
                 | "next"
                 | "copy"
-                | "try_copy"
-                | "try_print"
                 | "drop"
         )
 }
@@ -1494,67 +1479,79 @@ impl Lower<'_> {
         self.expr(e, ops)?
             .ok_or_else(|| e.at.error("expected a value, got ()"))
     }
+    fn propagate(
+        &mut self,
+        e: &Expr,
+        value: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if self.yield_type.is_some() {
+            return Err(e
+                .at
+                .error("`?` is not supported in generators; match the result explicitly"));
+        }
+        let Some(Some(Ty::Enum(target))) = self.return_type.clone() else {
+            return Err(e
+                .at
+                .error("`?` requires a function returning Result or Option"));
+        };
+        if !target.propagatable() {
+            return Err(e
+                .at
+                .error("`?` requires a function returning Result or Option"));
+        }
+        let operand_context = expected.map(|ty| {
+            if target.is_option()
+                || matches!(&ungroup(value).kind, Expression::Call(name, _) if name == "Some")
+            {
+                crate::sum::option(ty)
+            } else {
+                crate::sum::result(ty, target.variants[1].fields[0].clone())
+            }
+        });
+        let Some(Ty::Enum(source)) = self.expr_expected(value, operand_context, ops)? else {
+            return Err(e.at.error("`?` requires a Result or Option operand"));
+        };
+        if !source.propagatable() || source.is_option() != target.is_option() {
+            return Err(e.at.error(
+                "`?` operand and function return must use the same Result or Option family",
+            ));
+        }
+        if !source.is_option() && source.variants[1].fields != target.variants[1].fields {
+            return Err(e
+                .at
+                .error("`?` requires identical Result error types; convert the error explicitly"));
+        }
+        let success = usize::from(source.is_option());
+        let payload = source.variants[success].fields[0].clone();
+        let mut cleanup = Vec::new();
+        if !self.contexts.is_empty() {
+            self.cleanup(0, &mut cleanup);
+        }
+        ops.push(Op::Try {
+            source,
+            target,
+            cleanup: cleanup.into(),
+        });
+        if payload == Ty::Unit {
+            ops.push(Op::Drop);
+            Ok(None)
+        } else {
+            Ok(Some(payload))
+        }
+    }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
             Expression::GenericCall(..) => {
                 return Err(e.at.error("generic call was not specialized"))
             }
-            Expression::Try(value) => {
-                if self.yield_type.is_some() {
-                    return Err(e
-                        .at
-                        .error("`?` is not supported in generators; match the result explicitly"));
-                }
-                let Some(Some(Ty::Enum(target))) = self.return_type.clone() else {
-                    return Err(e
-                        .at
-                        .error("`?` requires a function returning Result or Option"));
-                };
-                if !target.propagatable() {
-                    return Err(e
-                        .at
-                        .error("`?` requires a function returning Result or Option"));
-                }
-                let Ty::Enum(source) = self.value(value, ops)? else {
-                    return Err(e.at.error("`?` requires a Result or Option operand"));
-                };
-                if !source.propagatable() || source.is_option() != target.is_option() {
-                    return Err(e.at.error(
-                        "`?` operand and function return must use the same Result or Option family",
-                    ));
-                }
-                if !source.is_option() && source.variants[1].fields != target.variants[1].fields {
-                    return Err(e.at.error(
-                        "`?` requires identical Result error types; convert the error explicitly",
-                    ));
-                }
-                let success = usize::from(source.is_option());
-                let payload = source.variants[success].fields[0].clone();
-                let mut cleanup = Vec::new();
-                if !self.contexts.is_empty() {
-                    self.cleanup(0, &mut cleanup);
-                }
-                ops.push(Op::Try {
-                    source,
-                    target,
-                    cleanup: cleanup.into(),
-                });
-                if payload == Ty::Unit {
-                    ops.push(Op::Drop);
-                    None
-                } else {
-                    Some(payload)
-                }
-            }
+            Expression::Try(value) => self.propagate(e, value, None, ops)?,
             Expression::Type(_) => {
                 return Err(e.at.error("a type is not a value; select a variant"))
             }
-            Expression::ClassNew(t, fallible) => {
-                let op = if *fallible {
-                    crate::record::ClassOp::TryNew(t.clone())
-                } else {
-                    crate::record::ClassOp::New(t.clone())
-                };
+            Expression::ClassNew(t) => {
+                let op = crate::record::ClassOp::TryNew(t.clone());
                 let output = op.signature().unwrap().1;
                 ops.push(Op::Class(op));
                 Some(output)
@@ -1580,8 +1577,7 @@ impl Lower<'_> {
             Expression::Tuple(values, fallible) => {
                 Some(self.tuple(values, *fallible, None, &e.at, ops)?)
             }
-            Expression::Collection { .. } => Some(self.collection(e, None, ops)?),
-            Expression::FallibleCollection(inner) => Some(self.fallible_display(inner, None, ops)?),
+            Expression::Collection { .. } => Some(self.fallible_display(e, None, ops)?),
             Expression::Index(base, index) => {
                 let ty = self.index(base, index, ops)?;
                 if ty == Ty::Unit {
@@ -1701,7 +1697,11 @@ impl Lower<'_> {
                 let element = b
                     .element()
                     .ok_or_else(|| e.at.error("membership requires an iterable"))?;
-                self.same(Some(a), Some(element), &e.at)?;
+                self.same(
+                    Some(a),
+                    Some(if b == Ty::Str { Ty::Str } else { element }),
+                    &e.at,
+                )?;
                 ops.push(Op::Collection(CollectionOp::Contains(b)));
                 Self::end_reads(loans, ops);
                 if op == "not in" {
@@ -1769,6 +1769,11 @@ impl Lower<'_> {
                             .error("floor division and modulo currently require integers"));
                     }
                     ops.extend(rhs);
+                    if op == "+" && a == Ty::Str {
+                        ops.push(Op::Collection(CollectionOp::TextTryConcat));
+                        Self::end_reads(loans, ops);
+                        return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
+                    }
                     ops.push(match op.as_str() {
                         "+" => Op::Add,
                         "-" => Op::Sub,
@@ -1803,9 +1808,12 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
-                if name == "try_print" {
+                if name == "print" {
+                    if self.names.contains_key(name) {
+                        return Err(e.at.error(format!("binding `{name}` is not callable")));
+                    }
                     if args.len() != 1 {
-                        return Err(e.at.error("try_print takes one argument"));
+                        return Err(e.at.error("print takes one argument"));
                     }
                     let (ty, loans) = self.observe(&args[0], ops)?;
                     if ty.restricted_storage() {
@@ -1826,7 +1834,7 @@ impl Lower<'_> {
                 if enums::prelude_variant(name) {
                     return self.prelude_constructor(name, Some(args), None, &e.at, ops);
                 }
-                if matches!(name.as_str(), "copy" | "try_copy" | "drop") {
+                if matches!(name.as_str(), "copy" | "drop") {
                     return self.copy_or_drop(name, args, &e.at, ops);
                 }
                 if name == "next" {
@@ -1850,12 +1858,14 @@ impl Lower<'_> {
                     return self.builtin_collection(name, args, &e.at, ops).map(Some);
                 }
                 if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
-                    if t.fallible_init {
-                        return Err(e.at.error("fallible __init__ requires Class.try_new(...)"));
+                    if t.depth >= 64 {
+                        return Err(e
+                            .at
+                            .error("type nesting exceeds the implementation limit of 64"));
                     }
                     modules::check_member(self.access, &t.name, "__new__", &e.at)?;
                     return self.call_named(
-                        &crate::record::method(&t.name, "__new__"),
+                        &crate::record::method(&t.name, "new"),
                         args,
                         &e.at,
                         ops,
@@ -1877,17 +1887,6 @@ impl Lower<'_> {
                     }
                     ops.push(Op::Cast(target.clone()));
                     Some(target)
-                } else if name == "print" {
-                    if args.len() != 1 {
-                        return Err(e.at.error("print takes one argument"));
-                    }
-                    let (ty, loans) = self.observe(&args[0], ops)?;
-                    if ty.restricted_storage() {
-                        return Err(e.at.error("generators cannot be printed"));
-                    }
-                    ops.push(Op::PrintLine);
-                    Self::end_reads(loans, ops);
-                    None
                 } else if name == "contains" {
                     if args.len() != 2 {
                         return Err(e.at.error("contains takes two strings"));
@@ -1912,6 +1911,12 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        let constructor = generators::constructor(name);
+        let name = if self.sigs.contains_key(&constructor) {
+            &constructor
+        } else {
+            name
+        };
         let sig = self
             .sigs
             .get(name)
@@ -2426,10 +2431,11 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         let entry_sig = &sigs["main"];
         if !entry_sig.inputs.is_empty()
             || !matches!(entry_sig.outputs.as_slice(), [] | [Ty::I32])
+                && !matches!(entry_sig.outputs.as_slice(), [Ty::Enum(t)] if t.propagatable() && !t.is_option() && matches!(t.variants[0].fields.as_slice(), [Ty::Unit | Ty::I32]))
             || generators::yields(&entry.body)
         {
             return Err(entry.at.error(
-                "main must take no parameters and return () or i32; it cannot be a generator",
+                "main must take no parameters and return (), i32, Result[(), E], or Result[i32, E]; it cannot be a generator",
             ));
         }
         !entry_sig.outputs.is_empty()
@@ -2542,6 +2548,23 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     }
     if require_main {
         ops.push(Op::Call("main".into()));
+        if let [Ty::Enum(t)] = sigs["main"].outputs.as_slice() {
+            // Entry failures map to exit status 1 without allocating a diagnostic.
+            ops.extend([
+                Op::Dup,
+                Op::Enum(crate::sum::EnumOp::Tag(t.clone())),
+                Op::PushInt(Value::I64(0)),
+                Op::Eq,
+                branch(
+                    if t.variants[0].fields[0] == Ty::I32 {
+                        vec![Op::Enum(crate::sum::EnumOp::Take(t.clone(), 0, 0))]
+                    } else {
+                        vec![Op::Drop, Op::PushInt(Value::I32(0))]
+                    },
+                    vec![Op::Drop, Op::PushInt(Value::I32(1))],
+                ),
+            ]);
+        }
     }
     Ok(Program {
         ops,

@@ -27,12 +27,12 @@ fn sized_read_counts_unicode_and_translated_newlines() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt")? as file:
-        print(file.read(0))
-        print(file.read(2))
-        print(file.read(1))
-        print(file.read(-1))
+        print(file.read(0)).unwrap()
+        print(file.read(2)).unwrap()
+        print(file.read(1)).unwrap()
+        print(file.read(-1)).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some("é🦀\r\nlast".as_bytes()),
     );
@@ -45,13 +45,13 @@ fn sized_readline_stops_at_limit_or_newline() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt")? as file:
-        print(file.readline(1))
-        print(file.readline(0))
-        print(file.readline(20))
-        print(file.readline(-1))
-        print(file.read(1))
+        print(file.readline(1)).unwrap()
+        print(file.readline(0)).unwrap()
+        print(file.readline(20)).unwrap()
+        print(file.readline(-1)).unwrap()
+        print(file.read(1)).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some("é🦀\r\nnext\nz".as_bytes()),
     );
@@ -64,14 +64,14 @@ fn files_are_owned_and_close_is_idempotent() {
         r#"
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print(file.closed)
-    print(file)
+    print(file.closed).unwrap()
+    print(file).unwrap()
     file.close()?
-    print(file.closed)
+    print(file.closed).unwrap()
     file.close()?
-    print(file)
+    print(file).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"text"),
     );
@@ -86,19 +86,19 @@ fn file_capabilities_use_shared_references_and_validate_closed_state() {
     let (out, _) = run(
         r#"
 def inspect(file: &File) -> Result[(), IoError]:
-    print(file.readable()?)
-    print(file.writable()?)
+    print(file.readable()?).unwrap()
+    print(file.writable()?).unwrap()
     Ok(())
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
     inspect(&file)?
     file.close()?
-    print(file.readable())
+    print(file.readable()).unwrap()
     with open("sample.txt", "w")? as stream:
         inspect(&stream)?
-        print(stream.read(0))
+        print(stream.read(0)).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"hello"),
     );
@@ -111,10 +111,10 @@ fn readline_preserves_line_endings_and_distinguishes_empty_lines_from_eof() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt")? as file:
-        for n in range(6):
-            print(file.readline())
+        for n in range(6).unwrap():
+            print(file.readline()).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some("é\r\n\r\n\n\0last".as_bytes()),
     );
@@ -130,7 +130,7 @@ def work() -> Result[str, IoError]:
     with open("sample.txt")? as file:
         first = file.readline()?
         return file.read()
-print(work())
+print(work()).unwrap()
 "#,
             Some(input),
         );
@@ -143,12 +143,12 @@ print(work())
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt")? as file:
-        print(file.readline())
-        print(file.readline())
+        print(file.readline()).unwrap()
+        print(file.readline()).unwrap()
         file.close()?
-        print(file.readline())
+        print(file.readline()).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"\xff\r\nok\n"),
     );
@@ -168,14 +168,14 @@ fn bounded_reads_report_allocation_failure_and_remain_closable() {
                     r#"
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print("__test_fail_allocations_after_{budget}__")
+    print("__test_fail_allocations_after_{budget}__").unwrap()
     result = file.{method}(2)
     file.close()?
-    print("__test_restore_allocations__")
-    print(result)
-    print(file.closed)
+    print("__test_restore_allocations__").unwrap()
+    print(result).unwrap()
+    print(file.closed).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#
                 ),
                 Some("é🦀".as_bytes()),
@@ -206,13 +206,13 @@ def read(file: &mut File) -> Result[str, IoError]:
         return Ok(stream.readline()?)
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print("__test_fail_allocations_after_{budget}__")
+    print("__test_fail_allocations_after_{budget}__").unwrap()
     result = read(&mut file)
-    print("__test_restore_allocations__")
-    print(result)
-    print(file.closed)
+    print("__test_restore_allocations__").unwrap()
+    print(result).unwrap()
+    print(file.closed).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#
             ),
             Some(b"a\r\nb\n"),
@@ -237,9 +237,9 @@ fn scoped_reads_return_owned_text_and_advance_to_eof() {
 def work() -> Result[str, IoError]:
     with open("sample.txt")? as file:
         text = file.read()?
-        print(file.read()?)
+        print(file.read()?).unwrap()
         return Ok(text)
-print(work())
+print(work()).unwrap()
 "#,
         Some("é\r\nhello\r\0".as_bytes()),
     );
@@ -259,11 +259,11 @@ def read(file: &mut File) -> Result[str, IoError]:
         return stream.read()
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print(read(&mut file))
-    print(file.closed)
-    print(file.read())
+    print(read(&mut file)).unwrap()
+    print(file.closed).unwrap()
+    print(file.read()).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
             Some(input),
         );
@@ -290,12 +290,12 @@ def read(file: File) -> Result[str, IoError]:
         return Ok(stream.read()?)
 def work() -> Result[(), IoError]:
     file = open("sample.txt")?
-    print("__test_fail_allocations_after_{budget}__")
+    print("__test_fail_allocations_after_{budget}__").unwrap()
     result = read(file)
-    print("__test_restore_allocations__")
-    print(result)
+    print("__test_restore_allocations__").unwrap()
+    print(result).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#
             ),
             Some(b"text"),
@@ -330,14 +330,14 @@ fn writes_preserve_exact_bytes_and_append_mode() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt", "w")? as file:
-        print(file.write("é\0\r\n")?)
+        print(file.write("é\0\r\n")?).unwrap()
         file.flush()?
         file.sync()?
         file.close()?
     with open("sample.txt", "a")? as file:
-        print(file.write("🙂")?)
+        print(file.write("🙂")?).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"old contents"),
     );
@@ -356,13 +356,13 @@ fn writes_evaluate_text_once_before_exclusive_access() {
     let (out, dir) = run(
         r#"
 def text(file: &File) -> str:
-    print(file.closed)
+    print(file.closed).unwrap()
     "hello"
 def work() -> Result[(), IoError]:
     with open("sample.txt", "w")? as file:
-        print(file.write(text(file))?)
+        print(file.write(text(file))?).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         None,
     );
@@ -382,15 +382,15 @@ fn wrong_mode_closed_and_os_write_failures_are_results() {
         r#"
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print(file.write(""))
+    print(file.write("")).unwrap()
     file.close()?
-    print(file.write("x"))
-    print(file.flush())
-    print(file.sync())
+    print(file.write("x")).unwrap()
+    print(file.flush()).unwrap()
+    print(file.sync()).unwrap()
     with open("/dev/full", "w")? as full:
-        print(full.write("x"))
+        print(full.write("x")).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"old"),
     );
@@ -415,11 +415,11 @@ def write(file: File) -> Result[(), IoError]:
     Ok(())
 def work() -> Result[(), IoError]:
     file = open("sample.txt", "w")?
-    print("__test_fail_allocations_after_0__")
+    print("__test_fail_allocations_after_0__").unwrap()
     result = write(file)
-    print("__test_restore_allocations__")
+    print("__test_restore_allocations__").unwrap()
     result
-print(work())
+print(work()).unwrap()
 "#,
         None,
     );
@@ -447,7 +447,7 @@ fn open_modes_create_truncate_or_preserve_and_errors_are_recoverable() {
         assert_eq!(std::fs::read(dir.path().join("sample.txt")).unwrap(), b"");
     }
     let (out, _) = run(
-        "print(open(\"missing.txt\"))\nprint(open(\"x\", \"bad\"))\nprint(open(\"x\\0y\"))\n",
+        "print(open(\"missing.txt\")).unwrap()\nprint(open(\"x\", \"bad\")).unwrap()\nprint(open(\"x\\0y\")).unwrap()\n",
         None,
     );
     let text = String::from_utf8_lossy(&out.stdout);
@@ -458,10 +458,10 @@ fn open_modes_create_truncate_or_preserve_and_errors_are_recoverable() {
 fn file_ownership_types_and_mutability_are_checked() {
     reject("def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    file.close()\n    Ok(())\n", "mut binding");
     reject(
-        "def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    copy(file)\n    Ok(())\n",
+        "def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    copy(file).unwrap()\n    Ok(())\n",
         "cannot be copied",
     );
-    reject("def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    other = file\n    print(file.closed)\n    Ok(())\n", "moved");
+    reject("def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    other = file\n    print(file.closed).unwrap()\n    Ok(())\n", "moved");
     reject("open(1)", "expected str");
     reject("open()", "takes a path");
 }
@@ -473,14 +473,14 @@ fn writelines_borrows_strings_and_preserves_exact_contents() {
 def save(file: &mut File, lines: &list[str]) -> Result[(), IoError]:
     file.writelines(lines)
 def work() -> Result[(), IoError]:
-    lines = ["é\r\n", "\0", "🦀"]
+    lines = ["é\r\n", "\0", "🦀"].unwrap()
     with open("sample.txt", "w")? as file:
         save(&mut file, &lines)?
-        file.writelines([])?
-        file.writelines(["!"])?
-    print(lines)
+        file.writelines([].unwrap())?
+        file.writelines(["!"].unwrap())?
+    print(lines).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         None,
     );
@@ -490,20 +490,20 @@ print(work())
         "é\r\n\0🦀!".as_bytes()
     );
     reject(
-        "def bad(file: &mut File) -> Result[(), IoError]:\n    file.writelines([1])",
+        "def bad(file: &mut File) -> Result[(), IoError]:\n    file.writelines([1].unwrap())",
         "expected list[str]",
     );
     let (out, _) = run(
         r#"
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print(file.writelines([]))
+    print(file.writelines([].unwrap())).unwrap()
     file.close()?
-    print(file.writelines([]))
+    print(file.writelines([].unwrap())).unwrap()
     with open("/dev/full", "w")? as full:
-        print(full.writelines(["x"]))
+        print(full.writelines(["x"].unwrap())).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"existing"),
     );
@@ -521,15 +521,15 @@ fn writelines_needs_no_allocation_after_argument_construction() {
     let (out, dir) = run(
         r#"
 def work() -> Result[(), IoError]:
-    lines = ["one\n", "two"]
+    lines = ["one\n", "two"].unwrap()
     with open("sample.txt", "w")? as file:
-        print("__test_fail_allocations_after_0__")
+        print("__test_fail_allocations_after_0__").unwrap()
         result = file.writelines(lines)
-        print("__test_restore_allocations__")
-        print(result)
-    print(lines)
+        print("__test_restore_allocations__").unwrap()
+        print(result).unwrap()
+    print(lines).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         None,
     );
@@ -548,9 +548,9 @@ def work() -> Result[list[str], IoError]:
     with open("sample.txt")? as file:
         file.read(1)?
         lines = file.readlines()?
-        print(file.readlines()?)
+        print(file.readlines()?).unwrap()
         return Ok(lines)
-print(work())
+print(work()).unwrap()
 "#,
         Some("xé\r\n\r🦀\nlast".as_bytes()),
     );
@@ -562,10 +562,10 @@ print(work())
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt")? as file:
-        print(file.readlines())
-        print(file.readline())
+        print(file.readlines()).unwrap()
+        print(file.readline()).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"ok\n\xff\nnext\n"),
     );
@@ -584,14 +584,14 @@ fn readlines_cleans_partial_lists_under_allocation_failures() {
                 r#"
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print("__test_fail_allocations_after_{budget}__")
+    print("__test_fail_allocations_after_{budget}__").unwrap()
     result = file.readlines()
     file.close()?
-    print("__test_restore_allocations__")
-    print(result)
-    print(file.closed)
+    print("__test_restore_allocations__").unwrap()
+    print(result).unwrap()
+    print(file.closed).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#
             ),
             Some(b"one\ntwo\nthree"),
@@ -616,16 +616,16 @@ def work() -> Result[(), IoError]:
     with open("sample.txt", "r+")? as file:
         file.read(1)?
         before = file.tell()?
-        print(file.truncate()?)
-        print(file.tell()? == before)
-        print(file.truncate(4)?)
-        print(file.read())
-        print(file.truncate(-1))
-        print(file.truncate(1)?)
+        print(file.truncate()?).unwrap()
+        print(file.tell()? == before).unwrap()
+        print(file.truncate(4)?).unwrap()
+        print(file.read()).unwrap()
+        print(file.truncate(-1)).unwrap()
+        print(file.truncate(1)?).unwrap()
         file.seek(0u64)?
-        print(file.read())
+        print(file.read()).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some("éhello".as_bytes()),
     );
@@ -644,11 +644,11 @@ print(work())
         r#"
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print(file.truncate(0))
+    print(file.truncate(0)).unwrap()
     file.close()?
-    print(file.truncate())
+    print(file.truncate()).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"keep"),
     );
@@ -671,12 +671,12 @@ fn truncate_does_not_allocate() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt", "r+")? as file:
-        print("__test_fail_allocations_after_0__")
+        print("__test_fail_allocations_after_0__").unwrap()
         result = file.truncate(2)
-        print("__test_restore_allocations__")
-        print(result)
+        print("__test_restore_allocations__").unwrap()
+        print(result).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"abcdef"),
     );
@@ -693,16 +693,16 @@ def work() -> Result[(), IoError]:
     with open("sample.txt")? as file:
         file.readline()?
         position = file.tell()?
-        print(file.read(1)?)
+        print(file.read(1)?).unwrap()
         file.seek(position)?
-        print(file.read()?)
+        print(file.read()?).unwrap()
         file.seek(0u64)?
-        print(file.read(1)?)
+        print(file.read(1)?).unwrap()
         file.close()?
-        print(file.tell())
-        print(file.seek(position))
+        print(file.tell()).unwrap()
+        print(file.seek(position)).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
             Some(input.as_bytes()),
         );
@@ -717,11 +717,11 @@ fn seeking_an_append_stream_does_not_reposition_writes() {
 def work() -> Result[(), IoError]:
     with open("sample.txt", "a+")? as file:
         file.seek(0u64)?
-        print(file.read(1)?)
+        print(file.read(1)?).unwrap()
         file.seek(0u64)?
         file.write("!")?
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"abc"),
     );
@@ -747,13 +747,13 @@ fn saved_position_operations_do_not_allocate() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt")? as file:
-        print("__test_fail_allocations_after_0__")
+        print("__test_fail_allocations_after_0__").unwrap()
         position = file.tell()?
         result = file.seek(position)
-        print("__test_restore_allocations__")
-        print(result)
+        print("__test_restore_allocations__").unwrap()
+        print(result).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"ok"),
     );
@@ -766,10 +766,10 @@ fn exclusive_creation_never_replaces_an_existing_file() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt", "x")? as file:
-        print(file.write("created")?)
-    print(open("sample.txt", "x"))
+        print(file.write("created")?).unwrap()
+    print(open("sample.txt", "x")).unwrap()
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         None,
     );
@@ -778,7 +778,7 @@ print(work())
         std::fs::read(dir.path().join("sample.txt")).unwrap(),
         b"created"
     );
-    let (out, dir) = run("print(open(\"sample.txt\", \"x\"))", Some(b"keep"));
+    let (out, dir) = run("print(open(\"sample.txt\", \"x\")).unwrap()", Some(b"keep"));
     assert!(String::from_utf8_lossy(&out.stdout).contains(".Err("));
     assert_eq!(
         std::fs::read(dir.path().join("sample.txt")).unwrap(),
@@ -792,16 +792,16 @@ fn update_modes_read_write_and_preserve_their_creation_contracts() {
         r#"
 def work() -> Result[(), IoError]:
     with open("sample.txt", "r+")? as file:
-        print(file.readable()?)
-        print(file.writable()?)
-        print(file.read(2)?)
+        print(file.readable()?).unwrap()
+        print(file.writable()?).unwrap()
+        print(file.read(2)?).unwrap()
         file.write("X")?
-        print(file.read()?)
+        print(file.read()?).unwrap()
     with open("sample.txt", "a+")? as file:
-        print(file.read())
+        print(file.read()).unwrap()
         file.write("!")?
     Ok(())
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"abcde"),
     );
@@ -814,10 +814,10 @@ print(work())
         b"abXde!"
     );
     for mode in ["w+", "x+"] {
-        let (_, dir) = run(&format!("def work() -> Result[(), IoError]:\n    with open(\"sample.txt\", \"{mode}\")? as file:\n        file.write(\"ok\")?\n    Ok(())\nprint(work())"), None);
+        let (_, dir) = run(&format!("def work() -> Result[(), IoError]:\n    with open(\"sample.txt\", \"{mode}\")? as file:\n        file.write(\"ok\")?\n    Ok(())\nprint(work()).unwrap()"), None);
         assert_eq!(std::fs::read(dir.path().join("sample.txt")).unwrap(), b"ok");
     }
-    let (out, dir) = run("print(open(\"sample.txt\", \"r+\"))", None);
+    let (out, dir) = run("print(open(\"sample.txt\", \"r+\")).unwrap()", None);
     assert!(String::from_utf8_lossy(&out.stdout).contains(".Err("));
     assert!(!dir.path().join("sample.txt").exists());
     let (_, dir) = run("file = open(\"sample.txt\", \"w+\")", Some(b"old"));
@@ -831,10 +831,10 @@ fn exclusive_creation_allocation_failures_leave_no_file() {
         let (out, dir) = run(
             &format!(
                 r#"
-print("__test_fail_allocations_after_{budget}__")
+print("__test_fail_allocations_after_{budget}__").unwrap()
 result = open("sample.txt", "x")
-print("__test_restore_allocations__")
-print(result)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
 "#
             ),
             None,
@@ -857,10 +857,10 @@ fn open_allocation_failures_precede_file_side_effects() {
         let (out, dir) = run(
             &format!(
                 r#"
-print("__test_fail_allocations_after_{budget}__")
+print("__test_fail_allocations_after_{budget}__").unwrap()
 result = open("sample.txt", "w")
-print("__test_restore_allocations__")
-print(result)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
 "#
             ),
             Some(b"old"),
@@ -888,12 +888,12 @@ fn close_and_drop_do_not_allocate() {
         r#"
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
-    print("__test_fail_allocations_after_0__")
+    print("__test_fail_allocations_after_0__").unwrap()
     result = file.close()
     drop(file)
-    print("__test_restore_allocations__")
+    print("__test_restore_allocations__").unwrap()
     result
-print(work())
+print(work()).unwrap()
 "#,
         Some(b"old"),
     );

@@ -51,7 +51,7 @@ impl Parser {
             if public {
                 public_members.insert(member.clone());
             }
-            if matches!(member.as_str(), "__new__" | "try_new" | "self") {
+            if matches!(member.as_str(), "__new__" | "new" | "self") {
                 return Err(at.error(format!("reserved class member `{member}`")));
             }
         }
@@ -211,34 +211,24 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             f.name = method(&class.name, &f.name);
         }
         let instance = "__plenty_instance";
-        for fallible in [false, true] {
-            // Do not reject an otherwise valid depth-64 class merely because
-            // its unused generated Result constructor would exceed the limit.
-            if fallible && ty.depth >= 64 {
-                continue;
-            }
-            if ty.fallible_init && !fallible {
-                continue;
-            }
+        // Unused depth-64 declarations remain valid; constructing one would
+        // exceed the checked constructor's Result nesting limit.
+        if ty.depth < 64 {
             let mut args = vec![expression(
                 at,
                 Expression::Unary("&mut".into(), Box::new(name(at, instance))),
             )];
             args.extend(constructor_inputs.iter().map(|(n, _)| name(at, n)));
             let init = expression(at, Expression::Call(method(&class.name, "__init__"), args));
-            let allocation = expression(at, Expression::ClassNew(ty.clone(), fallible));
-            let output = if fallible {
-                TypeRef {
-                    at: at.clone(),
-                    name: Some("Result".into()),
-                    args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
-                }
-            } else {
-                type_ref(at, &class.name)
+            let allocation = expression(at, Expression::ClassNew(ty.clone()));
+            let output = TypeRef {
+                at: at.clone(),
+                name: Some("Result".into()),
+                args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
             };
             functions.push(Function {
                 type_params: vec![],
-                name: method(&class.name, if fallible { "try_new" } else { "__new__" }),
+                name: method(&class.name, "new"),
                 at: at.clone(),
                 inputs: constructor_inputs.clone(),
                 output,
@@ -250,11 +240,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                             name: instance.into(),
                             mutable: true,
                             annotation: None,
-                            value: if fallible {
-                                expression(at, Expression::Try(Box::new(allocation)))
-                            } else {
-                                allocation
-                            },
+                            value: expression(at, Expression::Try(Box::new(allocation))),
                         },
                     ),
                     statement(
@@ -280,11 +266,10 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                     ),
                     statement(
                         at,
-                        Statement::Expr(if fallible {
-                            expression(at, Expression::Call("Ok".into(), vec![name(at, instance)]))
-                        } else {
-                            name(at, instance)
-                        }),
+                        Statement::Expr(expression(
+                            at,
+                            Expression::Call("Ok".into(), vec![name(at, instance)]),
+                        )),
                     ),
                 ],
             });
@@ -326,8 +311,7 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                 Expression::Member(a, _)
                 | Expression::Group(a)
                 | Expression::Unary(_, a)
-                | Expression::Try(a)
-                | Expression::FallibleCollection(a) => self.expr(a, initialized)?,
+                | Expression::Try(a) => self.expr(a, initialized)?,
                 Expression::Method(a, _, args) => {
                     self.expr(a, initialized)?;
                     for arg in args {

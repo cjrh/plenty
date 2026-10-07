@@ -40,7 +40,7 @@ fn replacement_is_literal_and_non_overlapping(
     #[case] expected: &str,
 ) {
     native(
-        &format!("print({text:?}.try_replace({old:?}, {new:?}))"),
+        &format!("print({text:?}.replace({old:?}, {new:?})).unwrap()"),
         &format!("Result[str, AllocError].Ok({expected:?})"),
     );
 }
@@ -52,24 +52,24 @@ fn replacement_observes_fields_and_reference_arguments_and_preserves_lifetimes()
 class Message:
     text: str
 def replace(text: &str, old: &str, new: &str) -> Result[str, AllocError]:
-    text.try_replace(old, new)
-mut message = Message("Aé" + "🙂é")
-old = "" + "é"
-new = "" + "Z"
+    text.replace(old, new)
+mut message = Message(("Aé" + "🙂é").unwrap()).unwrap()
+old = ("" + "é").unwrap()
+new = ("" + "Z").unwrap()
 saved = replace(&message.text, &old, &new)
 message.text = "changed"
 drop(message)
 drop(old)
 drop(new)
-print(saved)
+print(saved).unwrap()
 def inspect(text: &mut str) -> Result[i64, AllocError]:
-    result = text.try_replace("", "🙂")?
+    result = text.replace("", "🙂")?
     *text = "changed"
-    print(result)
+    print(result).unwrap()
     Ok(len(result))
 mut text = "ab"
-print(inspect(&mut text))
-print(text)
+print(inspect(&mut text)).unwrap()
+print(text).unwrap()
 "#,
         "Result[str, AllocError].Ok(\"AZ🙂Z\")\n🙂a🙂b🙂\nResult[i64, AllocError].Ok(5)\nchanged",
     );
@@ -79,19 +79,19 @@ print(text)
 fn replacement_operands_evaluate_once_in_order_and_propagate_before_later_operands() {
     native(r#"
 def text(label: str, value: str) -> str:
-    print(label)
+    print(label).unwrap()
     value
 def missing() -> Result[str, AllocError]:
-    print("missing")
+    print("missing").unwrap()
     Err(AllocError.CapacityOverflow)
 def fail() -> Result[str, AllocError]:
-    text("receiver", "A" + "B").try_replace(missing()?, text("skipped", "C"))
-print(text("receiver", "aba").try_replace(text("old", "a"), text("new", "X")))
-print(fail())
+    text("receiver", ("A" + "B").unwrap()).replace(missing()?, text("skipped", "C"))
+print(text("receiver", "aba").replace(text("old", "a"), text("new", "X"))).unwrap()
+print(fail()).unwrap()
 class Custom:
-    def try_replace(self, value: i64) -> i64:
+    def replace(self, value: i64) -> i64:
         value
-print(Custom().try_replace(42))
+print(Custom().unwrap().replace(42)).unwrap()
 "#, "receiver\nold\nnew\nResult[str, AllocError].Ok(\"XbX\")\nreceiver\nmissing\nResult[str, AllocError].Err(AllocError.CapacityOverflow)\n42");
 }
 
@@ -99,10 +99,10 @@ print(Custom().try_replace(42))
 fn replacement_accepts_shared_input_storage_without_consuming_it() {
     native(
         r#"
-text = "a" + "b"
-print(text.try_replace(text, text))
-print(text.try_replace("", text))
-print(text)
+text = ("a" + "b").unwrap()
+print(text.replace(text, text)).unwrap()
+print(text.replace("", text)).unwrap()
+print(text).unwrap()
 "#,
         "Result[str, AllocError].Ok(\"ab\")\nResult[str, AllocError].Ok(\"abaabbab\")\nab",
     );
@@ -123,15 +123,15 @@ fn only_the_final_string_allocation_can_fail(
         native(
             &format!(
                 r#"
-text = "Aé" + "éZ"
+text = ("Aé" + "éZ").unwrap()
 old = {old:?}
 new = {new:?}
-print("__test_fail_allocations_after_{budget}__")
-result = text.try_replace(old, new)
-print("__test_restore_allocations__")
-print(result)
-print(text)
-print(text.try_replace(old, new))
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = text.replace(old, new)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(text).unwrap()
+print(text.replace(old, new)).unwrap()
 "#
             ),
             &format!(
@@ -148,21 +148,21 @@ print(text.try_replace(old, new))
 
 #[rstest]
 #[case(
-    "print(\"text\".try_replace())",
-    "try_replace requires old and new string arguments"
+    "print(\"text\".replace()).unwrap()",
+    "replace requires old and new string arguments"
 )]
 #[case(
-    "print(\"text\".try_replace(\"t\"))",
-    "try_replace requires old and new string arguments"
+    "print(\"text\".replace(\"t\")).unwrap()",
+    "replace requires old and new string arguments"
 )]
 #[case(
-    "print(\"text\".try_replace(\"t\", \"X\", 1))",
-    "try_replace requires old and new string arguments"
+    "print(\"text\".replace(\"t\", \"X\", 1)).unwrap()",
+    "replace requires old and new string arguments"
 )]
-#[case("print(\"text\".try_replace(1, \"X\"))", "expected str")]
-#[case("print(\"text\".try_replace(\"t\", 1))", "expected str")]
-#[case("print([1].try_replace(\"t\", \"X\"))", "expected str")]
-#[case("mut text = \"text\"\nloan = &mut text\nprint(text.try_replace(\"t\", \"X\"))\n*loan = \"changed\"", "borrow")]
+#[case("print(\"text\".replace(1, \"X\")).unwrap()", "expected str")]
+#[case("print(\"text\".replace(\"t\", 1)).unwrap()", "expected str")]
+#[case("print([1].unwrap().replace(\"t\", \"X\")).unwrap()", "expected str")]
+#[case("mut text = \"text\"\nloan = &mut text\nprint(text.replace(\"t\", \"X\")).unwrap()\n*loan = \"changed\"", "borrow")]
 fn invalid_replacement_is_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

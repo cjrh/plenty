@@ -26,14 +26,14 @@ def numbers() -> Generator[i64]:
     yield 4
     yield 8
 def build() -> Result[Generator[i64], AllocError]:
-    Ok(numbers())
+    Ok(numbers().unwrap())
 def consume() -> Result[i64, AllocError]:
     mut source = build()?
     mut total = 0
     for n in source:
         total = total + n
     Ok(total)
-print(consume())
+print(consume()).unwrap()
 "#,
         "Result[i64, AllocError].Ok(12)",
     );
@@ -46,11 +46,11 @@ fn dropping_wrapped_generator_releases_capture_without_resuming() {
 class Resource:
     n: i64
     def __del__(self: &mut Resource) -> ():
-        print(self.n)
+        print(self.n).unwrap()
 def numbers(resource: Resource) -> Generator[i64]:
-    print("resumed")
+    print("resumed").unwrap()
     yield resource.n
-drop(Some(numbers(Resource(7))))
+drop(Some(numbers(Resource(7).unwrap()).unwrap()))
 "#,
         "7",
     );
@@ -61,17 +61,17 @@ fn checked_generator_constructor_defers_execution_and_propagates() {
     native(
         r#"
 def numbers(n: i64) -> Generator[i64]:
-    print("resumed")
+    print("resumed").unwrap()
     yield n
 def consume() -> Result[i64, AllocError]:
-    mut source = numbers.try_new(12)?
-    print("created")
+    mut source = numbers.new(12)?
+    print("created").unwrap()
     match next(source):
         case Some(n):
             return Ok(n)
         case Nothing:
             return Ok(0)
-print(consume())
+print(consume()).unwrap()
 "#,
         "created\nresumed\nResult[i64, AllocError].Ok(12)",
     );
@@ -88,8 +88,8 @@ fn generator_entry_points_share_native_resume_code() {
 def numbers() -> Generator[i64]:
     yield 5
 def main() -> ():
-    print(list(numbers()))
-    drop(numbers.try_new())
+    print(list(numbers().unwrap()).unwrap()).unwrap()
+    drop(numbers.new())
 "#,
     )
     .unwrap();
@@ -124,19 +124,19 @@ fn checked_frame_failure_releases_moved_captures() {
     native(
         r#"
 def numbers(values: list[i64]) -> Generator[i64]:
-    print("unexpected resume")
+    print("unexpected resume").unwrap()
     for n in values:
         yield n
-values = [1, 2]
-print("__test_fail_allocations_after_0__")
-result = numbers.try_new(values)
-print("__test_restore_allocations__")
+values = [1, 2].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+result = numbers.new(values)
+print("__test_restore_allocations__").unwrap()
 match result:
     case Ok(source):
-        print("unexpected success")
+        print("unexpected success").unwrap()
     case Err(error):
-        print(error)
-drop(numbers.try_new([3]))
+        print(error).unwrap()
+drop(numbers.new([3].unwrap()))
 "#,
         "AllocError.OutOfMemory",
     );

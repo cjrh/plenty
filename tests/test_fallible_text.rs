@@ -23,20 +23,20 @@ fn concat_and_join_preserve_utf8_nul_and_scalar_lengths() {
     native(
         r#"
 def show() -> Result[(), AllocError]:
-    combined = "é\0".try_concat("🙂")?
-    parts = ["é", "", "🙂\0"]
-    joined = "界".try_join(parts)?
-    print(len(combined))
-    print(combined == "é\0🙂")
-    print(len(joined))
-    print(joined == "é界界🙂\0")
-    print(len(parts))
-    print("-".try_join([])?)
-    print("-".try_join(["one"])?)
-    print("".try_join(["a", "b"])?)
-    print("".try_concat("")?)
+    combined = "é\0".concat("🙂")?
+    parts = ["é", "", "🙂\0"].unwrap()
+    joined = "界".join(parts)?
+    print(len(combined)).unwrap()
+    print(combined == "é\0🙂").unwrap()
+    print(len(joined)).unwrap()
+    print(joined == "é界界🙂\0").unwrap()
+    print(len(parts)).unwrap()
+    print("-".join([].unwrap())?).unwrap()
+    print("-".join(["one"].unwrap())?).unwrap()
+    print("".join(["a", "b"].unwrap())?).unwrap()
+    print("".concat("")?).unwrap()
     Ok(())
-print(show())
+print(show()).unwrap()
 "#,
         "3\nTrue\n5\nTrue\n3\n\none\nab\n\nResult[(), AllocError].Ok(())",
     );
@@ -50,13 +50,13 @@ class Texts:
     prefix: str
     parts: list[str]
 def format(prefix: &str, parts: &list[str]) -> Result[str, AllocError]:
-    prefix.try_concat(", ".try_join(parts)?)?.try_concat("!")
+    prefix.concat(", ".join(parts)?)?.concat("!")
 def show(data: &Texts) -> Result[str, AllocError]:
     format(&data.prefix, &data.parts)
-data = Texts("Hello ", ["Ada", "Bea"])
-print(show(&data))
-print(data.prefix)
-print(data.parts)
+data = Texts("Hello ", ["Ada", "Bea"].unwrap()).unwrap()
+print(show(&data)).unwrap()
+print(data.prefix).unwrap()
+print(data.parts).unwrap()
 "#,
         "Result[str, AllocError].Ok(\"Hello Ada, Bea!\")\nHello \n[\"Ada\", \"Bea\"]",
     );
@@ -67,16 +67,16 @@ fn receiver_and_argument_are_evaluated_once_in_order() {
     native(
         r#"
 def separator() -> str:
-    print("separator")
+    print("separator").unwrap()
     "-"
 def parts() -> list[str]:
-    print("parts")
-    ["a", "b"]
+    print("parts").unwrap()
+    ["a", "b"].unwrap()
 class Custom:
-    def try_join(self, text: str) -> str:
+    def join(self, text: str) -> str:
         text
-print(separator().try_join(parts()))
-print(Custom().try_join("class method"))
+print(separator().join(parts())).unwrap()
+print(Custom().unwrap().join("class method")).unwrap()
 "#,
         "separator\nparts\nResult[str, AllocError].Ok(\"a-b\")\nclass method",
     );
@@ -87,17 +87,17 @@ fn split_preserves_empty_fields_unicode_and_embedded_nuls() {
     native(
         r#"
 def check() -> Result[(), AllocError]:
-    pieces = "::é\0::🙂::::".try_split("::")?
-    print(pieces)
-    print(len(pieces[1]))
-    print("::".try_join(pieces)? == "::é\0::🙂::::")
-    print("".try_split(",")?)
-    print("abc".try_split("absent")?)
-    print("aaaaa".try_split("aa")?)
-    print("a界b界".try_split("界")?)
-    print("a\0b\0".try_split("\0")?)
+    pieces = "::é\0::🙂::::".split("::")?
+    print(pieces).unwrap()
+    print(len(pieces[1])).unwrap()
+    print("::".join(pieces)? == "::é\0::🙂::::").unwrap()
+    print("".split(",")?).unwrap()
+    print("abc".split("absent")?).unwrap()
+    print("aaaaa".split("aa")?).unwrap()
+    print("a界b界".split("界")?).unwrap()
+    print("a\0b\0".split("\0")?).unwrap()
     Ok(())
-print(check())
+print(check()).unwrap()
 "#,
         "[\"\", \"é\\0\", \"🙂\", \"\", \"\"]\n2\nTrue\n[\"\"]\n[\"abc\"]\n[\"\", \"\", \"a\"]\n[\"a\", \"b\", \"\"]\n[\"a\", \"b\", \"\"]\nResult[(), AllocError].Ok(())",
     );
@@ -110,22 +110,22 @@ fn splitting_borrows_fields_and_parameters_and_evaluates_once() {
 class Text:
     contents: str
 def split(text: &str, separator: &str) -> Result[list[str], AllocError]:
-    text.try_split(separator)
+    text.split(separator)
 def source() -> str:
-    print("source")
+    print("source").unwrap()
     "left:right"
 def separator() -> str:
-    print("separator")
+    print("separator").unwrap()
     ":"
 class Custom:
-    def try_split(self, text: str) -> str:
+    def split(self, text: str) -> str:
         text
-text = Text("a:b")
+text = Text("a:b").unwrap()
 sep = ":"
-print(split(&text.contents, &sep))
-print(text.contents)
-print(source().try_split(separator()))
-print(Custom().try_split("custom"))
+print(split(&text.contents, &sep)).unwrap()
+print(text.contents).unwrap()
+print(source().split(separator())).unwrap()
+print(Custom().unwrap().split("custom")).unwrap()
 "#,
         "Result[list[str], AllocError].Ok([\"a\", \"b\"])\na:b\nsource\nseparator\nResult[list[str], AllocError].Ok([\"left\", \"right\"])\ncustom",
     );
@@ -138,15 +138,15 @@ fn splitting_recovers_at_every_allocation_and_preserves_sources() {
     for budget in 0..=5 {
         native(
             &format!(r#"
-source = "a:" + "b:"
-separator = "" + ":"
-print("__test_fail_allocations_after_{budget}__")
-result = source.try_split(separator)
-print("__test_restore_allocations__")
-print(result)
-print(source)
-print(separator)
-print(source.try_split(separator))
+source = ("a:" + "b:").unwrap()
+separator = ("" + ":").unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = source.split(separator)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(source).unwrap()
+print(separator).unwrap()
+print(source.split(separator)).unwrap()
 "#),
             &format!("Result[list[str], AllocError].{}\na:b:\n:\nResult[list[str], AllocError].Ok([\"a\", \"b\", \"\"])",
                 if budget < 5 { "Err(AllocError.OutOfMemory)" } else { "Ok([\"a\", \"b\", \"\"])" }),
@@ -163,23 +163,23 @@ fn failed_split_propagates_and_cleans_partial_output_without_allocating() {
                 r#"
 class Guard:
     def __del__(self: &mut Guard) -> ():
-        print("dropped")
+        print("dropped").unwrap()
 def split(source: str, guard: Guard) -> Result[list[str], AllocError]:
-    pieces = source.try_split(":")?
-    print("unreachable")
+    pieces = source.split(":")?
+    print("unreachable").unwrap()
     Ok(pieces)
-source = "a:" + "b:"
-guard = Guard()
-print("__test_fail_allocations_after_{budget}__")
+source = ("a:" + "b:").unwrap()
+guard = Guard().unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
 result = split(source, guard)
-print("__test_begin_no_allocations__")
+print("__test_begin_no_allocations__").unwrap()
 match result:
     case Ok(pieces):
-        print("unexpected success")
+        print("unexpected success").unwrap()
     case Err(error):
-        print("handled")
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
+        print("handled").unwrap()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
 "#
             ),
             "dropped\nhandled",
@@ -189,7 +189,7 @@ print("__test_end_no_allocations__")
 
 #[test]
 fn split_rejects_empty_separator_at_runtime() {
-    let output = support::run("separator = \"\"\nprint(\"abc\".try_split(separator))");
+    let output = support::run("separator = \"\"\nprint(\"abc\".split(separator)).unwrap()");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr)
         .contains("string split requires a nonempty separator"));
@@ -200,14 +200,14 @@ fn checked_character_lookup_uses_scalar_indices_and_handles_extreme_bounds() {
     native(
         r#"
 def show(text: &str, index: i64) -> Result[(), AllocError]:
-    print(text.try_get(index)?)
+    print(text.get(index)?).unwrap()
     Ok(())
 text = "é🙂\0"
-for index in [-4, -3, -2, -1, 0, 1, 2, 3, -9223372036854775808, 9223372036854775807]:
+for index in [-4, -3, -2, -1, 0, 1, 2, 3, -9223372036854775808, 9223372036854775807].unwrap():
     show(&text, index)
 empty = ""
 show(&empty, 0)
-print(text == "é🙂\0")
+print(text == "é🙂\0").unwrap()
 "#,
         "Option[str].Nothing\nOption[str].Some(\"é\")\nOption[str].Some(\"🙂\")\nOption[str].Some(\"\\0\")\nOption[str].Some(\"é\")\nOption[str].Some(\"🙂\")\nOption[str].Some(\"\\0\")\nOption[str].Nothing\nOption[str].Nothing\nOption[str].Nothing\nOption[str].Nothing\nTrue",
     );
@@ -220,20 +220,20 @@ fn character_lookup_borrows_fields_and_evaluates_operands_once() {
 class Text:
     value: str
 def source() -> str:
-    print("source")
+    print("source").unwrap()
     "é🙂"
 def index() -> i64:
-    print("index")
+    print("index").unwrap()
     -1
 class Custom:
-    def try_get(self, index: i64) -> i64:
+    def get(self, index: i64) -> i64:
         index
-text = Text("abc")
+text = Text("abc").unwrap()
 position = -2
-print(text.value.try_get(&position))
-print(text.value)
-print(source().try_get(index()))
-print(Custom().try_get(42))
+print(text.value.get(&position)).unwrap()
+print(text.value).unwrap()
+print(source().get(index())).unwrap()
+print(Custom().unwrap().get(42)).unwrap()
 "#,
         "Result[Option[str], AllocError].Ok(Option[str].Some(\"b\"))\nabc\nsource\nindex\nResult[Option[str], AllocError].Ok(Option[str].Some(\"🙂\"))\n42",
     );
@@ -245,17 +245,17 @@ fn missing_character_needs_no_allocation_and_present_character_needs_one() {
     for budget in 0..=1 {
         native(
             &format!(r#"
-text = "é" + "🙂"
-print("__test_fail_allocations_after_{budget}__")
-print("__test_begin_no_allocations__")
-missing = text.try_get(-3)
-print("__test_end_no_allocations__")
-present = text.try_get(-1)
-print("__test_restore_allocations__")
-print(missing)
-print(present)
-print(text)
-print(text.try_get(-1))
+text = ("é" + "🙂").unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+missing = text.get(-3)
+print("__test_end_no_allocations__").unwrap()
+present = text.get(-1)
+print("__test_restore_allocations__").unwrap()
+print(missing).unwrap()
+print(present).unwrap()
+print(text).unwrap()
+print(text.get(-1)).unwrap()
 "#),
             &format!("Result[Option[str], AllocError].Ok(Option[str].Nothing)\nResult[Option[str], AllocError].{}\né🙂\nResult[Option[str], AllocError].Ok(Option[str].Some(\"🙂\"))", if budget == 0 { "Err(AllocError.OutOfMemory)" } else { "Ok(Option[str].Some(\"🙂\"))" }),
         );
@@ -269,23 +269,23 @@ fn character_allocation_failure_propagates_and_drops_locals() {
         r#"
 class Guard:
     def __del__(self: &mut Guard) -> ():
-        print("dropped")
+        print("dropped").unwrap()
 def lookup(text: str, guard: Guard) -> Result[Option[str], AllocError]:
-    character = text.try_get(0)?
-    print("unreachable")
+    character = text.get(0)?
+    print("unreachable").unwrap()
     Ok(character)
-text = "é" + "🙂"
-guard = Guard()
-print("__test_fail_allocations_after_0__")
+text = ("é" + "🙂").unwrap()
+guard = Guard().unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
 result = lookup(text, guard)
-print("__test_begin_no_allocations__")
+print("__test_begin_no_allocations__").unwrap()
 match result:
     case Ok(character):
-        print("unexpected success")
+        print("unexpected success").unwrap()
     case Err(error):
-        print("handled")
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
+        print("handled").unwrap()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
 "#,
         "dropped\nhandled",
     );
@@ -296,11 +296,11 @@ fn index_expression_can_propagate_before_character_allocation() {
     native(
         r#"
 def missing_index() -> Result[i64, AllocError]:
-    print("index")
+    print("index").unwrap()
     Err(AllocError.CapacityOverflow)
 def lookup() -> Result[Option[str], AllocError]:
-    ("a" + "b").try_get(missing_index()?)
-print(lookup())
+    (("a" + "b").unwrap()).get(missing_index()?)
+print(lookup()).unwrap()
 "#,
         "index\nResult[Option[str], AllocError].Err(AllocError.CapacityOverflow)",
     );
@@ -308,28 +308,28 @@ print(lookup())
 
 #[cfg(feature = "runtime-checks")]
 #[rstest]
-#[case("left.try_concat(right)", "left-right")]
-#[case("separator.try_join(parts)", "left|right")]
-#[case("separator.try_join(empty)", "")]
+#[case("left.concat(right)", "left-right")]
+#[case("separator.join(parts)", "left|right")]
+#[case("separator.join(empty)", "")]
 fn one_output_allocation_suffices_and_failure_can_be_retried(
     #[case] expression: &str,
     #[case] expected: &str,
 ) {
     for budget in 0..=1 {
         native(&format!(r#"
-left = "le" + "ft"
-right = "-ri" + "ght"
+left = ("le" + "ft").unwrap()
+right = ("-ri" + "ght").unwrap()
 separator = "|"
-parts = ["le" + "ft", "ri" + "ght"]
-empty = list[str]()
-print("__test_fail_allocations_after_{budget}__")
+parts = [("le" + "ft").unwrap(), ("ri" + "ght").unwrap()].unwrap()
+empty = list[str]().unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
 result = {expression}
-print("__test_restore_allocations__")
-print(result)
-print({expression})
-print(left)
-print(right)
-print(parts)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print({expression}).unwrap()
+print(left).unwrap()
+print(right).unwrap()
+print(parts).unwrap()
 "#), &format!("Result[str, AllocError].{}\nResult[str, AllocError].Ok(\"{expected}\")\nleft\n-right\n[\"left\", \"right\"]", if budget == 0 { "Err(AllocError.OutOfMemory)".into() } else { format!("Ok(\"{expected}\")") }));
     }
 }
@@ -341,57 +341,60 @@ fn failed_join_releases_temporary_inputs_and_propagates_without_allocating() {
         r#"
 class Guard:
     def __del__(self: &mut Guard) -> ():
-        print("dropped")
+        print("dropped").unwrap()
 def build(parts: list[str], guard: Guard) -> Result[str, AllocError]:
-    joined = "-".try_join(parts)?
-    print("unreachable")
+    joined = "-".join(parts)?
+    print("unreachable").unwrap()
     Ok(joined)
-parts = ["ab" + "cd", "ef" + "gh"]
-guard = Guard()
-print("__test_fail_allocations_after_0__")
+parts = [("ab" + "cd").unwrap(), ("ef" + "gh").unwrap()].unwrap()
+guard = Guard().unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
 result = build(parts, guard)
-print("__test_begin_no_allocations__")
+print("__test_begin_no_allocations__").unwrap()
 match result:
     case Ok(text):
-        print("unexpected success")
+        print("unexpected success").unwrap()
     case Err(error):
-        print("handled")
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
+        print("handled").unwrap()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
 "#,
         "dropped\nhandled",
     );
 }
 
 #[rstest]
-#[case("print(\"a\".try_concat())", "try_concat requires one argument")]
-#[case("print(\"a\".try_join([], []))", "try_join requires one argument")]
-#[case("print(\"a\".try_concat(1))", "expected str")]
-#[case("print(\"a\".try_join([1, 2]))", "expected list[str]")]
+#[case("print(\"a\".concat()).unwrap()", "concat requires one argument")]
 #[case(
-    "print(\"a\".try_join({\"x\"}))",
+    "print(\"a\".join([].unwrap(), [].unwrap())).unwrap()",
+    "join requires one argument"
+)]
+#[case("print(\"a\".concat(1)).unwrap()", "expected str")]
+#[case("print(\"a\".join([1, 2].unwrap())).unwrap()", "expected list[str]")]
+#[case(
+    "print(\"a\".join({\"x\"}.unwrap())).unwrap()",
     "collection type does not match its annotation"
 )]
-#[case("print((1).try_concat(\"a\"))", "expected str")]
-#[case("print(\"a\".try_split())", "try_split requires one argument")]
-#[case("print(\"a\".try_split(\",\", 1))", "try_split requires one argument")]
-#[case("print(\"a\".try_split(1))", "expected str")]
-#[case("print((1).try_split(\",\"))", "expected str")]
-#[case("print(\"a\".try_get())", "try_get requires one argument")]
-#[case("print(\"a\".try_get(0, 1))", "try_get requires one argument")]
-#[case("print(\"a\".try_get(0u8))", "expected i64")]
-#[case("print(\"a\".try_get(0.0))", "expected i64")]
-#[case("print((1).try_get(0))", "expected str")]
+#[case("print((1).concat(\"a\")).unwrap()", "expected str")]
+#[case("print(\"a\".split()).unwrap()", "split requires one argument")]
+#[case("print(\"a\".split(\",\", 1)).unwrap()", "split requires one argument")]
+#[case("print(\"a\".split(1)).unwrap()", "expected str")]
+#[case("print((1).split(\",\")).unwrap()", "expected str")]
+#[case("print(\"a\".get()).unwrap()", "get requires one argument")]
+#[case("print(\"a\".get(0, 1)).unwrap()", "get requires one argument")]
+#[case("print(\"a\".get(0u8)).unwrap()", "expected i64")]
+#[case("print(\"a\".get(0.0)).unwrap()", "expected i64")]
+#[case("print((1).get(0)).unwrap()", "unsupported method")]
 #[case(
-    "mut text = \"abc\"\nloan = &mut text\nresult = text.try_get(0)\nprint(loan)",
+    "mut text = \"abc\"\nloan = &mut text\nresult = text.get(0)\nprint(loan).unwrap()",
     "borrow"
 )]
 #[case(
-    "mut text = \"a:b\"\nloan = &mut text\nresult = text.try_split(\":\")\nprint(loan)",
+    "mut text = \"a:b\"\nloan = &mut text\nresult = text.split(\":\")\nprint(loan).unwrap()",
     "borrow"
 )]
 #[case(
-    "mut parts = [\"a\"]\nloan = &mut parts\nresult = \"-\".try_join(parts)\nloan.append(\"b\")",
+    "mut parts = [\"a\"].unwrap()\nloan = &mut parts\nresult = \"-\".join(parts)\nloan.append(\"b\").unwrap()",
     "borrow"
 )]
 fn rejects_invalid_text_building(#[case] source: &str, #[case] expected: &str) {

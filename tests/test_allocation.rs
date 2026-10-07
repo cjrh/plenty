@@ -25,25 +25,25 @@ fn fallible_mutations_and_reservation_work_with_borrows_and_fields() {
 class Data:
     values: list[i64]
 def extend(values: &mut list[i64]) -> Result[(), AllocError]:
-    values.try_reserve(2)?
-    values.try_append(42)?
+    values.reserve(2)?
+    values.append(42)?
     Ok(())
 def build() -> Result[i64, AllocError]:
-    mut data = Data([])
+    mut data = Data([].unwrap()).unwrap()
     extend(&mut data.values)?
-    data.values.try_append(7)?
-    mut seen = set[str]()
-    seen.try_reserve(2)?
-    seen.try_add("yes")?
-    seen.try_add("yes")?
-    mut mapping: dict[str, i64] = {}
-    mapping.try_reserve(2)?
-    mapping.try_insert("answer", 41)?
-    mapping.try_insert("answer", data.values[0])?
-    print(seen)
-    print(mapping)
+    data.values.append(7)?
+    mut seen = set[str]().unwrap()
+    seen.reserve(2)?
+    seen.add("yes")?
+    seen.add("yes")?
+    mut mapping: dict[str, i64] = {}.unwrap()
+    mapping.reserve(2)?
+    mapping.insert("answer", 41)?
+    mapping.insert("answer", data.values[0])?
+    print(seen).unwrap()
+    print(mapping).unwrap()
     Ok(data.values[1])
-print(build())
+print(build()).unwrap()
 "#,
         "{\"yes\"}\n{\"answer\": 42}\nResult[i64, AllocError].Ok(7)",
     );
@@ -54,27 +54,37 @@ fn invalid_capacities_are_recoverable_and_errors_are_nominal() {
     native(r#"
 type MemoryError = AllocError
 def reserve(values: &mut list[i64], count: i64) -> Result[(), MemoryError]:
-    values.try_reserve(count)?
+    values.reserve(count)?
     Ok(())
-mut values = [1, 2]
-print(reserve(&mut values, -1))
-print(reserve(&mut values, 9223372036854775807))
-print(values)
+mut values = [1, 2].unwrap()
+print(reserve(&mut values, -1)).unwrap()
+print(reserve(&mut values, 9223372036854775807)).unwrap()
+print(values).unwrap()
 error = AllocError.CapacityOverflow
-print(copy(error) == error)
+print(copy(error).unwrap() == error).unwrap()
 match error:
     case AllocError.OutOfMemory:
-        print("oom")
+        print("oom").unwrap()
     case AllocError.CapacityOverflow:
-        print("capacity")
+        print("capacity").unwrap()
 "#, "Result[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n[1, 2]\nTrue\ncapacity");
 }
 
 #[cfg(feature = "runtime-checks")]
 #[rstest]
-#[case("list", "[n for n in range(8)]", "values.try_append(99)", 1)]
-#[case("set", "{n for n in range(8)}", "values.try_add(99)", 2)]
-#[case("dict", "{n: n for n in range(8)}", "values.try_insert(99, 99)", 2)]
+#[case(
+    "list",
+    "[n for n in range(8).unwrap()].unwrap()",
+    "values.append(99)",
+    1
+)]
+#[case("set", "{n for n in range(8).unwrap()}.unwrap()", "values.add(99)", 2)]
+#[case(
+    "dict",
+    "{n: n for n in range(8).unwrap()}.unwrap()",
+    "values.insert(99, 99)",
+    2
+)]
 fn every_growth_allocation_can_fail_and_then_be_retried(
     #[case] kind: &str,
     #[case] initial: &str,
@@ -85,16 +95,16 @@ fn every_growth_allocation_can_fail_and_then_be_retried(
         let source = format!(
             r#"
 mut values = {initial}
-print("__test_fail_allocations_after_{budget}__")
+print("__test_fail_allocations_after_{budget}__").unwrap()
 result = {operation}
-print("__test_restore_allocations__")
-print(result)
-print(len(values))
-print(0 in values)
-print(7 in values)
-print(99 in values)
-print({operation})
-print(len(values))
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(len(values)).unwrap()
+print(0 in values).unwrap()
+print(7 in values).unwrap()
+print(99 in values).unwrap()
+print({operation}).unwrap()
+print(len(values)).unwrap()
 "#
         );
         let success = budget == allocations;
@@ -110,22 +120,22 @@ print(len(values))
 
 #[cfg(feature = "runtime-checks")]
 #[rstest]
-#[case("[n for n in range(8)]", 1)]
-#[case("{n for n in range(8)}", 2)]
-#[case("{n: n for n in range(8)}", 2)]
+#[case("[n for n in range(8).unwrap()].unwrap()", 1)]
+#[case("{n for n in range(8).unwrap()}.unwrap()", 2)]
+#[case("{n: n for n in range(8).unwrap()}.unwrap()", 2)]
 fn reservation_failure_keeps_existing_contents(#[case] initial: &str, #[case] allocations: usize) {
     for budget in 0..=allocations {
         native(
             &format!(
                 r#"
 mut values = {initial}
-print("__test_fail_allocations_after_{budget}__")
-result = values.try_reserve(100)
-print("__test_restore_allocations__")
-print(result)
-print(len(values))
-print(7 in values)
-print(values.try_reserve(100))
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = values.reserve(100)
+print("__test_restore_allocations__").unwrap()
+print(result).unwrap()
+print(len(values)).unwrap()
+print(7 in values).unwrap()
+print(values.reserve(100)).unwrap()
 "#
             ),
             &format!(
@@ -145,37 +155,37 @@ print(values.try_reserve(100))
 fn reserved_storage_duplicate_keys_and_error_values_need_no_allocation() {
     native(r#"
 def work(values: &mut list[i64], seen: &mut set[str], mapping: &mut dict[str, i64], numbers: &mut set[i64], counts: &mut dict[i64, i64]) -> Result[(), AllocError]:
-    values.try_reserve(0)?
-    seen.try_add("existing")?
-    mapping.try_insert("existing", 99)?
+    values.reserve(0)?
+    seen.add("existing")?
+    mapping.insert("existing", 99)?
     mut n = 0
     while n < 32:
-        values.try_append(n)?
-        numbers.try_add(n)?
-        counts.try_insert(n, n)?
+        values.append(n)?
+        numbers.add(n)?
+        counts.insert(n, n)?
         n = n + 1
     Ok(())
-mut values: list[i64] = []
-mut seen = {"existing"}
-mut mapping = {"existing": 1}
-mut numbers = set[i64]()
-mut counts = dict[i64, i64]()
-print(values.try_reserve(32))
-print(numbers.try_reserve(32))
-print(counts.try_reserve(32))
-print("__test_begin_no_allocations__")
-print("__test_fail_allocations_after_0__")
+mut values: list[i64] = [].unwrap()
+mut seen = {"existing"}.unwrap()
+mut mapping = {"existing": 1}.unwrap()
+mut numbers = set[i64]().unwrap()
+mut counts = dict[i64, i64]().unwrap()
+print(values.reserve(32)).unwrap()
+print(numbers.reserve(32)).unwrap()
+print(counts.reserve(32)).unwrap()
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
 result = work(&mut values, &mut seen, &mut mapping, &mut numbers, &mut counts)
 error = AllocError.OutOfMemory
-same = copy(error) == error
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(result)
-print(same)
-print(len(values))
-print(mapping["existing"])
-print(len(numbers))
-print(counts[31])
+same = copy(error).unwrap() == error
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(result).unwrap()
+print(same).unwrap()
+print(len(values)).unwrap()
+print(mapping["existing"]).unwrap()
+print(len(numbers)).unwrap()
+print(counts[31]).unwrap()
 "#, "Result[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nTrue\n32\n99\n32\n31");
 }
 
@@ -186,38 +196,38 @@ fn failed_insertion_destroys_moved_inputs_and_propagates_without_allocating() {
         r#"
 class Guard:
     def __del__(self: &mut Guard) -> ():
-        print("dropped")
+        print("dropped").unwrap()
 def append(values: &mut list[Guard], item: Guard) -> Result[(), AllocError]:
-    values.try_append(item)?
-    print("unreachable")
+    values.append(item)?
+    print("unreachable").unwrap()
     Ok(())
-mut values: list[Guard] = []
-item = Guard()
-print("__test_fail_allocations_after_0__")
+mut values: list[Guard] = [].unwrap()
+item = Guard().unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
 result = append(&mut values, item)
-print("__test_begin_no_allocations__")
+print("__test_begin_no_allocations__").unwrap()
 match result:
     case Ok(done):
-        print("unexpected success")
+        print("unexpected success").unwrap()
     case Err(error):
         match error:
             case AllocError.OutOfMemory:
-                print("handled")
+                print("handled").unwrap()
             case AllocError.CapacityOverflow:
-                print("wrong error")
-print("__test_restore_allocations__")
-print("__test_end_no_allocations__")
-print(len(values))
+                print("wrong error").unwrap()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(len(values)).unwrap()
 "#,
         "dropped\nhandled\n0",
     );
 }
 
 #[rstest]
-#[case("values = [1]\nvalues.try_append(2)", "immutable")]
-#[case("mut values = [1]\nvalues.try_reserve(1u8)", "expected i64")]
-#[case("mut values = [1]\nvalues.try_insert(1, 2)", "unsupported method")]
-#[case("mut values = [1]\nvalues.try_append()", "requires 1 argument")]
+#[case("values = [1].unwrap()\nvalues.append(2)", "immutable")]
+#[case("mut values = [1].unwrap()\nvalues.reserve(1u8)", "expected i64")]
+#[case("mut values = [1].unwrap()\nvalues.insert(1, 2)", "unsupported method")]
+#[case("mut values = [1].unwrap()\nvalues.append()", "requires 1 argument")]
 #[case(
     "def bad() -> AllocError:\n    AllocError.OutOfMemory?",
     "requires a function returning Result or Option"
@@ -227,7 +237,7 @@ print(len(values))
     "same Result or Option family"
 )]
 #[case(
-    "mut values: list[list[i64]] = []\nitem = [1]\nresult = values.try_append(item)\nprint(item)",
+    "mut values: list[list[i64]] = [].unwrap()\nitem = [1].unwrap()\nresult = values.append(item)\nprint(item).unwrap()",
     "moved"
 )]
 fn rejects_invalid_fallible_operations(#[case] source: &str, #[case] expected: &str) {

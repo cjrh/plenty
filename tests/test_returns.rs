@@ -13,7 +13,7 @@ fn assert_result(source: &str, expression: &str, printed: &str) {
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
-    let source = format!("{source}\nprint({expression})\n");
+    let source = format!("{source}\nprint({expression}).unwrap()\n");
     compile_source_to_executable(&source, &path).unwrap_or_else(|e| panic!("{source}\n{e}"));
     let result = Command::new(&path).output();
     let _ = std::fs::remove_file(&path);
@@ -82,12 +82,12 @@ fn nested_calls_preserve_caller_operands_and_locals() {
 
 #[test]
 fn explicit_return_operands_evaluate_once_in_order() {
-    assert_result("def value(n: i64) -> i64:\n    print(n)\n    return n\ndef caller(flag: bool) -> i64:\n    if flag:\n        return value(1) + value(2)\n    return 0", "caller(True)", "1\n2\n3\n");
+    assert_result("def value(n: i64) -> i64:\n    print(n).unwrap()\n    return n\ndef caller(flag: bool) -> i64:\n    if flag:\n        return value(1) + value(2)\n    return 0", "caller(True)", "1\n2\n3\n");
 }
 
 #[test]
 fn returned_strings_survive_frame_cleanup() {
-    assert_result("def text(flag: bool) -> str:\n    if flag:\n        local = 'hel' + 'lo'\n        return local\n    return 'world'", "text(True) + ' ' + text(False)", "hello world\n");
+    assert_result("def text(flag: bool) -> str:\n    if flag:\n        local = ('hel' + 'lo').unwrap()\n        return local\n    return 'world'", "((text(True) + ' ').unwrap() + text(False)).unwrap()", "hello world\n");
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn short_circuit_return_terminates_each_path() {
     "expected i64, got bool"
 )]
 #[case(
-    "def f() -> i64:\n    return 42\n    print('dead')",
+    "def f() -> i64:\n    return 42\n    print('dead').unwrap()",
     "3:5: unreachable statement"
 )]
 #[case(

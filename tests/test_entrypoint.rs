@@ -32,7 +32,7 @@ fn run_both(source: &str, code: i32, stdout: &str) {
 #[test]
 fn main_is_called_once_and_other_declarations_have_no_startup_effects() {
     run_both(
-        "def unused() -> ():\n    print('unused')\ndef main() -> ():\n    print('started')\n",
+        "def unused() -> ():\n    print('unused').unwrap()\ndef main() -> ():\n    print('started').unwrap()\n",
         0,
         "started\n",
     );
@@ -47,7 +47,7 @@ fn main_returns_the_process_status_and_allows_forward_calls_and_aliases() {
         "",
     );
     run_both(
-        "type Done = ()\ndef main() -> Done:\n    if True:\n        return\n    print('unreached')\n",
+        "type Done = ()\ndef main() -> Done:\n    if True:\n        return\n    print('unreached').unwrap()\n",
         0,
         "",
     );
@@ -55,16 +55,18 @@ fn main_returns_the_process_status_and_allows_forward_calls_and_aliases() {
 
 #[test]
 fn main_drops_resources_before_the_native_wrapper_returns() {
-    let declarations = "class Resource:\n    name: str\n    def __del__(self) -> ():\n        print(self.name)\ndef status() -> i32:\n    print('status')\n    7i32\n";
+    let declarations = "class Resource:\n    name: str\n    def __del__(self) -> ():\n        print(self.name).unwrap()\ndef status() -> i32:\n    print('status').unwrap()\n    7i32\n";
     for tail in ["return status()", "status()"] {
         run_both(
-            &format!("{declarations}def main() -> i32:\n    a = Resource('first')\n    b = Resource('second')\n    {tail}\n"),
+            &format!("{declarations}def main() -> i32:\n    a = Resource('first').unwrap()\n    b = Resource('second').unwrap()\n    {tail}\n"),
             7,
             "status\nsecond\nfirst\n",
         );
     }
     run_both(
-        &format!("{declarations}def main() -> ():\n    a = Resource('unit')\n    return\n"),
+        &format!(
+            "{declarations}def main() -> ():\n    a = Resource('unit').unwrap()\n    return\n"
+        ),
         0,
         "unit\n",
     );
@@ -84,7 +86,7 @@ fn invalid_entrypoints_are_rejected_before_execution_or_artifact_creation() {
             "binary application requires",
         ),
         ("type main = i32\n", "binary application requires"),
-        ("print('must not run')\n", "module scope"),
+        ("print('must not run').unwrap()\n", "module scope"),
         ("def main() -> ():\n    pass\nmain()\n", "module scope"),
         ("def main() -> ():\n    pass\nx = 1\n", "module scope"),
         (
@@ -96,7 +98,7 @@ fn invalid_entrypoints_are_rejected_before_execution_or_artifact_creation() {
             "main must take no parameters",
         ),
         (
-            "def main() -> Result[(), str]:\n    Ok(())\n",
+            "def main() -> Result[i64, str]:\n    Ok(0)\n",
             "main must take no parameters",
         ),
         (
@@ -111,7 +113,7 @@ fn invalid_entrypoints_are_rejected_before_execution_or_artifact_creation() {
             "already defined",
         ),
         (
-            "def main() -> ():\n    x = 1\n    helper()\ndef helper() -> ():\n    print(x)\n",
+            "def main() -> ():\n    x = 1\n    helper()\ndef helper() -> ():\n    print(x).unwrap()\n",
             "unknown binding",
         ),
     ] {

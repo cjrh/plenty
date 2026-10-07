@@ -29,7 +29,6 @@ pub fn method(class: &str, method: &str) -> String {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClassOp {
-    New(Rc<ClassType>),
     TryNew(Rc<ClassType>),
     ArmDrop(Rc<ClassType>),
     Field(Rc<ClassType>, usize),
@@ -39,7 +38,6 @@ impl ClassOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
             Self::ArmDrop(t) => (vec![Ty::Ref(Rc::new(Ty::Class(t.clone())), true)], Ty::Unit),
-            Self::New(t) => (vec![], Ty::Class(t.clone())),
             Self::TryNew(t) => (
                 vec![],
                 crate::sum::result(Ty::Class(t.clone()), crate::sum::alloc_error()),

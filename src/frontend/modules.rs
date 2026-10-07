@@ -548,8 +548,7 @@ impl Scope {
             Expression::Member(base, _)
             | Expression::Group(base)
             | Expression::Unary(_, base)
-            | Expression::Try(base)
-            | Expression::FallibleCollection(base) => self.expr(base, locals)?,
+            | Expression::Try(base) => self.expr(base, locals)?,
             Expression::Method(base, _, args) => {
                 self.expr(base, locals)?;
                 for arg in args {

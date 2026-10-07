@@ -454,20 +454,25 @@ impl Collection {
 unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
     // Immutable payloads can form shared DAGs. Memoize aggregate pairs so IEEE
     // comparisons do not turn a shared float-containing graph into exponential work.
-    unsafe { equal_inner(a, b, ty, &mut std::collections::HashSet::new()) }
+    unsafe { equal_inner(a, b, ty, &mut [(0, 0); 256], &mut 0) }
 }
 unsafe fn equal_inner(
     a: u128,
     b: u128,
     ty: &Type,
-    seen: &mut std::collections::HashSet<(u128, u128)>,
+    seen: &mut [(u128, u128); 256],
+    cursor: &mut usize,
 ) -> bool {
     unsafe {
         if a == b && ty.reflexive {
             return true;
         }
-        if matches!(ty.kind, b'C' | b'E' | b'L' | b'D') && !seen.insert((a, b)) {
-            return true;
+        if matches!(ty.kind, b'C' | b'E' | b'L' | b'D') {
+            if seen.contains(&(a, b)) {
+                return true;
+            }
+            seen[*cursor] = (a, b);
+            *cursor = (*cursor + 1) % seen.len();
         }
         match ty.kind {
             b'B' => {
@@ -475,7 +480,7 @@ unsafe fn equal_inner(
                     return false;
                 }
                 ty.payload(a)
-                    .is_none_or(|t| equal_inner(payload(a), payload(b), t, seen))
+                    .is_none_or(|t| equal_inner(payload(a), payload(b), t, seen, cursor))
             }
             b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
             b'd' => f64::from_bits(a as u64) == f64::from_bits(b as u64),
@@ -494,6 +499,7 @@ unsafe fn equal_inner(
                         *std::ptr::addr_of!((*b).fields).cast::<u128>().add(i),
                         field_type(ty, (*a).tag_or_hook, i),
                         seen,
+                        cursor,
                     )
                 })
             }
@@ -508,7 +514,7 @@ unsafe fn equal_inner(
                 }
                 for (i, entry) in a.entries.iter().enumerate() {
                     if ty.kind == b'L' {
-                        if !equal_inner(entry.key, b.entries[i].key, ty.key(), seen) {
+                        if !equal_inner(entry.key, b.entries[i].key, ty.key(), seen, cursor) {
                             return false;
                         }
                     } else {
@@ -516,7 +522,13 @@ unsafe fn equal_inner(
                             return false;
                         };
                         if ty.kind == b'D'
-                            && !equal_inner(entry.value, b.entries[j].value, ty.value(), seen)
+                            && !equal_inner(
+                                entry.value,
+                                b.entries[j].value,
+                                ty.value(),
+                                seen,
+                                cursor,
+                            )
                         {
                             return false;
                         }
@@ -977,7 +989,45 @@ pub(crate) unsafe fn collection(
                     std::ptr::addr_of!((*entry).value) as u128
                 }
             }
+            114 => match strings::try_get(a as *const Text, b as i64) {
+                Ok(Some(text)) => wrap(text as u128, 0),
+                Ok(None) => crate::fail("index out of bounds"),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
+            115 | 116 => {
+                let source = strings::utf8(a as *const Text);
+                let tail = &source[b as usize..];
+                let width = tail.chars().next().expect("valid string cursor").len_utf8();
+                if op == 116 {
+                    b + width as u128
+                } else {
+                    match strings::try_new(&tail[..width]) {
+                        Ok(text) => wrap(text as u128, 0),
+                        Err(error) => wrap(wrap(0, error as u64), 1),
+                    }
+                }
+            }
             110 | 111 => {
+                #[cfg(feature = "allocation-checks")]
+                if op == 111
+                    && (*descriptor).kind == b's'
+                    && strings::bytes(a as *const Text).starts_with(b"__test_")
+                {
+                    crate::io::plenty_println(a as *const Text);
+                    return wrap(0, 0);
+                }
+                if op == 111 && (*descriptor).kind == b's' {
+                    // A string already has its final byte representation. Printing
+                    // it needs no formatting buffer, including inside destructors.
+                    let mut stdout = std::io::stdout().lock();
+                    return crate::text_io::result(
+                        stdout
+                            .write_all(strings::bytes(a as *const Text))
+                            .and_then(|()| stdout.write_all(b"\n"))
+                            .map(|()| 0)
+                            .map_err(crate::text_io::Error::from),
+                    );
+                }
                 let mut out = crate::render_buffer::Buffer::default();
                 if op == 111 && (*descriptor).kind == b's' {
                     out.extend_from_slice(strings::bytes(a as *const Text));
@@ -1344,7 +1394,12 @@ pub(crate) unsafe fn collection(
                     release(c.entries[i].key, c.ty().key());
                     c.entries[i].key = value;
                 } else {
-                    c.insert(b, value);
+                    let i = c.find(b).unwrap_or_else(|| {
+                        crate::fail("dictionary key not found; use insert to add keys")
+                    });
+                    retain(value, c.ty().value());
+                    release(c.entries[i].value, c.ty().value());
+                    c.entries[i].value = value;
                 }
                 plenty_retain(a as *mut Header);
                 a
@@ -1452,8 +1507,12 @@ pub(crate) unsafe fn collection(
                 );
                 0
             }
-            10 => {
-                let c = collection_new(&*descriptor);
+            10 | 113 => {
+                let c = match try_collection_new(&*descriptor, 0) {
+                    Ok(c) => c,
+                    Err(e) if op == 113 => return wrap(wrap(0, e as u64), 1),
+                    Err(_) => crate::fail("range allocation failed"),
+                };
                 let signed = (*descriptor).key().kind <= b'4';
                 (*c).start = if signed {
                     a as i64 as i128
@@ -1484,7 +1543,11 @@ pub(crate) unsafe fn collection(
                     crate::fail("range length exceeds i64");
                 }
                 (*c).range_len = len as usize;
-                c as u128
+                if op == 113 {
+                    wrap(c as u128, 0)
+                } else {
+                    c as u128
+                }
             }
             11 => try_dictionary_snapshot(&mut *(a as *mut Collection), &*descriptor, true)
                 .unwrap_or_else(|_| crate::fail("dictionary snapshot allocation failed")),

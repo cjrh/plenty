@@ -302,7 +302,6 @@ impl Engine<'_> {
             | Expression::Unary(_, base)
             | Expression::Group(base)
             | Expression::Try(base)
-            | Expression::FallibleCollection(base)
             | Expression::ClassReady(_, base) => self.expr(base, substitutions, specialize)?,
             Expression::Index(a, b) | Expression::Binary(_, a, b) => {
                 self.expr(a, substitutions, specialize)?;

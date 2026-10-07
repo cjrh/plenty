@@ -9,22 +9,22 @@ class Point:
     x: i64
 def first(values: &list[i64]) -> &i64:
     &values[0]
-mut values = [1, 2]
+mut values = [1, 2].unwrap()
 a = &values[0]
 b = &values[-1]
-print(a)
-print(b)
+print(a).unwrap()
+print(b).unwrap()
 r = &mut values[0]
 *r = 7
-print(first(&values))
-mut points = [Point(3)]
+print(first(&values)).unwrap()
+mut points = [Point(3).unwrap()].unwrap()
 p = &mut points[0].x
 *p = 9
-print(points)
-mut counts = {"a": 1}
+print(points).unwrap()
+mut counts = {"a": 1}.unwrap()
 v = &mut counts["a"]
 *v = 4
-print(counts)
+print(counts).unwrap()
 "#,
     );
     assert!(
@@ -49,11 +49,11 @@ def find(points: &list[Point], wanted: i64) -> &Point:
         if point.x == wanted:
             return point
     &points[0]
-mut points = [Point(1), Point(2)]
+mut points = [Point(1).unwrap(), Point(2).unwrap()].unwrap()
 found = find(&points, 2)
-print(found.x)
-points.append(Point(3))
-print(len(points))
+print(found.x).unwrap()
+points.append(Point(3).unwrap()).unwrap()
+print(len(points)).unwrap()
 "#,
     );
     assert!(
@@ -67,11 +67,11 @@ print(len(points))
 #[test]
 fn element_loans_reject_invalidating_access() {
     for source in [
-        "mut a = [1]\nr = &a[0]\na.append(2)\nprint(r)",
-        "mut a = [1]\nr = &a[0]\ndrop(a)\nprint(r)",
-        "mut a = [1, 2]\nr = &mut a[0]\ns = &mut a[1]\nprint(r)\nprint(s)",
-        "a = [1]\nr = &mut a[0]",
-        "mut a = {1: 2}\nr = &a[1]\na.pop(1)\nprint(r)",
+        "mut a = [1].unwrap()\nr = &a[0]\na.append(2).unwrap()\nprint(r).unwrap()",
+        "mut a = [1].unwrap()\nr = &a[0]\ndrop(a)\nprint(r).unwrap()",
+        "mut a = [1, 2].unwrap()\nr = &mut a[0]\ns = &mut a[1]\nprint(r).unwrap()\nprint(s).unwrap()",
+        "a = [1].unwrap()\nr = &mut a[0]",
+        "mut a = {1: 2}.unwrap()\nr = &a[1]\na.pop(1)\nprint(r).unwrap()",
     ] {
         assert!(support::check_source(source).is_err(), "{source}");
     }
@@ -84,25 +84,25 @@ fn borrowed_loops_preserve_owners_and_allow_element_mutation() {
 class Point:
     x: i64
     def __del__(self: &mut Point) -> ():
-        print(self.x)
+        print(self.x).unwrap()
 def bump(points: &mut list[Point]) -> ():
     for point in points:
         point.x = point.x + 10
-mut points = [Point(1), Point(2)]
+mut points = [Point(1).unwrap(), Point(2).unwrap()].unwrap()
 for point in &points:
-    print(point.x)
+    print(point.x).unwrap()
 bump(&mut points)
 for point in &mut points:
     if point.x == 11:
         continue
     point.x = 30
     break
-print(points)
-mut numbers = [1, 2]
+print(points).unwrap()
+mut numbers = [1, 2].unwrap()
 for number in &mut numbers:
     *number = *number + 3
-print(numbers)
-print([point.x for point in &points])
+print(numbers).unwrap()
+print([point.x for point in &points].unwrap()).unwrap()
 "#,
     );
     assert!(
@@ -119,10 +119,10 @@ print([point.x for point in &points])
 #[test]
 fn borrowed_loops_protect_storage_and_owned_elements() {
     for source in [
-        "mut a = [[1]]\nfor item in &a:\n    a.append([2])\n    print(item)",
-        "mut a = [[1]]\nfor item in &mut a:\n    drop(a)",
-        "a = [[1]]\nfor item in &a:\n    item.append(2)",
-        "a = [[1]]\nfor item in &a:\n    owned: list[i64] = *item",
+        "mut a = [[1].unwrap()].unwrap()\nfor item in &a:\n    a.append([2].unwrap()).unwrap()\n    print(item).unwrap()",
+        "mut a = [[1].unwrap()].unwrap()\nfor item in &mut a:\n    drop(a)",
+        "a = [[1].unwrap()].unwrap()\nfor item in &a:\n    item.append(2).unwrap()",
+        "a = [[1].unwrap()].unwrap()\nfor item in &a:\n    owned: list[i64] = *item",
     ] {
         assert!(support::check_source(source).is_err(), "{source}");
     }

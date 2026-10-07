@@ -64,7 +64,7 @@ pub fn assert_value(source: &str, ty: &str, expected: &str) {
     let call = if ty == "()" {
         "test_result()".to_owned()
     } else {
-        "print(test_result())".to_owned()
+        "print(test_result()).unwrap()".to_owned()
     };
     let program = format!(
         "{declarations}\ndef test_result() -> {ty}:\n{statements}\ndef main() -> ():\n    {call}\n"

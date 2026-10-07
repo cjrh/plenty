@@ -36,13 +36,10 @@ pub enum CollectionOp {
     FormatValue(Ty),
     TryPrint(Ty),
     ElementRef(Ty, bool),
-    Copy(Ty),
     TryCopy(Ty),
     Next(Ty),
-    New(Ty),
     TryNew(Ty),        // initial capacity -> Result[collection, AllocError]
     Insert(Ty),        // private builder: collection, element (or key, value) -> collection
-    Append(Ty),        // exclusive in-place update of a list or set
     TryReserve(Ty),    // exclusive capacity reservation -> Result[(), AllocError]
     TryInsert(Ty),     // exclusive fallible append/add/insert
     TryExtend(Ty),     // exclusive list + consumed list -> Result[(), AllocError]
@@ -74,12 +71,13 @@ pub enum CollectionOp {
     IterTake(Ty),
     Contains(Ty),
     Range(Ty),
-    Values(Ty),
     TryKeys(Ty),
     TryValues(Ty),
     ListTrySlice(Ty),
     TextByteLen,
     TextAtByte,
+    TextNextByte,
+    TextIndex,
     TextTryConcat,
     TextTryJoin,
     TextTrySplit,
@@ -120,7 +118,7 @@ impl Ty {
         match self {
             Self::List(t) | Self::Set(t) | Self::Dict(t, _) => Some((**t).clone()),
             Self::Range(t) => Some((**t).clone()),
-            Self::Str => Some(Self::Str),
+            Self::Str => Some(crate::sum::result(Self::Str, crate::sum::alloc_error())),
             Self::Generator(t) => Some((**t).clone()),
             _ => None,
         }
@@ -233,7 +231,6 @@ impl CollectionOp {
                 vec![Ty::Str],
                 crate::sum::result(t.clone(), crate::sum::parse_error()),
             ),
-            Copy(t) => (vec![t.clone()], t.clone()),
             TryCopy(t) => (
                 vec![t.clone()],
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
@@ -251,7 +248,11 @@ impl CollectionOp {
                 vec![Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
-            TextAtByte => (vec![Ty::Str, Ty::I64], Ty::Str),
+            TextAtByte | TextIndex => (
+                vec![Ty::Str, Ty::I64],
+                crate::sum::result(Ty::Str, crate::sum::alloc_error()),
+            ),
+            TextNextByte => (vec![Ty::Str, Ty::I64], Ty::I64),
             TextTryConcat | TextTryRemovePrefix | TextTryRemoveSuffix => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
@@ -290,7 +291,6 @@ impl CollectionOp {
                 vec![Ty::Str, Ty::Str, Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
-            New(t) => (vec![], t.clone()),
             TryNew(t) => (
                 vec![Ty::I64],
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
@@ -316,7 +316,7 @@ impl CollectionOp {
                 }
                 (args, crate::sum::allocation_result())
             }
-            Insert(t) | Append(t) => {
+            Insert(t) => {
                 let mut args = vec![t.clone(), t.element().expect("collection element")];
                 if let Ty::Dict(_, v) = t {
                     args.push((**v).clone());
@@ -358,15 +358,21 @@ impl CollectionOp {
             ListReverse(t) | Clear(t) => (vec![t.clone()], t.clone()),
             Len(t) => (vec![t.clone()], Ty::I64),
             IterGet(t) | IterTake(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
-            Contains(t) => (vec![t.element().unwrap(), t.clone()], Ty::Bool),
+            Contains(t) => (
+                vec![
+                    if *t == Ty::Str {
+                        Ty::Str
+                    } else {
+                        t.element().unwrap()
+                    },
+                    t.clone(),
+                ],
+                Ty::Bool,
+            ),
             Range(t) => (
                 vec![t.clone(), t.clone(), Ty::I64],
-                Ty::Range(Rc::new(t.clone())),
+                crate::sum::result(Ty::Range(Rc::new(t.clone())), crate::sum::alloc_error()),
             ),
-            Values(t) => {
-                let Ty::Dict(_, v) = t else { unreachable!() };
-                (vec![t.clone()], Ty::List(v.clone()))
-            }
             TryKeys(t) | TryValues(t) => {
                 let Ty::Dict(k, v) = t else { unreachable!() };
                 let element = if matches!(self, TryKeys(_)) { k } else { v };
@@ -415,13 +421,10 @@ impl CollectionOp {
             Self::TryPrint(_) => 111,
             Self::ElementRef(..) => 112,
             Self::ParseNumber(_) => 78,
-            Self::Copy(_) => 14,
             Self::TryCopy(_) => 33,
             Self::Next(_) => 24,
-            Self::New(_) => 0,
             Self::TryNew(_) => 32,
             Self::Insert(_) => 1,
-            Self::Append(_) => 2,
             Self::TryReserve(_) => 28,
             Self::TryInsert(_) => 29,
             Self::TryExtend(_) => 59,
@@ -452,13 +455,14 @@ impl CollectionOp {
             Self::IterGet(_) => 6,
             Self::IterTake(_) => 15,
             Self::Contains(_) => 7,
-            Self::Range(_) => 10,
-            Self::Values(_) => 11,
+            Self::Range(_) => 113,
             Self::TryKeys(_) => 43,
             Self::TryValues(_) => 44,
             Self::ListTrySlice(_) => 45,
             Self::TextByteLen => 12,
-            Self::TextAtByte => 13,
+            Self::TextAtByte => 115,
+            Self::TextNextByte => 116,
+            Self::TextIndex => 114,
             Self::TextTryRemovePrefix => 71,
             Self::TextTryRemoveSuffix => 72,
             Self::TextIsAscii => 76,

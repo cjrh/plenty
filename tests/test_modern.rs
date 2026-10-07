@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[case("True or 1 // 0 == 0", "bool", "True\n")]
 #[case("42 if True else 1 // 0", "i64", "42\n")]
 #[case("0 if False else 42 if True else 3", "i64", "42\n")]
-#[case("'hello' + \" world\"", "str", "hello world\n")]
+#[case("('hello' + \" world\").unwrap()", "str", "hello world\n")]
 #[case("contains('héllo', 'é')", "bool", "True\n")]
 #[case("1_000 + 20", "i64", "1020\n")]
 #[case("()", "()", "")]
@@ -117,7 +117,7 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("'\\q'", "unsupported escape")]
 #[case("(1 + 2", "unclosed parenthesis")]
 #[case("1 + 2)", "unmatched")]
-#[case("print()", "print takes one")]
+#[case("print().unwrap()", "print takes one")]
 #[case("contains('a', 1)", "expected str")]
 fn diagnostics(#[case] source: &str, #[case] message: &str) {
     let error = support::check_source(source).expect_err(source).to_string();
@@ -186,26 +186,29 @@ impl Drop for Artifact {
 
 #[rstest]
 #[case(include_str!("../examples/sum.plenty"), "5051\n")]
-#[case("def plenty_main() -> i64:\n    42\ndef plenty_println() -> str:\n    return 'safe'\nprint(plenty_main())\nprint(plenty_println())", "42\nsafe\n")]
-#[case("print('héllo\\nworld')\nprint(True)\nprint(False)\nprint(-128i8)\nprint(18446744073709551615u64)", "héllo\nworld\nTrue\nFalse\n-128\n18446744073709551615\n")]
+#[case("def plenty_main() -> i64:\n    42\ndef plenty_println() -> str:\n    return 'safe'\nprint(plenty_main()).unwrap()\nprint(plenty_println()).unwrap()", "42\nsafe\n")]
+#[case("print('héllo\\nworld').unwrap()\nprint(True).unwrap()\nprint(False).unwrap()\nprint(-128i8).unwrap()\nprint(18446744073709551615u64).unwrap()", "héllo\nworld\nTrue\nFalse\n-128\n18446744073709551615\n")]
 #[case(
-    "mut x = 1\nif True:\n    x = 40\nelse:\n    x = 0\nx = x + 2\nprint(x)",
+    "mut x = 1\nif True:\n    x = 40\nelse:\n    x = 0\nx = x + 2\nprint(x).unwrap()",
     "42\n"
 )]
-#[case("mut x = 1\nif False:\n    x = 40\nelse:\n    x = 2\nprint(x)", "2\n")]
-#[case("def f(flag: bool) -> i64:\n    if flag:\n        a = 42\n        a\n    else:\n        b = 7\n        b\nprint(f(True))\nprint(f(False))", "42\n7\n")]
-#[case("def count(n: i64, total: i64) -> i64:\n    if n == 0:\n        total\n    else:\n        x = total + 1\n        count(n - 1, x)\nprint(count(100_000, 0))", "100000\n")]
-#[case("def even(n: i64) -> bool:\n    True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    False if n == 0 else even(n - 1)\nprint(even(100_000))", "True\n")]
-#[case("def unit(n: i64) -> ():\n    if n == 0:\n        pass\n    else:\n        unit(n - 1)\nunit(100_000)\nprint(42)", "42\n")]
-#[case("def f(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        1 + f(n - 1)\nprint(f(30))", "30\n")]
-#[case("def side() -> bool:\n    print('side')\n    True\nprint(False and side())\nprint(True or side())\nprint(True and side())", "False\nTrue\nside\nTrue\n")]
 #[case(
-    "def value(n: i64) -> i64:\n    print(n)\n    n\nprint(value(1) + value(2))",
+    "mut x = 1\nif False:\n    x = 40\nelse:\n    x = 2\nprint(x).unwrap()",
+    "2\n"
+)]
+#[case("def f(flag: bool) -> i64:\n    if flag:\n        a = 42\n        a\n    else:\n        b = 7\n        b\nprint(f(True)).unwrap()\nprint(f(False)).unwrap()", "42\n7\n")]
+#[case("def count(n: i64, total: i64) -> i64:\n    if n == 0:\n        total\n    else:\n        x = total + 1\n        count(n - 1, x)\nprint(count(100_000, 0)).unwrap()", "100000\n")]
+#[case("def even(n: i64) -> bool:\n    True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    False if n == 0 else even(n - 1)\nprint(even(100_000)).unwrap()", "True\n")]
+#[case("def unit(n: i64) -> ():\n    if n == 0:\n        pass\n    else:\n        unit(n - 1)\nunit(100_000)\nprint(42).unwrap()", "42\n")]
+#[case("def f(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        1 + f(n - 1)\nprint(f(30)).unwrap()", "30\n")]
+#[case("def side() -> bool:\n    print('side').unwrap()\n    True\nprint(False and side()).unwrap()\nprint(True or side()).unwrap()\nprint(True and side()).unwrap()", "False\nTrue\nside\nTrue\n")]
+#[case(
+    "def value(n: i64) -> i64:\n    print(n).unwrap()\n    n\nprint(value(1) + value(2)).unwrap()",
     "1\n2\n3\n"
 )]
-#[case("print(-7 // 3)\nprint(7 // -3)\nprint(-7 // -3)\nprint(-128i8 // 3i8)\nprint(-9223372036854775808 // 1)", "-3\n-3\n2\n-43\n-9223372036854775808\n")]
+#[case("print(-7 // 3).unwrap()\nprint(7 // -3).unwrap()\nprint(-7 // -3).unwrap()\nprint(-128i8 // 3i8).unwrap()\nprint(-9223372036854775808 // 1).unwrap()", "-3\n-3\n2\n-43\n-9223372036854775808\n")]
 #[case(
-    "print(42 if True else 1 // 0)\nprint(False and 1 // 0 == 0)",
+    "print(42 if True else 1 // 0).unwrap()\nprint(False and 1 // 0 == 0).unwrap()",
     "42\nFalse\n"
 )]
 fn run_command_matches_explicit_compilation(#[case] source: &str, #[case] expected: &str) {
@@ -233,9 +236,9 @@ fn run_command_matches_explicit_compilation(#[case] source: &str, #[case] expect
 }
 
 #[rstest]
-#[case("print(127i8 + 1i8)", "integer overflow")]
-#[case("print(-128i8 // -1i8)", "integer overflow")]
-#[case("print(1 // 0)", "division by zero")]
+#[case("print(127i8 + 1i8).unwrap()", "integer overflow")]
+#[case("print(-128i8 // -1i8).unwrap()", "integer overflow")]
+#[case("print(1 // 0).unwrap()", "division by zero")]
 fn runtime_errors_agree(#[case] source: &str, #[case] expected: &str) {
     let artifact = Artifact::new(source);
     let run_output = artifact.run_file();
@@ -254,7 +257,7 @@ fn runtime_errors_agree(#[case] source: &str, #[case] expected: &str) {
 
 #[test]
 fn rejected_program_has_no_effects_or_output_artifact() {
-    let artifact = Artifact::new("print('must not execute')\nx = 1\nx = False");
+    let artifact = Artifact::new("print('must not execute').unwrap()\nx = 1\nx = False");
     let run_output = artifact.run_file();
     let compiled = artifact.compile();
     assert!(!run_output.status.success());
@@ -267,14 +270,14 @@ fn rejected_program_has_no_effects_or_output_artifact() {
 #[test]
 fn modern_library_aot_entry_point_uses_modern_syntax() {
     let artifact = Artifact::new("");
-    support::compile_source_to_executable("print(40 + 2)", &artifact.executable).unwrap();
+    support::compile_source_to_executable("print(40 + 2).unwrap()", &artifact.executable).unwrap();
     let output = Command::new(&artifact.executable).output().unwrap();
     assert_eq!(output.stdout, b"42\n");
 }
 
 #[test]
 fn check_mode_does_not_execute_valid_programs() {
-    let source = "print('must not print')\n1 // 0";
+    let source = "print('must not print').unwrap()\n1 // 0";
     support::check_source(source).unwrap();
     let artifact = Artifact::new(source);
     let checked = Command::new(env!("CARGO_BIN_EXE_plenty"))

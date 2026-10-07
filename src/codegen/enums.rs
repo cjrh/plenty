@@ -40,7 +40,7 @@ impl Lowerer<'_, '_> {
         use crate::record::ClassOp;
         let (inputs, output) = op.signature().ok_or("invalid class operation")?;
         let result = match op {
-            ClassOp::New(t) | ClassOp::TryNew(t) | ClassOp::ArmDrop(t) => {
+            ClassOp::TryNew(t) | ClassOp::ArmDrop(t) => {
                 let callback = if let Some(name) = &t.destructor {
                     let id = self.user_fns[name]
                         .drop_callback
@@ -61,15 +61,7 @@ impl Lowerer<'_, '_> {
                     self.collection_call(109, &[owner, callback], None)?
                 } else {
                     let disabled = self.bcx.ins().iconst(PTR_TY, 0);
-                    self.collection_call(
-                        if matches!(op, ClassOp::TryNew(_)) {
-                            108
-                        } else {
-                            30
-                        },
-                        &[disabled],
-                        Some(&Ty::Class(t.clone())),
-                    )?
+                    self.collection_call(108, &[disabled], Some(&Ty::Class(t.clone())))?
                 }
             }
             ClassOp::Field(_, i) => {
@@ -98,6 +90,7 @@ impl Lowerer<'_, '_> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
         let t = match op {
             EnumOp::New(t, _)
+            | EnumOp::Unwrap(t)
             | EnumOp::TryNew(t, _)
             | EnumOp::Tag(t)
             | EnumOp::Field(t, _, _)
@@ -105,6 +98,16 @@ impl Lowerer<'_, '_> {
         };
         if t.inline() {
             let result = match op {
+                EnumOp::Unwrap(t) => {
+                    let (value, _) = self.pop_typed(inputs[0].clone())?;
+                    let tag = self.sum_tag(value);
+                    let failed =
+                        self.bcx
+                            .ins()
+                            .icmp_imm(IntCC::NotEqual, tag, i64::from(t.is_option()));
+                    self.bcx.ins().trapnz(failed, TrapCode::unwrap_user(4));
+                    self.sum_payload(value)
+                }
                 EnumOp::New(_, tag) | EnumOp::TryNew(_, tag) => {
                     let payload = if let Some(ty) = inputs.first() {
                         let (v, _) = self.pop_typed(ty.clone())?;
@@ -144,6 +147,7 @@ impl Lowerer<'_, '_> {
         }
         values.reverse();
         let result = match op {
+            EnumOp::Unwrap(_) => unreachable!("standard sums are inline"),
             EnumOp::TryNew(t, tag) => {
                 let tag = self.bcx.ins().iconst(types::I64, *tag as i64);
                 let result = self.collection_call(108, &[tag], Some(&Ty::Enum(t.clone())))?;
