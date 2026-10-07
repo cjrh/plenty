@@ -243,3 +243,44 @@ def main() -> Result[(), Failure]:
         assert!(error.contains(diagnostic), "{error}");
     }
 }
+
+#[test]
+fn expected_callable_types_select_generic_function_specializations() {
+    let output = run(r#"
+def identity[T](value: T) -> T:
+    value
+def select() -> Callable[[u8], u8]:
+    identity
+def apply(operation: Callable[[u8], u8]) -> u8:
+    operation(42)
+def main() -> Result[(), Failure]:
+    keep: Callable[[u8], u8] = identity
+    print(keep(7))?
+    print(apply(identity))?
+    print(select()(9))?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n42\n9\n");
+    for (source, diagnostic) in [
+        (
+            "def identity[T](x: T) -> T:\n    x\nf: Callable[[u8], i64] = identity",
+            "conflicting types for `T`",
+        ),
+        (
+            "def identity[T: IntType](x: T) -> T:\n    x\nf: Callable[[str], str] = identity",
+            "does not satisfy IntType",
+        ),
+        (
+            "def unused[T]() -> i64:\n    1\nf: Callable[[], i64] = unused",
+            "cannot infer type parameter `T`",
+        ),
+    ] {
+        let error = check_source(source).unwrap_err().to_string();
+        assert!(error.contains(diagnostic), "{error}");
+    }
+}

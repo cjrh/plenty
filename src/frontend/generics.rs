@@ -201,6 +201,36 @@ fn infer(
 }
 
 impl Lower<'_> {
+    pub(super) fn infer_function_value(
+        &mut self,
+        name: &str,
+        signature: &crate::op::CallableSig,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let template = self.generics.templates[name].clone();
+        if template.inputs.len() != signature.inputs.len() {
+            return Err(at.error("generic function arity does not match the expected Callable"));
+        }
+        let mut inferred = HashMap::new();
+        for ((_, pattern), actual) in template.inputs.iter().zip(&signature.inputs) {
+            infer(pattern, actual, &template, &mut inferred, self.aliases, at)?;
+        }
+        infer(
+            &template.output,
+            signature.output.as_ref().unwrap_or(&Ty::Unit),
+            &template,
+            &mut inferred,
+            self.aliases,
+            at,
+        )?;
+        let actual = template.type_params.iter().map(|(param, _)| {
+            inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from the expected Callable; supply explicit type arguments")))
+        }).collect::<Result<_>>()?;
+        let symbol = self.specialize(name, actual, at)?;
+        self.function_value(&symbol, at, ops)
+    }
+
     pub(super) fn specialize(&mut self, name: &str, actual: Vec<Ty>, at: &Token) -> Result<String> {
         let (symbol, function) =
             self.generics

@@ -36,3 +36,21 @@ def main() -> Result[(), Failure]:
 ```
 
 `identity[u8]` is a function value; `identity[u8](42)` calls that specialization.
+
+A concrete callable annotation can also supply those type arguments:
+
+```plenty
+def identity[T](value: T) -> T:
+    value
+
+def main() -> Result[(), Failure]:
+    keep: Callable[[u8], u8] = identity
+    print(keep(42))?
+    Ok(())
+```
+```output
+42
+```
+
+This also works when a parameter or return type supplies the concrete signature.
+Without that context, use explicit brackets such as `identity[u8]`.

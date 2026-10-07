@@ -242,6 +242,17 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         match &e.kind {
+            Expression::Name(name)
+                if !self.names.contains_key(name)
+                    && self.generics.templates.contains_key(name)
+                    && matches!(expected, Some(Ty::Callable(_))) =>
+            {
+                let Some(Ty::Callable(signature)) = expected else {
+                    unreachable!()
+                };
+                self.infer_function_value(name, &signature, &e.at, ops)
+                    .map(Some)
+            }
             Expression::Try(value) => self.propagate(e, value, expected, ops),
             Expression::Method(base, name, args)
                 if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) =>
