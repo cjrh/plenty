@@ -69,10 +69,21 @@ impl Type {
     }
 
     pub(crate) fn slot_words(&self) -> usize {
-        if self.has_inline_range() {
-            3
-        } else {
-            1
+        1 + self.payload_bytes() / 16
+    }
+
+    pub(crate) fn payload_bytes(&self) -> usize {
+        (self.inline_bytes as usize).max(if self.has_inline_range() { 32 } else { 0 })
+    }
+
+    fn active_payload(&self, value: u128) -> Option<&Type> {
+        match self.kind {
+            b'R' | b'G' if self.payload_bytes() != 0 && value as u64 != 0 => Some(self),
+            b'B' => self.variants[((value >> 64) & 1) as usize]
+                .fields
+                .first()
+                .and_then(|t| t.active_payload(payload(value))),
+            _ => None,
         }
     }
 
@@ -88,12 +99,20 @@ impl Type {
     }
 }
 
-/// Copy a range payload to owner-provided storage, preserving enclosing sum tags.
-/// The source range must be live when selected by `ty`; destination is 32 bytes.
+/// Transfer an inline payload to owner-provided storage, preserving sum tags.
+/// The source must be live; destination reserves `ty.payload_bytes()` bytes.
+/// For affine payloads the caller must relinquish the source ownership.
 pub(crate) unsafe fn copy_payload(value: u128, ty: &Type, destination: *mut Range) -> u128 {
-    if ty.active_range(value) {
+    if let Some(active) = ty.active_payload(value) {
         unsafe {
-            std::ptr::copy(value as u64 as *const Range, destination, 1);
+            std::ptr::copy(
+                value as u64 as *const u8,
+                destination.cast(),
+                active.payload_bytes(),
+            );
+            if active.kind == b'G' {
+                crate::generators::relocate(destination.cast());
+            }
         }
         (value & !(u64::MAX as u128)) | destination as u128
     } else {
@@ -105,7 +124,7 @@ pub(crate) unsafe fn copy_payload(value: u128, ty: &Type, destination: *mut Rang
 /// range storage only when that type can contain a range.
 pub(crate) unsafe fn store(slot: *mut u128, value: u128, ty: &Type) {
     unsafe {
-        let value = if ty.has_inline_range() {
+        let value = if ty.payload_bytes() != 0 {
             copy_payload(value, ty, slot.add(1).cast())
         } else {
             value
@@ -118,8 +137,12 @@ pub(crate) unsafe fn store(slot: *mut u128, value: u128, ty: &Type) {
 pub(crate) unsafe fn relocate(slot: *mut u128, ty: &Type) {
     unsafe {
         let value = slot.read();
-        if ty.active_range(value) {
-            slot.write((value & !(u64::MAX as u128)) | slot.add(1) as u128);
+        if let Some(active) = ty.active_payload(value) {
+            let destination = slot.add(1);
+            slot.write((value & !(u64::MAX as u128)) | destination as u128);
+            if active.kind == b'G' {
+                crate::generators::relocate(destination.cast());
+            }
         }
     }
 }

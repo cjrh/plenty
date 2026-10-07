@@ -17,6 +17,8 @@ pub(crate) struct Type {
     pub(crate) affine: bool,
     pub(crate) reflexive: bool,
     pub(crate) inline_range: bool,
+    /// Extra owner-local payload bytes, excluding the ordinary 16-byte slot.
+    pub(crate) inline_bytes: u32,
     pub(crate) key: Option<&'static Type>,
     pub(crate) value: Option<&'static Type>,
     pub(crate) name: &'static str,
@@ -102,6 +104,8 @@ pub(crate) unsafe fn release(value: u128, ty: &Type) {
                 release(payload(value), t);
             }
         }
+    } else if ty.kind == b'G' && ty.inline_bytes != 0 {
+        unsafe { crate::generators::release_inline(value as *mut Generator) };
     } else if ty.managed() {
         unsafe {
             plenty_release(value as *mut Header);

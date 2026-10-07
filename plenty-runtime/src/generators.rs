@@ -15,6 +15,74 @@ pub(crate) struct Generator {
 }
 const _: () = assert!(std::mem::offset_of!(Generator, slots) == 64);
 
+/// Initialize caller-owned storage. Metadata describes all slots, including
+/// their inline payloads; captures are a packed prefix of ordinary value bits.
+/// No callback runs and no memory is allocated by this operation.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_generator_init(
+    g: *mut Generator,
+    resume: Resume,
+    count: u64,
+    managed: *const *const Type,
+    captures: *const u128,
+    capture_count: u64,
+) {
+    // SAFETY: generated callers reserve the complete aligned frame layout and
+    // pass immutable metadata and disjoint live capture operands.
+    unsafe {
+        assert!(capture_count <= count);
+        g.write(Generator {
+            header: Header::new(destroy_inline),
+            resume,
+            state: 0,
+            running: 0,
+            count,
+            managed,
+            slots: [],
+        });
+        let mut slot = std::ptr::addr_of_mut!((*g).slots).cast::<u128>();
+        std::ptr::write_bytes(slot, 0, slot_words(g));
+        for i in 0..capture_count as usize {
+            let ty = &**managed.add(i);
+            ranges::store(slot, *captures.add(i), ty);
+            slot = slot.add(ty.slot_words());
+        }
+    }
+}
+
+/// Rebase embedded addresses after a bytewise move. Frame accesses are relative
+/// to the new owner; recursive traversal visits only finite inline layouts.
+pub(crate) unsafe fn relocate(g: *mut Generator) {
+    unsafe {
+        let mut slot = std::ptr::addr_of_mut!((*g).slots).cast::<u128>();
+        for i in 0..(*g).count as usize {
+            let ty = &**(*g).managed.add(i);
+            ranges::relocate(slot, ty);
+            slot = slot.add(ty.slot_words());
+        }
+    }
+}
+
+unsafe extern "C" fn destroy_inline(header: *mut Header) {
+    unsafe { plenty_generator_finish(header.cast()) };
+}
+
+/// Inline storage must finish synchronously, even inside another object's drop
+/// hook. It cannot be left on the heap-object destruction queue after its owner
+/// returns. Temporary inspection aliases share the active frame's count.
+pub(crate) unsafe fn release_inline(g: *mut Generator) {
+    unsafe {
+        if g.is_null() {
+            return;
+        }
+        debug_assert!((*g).header.refs > 0);
+        (*g).header.refs -= 1;
+        if (*g).header.refs == 0 {
+            memory::with_nested_drops(|| plenty_generator_finish(g));
+        }
+    }
+}
+
 unsafe fn slot_words(g: *const Generator) -> usize {
     unsafe {
         (0..(*g).count as usize)

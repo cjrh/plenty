@@ -46,6 +46,11 @@ Ordinary slots use 16 bytes. A range or standard sum containing a range adds a
 refer to expired caller/resume storage. Yielded ranges copy into caller-provided
 storage. Generator frames themselves still allocate.
 
+The runtime also supports initializing frames in caller-owned storage, moving
+their nested inline payloads, and destroying them synchronously without freeing
+the enclosing storage. Native generator calls still use heap frames until the
+compiler preserves concrete frame layouts throughout type checking and lowering.
+
 Integration deliberately reuses the checked structured operation tree instead
 of introducing a second source IR in this batch. `Yield` requires an empty
 residual operand stack. Native lowering adds resume-dispatch edges to continuation

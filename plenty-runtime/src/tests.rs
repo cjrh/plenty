@@ -14,6 +14,7 @@ const fn scalar(kind: u8) -> Type {
         affine: false,
         reflexive: kind != b'f' && kind != b'd',
         inline_range: kind == b'R',
+        inline_bytes: 0,
         key: None,
         value: None,
         name: "",
@@ -1892,6 +1893,136 @@ fn dictionaries_preserve_order_and_copy_owned_contents() {
 unsafe extern "C" fn never_resume(_: *mut Generator, _: *mut u128) -> u8 {
     panic!("dropping must not resume a generator")
 }
+
+#[test]
+fn inline_generator_moves_rebase_nested_frames_ranges_and_sum_payloads() {
+    use crate::aggregates::{release, wrap};
+    use crate::generators::{plenty_generator_init, plenty_generator_resume};
+    use crate::ranges::{self, Range};
+    static INNER: Type = Type {
+        inline_bytes: 128,
+        ..scalar(b'G')
+    };
+    static OUTER: Type = Type {
+        inline_bytes: 208,
+        ..scalar(b'G')
+    };
+    static OPTIONAL: Type = Type {
+        inline_bytes: 208,
+        variants: &[
+            Variant {
+                name: "Nothing",
+                fields: &[],
+            },
+            Variant {
+                name: "Some",
+                fields: &[&OUTER],
+            },
+        ],
+        ..scalar(b'B')
+    };
+    static INNER_SLOTS: [&Type; 2] = [&UNSIGNED_RANGE, &GUARD];
+    static OUTER_SLOTS: [&Type; 1] = [&INNER];
+    unsafe extern "C" fn resume_range(frame: *mut Generator, out: *mut u128) -> u8 {
+        unsafe {
+            let slots = frame.cast::<u8>().add(64).cast::<u128>();
+            let range = *slots as *const Range;
+            let state = frame.cast::<u8>().add(24).cast::<u64>();
+            if *state < (*range).len {
+                out.write((*range).at(*state as usize, false));
+                *state += 1;
+                1
+            } else {
+                crate::generators::plenty_generator_finish(frame);
+                0
+            }
+        }
+    }
+    let mut inner = [0u128; 8];
+    let mut outer = [0u128; 13];
+    let mut wrapped = [0u128; 14];
+    let mut moved = [0u128; 14];
+    let inner_ptr = inner.as_mut_ptr();
+    let outer_ptr = outer.as_mut_ptr();
+    let wrapped_ptr = wrapped.as_mut_ptr();
+    let range = Range::new(7, 10, 1, false);
+    // SAFETY: buffers reserve their exact aligned layouts, metadata is static,
+    // and each move relinquishes the old owner's bytes before resuming/dropping.
+    unsafe {
+        let captures = [&range as *const Range as u128, guard(73)];
+        plenty_generator_init(
+            inner_ptr.cast(),
+            resume_range,
+            2,
+            INNER_SLOTS.as_ptr().cast(),
+            captures.as_ptr(),
+            2,
+        );
+        let mut item = 0;
+        assert_eq!(plenty_generator_resume(inner_ptr.cast(), &mut item), 1);
+        assert_eq!(item, 7);
+        let captures = [inner_ptr as u128];
+        plenty_generator_init(
+            outer_ptr.cast(),
+            never_resume,
+            1,
+            OUTER_SLOTS.as_ptr().cast(),
+            captures.as_ptr(),
+            1,
+        );
+        inner.fill(0);
+        ranges::store(wrapped_ptr, wrap(outer_ptr as u128, 1), &OPTIONAL);
+        outer.fill(0);
+        moved.copy_from_slice(&wrapped);
+        ranges::relocate(moved.as_mut_ptr(), &OPTIONAL);
+        wrapped.fill(0);
+        let parent = moved[0] as u64 as *mut u8;
+        let child = *parent.add(64).cast::<u128>() as *mut Generator;
+        assert_eq!(plenty_generator_resume(child, &mut item), 1);
+        assert_eq!(item, 8);
+        assert!(trace().is_empty());
+        release(moved[0], &OPTIONAL);
+        assert_eq!(trace(), [73]);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn inline_generator_construction_and_exhaustion_need_no_allocation() {
+    use crate::generators::{plenty_generator_init, plenty_generator_resume};
+    static INLINE: Type = Type {
+        inline_bytes: 64,
+        ..scalar(b'G')
+    };
+    unsafe extern "C" fn finish(frame: *mut Generator, _: *mut u128) -> u8 {
+        unsafe { crate::generators::plenty_generator_finish(frame) };
+        0
+    }
+    let mut frame = [0u128; 4];
+    unsafe {
+        crate::accounting::fail_after(Some(0));
+        plenty_generator_init(
+            frame.as_mut_ptr().cast(),
+            finish,
+            0,
+            ptr::null(),
+            ptr::null(),
+            0,
+        );
+        let mut item = 0;
+        assert_eq!(
+            plenty_generator_resume(frame.as_mut_ptr().cast(), &mut item),
+            0
+        );
+        assert_eq!(
+            plenty_generator_resume(frame.as_mut_ptr().cast(), &mut item),
+            0
+        );
+        crate::aggregates::release(frame.as_mut_ptr() as u128, &INLINE);
+        crate::accounting::fail_after(None);
+    }
+}
+
 #[test]
 fn oversized_generator_frame_fails_before_reading_metadata() {
     let result = unsafe { crate::generators::try_new(never_resume, u64::MAX, ptr::null()) };

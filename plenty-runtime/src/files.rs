@@ -235,6 +235,7 @@ mod tests {
     use super::*;
     static TYPE: Type = Type {
         inline_range: false,
+        inline_bytes: 0,
         kind: b'F',
         affine: true,
         reflexive: true,
