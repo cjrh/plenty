@@ -110,7 +110,8 @@ remain borrowed until library unload; the caller must neither modify nor free
 them. This discovery call allocates nothing.
 
 The source interface is the first metadata format for this subset, not a stable
-general-purpose binary Plenty ABI. Automatic extraction, compatibility validation
+general-purpose binary Plenty ABI. [Compile-time extraction](04-embedded-contracts.md)
+is available. Compatibility validation
 against a linked binary, runtime loading, and richer error
 adapters are not implemented. Keep the generated header/interface and binary
 together. The [export design](../../proposals/ffi-export-contracts.md) explains the

@@ -66,6 +66,12 @@ interface into the consuming project's source root and link `libcalc.so` using
 `--link-arg`; it replaces the source module there. The same metadata is embedded
 inside the library. Ordinary C consumers include `calc.h` and link the library.
 
+If you only have the binary, recover its Plenty interface without loading it:
+
+```sh
+plenty --extract-interface build/libcalc.so --library-name calc -o calc.plentyi
+```
+
 For a static archive, use `--static-library` instead. Pass the native arguments
 listed in `calc.link-args.txt` after the archive when linking a C program.
 
@@ -74,9 +80,10 @@ that it must point to an initialized value and be borrowed exclusively for the
 call; the final value is written back before returning. Plenty callers get the
 same borrowing rules automatically from the generated interface.
 
-Exports currently support numeric scalars, scalar borrows, and unit returns. Read the generated
+Exports support numeric scalars, borrows, unit, supported `Result` values, and
+[owned class handles](61-export-owned-objects.md). Read the generated
 header's requirements even for simple APIs: runtime traps can terminate the
 process, and current libraries require serialized calls on one caller thread.
-Managed objects and ownership-transferring exports need further adapters. See the
+Other managed types need further adapters. See the
 [library reference](../design/24-c-interfaces/02-library-exports.md) for packaging,
 metadata discovery, and exact limits.

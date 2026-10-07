@@ -152,6 +152,7 @@
         - [Ownership and text adapters](design/24-c-interfaces/01-ownership-and-text-adapters.md)
         - [Library exports](design/24-c-interfaces/02-library-exports.md)
         - [Owned library objects](design/24-c-interfaces/03-owned-exports.md)
+        - [Inspect embedded contracts](design/24-c-interfaces/04-embedded-contracts.md)
 - [Native runtime](runtime.md)
 
 # Proposals

@@ -16,7 +16,8 @@ The toolchain and C-import batch (B01–B05) is complete. B06 is active: numeric
 exports, scalar borrowing, static/shared packaging, and generated/embedded `.plentyi`
 contracts, Result adapters, and owned factories with matching destruction are
 implemented, including shared/mutable borrows and consuming handle arguments.
-Next add metadata extraction and compatibility checks. Acceptance includes actual C/C++ and Plenty
+Embedded metadata extraction is implemented; next add compatibility checks.
+Acceptance includes actual C/C++ and Plenty
 callers, contract comments, metadata retention, and failure-path cleanup.
 
 ## Later candidates
@@ -26,7 +27,7 @@ guide breakdown when an item is selected; detailed syntax is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B06 (active) | C exports and static/shared-library output | Numeric exports, Result adapters, owned factories, borrowed/consumed handles, and packaging are implemented; [current subset](design/24-c-interfaces/02-library-exports.md). Remaining: metadata extraction, compatibility checks, and artifact reliability. [Export contract design](proposals/ffi-export-contracts.md). |
+| B06 (active) | C exports and static/shared-library output | Numeric exports, Result adapters, owned/borrowed/consumed handles, packaging, and metadata extraction are implemented; [current subset](design/24-c-interfaces/02-library-exports.md). Remaining: compatibility checks and artifact reliability. [Export contract design](proposals/ffi-export-contracts.md). |
 | B07 | Runtime library loading | Typed loading of known interfaces with recoverable missing-library/symbol and incompatible-contract errors; validate generated interface metadata through versioned discovery. Initially keep loaded libraries resident; unloading, retained callbacks, foreign-thread callbacks, C record layout, and header-assisted bindings need further contracts. [FFI design](proposals/ffi-and-dynamic-libraries.md) and [export contracts](proposals/ffi-export-contracts.md). |
 | B08 | Function values and multiline closures | First-class named functions and callable signatures, then anonymous bodies and checked captures. Define borrowed versus owned environments, lifetime/escape rules, and fallible allocation before adding higher-order library APIs. |
 | B09 | Generic data types and richer protocols | Generic classes/enums and methods, with parameterized protocols or additional bounds when concrete library use cases justify them. Keep method lookup explicit and measure specialization cost. [Protocol design](proposals/protocols-generics-and-context-managers.md). |

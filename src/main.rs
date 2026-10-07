@@ -11,6 +11,7 @@ Usage: plenty FILE
        plenty --emit-object FILE -o OUT
        plenty --shared-library FILE --library-name NAME -o OUT
        plenty --static-library FILE --library-name NAME -o OUT
+       plenty --extract-interface LIBRARY --library-name NAME -o OUT
        plenty --emit-runtime DIR
        plenty --print-target
        plenty -h | --help
@@ -25,6 +26,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --shared-library / --static-library: emit C exports without requiring main.
 --library-name NAME: namespace for C exports, header, and generated .plentyi.
 --archiver PATH: ar-compatible archiver for --static-library (default: ar).
+--extract-interface: read embedded .plentyi metadata without executing library code.
 --emit-runtime: extract the matching runtime archive and native link arguments.
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
@@ -110,8 +112,9 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     let library = args
         .first()
         .is_some_and(|a| matches!(a.as_str(), "--shared-library" | "--static-library"));
-    if library_name.is_some() && !library {
-        return Err("--library-name requires library output".into());
+    let extraction = args.first().is_some_and(|a| a == "--extract-interface");
+    if library_name.is_some() && !library && !extraction {
+        return Err("--library-name requires library output or interface extraction".into());
     }
     if archiver.is_some() && !args.first().is_some_and(|a| a == "--static-library") {
         return Err("--archiver requires --static-library".into());
@@ -127,12 +130,22 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
                         | "-h"
                         | "--emit-object"
                         | "--emit-runtime"
+                        | "--extract-interface"
                 )
             }))
     {
         return Err("linker options require compilation or execution".into());
     }
     match args.as_slice() {
+        [flag, source, option, output]
+            if flag == "--extract-interface"
+                && !legacy
+                && root.is_none()
+                && (option == "-o" || option == "--output") =>
+        {
+            let name = library_name.ok_or("interface extraction requires --library-name NAME")?;
+            plenty::extract_library_interface(Path::new(source), &name, Path::new(output))?;
+        }
         [flag, source, option, output]
             if library && !legacy && (option == "-o" || option == "--output") =>
         {
