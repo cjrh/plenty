@@ -169,3 +169,24 @@ The first number is the generated function count, the second is repetitions.
 The harness warms up once and reports median check time; `--aot` additionally
 measures the complete native compilation and link pipeline. Rust's own build
 time and generated program execution are excluded.
+
+## Safety
+
+Plenty prevents the common C memory errors by design.
+
+| C error | Plenty mechanism | When caught |
+|---|---|---|
+| Use-after-free | Single owner per value. A move clears the source. A flow-sensitive checker rejects use of a moved binding. | Compile time |
+| Dangling reference | References cannot go into aggregates or across `yield`. A returned reference must come from the one reference parameter. Returning a reference to a local is rejected. | Compile time |
+| Iterator invalidation | An element borrow locks the whole collection. Growth, removal and replacement are rejected while the loan is live. | Compile time |
+| Double free | A move transfers the cleanup duty. Destruction is deterministic. Files record "already closed". | Compile time + runtime |
+| Buffer overrun | Indexing is bounds-checked. A bad index or missing key traps. | Run time |
+| Null dereference | No null. `Option` only. | Compile time |
+| Uninitialized read | The checker tracks which slots definitely hold a value. | Compile time |
+| Integer overflow, divide by zero | Both trap. | Run time |
+| Data races | No concurrency. | (Planned) |
+| Leaks from cycles | Unique mutable ownership prevents ownership cycles. | By design |
+| Unchecked `malloc` failure | Allocation returns `Result[_, AllocError]`. | Compile time (you must handle it) |
+
+FFI is not implemented yet. When it arrives, foreign calls will be an unchecked
+boundary: the compiler cannot verify memory safety in foreign code.
