@@ -466,6 +466,58 @@ fn file_ownership_types_and_mutability_are_checked() {
     reject("open()", "takes a path");
 }
 
+#[test]
+fn exclusive_creation_never_replaces_an_existing_file() {
+    let (out, dir) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt", "x")? as file:
+        print(file.write("created")?)
+    print(open("sample.txt", "x"))
+    Ok(())
+print(work())
+"#,
+        None,
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains(".Err(IoError.System(17))"));
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"created"
+    );
+    let (out, dir) = run("print(open(\"sample.txt\", \"x\"))", Some(b"keep"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains(".Err("));
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"keep"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn exclusive_creation_allocation_failures_leave_no_file() {
+    for budget in 0..=2 {
+        let (out, dir) = run(
+            &format!(
+                r#"
+print("__test_fail_allocations_after_{budget}__")
+result = open("sample.txt", "x")
+print("__test_restore_allocations__")
+print(result)
+"#
+            ),
+            None,
+        );
+        assert_eq!(dir.path().join("sample.txt").exists(), budget == 2);
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains(if budget < 2 {
+                "OutOfMemory"
+            } else {
+                ".Ok(File(open))"
+            })
+        );
+    }
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn open_allocation_failures_precede_file_side_effects() {

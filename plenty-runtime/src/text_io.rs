@@ -71,6 +71,7 @@ pub(crate) enum OpenMode {
     Read,
     Replace,
     Append,
+    CreateNew,
 }
 
 pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Error> {
@@ -100,6 +101,7 @@ pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Err
                 OpenMode::Read => 0,
                 OpenMode::Replace => 0o1 | 0o100 | 0o1000,
                 OpenMode::Append => 0o1 | 0o100 | 0o2000,
+                OpenMode::CreateNew => 0o1 | 0o100 | 0o200,
             };
         let fd = unsafe { open(name.as_ptr().cast(), flags, 0o666u32) };
         if fd < 0 {

@@ -1587,7 +1587,9 @@ Optimizing frame liveness remains a later runtime improvement.
 
 `open(path: str, mode: str = "r") -> Result[File, IoError]` creates an opaque,
 affine file owner. Supported modes are `r` (existing read-only), `w` (create or
-truncate), and `a` (create or append). Invalid modes or NUL paths return errors.
+truncate), `a` (create or append), and `x` (exclusive creation). Invalid modes or NUL paths return errors.
+Exclusive creation uses the OS atomic create-new operation and fails if the path
+already exists, including a symlink; it never truncates an existing destination.
 The initial backend is Linux, with the same flags, permissions, path rules, and
 unsupported-host behavior as the whole-file helpers. Binary modes, encodings,
 update modes, and public descriptors are not exposed yet.

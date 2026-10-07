@@ -20,6 +20,7 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
         "r" => OpenMode::Read,
         "w" => OpenMode::Replace,
         "a" => OpenMode::Append,
+        "x" => OpenMode::CreateNew,
         _ => return Err(std::io::ErrorKind::InvalidInput.into()),
     };
     // Reserve the owner before opening/truncating anything. Path allocation in

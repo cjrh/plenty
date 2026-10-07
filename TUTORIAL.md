@@ -3337,6 +3337,25 @@ True
 Result[(), IoError].Ok(())
 ```
 
+## Creating a file without overwriting
+
+Use mode `"x"` when an existing path should be an error. This check happens
+atomically during creation, so there is no separate existence-check race.
+
+```plenty
+def demo() -> Result[(), IoError]:
+    with open("new.txt", "x")? as file:
+        file.write("first version")?
+    print(read_text("new.txt")?)
+    Ok(())
+def main() -> ():
+    print(demo())
+```
+```output
+first version
+Result[(), IoError].Ok(())
+```
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,
