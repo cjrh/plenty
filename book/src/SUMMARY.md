@@ -158,6 +158,7 @@
     - [GCC backend (`plenty_codegen_gcc`)](proposals/codegen-gcc.md)
     - [Explicit applications, modules, and executable lessons](proposals/entrypoints-modules-and-tutorials.md)
     - [C interop and dynamic libraries](proposals/ffi-and-dynamic-libraries.md)
+    - [Generated library contracts and C headers](proposals/ffi-export-contracts.md)
     - [Native owned generators](proposals/generators.md)
     - [Fallible memory, parallel execution, and SIMD](proposals/memory-parallelism-and-simd.md)
     - [Plenty's next language phase](proposals/next-language-phase.md)

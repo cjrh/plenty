@@ -70,6 +70,11 @@ Export declarations generate C ABI entry adapters and, eventually, C headers.
 Likewise, source imports should not have incidental side effects that load DLLs.
 Runtime loading is an explicit operation returning `Result`.
 
+The accepted [generated export contract design](ffi-export-contracts.md) adds
+versioned Plenty metadata alongside the ordinary C ABI. Adapters, metadata, and
+C headers with precise ownership, borrowing, cleanup, and error comments come
+from one checked export representation. These export facilities remain unimplemented.
+
 The initial interface file can use a dedicated suffix such as `.plentyi`, imported
 through the same absolute module namespace as Plenty source. The suffix and exact
 grammar remain open; distinguish interface files explicitly in the compiler rather
