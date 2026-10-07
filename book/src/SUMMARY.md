@@ -2,6 +2,10 @@
 
 [Introduction](introduction.md)
 
+# Development
+
+- [Backlog](backlog.md)
+
 # Learn Plenty
 
 - [Learning Plenty](tutorial/index.md)
@@ -137,7 +141,7 @@
     - [Text stream positions](design/20-text-stream-positions.md)
     - [Bounded stream operations](design/21-bounded-stream-operations.md)
     - [Splitting existing text into lines](design/22-splitting-existing-text-into-lines.md)
-    - [Next milestones](design/23-next-milestones.md)
+    - [Development workflow](design/23-next-milestones.md)
 - [Native runtime](runtime.md)
 
 # Proposals
@@ -150,7 +154,7 @@
     - [Native owned generators](proposals/generators.md)
     - [Fallible memory, parallel execution, and SIMD](proposals/memory-parallelism-and-simd.md)
     - [Plenty's next language phase](proposals/next-language-phase.md)
-    - [Foundation queue: completed work and remaining limits](proposals/next-work-queue.md)
+    - [Foundation batch history](proposals/next-work-queue.md)
     - [Ownership and reclamation proposal](proposals/ownership.md)
     - [Generics, structural protocols, context managers, and error propagation](proposals/protocols-generics-and-context-managers.md)
     - [References, ownership, and explicit copying](proposals/references-and-copying.md)

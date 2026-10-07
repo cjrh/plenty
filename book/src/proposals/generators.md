@@ -1,5 +1,10 @@
 # Native owned generators
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: implementation proposal. This document specifies the first generator
 slice; it does not claim generators are implemented. Reconcile accepted behavior
 into `DESIGN.md` and runnable examples into `TUTORIAL.md` when it lands.

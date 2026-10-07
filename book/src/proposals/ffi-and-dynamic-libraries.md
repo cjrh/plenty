@@ -1,5 +1,10 @@
 # C interop and dynamic libraries
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: researched proposal, 2026-10-05. Nothing in this document is implemented
 language syntax. The code blocks are sketches, not runnable Plenty examples.
 

@@ -1,5 +1,10 @@
 # Fallible memory, parallel execution, and SIMD
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: **research and proposed direction, not implemented language behavior**.
 Reviewed against Plenty after `b690afe`, with Cranelift `0.131.1`, on 2026-10-05.
 All API names and syntax below are sketches. The tutorial continues to describe

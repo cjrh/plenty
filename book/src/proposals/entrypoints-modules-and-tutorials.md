@@ -1,5 +1,10 @@
 # Explicit applications, modules, and executable lessons
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: the explicit binary entrypoint is implemented: parameterless `main`
 returns `()` or `i32`. Absolute imports, aliases, `pub` visibility, and library
 checking are also implemented. Module scope contains declarations and imports.

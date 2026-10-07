@@ -1,15 +1,19 @@
 # Plenty's next language phase
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 This is a design review, not an implementation announcement. It consolidates the
 entrypoint/module investigation and three concurrent research proposals. The
-implementation baseline is `b690afe`; [DESIGN.md](../design/index.md) remains the
+implementation baseline is `b690afe`; the [reference](../design/index.md) remains the
 reference for what programs can use today. Syntax and sequencing below are
 recommendations for review.
 
-Progress since that baseline: explicit binary `main`, absolute imports,
-`pub` visibility, library checking, and multi-file runnable examples are
-implemented. The remaining proposals below are future work. Follow `DESIGN.md`
-for the current implementation status.
+Several directions in this review have since been implemented or revised. Check
+the [implementation status](../design/04-implementation-status.md) rather than
+treating the sketches below as either current syntax or outstanding tasks.
 
 The proposed direction fits Plenty: explicit names, structural interfaces, native
 ownership and cleanup, and predictable ahead-of-time compilation. The biggest
@@ -271,30 +275,10 @@ trusted Markdown. A simple renderer may be sufficient; the important design is a
 single authored source and independently checked behavior. Details and TinyTemplate
 references are in the [tutorial workflow proposal](entrypoints-modules-and-tutorials.md).
 
-## Suggested implementation order
+## Work tracking
 
-1. **Explicit startup, imports, and visibility.** Introduce module/declaration
-   identities and multi-file diagnostics, migrate examples to `main`, and introduce
-   literate lesson sources alongside that migration. Keep whole-program compilation
-   into one object initially.
-2. **Error propagation and allocation foundations.** Implement `?` cleanup semantics,
-   design allocation-free sum/error lowering and static metadata, then change
-   runtime operations and test allocation failure systematically. Do this before
-   expanding a standard library around APIs that cannot report failure.
-3. **Practical resource APIs and context managers.** Extend returned borrowing as
-   needed, add concrete `with`, and build file/byte APIs on the fallibility rules.
-   Early scalar/opaque-handle C adapters can proceed after module naming exists;
-   reserve the native boundary during the first two stages.
-4. **Structural generic programming.** Add explicit constrained parameters,
-   definition-time checking, and cached instantiations. Use real collection and
-   resource APIs to keep the first protocol system small.
-5. **Broader native and parallel facilities.** Add library output and typed runtime
-   loading, then threads/channels after the runtime audit. Explicit SIMD can advance
-   independently where storage and backend support permit. Automatic parallelism
-   remains a later research task.
-
-The first implementation batch should therefore be `main`, modules, and `pub`,
-with tutorial migration. Before committing to the allocation syntax, work through
-small complete examples covering literals, nested comprehensions, failed insertion,
-and fallible cleanup. This sequence preserves fast compilation as a design goal
-while addressing the runtime contracts that would be expensive to retrofit.
+The original cross-feature implementation sequence has been retired. The
+[backlog](../backlog.md) is the single maintained list of remaining work and
+proposed order; the [implementation status](../design/04-implementation-status.md)
+records the result. The sections above preserve the design reasoning and open
+questions from this review, not a current task queue.

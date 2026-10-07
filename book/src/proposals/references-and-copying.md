@@ -1,5 +1,10 @@
 # References, ownership, and explicit copying
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: model A accepted: transfer mutable collections, borrow explicitly, and
 require explicit copying. Collection moves, explicit copy/drop, and the initial
 local/parameter reference subset are implemented. This supersedes

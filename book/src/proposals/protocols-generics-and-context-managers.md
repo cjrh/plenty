@@ -1,5 +1,10 @@
 # Generics, structural protocols, context managers, and error propagation
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: design proposal, 2026-10-05. Nothing in this document changes the
 implemented language. Syntax below is illustrative. `DESIGN.md` remains the
 implementation status reference.

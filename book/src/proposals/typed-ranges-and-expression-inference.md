@@ -1,5 +1,10 @@
 # Typed ranges, generic calls, and expression-local inference
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: recommended design, 2026-10-06; not implemented. This responds to the
 typed-range discussion after module support (`8ee5c64`). The current compiler
 accepts numeric suffixes, but ranges still produce `i64` and numeric literals
@@ -239,7 +244,8 @@ assignment example above settles nested suite termination or comma placement.
 4. Add callable values and closure capture checking, with a separately reviewed
    multiline expression grammar. The range work must not preclude these features.
 
-This is a proposed refinement of the generics plan, not an implementation of
-these examples or an automatic replacement of the existing `?`/allocation
-roadmap. The learning guide should continue to teach current behavior until
-the compiler and runnable examples migrate together.
+This records the original design sequence. Typed ranges, contextual inference,
+generic functions, and structural protocols now have implemented paths; see the
+[reference](../design/index.md) for their exact limits. Remaining inference and
+closure work is tracked only in the [backlog](../backlog.md). The learning guide
+continues to teach implemented behavior with runnable examples.

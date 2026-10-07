@@ -1,5 +1,10 @@
 # GCC backend (`plenty_codegen_gcc`)
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: planning proposal, 2026-10-07. Nothing in this document is implemented.
 API facts were checked against the `gccjit` 7.1.0 crate source and the
 libgccjit 17 documentation on 2026-10-07. Line numbers refer to the tree on

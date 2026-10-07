@@ -1,5 +1,10 @@
 # Sum types and enums
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: implementation proposal, not a statement of implemented syntax. This
 proposal was prepared against the AOT compiler after loop-control support.
 

@@ -1,5 +1,10 @@
 # Ownership and reclamation proposal
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: historical proposal for the first value-runtime implementation. Its
 implicit-copy collection semantics have been superseded by
 [references and explicit copying](references-and-copying.md). See `DESIGN.md`

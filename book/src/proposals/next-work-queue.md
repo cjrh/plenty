@@ -1,9 +1,14 @@
-# Foundation queue: completed work and remaining limits
+# Foundation batch history
 
-The ten foundation items proposed after `47888d0` now have implemented paths.
-The commits below are local; no push was requested. `DESIGN.md` describes the
-current contracts, and the learner-visible features have runnable tutorial
-examples. The limits listed here remain intentional parts of the initial scope.
+This is a historical completion record for the ten items proposed after
+`47888d0`. It is not an active queue. All remaining work and priorities now live
+in the [backlog](../backlog.md); current contracts and limits live in the
+[implementation status](../design/04-implementation-status.md) and reference.
+
+The table describes the original commits, including syntax later replaced.
+In particular, `try` and `try_` APIs are obsolete, allocation-capable APIs now
+return Result by default, and generic calls can infer type arguments. Validation
+counts and timings below belong to that historical batch, not the current tree.
 
 | Item | Implemented | Commits |
 | --- | --- | --- |
@@ -18,14 +23,14 @@ examples. The limits listed here remain intentional parts of the initial scope.
 | 9. Explicit generic functions | Explicit type arguments, cached concrete instances, bounded expansion, and `IntType` | `77105b7` |
 | 10. Structural protocols | Method requirements checked at specialization, exact borrowing/signature matches, and ordinary module visibility | `08988d3` |
 
-## Validation
+## Validation recorded at completion
 
-- All 1,259 workspace tests pass with `runtime-checks`, including native ownership,
+- All 1,259 workspace tests passed with `runtime-checks`, including native ownership,
   cleanup, module, inference, protocol, and allocation-failure regressions.
 - Every tutorial program and expected diagnostic runs through the tutorial test.
 - Strict workspace Clippy covers all targets; Rust formatting is checked.
-- All 68 existing allocation-checking runtime Miri tests pass, and the new
-  full-width unsigned-range Miri regression passes separately.
+- All 68 existing allocation-checking runtime Miri tests passed, and the new
+  full-width unsigned-range Miri regression passed separately.
 - Failure-budget sweeps exercise every reached formatting-buffer growth and final
   string allocation. Failed formatting writes no partial output and preserves its
   input. Collection and tuple failure tests check owned-value cleanup.
@@ -33,45 +38,3 @@ examples. The limits listed here remain intentional parts of the initial scope.
   create one concrete function; the measured expansion cost was about 0.34 ms
   on the AMD Ryzen 7 7840HS development machine. This excludes native codegen and
   linking and is not a broad compiler benchmark.
-
-## Boundaries that remain
-
-- **Allocation:** ordinary construction/printing and some runtime bookkeeping may
-  abort. Checked operations do not provide a process-wide OOM guarantee. Public
-  allocator selection, allocator state/lifetimes, and custom container buffers
-  remain to be designed; the internal provenance mechanism is groundwork.
-- **References:** collection loans cover the whole collection. Returned references
-  still require one reference parameter; only direct getter bodies have precise
-  field summaries. Stored references, disjoint indexed loans, and general lifetime
-  relationships remain unsupported.
-- **Tuples/items:** tuple storage currently allocates. Unpacking is flat;
-  dictionary `items()` is a loop/comprehension intrinsic, not a storable iterator.
-  Snapshots must be requested explicitly, including copies of owned values.
-- **Inference:** numeric context stays within supported expressions; it does not
-  flow backward through arbitrary calls, filters, or stored range values.
-- **Generics/protocols:** calls require explicit type arguments. Bodies are checked
-  per concrete instance, with a 256-instance compilation limit. Protocols currently
-  constrain classes, using exact method signatures. Generic classes/methods,
-  multiple bounds, associated types, inheritance, and runtime interface values
-  remain deferred.
-
-## Follow-on work
-
-These are the next design/implementation areas, rather than unimplemented pieces
-of the ten-item foundation batch:
-
-1. C ABI adapters and trusted interface declarations, followed by shared-library
-   output and loading. Keep internal object layouts private.
-2. Multiline anonymous functions and closures with explicit capture/borrow rules.
-3. Recursive data types with a clear indirection and destruction model.
-4. Public allocator lifetimes and per-container selection, building on provenance
-   and the new protocol machinery.
-5. Fallible file iteration, buffering, and binary I/O, following Python's familiar
-   model where it fits Plenty's ownership and explicit error handling.
-6. Standalone literate lessons that generate `TUTORIAL.md`; its current examples
-   already run in tests.
-7. Thread-transfer rules, threads/channels, explicit parallel operations, and
-   SIMD. Automatic parallelization follows those foundations.
-
-Continue updating the design and executable tutorial alongside implementation.
-Measure compilation latency as inference and specialization expand.

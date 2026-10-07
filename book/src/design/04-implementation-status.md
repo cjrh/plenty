@@ -1,5 +1,8 @@
 # Implementation status
 
+This page records current capabilities and limits, not task priority. Future
+work is tracked only in the [backlog](../backlog.md).
+
 The core language can compile single- and multi-file programs: typed functions,
 control flow, collections, classes, sum types, generators, ownership, and automatic
 cleanup are implemented. It is still an early language implementation, with a
@@ -54,7 +57,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | User generic functions | `def f[T](...)`, argument-based inference or explicit `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
 | Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
-| Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
+| Anonymous functions and closures | Not implemented |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types or explicit erasure into `Failure`, and automatic early-exit cleanup |
 | `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
 | Recoverable allocation failure | Default literals/comprehensions and allocating constructors, mutation, copy, text, and formatting return `Result`; no `try_` alternatives. Explicit `?`, `match`, or `.unwrap()` handle outcomes |
@@ -62,9 +65,9 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable dictionary snapshots | `keys()` and `values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
 | Recoverable text operations | `str.concat(other)`, `str.join(parts)`, `str.slice(start, stop)`, and `str.replace(old, new)` return `Result[str, AllocError]`; `str.split(separator)` and `str.splitlines(keepends=False)` return `Result[list[str], AllocError]` |
 | Checked text lookup | `str.get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
-| Custom allocators and allocator provenance | Object allocations retain internal allocator identity; container buffers still use the global allocator. Public allocator selection and allocator lifetimes remain future work |
-| Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
-| Standalone lesson sources and generated tutorial | Proposed; current Markdown examples already run in tests |
+| Custom allocators and allocator provenance | Object allocations retain internal allocator identity; container buffers still use the global allocator. Public allocator selection and allocator lifetimes are not supported |
+| Threads, channels, parallel loops, SIMD | Not implemented; current runtime is single-threaded |
+| Tutorial sources | mdBook Markdown examples run directly in tests; standalone literate sources and generated lessons are not implemented |
 | Async/await | Out of scope |
 
 Collections, classes, generators, and enums containing owned values transfer ownership.
@@ -79,8 +82,8 @@ The original four feature proposals are in [Proposals](../proposals/index.md).
 They record the reasoning and suggested staging; this document describes the
 implemented result, including integration choices that differ from those proposals.
 
-The [next-phase design review](../proposals/next-language-phase.md) captures the
-new entrypoint, module, FFI, protocol, memory, parallelism, SIMD, and documentation
-directions. Its syntax is provisional. Rows marked proposed above are not usable
-language features; the current contract below continues to describe implemented
-behavior.
+The [next-phase design review](../proposals/next-language-phase.md) records earlier
+entrypoint, module, FFI, protocol, memory, parallelism, SIMD, and documentation
+discussions. Some of that work is implemented or has changed since the review.
+Use the [backlog](../backlog.md) for remaining candidates and priorities, and the
+[current language contract](05-current-language-contract.md) for usable behavior.

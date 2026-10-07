@@ -3,7 +3,7 @@
 Plenty is a statically typed language with Python-shaped syntax. It compiles
 ahead of time to native code through Cranelift. Its main goal is low memory use.
 
-This book has three parts:
+This book provides:
 
 - **[Learn Plenty](tutorial/index.md)** teaches the language with runnable
   examples. Start here.
@@ -11,6 +11,8 @@ This book has three parts:
   design.
 - **[Proposals](proposals/index.md)** record the reasons for past and future
   design decisions. They are not the current contract.
+- **[Backlog](backlog.md)** is the single maintained list of future work and
+  proposed priorities. Start here when choosing the next task.
 
 ## Build this book
 

@@ -1,5 +1,10 @@
 # Runtime allocation audit
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Allocation is fallible by default in the current language. This audit covers
 generated programs, not compiler memory. Public allocating operations return
 `Result`; there are no `try_` alternatives or prefix `try` displays. Postfix `?`

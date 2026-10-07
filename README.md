@@ -7,7 +7,7 @@ design goals.
 
 This branch implements the typed AOT language, including collections, concrete
 enums, fixed-layout classes, generators, explicit copying, and checked references.
-Owned values clean up automatically, including custom `__del__` methods. The full contract and roadmap are in the [reference](book/src/design/index.md).
+Owned values clean up automatically, including custom `__del__` methods. The language contract is in the [reference](book/src/design/index.md); future work and priorities are maintained in the [backlog](book/src/backlog.md).
 
 Start with [Learn Plenty](book/src/tutorial/index.md) to learn the language
 through runnable examples. Its code and expected diagnostics are tested as the

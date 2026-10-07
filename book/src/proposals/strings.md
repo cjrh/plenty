@@ -1,5 +1,10 @@
 # One immutable `str` with explicit lengths
 
+> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
+> records design dependencies, not scheduled work; some syntax and assumptions
+> are historical. See the [implementation status](../design/04-implementation-status.md)
+> and [reference](../design/index.md) for current behavior.
+
 Status: design proposal for this implementation batch. The implementation and
 `DESIGN.md` remain the authority for currently supported behavior.
 
