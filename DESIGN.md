@@ -1788,6 +1788,9 @@ and any failed construction releases the initialized prefix.
 
 ## Next milestones
 
+The [proposed next work queue](docs/proposals/next-work-queue.md) expands the
+remaining priorities after the current text-stream work into concrete tasks.
+
 For a useful basic feature set, prioritize these capabilities. This is a proposed
 sequence; API syntax and the reference contracts still require design work.
 
