@@ -59,7 +59,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native C imports | Trusted `.plentyi` interfaces, sized scalars and nominal opaque pointers, explicit symbols, private wrappers, and static or shared linking; [C interface reference](24-c-interfaces.md) |
 | Ownership-aware C adapters | Call-scoped scalar/output references, allocation-free UTF-8 views, fallible C-string conversion, and owned class wrappers with matching native destruction and explicit transfer/error policies; [adapter reference](24-c-interfaces/01-ownership-and-text-adapters.md) |
-| C exports / runtime shared-library loading | Not implemented; ordinary linked shared-library imports work |
+| C library exports | Numeric C entry points, static/shared output, generated C headers with contract comments, importable `.plentyi` metadata, and embedded interface discovery; [library reference](24-c-interfaces/02-library-exports.md) |
+| Runtime shared-library loading | Not implemented; ordinary linked shared-library imports work |
 | User generic functions | `def f[T](...)`, argument-based inference or explicit `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
 | Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |

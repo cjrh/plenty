@@ -63,6 +63,7 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 use crate::lexer;
 mod collections;
 mod enums;
+mod exports;
 mod foreign;
 mod generators;
 mod inline;
@@ -242,6 +243,33 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// executable. With `returns_status`, the final `i32` operand is the process
 /// status; unit entrypoints and legacy programs return zero on completion.
 fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path, returns_status: bool) -> Result<()> {
+    emit_object(ops, heap, output, Some(returns_status), &[], None)
+}
+
+pub(crate) fn emit_library_object(
+    program: &crate::frontend::Program,
+    heap: &Heap,
+    output: &Path,
+    interface: &crate::exports::Interface,
+) -> Result<()> {
+    emit_object(
+        &program.ops,
+        heap,
+        output,
+        None,
+        &program.exports,
+        Some(interface),
+    )
+}
+
+fn emit_object(
+    ops: &[Op],
+    heap: &Heap,
+    output: &Path,
+    entry: Option<bool>,
+    exports: &[crate::exports::Export],
+    interface: Option<&crate::exports::Interface>,
+) -> Result<()> {
     let isa = host_isa()?;
     let builder = ObjectBuilder::new(isa, "plenty", cranelift_module::default_libcall_names())?;
     let mut module = ObjectModule::new(builder);
@@ -283,15 +311,18 @@ fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path, returns_status: boo
     // Pass 3: emit `plenty_main`. Top-level `DefineFn`s are skipped
     // here — their bodies were emitted by Pass 2; at runtime a
     // definition is a no-op (it does not touch the data stack).
-    emit_main(
-        ops,
-        returns_status,
-        &user_fns,
-        &str_data,
-        eof_empty_str,
-        &runtime,
-        &mut module,
-    )?;
+    if let Some(returns_status) = entry {
+        emit_main(
+            ops,
+            returns_status,
+            &user_fns,
+            &str_data,
+            eof_empty_str,
+            &runtime,
+            &mut module,
+        )?;
+    }
+    exports::emit(exports, interface, &user_fns, &mut module)?;
 
     let product = module.finish();
     let bytes = product.emit()?;

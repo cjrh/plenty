@@ -58,8 +58,9 @@ build system; interfaces do not add libraries or loader side effects implicitly.
 
 Native C fixtures exercise scalar widths, floating point, register and stack
 arguments, nominal pointers, null handling, static/shared linking, and signature
-diagnostics. Ordinary `pub` functions remain private native symbols. C exports,
-callbacks, C records, and runtime loading are not supported yet.
+diagnostics. Ordinary `pub` functions remain private native symbols. Explicit
+[library exports](24-c-interfaces/02-library-exports.md) support numeric C APIs.
+Callbacks, C records, and runtime loading are not supported yet.
 The [export contract proposal](../proposals/ffi-export-contracts.md) records the
 accepted direction for generated ownership metadata and C headers that document
 the same guarantees and caller requirements.

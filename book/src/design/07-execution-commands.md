@@ -5,6 +5,10 @@
   the environment, and the current working directory. Its exit code is propagated;
   on Unix, signal termination is reported as 128 plus the signal number.
 - `plenty --compile FILE -o OUT` produces a standalone executable.
+- `plenty --shared-library FILE --library-name NAME -o OUT` and
+  `--static-library` produce [C libraries](24-c-interfaces/02-library-exports.md)
+  with generated headers/interfaces, without requiring `main`. Static output
+  uses `--archiver PATH` (default `ar`); shared output uses `--linker`.
 - `plenty --emit-object FILE -o OUT` emits one native application object,
   including imported modules, without invoking a linker. It still requires `main`.
 - `plenty --emit-runtime DIR` extracts the embedded `libplenty_runtime.a` and

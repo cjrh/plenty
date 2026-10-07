@@ -13,7 +13,16 @@ fn main() {
         "cargo:rustc-env=PLENTY_RUNTIME_TARGET={}",
         std::env::var("TARGET").unwrap()
     );
-    let archive = out.join("libplenty_runtime.a");
+    build_runtime(&out, true);
+    build_runtime(&out, false);
+}
+
+fn build_runtime(out: &std::path::Path, application: bool) {
+    let archive = out.join(if application {
+        "libplenty_runtime.a"
+    } else {
+        "libplenty_library_runtime.a"
+    });
     let mut rustc = Command::new(std::env::var_os("RUSTC").unwrap());
     rustc.args([
         "plenty-runtime/src/lib.rs",
@@ -28,8 +37,6 @@ fn main() {
         "-Cpanic=abort",
         "-Clto=thin",
         "-Ccodegen-units=1",
-        "--cfg",
-        "plenty_runtime_embedded",
         "--check-cfg",
         "cfg(plenty_runtime_embedded)",
         "--check-cfg",
@@ -39,6 +46,9 @@ fn main() {
         "-o",
     ]);
     rustc.arg(&archive);
+    if application {
+        rustc.args(["--cfg", "plenty_runtime_embedded"]);
+    }
     if std::env::var_os("CARGO_FEATURE_RUNTIME_CHECKS").is_some() {
         rustc.args(["--cfg", "feature=\"allocation-checks\""]);
     }
@@ -59,5 +69,13 @@ fn main() {
         .lines()
         .find_map(|line| line.strip_prefix("note: native-static-libs: "))
         .expect("rustc must report the runtime's native link dependencies");
-    std::fs::write(out.join("runtime-link-args.txt"), libs).unwrap();
+    std::fs::write(
+        out.join(if application {
+            "runtime-link-args.txt"
+        } else {
+            "library-runtime-link-args.txt"
+        }),
+        libs,
+    )
+    .unwrap();
 }

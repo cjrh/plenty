@@ -29,6 +29,7 @@ pub(crate) type TypeAliases = HashMap<String, Type>;
 pub(crate) struct Program {
     pub(crate) ops: Vec<Op>,
     pub(crate) returns_status: bool,
+    pub(crate) exports: Vec<crate::exports::Export>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -337,6 +338,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
 #[derive(Clone)]
 struct Function {
     foreign: Option<crate::foreign::Declaration>,
+    export: Option<String>,
     name: String,
     type_params: Vec<(String, Option<TypeRef>)>,
     at: Token,
@@ -732,9 +734,14 @@ impl Parser {
         self.function_in(None)
     }
     fn function_in(&mut self, class: Option<&str>) -> Result<Function> {
-        self.function_header(class, false)
+        self.function_header(class, false, false)
     }
-    fn function_header(&mut self, class: Option<&str>, foreign: bool) -> Result<Function> {
+    fn function_header(
+        &mut self,
+        class: Option<&str>,
+        foreign: bool,
+        exported: bool,
+    ) -> Result<Function> {
         let at = self.take(); // def
         let name = self.name()?;
         if class.is_none() && builtin(&name) {
@@ -821,9 +828,13 @@ impl Parser {
         }
         self.expect("->")?;
         let output = self.ty()?;
-        if foreign {
+        let symbol = if foreign || exported {
             if !type_params.is_empty() {
-                return Err(at.error("C imports cannot be generic"));
+                return Err(at.error(if exported {
+                    "C exports cannot be generic"
+                } else {
+                    "C imports cannot be generic"
+                }));
             }
             self.expect("=")?;
             let symbol = self.take();
@@ -831,12 +842,18 @@ impl Parser {
                 return Err(symbol.error("expected a C symbol string"));
             };
             foreign::check_symbol(symbol_name, &symbol)?;
+            Some(symbol_name.clone())
+        } else {
+            None
+        };
+        if foreign {
             self.kind(Kind::Newline, "the end of the C declaration")?;
             return Ok(Function {
                 foreign: Some(crate::foreign::Declaration {
-                    symbol: symbol_name.clone(),
+                    symbol: symbol.unwrap(),
                     arguments: adapters,
                 }),
+                export: None,
                 type_params,
                 name,
                 at,
@@ -874,6 +891,7 @@ impl Parser {
         };
         Ok(Function {
             foreign: None,
+            export: symbol,
             type_params,
             name,
             at,
@@ -1273,7 +1291,7 @@ fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
         .or_else(|| aliases.get(name).cloned())
 }
 
-fn builtin(name: &str) -> bool {
+pub(crate) fn builtin(name: &str) -> bool {
     named_type(name).is_some()
         || matches!(
             name,
@@ -1313,6 +1331,7 @@ fn reserved(name: &str) -> bool {
         name,
         "def"
             | "extern"
+            | "export"
             | "opaque"
             | "try"
             | "with"
@@ -2461,6 +2480,9 @@ fn register_signature(
     if f.foreign.is_some() {
         foreign::check_signature(f, &inputs, &output)?;
     }
+    if f.export.is_some() {
+        crate::exports::check_signature(&inputs, &output).map_err(|message| f.at.error(message))?;
+    }
     if let Some(Ty::Ref(_, mutable)) = &output {
         let references: Vec<_> = inputs
             .iter()
@@ -2681,6 +2703,37 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;
     }
     foreign::check_symbols(generics.pending.iter(), &sigs)?;
+    let mut exports = Vec::new();
+    let mut symbols = HashSet::new();
+    let imported_symbols: HashSet<_> = generics
+        .pending
+        .iter()
+        .filter_map(|f| f.foreign.as_ref().map(|d| d.symbol.as_str()))
+        .collect();
+    let mut interface_names = HashSet::new();
+    for f in &generics.pending {
+        if let Some(symbol) = &f.export {
+            let name = f.name.rsplit('.').next().unwrap().to_owned();
+            if imported_symbols.contains(symbol.as_str()) || !symbols.insert(symbol.clone()) {
+                return Err(f
+                    .at
+                    .error(format!("duplicate or imported C export symbol `{symbol}`")));
+            }
+            if !interface_names.insert(name.clone()) {
+                return Err(f
+                    .at
+                    .error(format!("duplicate generated interface name `{name}`")));
+            }
+            exports.push(crate::exports::Export {
+                function: f.name.clone(),
+                name,
+                symbol: symbol.clone(),
+                signature: sigs[&f.name].clone(),
+                documentation: f.doc.clone(),
+            });
+        }
+    }
+    exports.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     let returns_status = if require_main {
         let entry = generics
             .pending
@@ -2767,5 +2820,6 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     Ok(Program {
         ops,
         returns_status,
+        exports,
     })
 }

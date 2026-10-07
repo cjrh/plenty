@@ -8,10 +8,12 @@
 
 mod codegen;
 mod collection;
+mod exports;
 mod foreign;
 mod frontend;
 mod generator;
 mod lexer;
+mod library;
 mod op;
 mod ownership;
 mod record;
@@ -25,6 +27,7 @@ pub use codegen::{
     compile_source_to_executable, compile_source_to_executable_with_options,
     compile_source_to_object,
 };
+pub use library::{compile_file_to_library, LibraryArtifacts, LibraryKind, LibraryOptions};
 pub use toolchain::{
     emit_runtime, native_target, validate_target, CompileOptions, RuntimeArtifacts,
 };

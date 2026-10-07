@@ -9,6 +9,8 @@ Usage: plenty FILE
        plenty --check-module FILE
        plenty --compile FILE -o OUT
        plenty --emit-object FILE -o OUT
+       plenty --shared-library FILE --library-name NAME -o OUT
+       plenty --static-library FILE --library-name NAME -o OUT
        plenty --emit-runtime DIR
        plenty --print-target
        plenty -h | --help
@@ -20,6 +22,9 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --check-module: check a library module without requiring main.
 --compile: emit a native executable with Cranelift.
 --emit-object: emit an application object without linking (requires main).
+--shared-library / --static-library: emit C exports without requiring main.
+--library-name NAME: namespace for C exports, header, and generated .plentyi.
+--archiver PATH: ar-compatible archiver for --static-library (default: ar).
 --emit-runtime: extract the matching runtime archive and native link arguments.
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
@@ -45,15 +50,32 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
         args.remove(0);
     }
     let mut options = plenty::CompileOptions::default();
+    let mut library_name = None;
+    let mut archiver = None;
     let mut link_options = false;
     let mut index = 0;
     while index < args.len() {
-        if matches!(args[index].as_str(), "--linker" | "--link-arg" | "--target") {
+        if matches!(
+            args[index].as_str(),
+            "--linker" | "--link-arg" | "--target" | "--library-name" | "--archiver"
+        ) {
             let flag = args.remove(index);
             if index == args.len() {
                 return Err(format!("{flag} requires a value").into());
             }
             let value = args.remove(index);
+            if flag == "--library-name" {
+                if library_name.replace(value).is_some() {
+                    return Err("--library-name may be specified only once".into());
+                }
+                continue;
+            }
+            if flag == "--archiver" {
+                if value.is_empty() || archiver.replace(std::path::PathBuf::from(value)).is_some() {
+                    return Err("--archiver requires one nonempty path".into());
+                }
+                continue;
+            }
             if flag == "--target" {
                 options.target = Some(value);
                 continue;
@@ -85,6 +107,15 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     if options.target.is_some() {
         plenty::validate_target(options.target.as_deref())?;
     }
+    let library = args
+        .first()
+        .is_some_and(|a| matches!(a.as_str(), "--shared-library" | "--static-library"));
+    if library_name.is_some() && !library {
+        return Err("--library-name requires library output".into());
+    }
+    if archiver.is_some() && !args.first().is_some_and(|a| a == "--static-library") {
+        return Err("--archiver requires --static-library".into());
+    }
     if link_options
         && (args.is_empty()
             || args.first().is_some_and(|a| {
@@ -102,6 +133,27 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
         return Err("linker options require compilation or execution".into());
     }
     match args.as_slice() {
+        [flag, source, option, output]
+            if library && !legacy && (option == "-o" || option == "--output") =>
+        {
+            let name = library_name.ok_or("library output requires --library-name NAME")?;
+            let kind = if flag == "--static-library" {
+                plenty::LibraryKind::Static
+            } else {
+                plenty::LibraryKind::Shared
+            };
+            let mut library = plenty::LibraryOptions::new(name, kind);
+            library.compile = options;
+            if let Some(archiver) = archiver {
+                library.archiver = archiver;
+            }
+            plenty::compile_file_to_library(
+                Path::new(source),
+                Path::new(output),
+                root.as_deref(),
+                &library,
+            )?;
+        }
         [flag] if flag == "--print-target" && !legacy && root.is_none() && !link_options => {
             println!("{}", plenty::native_target());
         }

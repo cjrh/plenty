@@ -168,6 +168,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 .collect();
             methods.push(Function {
                 foreign: None,
+                export: None,
                 type_params: vec![],
                 name: "__init__".into(),
                 at: at.clone(),
@@ -233,6 +234,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             };
             functions.push(Function {
                 foreign: None,
+                export: None,
                 type_params: vec![],
                 name: method(&class.name, "new"),
                 at: at.clone(),

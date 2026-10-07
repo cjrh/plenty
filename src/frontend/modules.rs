@@ -135,7 +135,7 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
             if parser.eat("extern") {
                 parser.expect("def")?;
                 parser.pos -= 1;
-                let f = parser.function_header(None, true)?;
+                let f = parser.function_header(None, true, false)?;
                 let name = f.name.clone();
                 module.functions.push(f);
                 name
@@ -155,6 +155,13 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
                 });
                 name
             }
+        } else if parser.eat("export") {
+            parser.expect("def")?;
+            parser.pos -= 1;
+            let f = parser.function_header(None, false, true)?;
+            let name = f.name.clone();
+            module.functions.push(f);
+            name
         } else if parser.peek().is("def") {
             let f = parser.function()?;
             let name = f.name.clone();

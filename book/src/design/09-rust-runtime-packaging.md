@@ -20,6 +20,11 @@ the exact packaged archive and native dependencies for an external build system.
 The runtime owns the executable startup symbol `main` and calls `plenty_main`
 from one application object. See [execution commands](07-execution-commands.md).
 
+The compiler also packages a library runtime archive without `main` or a
+`plenty_main` dependency. C library output embeds this variant; the shared linker
+export map hides its internal symbols. Both variants are compiled when building
+Plenty, with their own native link requirements, rather than per library build.
+
 Native emission is gated to `x86_64-unknown-linux-gnu`, matching the tested runtime
 and compiler target. The build records Cargo's runtime target; emission also
 checks the Cranelift ISA triple and pointer type. The ABI currently relies on

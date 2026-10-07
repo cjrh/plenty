@@ -73,7 +73,8 @@ Runtime loading is an explicit operation returning `Result`.
 The accepted [generated export contract design](ffi-export-contracts.md) adds
 versioned Plenty metadata alongside the ordinary C ABI. Adapters, metadata, and
 C headers with precise ownership, borrowing, cleanup, and error comments come
-from one checked export representation. These export facilities remain unimplemented.
+from one checked export representation. The [initial export subset](../design/24-c-interfaces/02-library-exports.md)
+now implements numeric APIs; richer ownership and loading remain future work.
 
 The initial interface file can use a dedicated suffix such as `.plentyi`, imported
 through the same absolute module namespace as Plenty source. The suffix and exact

@@ -107,6 +107,7 @@
     - [Call C libraries](tutorial/57-call-c-libraries.md)
     - [Pass text to C](tutorial/58-pass-text-to-c.md)
     - [Own a foreign handle](tutorial/59-own-a-foreign-handle.md)
+    - [Build a C library](tutorial/60-build-a-c-library.md)
 
 # Reference
 
@@ -148,6 +149,7 @@
     - [Development workflow](design/23-next-milestones.md)
     - [C interfaces](design/24-c-interfaces.md)
         - [Ownership and text adapters](design/24-c-interfaces/01-ownership-and-text-adapters.md)
+        - [Library exports](design/24-c-interfaces/02-library-exports.md)
 - [Native runtime](runtime.md)
 
 # Proposals

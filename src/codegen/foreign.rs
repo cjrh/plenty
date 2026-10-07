@@ -1,7 +1,7 @@
 //! C calls are ordinary target-ABI calls, never Plenty tail-convention calls.
 use super::*;
 
-fn parameter(ty: &Ty) -> AbiParam {
+pub(super) fn parameter(ty: &Ty) -> AbiParam {
     let parameter = AbiParam::new(clif_type(ty.clone()));
     match ty {
         Ty::I8 | Ty::I16 | Ty::I32 => parameter.sext(),
