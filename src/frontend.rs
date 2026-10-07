@@ -830,6 +830,7 @@ impl Parser {
         }
         self.expect("->")?;
         let output = self.ty()?;
+        let mut address_parameter = None;
         let symbol = if foreign || exported {
             if !type_params.is_empty() {
                 return Err(at.error(if exported {
@@ -840,11 +841,23 @@ impl Parser {
             }
             self.expect("=")?;
             let symbol = self.take();
-            let Kind::Text(ref symbol_name) = symbol.kind else {
+            if let Kind::Text(ref symbol_name) = symbol.kind {
+                foreign::check_symbol(symbol_name, &symbol)?;
+                Some(symbol_name.clone())
+            } else if foreign {
+                address_parameter = Some(
+                    inputs
+                        .iter()
+                        .position(|(name, _)| symbol.is(name))
+                        .ok_or_else(|| {
+                            symbol
+                                .error("expected a C symbol string or a function-address parameter")
+                        })?,
+                );
+                None
+            } else {
                 return Err(symbol.error("expected a C symbol string"));
-            };
-            foreign::check_symbol(symbol_name, &symbol)?;
-            Some(symbol_name.clone())
+            }
         } else {
             None
         };
@@ -852,7 +865,10 @@ impl Parser {
             self.kind(Kind::Newline, "the end of the C declaration")?;
             return Ok(Function {
                 foreign: Some(crate::foreign::Declaration {
-                    symbol: symbol.unwrap(),
+                    target: match address_parameter {
+                        Some(index) => crate::foreign::Target::Parameter(index),
+                        None => crate::foreign::Target::Symbol(symbol.unwrap()),
+                    },
                     arguments: adapters,
                 }),
                 export: None,
@@ -2711,7 +2727,12 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let imported_symbols: HashSet<_> = generics
         .pending
         .iter()
-        .filter_map(|f| f.foreign.as_ref().map(|d| d.symbol.clone()))
+        .filter_map(|f| {
+            f.foreign
+                .as_ref()
+                .and_then(|d| d.symbol())
+                .map(str::to_owned)
+        })
         .collect();
     let mut interface_names = HashSet::new();
     for f in &generics.pending {

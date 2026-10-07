@@ -12,10 +12,24 @@ pub extern def version() -> u32 = "image_version"
 ```
 
 `extern def` requires fully typed parameters, a result type, and an explicit C
-symbol string. No body, generics, varargs, default arguments, or implicit header
+symbol string or function-address parameter. No body, generics, varargs, default arguments, or implicit header
 translation are supported. `pub` controls Plenty imports only. A wrapper using
 Plenty's private calling convention makes an ordinary target-C-ABI call; C calls
 are never emitted using Plenty's tail calling convention.
+
+Trusted interfaces may call an address obtained from native code:
+
+```text
+opaque Function
+extern def invoke(function: Function, value: i32) -> i32 = function
+```
+
+The identifier after `=` must name an opaque pointer parameter. That parameter
+selects the callee and is omitted from its C arguments; all other parameters use
+the ordinary C adapters. The binding must supply a non-null function address
+with this exact signature and keep its originating library loaded. The compiler
+does not validate arbitrary addresses. Keep this raw operation private behind a
+checked wrapper; it is not a general source-language function value.
 
 The initial ABI supports `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, opaque pointers,
 and `()` for a void result. Call-scoped scalar/pointer references and explicit

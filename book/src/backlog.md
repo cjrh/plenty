@@ -12,11 +12,13 @@ stages describe technical dependencies, not a second priority list.
 
 ## Next batch
 
-The initial toolchain and C boundary batch (B01–B06) is complete. B07 is next:
+The initial toolchain and C boundary batch (B01–B06) is complete. B07 is active:
 typed runtime loading of known interfaces with recoverable loading/compatibility
 errors, keeping loaded libraries resident. Build on the generated contracts,
 fingerprints, and ownership wrappers already checked by native C/C++ and Plenty
 integration tests. Expanded C representations are tracked separately as B27.
+Trusted indirect C calls are implemented as the first runtime-loading building
+block; typed loading and recoverable validation are still in progress.
 
 ## Later candidates
 

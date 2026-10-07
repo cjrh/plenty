@@ -9,12 +9,26 @@ pub enum Argument {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum Target {
+    Symbol(String),
+    /// A trusted opaque function address passed as a Plenty-only parameter.
+    Parameter(usize),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Declaration {
-    pub symbol: String,
+    pub target: Target,
     pub arguments: Vec<Argument>,
 }
 
 impl Declaration {
+    pub fn symbol(&self) -> Option<&str> {
+        match &self.target {
+            Target::Symbol(name) => Some(name),
+            Target::Parameter(_) => None,
+        }
+    }
+
     pub fn fallible(&self) -> bool {
         self.arguments.contains(&Argument::CString)
     }

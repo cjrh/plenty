@@ -19,7 +19,14 @@ impl Lowerer<'_, '_> {
         use crate::foreign::Argument;
         use cranelift_codegen::ir::MemFlags;
         let mut signature = self.module.make_signature();
-        for ((_, ty), mode) in sig.inputs.iter().zip(&declaration.arguments) {
+        let address_index = match declaration.target {
+            crate::foreign::Target::Parameter(index) => Some(index),
+            _ => None,
+        };
+        for (index, ((_, ty), mode)) in sig.inputs.iter().zip(&declaration.arguments).enumerate() {
+            if address_index == Some(index) {
+                continue;
+            }
             match mode {
                 Argument::Direct => signature.params.push(parameter(ty)),
                 Argument::Utf8 => signature
@@ -30,18 +37,22 @@ impl Lowerer<'_, '_> {
         }
         let c_output = declaration.output(sig);
         signature.returns.extend(c_output.map(parameter));
-        let id = self
-            .module
-            .declare_function(&declaration.symbol, Linkage::Import, &signature)?;
-        let callee = self.module.declare_func_in_func(id, self.bcx.func);
         let mut arguments = Vec::new();
         for (_, ty) in sig.inputs.iter().rev() {
             arguments.push(self.pop_typed(ty.clone())?.0);
         }
         arguments.reverse();
+        let address = address_index.map(|index| arguments[index]);
         let mut native_arguments = Vec::new();
         let mut buffers = Vec::new();
-        for (argument, mode) in arguments.into_iter().zip(&declaration.arguments) {
+        for (index, (argument, mode)) in arguments
+            .into_iter()
+            .zip(&declaration.arguments)
+            .enumerate()
+        {
+            if address_index == Some(index) {
+                continue;
+            }
             match mode {
                 Argument::Direct => native_arguments.push(argument),
                 Argument::Utf8 | Argument::CString => {
@@ -82,7 +93,20 @@ impl Lowerer<'_, '_> {
                 }
             }
         }
-        let call = self.bcx.ins().call(callee, &native_arguments);
+        let call = if let Some(address) = address {
+            let signature = self.bcx.import_signature(signature);
+            self.bcx
+                .ins()
+                .call_indirect(signature, address, &native_arguments)
+        } else {
+            let id = self.module.declare_function(
+                declaration.symbol().unwrap(),
+                Linkage::Import,
+                &signature,
+            )?;
+            let callee = self.module.declare_func_in_func(id, self.bcx.func);
+            self.bcx.ins().call(callee, &native_arguments)
+        };
         let result = self.bcx.inst_results(call).first().copied();
         for buffer in buffers {
             self.release(buffer, &Ty::Str);

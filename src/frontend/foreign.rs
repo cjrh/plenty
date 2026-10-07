@@ -21,6 +21,15 @@ pub(super) fn check_symbol(name: &str, at: &Token) -> Result<()> {
 pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Type) -> Result<()> {
     use crate::foreign::Argument;
     let declaration = f.foreign.as_ref().unwrap();
+    if let crate::foreign::Target::Parameter(index) = declaration.target {
+        if !matches!(inputs[index].1, Ty::ForeignPtr(_))
+            || declaration.arguments[index] != Argument::Direct
+        {
+            return Err(f
+                .at
+                .error("C function-address parameter must have an opaque pointer type"));
+        }
+    }
     let scalar = |ty: &Ty| ty.is_numeric() || matches!(ty, Ty::ForeignPtr(_));
     for ((_, ty), mode) in inputs.iter().zip(&declaration.arguments) {
         let valid = match mode {
@@ -71,7 +80,9 @@ pub(super) fn check_symbols<'a>(
     }
     for f in functions {
         if let Some(declaration) = &f.foreign {
-            let symbol = &declaration.symbol;
+            let Some(symbol) = declaration.symbol() else {
+                continue;
+            };
             let sig = &sigs[&f.name];
             let mut inputs = Vec::new();
             for ((_, ty), mode) in sig.inputs.iter().zip(&declaration.arguments) {
