@@ -21,9 +21,25 @@ pub(super) fn collect(
 ) -> Result<Vec<Handle>, Box<dyn std::error::Error>> {
     let mut classes = BTreeMap::new();
     for export in exports {
-        if let Some((Ty::Class(class), _)) =
-            export.signature.outputs.first().and_then(result_payloads)
+        let output = export
+            .signature
+            .outputs
+            .first()
+            .and_then(result_payloads)
+            .map(|(ok, _)| ok);
+        for ty in export
+            .signature
+            .inputs
+            .iter()
+            .map(|(_, ty)| ty)
+            .chain(output)
         {
+            let ty = if let Ty::Ref(inner, _) = ty {
+                inner.as_ref()
+            } else {
+                ty
+            };
+            let Ty::Class(class) = ty else { continue };
             let name = short_name(class);
             super::check_library_name(name)?;
             if classes
@@ -57,6 +73,36 @@ pub(super) fn collect(
         });
     }
     Ok(handles)
+}
+
+pub(super) fn source_type(ty: &Ty) -> String {
+    match ty {
+        Ty::Class(class) => short_name(class).into(),
+        Ty::Ref(inner, mutable) => format!(
+            "&{}{}",
+            if *mutable { "mut " } else { "" },
+            source_type(inner)
+        ),
+        _ => ty.to_string(),
+    }
+}
+
+pub(super) fn arguments(export: &Export) -> (Vec<String>, Vec<String>) {
+    export
+        .signature
+        .inputs
+        .iter()
+        .enumerate()
+        .map(|(i, (_, ty))| {
+            if let Ty::Ref(inner, _) = ty {
+                if let Ty::Class(class) = inner.as_ref() {
+                    let pointer = format!("_plenty_handle_{}", short_name(class));
+                    return (format!("p{i}: {pointer}"), format!("p{i}._handle"));
+                }
+            }
+            (format!("p{i}: {ty}"), format!("p{i}"))
+        })
+        .unzip()
 }
 
 impl Handle {

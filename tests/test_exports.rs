@@ -428,6 +428,83 @@ int main(void) {
 }
 
 #[test]
+fn borrowed_handle_exports_preserve_mutation_and_loans() {
+    let source = r#"
+class Resource:
+    value: i64
+    def __del__(self) -> ():
+        print(self.value).unwrap()
+export def create(value: i64) -> Result[Resource, AllocError] = "calc_create":
+    Resource(value)
+export def read(a: &Resource, b: &Resource) -> i64 = "calc_read":
+    a.value + b.value
+export def replace(owner: &mut Resource, value: i64) -> Result[(), AllocError] = "calc_replace":
+    owner.value = value
+    Err(AllocError.CapacityOverflow)
+"#;
+    for kind in [LibraryKind::Static, LibraryKind::Shared] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (library, artifacts) = build(root, source, kind);
+        let header = std::fs::read_to_string(&artifacts.header).unwrap();
+        assert!(header.contains("fields may change even on Err"));
+        assert!(header.contains("const calc_Resource * p0"));
+        let c = root.join("loans.c");
+        std::fs::write(
+            &c,
+            r#"
+#include "calc.h"
+#include <assert.h>
+int main(void) {
+    calc_Resource *owner = 0;
+    uint32_t error = 99;
+    assert(calc_create(11, &owner, &error) == 0);
+    assert(calc_read(owner, owner) == 22);
+    assert(calc_replace(owner, 42, &error) == 1 && error == 1);
+    assert(calc_read(owner, owner) == 84);
+    calc_Resource_destroy(owner);
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+        let executable = root.join("caller");
+        let args = std::fs::read_to_string(artifacts.link_args).unwrap();
+        for compiler in ["cc", "c++"] {
+            success(
+                Command::new(compiler)
+                    .args(["-Wall", "-Wextra", "-Werror"])
+                    .arg(&c)
+                    .arg(&library)
+                    .args(args.lines())
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .unwrap(),
+            );
+            assert_eq!(
+                success(Command::new(&executable).output().unwrap()).stdout,
+                b"42\n"
+            );
+        }
+        let app = root.join("main.plenty");
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    mut owner = calc.create(11)?\n    print(calc.read(&owner, &owner))?\n    print(calc.replace(&mut owner, 42))?\n    print(calc.read(&owner, &owner))?\n    Ok(())\n").unwrap();
+        let options = plenty::CompileOptions {
+            link_args: vec![library.into_os_string()],
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
+        assert_eq!(
+            success(Command::new(executable).output().unwrap()).stdout,
+            b"22\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n84\n42\n"
+        );
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    mut owner = calc.create(11)?\n    loan = &owner\n    calc.replace(&mut owner, 42)?\n    print(calc.read(loan, loan))?\n    Ok(())\n").unwrap();
+        let error = plenty::check_file(&app, None).unwrap_err().to_string();
+        assert!(error.contains("borrow"), "{error}");
+    }
+}
+
+#[test]
 fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("source.plenty");

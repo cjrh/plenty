@@ -11,7 +11,7 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
 ```
 
 The initial subset accepts numeric scalar parameters, `&T` / `&mut T` borrows of
-numeric scalars, and numeric scalar, unit, or `Result[T, E]` returns where `T`
+numeric scalars or exported classes, and numeric scalar, unit, or `Result[T, E]` returns where `T`
 is numeric or unit and `E` is numeric, `AllocError`, `ParseError`, or `Failure`.
 Factories can also return [owned class handles](03-owned-exports.md) through
 `Result[Class, AllocError]`. Booleans, other managed objects,

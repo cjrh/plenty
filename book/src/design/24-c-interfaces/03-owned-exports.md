@@ -32,5 +32,22 @@ ordinary Plenty ownership rules. The wrapper adds one fallible allocation and
 never exposes the native object's fields or permits copying the owner.
 
 Only allocation-error factories are supported for class results. Other error
-types need a way to represent wrapper-allocation failure. Class inputs, methods,
-and borrowed object exports are outside this subset.
+types need a way to represent wrapper-allocation failure. Consuming class inputs
+and automatically exported methods are outside this subset.
+
+## Borrowing handles
+
+An `&Resource` parameter becomes `const calc_Resource *`: a read-only, call-scoped
+borrow of a live handle from the same library instance. Shared arguments may
+alias, but no alias may mutate or destroy the object during the call.
+
+An `&mut Resource` parameter becomes `calc_Resource *`, borrowed exclusively.
+No other argument or alias may access the owner or its fields during the call.
+Ownership remains with the caller. Plenty rejects whole-class replacement through
+a reference, so the handle remains valid, but fields can change even when a call
+returns `Err`. An error does not imply rollback. Input and result output storage
+must not overlap.
+
+Generated Plenty wrappers preserve these reference signatures, so callers get
+normal loan checking. Borrow adaptation itself does not allocate. Exported free
+functions can call the class's ordinary methods internally.

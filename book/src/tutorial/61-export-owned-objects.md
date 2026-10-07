@@ -11,25 +11,38 @@ pub class Counter:
 
 pub export def create(value: i64) -> Result[Counter, AllocError] = "counter_create":
     Counter(value)
+
+pub export def read(owner: &Counter) -> i64 = "counter_read":
+    owner.value
+
+pub export def increment(owner: &mut Counter) -> () = "counter_increment":
+    owner.value = owner.value + 1
 ```
 
 ```plenty
 import counter
 
 def main() -> Result[(), Failure]:
-    owner = counter.create(42)?
+    mut owner = counter.create(42)?
+    counter.increment(&mut owner)
+    print(counter.read(&owner))?
     print("ready")?
     drop(owner)
     Ok(())
 ```
 ```output
+43
 ready
-42
+43
 ```
 
 Build `counter.plenty` with `--shared-library --library-name counter` to get a C
 factory returning a status and writing a `counter_Counter *` output on success.
 Release that output exactly once with `counter_Counter_destroy`.
+
+`counter_read` borrows a `const counter_Counter *`; `counter_increment` borrows a
+`counter_Counter *` exclusively. Neither transfers ownership. Plenty consumers
+use `&owner` and `&mut owner` as in the example, with ordinary borrow checking.
 
 A separate Plenty consumer imports the generated `counter.plentyi` and links
 the binary. Its owning wrapper cleans up automatically, just like the source

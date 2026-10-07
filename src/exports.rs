@@ -18,7 +18,7 @@ pub(crate) fn check_signature(
 ) -> Result<(), &'static str> {
     if inputs
         .iter()
-        .any(|(_, ty)| !ty.is_numeric() && !matches!(ty, Ty::Ref(inner, _) if inner.is_numeric()))
+        .any(|(_, ty)| !ty.is_numeric() && !matches!(ty, Ty::Ref(inner, _) if inner.is_numeric() || matches!(inner.as_ref(), Ty::Class(_))))
         || output.as_ref().is_some_and(|ty| {
             !ty.is_numeric()
                 && !result_payloads(ty).is_some_and(|(ok, error)| {
@@ -53,6 +53,13 @@ pub(crate) fn result_payloads(ty: &Ty) -> Option<(&Ty, &Ty)> {
 
 fn c_type(ty: &Ty, library: &str) -> String {
     if let Ty::Ref(inner, mutable) = ty {
+        if matches!(inner.as_ref(), Ty::Class(_)) {
+            return format!(
+                "{}{}",
+                if *mutable { "" } else { "const " },
+                c_type(inner, library)
+            );
+        }
         return format!(
             "{}{} *",
             if *mutable { "" } else { "const " },
@@ -136,6 +143,16 @@ impl Interface {
             }
             for (i, (_, ty)) in export.signature.inputs.iter().enumerate() {
                 if let Ty::Ref(inner, mutable) = ty {
+                    if let Ty::Class(class) = inner.as_ref() {
+                        let handle = handles.iter().find(|h| h.class.name == class.name).unwrap();
+                        header.push_str(&format!(" * Requires p{i}: a live non-null {} handle from this library instance,\n * used on its creating thread, with the library kept loaded.\n", handle.c_name));
+                        if *mutable {
+                            header.push_str(" * Exclusive borrow: no other argument or alias may access this owner or\n * its fields during this call, including concurrent/reentrant access.\n * Ownership remains with the caller. The whole owner is not replaced or\n * destroyed, but fields may change even on Err; no rollback is promised.\n");
+                        } else {
+                            header.push_str(" * Shared borrow: no mutation or destruction through any alias during\n * the call; shared reads may alias. Ownership remains with the caller.\n");
+                        }
+                        continue;
+                    }
                     header.push_str(&format!(" * Requires p{i}: non-null, aligned, initialized {} storage, valid\n * for this whole call (one element, sizeof({}) bytes).\n", c_type(inner, name), c_type(inner, name)));
                     if *mutable {
                         header.push_str(&format!(" * p{i} is borrowed exclusively: storage must be readable and writable,\n * must not overlap any other borrowed argument, and no other alias may\n * access it during the call (including concurrent or reentrant access).\n * On every normal return, the final value is written back to p{i}.\n"));
@@ -207,7 +224,7 @@ impl Interface {
                 .inputs
                 .iter()
                 .enumerate()
-                .map(|(i, (_, ty))| format!("p{i}: {ty}"))
+                .map(|(i, (_, ty))| format!("p{i}: {}", handles::source_type(ty)))
                 .collect();
             let mut output = export
                 .signature
@@ -222,8 +239,7 @@ impl Interface {
                         format!("export name `{raw}` conflicts with a generated adapter").into(),
                     );
                 }
-                let mut raw_parameters = parameters.clone();
-                let mut args: Vec<_> = (0..parameters.len()).map(|i| format!("p{i}")).collect();
+                let (mut raw_parameters, mut args) = handles::arguments(export);
                 let mut body = String::new();
                 let owner = if let Ty::Class(class) = ok {
                     handles.iter().find(|h| h.class.name == class.name)
@@ -277,12 +293,24 @@ impl Interface {
                     parameters.join(", ")
                 ));
             } else {
-                source.push_str(&format!(
-                    "pub extern def {}({}) -> {output} = \"{}\"\n",
-                    export.name,
-                    parameters.join(", "),
-                    export.symbol
-                ));
+                let (raw_parameters, args) = handles::arguments(export);
+                if raw_parameters == parameters {
+                    source.push_str(&format!(
+                        "pub extern def {}({}) -> {output} = \"{}\"\n",
+                        export.name,
+                        parameters.join(", "),
+                        export.symbol
+                    ));
+                } else {
+                    let raw = format!("_plenty_c_{}", export.name);
+                    if exports.iter().any(|e| e.name == raw) {
+                        return Err(format!(
+                            "export name `{raw}` conflicts with a generated adapter"
+                        )
+                        .into());
+                    }
+                    source.push_str(&format!("extern def {raw}({}) -> {output} = \"{}\"\npub def {}({}) -> {output}:\n    {raw}({})\n\n", raw_parameters.join(", "), export.symbol, export.name, parameters.join(", "), args.join(", ")));
+                }
             }
         }
         header.push_str(&format!("\n/* Requires: length points to writable, aligned size_t storage (not null).\n * Writes the byte length; returns immutable UTF-8 metadata, without a NUL\n * terminator. Borrowed until library unload; never modify or free it.\n * The call does not allocate or retain length.\n */\nconst uint8_t *{discovery}(size_t *length);\n\n#ifdef __cplusplus\n}}\n#endif\n#endif /* {guard} */\n"));
