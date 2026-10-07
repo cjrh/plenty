@@ -3101,6 +3101,31 @@ also closes on exit, while retaining the original owner in its closed state.
 Read errors may consume input before failing. Automatic context exit cannot
 report close errors; call `file.close()?` explicitly when those matter.
 
+## Recoverable class construction
+
+Use `Class.try_new(...)` to handle failure to allocate instance storage. It takes
+the same arguments as the ordinary constructor and works with `?`:
+
+```plenty
+class Point:
+    x: i64
+    y: i64
+
+def point() -> Result[Point, AllocError]:
+    Ok(Point.try_new(3, 4)?)
+
+def main() -> ():
+    print(point())
+```
+```output
+Result[Point, AllocError].Ok(Point(x=3, y=4))
+```
+
+Arguments move into the call even when allocation fails. Failure drops those
+arguments; it does not run the new instance's initializer or destructor.
+Allocations inside argument expressions and an ordinary `__init__` retain their
+own failure behavior.
+
 ## Reading lines
 
 `readline()` keeps the terminating newline, translating LF, CRLF, and bare CR

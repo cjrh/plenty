@@ -1411,6 +1411,10 @@ pub(crate) unsafe fn collection(
             }
             11 => try_dictionary_snapshot(&mut *(a as *mut Collection), &*descriptor, true)
                 .unwrap_or_else(|_| crate::fail("dictionary snapshot allocation failed")),
+            108 => match try_record_new(&*descriptor, a as u64) {
+                Ok(record) => wrap(record as u128, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             20 | 30 => record_new(&*descriptor, a as u64) as u128,
             21 => {
                 let r = a as *mut Record;

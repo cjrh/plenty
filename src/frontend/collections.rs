@@ -498,6 +498,20 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if let Some(ty) = self.qualified_type(base)? {
+            if let Ty::Class(class) = &ty {
+                if name != "try_new" {
+                    return Err(base
+                        .at
+                        .error("class construction uses Class(...) or Class.try_new(...)"));
+                }
+                modules::check_member(self.access, &class.name, "__new__", &base.at)?;
+                return self.call_named(
+                    &crate::record::method(&class.name, "try_new"),
+                    args,
+                    &base.at,
+                    ops,
+                );
+            }
             if ty == Ty::Str && name == "try_from" {
                 if args.len() != 1 {
                     return Err(base

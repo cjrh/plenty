@@ -512,7 +512,7 @@ struct Expr {
 }
 enum Expression {
     Try(Box<Expr>),
-    ClassNew(Rc<crate::record::ClassType>),
+    ClassNew(Rc<crate::record::ClassType>, bool),
     Type(TypeRef),
     Member(Box<Expr>, String),
     Number(String),
@@ -1309,9 +1309,15 @@ impl Lower<'_> {
             Expression::Type(_) => {
                 return Err(e.at.error("a type is not a value; select a variant"))
             }
-            Expression::ClassNew(t) => {
-                ops.push(Op::Class(crate::record::ClassOp::New(t.clone())));
-                Some(Ty::Class(t.clone()))
+            Expression::ClassNew(t, fallible) => {
+                let op = if *fallible {
+                    crate::record::ClassOp::TryNew(t.clone())
+                } else {
+                    crate::record::ClassOp::New(t.clone())
+                };
+                let output = op.signature().unwrap().1;
+                ops.push(Op::Class(op));
+                Some(output)
             }
             Expression::Member(base, name) => {
                 if let Some(ty) = self.qualified_type(base)? {

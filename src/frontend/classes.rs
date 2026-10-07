@@ -51,7 +51,7 @@ impl Parser {
             if public {
                 public_members.insert(member.clone());
             }
-            if member == "__new__" || member == "self" {
+            if matches!(member.as_str(), "__new__" | "try_new" | "self") {
                 return Err(at.error(format!("reserved class member `{member}`")));
             }
         }
@@ -200,37 +200,60 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             f.name = method(&class.name, &f.name);
         }
         let instance = "__plenty_instance";
-        let mut args = vec![expression(
-            at,
-            Expression::Unary("&mut".into(), Box::new(name(at, instance))),
-        )];
-        args.extend(constructor_inputs.iter().map(|(n, _)| name(at, n)));
-        functions.push(Function {
-            name: method(&class.name, "__new__"),
-            at: at.clone(),
-            inputs: constructor_inputs,
-            output: type_ref(at, &class.name),
-            doc: String::new(),
-            body: vec![
-                statement(
-                    at,
-                    Statement::Assign {
-                        name: instance.into(),
-                        mutable: true,
-                        annotation: None,
-                        value: expression(at, Expression::ClassNew(ty.clone())),
-                    },
-                ),
-                statement(
-                    at,
-                    Statement::Expr(expression(
+        for fallible in [false, true] {
+            let mut args = vec![expression(
+                at,
+                Expression::Unary("&mut".into(), Box::new(name(at, instance))),
+            )];
+            args.extend(constructor_inputs.iter().map(|(n, _)| name(at, n)));
+            let allocation = expression(at, Expression::ClassNew(ty.clone(), fallible));
+            let output = if fallible {
+                TypeRef {
+                    at: at.clone(),
+                    name: Some("Result".into()),
+                    args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
+                }
+            } else {
+                type_ref(at, &class.name)
+            };
+            functions.push(Function {
+                name: method(&class.name, if fallible { "try_new" } else { "__new__" }),
+                at: at.clone(),
+                inputs: constructor_inputs.clone(),
+                output,
+                doc: String::new(),
+                body: vec![
+                    statement(
                         at,
-                        Expression::Call(method(&class.name, "__init__"), args),
-                    )),
-                ),
-                statement(at, Statement::Expr(name(at, instance))),
-            ],
-        });
+                        Statement::Assign {
+                            name: instance.into(),
+                            mutable: true,
+                            annotation: None,
+                            value: if fallible {
+                                expression(at, Expression::Try(Box::new(allocation)))
+                            } else {
+                                allocation
+                            },
+                        },
+                    ),
+                    statement(
+                        at,
+                        Statement::Expr(expression(
+                            at,
+                            Expression::Call(method(&class.name, "__init__"), args),
+                        )),
+                    ),
+                    statement(
+                        at,
+                        Statement::Expr(if fallible {
+                            expression(at, Expression::Call("Ok".into(), vec![name(at, instance)]))
+                        } else {
+                            name(at, instance)
+                        }),
+                    ),
+                ],
+            });
+        }
         functions.extend(methods);
     }
     Ok(functions)

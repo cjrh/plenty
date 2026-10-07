@@ -1303,6 +1303,12 @@ cleanup, and allocation-free handling while allocation remains disabled.
 
 ## Classes: fixed-layout records
 
+`Class.try_new(arguments)` returns `Result[Class, AllocError]` and shares ordinary
+constructor visibility and argument types. Arguments evaluate before allocation;
+failure drops moved arguments without calling `__init__` or `__del__`. This makes
+instance storage allocation recoverable, not allocations inside argument
+expressions or an ordinary initializer. `try_new` is a reserved class member.
+
 `class` declares a concrete record with typed fields and associated methods.
 It provides familiar Python-shaped organization without inheritance, dynamic
 attributes, class variables, properties, or runtime method lookup.

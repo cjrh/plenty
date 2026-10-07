@@ -542,7 +542,7 @@ impl Scope {
                     }
                 }
             }
-            Expression::ClassNew(_)
+            Expression::ClassNew(..)
             | Expression::Number(_)
             | Expression::Text(_)
             | Expression::Bool(_)
