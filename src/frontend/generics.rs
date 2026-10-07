@@ -99,6 +99,13 @@ type Substitution = HashMap<String, TypeRef>;
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
     let (name, children): (Option<String>, Vec<&Ty>) = match ty {
         Ty::Unit => (None, vec![]),
+        Ty::Callable(sig) => (
+            Some("Callable".into()),
+            sig.inputs
+                .iter()
+                .chain(std::iter::once(sig.output.as_ref().unwrap_or(&Ty::Unit)))
+                .collect(),
+        ),
         Ty::List(t) => (Some("list".into()), vec![t]),
         Ty::Set(t) => (Some("set".into()), vec![t]),
         Ty::Dict(k, v) => (Some("dict".into()), vec![k, v]),
@@ -165,6 +172,12 @@ fn infer(
         return Ok(());
     }
     let children: Option<Vec<&Ty>> = match (pattern.name.as_deref(), actual) {
+        (Some("Callable"), Ty::Callable(sig)) => Some(
+            sig.inputs
+                .iter()
+                .chain(std::iter::once(sig.output.as_ref().unwrap_or(&Ty::Unit)))
+                .collect(),
+        ),
         (Some("list"), Ty::List(t)) | (Some("set"), Ty::Set(t)) | (Some("range"), Ty::Range(t)) => {
             Some(vec![t])
         }

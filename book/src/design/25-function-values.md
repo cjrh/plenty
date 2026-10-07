@@ -5,6 +5,11 @@ A named function can be assigned, passed, and returned as a value. Its type is
 identity. A no-argument function uses `Callable[[], T]`, and a function returning
 unit uses `Callable[[T], ()]`. Aliases can name these signatures.
 
+Generic calls infer parameters inside callable inputs and results, for example
+`def apply[T](f: Callable[[T], T], x: T) -> T`. All argument evidence must agree;
+the compiler does not convert a concrete callable to a different signature.
+Callable values can themselves be concrete generic arguments.
+
 Function values are copyable code addresses. Creating, passing, returning, and
 calling them needs no heap allocation. Calls use Plenty's internal ABI, including
 caller-provided storage for inline results. They are not C function pointers.

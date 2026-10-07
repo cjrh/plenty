@@ -173,3 +173,32 @@ print(reference).unwrap()
     .to_string();
     assert!(error.contains("conflicting borrow"), "{error}");
 }
+
+#[test]
+fn generic_parameters_are_inferred_from_callable_signatures() {
+    let output = run(r#"
+def increment(value: u8) -> u8:
+    value + 1
+def apply[T](operation: Callable[[T], T], value: T) -> T:
+    operation(value)
+def keep[T](value: T) -> T:
+    value
+def display(value: i64) -> ():
+    print(value).unwrap()
+def invoke[T](operation: Callable[[T], ()], value: T) -> ():
+    operation(value)
+def main() -> Result[(), Failure]:
+    saved = keep(increment)
+    print(apply(saved, 41u8))?
+    invoke(display, 7)
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n7\n");
+    let error = check_source("def small(value: u8) -> u8:\n    value\ndef apply[T](op: Callable[[T], T], x: T) -> T:\n    op(x)\napply(small, 1i64)").unwrap_err().to_string();
+    assert!(error.contains("conflicting types for `T`"), "{error}");
+}
