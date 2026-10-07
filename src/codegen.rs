@@ -836,6 +836,7 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::F32 => types::F32,
         Ty::F64 => types::F64,
         Ty::Str
+        | Ty::File
         | Ty::List(_)
         | Ty::Set(_)
         | Ty::Dict(_, _)

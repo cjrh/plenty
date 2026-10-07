@@ -31,7 +31,7 @@ impl Type {
         self.kind == b'B'
             || matches!(
                 self.kind,
-                b's' | b'L' | b'S' | b'D' | b'R' | b'E' | b'C' | b'G'
+                b's' | b'L' | b'S' | b'D' | b'R' | b'E' | b'C' | b'G' | b'F'
             )
     }
     fn key(&self) -> &Type {
@@ -776,6 +776,13 @@ unsafe fn render(value: u128, ty: &Type, out: &mut Vec<u8>) {
             b'v' => out.extend_from_slice(b"()"),
             b'b' => out.extend_from_slice(if value == 0 { b"False" } else { b"True" }),
             b's' => crate::io::repr(value as *const Text, false, out),
+            b'F' => out.extend_from_slice(
+                if crate::files::closed(value as *const crate::files::File) {
+                    b"File(closed)"
+                } else {
+                    b"File(open)"
+                },
+            ),
             b'C' | b'E' => {
                 let r = value as *const Record;
                 out.extend_from_slice(ty.name.as_bytes());
@@ -886,6 +893,13 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            89 => crate::text_io::result(crate::files::open(
+                strings::utf8(a as *const Text),
+                strings::utf8(b as *const Text),
+                (*descriptor).variants[0].fields[0],
+            )),
+            90 => crate::text_io::result(crate::files::close(a as *mut crate::files::File)),
+            91 => crate::files::closed(a as *const crate::files::File) as u128,
             87 | 88 => crate::text_io::result(crate::text_io::write_text(
                 strings::utf8(a as *const Text),
                 strings::utf8(b as *const Text),

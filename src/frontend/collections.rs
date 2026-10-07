@@ -536,6 +536,9 @@ impl Lower<'_> {
         if let Some(Ty::Class(class)) = self.place_type(base) {
             return self.class_method(base, class, name, args, ops);
         }
+        if self.place_type(base) == Some(Ty::File) {
+            return self.file_method(base, name, args, ops);
+        }
         if matches!(name, "__init__" | "__del__" | "__new__") {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }

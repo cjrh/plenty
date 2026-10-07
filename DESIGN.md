@@ -50,7 +50,7 @@ control flow, collections, classes, sum types, generators, ownership, and automa
 cleanup are implemented. It is still an early language implementation, with a
 small built-in library and important limits on borrowing. Basic console, argument,
 numeric text, and whole-file APIs now work. Important remaining gaps include
-long-lived streams, broader borrowing, user generics, and complete allocation
+broader stream operations and borrowing, user generics, and complete allocation
 fallibility. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
@@ -93,7 +93,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, and Linux whole-file UTF-8 reads/replacements/appends implemented; stream objects remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and owned File open/close implemented; stream reads/writes remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -1582,6 +1582,30 @@ state-machine lowering, with no interpreter, C-stack suspension, or eager yield
 collection. The initial state dispatch is a linear comparison chain.
 Iteration wraps each resume result in an allocation-free inline `Option`.
 Optimizing frame liveness remains a later runtime improvement.
+
+## Owned files
+
+`open(path: str, mode: str = "r") -> Result[File, IoError]` creates an opaque,
+affine file owner. Supported modes are `r` (existing read-only), `w` (create or
+truncate), and `a` (create or append). Invalid modes or NUL paths return errors.
+The initial backend is Linux, with the same flags, permissions, path rules, and
+unsupported-host behavior as the whole-file helpers. Binary modes, encodings,
+update modes, and public descriptors are not exposed yet.
+
+`file.closed` observes its state. `file.close() -> Result[(), IoError]` requires
+exclusive access; it marks the owner closed before closing the descriptor and is
+idempotent. Automatic destruction closes any remaining handle without allocating
+or reporting errors. Explicit close reports OS errors; neither form promises
+durability. File owners cannot be copied, but can be moved, stored in aggregates,
+returned, or borrowed. Printing shows `File(open)` or `File(closed)`; equality is
+owner identity, not path equality.
+
+Both the owner header and path conversion allocate fallibly before opening the
+descriptor, so allocation failure cannot truncate a destination. Open failures
+release the reserved owner. The Rust runtime owns the native descriptor in an
+Option and uses the ordinary intrusive destruction queue; File adds no public
+ABI layout or descriptor escape hatch. Streaming operations and builtin context
+support follow separately.
 
 ## Returned references
 

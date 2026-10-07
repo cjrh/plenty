@@ -13,6 +13,7 @@ mod classes;
 mod collections;
 mod contexts;
 mod enums;
+mod files;
 mod generators;
 mod modules;
 mod references;
@@ -1051,6 +1052,7 @@ fn named_type(name: &str) -> Type {
         "f64" => Ty::F64,
         "bool" => Ty::Bool,
         "str" => Ty::Str,
+        "File" => Ty::File,
         "range" => Ty::Range,
         "AllocError" => crate::sum::alloc_error(),
         "ParseError" => crate::sum::parse_error(),
@@ -1070,6 +1072,7 @@ fn builtin(name: &str) -> bool {
         || matches!(
             name,
             "print"
+                | "open"
                 | "write_stdout"
                 | "write_stderr"
                 | "flush_stdout"
@@ -1520,6 +1523,9 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if name == "open" {
+                    return self.open_file(args, &e.at, ops);
+                }
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));
                 }

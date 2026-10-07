@@ -3042,9 +3042,40 @@ def main() -> ():
 Result[str, IoError].Ok("started\nfinished\n")
 ```
 
-These helpers cover whole files. Long-lived `open`/`read`/`write`/`close` stream
-objects are still future work. Automatic cleanup already closes the
-private handles used by the helpers, on both success and failure.
+These helpers cover whole files. Automatic cleanup closes their private handles
+on both success and failure.
+
+## Owned file handles
+
+`open(path)` opens an existing file for reading. `open(path, "w")` creates or
+truncates a file, and `open(path, "a")` creates or appends. All return
+`Result[File, IoError]`. Files move on assignment and cannot be copied. They
+close automatically when dropped; call `close()` to observe a close error.
+
+Run this in a scratch directory: it replaces `plenty-handle.txt`.
+
+```plenty
+def inspect_file() -> Result[(), IoError]:
+    mut file = open("plenty-handle.txt", "w")?
+    print(file.closed)
+    file.close()?
+    print(file.closed)
+    file.close()?
+    Ok(())
+
+def main() -> ():
+    print(inspect_file())
+```
+```output
+False
+True
+Result[(), IoError].Ok(())
+```
+
+Closing twice succeeds. A closed file remains a valid value; it no longer owns
+a handle. Automatic close cannot report errors or promise durable writes.
+The initial implementation supports Linux and reports unsupported I/O elsewhere.
+Stream read/write methods and builtin file contexts follow in later steps.
 
 ## Context managers
 
@@ -3156,7 +3187,7 @@ def main() -> ():
 ## Where the language goes next
 
 
-This guide deliberately uses implemented features. Long-lived file stream objects,
+This guide deliberately uses implemented features. Broader file stream operations,
 recursive types, element references, and stored references remain future work. Traits and generics are deferred; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 

@@ -436,6 +436,16 @@ impl Lower<'_> {
         }
     }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
+        if let Expression::Member(base, name) = &e.kind {
+            if self.place_type(base) == Some(Ty::File) {
+                if name != "closed" {
+                    return Err(e.at.error(format!("unknown File property `{name}`")));
+                }
+                let (_, loans) = self.observe(base, ops)?;
+                ops.push(Op::Collection(CollectionOp::FileClosed));
+                return Ok((Ty::Bool, loans));
+            }
+        }
         if self.place_type(e).is_some() {
             let (reference, loan) = self.borrow(e, false, ops)?;
             let Ty::Ref(ty, _) = reference else {

@@ -3,6 +3,9 @@ use crate::op::Ty;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
+    OpenFile,
+    FileClose,
+    FileClosed,
     WriteStdout,
     WriteStderr,
     FlushStdout,
@@ -81,7 +84,11 @@ pub enum CollectionOp {
 
 impl Ty {
     pub fn uses_value_runtime(&self) -> bool {
-        self.is_collection() || matches!(self, Self::Enum(_) | Self::Class(_) | Self::Generator(_))
+        self.is_collection()
+            || matches!(
+                self,
+                Self::Enum(_) | Self::Class(_) | Self::Generator(_) | Self::File
+            )
     }
     pub fn is_collection(&self) -> bool {
         matches!(
@@ -107,6 +114,15 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
+            OpenFile => (
+                vec![Ty::Str, Ty::Str],
+                crate::sum::result(Ty::File, crate::sum::io_error()),
+            ),
+            FileClose => (
+                vec![Ty::File],
+                crate::sum::result(Ty::Unit, crate::sum::io_error()),
+            ),
+            FileClosed => (vec![Ty::File], Ty::Bool),
             WriteText | AppendText => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
@@ -287,6 +303,9 @@ impl CollectionOp {
             Self::ReadText => 86,
             Self::WriteText => 87,
             Self::AppendText => 88,
+            Self::OpenFile => 89,
+            Self::FileClose => 90,
+            Self::FileClosed => 91,
             Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,

@@ -65,6 +65,7 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
         Ty::Unit => b'v',
         Ty::Bool => b'b',
         Ty::Str => b's',
+        Ty::File => b'F',
         Ty::List(_) => b'L',
         Ty::Set(_) => b'S',
         Ty::Dict(..) => b'D',

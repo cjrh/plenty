@@ -33,6 +33,7 @@ pub enum Ty {
     /// Stored enum payload marker; source-level unit expressions have no operand.
     Unit,
     Str,
+    File,
     Bool,
     List(Rc<Ty>),
     Set(Rc<Ty>),
@@ -66,7 +67,12 @@ impl Ty {
     pub fn affine(&self) -> bool {
         matches!(
             self,
-            Self::List(_) | Self::Set(_) | Self::Dict(_, _) | Self::Generator(_) | Self::Class(_)
+            Self::List(_)
+                | Self::Set(_)
+                | Self::Dict(_, _)
+                | Self::Generator(_)
+                | Self::Class(_)
+                | Self::File
         ) || matches!(self, Self::Enum(t) if t.affine)
     }
     pub fn restricted_storage(&self) -> bool {
@@ -74,7 +80,7 @@ impl Ty {
     }
     pub fn can_copy(&self) -> bool {
         match self {
-            Self::Generator(_) | Self::Ref(..) => false,
+            Self::Generator(_) | Self::Ref(..) | Self::File => false,
             Self::Class(t) => t.copyable,
             Self::Enum(t) => t.copyable,
             Self::List(t) | Self::Set(t) => t.can_copy(),
@@ -84,7 +90,7 @@ impl Ty {
     }
     pub fn has_destructor(&self) -> bool {
         match self {
-            Self::Generator(_) => true,
+            Self::Generator(_) | Self::File => true,
             Self::Class(t) => t.has_destructor,
             Self::Enum(t) => t.has_destructor,
             Self::List(t) | Self::Set(t) => t.has_destructor(),
@@ -102,6 +108,7 @@ impl Ty {
         matches!(
             self,
             Self::Str
+                | Self::File
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
@@ -154,6 +161,7 @@ impl fmt::Display for Ty {
             Ty::F64 => "f64",
             Ty::Unit => "()",
             Ty::Str => "str",
+            Ty::File => "File",
             Ty::Bool => "bool",
             Ty::List(t) => return write!(f, "list[{t}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),

@@ -67,13 +67,13 @@ fn push(bytes: &mut Vec<u8>, byte: u8) -> Result<(), Error> {
     Ok(())
 }
 
-enum OpenMode {
+pub(crate) enum OpenMode {
     Read,
     Replace,
     Append,
 }
 
-fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Error> {
+pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Error> {
     if path.as_bytes().contains(&0) {
         return Err(std::io::ErrorKind::InvalidInput.into());
     }
@@ -179,7 +179,7 @@ pub(crate) fn write_text(path: &str, text: &str, append: bool) -> Result<u128, E
     Ok(text.chars().count() as u128)
 }
 
-fn close(file: std::fs::File) -> Result<(), Error> {
+pub(crate) fn close(file: std::fs::File) -> Result<(), Error> {
     #[cfg(unix)]
     {
         use std::os::fd::IntoRawFd;
