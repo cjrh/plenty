@@ -7,6 +7,8 @@ type State = Vec<bool>;
 pub struct Loan {
     pub id: usize,
     pub root: u8,
+    /// Statically known field projections; an empty path covers the whole root.
+    pub fields: Vec<usize>,
     pub mutable: bool,
     pub parent: Option<usize>,
 }
@@ -265,7 +267,12 @@ fn check_loans(ops: &[Op]) -> Result<()> {
                 if Some(*id) == defining || via.is_some_and(|v| ancestor(*id, v)) {
                     continue;
                 }
-                if loan.root == root && (write || loan.mutable) {
+                let fields = defining
+                    .or(via)
+                    .map(|id| loans[&id].fields.as_slice())
+                    .unwrap_or(&[]);
+                let overlaps = loan.fields.starts_with(fields) || fields.starts_with(&loan.fields);
+                if loan.root == root && overlaps && (write || loan.mutable) {
                     return Err(format!(
                         "conflicting borrow: cannot {} binding while {} borrow is live",
                         if write {

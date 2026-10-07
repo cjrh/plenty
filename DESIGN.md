@@ -1349,8 +1349,9 @@ equality compares the nominal type and field values; printing produces
 `Point(x=3, y=4)`. These operations do not invoke user-defined magic methods.
 
 `&point.x` and `&mut point.x` borrow stable field slots, including nested
-class fields. Loans conservatively cover the whole root binding: borrowing
-`point.x` also prevents conflicting access to `point.y`. Collection-valued
+class fields. Loans record field-index paths from the root: different sibling
+fields can be borrowed or mutated independently. Whole-root and ancestor-path
+access still overlaps every descendant. Collection-valued
 fields support in-place updates such as `record.items.append(value)`.
 Whole-instance replacement through `*reference = instance` is rejected for
 classes, including class-valued field references; assign an owning binding or
@@ -1511,7 +1512,8 @@ temporary storage lifetime, but the static checker establishes access permission
 Reference calls retain the caller frame, so native tail calls do not invalidate it.
 
 Collection element references, partial moves, stored references, and returned
-references remain rejected. Class field loans conservatively overlap at the root. A generator cannot capture reference parameters or retain a live
+references remain rejected. Class field loans distinguish disjoint projections,
+including through reborrowed reference parameters. A generator cannot capture reference parameters or retain a live
 loan across `yield`; short borrows completed within one resume are permitted.
 No lifetime annotation syntax or general trait system is required for this subset.
 
@@ -1645,7 +1647,7 @@ implemented. The new design review changes the recommended priority:
    and Linux whole-file text helpers now have explicit failure contracts. Continue
    with long-lived streams and the remaining construction/allocator gaps. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
-4. Broaden borrowing for elements, owned-element iteration, disjoint class fields,
+4. Broaden borrowing for elements, owned-element iteration,
    and restricted returned references. Add concrete context managers using the
    same cleanup machinery; stored references remain a later extension.
 5. Add explicit generic functions and structural protocol constraints, with direct

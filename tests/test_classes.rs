@@ -309,9 +309,9 @@ fn field_borrow_conflicts_and_mutability() {
         &format!("{POINT}\np = Point(1, 2)\np.shift(3)"),
         "mut binding",
     );
-    reject(
+    run(
         &format!("{POINT}\nmut p = Point(1, 2)\nr = &p.x\np.y = 3\nprint(r)"),
-        "conflicting borrow",
+        "1\n",
     );
     reject(
         &format!("{POINT}\nmut p = Point(1, 2)\nr = &p.x\ndrop(p)\nprint(r)"),
@@ -346,6 +346,57 @@ print(other)
     run(source, "6\n2\n");
     reject(
         &format!("{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x)"),
+        "conflicting borrow",
+    );
+}
+
+#[test]
+fn disjoint_fields_support_simultaneous_exclusive_loans() {
+    run(
+        &format!(
+            r#"{POINT}
+class Pair:
+    left: Point
+    right: Point
+mut pair = Pair(Point(1, 2), Point(3, 4))
+x = &mut pair.left.x
+y = &mut pair.left.y
+right = &mut pair.right
+*x = *x + 10
+*y = *y + 20
+right.shift(30)
+print(*x)
+print(*y)
+print(pair.right)
+"#
+        ),
+        "11\n22\nPoint(x=33, y=34)\n",
+    );
+}
+
+#[test]
+fn projected_loans_still_reject_overlapping_places_and_parent_access() {
+    for body in [
+        "r = &mut p.x\ns = &p.x\nprint(r)",
+        "r = &p.x\np.shift(1)\nprint(r)",
+        "r = &mut p\ns = &mut r.x\nr.shift(1)\nprint(s)",
+    ] {
+        reject(
+            &format!("{POINT}\nmut p = Point(1, 2)\n{body}"),
+            "conflicting borrow",
+        );
+    }
+    reject(
+        &format!(
+            r#"{POINT}
+class Outer:
+    point: Point
+mut outer = Outer(Point(1, 2))
+x = &outer.point.x
+outer.point = Point(3, 4)
+print(x)
+"#
+        ),
         "conflicting borrow",
     );
 }

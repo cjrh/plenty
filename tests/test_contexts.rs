@@ -218,3 +218,22 @@ fn invalid_contexts_are_rejected() {
     );
     reject("class Bad:\n    def __enter__(self) -> ():\n        pass\n    def __exit__(self: &mut Bad) -> ():\n        pass\nwith Bad():\n    pass\n", "__enter__ requires only self: &mut");
 }
+
+#[test]
+fn borrowed_field_context_permits_sibling_access() {
+    run(
+        &format!(
+            r#"{MANAGER}
+class Pair:
+    left: Manager
+    right: i64
+mut pair = Pair(Manager("enter"), 1)
+with &mut pair.left as value:
+    pair.right = 2
+    print(pair.right)
+print(pair.right)
+"#
+        ),
+        "enter\n2\nentry dropped\nexit\n2\nmanager dropped\n",
+    );
+}

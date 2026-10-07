@@ -1,4 +1,4 @@
-//! Source places and explicit loans. Field loans conservatively protect their root.
+//! Source places and explicit loans with statically disjoint field projections.
 use super::*;
 
 impl Lower<'_> {
@@ -13,6 +13,9 @@ impl Lower<'_> {
         let loan = crate::ownership::Loan {
             id,
             root,
+            fields: parent
+                .map(|id| self.loans[id].fields.clone())
+                .unwrap_or_default(),
             mutable,
             parent,
         };
@@ -52,6 +55,17 @@ impl Lower<'_> {
             };
             let index = classes::field_index(class, name, &e.at)?;
             modules::check_member(self.access, &class.name, name, &e.at)?;
+            self.loans[loan].fields.push(index);
+            // Recursive projections refine the one loan created at the root.
+            // Update its emitted fact before any checker sees the final place.
+            for op in ops.iter_mut().rev() {
+                if let Op::Loan(fact) = op {
+                    if fact.id == loan {
+                        *fact = self.loans[loan].clone();
+                        break;
+                    }
+                }
+            }
             let result = Ty::Ref(Rc::new(class.fields[index].1.clone()), mutable);
             ops.push(Op::Class(crate::record::ClassOp::FieldRef(
                 class.clone(),

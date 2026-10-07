@@ -2593,11 +2593,30 @@ def main() -> ():
 Basket(count=2, items=["apple", "pear"])
 ```
 
-The borrow ends after `count`'s last use. For now, a field loan protects the whole
-record: while `&basket.count` is live, changing `basket.items` also conflicts.
+The borrow ends after `count`'s last use. Distinct fields can be borrowed or
+changed independently. Borrowing a whole record still overlaps all its fields.
 Collection element references such as `&basket.items[0]` are still deferred.
 You can replace a class-valued field by assignment, but cannot replace a whole
 class through `*reference = new_instance` yet.
+
+```plenty
+class Position:
+    x: i64
+    y: i64
+
+def main() -> ():
+    mut position = Position(1, 2)
+    x = &mut position.x
+    y = &mut position.y
+    *x = 10
+    *y = 20
+    print(*x)
+    print(*y)
+```
+```output
+10
+20
+```
 
 Use `__del__` for cleanup that belongs to an owned instance. It runs automatically
 when the instance leaves scope, is replaced, or is explicitly dropped. Its bare
