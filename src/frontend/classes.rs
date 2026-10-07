@@ -550,6 +550,10 @@ impl Lower<'_> {
     }
     pub(super) fn place_type(&self, e: &Expr) -> Option<Ty> {
         match &ungroup(e).kind {
+            Expression::Index(base, _) => match self.place_type(base)? {
+                Ty::List(element) | Ty::Dict(_, element) => Some((*element).clone()),
+                _ => None,
+            },
             Expression::Name(n) => self.names.get(n).map(|l| match &l.ty {
                 Ty::Ref(t, _) => (**t).clone(),
                 t => t.clone(),

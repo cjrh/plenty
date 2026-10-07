@@ -3103,6 +3103,25 @@ report close errors; call `file.close()?` explicitly when those matter.
 
 ## Recoverable construction
 
+### Borrowing collection elements
+
+Borrow an element when you want to inspect or change it without moving its owner:
+
+```plenty
+def main() -> ():
+    mut counts = {"visits": 1}
+    value = &mut counts["visits"]
+    *value = 2
+    print(counts)
+```
+```output
+{"visits": 2}
+```
+
+The loan ends after its last use. While an element reference is live, the
+collection cannot grow, remove entries, or move. Different indices are treated
+as potentially overlapping. Missing keys and out-of-range indices still trap.
+
 ### Formatting and output
 
 `str.try_repr` formats a borrowed value; `try_print` writes a value and newline,

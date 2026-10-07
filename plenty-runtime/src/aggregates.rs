@@ -955,6 +955,22 @@ pub(crate) unsafe fn collection(
             };
         }
         match op {
+            112 => {
+                let owner = *(a as *const u128);
+                let c = &*(owner as *const Collection);
+                let position = if c.ty().kind == b'L' {
+                    index(b as i64, c.entries.len())
+                } else {
+                    c.find(b)
+                        .unwrap_or_else(|| crate::fail("dictionary key not found"))
+                };
+                let entry = c.entries.as_ptr().add(position);
+                if c.ty().kind == b'L' {
+                    std::ptr::addr_of!((*entry).key) as u128
+                } else {
+                    std::ptr::addr_of!((*entry).value) as u128
+                }
+            }
             110 | 111 => {
                 let mut out = crate::render_buffer::Buffer::default();
                 if op == 111 && (*descriptor).kind == b's' {

@@ -99,6 +99,38 @@ impl Lower<'_> {
         mutable: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        if let Expression::Index(base, index) = &ungroup(e).kind {
+            let collection = self.place_type(base).ok_or_else(|| {
+                e.at.error("element borrowing requires a named collection or field")
+            })?;
+            let key = match &collection {
+                Ty::List(_) => Ty::I64,
+                Ty::Dict(key, _) => (**key).clone(),
+                _ => {
+                    return Err(e
+                        .at
+                        .error("element references require a list or dictionary"))
+                }
+            };
+            let (_, loan) = self.borrow(base, mutable, ops)?;
+            // Index identities are not proven disjoint. Descendant projections
+            // must therefore retain the whole collection's loan footprint.
+            self.loans[loan].precise = false;
+            for op in ops.iter_mut().rev() {
+                if let Op::Loan(fact) = op {
+                    if fact.id == loan {
+                        *fact = self.loans[loan].clone();
+                        break;
+                    }
+                }
+            }
+            let actual = self.expr_expected(index, Some(key.clone()), ops)?;
+            self.same(actual, Some(key), &index.at)?;
+            let operation = CollectionOp::ElementRef(collection, mutable);
+            let output = operation.signature().1;
+            ops.push(Op::Collection(operation));
+            return Ok((output, loan));
+        }
         if let Expression::Member(base, name) = &ungroup(e).kind {
             let (reference, loan) = self.borrow(base, mutable, ops)?;
             let Ty::Ref(inner, _) = reference else {

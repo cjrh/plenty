@@ -34,6 +34,7 @@ pub enum CollectionOp {
     FormatScalar(Ty),
     FormatValue(Ty),
     TryPrint(Ty),
+    ElementRef(Ty, bool),
     Copy(Ty),
     TryCopy(Ty),
     Next(Ty),
@@ -208,6 +209,17 @@ impl CollectionOp {
                 vec![Ty::Str],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
+            ElementRef(t, mutable) => {
+                let (key, value) = match t {
+                    Ty::List(element) => (Ty::I64, (**element).clone()),
+                    Ty::Dict(key, value) => ((**key).clone(), (**value).clone()),
+                    _ => unreachable!("element reference collection"),
+                };
+                (
+                    vec![Ty::Ref(std::rc::Rc::new(t.clone()), *mutable), key],
+                    Ty::Ref(std::rc::Rc::new(value), *mutable),
+                )
+            }
             TryPrint(t) => (
                 vec![t.clone()],
                 crate::sum::result(Ty::Unit, crate::sum::io_error()),
@@ -397,6 +409,7 @@ impl CollectionOp {
             Self::FormatScalar(_) => 79,
             Self::FormatValue(_) => 110,
             Self::TryPrint(_) => 111,
+            Self::ElementRef(..) => 112,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,
             Self::TryCopy(_) => 33,

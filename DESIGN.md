@@ -1546,6 +1546,15 @@ These are Plenty's selected rules; they do not require copying every Rust featur
 
 ## Public borrowing — bindings and class fields
 
+`&items[index]` and `&mut items[index]` borrow list elements or dictionary values.
+List indices accept negative offsets; invalid indices/missing keys trap like
+ordinary indexing. The collection must be a named owner, reference, or projected
+place. Element loans conservatively cover the collection and block invalidating
+growth, removal, replacement, or owner moves while live. Different indices are
+not proven disjoint. Class fields and nested list/dictionary elements can be
+projected through these references, and the existing single-origin return rule
+also permits returning an element reference. No allocation occurs when borrowing.
+
 [References and explicit copying](docs/proposals/references-and-copying.md) records
 the accepted ownership decision. References to named bindings and borrowed function
 parameters and their class fields are implemented as `&T` and `&mut T`. `str` remains the sole string

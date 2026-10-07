@@ -1808,6 +1808,22 @@ fn partial_class_cleanup_skips_hook_until_explicitly_armed() {
     }
 }
 
+#[test]
+fn element_addresses_survive_shared_projection_and_allow_exclusive_writes() {
+    unsafe {
+        let owner = collection(0, 0, 0, 0, &LIST_INT);
+        plenty_release(collection(1, owner, 4, 0, ptr::null()) as *mut Header);
+        plenty_release(collection(1, owner, 8, 0, ptr::null()) as *mut Header);
+        let slot = owner;
+        let first = collection(112, &slot as *const u128 as u128, 0, 0, ptr::null()) as *mut u128;
+        let second = collection(112, &slot as *const u128 as u128, 1, 0, ptr::null()) as *mut u128;
+        assert_eq!((*first, *second), (4, 8));
+        *first = 12;
+        assert_eq!(collection(4, owner, 0, 0, ptr::null()), 12);
+        plenty_release(owner as *mut Header);
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn generator_frame_failure_does_not_consume_captures() {

@@ -167,8 +167,7 @@ class Point:
     x: i64
     def view(self) -> &i64:
         &self.x
-points = [Point(1)]
-print(points[0].view())
+print([Point(1)][0].view())
 "#,
         "require a named receiver",
     );

@@ -84,7 +84,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
     "conflicting borrow"
 )]
 #[case("def f() -> &i64:\n    x = 1\n    &x", "returned references")]
-#[case("x = [1]\nr = &x[0]", "named binding")]
+#[case("r = &[1][0]", "named collection")]
 #[case(
     "mut a = [1]\nr = &a\nwhile len(a) > 0:\n    a.append(2)\n    print(r)",
     "conflicting borrow"
