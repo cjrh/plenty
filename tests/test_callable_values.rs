@@ -83,3 +83,41 @@ def main() -> Result[(), Failure]:
         "6\n8\n10\n12\n14\n16\n"
     );
 }
+
+#[test]
+fn indirect_calls_preserve_borrows_and_owned_arguments() {
+    let output = run(r#"
+def increment(value: &mut i64) -> ():
+    *value = *value + 1
+def total(values: &list[i64]) -> i64:
+    mut sum = 0
+    for value in values:
+        sum = sum + value
+    sum
+def consume(values: list[i64]) -> i64:
+    len(values)
+def main() -> Result[(), Failure]:
+    mutate: Callable[[&mut i64], ()] = increment
+    mut value = 3
+    mutate(&mut value)
+    print(value)?
+    values = [2, 5]?
+    inspect: Callable[[&list[i64]], i64] = total
+    print(inspect(&values))?
+    take = consume
+    print(take(values))?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n7\n2\n");
+    for source in [
+        "def use(a: &mut i64, b: &i64) -> ():\n    pass\ncallback = use\nmut x = 1\ncallback(&mut x, &x)",
+        "def use(a: list[i64]) -> ():\n    pass\ncallback = use\nx = [1].unwrap()\ncallback(x)\nprint(x).unwrap()",
+    ] {
+        assert!(check_source(source).is_err(), "{source}");
+    }
+}

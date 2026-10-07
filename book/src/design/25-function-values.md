@@ -19,6 +19,10 @@ Each call checks argument and result types before code generation; the independe
 operation checker checks the indirect call as well. Builtins are not named source
 functions: wrap a builtin in a typed function when a callable value is needed.
 
+Reference parameters retain ordinary explicit `&` / `&mut` argument syntax.
+The borrow checker keeps these loans live through the indirect call. Owned
+arguments move exactly as they do in direct calls, and unit results leave no value.
+
 Currently only concrete named functions are values. Callable signatures exclude
-references and generator frames. Capture environments and anonymous bodies are
+returned references and generator frames. Capture environments and anonymous bodies are
 not yet implemented. See the [backlog](../backlog.md) for remaining work.

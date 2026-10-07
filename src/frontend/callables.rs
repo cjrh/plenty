@@ -3,15 +3,19 @@ use super::*;
 use crate::op::CallableSig;
 
 pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
-    if sig
-        .inputs
-        .iter()
-        .chain(sig.output.iter())
-        .any(|ty| matches!(ty, Ty::Generator(_) | Ty::Ref(..)))
-    {
-        return Err(
-            at.error("callable signatures do not yet support references or generator frames")
-        );
+    fn frame(ty: &Ty) -> bool {
+        match ty {
+            Ty::Generator(_) => true,
+            Ty::Ref(inner, _) => frame(inner),
+            Ty::Enum(t) => t.variants.iter().flat_map(|v| &v.fields).any(frame),
+            _ => false,
+        }
+    }
+    if sig.inputs.iter().chain(sig.output.iter()).any(frame) {
+        return Err(at.error("callable signatures do not yet support generator frames"));
+    }
+    if matches!(sig.output, Some(Ty::Ref(..))) {
+        return Err(at.error("callable signatures do not yet support returned references"));
     }
     Ok(())
 }

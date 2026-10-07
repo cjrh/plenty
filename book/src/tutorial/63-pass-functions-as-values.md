@@ -41,3 +41,20 @@ def main() -> Result[(), Failure]:
 ```
 
 Here the list allocates; the function value and the call do not.
+
+A callable can also borrow an argument and return unit:
+
+```plenty
+def increment(value: &mut i64) -> ():
+    *value = *value + 1
+
+def main() -> Result[(), Failure]:
+    update: Callable[[&mut i64], ()] = increment
+    mut value = 41
+    update(&mut value)
+    print(value)?
+    Ok(())
+```
+```output
+42
+```
