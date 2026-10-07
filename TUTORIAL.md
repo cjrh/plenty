@@ -3103,6 +3103,33 @@ report close errors; call `file.close()?` explicitly when those matter.
 
 ## Recoverable class construction
 
+Generators can be returned inside `Result` and extracted with `?`:
+
+```plenty
+def numbers() -> Generator[i64]:
+    yield 10
+    yield 20
+
+def source() -> Result[Generator[i64], AllocError]:
+    Ok(numbers())
+
+def total() -> Result[i64, AllocError]:
+    mut values = source()?
+    mut result = 0
+    for n in values:
+        result = result + n
+    Ok(result)
+
+def main() -> ():
+    print(total())
+```
+```output
+Result[i64, AllocError].Ok(30)
+```
+
+Wrapping an ordinary generator call does not make its frame allocation fallible.
+Dropping a wrapped generator releases its captures without executing its body.
+
 Enum variants also offer explicit fallible construction:
 
 ```plenty

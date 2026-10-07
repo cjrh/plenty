@@ -400,10 +400,10 @@ impl TypeRef {
                     .at
                     .error("concrete type name exceeds the implementation limit"));
             }
-            if args.iter().any(Ty::restricted_storage) {
+            if args.iter().any(Ty::contains_reference) {
                 return Err(self
                     .at
-                    .error("generators cannot be stored in enum payloads"));
+                    .error("references cannot be stored in enum payloads"));
             }
             return Ok(Some(if name == "Option" {
                 crate::sum::option(args[0].clone())

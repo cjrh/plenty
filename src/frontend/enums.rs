@@ -192,6 +192,7 @@ pub(super) fn resolve_types(
                             })
                             .collect::<Result<Vec<_>>>()?;
                         Some(Ty::Enum(Rc::new(EnumType {
+                            restricted_storage: false,
                             name: e.name.clone(),
                             managed: true,
                             affine: variants.iter().flat_map(|v| &v.fields).any(Ty::affine),
@@ -268,8 +269,8 @@ impl Lower<'_> {
         if name == "Some" && args.is_some_and(|a| a.len() == 1) {
             let arg = &args.unwrap()[0];
             let ty = self.expr(arg, ops)?.unwrap_or(Ty::Unit);
-            if ty.restricted_storage() {
-                return Err(at.error("references and generators cannot be stored in enum payloads"));
+            if ty.contains_reference() {
+                return Err(at.error("references cannot be stored in enum payloads"));
             }
             if ty == Ty::Unit {
                 ops.push(Op::PushUnit);

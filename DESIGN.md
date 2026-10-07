@@ -1568,6 +1568,12 @@ Sources informing this design:
 
 ## Native generators
 
+Owned generators can travel through `Option` and `Result`, including `?` and
+pattern matching. These wrappers remain affine and non-copyable; dropping one
+releases its frame and captures without resuming it. Wrapping does not permit
+generators in collection/class storage, printing, comparison, or nested yields.
+References remain prohibited in standard sum payloads.
+
 The runtime has a checked frame allocator that reports capacity overflow or OOM
 before consuming captures. Ordinary source generator calls still abort on frame
 allocation failure; exposing the checked path requires a source-level constructor

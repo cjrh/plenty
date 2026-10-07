@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct EnumType {
+    pub restricted_storage: bool,
     // Names are unique within a compilation; builtin names include concrete args.
     pub name: String,
     pub variants: Vec<Variant>,
@@ -45,6 +46,7 @@ impl EnumType {
 /// An allocation error must itself be constructible without allocating.
 pub fn alloc_error() -> Ty {
     Ty::Enum(Rc::new(EnumType {
+        restricted_storage: false,
         name: "AllocError".into(),
         variants: ["OutOfMemory", "CapacityOverflow"]
             .into_iter()
@@ -108,6 +110,7 @@ pub struct Variant {
 
 pub fn option(element: Ty) -> Ty {
     Ty::Enum(Rc::new(EnumType {
+        restricted_storage: element.restricted_storage(),
         name: format!("Option[{element}]"),
         depth: 1 + element.layout_depth(),
         affine: element.affine(),
@@ -128,6 +131,7 @@ pub fn option(element: Ty) -> Ty {
 }
 pub fn result(ok: Ty, error: Ty) -> Ty {
     Ty::Enum(Rc::new(EnumType {
+        restricted_storage: ok.restricted_storage() || error.restricted_storage(),
         name: format!("Result[{ok}, {error}]"),
         depth: 1 + ok.layout_depth().max(error.layout_depth()),
         affine: ok.affine() || error.affine(),

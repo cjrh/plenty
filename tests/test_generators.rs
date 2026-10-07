@@ -113,7 +113,10 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
     "cannot be stored in collections"
 )]
 #[case("enum E:\n    A(Generator[i64])", "cannot be stored in enum")]
-#[case("x = Option[Generator[i64]].Nothing", "cannot be stored in enum")]
+#[case(
+    "x: list[Option[Generator[i64]]] = []",
+    "cannot be stored in collections"
+)]
 #[case("a = count(2)\n[x for n in range(2) for x in a]", "loop backedge")]
 #[case("def condition(g: Generator[i64]) -> bool:\n    True\na = count(2)\nwhile condition(a):\n    pass", "loop backedge")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {

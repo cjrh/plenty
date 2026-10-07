@@ -76,7 +76,15 @@ impl Ty {
         ) || matches!(self, Self::Enum(t) if t.affine)
     }
     pub fn restricted_storage(&self) -> bool {
-        matches!(self, Self::Generator(_) | Self::Ref(..))
+        match self {
+            Self::Generator(_) | Self::Ref(..) => true,
+            Self::Enum(t) => t.restricted_storage,
+            _ => false,
+        }
+    }
+    pub fn contains_reference(&self) -> bool {
+        // Composite references are rejected at their construction boundary.
+        matches!(self, Self::Ref(..))
     }
     pub fn can_copy(&self) -> bool {
         match self {
