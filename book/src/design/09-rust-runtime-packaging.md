@@ -25,6 +25,15 @@ The compiler also packages a library runtime archive without `main` or a
 export map hides its internal symbols. Both variants are compiled when building
 Plenty, with their own native link requirements, rather than per library build.
 
+The runtime includes GNU/Linux library-loading primitives: fallible path
+conversion, eager local loading, bounded allocation-free symbol lookup, and
+lookup-lease cleanup. Successful mappings use `RTLD_NODELETE`, so closing a
+lookup lease leaves resolved code and static state resident until process exit.
+Loader-owned memory and library constructors are outside Plenty's allocator;
+native loading is execution, not sandboxed metadata inspection. These primitives
+are the internal foundation for typed loading. Their platform contract follows
+the [Linux dynamic loader API](https://man7.org/linux/man-pages/man3/dlopen.3.html).
+
 Native emission is gated to `x86_64-unknown-linux-gnu`, matching the tested runtime
 and compiler target. The build records Cargo's runtime target; emission also
 checks the Cranelift ISA triple and pointer type. The ABI currently relies on

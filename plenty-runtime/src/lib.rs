@@ -15,6 +15,7 @@ mod entries;
 mod files;
 mod generators;
 mod io;
+mod libraries;
 mod memory;
 mod numbers;
 mod ranges;
