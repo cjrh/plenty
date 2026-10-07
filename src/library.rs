@@ -3,6 +3,7 @@ use crate::{exports::Interface, CompileOptions};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+pub(crate) mod publication;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const RUNTIME: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libplenty_library_runtime.a"));
@@ -66,17 +67,13 @@ pub fn compile_file_to_library(
         interface: directory.join(format!("{}.plentyi", options.name)),
         link_args: directory.join(format!("{}.link-args.txt", options.name)),
     };
-    let source_path = path.canonicalize()?;
-    for companion in [
-        &artifacts.header,
-        &artifacts.interface,
-        &artifacts.link_args,
+    let destinations = [
+        artifacts.header.as_path(),
+        artifacts.interface.as_path(),
+        artifacts.link_args.as_path(),
         output,
-    ] {
-        if companion.canonicalize().ok().as_ref() == Some(&source_path) {
-            return Err("library outputs must not overwrite the input source".into());
-        }
-    }
+    ];
+    publication::validate(&destinations, &program.source_paths)?;
     if [
         &artifacts.header,
         &artifacts.interface,
@@ -87,7 +84,9 @@ pub fn compile_file_to_library(
     {
         return Err("library output conflicts with a generated companion file".into());
     }
-    let workspace = tempfile::tempdir()?;
+    let workspace = tempfile::Builder::new()
+        .prefix(".plenty-build-")
+        .tempdir_in(directory)?;
     let object = workspace.path().join("plenty_exports.o");
     crate::codegen::emit_library_object(&program, &heap, &object, &interface)?;
     let built = workspace.path().join("library");
@@ -136,7 +135,10 @@ pub fn compile_file_to_library(
             compile.link_args.extend([
                 OsString::from("-shared"),
                 OsString::from("-Wl,-z,defs"),
-                OsString::from(format!("-Wl,--version-script={}", script.display())),
+                OsString::from("-Xlinker"),
+                OsString::from("--version-script"),
+                OsString::from("-Xlinker"),
+                script.into_os_string(),
             ]);
             crate::toolchain::link(&object, &runtime, NATIVE_ARGS, &built, &compile)?;
         }
@@ -158,12 +160,24 @@ pub fn compile_file_to_library(
     if args.iter().any(|a| a.contains(['\n', '\r'])) {
         return Err("static link arguments must not contain newlines".into());
     }
-    std::fs::write(&artifacts.header, interface.header)?;
-    std::fs::write(&artifacts.interface, interface.source)?;
+    let header = workspace.path().join("header");
+    let source = workspace.path().join("interface");
+    let arguments = workspace.path().join("link-args");
+    std::fs::write(&header, interface.header)?;
+    std::fs::write(&source, interface.source)?;
     std::fs::write(
-        &artifacts.link_args,
+        &arguments,
         args.iter().map(|a| format!("{a}\n")).collect::<String>(),
     )?;
-    std::fs::copy(built, output)?;
+    publication::validate(&destinations, &program.source_paths)?;
+    publication::publish(
+        workspace,
+        &[
+            (header, artifacts.header.clone()),
+            (source, artifacts.interface.clone()),
+            (arguments, artifacts.link_args.clone()),
+            (built, output.to_owned()),
+        ],
+    )?;
     Ok(artifacts)
 }

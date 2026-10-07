@@ -31,6 +31,7 @@ pub(crate) struct Program {
     pub(crate) returns_status: bool,
     pub(crate) exports: Vec<crate::exports::Export>,
     pub(crate) imported_symbols: HashSet<String>,
+    pub(crate) source_paths: Vec<std::path::PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2684,6 +2685,7 @@ fn lower_function(
 
 fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let modules::Resolved {
+        source_paths,
         mut functions,
         declarations,
         enums,
@@ -2819,6 +2821,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         }
     }
     Ok(Program {
+        source_paths,
         imported_symbols,
         ops,
         returns_status,

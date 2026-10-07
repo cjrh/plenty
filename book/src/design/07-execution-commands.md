@@ -9,6 +9,10 @@
   `--static-library` produce [C libraries](24-c-interfaces/02-library-exports.md)
   with generated headers/interfaces, without requiring `main`. Static output
   uses `--archiver PATH` (default `ar`); shared output uses `--linker`.
+- `plenty --extract-interface LIBRARY --library-name NAME -o OUT` extracts
+  embedded source metadata without executing native code.
+- `plenty --verify-interface LIBRARY INTERFACE` checks a generated contract
+  and its compatibility symbol before linking; see [inspection](24-c-interfaces/04-embedded-contracts.md).
 - `plenty --emit-object FILE -o OUT` emits one native application object,
   including imported modules, without invoking a linker. It still requires `main`.
 - `plenty --emit-runtime DIR` extracts the embedded `libplenty_runtime.a` and

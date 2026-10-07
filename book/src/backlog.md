@@ -12,15 +12,11 @@ stages describe technical dependencies, not a second priority list.
 
 ## Next batch
 
-The toolchain and C-import batch (B01–B05) is complete. B06 is active: numeric
-exports, scalar borrowing, static/shared packaging, and generated/embedded `.plentyi`
-contracts, Result adapters, and owned factories with matching destruction are
-implemented, including shared/mutable borrows and consuming handle arguments.
-Embedded extraction and fingerprint-specific link guards are implemented; next
-explicit pre-link interface validation and generated-name checks are also
-implemented. Next harden artifact publication.
-Acceptance includes actual C/C++ and Plenty
-callers, contract comments, metadata retention, and failure-path cleanup.
+The initial toolchain and C boundary batch (B01–B06) is complete. B07 is next:
+typed runtime loading of known interfaces with recoverable loading/compatibility
+errors, keeping loaded libraries resident. Build on the generated contracts,
+fingerprints, and ownership wrappers already checked by native C/C++ and Plenty
+integration tests. Expanded C representations are tracked separately as B27.
 
 ## Later candidates
 
@@ -29,7 +25,6 @@ guide breakdown when an item is selected; detailed syntax is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B06 (active) | C exports and static/shared-library output | Numeric exports, Result adapters, owned/borrowed/consumed handles, packaging, and metadata extraction are implemented; [current subset](design/24-c-interfaces/02-library-exports.md). Remaining: compatibility checks and artifact reliability. [Export contract design](proposals/ffi-export-contracts.md). |
 | B07 | Runtime library loading | Typed loading of known interfaces with recoverable missing-library/symbol and incompatible-contract errors; validate generated interface metadata through versioned discovery. Initially keep loaded libraries resident; unloading, retained callbacks, foreign-thread callbacks, C record layout, and header-assisted bindings need further contracts. [FFI design](proposals/ffi-and-dynamic-libraries.md) and [export contracts](proposals/ffi-export-contracts.md). |
 | B08 | Function values and multiline closures | First-class named functions and callable signatures, then anonymous bodies and checked captures. Define borrowed versus owned environments, lifetime/escape rules, and fallible allocation before adding higher-order library APIs. |
 | B09 | Generic data types and richer protocols | Generic classes/enums and methods, with parameterized protocols or additional bounds when concrete library use cases justify them. Keep method lookup explicit and measure specialization cost. [Protocol design](proposals/protocols-generics-and-context-managers.md). |
@@ -48,6 +43,7 @@ guide breakdown when an item is selected; detailed syntax is still open.
 | B22 | Threads, channels, and parallel operations | Establish transfer/share rules, compatible reference counting, allocator and foreign-handle constraints; then scoped threads, bounded channels, and explicit parallel map/collect/reduce with defined failure and cancellation behavior. [Concurrency design](proposals/memory-parallelism-and-simd.md). |
 | B23 | SIMD | Define vector values, contiguous numeric storage, supported operations, and scalar fallbacks. Ordinary generic lists are not automatically packed native arrays. [SIMD design](proposals/memory-parallelism-and-simd.md). |
 | B24 | Automatic parallelization | Research only after B22: require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
+| B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |
 
 ## Reconciled completed work
 
@@ -57,6 +53,7 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
+| B06: Initial C library exports | Static/shared packaging, scalar and Result adapters, owned factories, matching destruction, shared/mutable and consuming handles, precise C contracts, embedded/extractable interfaces, SHA-256 link guards, explicit binary verification, and staged publication are implemented. Native callers and injected failures validate cleanup. [Library reference](design/24-c-interfaces/02-library-exports.md). |
 | B05: Ownership-aware C adapters | Scalar/pointer borrows and explicit UTF-8/C-string adapters integrate with normal borrowing. Private opaque pointers in classes provide owned handles and matching destruction; C fixtures verify partial acquisition, allocation errors, and conditional/unconditional transfer. Mutable/returned byte buffers remain outside this subset. See [adapters](design/24-c-interfaces/01-ownership-and-text-adapters.md). |
 | B04: Initial C imports | Trusted `.plentyi` declarations support sized C scalars and nominal opaque pointers. Native C fixtures cover static/shared linking and actual ABI calls; visibility and Plenty layouts remain separate. See [C interfaces](design/24-c-interfaces.md). |
 | B03: Target compatibility | Native compilation validates the supported x86_64 Linux GNU target, packaged runtime triple, and ISA pointer width. Explicit target selection rejects incompatible layouts before source loading/emission; runtime extraction includes target metadata. See [runtime packaging](design/09-rust-runtime-packaging.md). |

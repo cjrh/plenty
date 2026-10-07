@@ -63,6 +63,8 @@ Both outputs currently support `x86_64-unknown-linux-gnu` only. The compiler
 embeds prebuilt application and library runtimes; producing a library does not
 invoke rustc or Cargo. The Rust API provides `LibraryOptions`, `LibraryKind`,
 `LibraryArtifacts`, and `compile_file_to_library`.
+Binary and companion files use [staged publication](05-artifact-publication.md)
+with rollback on ordinary installation errors and protection for imported sources.
 
 ## Generated contracts
 

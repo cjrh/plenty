@@ -242,9 +242,15 @@ pub fn extract_library_interface(path: &Path, name: &str, output: &Path) -> Resu
         .iter()
         .find(|i| i.name == name)
         .ok_or_else(|| format!("library has no embedded interface `{name}`"))?;
-    if output.canonicalize().ok().as_ref() == Some(&path.canonicalize()?) {
-        return Err("interface output must not overwrite the library".into());
-    }
-    std::fs::write(output, &interface.source)?;
-    Ok(())
+    crate::library::publication::validate(&[output], &[path.canonicalize()?])?;
+    let directory = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let workspace = tempfile::Builder::new()
+        .prefix(".plenty-extract-")
+        .tempdir_in(directory)?;
+    let staged = workspace.path().join("interface");
+    std::fs::write(&staged, &interface.source)?;
+    crate::library::publication::publish(workspace, &[(staged, output.to_owned())])
 }

@@ -59,7 +59,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native C imports | Trusted `.plentyi` interfaces, sized scalars and nominal opaque pointers, explicit symbols, private wrappers, and static or shared linking; [C interface reference](24-c-interfaces.md) |
 | Ownership-aware C adapters | Call-scoped scalar/output references, allocation-free UTF-8 views, fallible C-string conversion, and owned class wrappers with matching native destruction and explicit transfer/error policies; [adapter reference](24-c-interfaces/01-ownership-and-text-adapters.md) |
-| C library exports | Numeric and Result C entry points, scalar borrows, owned class factories with matching destroy functions, static/shared output, generated contract headers, owning `.plentyi` wrappers, and embedded interface discovery; [library reference](24-c-interfaces/02-library-exports.md) |
+| C library exports | Numeric and Result C entries, scalar/class borrows, owned factories and consuming arguments, matching destruction, static/shared output, precise C headers, and owning `.plentyi` wrappers; [library reference](24-c-interfaces/02-library-exports.md) |
+| Library contracts and tooling | Embedded interfaces, bounded compile-time extraction, SHA-256 compatibility symbols, explicit binary/interface verification, and staged artifact publication with rollback; [contract inspection](24-c-interfaces/04-embedded-contracts.md) |
 | Runtime shared-library loading | Not implemented; ordinary linked shared-library imports work |
 | User generic functions | `def f[T](...)`, argument-based inference or explicit `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
 | Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |

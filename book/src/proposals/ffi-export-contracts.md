@@ -1,9 +1,10 @@
 # Generated library contracts and C headers
 
-Status: accepted design direction, 2026-10-07; numeric exports, generated headers,
-and embedded `.plentyi` metadata are implemented in the
-[initial subset](../design/24-c-interfaces/02-library-exports.md). Richer ownership
-and compatibility examples below remain design sketches. Tasks and priorities live only in the
+Status: accepted design direction, 2026-10-07; numeric/Result exports, owned and
+borrowed handles, generated contract headers, embedded interfaces, extraction,
+and compatibility fingerprints are implemented in the
+[initial subset](../design/24-c-interfaces/02-library-exports.md). The image API
+examples below remain illustrative design sketches. Tasks and priorities live only in the
 [backlog](../backlog.md). See [C interfaces](../design/24-c-interfaces.md) for
 implemented imports and [C interop](ffi-and-dynamic-libraries.md) for the wider
 boundary design.
