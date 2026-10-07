@@ -114,9 +114,21 @@ fn tuple_shape_and_storage_errors_are_static() {
         "x = (1, 2)\nprint(x[2])",
         "x = (1, 2)\ni = 1\nprint(x[i])",
         "x = 1\ny = (&x, 2)",
+        "print(((), 1)[0])",
     ] {
         assert!(support::check_source(source).is_err(), "{source}");
     }
+}
+
+#[test]
+fn unit_tuple_components_remain_unit_expressions() {
+    let out = support::run("def unit() -> ():\n    ((), 1)[0]\nunit()\n_, n = ((), 3)\nprint(n)");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "3\n");
 }
 
 #[test]

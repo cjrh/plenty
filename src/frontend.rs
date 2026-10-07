@@ -1582,7 +1582,15 @@ impl Lower<'_> {
             }
             Expression::Collection { .. } => Some(self.collection(e, None, ops)?),
             Expression::FallibleCollection(inner) => Some(self.fallible_display(inner, None, ops)?),
-            Expression::Index(base, index) => Some(self.index(base, index, ops)?),
+            Expression::Index(base, index) => {
+                let ty = self.index(base, index, ops)?;
+                if ty == Ty::Unit {
+                    ops.push(Op::Drop);
+                    None
+                } else {
+                    Some(ty)
+                }
+            }
             Expression::Method(base, name, args) => self.method(base, name, args, ops)?,
             Expression::Constructor(ty, args) => {
                 let ty = ty.resolve(self.aliases)?.unwrap();

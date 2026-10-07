@@ -313,6 +313,9 @@ impl Lower<'_> {
                             .get(i)
                             .ok_or_else(|| index.at.error("tuple index out of bounds"))?
                             .clone();
+                        if value == Ty::Unit {
+                            return Err(e.at.error("expected a value, got ()"));
+                        }
                         ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
                         return Ok((value, loans));
                     }
