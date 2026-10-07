@@ -30,6 +30,7 @@ pub(crate) struct Program {
     pub(crate) ops: Vec<Op>,
     pub(crate) returns_status: bool,
     pub(crate) exports: Vec<crate::exports::Export>,
+    pub(crate) imported_symbols: HashSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2708,7 +2709,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let imported_symbols: HashSet<_> = generics
         .pending
         .iter()
-        .filter_map(|f| f.foreign.as_ref().map(|d| d.symbol.as_str()))
+        .filter_map(|f| f.foreign.as_ref().map(|d| d.symbol.clone()))
         .collect();
     let mut interface_names = HashSet::new();
     for f in &generics.pending {
@@ -2818,6 +2819,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         }
     }
     Ok(Program {
+        imported_symbols,
         ops,
         returns_status,
         exports,

@@ -22,6 +22,11 @@ there must be no outstanding borrows or concurrent/reentrant access. Calls stay
 on the creating thread, and the originating library remains loaded. Headers place
 these requirements beside the factory and destroy declarations. Generated destroy
 symbols and handle type names are reserved against user export collisions.
+The compiler checks the complete C identifier namespace: for example, exporting
+both `Thing` and `Thing_destroy` as class names is rejected because one class's
+type name would collide with the other's release function. Generated symbols
+cannot collide with foreign imports either. Class names beginning `plenty_` are
+reserved at this boundary.
 
 The generated `.plentyi` publishes an owning class with a private opaque pointer
 and an automatic destructor. Its factory first allocates an empty wrapper, then

@@ -611,6 +611,46 @@ int main(void) {
 }
 
 #[test]
+fn generated_library_names_reject_collisions_before_publication() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source.plenty");
+    let output = temp.path().join("out.a");
+    std::fs::write(&output, "previous library").unwrap();
+    std::fs::write(
+        temp.path().join("foreign.plentyi"),
+        "pub extern def release(value: i64) -> () = \"calc_Foo_destroy\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("discovery.plentyi"),
+        "pub extern def discover() -> () = \"calc_plenty_interface_v1\"\n",
+    )
+    .unwrap();
+    for name in ["first", "second"] {
+        std::fs::write(
+            temp.path().join(format!("{name}.plenty")),
+            "pub class Item:\n    pub value: i64\n",
+        )
+        .unwrap();
+    }
+    for (text, expected) in [
+        ("class Foo:\n    value: i64\nclass Foo_destroy:\n    value: i64\nexport def a(x: &Foo) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &Foo_destroy) -> i64 = \"calc_b\":\n    x.value\n", "identifier collision"),
+        ("import foreign\nclass Foo:\n    value: i64\nexport def create() -> Result[Foo, AllocError] = \"calc_create\":\n    Foo(1)\n", "imported C symbol"),
+        ("import discovery\nexport def answer() -> i32 = \"calc_answer\":\n    42\n", "imported C symbol"),
+        ("import first\nimport second\nexport def a(x: &first.Item) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &second.Item) -> i64 = \"calc_b\":\n    x.value\n", "conflicting interface name"),
+        ("export def _plenty_require_contract() -> () = \"calc_bad\":\n    pass\n", "reserved"),
+        ("class plenty_metadata:\n    value: i64\nexport def read(x: &plenty_metadata) -> i64 = \"calc_read\":\n    x.value\n", "reserved C metadata"),
+        ("export def guard() -> () = \"calc_plenty_contract_other\":\n    pass\n", "reserved"),
+    ] {
+        std::fs::write(&source, text).unwrap();
+        let error = plenty::compile_file_to_library(&source, &output, None, &LibraryOptions::new("calc", LibraryKind::Static)).unwrap_err().to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+        assert_eq!(std::fs::read_to_string(&output).unwrap(), "previous library");
+        assert!(!temp.path().join("calc.h").exists());
+    }
+}
+
+#[test]
 fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("source.plenty");

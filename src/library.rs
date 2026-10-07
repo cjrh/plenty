@@ -56,6 +56,7 @@ pub fn compile_file_to_library(
     let program = crate::frontend::compile_file(path, root, false, &mut heap)?;
     crate::op::check(&program.ops)?;
     let interface = Interface::new(&options.name, &program.exports)?;
+    interface.validate_imports(&program.imported_symbols)?;
     let directory = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())

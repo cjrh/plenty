@@ -1,7 +1,7 @@
 //! Opaque native owners and their fallible, automatically dropped source wrappers.
 use super::*;
 use crate::record::ClassType;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Handle {
     pub class: Rc<ClassType>,
@@ -53,11 +53,26 @@ pub(super) fn collect(
         }
     }
     let mut handles = Vec::new();
+    let mut c_names = BTreeSet::new();
     for (name, class) in classes {
+        if name.starts_with("plenty_") {
+            return Err(format!(
+                "exported class `{name}` conflicts with the reserved C metadata namespace"
+            )
+            .into());
+        }
         let c_name = format!("{library}_{name}");
         let destroy = format!("{c_name}_destroy");
         let pointer = format!("_plenty_handle_{name}");
         let drop = format!("_plenty_drop_{name}");
+        for identifier in [&c_name, &destroy] {
+            if !c_names.insert(identifier.clone()) {
+                return Err(format!(
+                    "generated C identifier collision `{identifier}` between exported classes"
+                )
+                .into());
+            }
+        }
         if exports.iter().any(|e| {
             [name, &pointer, &drop].contains(&e.name.as_str())
                 || [c_name.as_str(), destroy.as_str()].contains(&e.symbol.as_str())

@@ -28,7 +28,7 @@ pub(crate) fn check_signature(
                 })
         })
     {
-        return Err("C exports currently require numeric scalar parameters or scalar borrows, and a numeric scalar, (), or Result[scalar or (), scalar/AllocError/ParseError/Failure] return");
+        return Err("C exports support numeric scalar or owned class parameters and their borrows; returns must be numeric scalar, (), Result[scalar or (), scalar/AllocError/ParseError/Failure], or Result[Class, AllocError]");
     }
     Ok(())
 }
@@ -109,6 +109,25 @@ pub(crate) struct Interface {
 }
 
 impl Interface {
+    pub fn validate_imports(
+        &self,
+        imports: &std::collections::HashSet<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let metadata = format!("{}_plenty_contract", self.name);
+        for symbol in [&self.discovery, &self.contract_guard, &metadata]
+            .into_iter()
+            .chain(self.handles.iter().map(|h| &h.destroy))
+        {
+            if imports.contains(symbol) {
+                return Err(format!(
+                    "imported C symbol `{symbol}` conflicts with a generated library symbol"
+                )
+                .into());
+            }
+        }
+        Ok(())
+    }
+
     pub fn new(name: &str, exports: &[Export]) -> Result<Self, Box<dyn std::error::Error>> {
         check_library_name(name)?;
         if exports.is_empty() {
