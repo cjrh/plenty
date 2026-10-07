@@ -329,10 +329,12 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
     resolve(loader.modules, loader.dependencies, at, require_main)
 }
 
+#[derive(Clone)]
 struct Scope {
     module: String,
     symbols: HashMap<String, String>,
     namespaces: HashMap<String, Rc<HashMap<String, String>>>,
+    type_params: HashSet<String>,
 }
 
 impl Scope {
@@ -359,6 +361,9 @@ impl Scope {
             self.ty(arg)?;
         }
         if let Some(name) = &mut ty.name {
+            if self.type_params.contains(name) {
+                return Ok(());
+            }
             if let Some(symbol) = self.symbol(name, &ty.at)? {
                 *name = symbol;
             } else if !builtin(name) && !matches!(name.as_str(), "&" | "&mut") {
@@ -368,12 +373,21 @@ impl Scope {
         Ok(())
     }
     fn function(&self, f: &mut Function) -> Result<()> {
-        for (_, ty) in &mut f.inputs {
-            self.ty(ty)?;
+        let mut scope = self.clone();
+        scope
+            .type_params
+            .extend(f.type_params.iter().map(|(n, _)| n.clone()));
+        for (_, bound) in &mut f.type_params {
+            if let Some(bound) = bound {
+                self.ty(bound)?;
+            }
         }
-        self.ty(&mut f.output)?;
+        for (_, ty) in &mut f.inputs {
+            scope.ty(ty)?;
+        }
+        scope.ty(&mut f.output)?;
         let mut locals = f.inputs.iter().map(|(n, _)| n.clone()).collect();
-        self.block(&mut f.body, &mut locals)
+        scope.block(&mut f.body, &mut locals)
     }
     fn block(&self, body: &mut [Stmt], locals: &mut HashSet<String>) -> Result<()> {
         for stmt in body {
@@ -454,6 +468,18 @@ impl Scope {
         Ok(())
     }
     fn expr(&self, e: &mut Expr, locals: &HashSet<String>) -> Result<()> {
+        if let Expression::Name(name) | Expression::Call(name, _) = &e.kind {
+            if self.type_params.contains(name) && locals.contains(name) {
+                return Err(e
+                    .at
+                    .error("a type parameter name cannot also name a value binding"));
+            }
+        }
+        if let Expression::GenericCall(name, _, _) = &e.kind {
+            if locals.contains(name.split('.').next().unwrap()) {
+                return Err(e.at.error("a local binding shadows this generic function"));
+            }
+        }
         fn path(e: &Expr) -> Option<String> {
             match &e.kind {
                 Expression::Name(n) => Some(n.clone()),
@@ -485,7 +511,9 @@ impl Scope {
             }
         }
         match &mut e.kind {
-            Expression::Name(n) | Expression::Call(n, _) if !locals.contains(n) => {
+            Expression::Name(n) | Expression::Call(n, _) | Expression::GenericCall(n, _, _)
+                if !locals.contains(n) && !self.type_params.contains(n) =>
+            {
                 if let Some(symbol) = self.symbol(n, &e.at)? {
                     *n = symbol;
                 } else if !builtin(n) && !self.namespace_root(n) {
@@ -495,6 +523,14 @@ impl Scope {
             _ => {}
         }
         match &mut e.kind {
+            Expression::GenericCall(_, types, args) => {
+                for ty in types {
+                    self.ty(ty)?;
+                }
+                for arg in args {
+                    self.expr(arg, locals)?;
+                }
+            }
             Expression::Call(_, args) | Expression::Tuple(args, _) => {
                 for arg in args {
                     self.expr(arg, locals)?;
@@ -588,6 +624,7 @@ fn resolve(
     };
     for (i, m) in modules.iter_mut().enumerate() {
         let mut scope = Scope {
+            type_params: HashSet::new(),
             module: m.name.clone(),
             symbols: m
                 .names()
@@ -628,10 +665,31 @@ fn resolve(
             let public = m.exports.contains(&f.name);
             scope.function(f)?;
             if public {
-                result
-                    .public_api
-                    .extend(f.inputs.iter().map(|(_, t)| t.clone()));
-                result.public_api.push(f.output.clone());
+                fn concrete_parts(
+                    t: &TypeRef,
+                    params: &[(String, Option<TypeRef>)],
+                    out: &mut Vec<TypeRef>,
+                ) {
+                    fn mentions(t: &TypeRef, params: &[(String, Option<TypeRef>)]) -> bool {
+                        params.iter().any(|(n, _)| t.name.as_ref() == Some(n))
+                            || t.args.iter().any(|t| mentions(t, params))
+                    }
+                    if !mentions(t, params) {
+                        out.push(t.clone());
+                    } else {
+                        for arg in &t.args {
+                            concrete_parts(arg, params, out);
+                        }
+                    }
+                }
+                for t in f
+                    .inputs
+                    .iter()
+                    .map(|(_, t)| t)
+                    .chain(std::iter::once(&f.output))
+                {
+                    concrete_parts(t, &f.type_params, &mut result.public_api);
+                }
             }
             f.name = qualified(&m.name, &f.name);
         }

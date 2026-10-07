@@ -165,6 +165,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 })
                 .collect();
             methods.push(Function {
+                type_params: vec![],
                 name: "__init__".into(),
                 at: at.clone(),
                 inputs,
@@ -236,6 +237,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 type_ref(at, &class.name)
             };
             functions.push(Function {
+                type_params: vec![],
                 name: method(&class.name, if fallible { "try_new" } else { "__new__" }),
                 at: at.clone(),
                 inputs: constructor_inputs.clone(),
@@ -333,6 +335,7 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                     }
                 }
                 Expression::Call(_, args)
+                | Expression::GenericCall(_, _, args)
                 | Expression::Constructor(_, args)
                 | Expression::Tuple(args, _) => {
                     for arg in args {

@@ -43,6 +43,30 @@ Consequences:
 - No async/await, dynamic attributes, monkey-patching, metaclasses, inheritance,
   implicit nullable references, or exceptions in the initial language.
 
+## Explicit generic functions
+
+Functions may declare type parameters, for example
+`def identity[T](value: T) -> T:` or `def add[T: IntType](a: T, b: T) -> T:`.
+Calls supply all type arguments explicitly: `identity[list[i64]](values)`.
+`IntType` accepts the eight fixed-width integer types, including aliases; it is
+a constraint rather than a value type. Unconstrained parameters are also allowed.
+
+The frontend creates one concrete function for each distinct function/type tuple.
+Alias-equivalent arguments and recursive calls reuse the same instance. Generated
+bodies pass through ordinary type, ownership, and borrow checking. Generic body
+operations are checked when instantiated; unused generic bodies are not checked
+against every possible type. Module names are resolved in the definition's scope,
+and importing a function does not alter which methods are available.
+
+Expansion uses a work queue, with at most 256 concrete generic instances per
+compilation and the existing type depth/name limits. This bounds expanding
+recursion and keeps diagnostics preferable to unbounded compiler work. A focused
+debug-mode check of 100 repeated calls plus recursion produced one instance in
+about 0.34 ms on the development machine; this measures AST specialization only,
+not code generation or linking. Generic classes, generic methods, inferred type
+arguments, reference/unit type arguments, and first-class generic functions are
+deferred. A signature can borrow `T` directly using `&T` or `&mut T`.
+
 ## Implementation status
 
 The core language can compile single- and multi-file programs: typed functions,
@@ -97,7 +121,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Modern program input, file I/O, and command-line argument APIs | Recoverable console I/O, arguments, Linux whole-file helpers, and scoped File operations implemented, including bounded reads, capability queries, update/exclusive modes, saved text positions, truncation, `readlines`, and `writelines`; direct file iteration remains deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
-| User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
+| User generic functions | Explicit `def f[T](...)` / `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
+| Structural protocols | Proposed; no protocol checking implemented yet |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |

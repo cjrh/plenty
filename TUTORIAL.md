@@ -3819,10 +3819,46 @@ type backward through filters, arbitrary calls, or a previously stored range.
 Use explicit `range[T]` in those cases. There is no silent numeric widening or
 narrowing.
 
+## Writing generic functions
+
+Declare type parameters after the function name and supply them before the call.
+Ownership still follows the concrete type: `identity[list[i64]]` transfers the
+list, while a function taking `&T` borrows its argument.
+
+```plenty
+def identity[T](value: T) -> T:
+    value
+
+def sum_to[T: IntType](stop: T) -> T:
+    mut total: T = 0
+    for n in range[T](stop):
+        total = total + n
+    total
+
+def first[T](values: &list[T]) -> &T:
+    &values[0]
+
+def main() -> ():
+    print(sum_to[u16](5))
+    values = identity[list[i64]]([3, 4])
+    print(first[i64](&values))
+    print(values)
+```
+```output
+10
+3
+[3, 4]
+```
+
+`IntType` restricts a parameter to integer types. Unconstrained `T` is useful
+when the body only moves, borrows, or uses operations supported by the chosen
+concrete type. Each specialization is checked and compiled once. Type arguments
+are currently mandatory; generic classes and methods are not implemented yet.
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,
-recursive types and stored references remain future work. Traits and generics are deferred; async/await is out of
+recursive types and stored references remain future work. Structural protocols are next; async/await is out of
 scope. See [DESIGN.md](DESIGN.md) for the language contract and roadmap.
 
 When a lesson feels awkward, that is useful feedback for the language design.

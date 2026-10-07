@@ -11,6 +11,14 @@ fn workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
     dir
 }
 
+#[test]
+fn explicit_generics_resolve_imports_aliases_and_definition_scope() {
+    run(&[
+        ("maths.plenty", "def helper(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def bumped[T: IntType](x: T) -> i64:\n    helper(i64(x))\n"),
+        ("main.plenty", "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> ():\n    print(keep[Count](7))\n    print(maths.identity[list[i64]]([1, 2]))\n    print(maths.bumped[u16](4))\n"),
+    ], "main.plenty", "7\n[1, 2]\n5\n");
+}
+
 fn run(files: &[(&str, &str)], entry: &str, expected: &str) {
     let dir = workspace(files);
     let source = dir.path().join(entry);

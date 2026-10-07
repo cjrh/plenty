@@ -15,6 +15,7 @@ mod contexts;
 mod enums;
 mod files;
 mod generators;
+mod generics;
 mod modules;
 mod references;
 
@@ -331,8 +332,10 @@ fn lex(source: &str) -> Result<Vec<Token>> {
     Ok(out)
 }
 
+#[derive(Clone)]
 struct Function {
     name: String,
+    type_params: Vec<(String, Option<TypeRef>)>,
     at: Token,
     inputs: Vec<(String, TypeRef)>,
     output: TypeRef,
@@ -493,10 +496,12 @@ struct TypeAlias {
     target: TypeRef,
 }
 
+#[derive(Clone)]
 struct Stmt {
     at: Token,
     kind: Statement,
 }
+#[derive(Clone)]
 enum Statement {
     Unpack {
         names: Vec<String>,
@@ -544,11 +549,14 @@ enum Statement {
     },
 }
 
+#[derive(Clone)]
 struct Expr {
     at: Token,
     kind: Expression,
 }
+#[derive(Clone)]
 enum Expression {
+    GenericCall(String, Vec<TypeRef>, Vec<Expr>),
     Tuple(Vec<Expr>, bool),
     Try(Box<Expr>),
     FallibleCollection(Box<Expr>),
@@ -580,6 +588,7 @@ enum Expression {
     },
 }
 
+#[derive(Clone)]
 enum Clause {
     For(Vec<String>, Expr),
     If(Expr),
@@ -718,6 +727,28 @@ impl Parser {
         if class.is_none() && builtin(&name) {
             return Err(at.error("cannot redefine a builtin"));
         }
+        let mut type_params = Vec::new();
+        if self.eat("[") {
+            if class.is_some() {
+                return Err(at.error("generic methods are not supported yet"));
+            }
+            loop {
+                let param = self.name()?;
+                if builtin(&param) || type_params.iter().any(|(n, _)| n == &param) {
+                    return Err(at.error("duplicate or builtin type parameter"));
+                }
+                let bound = if self.eat(":") {
+                    Some(self.ty()?)
+                } else {
+                    None
+                };
+                type_params.push((param, bound));
+                if self.eat("]") {
+                    break;
+                }
+                self.expect(",")?;
+            }
+        }
         self.expect("(")?;
         let mut inputs = Vec::new();
         while !self.eat(")") {
@@ -786,6 +817,7 @@ impl Parser {
             String::new()
         };
         Ok(Function {
+            type_params,
             name,
             at,
             inputs,
@@ -1059,6 +1091,26 @@ impl Parser {
         };
         let mut left = Expr { at, kind };
         loop {
+            if self.peek().is("[") {
+                fn path(e: &Expr) -> Option<String> {
+                    match &e.kind {
+                        Expression::Name(n) => Some(n.clone()),
+                        Expression::Member(base, n) => Some(format!("{}.{n}", path(base)?)),
+                        _ => None,
+                    }
+                }
+                if let Some(name) = path(&left) {
+                    let saved = self.pos;
+                    if let Ok(types) = self.type_arguments() {
+                        if self.eat("(") {
+                            let args = self.arguments()?;
+                            left.kind = Expression::GenericCall(name, types, args);
+                            continue;
+                        }
+                    }
+                    self.pos = saved;
+                }
+            }
             if self.peek().is("?") {
                 let at = self.take();
                 left = Expr {
@@ -1203,6 +1255,7 @@ fn builtin(name: &str) -> bool {
                 | "Result"
                 | "Generator"
                 | "tuple"
+                | "IntType"
                 | "next"
                 | "copy"
                 | "try_copy"
@@ -1440,6 +1493,9 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
+            Expression::GenericCall(..) => {
+                return Err(e.at.error("generic call was not specialized"))
+            }
             Expression::Try(value) => {
                 if self.yield_type.is_some() {
                     return Err(e
@@ -2287,6 +2343,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
     modules::check_api(&public_api, &aliases, &access)?;
     functions.extend(classes::expand(classes, &aliases)?);
+    let functions = generics::expand(functions, &aliases)?;
     let mut sigs = HashMap::new();
     for f in &functions {
         if f.inputs.len() > 256 {

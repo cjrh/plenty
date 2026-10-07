@@ -6,6 +6,7 @@ pub(super) struct EnumDecl {
     pub(super) name: String,
     pub(super) variants: Vec<(String, Vec<TypeRef>)>,
 }
+#[derive(Clone)]
 pub(super) struct Case {
     at: Token,
     pub(super) pattern: Option<(Option<TypeRef>, String, Option<Vec<String>>)>,
