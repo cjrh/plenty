@@ -202,13 +202,6 @@ impl Lower<'_> {
         else {
             unreachable!()
         };
-        // The initial milestone supports literals; comprehensions use this same
-        // builder once their failure-driven iteration contract is enabled.
-        if !clauses.is_empty() {
-            return Err(e
-                .at
-                .error("fallible comprehensions are not implemented yet"));
-        }
         let expected = match expected {
             Some(Ty::Enum(t))
                 if t.propagatable()
@@ -318,6 +311,10 @@ impl Lower<'_> {
                 let temporary_start = self.expression_temps.len();
                 self.comprehension(rest, entries, kind, result, ty, pending, &mut body)?;
                 self.finish_temporaries(temporary_start, &mut body);
+                if let Some(pending) = pending {
+                    body.extend(allocation_succeeded(pending));
+                    body.push(branch(vec![], vec![Op::Break]));
+                }
                 body.extend(step);
                 ops.push(Op::Loop {
                     condition: condition.into(),

@@ -32,6 +32,76 @@ print(nested())
 "#, "Result[list[i64], AllocError].Ok([1, 2, 3])\nResult[set[i64], AllocError].Ok({3, 1})\nResult[dict[str, i64], AllocError].Ok({\"a\": 2})\nResult[list[u8], AllocError].Ok([])\nResult[list[list[i64]], AllocError].Ok([[1, 2], [3]])");
 }
 
+#[test]
+fn comprehensions_support_nested_loops_filters_and_all_collection_kinds() {
+    native(r#"
+print(try [a * b for a in range(3) for b in range(3) if b != 1])
+print(try {a % 2 for a in range(5)})
+print(try {a: a * a for a in range(3)})
+"#, "Result[list[i64], AllocError].Ok([0, 0, 0, 2, 0, 4])\nResult[set[i64], AllocError].Ok({0, 1})\nResult[dict[i64, i64], AllocError].Ok({0: 0, 1: 1, 2: 4})");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_comprehension_stops_before_advancing_its_generator() {
+    native(
+        r#"
+def values() -> Generator[i64]:
+    yield 1
+    print("unexpected resume")
+    yield 2
+source = values()
+print("__test_fail_allocations_after_1__")
+result = try [n for n in source]
+print("__test_restore_allocations__")
+print(result)
+"#,
+        "Result[list[i64], AllocError].Err(AllocError.OutOfMemory)",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn nested_failure_stops_both_loops() {
+    native(
+        r#"
+def mark(n: i64) -> i64:
+    print("entry")
+    n
+outer = [1, 2]
+inner = [3, 4]
+print("__test_fail_allocations_after_1__")
+result = try [mark(a + b) for a in outer for b in &inner]
+print("__test_restore_allocations__")
+print(result)
+"#,
+        "entry\nResult[list[i64], AllocError].Err(AllocError.OutOfMemory)",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn comprehension_growth_failure_reclaims_owned_elements() {
+    for budget in 0..=4 {
+        native(
+            &format!(
+                r#"
+source = [[1], [2], [3], [4], [5], [6], [7], [8], [9]]
+print("__test_fail_allocations_after_{budget}__")
+result = try [value for value in source]
+print("__test_restore_allocations__")
+print(result)
+"#
+            ),
+            if budget == 4 {
+                "Result[list[list[i64]], AllocError].Ok([[1], [2], [3], [4], [5], [6], [7], [8], [9]])"
+            } else {
+                "Result[list[list[i64]], AllocError].Err(AllocError.OutOfMemory)"
+            },
+        );
+    }
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failure_at_each_literal_allocation_is_recoverable() {

@@ -3128,6 +3128,19 @@ such as `values: Result[list[i64], AllocError] = try []`.
 
 ### Collecting iterators
 
+Comprehensions support the same explicit allocation boundary:
+
+```plenty
+def main() -> ():
+    print(try [n * n for n in range(6) if n % 2 == 0])
+```
+```output
+Result[list[i64], AllocError].Ok([0, 4, 16])
+```
+
+Output allocation failure stops iteration and drops the partial result. It does
+not undo earlier effects or catch failures in ordinary calls inside the expression.
+
 Collect an owned iterator with recoverable list growth:
 
 ```plenty

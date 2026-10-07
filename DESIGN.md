@@ -383,6 +383,11 @@ use nested `try` displays and explicit `?` for their failures. `?` still propaga
 from the enclosing function, not into a surrounding display's Result. This is
 an explicit construction expression, not exception handling.
 
+The same prefix supports comprehensions, including nested loops and filters.
+After output growth fails, no iterator advances or later filter/element expression
+runs. Active hidden iterators and yielded owners are cleaned up. Iterable
+construction and expressions inside the comprehension retain their own contracts.
+
 `list[T].try_from(source)` and `set[T].try_from(source)` consume an owned
 collection, range, or generator and return `Result[list[T], AllocError]` or
 `Result[set[T], AllocError]`. Output construction and growth are fallible.
