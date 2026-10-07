@@ -26,7 +26,10 @@ pub(super) fn emit_generator(
     module: &mut ObjectModule,
 ) -> Result<()> {
     let decl = &fns[name];
-    let resume_id = decl.resume.unwrap();
+    // Both entry points use the same frame shape and compiled resume body.
+    let original = name.strip_prefix("__plenty_try_generator_").unwrap_or(name);
+    let fallible = original != name;
+    let resume_id = fns[original].resume.unwrap();
     let slot_types: Vec<_> = decl
         .sig
         .inputs
@@ -35,20 +38,22 @@ pub(super) fn emit_generator(
         .chain(decl.locals.iter().cloned())
         .collect();
     let mask_id = module.declare_data(
-        &format!("__plenty_frame_{name}"),
+        &format!("__plenty_frame_{original}"),
         Linkage::Local,
         false,
         false,
     )?;
-    let mut mask = DataDescription::new();
-    mask.define(vec![0; slot_types.len().max(1) * 8].into_boxed_slice());
-    mask.set_align(8);
-    for (i, ty) in slot_types.iter().enumerate() {
-        let id = metadata::declare(module, runtime, ty)?;
-        let reference = module.declare_data_in_data(id, &mut mask);
-        mask.write_data_addr((i * 8) as u32, reference, 0);
+    if !fallible {
+        let mut mask = DataDescription::new();
+        mask.define(vec![0; slot_types.len().max(1) * 8].into_boxed_slice());
+        mask.set_align(8);
+        for (i, ty) in slot_types.iter().enumerate() {
+            let id = metadata::declare(module, runtime, ty)?;
+            let reference = module.declare_data_in_data(id, &mut mask);
+            mask.write_data_addr((i * 8) as u32, reference, 0);
+        }
+        module.define_data(mask_id, &mask)?;
     }
-    module.define_data(mask_id, &mask)?;
 
     // Constructor: transfer arguments into zero-initialized frame slots. No
     // source body instruction runs until the first next/iteration.
@@ -69,7 +74,7 @@ pub(super) fn emit_generator(
         let mask = module.declare_data_in_func(mask_id, b.func);
         let mask = b.ins().global_value(PTR_TY, mask);
         let count = b.ins().iconst(types::I64, slot_types.len() as i64);
-        if matches!(decl.sig.outputs.first(), Some(Ty::Enum(_))) {
+        if fallible {
             let n = decl.sig.inputs.len();
             let slot = b.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
                 cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
@@ -105,6 +110,10 @@ pub(super) fn emit_generator(
         b.finalize();
     }
     module.define_function(decl.id, &mut ctx)?;
+
+    if fallible {
+        return Ok(());
+    }
 
     let mut ctx = Context::new();
     ctx.func = Function::with_name_signature(

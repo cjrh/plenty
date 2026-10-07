@@ -578,7 +578,9 @@ fn collect_user_fns(
                         },
                         id,
                         generator: f.generator.clone(),
-                        resume: if f.generator.is_some() {
+                        resume: if f.generator.is_some()
+                            && !name.starts_with("__plenty_try_generator_")
+                        {
                             Some(module.declare_function(
                                 &format!("__plenty_resume_{name}"),
                                 Linkage::Local,

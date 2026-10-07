@@ -1580,6 +1580,10 @@ constructor. Allocation failure releases them; success transfers them into the
 frame without executing the body. Ordinary calls retain aborting frame allocation.
 Frame destruction remains allocation-free and does not resume the body.
 
+Ordinary and fallible generator constructors share one emitted resume function
+and one immutable frame descriptor. Adding the checked entry point does not
+duplicate compilation of the generator body.
+
 A function containing `yield` declares `Generator[T]`. Calls evaluate arguments
 and create an owned frame without running the body. Each resume executes native
 code until a statement-only `yield value`, bare `return`, or fallthrough.

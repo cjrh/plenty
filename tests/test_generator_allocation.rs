@@ -77,6 +77,47 @@ print(consume())
     );
 }
 
+#[test]
+fn generator_entry_points_share_native_resume_code() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("generator");
+    let source = temp.path().join("program.plenty");
+    std::fs::write(
+        &source,
+        r#"
+def numbers() -> Generator[i64]:
+    yield 5
+def main() -> ():
+    print(list(numbers()))
+    drop(numbers.try_new())
+"#,
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg("--compile")
+        .arg(source)
+        .arg("-o")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let binary = std::fs::read(path).unwrap();
+    let ordinary = b"__plenty_resume_numbers\0";
+    let duplicate = b"__plenty_resume___plenty_try_generator_";
+    assert_eq!(
+        binary
+            .windows(ordinary.len())
+            .filter(|b| *b == ordinary)
+            .count(),
+        1
+    );
+    assert!(!binary.windows(duplicate.len()).any(|b| b == duplicate));
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn checked_frame_failure_releases_moved_captures() {
