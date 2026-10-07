@@ -49,6 +49,63 @@ fn collection_conversion_checks_types_and_consumes_its_source() {
     }
 }
 
+#[test]
+fn set_conversion_deduplicates_and_preserves_first_seen_order() {
+    native(r#"
+print(set[i64].try_from([3, 1, 3, 2]))
+print(set[str].try_from(["a", "b", "a"]))
+print(set[i64].try_from(range(0)))
+print(list[str].try_from({"a": 1, "b": 2}))
+"#, "Result[set[i64], AllocError].Ok({3, 1, 2})\nResult[set[str], AllocError].Ok({\"a\", \"b\"})\nResult[set[i64], AllocError].Ok(set())\nResult[list[str], AllocError].Ok([\"a\", \"b\"])");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn set_conversion_recovers_from_entry_and_hash_table_growth_failure() {
+    for budget in 0..=6 {
+        native(
+            &format!(
+                r#"
+source = [0, 1, 2, 3, 4, 5, 6, 7, 8, 0]
+print("__test_fail_allocations_after_{budget}__")
+result = set[i64].try_from(source)
+print("__test_restore_allocations__")
+print(result)
+"#
+            ),
+            if budget == 6 {
+                "Result[set[i64], AllocError].Ok({0, 1, 2, 3, 4, 5, 6, 7, 8})"
+            } else {
+                "Result[set[i64], AllocError].Err(AllocError.OutOfMemory)"
+            },
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_collection_abandons_generator_before_its_next_effect() {
+    native(
+        r#"
+class Resource:
+    n: i64
+    def __del__(self: &mut Resource) -> ():
+        print("__test_restore_allocations__")
+        print(self.n)
+def numbers(r: Resource) -> Generator[i64]:
+    yield 4
+    print("unexpected continuation")
+    yield r.n
+source = numbers(Resource(7))
+print("__test_fail_allocations_after_1__")
+result = set[i64].try_from(source)
+print("__test_restore_allocations__")
+print(result)
+"#,
+        "7\nResult[set[i64], AllocError].Err(AllocError.OutOfMemory)",
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn output_failure_reclaims_partial_collection_and_remaining_source() {

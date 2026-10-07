@@ -1,6 +1,7 @@
 # Runtime allocation audit
 
-Audited after `4f63036`. This covers generated-program allocation, not compiler
+Initially audited after `4f63036`, updated through the recoverable-construction
+batch. This covers generated-program allocation, not compiler
 memory. Existing ordinary construction remains aborting; explicit `try_` entry
 points provide incremental recovery without silently changing expression types.
 
@@ -8,9 +9,10 @@ points provide incremental recovery without silently changing expression types.
 | --- | --- | --- |
 | Empty/reserved collections | `try_collection_new`, exposed by `try_new`/`try_with_capacity` | Already recoverable |
 | Collection growth and explicit duplication | Checked reservations and guarded partial copies | Already recoverable through `try_` methods |
-| Class storage | `try_record_new` exists; ordinary construction unwraps it | Expose `Class.try_new(arguments)` |
-| User enum storage | Same record allocator; ordinary variants unwrap it | Explicit fallible variant construction |
-| Generator frame | `memory::allocate` aborts | Checked frame allocation, then a source-level boundary |
+| Class storage | `Class.try_new`, optional `Result[(), AllocError]` initializer | Implemented, including partial-field cleanup |
+| User enum storage | `Enum.Variant.try_new` | Implemented; ordinary variants still abort |
+| Generator frame | `generator_function.try_new` | Implemented; ordinary calls still abort |
+| Eager iterator collection | `list[T].try_from` and `set[T].try_from` | Implemented; iterator body operations retain their own contracts |
 | Literals/comprehensions | Ordinary collection construction and insertion | Explicit fallible construction context; preserve evaluation order |
 | Strings | Literals are immortal; builders have fallible alternatives | Audit implicit concatenation and formatting separately |
 | Console/file APIs | Explicit I/O results include allocation errors | Keep partial-read/write contracts |
@@ -20,7 +22,7 @@ points provide incremental recovery without silently changing expression types.
 
 ## Construction contract
 
-The first class API will be `Class.try_new(arguments) -> Result[Class, AllocError]`.
+The class API is `Class.try_new(arguments) -> Result[Class, AllocError]`.
 Arguments evaluate once, left to right, before allocation. Owned arguments move
 into the call even if allocation fails; failure drops them. Allocation failure
 must not run `__init__` or `__del__` for an instance that never existed. Successful
@@ -28,10 +30,10 @@ construction uses the same initialization and destruction behavior as `Class(...
 Allocations inside argument expressions or an ordinary `__init__` remain subject
 to their own contracts; this API does not catch aborts or arbitrary failures.
 
-Allowing initialization itself to return an error needs a separate contract for
-partial fields and custom destruction. Never invoke a whole-instance `__del__`
-on an incompletely initialized value. Similarly, a generator allocation error
-must release captured arguments without executing its body.
+Initialization can return `Result[(), AllocError]`. Initialized fields are dropped
+on failure; whole-instance `__del__` is activated only after success. Other
+initializer error types remain future work. Generator allocation failure releases
+captured arguments without executing the body.
 
 ## Validation obligations
 

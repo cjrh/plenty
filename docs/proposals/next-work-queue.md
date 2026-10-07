@@ -3,6 +3,13 @@
 Status: proposed priorities after commit `4f63036`; these are not implemented
 features or a promise that each item fits one implementation cycle.
 
+Update after the next ten-cycle batch: the allocation audit, fallible class/enum
+and generator construction, partial initializer cleanup, and fallible list/set
+collection are implemented. Ordinary literals/comprehensions, remaining implicit
+allocation paths, and allocator provenance are still the next priorities. The
+numbered list below records the original queue rather than current status; see
+`DESIGN.md` for implemented contracts.
+
 The next priority is to finish the recoverable-allocation foundation, then expand
 borrowing and generic programming. Text file I/O now has a useful baseline;
 buffering and additional stream conveniences can wait.

@@ -545,6 +545,11 @@ impl Lower<'_> {
                         .at
                         .error("class construction uses Class(...) or Class.try_new(...)"));
                 }
+                if class.depth >= 64 {
+                    return Err(base
+                        .at
+                        .error("type nesting exceeds the implementation limit of 64"));
+                }
                 modules::check_member(self.access, &class.name, "__new__", &base.at)?;
                 return self.call_named(
                     &crate::record::method(&class.name, "try_new"),
@@ -1136,7 +1141,7 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if name == "try_from" && matches!(ty, Ty::List(_)) {
+        if name == "try_from" && matches!(ty, Ty::List(_) | Ty::Set(_)) {
             if args.len() != 1 {
                 return Err(at.error("try_from requires one owned iterable"));
             }

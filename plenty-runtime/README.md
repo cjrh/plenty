@@ -228,3 +228,12 @@ copied into the runtime build. For example, a nightly address-sanitized archive
 can use `-Zsanitizer=address -Clto=off`, with an ASan-capable `cc` linker wrapper.
 Native integration tests remain essential because Miri cannot execute
 Cranelift-generated machine code.
+## Recoverable construction
+
+Aggregate opcode 108 allocates a checked class/enum record and returns an inline
+Result. Opcode 109 activates a class destructor only after successful field
+initialization. Partial instances release fields without calling the class hook.
+`plenty_generator_try_new` consumes a capture buffer into a frame or releases its
+entries on allocation failure, returning a Result through an aligned output slot.
+Its resume callback and metadata are shared with ordinary generator construction.
+These interfaces are internal compiler/runtime ABIs, not public foreign layouts.

@@ -62,6 +62,45 @@ def main() -> ():
     );
 }
 
+#[test]
+fn fallible_nominal_and_generator_constructors_resolve_imports() {
+    run(&[
+        ("data.plenty", r#"
+pub class Number:
+    pub value: i64
+pub enum Message:
+    Value(i64)
+pub def numbers() -> Generator[i64]:
+    yield 5
+"#),
+        ("main.plenty", r#"
+import data
+from data import Number as N
+def collect() -> Result[list[i64], AllocError]:
+    source = data.numbers.try_new()?
+    list[i64].try_from(source)
+def main() -> ():
+    print(N.try_new(3))
+    print(data.Message.Value.try_new(4))
+    print(collect())
+"#),
+    ], "main.plenty", "Result[data.Number, AllocError].Ok(data.Number(value=3))\nResult[data.Message, AllocError].Ok(data.Message.Value(4))\nResult[list[i64], AllocError].Ok([5])\n");
+}
+
+#[test]
+fn fallible_class_constructor_preserves_private_visibility() {
+    reject(
+        &[
+            ("data.plenty", "pub class Secret:\n    value: i64\n"),
+            (
+                "main.plenty",
+                "import data\ndef main() -> ():\n    drop(data.Secret.try_new(1))\n",
+            ),
+        ],
+        "__new__` is private",
+    );
+}
+
 fn reject(files: &[(&str, &str)], expected: &str) {
     let dir = workspace(files);
     let source = dir.path().join("main.plenty");

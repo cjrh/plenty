@@ -3101,7 +3101,9 @@ also closes on exit, while retaining the original owner in its closed state.
 Read errors may consume input before failing. Automatic context exit cannot
 report close errors; call `file.close()?` explicitly when those matter.
 
-## Recoverable class construction
+## Recoverable construction
+
+### Collecting iterators
 
 Collect an owned iterator with recoverable list growth:
 
@@ -3124,6 +3126,22 @@ Result[list[i64], AllocError].Ok([3, 6])
 `try_from` consumes the source. If output allocation fails, it drops the partial
 list and remaining iterator. Earlier iterator side effects are not undone, and
 allocations inside the generator body still follow that body's chosen APIs.
+
+Sets provide the same constructor, removing duplicates in first-seen order:
+
+```plenty
+def main() -> ():
+    print(set[i64].try_from([3, 1, 3, 2]))
+```
+```output
+Result[set[i64], AllocError].Ok({3, 1, 2})
+```
+
+The input list literal here uses ordinary allocation. For recovery throughout
+construction, create the input with fallible APIs too. Dictionary sources iterate
+over keys; borrowed sources and string iteration are not supported by `try_from`.
+
+### Creating generators
 
 Generators can be returned inside `Result` and extracted with `?`:
 
@@ -3153,6 +3171,8 @@ Result[i64, AllocError].Ok(30)
 their own failure behavior, and moved arguments are dropped on allocation failure.
 Dropping a wrapped generator releases its captures without executing its body.
 
+### Creating enum values
+
 Enum variants also offer explicit fallible construction:
 
 ```plenty
@@ -3171,6 +3191,8 @@ Result[Message, AllocError].Ok(Message.Empty)
 
 Payload arguments move into the constructor and are dropped if its allocation
 fails. Nullary variants take no arguments to `try_new`.
+
+### Creating classes
 
 Use `Class.try_new(...)` to handle failure to allocate instance storage. It takes
 the same arguments as the ordinary constructor and works with `?`:

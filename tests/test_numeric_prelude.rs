@@ -79,7 +79,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
     "match Some(()):\n    case Some(u):\n        r = &u\n    case Nothing:\n        pass",
     "expected a value, got ()"
 )]
-#[case("x = 42\ny = Some(&x)", "references and generators cannot be stored")]
+#[case("x = 42\ny = Some(&x)", "references cannot be stored")]
 #[case("mut xs = [1.0]\nr = &xs\nxs.append(2.0)\nprint(r)", "borrow")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();

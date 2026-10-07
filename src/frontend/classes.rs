@@ -211,6 +211,11 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
         }
         let instance = "__plenty_instance";
         for fallible in [false, true] {
+            // Do not reject an otherwise valid depth-64 class merely because
+            // its unused generated Result constructor would exceed the limit.
+            if fallible && ty.depth >= 64 {
+                continue;
+            }
             if ty.fallible_init && !fallible {
                 continue;
             }

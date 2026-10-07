@@ -67,8 +67,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
 | Direct and mutual tail calls | Implemented where borrowing and observable cleanup permit |
 | Early returns and return-aware branch checking | Implemented in AOT |
-| Concrete enums, tagged payloads, exhaustive matching | Implemented |
-| Fixed-layout classes, constructors, methods, custom cleanup | Implemented |
+| Concrete enums, tagged payloads, exhaustive matching | Implemented, including fallible `Enum.Variant.try_new` |
+| Fixed-layout classes, constructors, methods, custom cleanup | Implemented, including `Class.try_new`, fallible initializers, and partial-field cleanup |
 | `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
 | Unit values | Expressions, function returns, and enum payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
@@ -101,7 +101,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
 | `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
-| Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
+| Recoverable allocation failure | Collection, class, enum, and generator `try_new` constructors; fallible initializers; list/set `try_from`; checked growth/copy/text/I/O APIs. Ordinary literals/comprehensions, construction, and convenience formatting still have aborting paths |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
 | Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
 | Recoverable text operations | `str.try_concat(other)`, `str.try_join(parts)`, `str.try_slice(start, stop)`, and `str.try_replace(old, new)` return `Result[str, AllocError]`; `str.try_split(separator)` and `str.try_splitlines(keepends=False)` return `Result[list[str], AllocError]` |
@@ -218,7 +218,7 @@ New practical I/O APIs must return explicit errors, including allocation failure
 in their own buffers and result construction. They must not hide infallible
 `String` growth behind a fallible public signature. Input consumption and partial
 external writes cannot generally be rolled back; their contracts must say so.
-This does not retroactively make literals, comprehensions, class/generator
+This does not retroactively make literals, comprehensions, ordinary class/generator
 construction, printing, or all runtime bookkeeping recoverable. Those existing
 terminal paths remain tracked work. Allocator provenance must be retained by an
 owner when custom allocators arrive; no public allocator switching API exists yet.
@@ -373,8 +373,10 @@ calls so observable cleanup happens after the callee returns.
 
 ### Collections and iteration
 
-`list[T].try_from(source)` consumes an owned collection, range, or generator and
-returns `Result[list[T], AllocError]`. Output construction and growth are fallible.
+`list[T].try_from(source)` and `set[T].try_from(source)` consume an owned
+collection, range, or generator and return `Result[list[T], AllocError]` or
+`Result[set[T], AllocError]`. Output construction and growth are fallible.
+Sets require hashable elements and preserve the first occurrence of each value.
 Failure destroys the partial output, current element, and remaining source;
 generator side effects before failure are not rolled back. Source construction
 and allocations performed by a generator body keep their own failure contracts.
@@ -1129,8 +1131,8 @@ do not expand exponentially. There is no runtime metadata parsing or allocation.
 
 `Option[T]` and `Result[T, E]` are compiler-known concrete enum constructors,
 without user generics or traits. Payloads may be integers, floats, bool, str,
-collections, classes, other nonrecursive enums, or unit. References and generators
-cannot be payloads. Enums can be list elements and dictionary values, but are
+collections, classes, other nonrecursive enums, generators, or unit. References
+cannot be payloads. Enums without generator payloads can be list elements and dictionary values, but are
 not dictionary keys or set elements in the initial closed hashable-type set.
 
 `Some`, `Nothing`, `Ok`, and `Err` are compiler-known prelude names. Constructors
@@ -1351,8 +1353,9 @@ def main() -> ():
 ```
 
 Without `__init__`, the compiler generates a positional constructor taking all
-fields in declaration order. An explicit `def __init__(self, ...) -> ()`
-overrides it. Every field must be definitely initialized on every normal exit;
+fields in declaration order. An explicit `__init__` returning `()` or
+`Result[(), AllocError]` overrides it. Every field must be definitely initialized
+on every successful exit;
 branches merge their initialization sets, and a loop alone cannot establish
 initialization because it may run zero times. Already initialized fields may be
 read. Passing or borrowing the whole partially initialized instance is rejected.
@@ -1427,7 +1430,8 @@ unless reinitialized; exiting branches are excluded. Each loop backedge,
 including `continue`, must preserve availability of outer owners available at
 entry. A move followed by mutable reinitialization is accepted; a move reaching
 a backedge is conservatively rejected. Break paths join the zero-iteration path.
-A generator cannot be copied or stored in an aggregate. Collection/enum payloads
+A generator cannot be copied or stored in collections, classes, or user enums;
+standard `Option`/`Result` wrappers can own it. Collection/enum payloads
 can be owned mutable values: construction transfers ownership, and consuming
 matches transfer their bound payloads. Enums with such payloads are also affine.
 
@@ -1853,7 +1857,9 @@ implemented. The new design review changes the recommended priority:
    and checked character lookup, slices, replacement, and dictionary snapshots now have recoverable
    `try_` APIs). Numeric parsing/formatting, console I/O, argument snapshots,
    and Linux whole-file text helpers now have explicit failure contracts. Continue
-   with broader stream APIs and the remaining construction/allocator gaps. Add allocation
+   with ordinary literal/comprehension construction and allocator provenance.
+   Class/enum/generator checked constructors and list/set iterator collection are
+   implemented. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
 4. Broaden borrowing for elements, owned-element iteration,
    and more precise returned-reference contracts. Concrete context managers now

@@ -1765,6 +1765,51 @@ fn oversized_generator_frame_fails_before_reading_metadata() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
+fn native_checked_generator_abi_consumes_captures_on_both_paths() {
+    static MANAGED: [&Type; 1] = [&LIST_INT];
+    for budget in 0..=1 {
+        unsafe {
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            let captures = [child];
+            let mut out = 0;
+            crate::accounting::fail_after(Some(budget));
+            crate::generators::plenty_generator_try_new(
+                never_resume,
+                1,
+                MANAGED.as_ptr().cast(),
+                captures.as_ptr(),
+                1,
+                &mut out,
+            );
+            crate::accounting::fail_after(None);
+            if budget == 0 {
+                assert_eq!(out, crate::aggregates::wrap(0, 1));
+            } else {
+                assert_eq!(out >> 64, 0);
+                plenty_release(out as *mut Header);
+            }
+        }
+    }
+}
+
+#[test]
+fn partial_class_cleanup_skips_hook_until_explicitly_armed() {
+    unsafe {
+        let partial = collection(108, 0, 0, 0, &GUARD);
+        assert_eq!(partial >> 64, 0);
+        *((partial as *mut u8).add(32).cast::<u128>()) = 41;
+        plenty_release(partial as *mut Header);
+        assert!(trace().is_empty());
+        let complete = collection(108, 0, 0, 0, &GUARD);
+        *((complete as *mut u8).add(32).cast::<u128>()) = 42;
+        collection(109, complete, hook as *const () as u128, 0, ptr::null());
+        plenty_release(complete as *mut Header);
+        assert_eq!(trace(), [42]);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
 fn generator_frame_failure_does_not_consume_captures() {
     static MANAGED: [&Type; 1] = [&GENERATOR];
     unsafe {
