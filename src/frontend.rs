@@ -2107,6 +2107,18 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                     .error("mutable returned references require a mutable reference parameter"));
             }
         }
+        if generators::yields(&f.body) {
+            if let Some(Ty::Generator(_)) = &output {
+                let result = crate::sum::result(output.clone().unwrap(), crate::sum::alloc_error());
+                sigs.insert(
+                    generators::constructor(&f.name),
+                    Rc::new(FnSig {
+                        inputs: inputs.clone(),
+                        outputs: vec![result],
+                    }),
+                );
+            }
+        }
         let outputs = output.into_iter().collect();
         sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
     }
@@ -2210,21 +2222,25 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         {
             classes::preserve_drop_order(&mut body);
         }
-        ops.push(Op::DefineFn(
-            f.name,
-            CompiledFn {
-                location: f
-                    .at
-                    .source
-                    .as_ref()
-                    .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
-                generator: yield_type,
-                sig,
-                doc: f.doc.into(),
-                body: body.into(),
-                locals: lower.locals.into(),
-            },
-        ));
+        let compiled = CompiledFn {
+            location: f
+                .at
+                .source
+                .as_ref()
+                .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
+            generator: yield_type,
+            sig,
+            doc: f.doc.into(),
+            body: body.into(),
+            locals: lower.locals.into(),
+        };
+        if compiled.generator.is_some() {
+            let name = generators::constructor(&f.name);
+            let mut fallible = compiled.clone();
+            fallible.sig = sigs[&name].clone();
+            ops.push(Op::DefineFn(name, fallible));
+        }
+        ops.push(Op::DefineFn(f.name, compiled));
     }
     if require_main {
         ops.push(Op::Call("main".into()));

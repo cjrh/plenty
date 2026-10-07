@@ -69,16 +69,39 @@ pub(super) fn emit_generator(
         let mask = module.declare_data_in_func(mask_id, b.func);
         let mask = b.ins().global_value(PTR_TY, mask);
         let count = b.ins().iconst(types::I64, slot_types.len() as i64);
-        let new = module.declare_func_in_func(runtime.generator_new, b.func);
-        let call = b.ins().call(new, &[callback, count, mask]);
-        let frame = b.inst_results(call)[0];
-        for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
-            let value = b.block_params(entry)[i];
-            let value = enums::pack_value(&mut b, value, ty);
+        if matches!(decl.sig.outputs.first(), Some(Ty::Enum(_))) {
+            let n = decl.sig.inputs.len();
+            let slot = b.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                ((n + 1) * 16) as u32,
+                4,
+            ));
+            let captures = b.ins().stack_addr(PTR_TY, slot, 0);
+            for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
+                let value = b.block_params(entry)[i];
+                let value = enums::pack_value(&mut b, value, ty);
+                b.ins()
+                    .store(MemFlags::trusted(), value, captures, i as i32 * 16);
+            }
+            let out = b.ins().iadd_imm(captures, (n * 16) as i64);
+            let n = b.ins().iconst(types::I64, n as i64);
+            let new = module.declare_func_in_func(runtime.generator_try_new, b.func);
             b.ins()
-                .store(MemFlags::trusted(), value, frame, 64 + i as i32 * 16);
+                .call(new, &[callback, count, mask, captures, n, out]);
+            let result = b.ins().load(types::I128, MemFlags::trusted(), out, 0);
+            b.ins().return_(&[result]);
+        } else {
+            let new = module.declare_func_in_func(runtime.generator_new, b.func);
+            let call = b.ins().call(new, &[callback, count, mask]);
+            let frame = b.inst_results(call)[0];
+            for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
+                let value = b.block_params(entry)[i];
+                let value = enums::pack_value(&mut b, value, ty);
+                b.ins()
+                    .store(MemFlags::trusted(), value, frame, 64 + i as i32 * 16);
+            }
+            b.ins().return_(&[frame]);
         }
-        b.ins().return_(&[frame]);
         b.finalize();
     }
     module.define_function(decl.id, &mut ctx)?;

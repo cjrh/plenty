@@ -72,6 +72,39 @@ pub(crate) unsafe fn try_new(
     }
     Ok(g)
 }
+
+/// Native ABI: consumes the capture prefix on both success and failure. The
+/// metadata covers all slots; captures and out are aligned, disjoint buffers.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_generator_try_new(
+    resume: Resume,
+    count: u64,
+    managed: *const *const Type,
+    captures: *const u128,
+    capture_count: u64,
+    out: *mut u128,
+) {
+    unsafe {
+        assert!(capture_count <= count);
+        let result = match try_new(resume, count, managed) {
+            Ok(frame) => {
+                std::ptr::copy_nonoverlapping(
+                    captures,
+                    std::ptr::addr_of_mut!((*frame).slots).cast(),
+                    capture_count as usize,
+                );
+                crate::aggregates::wrap(frame as u128, 0)
+            }
+            Err(error) => {
+                for i in (0..capture_count as usize).rev() {
+                    release(*captures.add(i), &**managed.add(i));
+                }
+                crate::aggregates::wrap(crate::aggregates::wrap(0, error as u64), 1)
+            }
+        };
+        out.write(result);
+    }
+}
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_generator_resume(g: *mut Generator, out: *mut u128) -> u8 {
     unsafe {

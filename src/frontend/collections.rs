@@ -498,6 +498,12 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if name == "try_new" {
+            if let Expression::Name(function) = &ungroup(base).kind {
+                let constructor = generators::constructor(function);
+                if !self.names.contains_key(function) && self.sigs.contains_key(&constructor) {
+                    return self.call_named(&constructor, args, &base.at, ops);
+                }
+            }
             if let Expression::Member(owner, variant) = &ungroup(base).kind {
                 if let Some(Ty::Enum(t)) = self.qualified_type(owner)? {
                     if t.depth >= 64 {

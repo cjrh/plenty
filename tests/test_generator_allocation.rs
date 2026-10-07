@@ -55,3 +55,48 @@ drop(Some(numbers(Resource(7))))
         "7",
     );
 }
+
+#[test]
+fn checked_generator_constructor_defers_execution_and_propagates() {
+    native(
+        r#"
+def numbers(n: i64) -> Generator[i64]:
+    print("resumed")
+    yield n
+def consume() -> Result[i64, AllocError]:
+    mut source = numbers.try_new(12)?
+    print("created")
+    match next(source):
+        case Some(n):
+            return Ok(n)
+        case Nothing:
+            return Ok(0)
+print(consume())
+"#,
+        "created\nresumed\nResult[i64, AllocError].Ok(12)",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn checked_frame_failure_releases_moved_captures() {
+    native(
+        r#"
+def numbers(values: list[i64]) -> Generator[i64]:
+    print("unexpected resume")
+    for n in values:
+        yield n
+values = [1, 2]
+print("__test_fail_allocations_after_0__")
+result = numbers.try_new(values)
+print("__test_restore_allocations__")
+match result:
+    case Ok(source):
+        print("unexpected success")
+    case Err(error):
+        print(error)
+drop(numbers.try_new([3]))
+"#,
+        "AllocError.OutOfMemory",
+    );
+}

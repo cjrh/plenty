@@ -296,6 +296,7 @@ struct Runtime {
     retain: FuncId,
     release: FuncId,
     generator_new: FuncId,
+    generator_try_new: FuncId,
     generator_finish: FuncId,
     print_i8: FuncId,
     print_i16: FuncId,
@@ -369,6 +370,12 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        generator_try_new: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([AbiParam::new(types::I64); 6]);
+            module.declare_function("plenty_generator_try_new", Linkage::Import, &sig)?
+        },
         generator_new: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;

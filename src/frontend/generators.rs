@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn constructor(name: &str) -> String {
+    format!("__plenty_try_generator_{name}")
+}
+
 pub(super) fn yields(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| match &stmt.kind {
         Statement::Yield(_) => true,

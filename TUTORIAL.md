@@ -3111,7 +3111,7 @@ def numbers() -> Generator[i64]:
     yield 20
 
 def source() -> Result[Generator[i64], AllocError]:
-    Ok(numbers())
+    numbers.try_new()
 
 def total() -> Result[i64, AllocError]:
     mut values = source()?
@@ -3127,7 +3127,8 @@ def main() -> ():
 Result[i64, AllocError].Ok(30)
 ```
 
-Wrapping an ordinary generator call does not make its frame allocation fallible.
+`numbers.try_new()` makes frame allocation fallible. Argument expressions retain
+their own failure behavior, and moved arguments are dropped on allocation failure.
 Dropping a wrapped generator releases its captures without executing its body.
 
 Enum variants also offer explicit fallible construction:

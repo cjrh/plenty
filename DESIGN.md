@@ -1574,10 +1574,11 @@ releases its frame and captures without resuming it. Wrapping does not permit
 generators in collection/class storage, printing, comparison, or nested yields.
 References remain prohibited in standard sum payloads.
 
-The runtime has a checked frame allocator that reports capacity overflow or OOM
-before consuming captures. Ordinary source generator calls still abort on frame
-allocation failure; exposing the checked path requires a source-level constructor
-boundary. Frame destruction remains allocation-free and does not resume the body.
+`generator_function.try_new(arguments)` returns
+`Result[Generator[T], AllocError]`. Arguments evaluate first and move into the
+constructor. Allocation failure releases them; success transfers them into the
+frame without executing the body. Ordinary calls retain aborting frame allocation.
+Frame destruction remains allocation-free and does not resume the body.
 
 A function containing `yield` declares `Generator[T]`. Calls evaluate arguments
 and create an owned frame without running the body. Each resume executes native
