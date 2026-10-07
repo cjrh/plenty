@@ -576,6 +576,33 @@ pub(crate) unsafe fn try_text_list<'a>(
     }
 }
 
+pub(crate) unsafe fn try_reader_lines(
+    reader: &mut impl std::io::Read,
+    skip_lf: &mut bool,
+    ty: &'static Type,
+) -> Result<u128, crate::text_io::Error> {
+    // SAFETY: the caller provides valid list[str] metadata.
+    // Each temporary text and the initialized list prefix have an owning guard.
+    unsafe {
+        let output = try_collection_new(ty, 0)?;
+        let owner = OwnedValue {
+            value: output as u128,
+            ty,
+        };
+        loop {
+            let line = OwnedValue {
+                value: crate::text_io::read_file_line(reader, skip_lf)? as u128,
+                ty: ty.key(),
+            };
+            if strings::utf8(line.value as *const Text).is_empty() {
+                break;
+            }
+            (*output).try_insert(line.value, 0)?;
+        }
+        Ok(owner.into_value())
+    }
+}
+
 /// Count the selected unique members before allocating. Inputs stay borrowed;
 /// output members retain immutable keys only after all storage is reserved.
 unsafe fn try_set_from_entries<'a>(
@@ -906,6 +933,10 @@ pub(crate) unsafe fn collection(
             )),
             92 => crate::text_io::result(crate::files::read(a as *mut crate::files::File)),
             101 => crate::text_io::result(crate::files::tell(a as *mut crate::files::File)),
+            105 => crate::text_io::result(crate::files::readlines(
+                a as *mut crate::files::File,
+                (*descriptor).variants[0].fields[0],
+            )),
             103 | 104 => crate::text_io::result(crate::files::truncate(
                 a as *mut crate::files::File,
                 (op == 104).then_some(b as i64),

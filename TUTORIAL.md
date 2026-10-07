@@ -3425,6 +3425,25 @@ keep
 Result[(), IoError].Ok(())
 ```
 
+## Reading a collection of lines
+
+`readlines()` collects the remaining lines into an independent `list[str]`,
+keeping their translated newlines. At EOF it returns an empty list. Failures
+release the partial list, but may have consumed input. For large or untrusted
+files, bounded `readline(count)` lets you control memory use instead.
+
+```plenty
+def demo() -> Result[list[str], IoError]:
+    write_text("collection.txt", "first\r\n\nlast")?
+    with open("collection.txt")? as file:
+        return file.readlines()
+def main() -> ():
+    print(demo())
+```
+```output
+Result[list[str], IoError].Ok(["first\n", "\n", "last"])
+```
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,

@@ -1745,6 +1745,13 @@ invalid text or surprising positions. Relative/end seeks remain deferred.
 
 ## Bounded stream operations
 
+`readlines() -> Result[list[str], IoError]` reads the remaining lines into an
+independent list, keeping translated terminators and omitting a synthetic empty
+line at EOF. Empty input yields an empty list. Every buffer, line, and list growth
+is fallible; errors discard the initialized prefix and leave the file closable.
+Input may have advanced on error. This eager operation requires exclusive access;
+use bounded `readline` for bounded memory. Size hints and lazy iteration are deferred.
+
 `File.readable()` and `File.writable()` return `Result[bool, IoError]` using
 shared access and no allocation. They report the open mode's capabilities,
 not a guarantee that a future OS operation will succeed. Closed files return an

@@ -467,6 +467,74 @@ fn file_ownership_types_and_mutability_are_checked() {
 }
 
 #[test]
+fn readlines_owns_normalized_lines_and_distinguishes_eof() {
+    let (out, _) = run(
+        r#"
+def work() -> Result[list[str], IoError]:
+    with open("sample.txt")? as file:
+        file.read(1)?
+        lines = file.readlines()?
+        print(file.readlines()?)
+        return Ok(lines)
+print(work())
+"#,
+        Some("xé\r\n\r🦀\nlast".as_bytes()),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "[]\nResult[list[str], IoError].Ok([\"é\\n\", \"\\n\", \"🦀\\n\", \"last\"])\n"
+    );
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt")? as file:
+        print(file.readlines())
+        print(file.readline())
+    Ok(())
+print(work())
+"#,
+        Some(b"ok\n\xff\nnext\n"),
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("DataError.InvalidUtf8"), "{text}");
+    assert!(text.contains(".Ok(\"next\\n\")"), "{text}");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn readlines_cleans_partial_lists_under_allocation_failures() {
+    let mut succeeded = false;
+    for budget in 0..=12 {
+        let (out, _) = run(
+            &format!(
+                r#"
+def work() -> Result[(), IoError]:
+    mut file = open("sample.txt")?
+    print("__test_fail_allocations_after_{budget}__")
+    result = file.readlines()
+    file.close()?
+    print("__test_restore_allocations__")
+    print(result)
+    print(file.closed)
+    Ok(())
+print(work())
+"#
+            ),
+            Some(b"one\ntwo\nthree"),
+        );
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(text.contains("\nTrue\n"), "{text}");
+        assert!(
+            text.contains("OutOfMemory")
+                || text.contains(".Ok([\"one\\n\", \"two\\n\", \"three\"])"),
+            "{text}"
+        );
+        succeeded |= text.contains(".Ok([");
+    }
+    assert!(succeeded);
+}
+
+#[test]
 fn truncate_uses_byte_lengths_without_moving_the_cursor() {
     let (out, dir) = run(
         r#"

@@ -44,6 +44,7 @@ impl Lower<'_> {
             "readable" => CollectionOp::FileReadable,
             "writable" => CollectionOp::FileWritable,
             "tell" => CollectionOp::FileTell,
+            "readlines" => CollectionOp::FileReadLines,
             "seek" => CollectionOp::FileSeek,
             "truncate" if args.is_empty() => CollectionOp::FileTruncate,
             "truncate" => CollectionOp::FileTruncateSized,

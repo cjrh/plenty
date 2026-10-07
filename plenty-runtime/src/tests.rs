@@ -126,6 +126,61 @@ static TEXT: Type = scalar(b's');
 static LIST_TEXT: Type = list(&TEXT);
 
 #[test]
+fn reader_lines_release_partial_prefixes_and_own_their_results() {
+    unsafe {
+        let lines = crate::aggregates::try_reader_lines(
+            &mut std::io::Cursor::new(b"one\r\ntwo"),
+            &mut false,
+            &LIST_TEXT,
+        )
+        .unwrap();
+        assert_eq!(collection(5, lines, 0, 0, ptr::null()), 2);
+        let last = collection(4, lines, 1, 0, ptr::null());
+        plenty_release(lines as *mut Header);
+        assert_eq!(strings::utf8(last as *const strings::Text), "two");
+        plenty_release(last as *mut Header);
+        assert!(crate::aggregates::try_reader_lines(
+            &mut std::io::Cursor::new(b"one\n\xff\n"),
+            &mut false,
+            &LIST_TEXT
+        )
+        .is_err());
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn reader_line_prefix_cleanup_survives_allocation_failures() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    let mut success = false;
+    for budget in 0..=12 {
+        let result = {
+            let _restore = Restore;
+            crate::accounting::fail_after(Some(budget));
+            unsafe {
+                crate::aggregates::try_reader_lines(
+                    &mut std::io::Cursor::new(b"one\ntwo\nthree"),
+                    &mut false,
+                    &LIST_TEXT,
+                )
+            }
+        };
+        if let Ok(value) = result {
+            success = true;
+            unsafe {
+                plenty_release(value as *mut Header);
+            }
+        }
+    }
+    assert!(success);
+}
+
+#[test]
 fn text_snapshots_own_members_and_clean_partial_validation_failures() {
     unsafe {
         let value =

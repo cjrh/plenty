@@ -67,7 +67,9 @@ impl Lowerer<'_, '_> {
         }
         values.reverse();
         let descriptor = match operation {
-            CollectionOp::Args | CollectionOp::OpenFile => Some(&output),
+            CollectionOp::Args | CollectionOp::OpenFile | CollectionOp::FileReadLines => {
+                Some(&output)
+            }
             CollectionOp::ParseNumber(ty) | CollectionOp::FormatScalar(ty) => Some(ty),
             CollectionOp::Next(_) | CollectionOp::Values(_) | CollectionOp::Range => Some(&output),
             CollectionOp::Copy(ty) | CollectionOp::TryCopy(ty) => Some(ty),

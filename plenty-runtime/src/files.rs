@@ -115,6 +115,19 @@ pub(crate) unsafe fn read_sized(pointer: *mut File, count: i64, line: bool) -> R
     Ok(text_io::read_chars(file, &mut owner.skip_lf, count as u64, line)? as u128)
 }
 
+pub(crate) unsafe fn readlines(pointer: *mut File, ty: &'static Type) -> Result<u128, Error> {
+    // SAFETY: compiler supplies exclusive File access and list[str] metadata.
+    let owner = unsafe { &mut *pointer };
+    let file = owner
+        .file
+        .as_mut()
+        .ok_or(std::io::ErrorKind::NotConnected)?;
+    if !owner.readable {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    unsafe { crate::aggregates::try_reader_lines(file, &mut owner.skip_lf, ty) }
+}
+
 pub(crate) unsafe fn write(pointer: *mut File, text: &str) -> Result<u128, Error> {
     // SAFETY: the compiler supplies a live exclusively borrowed owner; no user
     // callback runs during writing. Validate state even for an empty string.
