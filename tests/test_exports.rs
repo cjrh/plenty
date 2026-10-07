@@ -55,7 +55,7 @@ fn static_and_shared_exports_work_from_c_cpp_and_plenty() {
         let root = temp.path();
         let (library, artifacts) = build(root, SCALARS, kind);
         let header = std::fs::read_to_string(&artifacts.header).unwrap();
-        assert!(header.contains("no ownership crosses"));
+        assert!(header.contains("No ownership crosses"));
         assert!(header.contains("* / must remain inside"));
         let interface = std::fs::read(&artifacts.interface).unwrap();
         assert!(std::fs::read(&library)
@@ -332,6 +332,98 @@ int main(void) {
         plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
         let output = success(Command::new(executable).output().unwrap());
         assert_eq!(String::from_utf8(output.stdout).unwrap(), "Result[f32, i16].Ok(1.25)\nResult[f32, i16].Err(-123)\nResult[(), u64].Err(18000000000)\n41\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Err(AllocError.OutOfMemory)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[i64, ParseError].Err(ParseError.OutOfRange)\nResult[(), Failure].Err(Failure.Unspecified)\n");
+    }
+}
+
+#[test]
+fn owned_exports_generate_matching_destruction_and_plenty_cleanup() {
+    let source = r#"
+class Resource:
+    value: i64
+    def __del__(self) -> ():
+        print(self.value).unwrap()
+export def create(value: i64) -> Result[Resource, AllocError] = "calc_create":
+    if value < 0:
+        return Err(AllocError.CapacityOverflow)
+    Resource(value)
+export def limit() -> () = "calc_limit":
+    print("__test_warm_io__").unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+export def restore() -> () = "calc_restore":
+    print("__test_restore_allocations__").unwrap()
+"#;
+    for kind in [LibraryKind::Static, LibraryKind::Shared] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (library, artifacts) = build(root, source, kind);
+        let header = std::fs::read_to_string(artifacts.header).unwrap();
+        assert!(header.contains("Release it exactly once with calc_Resource_destroy"));
+        let c = root.join("owner.c");
+        std::fs::write(
+            &c,
+            r#"
+#include "calc.h"
+#include <assert.h>
+int main(void) {
+    calc_Resource *owner = 0;
+    uint32_t error = 99;
+    calc_Resource_destroy(0);
+    assert(calc_create(42, &owner, &error) == 0 && owner && error == 99);
+    calc_Resource *original = owner;
+    assert(calc_create(-1, &owner, &error) == 1 && owner == original && error == 1);
+    calc_Resource_destroy(owner);
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+        let executable = root.join("caller");
+        let args = std::fs::read_to_string(artifacts.link_args).unwrap();
+        for compiler in ["cc", "c++"] {
+            success(
+                Command::new(compiler)
+                    .args(["-Wall", "-Wextra", "-Werror"])
+                    .arg(&c)
+                    .arg(&library)
+                    .args(args.lines())
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .unwrap(),
+            );
+            let output = success(Command::new(&executable).output().unwrap());
+            assert_eq!(output.stdout, b"42\n");
+        }
+        let app = root.join("main.plenty");
+        std::fs::write(&app, "import calc\ndef work() -> Result[(), AllocError]:\n    first = calc.create(11)?\n    second = calc.create(22)?\n    calc.create(-1)?\n    Ok(())\ndef main() -> Result[(), Failure]:\n    print(work())?\n    Ok(())\n").unwrap();
+        let options = plenty::CompileOptions {
+            link_args: vec![library.into_os_string()],
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
+        let output = success(Command::new(&executable).output().unwrap());
+        assert_eq!(
+            output.stdout,
+            b"22\n11\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n"
+        );
+        if cfg!(feature = "runtime-checks") {
+            for limit in [
+                "print(\"__test_fail_allocations_after_0__\").unwrap()",
+                "calc.limit()",
+            ] {
+                std::fs::write(&app, format!("import calc\ndef main() -> Result[(), Failure]:\n    {limit}\n    result = calc.create(33)\n    calc.restore()\n    print(\"__test_restore_allocations__\").unwrap()\n    match result:\n        case Ok(owner):\n            print(\"unexpected success\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n")).unwrap();
+                plenty::compile_file_to_executable_with_options(&app, &executable, None, &options)
+                    .unwrap();
+                let output = success(Command::new(&executable).output().unwrap());
+                let visible = String::from_utf8(output.stdout)
+                    .unwrap()
+                    .lines()
+                    .filter(|line| !line.starts_with("__test_"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert_eq!(visible, "AllocError.OutOfMemory");
+            }
+        }
     }
 }
 

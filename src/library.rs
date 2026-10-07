@@ -123,6 +123,7 @@ pub fn compile_file_to_library(
                 .exports
                 .iter()
                 .map(|e| e.symbol.as_str())
+                .chain(interface.handles.iter().map(|h| h.destroy.as_str()))
                 .chain(std::iter::once(interface.discovery.as_str()))
                 .collect::<Vec<_>>();
             std::fs::write(

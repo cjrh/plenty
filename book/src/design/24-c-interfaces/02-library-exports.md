@@ -13,7 +13,8 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
 The initial subset accepts numeric scalar parameters, `&T` / `&mut T` borrows of
 numeric scalars, and numeric scalar, unit, or `Result[T, E]` returns where `T`
 is numeric or unit and `E` is numeric, `AllocError`, `ParseError`, or `Failure`.
-Booleans, managed objects,
+Factories can also return [owned class handles](03-owned-exports.md) through
+`Result[Class, AllocError]`. Booleans, other managed objects,
 returned references, raw pointers, generic exports, and other aggregate results are
 rejected. The body can use ordinary language features
 internally. No native Plenty object layout becomes part of the C ABI.
@@ -110,7 +111,7 @@ them. This discovery call allocates nothing.
 
 The source interface is the first metadata format for this subset, not a stable
 general-purpose binary Plenty ABI. Automatic extraction, compatibility validation
-against a linked binary, runtime loading, owned object exports, and richer error
+against a linked binary, runtime loading, and richer error
 adapters are not implemented. Keep the generated header/interface and binary
 together. The [export design](../../proposals/ffi-export-contracts.md) explains the
 broader direction; the [backlog](../../backlog.md) tracks remaining work.

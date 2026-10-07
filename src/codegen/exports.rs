@@ -5,6 +5,7 @@ pub(super) fn emit(
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
     functions: &HashMap<String, UserFn>,
+    runtime: &Runtime,
     module: &mut ObjectModule,
 ) -> Result<()> {
     for export in exports {
@@ -151,8 +152,36 @@ pub(super) fn emit(
         module.define_function(id, &mut ctx)?;
     }
     if let Some(interface) = interface {
+        for handle in &interface.handles {
+            emit_destroy(handle, runtime, module)?;
+        }
         emit_interface(interface, module)?;
     }
+    Ok(())
+}
+
+fn emit_destroy(
+    handle: &crate::exports::Handle,
+    runtime: &Runtime,
+    module: &mut ObjectModule,
+) -> Result<()> {
+    let mut signature = module.make_signature();
+    signature.params.push(AbiParam::new(PTR_TY));
+    let id = module.declare_function(&handle.destroy, Linkage::Export, &signature)?;
+    let mut ctx = Context::new();
+    ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+    let mut fc = FunctionBuilderContext::new();
+    let mut b = FunctionBuilder::new(&mut ctx.func, &mut fc);
+    let block = b.create_block();
+    b.append_block_params_for_function_params(block);
+    b.switch_to_block(block);
+    b.seal_block(block);
+    let owner = b.block_params(block)[0];
+    let release = module.declare_func_in_func(runtime.release, b.func);
+    b.ins().call(release, &[owner]);
+    b.ins().return_(&[]);
+    b.finalize();
+    module.define_function(id, &mut ctx)?;
     Ok(())
 }
 

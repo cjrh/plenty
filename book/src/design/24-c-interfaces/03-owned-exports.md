@@ -1,0 +1,36 @@
+# Owned library objects
+
+An export returning `Result[SomeClass, AllocError]` publishes an opaque owned
+handle. The class fields and native layout remain private. Class names must have
+distinct ASCII basenames within the library, including across imported modules.
+
+For library `calc` and class `Resource`, the C interface declares:
+
+```c
+typedef struct calc_Resource calc_Resource;
+uint32_t calc_create(int64_t p0, calc_Resource **out_ok, uint32_t *out_error);
+void calc_Resource_destroy(calc_Resource *value);
+```
+
+Status 0 initializes `out_ok` with one non-null owned handle. Status 1 initializes
+the allocation-error code and leaves `out_ok` unchanged. Release each successful
+handle exactly once through `calc_Resource_destroy`; never call `free` or a destroy
+function from another library instance. Destroy accepts null as a no-op.
+
+Destroy runs the class destructor and field cleanup. All aliases become invalid;
+there must be no outstanding borrows or concurrent/reentrant access. Calls stay
+on the creating thread, and the originating library remains loaded. Headers place
+these requirements beside the factory and destroy declarations. Generated destroy
+symbols and handle type names are reserved against user export collisions.
+
+The generated `.plentyi` publishes an owning class with a private opaque pointer
+and an automatic destructor. Its factory first allocates an empty wrapper, then
+calls the native factory and arms the wrapper on success. Either allocation can
+return `AllocError`; a wrapper allocation failure never calls the native factory.
+A native failure drops the empty wrapper. Scope exit, `drop`, moves, and `?` use
+ordinary Plenty ownership rules. The wrapper adds one fallible allocation and
+never exposes the native object's fields or permits copying the owner.
+
+Only allocation-error factories are supported for class results. Other error
+types need a way to represent wrapper-allocation failure. Class inputs, methods,
+and borrowed object exports are outside this subset.

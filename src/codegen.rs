@@ -322,7 +322,7 @@ fn emit_object(
             &mut module,
         )?;
     }
-    exports::emit(exports, interface, &user_fns, &mut module)?;
+    exports::emit(exports, interface, &user_fns, &runtime, &mut module)?;
 
     let product = module.finish();
     let bytes = product.emit()?;
