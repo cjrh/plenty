@@ -173,6 +173,19 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   update's missing-key counting and reserve-first transfer. Duplicate incoming
   member owners are released without changing existing owners. Sets have no
   value type, so the shared path never releases a dictionary payload for them.
+- Opcodes 89–106 implement opaque affine File owners, close/state queries,
+  universal-newline text reads (whole, bounded, single-line, and line lists),
+  writes, flush/sync, capability queries, saved positions, and truncation.
+  Linux open supports r/w/a/x and their update forms. Owner and path allocation
+  precede native open; list and text construction use guarded fallible storage.
+  Text-position cookies encode pending CRLF state as well as a byte position.
+  Byte truncation and text cookies are distinct interfaces. Writes and writelines
+  borrow their inputs, add no newlines, and allocate no buffering storage.
+  Rust owns each descriptor exactly once; automatic destruction cannot report
+  close errors, while explicit close returns an inline Result.
+- Opcode 107 implements fallible Python-style splitlines with optional original
+  terminator retention. A borrowed iterator recognizes Unicode boundaries and
+  CRLF pairs; a two-pass builder shares literal split's guarded output storage.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
 

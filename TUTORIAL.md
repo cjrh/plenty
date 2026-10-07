@@ -3466,6 +3466,26 @@ def main() -> ():
 Result[(), IoError].Ok(())
 ```
 
+## Splitting text that is already in memory
+
+`try_splitlines()` returns an independent list without line endings. Pass
+`True` to keep the original endings. A final newline does not add an extra
+empty line, and empty text produces an empty list. Unlike file reads, this method
+also recognizes Unicode line/paragraph separators and the other Python-style
+text line boundaries.
+
+```plenty
+def main() -> ():
+    print("first\r\n\nlast\n".try_splitlines())
+    print("first\r\nlast".try_splitlines(True))
+    print("".try_splitlines())
+```
+```output
+Result[list[str], AllocError].Ok(["first", "", "last"])
+Result[list[str], AllocError].Ok(["first\r\n", "last"])
+Result[list[str], AllocError].Ok([])
+```
+
 ## Where the language goes next
 
 This guide deliberately uses implemented features. Broader file stream operations,

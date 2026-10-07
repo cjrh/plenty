@@ -226,6 +226,45 @@ static RESULT_TEXT_LIST: Type = Type {
     ],
     ..scalar(b'B')
 };
+
+#[test]
+fn split_line_results_own_members_after_source_destruction() {
+    unsafe {
+        let source = strings::new("é\u{2028}\u{85}🦀\r\n".as_bytes());
+        let result = collection(107, source as u128, 0, 0, &RESULT_TEXT_LIST);
+        assert_eq!(result >> 64, 0);
+        plenty_release(source.cast());
+        assert_eq!(collection(5, result, 0, 0, ptr::null()), 3);
+        let last = collection(4, result, 2, 0, ptr::null());
+        plenty_release(result as *mut Header);
+        assert_eq!(strings::utf8(last as *const strings::Text), "🦀");
+        plenty_release(last as *mut Header);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn split_line_prefixes_are_cleaned_on_allocation_failure() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    for budget in 0..=5 {
+        unsafe {
+            let source = strings::new(b"one\ntwo\nthree");
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(107, source as u128, 1, 0, &RESULT_TEXT_LIST)
+            };
+            assert_eq!(result >> 64, u128::from(budget < 5));
+            plenty_release(source.cast());
+            crate::aggregates::release(result, &RESULT_TEXT_LIST);
+        }
+    }
+}
 static OPTION_TEXT: Type = Type {
     name: "Option[str]",
     variants: &[

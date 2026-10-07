@@ -93,7 +93,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console I/O, arguments, Linux whole-file helpers, and scoped File operations implemented, including bounded reads, capability queries, update/exclusive modes, and saved text positions; direct file iteration remains deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console I/O, arguments, Linux whole-file helpers, and scoped File operations implemented, including bounded reads, capability queries, update/exclusive modes, saved text positions, truncation, `readlines`, and `writelines`; direct file iteration remains deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -104,7 +104,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
 | Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
-| Recoverable text operations | `str.try_concat(other)`, `str.try_join(parts)`, `str.try_slice(start, stop)`, and `str.try_replace(old, new)` return `Result[str, AllocError]`; `str.try_split(separator)` returns `Result[list[str], AllocError]` |
+| Recoverable text operations | `str.try_concat(other)`, `str.try_join(parts)`, `str.try_slice(start, stop)`, and `str.try_replace(old, new)` return `Result[str, AllocError]`; `str.try_split(separator)` and `str.try_splitlines(keepends=False)` return `Result[list[str], AllocError]` |
 | Checked text lookup | `str.try_get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
 | Custom allocators and allocator provenance | Proposed; runtime storage still uses Rust's fixed global allocator |
 | Threads, channels, parallel loops, SIMD | Proposed future work; current runtime is single-threaded |
@@ -1409,7 +1409,8 @@ matches transfer their bound payloads. Enums with such payloads are also affine.
 
 Plenty uses ownership-driven destruction, without a tracing garbage collector.
 The compiler inserts cleanup on ordinary control-flow exits. This applies to memory
-and custom class cleanup. Files and foreign handles remain future library work.
+and custom class cleanup, including owned file handles. General foreign handles
+remain future library work.
 Reference-counted immutable string storage is compatible with this model: releasing
 a string owner decrements its count and frees dynamic storage at zero. Borrows do
 not acquire ownership or independently destroy their referents.
@@ -1617,8 +1618,8 @@ ABI layout or descriptor escape hatch.
 `file.read() -> Result[str, IoError]` exclusively borrows a live file and reads
 from its current position to EOF. It returns independent UTF-8 text with CRLF
 and bare CR normalized to LF, preserving NUL. EOF returns an empty string.
-Closed handles return `IoError.System(0)`; wrong access mode and OS errors retain
-native codes. Read or allocation errors may advance the position, and invalid
+Closed handles and rejected access modes return `IoError.System(0)`; native OS
+errors retain their codes. Read or allocation errors may advance the position, and invalid
 UTF-8 is reported after consuming input. No rollback or concurrent-file snapshot
 is promised. Output and temporary buffers allocate fallibly.
 
@@ -1773,6 +1774,17 @@ newline translation. Zero returns an allocated empty string without consuming
 input; negative counts read to EOF. Bounded reads do not read past a scalar.
 Malformed or truncated UTF-8 returns `IoError.Data(InvalidUtf8)`; errors may
 consume input, and allocation failure leaves the owner valid for cleanup.
+
+## Splitting existing text into lines
+
+`str.try_splitlines(keepends: bool = False) -> Result[list[str], AllocError]`
+returns independently owned lines. It recognizes LF, CR, CRLF, vertical tab,
+form feed, U+001C–U+001E, U+0085, U+2028, and U+2029. Empty text produces no
+lines, interior blank lines are retained, and a final terminator adds no extra
+empty line. `True` keeps original terminators without translating them. This is
+deliberately broader than file universal-newline decoding (CR/LF only).
+Two borrowed scans reserve list storage once; every output string is fallible,
+and any failed construction releases the initialized prefix.
 
 ## Next milestones
 

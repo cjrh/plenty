@@ -20,6 +20,7 @@ mod strings;
 #[cfg(test)]
 mod tests;
 mod text_io;
+mod text_lines;
 
 fn fail(message: &str) -> ! {
     io::flush();

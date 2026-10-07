@@ -652,6 +652,16 @@ unsafe fn try_split(
             crate::fail("string split requires a nonempty separator");
         }
         let pieces = strings::utf8(text).split(separator);
+        try_text_pieces(pieces, ty)
+    }
+}
+
+/// Borrow pieces during two passes, owning every output and its partial prefix.
+unsafe fn try_text_pieces<'a>(
+    pieces: impl Iterator<Item = &'a str> + Clone,
+    ty: &'static Type,
+) -> Result<u128, AllocError> {
+    unsafe {
         let result = try_collection_new(ty, pieces.clone().count())?;
         let owner = OwnedValue {
             value: result as u128,
@@ -1194,6 +1204,14 @@ pub(crate) unsafe fn collection(
                 Ok(None) => wrap(wrap(0, 0), 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },
+            107 => {
+                let ty = (*descriptor).variants[0].fields[0];
+                let pieces = crate::text_lines::Lines::new(strings::utf8(a as *const Text), b != 0);
+                match try_text_pieces(pieces, ty) {
+                    Ok(list) => wrap(list, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
             36 => {
                 // The compiler supplies Result[list[str], AllocError] metadata.
                 let ty = (*descriptor).variants[0].fields[0];

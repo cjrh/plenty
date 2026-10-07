@@ -670,6 +670,28 @@ impl Lower<'_> {
                 "clear requires a mutable list, dictionary, or set binding or class field",
             ));
         }
+        if name == "try_splitlines" {
+            self.same(Some(ty), Some(Ty::Str), &base.at)?;
+            if args.len() > 1 {
+                return Err(base
+                    .at
+                    .error("try_splitlines takes an optional bool argument"));
+            }
+            let mut reads = vec![];
+            if let Some(arg) = args.first() {
+                let (actual, borrowed) = self.observe(arg, ops)?;
+                self.same(Some(actual), Some(Ty::Bool), &arg.at)?;
+                reads = borrowed;
+            } else {
+                ops.push(Op::PushBool(false));
+            }
+            let operation = CollectionOp::TextTrySplitLines;
+            let result = operation.signature().1;
+            ops.push(Op::Collection(operation));
+            Self::end_reads(reads, ops);
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
         if matches!(name, "isascii" | "isspace") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if !args.is_empty() {

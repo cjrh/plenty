@@ -79,6 +79,7 @@ pub enum CollectionOp {
     TextTryConcat,
     TextTryJoin,
     TextTrySplit,
+    TextTrySplitLines,
     TextTryGet,
     TextTrySlice,
     TextTryReplace,
@@ -242,6 +243,13 @@ impl CollectionOp {
             ),
             TextTrySplit => (
                 vec![Ty::Str, Ty::Str],
+                crate::sum::result(
+                    Ty::List(std::rc::Rc::new(Ty::Str)),
+                    crate::sum::alloc_error(),
+                ),
+            ),
+            TextTrySplitLines => (
+                vec![Ty::Str, Ty::Bool],
                 crate::sum::result(
                     Ty::List(std::rc::Rc::new(Ty::Str)),
                     crate::sum::alloc_error(),
@@ -433,6 +441,7 @@ impl CollectionOp {
             Self::TextTryConcat => 34,
             Self::TextTryJoin => 35,
             Self::TextTrySplit => 36,
+            Self::TextTrySplitLines => 107,
             Self::TextTryGet => 37,
             Self::TextTrySlice => 46,
             Self::TextTryReplace => 47,

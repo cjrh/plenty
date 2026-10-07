@@ -2,6 +2,58 @@
 mod support;
 use rstest::rstest;
 
+#[test]
+fn splitlines_preserves_optional_terminators_and_independent_results() {
+    native(r#"
+def lines(text: &str) -> Result[list[str], AllocError]:
+    text.try_splitlines()
+mut text = "é\r\n\n🦀\rlast" + ""
+result = lines(&text)
+print(text.try_splitlines(True))
+text = "changed"
+drop(text)
+print(result)
+print("".try_splitlines())
+print("\n".try_splitlines())
+print("a\nb\n".try_splitlines())
+print("a\0b".try_splitlines())
+"#, "Result[list[str], AllocError].Ok([\"é\\r\\n\", \"\\n\", \"🦀\\r\", \"last\"])\nResult[list[str], AllocError].Ok([\"é\", \"\", \"🦀\", \"last\"])\nResult[list[str], AllocError].Ok([])\nResult[list[str], AllocError].Ok([\"\"])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[str], AllocError].Ok([\"a\\0b\"])");
+    for source in [
+        "print(\"x\".try_splitlines(1))",
+        "print(\"x\".try_splitlines(True, False))",
+        "print([1].try_splitlines())",
+    ] {
+        assert!(support::check_source(source).is_err());
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn splitlines_recovers_from_each_allocation_and_preserves_source() {
+    for budget in 0..=5 {
+        native(
+            &format!(
+                r#"
+source = "one\ntwo\nthree" + ""
+print("__test_fail_allocations_after_{budget}__")
+result = source.try_splitlines()
+print("__test_restore_allocations__")
+print(result)
+print(len(source))
+"#
+            ),
+            &format!(
+                "Result[list[str], AllocError].{}\n13",
+                if budget < 5 {
+                    "Err(AllocError.OutOfMemory)"
+                } else {
+                    "Ok([\"one\", \"two\", \"three\"])"
+                }
+            ),
+        );
+    }
+}
+
 #[rstest]
 #[case("try_removeprefix", "abab", "ab", "ab")]
 #[case("try_removesuffix", "abab", "ab", "ab")]
