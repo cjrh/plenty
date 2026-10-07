@@ -1309,6 +1309,13 @@ failure drops moved arguments without calling `__init__` or `__del__`. This make
 instance storage allocation recoverable, not allocations inside argument
 expressions or an ordinary initializer. `try_new` is a reserved class member.
 
+An explicit `__init__` may return `Result[(), AllocError]`. Such classes require
+`Class.try_new(...)`; `?` in initialization propagates through that constructor.
+Failure drops initialized fields and remaining arguments, but skips the class's
+`__del__`. The custom destructor becomes active only after successful initialization.
+Every successful return must initialize every field. An explicit `return Err(...)`
+may exit earlier. Other user-defined initializer error types are not yet supported.
+
 `class` declares a concrete record with typed fields and associated methods.
 It provides familiar Python-shaped organization without inheritance, dynamic
 attributes, class variables, properties, or runtime method lookup.

@@ -543,6 +543,7 @@ impl Scope {
                 }
             }
             Expression::ClassNew(..)
+            | Expression::ClassReady(..)
             | Expression::Number(_)
             | Expression::Text(_)
             | Expression::Bool(_)

@@ -513,6 +513,7 @@ struct Expr {
 enum Expression {
     Try(Box<Expr>),
     ClassNew(Rc<crate::record::ClassType>, bool),
+    ClassReady(Rc<crate::record::ClassType>, Box<Expr>),
     Type(TypeRef),
     Member(Box<Expr>, String),
     Number(String),
@@ -1319,6 +1320,12 @@ impl Lower<'_> {
                 ops.push(Op::Class(op));
                 Some(output)
             }
+            Expression::ClassReady(t, receiver) => {
+                self.value(receiver, ops)?;
+                ops.push(Op::Class(crate::record::ClassOp::ArmDrop(t.clone())));
+                ops.push(Op::Drop);
+                None
+            }
             Expression::Member(base, name) => {
                 if let Some(ty) = self.qualified_type(base)? {
                     self.variant(ty, name, None, &e.at, ops)?
@@ -1562,6 +1569,9 @@ impl Lower<'_> {
                     return self.builtin_collection(name, args, &e.at, ops).map(Some);
                 }
                 if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
+                    if t.fallible_init {
+                        return Err(e.at.error("fallible __init__ requires Class.try_new(...)"));
+                    }
                     modules::check_member(self.access, &t.name, "__new__", &e.at)?;
                     return self.call_named(
                         &crate::record::method(&t.name, "__new__"),

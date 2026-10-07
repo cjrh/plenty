@@ -40,7 +40,7 @@ impl Lowerer<'_, '_> {
         use crate::record::ClassOp;
         let (inputs, output) = op.signature().ok_or("invalid class operation")?;
         let result = match op {
-            ClassOp::New(t) | ClassOp::TryNew(t) => {
+            ClassOp::New(t) | ClassOp::TryNew(t) | ClassOp::ArmDrop(t) => {
                 let callback = if let Some(name) = &t.destructor {
                     let id = self.user_fns[name]
                         .drop_callback
@@ -50,15 +50,27 @@ impl Lowerer<'_, '_> {
                 } else {
                     self.bcx.ins().iconst(PTR_TY, 0)
                 };
-                self.collection_call(
-                    if matches!(op, ClassOp::TryNew(_)) {
-                        108
-                    } else {
-                        30
-                    },
-                    &[callback],
-                    Some(&Ty::Class(t.clone())),
-                )?
+                if matches!(op, ClassOp::ArmDrop(_)) {
+                    let (address, _) = self.pop_typed(inputs[0].clone())?;
+                    let owner = self.bcx.ins().load(
+                        PTR_TY,
+                        cranelift_codegen::ir::MemFlags::trusted(),
+                        address,
+                        0,
+                    );
+                    self.collection_call(109, &[owner, callback], None)?
+                } else {
+                    let disabled = self.bcx.ins().iconst(PTR_TY, 0);
+                    self.collection_call(
+                        if matches!(op, ClassOp::TryNew(_)) {
+                            108
+                        } else {
+                            30
+                        },
+                        &[disabled],
+                        Some(&Ty::Class(t.clone())),
+                    )?
+                }
             }
             ClassOp::Field(_, i) => {
                 let (owner, _) = self.pop_typed(inputs[0].clone())?;

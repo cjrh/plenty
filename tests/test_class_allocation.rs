@@ -39,6 +39,57 @@ print(Number.try_new(4))
 
 #[cfg(feature = "runtime-checks")]
 #[test]
+fn partial_initialization_releases_fields_without_running_the_class_hook() {
+    for budget in 0..=3 {
+        native(
+            &format!(
+                r#"
+class Buffer:
+    first: list[i64]
+    second: list[i64]
+    def __init__(self: &mut Buffer) -> Result[(), AllocError]:
+        self.first = list[i64].try_new()?
+        self.second = list[i64].try_new()?
+        Ok(())
+    def __del__(self: &mut Buffer) -> ():
+        print("complete drop")
+print("__test_fail_allocations_after_{budget}__")
+result = Buffer.try_new()
+print("__test_restore_allocations__")
+match result:
+    case Ok(value):
+        print("ready")
+    case Err(error):
+        print(error)
+drop(Buffer.try_new())
+"#
+            ),
+            if budget == 3 {
+                "ready\ncomplete drop\ncomplete drop"
+            } else {
+                "AllocError.OutOfMemory\ncomplete drop"
+            },
+        );
+    }
+}
+
+#[test]
+fn initializer_can_reject_before_initializing_fields() {
+    native(r#"
+class Number:
+    value: i64
+    def __init__(self: &mut Number, n: i64) -> Result[(), AllocError]:
+        if n < 0:
+            return Err(AllocError.CapacityOverflow)
+        self.value = n
+        Ok(())
+print(Number.try_new(-1))
+print(Number.try_new(4))
+"#, "Result[Number, AllocError].Err(AllocError.CapacityOverflow)\nResult[Number, AllocError].Ok(Number(value=4))");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
 fn failed_storage_drops_arguments_without_initializing_an_instance() {
     native(
         r#"

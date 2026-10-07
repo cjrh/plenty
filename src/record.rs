@@ -11,6 +11,7 @@ pub struct ClassType {
     pub depth: usize,
     pub copyable: bool,
     pub has_destructor: bool,
+    pub fallible_init: bool,
 }
 impl PartialEq for ClassType {
     fn eq(&self, other: &Self) -> bool {
@@ -30,12 +31,14 @@ pub fn method(class: &str, method: &str) -> String {
 pub enum ClassOp {
     New(Rc<ClassType>),
     TryNew(Rc<ClassType>),
+    ArmDrop(Rc<ClassType>),
     Field(Rc<ClassType>, usize),
     FieldRef(Rc<ClassType>, usize, bool),
 }
 impl ClassOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
+            Self::ArmDrop(t) => (vec![Ty::Ref(Rc::new(Ty::Class(t.clone())), true)], Ty::Unit),
             Self::New(t) => (vec![], Ty::Class(t.clone())),
             Self::TryNew(t) => (
                 vec![],

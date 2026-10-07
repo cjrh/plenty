@@ -1415,6 +1415,10 @@ pub(crate) unsafe fn collection(
                 Ok(record) => wrap(record as u128, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },
+            109 => {
+                (*(a as *mut Record)).tag_or_hook = b as u64;
+                0
+            }
             20 | 30 => record_new(&*descriptor, a as u64) as u128,
             21 => {
                 let r = a as *mut Record;

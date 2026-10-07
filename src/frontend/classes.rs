@@ -97,6 +97,10 @@ impl ClassDecl {
                 .unwrap_or(0),
             copyable: destructor.is_none() && fields.iter().all(|(_, t)| t.can_copy()),
             has_destructor: destructor.is_some() || fields.iter().any(|(_, t)| t.has_destructor()),
+            fallible_init: match self.methods.iter().find(|f| f.name == "__init__") {
+                Some(f) => f.output.resolve(aliases)?.is_some(),
+                None => false,
+            },
             fields,
             destructor,
         })))
@@ -185,10 +189,16 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             {
                 return Err(f.at.error("method receiver must be self: &Class (or self: &mut Class); lifecycle methods require &mut"));
             }
-            if special && (f.output.resolve(aliases)?.is_some() || generators::yields(&f.body)) {
+            let output = f.output.resolve(aliases)?;
+            if special
+                && (generators::yields(&f.body)
+                    || (output.is_some()
+                        && !(f.name == "__init__"
+                            && output == Some(crate::sum::allocation_result()))))
+            {
                 return Err(f
                     .at
-                    .error("__init__ and __del__ must return () and cannot yield"));
+                    .error("__del__ must return (); __init__ must return () or Result[(), AllocError]; neither can yield"));
             }
             if f.name == "__del__" && f.inputs.len() != 1 {
                 return Err(f.at.error("__del__ takes only self"));
@@ -201,11 +211,15 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
         }
         let instance = "__plenty_instance";
         for fallible in [false, true] {
+            if ty.fallible_init && !fallible {
+                continue;
+            }
             let mut args = vec![expression(
                 at,
                 Expression::Unary("&mut".into(), Box::new(name(at, instance))),
             )];
             args.extend(constructor_inputs.iter().map(|(n, _)| name(at, n)));
+            let init = expression(at, Expression::Call(method(&class.name, "__init__"), args));
             let allocation = expression(at, Expression::ClassNew(ty.clone(), fallible));
             let output = if fallible {
                 TypeRef {
@@ -238,9 +252,23 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                     ),
                     statement(
                         at,
+                        Statement::Expr(if ty.fallible_init {
+                            expression(at, Expression::Try(Box::new(init)))
+                        } else {
+                            init
+                        }),
+                    ),
+                    statement(
+                        at,
                         Statement::Expr(expression(
                             at,
-                            Expression::Call(method(&class.name, "__init__"), args),
+                            Expression::ClassReady(
+                                ty.clone(),
+                                Box::new(expression(
+                                    at,
+                                    Expression::Unary("&mut".into(), Box::new(name(at, instance))),
+                                )),
+                            ),
                         )),
                     ),
                     statement(
@@ -388,7 +416,12 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                         if let Some(e) = e {
                             self.expr(e, &set)?;
                         }
-                        self.complete(&set, &stmt.at)?;
+                        let error = e.as_ref().is_some_and(
+                            |e| matches!(&ungroup(e).kind, Expression::Call(n, _) if n == "Err"),
+                        );
+                        if !error {
+                            self.complete(&set, &stmt.at)?;
+                        }
                         return Ok(None);
                     }
                     Statement::If { condition, yes, no } => {
