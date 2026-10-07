@@ -1,5 +1,49 @@
 mod support;
 
+#[test]
+fn loops_and_comprehensions_unpack_tuples_and_borrow_dictionary_items() {
+    let out = support::run(
+        r#"
+class Point:
+    x: i64
+mut points = {"a": Point(1), "b": Point(2)}
+for key, point in points.items():
+    print((key, point.x))
+for key, point in (&mut points).items():
+    point.x = point.x + 10
+print([point.x for key, point in points.items() if key == "b"])
+print(points)
+mut counts = {"a": 1, "b": 2}
+for key, value in &mut counts.items():
+    *value = *value * 2
+print([(k, v) for k, v in counts.items()])
+x = 99
+print([x + y for x, y in [(1, 2), (3, 4)]])
+for x, y in [(5, 6)]:
+    print(x + y)
+print(x)
+"#,
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "(\"a\", 1)\n(\"b\", 2)\n[12]\n{\"a\": Point(x=11), \"b\": Point(x=12)}\n[(\"a\", 2), (\"b\", 4)]\n[3, 7]\n11\n99\n");
+}
+
+#[test]
+fn item_loans_reject_invalidation_and_illegal_moves() {
+    for source in [
+        "mut d = {1: [2]}\nfor k, v in d.items():\n    d.clear()\n    print(v)",
+        "mut d = {1: [2]}\nfor k, v in d.items():\n    v.append(3)",
+        "mut d = {1: [2]}\nfor k, v in (&mut d).items():\n    d.pop(k)\n    print(v)",
+        "d = {1: 2}\nfor k, v in (&mut d).items():\n    print(v)",
+    ] {
+        assert!(support::check_source(source).is_err(), "{source}");
+    }
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn checked_tuple_failure_releases_evaluated_owned_components() {

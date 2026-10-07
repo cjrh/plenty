@@ -522,7 +522,7 @@ enum Statement {
         body: Vec<Stmt>,
     },
     For {
-        name: String,
+        name: Vec<String>,
         iterable: Expr,
         body: Vec<Stmt>,
     },
@@ -569,7 +569,7 @@ enum Expression {
 }
 
 enum Clause {
-    For(String, Expr),
+    For(Vec<String>, Expr),
     If(Expr),
 }
 
@@ -873,37 +873,16 @@ impl Parser {
             while self.eat(",") {
                 names.push(self.name()?);
             }
-            let name = if names.len() == 1 {
-                names[0].clone()
-            } else {
-                format!("__plenty_unpack_{}_{}", at.line, at.column)
-            };
             self.expect("in")?;
             let iterable = self.expr(0)?;
-            let mut body = self.suite()?;
-            if names.len() > 1 {
-                body.insert(
-                    0,
-                    Stmt {
-                        at: at.clone(),
-                        kind: Statement::Unpack {
-                            names,
-                            mutable: false,
-                            value: Expr {
-                                at: at.clone(),
-                                kind: Expression::Name(name.clone()),
-                            },
-                        },
-                    },
-                );
-            }
+            let body = self.suite()?;
             if self.peek().is("else") {
                 return Err(self.peek().error("loop else is not supported"));
             }
             return Ok(Stmt {
                 at,
                 kind: Statement::For {
-                    name,
+                    name: names,
                     iterable,
                     body,
                 },

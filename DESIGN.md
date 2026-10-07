@@ -531,7 +531,8 @@ own allocation policy.
 transfers an existing dictionary value. Dictionary `keys()` and `values()` produce
 new lists. `values()` on mutable payloads requires an owned temporary such as
 `copy(d).values()` so a borrowed dictionary cannot expose mutable aliases.
-Pair iterables and `items()` await tuples.
+`items()` is a borrowed loop/comprehension view, described below. Pair-iterable
+dictionary construction remains deferred.
 
 `dictionary.try_keys()` and `dictionary.try_values()` are fallible snapshot
 operations returning `Result[list[K], AllocError]` and
@@ -694,8 +695,8 @@ time. `%` uses the divisor's sign, like Python; division by zero is an error,
 while `INT_MIN % -1` is zero.
 
 `for name in iterable:` evaluates its iterable once and consumes owned collections
-and generators. `for name in &collection` borrows instead, initially for copyable
-elements only. Borrowed generator iteration is rejected; `next` accepts an
+and generators. `for name in &collection` borrows instead; owned list elements
+become shared references. Borrowed generator iteration is rejected; `next` accepts an
 exclusive generator reference. An explicit `copy(collection)` provides a snapshot
 when mutation of the original is needed during iteration. In each form,
 lists yield elements, dictionaries keys, sets elements, ranges integers, and
@@ -720,7 +721,18 @@ iteration reaches it. Filters run before the result expression. Dictionary keys
 are evaluated before their values. Comprehension variables have their own scope,
 and the first iterable sees the enclosing scope. Conditional expressions in
 iterables or filters must be parenthesized. No generator expressions, async
-iteration, tuple unpacking, arbitrary iterator protocol, or user special methods.
+iteration, arbitrary iterator protocol, or user special methods. Flat tuple
+unpacking works in loop and comprehension targets.
+
+`for key, value in dictionary.items()` borrows the named dictionary for the loop
+and preserves insertion order. Keys and copyable values are loaded as values;
+owned values become shared references. `(&mut dictionary).items()` (also
+`&mut dictionary.items()`) yields mutable value references and immutable key
+values. No item tuples or snapshot buffers are allocated for these loops.
+`items()` is currently a loop/comprehension intrinsic rather than a storable
+iterator. A snapshot can be built explicitly with a comprehension, using `copy`
+or `try_copy` when values are owned. Dictionary mutations that could invalidate
+iteration conflict with the source loan.
 
 Python's [display and comprehension rules](https://docs.python.org/3/reference/expressions.html#displays-for-lists-sets-and-dictionaries)
 inform evaluation order and scope; [dictionary semantics](https://docs.python.org/3/library/stdtypes.html#mapping-types-dict)

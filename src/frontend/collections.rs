@@ -39,7 +39,10 @@ impl Parser {
             if self.peek().is("for") {
                 loop {
                     if self.eat("for") {
-                        let name = self.name()?;
+                        let mut name = vec![self.name()?];
+                        while self.eat(",") {
+                            name.push(self.name()?);
+                        }
                         self.expect("in")?;
                         clauses.push(Clause::For(name, self.expr(1)?));
                     } else if self.eat("if") {
@@ -516,7 +519,123 @@ impl Lower<'_> {
         Ok(())
     }
 
-    fn iteration(&mut self, name: &str, iterable: &Expr, ops: &mut Vec<Op>) -> Result<Iteration> {
+    fn dictionary_iteration(
+        &mut self,
+        names: &[String],
+        base: &Expr,
+        mutable: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        if names.len() != 2 || names[0] != "_" && names[0] == names[1] {
+            return Err(base
+                .at
+                .error("dictionary items loops require two distinct bindings"));
+        }
+        let ty = self
+            .place_type(base)
+            .ok_or_else(|| base.at.error("items requires a named dictionary or field"))?;
+        let Ty::Dict(key, value) = &ty else {
+            return Err(base.at.error("items requires a dictionary"));
+        };
+        let by_ref = mutable || value.affine();
+        let value_ty = if by_ref {
+            Ty::Ref(value.clone(), mutable)
+        } else {
+            (**value).clone()
+        };
+        let (_, loan) = self.borrow(base, mutable, ops)?;
+        self.loans[loan].precise = false;
+        for op in ops.iter_mut() {
+            if let Op::Loan(fact) = op {
+                if fact.id == loan {
+                    fact.precise = false;
+                }
+            }
+        }
+        ops.push(Op::ReadRef(ty.clone()));
+        let source = self.slot(ty.clone(), &base.at)?;
+        let index = self.slot(Ty::I64, &base.at)?;
+        let key_slot = self.slot((**key).clone(), &base.at)?;
+        let value_slot = self.slot(value_ty.clone(), &base.at)?;
+        ops.extend([
+            Op::StoreLocal(source),
+            Op::PushInt(Value::I64(0)),
+            Op::StoreLocal(index),
+        ]);
+        let mut body = vec![
+            Op::LoadLocal(source),
+            Op::LoadLocal(index),
+            Op::Collection(CollectionOp::IterGet(ty.clone())),
+            Op::StoreLocal(key_slot),
+        ];
+        body.push(if by_ref {
+            Op::BorrowLocal(source, mutable)
+        } else {
+            Op::LoadLocal(source)
+        });
+        body.extend([
+            Op::LoadLocal(key_slot),
+            Op::Collection(if by_ref {
+                CollectionOp::ElementRef(ty.clone(), mutable)
+            } else {
+                CollectionOp::Get(ty.clone())
+            }),
+            Op::StoreLocal(value_slot),
+            Op::UseLoan(loan),
+        ]);
+        if by_ref {
+            self.reference_locals.insert(value_slot, loan);
+        }
+        for (name, slot, ty) in [
+            (&names[0], key_slot, (**key).clone()),
+            (&names[1], value_slot, value_ty.clone()),
+        ] {
+            if name != "_" {
+                self.names.insert(
+                    name.clone(),
+                    Local {
+                        slot,
+                        ty,
+                        mutable: false,
+                    },
+                );
+            }
+        }
+        let mut step = Vec::new();
+        increment(index, &mut step);
+        step.push(Op::DropLocal(key_slot));
+        step.push(Op::DropLocal(value_slot));
+        Ok(Iteration {
+            condition: vec![
+                Op::LoadLocal(index),
+                Op::LoadLocal(source),
+                Op::Collection(CollectionOp::Len(ty)),
+                Op::Lt,
+                Op::UseLoan(loan),
+            ],
+            body,
+            step,
+            target: value_slot,
+        })
+    }
+
+    fn iteration(
+        &mut self,
+        names: &[String],
+        iterable: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        if let Some((base, mutable)) = dictionary_items(iterable) {
+            return self.dictionary_iteration(names, base, mutable, ops);
+        }
+        let name = if names.len() == 1 {
+            names[0].clone()
+        } else {
+            format!(
+                "__plenty_unpack_{}_{}",
+                iterable.at.line, iterable.at.column
+            )
+        };
         let temporary_start = self.expression_temps.len();
         let iterable = ungroup(iterable);
         let borrowed = matches!(&iterable.kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
@@ -570,7 +689,7 @@ impl Lower<'_> {
             .extend(loans.iter().copied().map(Op::UseLoan));
         plan.body.extend(loans.into_iter().map(Op::UseLoan));
         self.names.insert(
-            name.into(),
+            name.clone(),
             Local {
                 slot: plan.target,
                 ty: if references {
@@ -581,6 +700,20 @@ impl Lower<'_> {
                 mutable: false,
             },
         );
+        if names.len() > 1 {
+            for name in names {
+                self.names.remove(name);
+            }
+            self.unpack_tuple(
+                names,
+                false,
+                &Expr {
+                    at: iterable.at.clone(),
+                    kind: Expression::Name(name),
+                },
+                &mut plan.body,
+            )?;
+        }
         Ok(plan)
     }
 
@@ -707,7 +840,7 @@ impl Lower<'_> {
 
     pub(super) fn for_statement(
         &mut self,
-        name: &str,
+        name: &[String],
         iterable: &Expr,
         statements: &[Stmt],
         ops: &mut Vec<Op>,
@@ -1781,6 +1914,33 @@ impl Lower<'_> {
         self.cleanup(start, ops);
         Ok(output)
     }
+}
+
+fn dictionary_items(iterable: &Expr) -> Option<(&Expr, bool)> {
+    let mut e = ungroup(iterable);
+    let mut mutable = false;
+    if let Expression::Unary(op, base) = &e.kind {
+        if op != "&" && op != "&mut" {
+            return None;
+        }
+        mutable = op == "&mut";
+        e = ungroup(base);
+    }
+    let Expression::Method(base, method, args) = &e.kind else {
+        return None;
+    };
+    if method != "items" || !args.is_empty() {
+        return None;
+    }
+    let mut base = ungroup(base);
+    if let Expression::Unary(op, inner) = &base.kind {
+        if op != "&" && op != "&mut" {
+            return None;
+        }
+        mutable |= op == "&mut";
+        base = ungroup(inner);
+    }
+    Some((base, mutable))
 }
 
 fn kind_matches(name: &str, ty: &Ty) -> bool {

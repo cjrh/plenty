@@ -354,7 +354,9 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                     for clause in clauses {
                         match clause {
                             Clause::For(n, e) => {
-                                self.binding(n, &e.at)?;
+                                for name in n {
+                                    self.binding(name, &e.at)?;
+                                }
                                 self.expr(e, initialized)?;
                             }
                             Clause::If(e) => self.expr(e, initialized)?,
@@ -457,7 +459,9 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                         iterable,
                         body,
                     } => {
-                        self.binding(name, &stmt.at)?;
+                        for name in name {
+                            self.binding(name, &stmt.at)?;
+                        }
                         self.expr(iterable, &set)?;
                         self.block(body, set.clone())?;
                     }

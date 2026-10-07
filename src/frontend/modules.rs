@@ -430,7 +430,7 @@ impl Scope {
                 } => {
                     self.expr(iterable, locals)?;
                     let mut inner = locals.clone();
-                    inner.insert(name.clone());
+                    inner.extend(name.iter().cloned());
                     self.block(body, &mut inner)?;
                 }
                 Statement::Match { value, cases } => {
@@ -535,7 +535,7 @@ impl Scope {
                     match clause {
                         Clause::For(n, e) => {
                             self.expr(e, &inner)?;
-                            inner.insert(n.clone());
+                            inner.extend(n.iter().cloned());
                         }
                         Clause::If(e) => self.expr(e, &inner)?,
                     }
