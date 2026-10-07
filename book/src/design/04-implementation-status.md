@@ -20,6 +20,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Floating-point types and arithmetic (`f32`, `f64`, `/`) | Implemented with IEEE arithmetic and explicit numeric casts |
 | Transparent module-level type aliases | Implemented |
 | Cranelift AOT and compile-and-run file command | Implemented |
+| Native linker configuration | CLI `--linker` / `--link-arg` and Rust `CompileOptions`; cc-compatible driver interface, default `cc` |
 | Explicit binary `main` entry point | Implemented: parameterless `main` returns `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`; module scope contains declarations and imports |
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
 | Direct and mutual tail calls | Implemented where borrowing and observable cleanup permit |

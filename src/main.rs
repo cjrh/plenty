@@ -15,8 +15,9 @@ Programs require def main() -> () or def main() -> i32.
 --module-root DIR: resolve absolute imports here (default: FILE's directory).
 --check: parse and type-check without executing the program.
 --check-module: check a library module without requiring main.
---compile: emit a native executable with Cranelift and the system cc linker.
-Running and compiling require the system linker driver cc on PATH.
+--compile: emit a native executable with Cranelift.
+--linker PATH: cc-compatible linker driver (default: cc on PATH).
+--link-arg ARG: pass one extra driver argument verbatim; may be repeated.
 --legacy before FILE or --compile selects the historical stack syntax.
 ";
 
@@ -37,6 +38,29 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     if legacy {
         args.remove(0);
     }
+    let mut options = plenty::CompileOptions::default();
+    let mut link_options = false;
+    let mut index = 0;
+    while index < args.len() {
+        if matches!(args[index].as_str(), "--linker" | "--link-arg") {
+            let flag = args.remove(index);
+            if index == args.len() {
+                return Err(format!("{flag} requires a value").into());
+            }
+            let value = args.remove(index);
+            if flag == "--linker" {
+                if value.is_empty() {
+                    return Err("--linker requires a nonempty path".into());
+                }
+                options.linker = value.into();
+            } else {
+                options.link_args.push(value.into());
+            }
+            link_options = true;
+        } else {
+            index += 1;
+        }
+    }
     let root = if let Some(index) = args.iter().position(|a| a == "--module-root") {
         if legacy {
             return Err("--module-root is not supported with --legacy".into());
@@ -49,6 +73,14 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     } else {
         None
     };
+    if link_options
+        && (args.is_empty()
+            || args.first().is_some_and(|a| {
+                matches!(a.as_str(), "--check" | "--check-module" | "--help" | "-h")
+            }))
+    {
+        return Err("linker options require compilation or execution".into());
+    }
     match args.as_slice() {
         [] if !legacy => {
             print!("{USAGE}");
@@ -70,6 +102,7 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
                 Path::new(output),
                 legacy,
                 root.as_deref(),
+                &options,
             )?;
         }
         [source] if !source.starts_with('-') => {
@@ -77,7 +110,13 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
             let executable = workspace
                 .path()
                 .join(format!("program{}", std::env::consts::EXE_SUFFIX));
-            compile(Path::new(source), &executable, legacy, root.as_deref())?;
+            compile(
+                Path::new(source),
+                &executable,
+                legacy,
+                root.as_deref(),
+                &options,
+            )?;
             // Inherit stdin, stdout, stderr, environment, and working directory.
             // Keep the temporary directory alive until the child has exited.
             let status = Command::new(&executable).status()?;
@@ -93,11 +132,16 @@ fn compile(
     output: &Path,
     legacy: bool,
     root: Option<&Path>,
+    options: &plenty::CompileOptions,
 ) -> Result<(), Box<dyn Error>> {
     if legacy {
-        plenty::compile_legacy_source_to_executable(&read_source(source)?, output)
+        plenty::compile_legacy_source_to_executable_with_options(
+            &read_source(source)?,
+            output,
+            options,
+        )
     } else {
-        plenty::compile_file_to_executable(source, output, root)
+        plenty::compile_file_to_executable_with_options(source, output, root, options)
     }
 }
 

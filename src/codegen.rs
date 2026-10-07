@@ -128,30 +128,60 @@ use generators::GeneratorContext;
 /// Rust runtime archive is written alongside it; `cc` links the pair into the
 /// final executable and the temps are removed.
 ///
-/// `cc` is invoked by name from `PATH` (no override). When `cc` is
-/// missing, the error message identifies the link step as the failure
-/// site so users can install a C toolchain or wrap an alternative
-/// compiler as `cc`.
+/// Uses the default `cc` driver. See [`compile_source_to_executable_with_options`]
+/// to select another driver or pass native link arguments.
 pub fn compile_source_to_executable(source: &str, output: &Path) -> Result<()> {
+    compile_source_to_executable_with_options(source, output, &crate::CompileOptions::default())
+}
+
+/// Compile source with an explicitly configured native linker driver.
+pub fn compile_source_to_executable_with_options(
+    source: &str,
+    output: &Path,
+    options: &crate::CompileOptions,
+) -> Result<()> {
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
-    compile_ops_to_executable(&program.ops, &heap, output, program.returns_status)
+    compile_ops_to_executable(&program.ops, &heap, output, program.returns_status, options)
 }
 
 /// Compile a file and its absolute imports. The source root defaults to the
 /// entry file's directory; in-memory source compilation never reads imports.
 pub fn compile_file_to_executable(path: &Path, output: &Path, root: Option<&Path>) -> Result<()> {
+    compile_file_to_executable_with_options(path, output, root, &crate::CompileOptions::default())
+}
+
+/// Compile a file and imports with an explicitly configured linker driver.
+pub fn compile_file_to_executable_with_options(
+    path: &Path,
+    output: &Path,
+    root: Option<&Path>,
+    options: &crate::CompileOptions,
+) -> Result<()> {
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
-    compile_ops_to_executable(&program.ops, &heap, output, program.returns_status)
+    compile_ops_to_executable(&program.ops, &heap, output, program.returns_status, options)
 }
 
 /// Historical stack syntax, retained for backend regression tests.
 pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Result<()> {
+    compile_legacy_source_to_executable_with_options(
+        source,
+        output,
+        &crate::CompileOptions::default(),
+    )
+}
+
+/// Historical syntax with an explicitly configured linker driver.
+pub fn compile_legacy_source_to_executable_with_options(
+    source: &str,
+    output: &Path,
+    options: &crate::CompileOptions,
+) -> Result<()> {
     let toks = lexer::lex(source)?;
     let mut heap = Heap::default();
     let ops = op::compile(&toks, &mut heap)?;
-    compile_ops_to_executable(&ops, &heap, output, false)
+    compile_ops_to_executable(&ops, &heap, output, false, options)
 }
 
 fn compile_ops_to_executable(
@@ -159,6 +189,7 @@ fn compile_ops_to_executable(
     heap: &Heap,
     output: &Path,
     returns_status: bool,
+    options: &crate::CompileOptions,
 ) -> Result<()> {
     op::check(ops)?;
 
@@ -167,38 +198,13 @@ fn compile_ops_to_executable(
     let rt_path = workspace.path().join("libplenty_runtime.a");
     compile_to_object(ops, heap, &obj_path, returns_status)?;
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
-    link_with_cc(&obj_path, &rt_path, output)
+    crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, options)
 }
 
 /// Prebuilt for the compiler's target and embedded so an installed or relocated
 /// Plenty binary never needs runtime source files, Cargo, or rustc at run time.
 const RUNTIME_ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libplenty_runtime.a"));
 const RUNTIME_LINK_ARGS: &str = include_str!(concat!(env!("OUT_DIR"), "/runtime-link-args.txt"));
-
-/// Use the system compiler driver only as a linker. The native dependency list
-/// comes from the rustc invocation that built this exact runtime archive.
-fn link_with_cc(obj: &Path, runtime_archive: &Path, output: &Path) -> Result<()> {
-    let out = std::process::Command::new("cc")
-        .arg(obj)
-        .arg(runtime_archive)
-        .args(RUNTIME_LINK_ARGS.split_whitespace())
-        .arg("-o")
-        .arg(output)
-        .output()
-        .map_err(|e| -> Box<dyn Error> {
-            format!(
-                "failed to invoke `cc` for the link step: {e}. \
-                 Plenty's AOT mode uses the linker driver `cc` \
-                 on PATH to link the emitted object with the embedded runtime."
-            )
-            .into()
-        })?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("cc failed:\n{stderr}").into());
-    }
-    Ok(())
-}
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 

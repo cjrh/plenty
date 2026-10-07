@@ -15,11 +15,15 @@ mod op;
 mod ownership;
 mod record;
 mod sum;
+mod toolchain;
 mod value;
 
 pub use codegen::{
-    compile_file_to_executable, compile_legacy_source_to_executable, compile_source_to_executable,
+    compile_file_to_executable, compile_file_to_executable_with_options,
+    compile_legacy_source_to_executable, compile_legacy_source_to_executable_with_options,
+    compile_source_to_executable, compile_source_to_executable_with_options,
 };
+pub use toolchain::CompileOptions;
 
 /// Parse and type-check a standalone modern Plenty binary without executing
 /// it or generating native code. Requires a parameterless `main` returning
