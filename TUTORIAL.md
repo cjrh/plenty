@@ -3037,6 +3037,31 @@ binding itself is only visible inside the body. Omit `as` for unit entry methods
 Acquire fallible resources before entry: `with acquire()?:` propagates acquisition
 failure without entering that context.
 
+Several managers can share one `with` statement. They enter from left to right
+and exit from right to left, just like nested blocks. Later manager expressions
+can use earlier `as` bindings.
+
+```plenty
+class Label:
+    text: str
+    def __enter__(self: &mut Label) -> str:
+        print(self.text)
+        self.text
+    def __exit__(self: &mut Label) -> ():
+        print(self.text)
+
+def main() -> ():
+    with Label("first") as first, Label("second") as second:
+        print("body")
+```
+```output
+first
+second
+body
+second
+first
+```
+
 Exit is infallible and cannot suppress errors. Check fallible writes or flushes
 explicitly. Fatal traps do not run exits, and `yield` inside `with` is not yet
 supported. Entry results cannot yet be references to the manager.

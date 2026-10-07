@@ -40,6 +40,32 @@ class Manager:
 "#;
 
 #[test]
+fn multiple_managers_enter_left_to_right_and_share_prior_bindings() {
+    run(&format!(r#"{MANAGER}
+with Manager("first") as first, Manager(first.name) as second:
+    print("body")
+"#), "first\nentry dropped\nbody\nentry dropped\nexit\nmanager dropped\nentry dropped\nexit\nmanager dropped\n");
+}
+
+#[test]
+fn later_acquisition_failure_exits_only_entered_managers() {
+    run(
+        &format!(
+            r#"{MANAGER}
+def acquire() -> Option[Manager]:
+    Nothing
+def work() -> Option[i64]:
+    with Manager("first") as first, acquire()? as second:
+        print("unreachable")
+    Some(1)
+print(work())
+"#
+        ),
+        "first\nentry dropped\nexit\nmanager dropped\nOption[i64].Nothing\n",
+    );
+}
+
+#[test]
 fn scope_cleanup_and_owned_entry() {
     run(
         &format!(

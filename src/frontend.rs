@@ -774,21 +774,31 @@ impl Parser {
     fn statement(&mut self) -> Result<Stmt> {
         if self.peek().is("with") {
             let at = self.take();
-            let manager = self.expr(0)?;
-            let name = if self.eat("as") {
-                Some(self.name()?)
-            } else {
-                None
-            };
-            let body = self.suite()?;
-            return Ok(Stmt {
-                at,
-                kind: Statement::With {
-                    manager,
-                    name,
-                    body,
-                },
-            });
+            let mut managers = Vec::new();
+            loop {
+                let manager = self.expr(0)?;
+                let name = if self.eat("as") {
+                    Some(self.name()?)
+                } else {
+                    None
+                };
+                managers.push((manager, name));
+                if !self.eat(",") {
+                    break;
+                }
+            }
+            let mut body = self.suite()?;
+            for (manager, name) in managers.into_iter().rev() {
+                body = vec![Stmt {
+                    at: at.clone(),
+                    kind: Statement::With {
+                        manager,
+                        name,
+                        body,
+                    },
+                }];
+            }
+            return Ok(body.pop().unwrap());
         }
         if self.peek().is("enum") {
             return Err(self.peek().error("enums must be declared at module scope"));

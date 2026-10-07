@@ -1591,6 +1591,11 @@ Entry is an ordinary infallible call, not implicit Result unwrapping: perform
 fallible acquisition with `?` in the manager expression. Visibility rules apply
 to both methods.
 
+Comma-separated managers (`with a() as x, b(x) as y:`) are nested scopes: each
+acquisition and entry completes before evaluating the next expression, which
+can use earlier entry bindings. If a later acquisition propagates failure,
+only the already entered contexts exit.
+
 Body locals drop in reverse order, then `__exit__` runs exactly once, then the
 manager drops normally. Nested contexts exit in reverse order. Return values
 are evaluated and preserved before cleanup; early `return`, `?`, `break`, and
