@@ -47,3 +47,7 @@ module function. Indented anonymous bodies inside delimiters are unsupported.
 
 Callable signatures exclude generator frames. Capture environments are not yet
 implemented. See the [backlog](../backlog.md) for remaining work.
+
+Indirect calls in tail position use native tail calls under the same cleanup and
+borrowing restrictions as direct calls. Calls involving inline argument/result
+storage retain their frame; observable destructors run after the callee returns.

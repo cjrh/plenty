@@ -110,7 +110,9 @@ fn sequence(ops: &[Op], locals: &[Ty], state: &mut State, loops: &mut Vec<Loop>)
                     .push(state.clone());
                 return Ok(false);
             }
-            Op::Return | Op::TailCall(_) | Op::Unreachable => return Ok(false),
+            Op::Return | Op::TailCall(_) | Op::TailCallIndirect(_) | Op::Unreachable => {
+                return Ok(false)
+            }
             _ => {}
         }
     }
@@ -168,7 +170,9 @@ fn graph(ops: &[Op], next: usize, targets: Option<(usize, usize)>, nodes: &mut V
                 op: None,
                 successors: vec![targets.expect("checked loop").0],
             }),
-            Op::Return | Op::TailCall(_) | Op::Unreachable => nodes.push(Node::default()),
+            Op::Return | Op::TailCall(_) | Op::TailCallIndirect(_) | Op::Unreachable => {
+                nodes.push(Node::default())
+            }
             _ => nodes.push(Node {
                 op: Some(op.clone()),
                 successors: vec![next],

@@ -2522,6 +2522,12 @@ fn finish_return(body: &mut Vec<Op>) {
             let Op::Call(name) = last else { unreachable!() };
             *last = Op::TailCall(std::mem::take(name));
         }
+        Some(last @ Op::CallIndirect(_)) => {
+            let Op::CallIndirect(signature) = last else {
+                unreachable!()
+            };
+            *last = Op::TailCallIndirect(signature.clone());
+        }
         Some(Op::Match(arms)) => {
             for arm in Rc::make_mut(arms) {
                 let mut body = arm.body.to_vec();

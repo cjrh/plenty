@@ -294,6 +294,7 @@ impl fmt::Display for CallableSig {
 pub enum Op {
     FunctionAddress(String, Rc<CallableSig>),
     CallIndirect(Rc<CallableSig>),
+    TailCallIndirect(Rc<CallableSig>),
     /// Unwrap a standard sum or return its residual, releasing pending operands.
     Try {
         source: Rc<crate::sum::EnumType>,
@@ -1059,6 +1060,9 @@ pub(crate) fn mark_tail_calls(body: &mut [Op]) {
         Op::Call(name) => {
             *last = Op::TailCall(std::mem::take(name));
         }
+        Op::CallIndirect(signature) => {
+            *last = Op::TailCallIndirect(signature.clone());
+        }
         Op::Match(arms) => {
             // Rebuild arms with each arm's tail rewritten.
             let new_arms: Vec<MatchArm> = arms
@@ -1440,7 +1444,7 @@ fn step(
             }
             stack.push(Ty::Callable(signature.clone()));
         }
-        Op::CallIndirect(signature) => {
+        Op::CallIndirect(signature) | Op::TailCallIndirect(signature) => {
             for expected in signature.inputs.iter().rev() {
                 if stack.pop().as_ref() != Some(expected) {
                     return Err("indirect call argument mismatch".into());
@@ -1450,6 +1454,9 @@ fn step(
                 return Err("indirect call requires a matching callable".into());
             }
             stack.extend(signature.output.iter().cloned());
+            if matches!(op, Op::TailCallIndirect(_)) {
+                return check_return(stack, returns);
+            }
         }
         Op::TailCall(name) => {
             check_call(name, stack, sigs)?;

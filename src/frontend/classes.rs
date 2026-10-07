@@ -635,6 +635,10 @@ pub(super) fn preserve_drop_order(body: &mut Vec<Op>) {
                 out.push(Op::Call(name));
                 out.push(Op::Return);
             }
+            Op::TailCallIndirect(signature) => {
+                out.push(Op::CallIndirect(signature));
+                out.push(Op::Return);
+            }
             Op::Match(arms) => {
                 let arms = arms
                     .iter()

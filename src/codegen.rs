@@ -1291,7 +1291,8 @@ impl Lowerer<'_, '_> {
                 let value = self.bcx.ins().func_addr(PTR_TY, reference);
                 self.stack.push((value, Ty::Callable(signature.clone())));
             }
-            Op::CallIndirect(signature) => self.lower_indirect_call(signature)?,
+            Op::CallIndirect(signature) => self.lower_indirect_call(signature, false)?,
+            Op::TailCallIndirect(signature) => self.lower_indirect_call(signature, true)?,
             Op::ForeignCall { declaration, sig } => self.lower_foreign_call(declaration, sig)?,
             Op::ForeignNull(ty) => {
                 let value = self.bcx.ins().iconst(PTR_TY, 0);
@@ -1917,7 +1918,11 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    fn lower_indirect_call(&mut self, signature: &crate::op::CallableSig) -> Result<()> {
+    fn lower_indirect_call(
+        &mut self,
+        signature: &crate::op::CallableSig,
+        tail: bool,
+    ) -> Result<()> {
         let split = self
             .stack
             .len()
@@ -1932,9 +1937,30 @@ impl Lowerer<'_, '_> {
         }
         let native = user_fn_signature(self.module, &sig);
         let reference = self.bcx.import_signature(native);
+        if tail
+            && !signature
+                .inputs
+                .iter()
+                .chain(signature.output.iter())
+                .any(|ty| {
+                    ty.has_inline_storage()
+                        || matches!(ty, Ty::Ref(inner, _) if inner.has_inline_storage())
+                })
+        {
+            self.release_locals();
+            self.bcx
+                .ins()
+                .return_call_indirect(reference, callee, &args);
+            self.terminated = true;
+            return Ok(());
+        }
         let call = self.bcx.ins().call_indirect(reference, callee, &args);
         for (value, ty) in self.bcx.inst_results(call).iter().copied().zip(sig.outputs) {
             self.stack.push((value, ty));
+        }
+        if tail {
+            self.return_values(self.stack.clone());
+            self.terminated = true;
         }
         Ok(())
     }
