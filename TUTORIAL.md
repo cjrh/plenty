@@ -726,8 +726,9 @@ if the dictionary is subsequently updated or dropped.
 
 `get` supports values such as numbers, booleans, strings, and immutable enums.
 It rejects mutable collections, classes, and enums containing them. Use `pop`
-to remove those values and take ownership; borrowing individual elements remains
-future work. No mutable value is silently copied by `get`.
+to remove those values and take ownership, or use `&dictionary[key]` to borrow
+an existing value. Optional borrowed lookup is deferred. No mutable value is
+silently copied by `get`.
 
 ### Remove an entry and take its value
 
@@ -2456,11 +2457,11 @@ def main() -> ():
 8
 ```
 
-This method's result protects the whole borrowed `pair`, because its signature
-does not promise which field it returns. Direct `&mut pair.left` borrowing is
-more precise. A mutable returned reference requires a mutable reference parameter.
-Use a named receiver or class field for reference-returning methods; temporary
-and indexed receivers are not supported for those methods yet.
+This simple getter preserves the returned field's identity, so unrelated fields
+remain available after the call. More complex getters conservatively protect the
+whole argument. A mutable returned reference requires a mutable reference parameter.
+Use a named receiver, class field, or element of named storage; temporary receivers
+cannot supply a reference that outlives their owner.
 
 ## 23. Cleanup and early drop
 

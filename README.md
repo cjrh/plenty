@@ -76,6 +76,13 @@ Supported today:
   indexing, membership, moves, explicit `copy`, and in-place updates through `mut` owners.
 - `for` loops over collections, strings, ranges, and lazy generators; list, dict,
   and set comprehensions with multiple iteration and filter clauses.
+- `range[T](...)` for explicit integer widths; annotations and typed arithmetic
+  guide unsuffixed literals without converting already typed values.
+- Tuple values and flat unpacking, plus borrowed dictionary `items()` loops.
+- Explicit generic functions with cached concrete specializations, `IntType`,
+  and structural class-method protocol constraints.
+- Recoverable collection and tuple displays using `try`, fallible construction
+  and mutation APIs, `str.try_repr`, and `try_print`.
 - Concrete `enum` types, exhaustive `match`/`case`, and typed `Option`/`Result`,
   including `Result[(), E]` and built-in `Some`, `Nothing`, `Ok`, and `Err`.
 - `Generator[T]` functions with `yield`, consuming iteration, and `next` returning
@@ -84,8 +91,9 @@ Supported today:
   values are reclaimed automatically; `drop(value)` allows early cleanup.
 - `class` records with typed fields, generated field constructors or explicit
   `__init__`, associated methods, and deterministic `__del__` cleanup.
-- `&T` and `&mut T` for named locals, parameters, and class fields, with last-use borrow checking
-  across branches, loops, and reborrows. Stored/returned references are deferred.
+- `&T` and `&mut T` for locals, parameters, class fields, and collection elements,
+  with last-use checking across branches, loops, and reborrows. Returned references
+  originate in one reference parameter; stored references remain deferred.
 - Integer `//` rounds toward negative infinity; `%` follows the divisor's sign.
   `/` divides same-width floating-point operands.
 
@@ -103,9 +111,9 @@ def main() -> ():
 Collection assignment transfers ownership. Use `copy(value)` for independent
 contents, `&value` for shared access, and `&mut value` for exclusive access.
 Updates happen in place. Owned iteration consumes collections; borrowed iteration
-currently supports copyable elements. Unused storage is released when owners are
-replaced, explicitly dropped, or leave scope. General iterator protocols,
-tuple unpacking, and `items()` are not implemented yet. `while` loops and
+supports shared owned-list elements and mutable element references. Unused storage
+is released when owners are replaced, explicitly dropped, or leave scope.
+General iterator protocols remain deferred. `while` loops and
 `break`/`continue` in both loop forms are supported; loop `else` is not.
 
 Guard clauses can return early while the main path uses an implicit result:

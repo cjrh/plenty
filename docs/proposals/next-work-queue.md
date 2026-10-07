@@ -1,75 +1,77 @@
-# Proposed next work queue
+# Foundation queue: completed work and remaining limits
 
-Status: proposed priorities after commit `47888d0`. Each item may take several
-implementation/test/commit cycles; this is not a promise of ten commits.
+The ten foundation items proposed after `47888d0` now have implemented paths.
+The commits below are local; no push was requested. `DESIGN.md` describes the
+current contracts, and the learner-visible features have runnable tutorial
+examples. The limits listed here remain intentional parts of the initial scope.
 
-Completed in the last batch: the allocation audit, fallible class/enum/generator
-constructors, partial initializer cleanup, generators inside Option/Result,
-shared generator resume code, and fallible list/set collection from iterators.
-See `DESIGN.md` for the implemented contracts.
+| Item | Implemented | Commits |
+| --- | --- | --- |
+| 1. Fallible literals | `try [...]`, `try {...}`, contextual empty displays, ordered evaluation and partial cleanup | `8676622` |
+| 2. Fallible comprehensions | Checked output growth, stopped nested loops and generators on failure, cleanup of owned prefixes | `a83dca9` |
+| 3. Formatting/allocation audit | `str.try_repr`, `try_print`, checked formatting buffers, and explicit remaining aborting paths | `e1a12dd`, `4e60ee9` |
+| 4. Allocator provenance | Object allocations remember their allocator; internal explicit allocation uses a process-lifetime callback table | `c0b07ce` |
+| 5. Element borrowing | Shared/mutable list elements and dictionary values, nested field projections, invalidation checks | `2b27849` |
+| 6. Borrowed owned-element iteration and returned references | Shared/mutable list loops, returned element references, and precise direct-getter field summaries | `e8a02b0`, `d752f03` |
+| 7. Tuples, unpacking, dictionary items | Tuple values/types, checked tuple construction, flat loop/comprehension unpacking, borrowed dictionary item loops | `6c0fbb5`, `65b9834`, `20f82ee` |
+| 8. Typed ranges and numeric context | `range[T]`, all integer widths including full u64 bounds, contextual literals and direct range comprehensions | `9bf1208` |
+| 9. Explicit generic functions | Explicit type arguments, cached concrete instances, bounded expansion, and `IntType` | `77105b7` |
+| 10. Structural protocols | Method requirements checked at specialization, exact borrowing/signature matches, and ordinary module visibility | `08988d3` |
 
-The next priority is to finish the recoverable-allocation foundation, then expand
-borrowing and generic programming. Text file I/O now has a useful baseline;
-buffering and additional stream conveniences can wait.
+## Validation
 
-1. **Fallible collection literals.** Choose a concise, explicit construction
-   syntax for lists, dictionaries, and sets. Today, passing a literal to
-   `list[T].try_from(...)` still builds that literal using ordinary allocation
-   first. Cover evaluation order, failure propagation, and partial cleanup.
-2. **Fallible comprehensions.** Build on the literal and iterator machinery so
-   output allocation failures can be handled without rewriting comprehensions as
-   manual loops. Specify separately how failures inside element expressions,
-   filters, and iterator bodies propagate.
-3. **Remaining implicit allocation and formatting gaps.** Provide a recoverable
-   path for common output/aggregate formatting and finish the runtime bookkeeping
-   audit. Preserve a precise distinction between fallible APIs and convenience
-   operations that can abort. Failure injection should verify cleanup at every
-   new boundary; these APIs alone cannot guarantee recovery from all process OOM.
-4. **Introduce allocator provenance.** Design how storage remembers its allocator
-   and how growth, movement, copying, and destruction preserve that association.
-   Start with internal plumbing and an explicit construction path. Decide allocator
-   lifetimes before exposing global or per-container selection; the general
-   user-defined allocator interface may depend on protocols below.
-5. **Borrow collection elements.** Add shared and mutable element access, reject
-   invalidating mutations while a reference is live, and define bounds/missing-key
-   behavior. Start conservatively before supporting disjoint element loans.
-6. **Iterate over owned elements by borrowing.** Allow inspecting lists of classes
-   and other owned values without moving or copying every element. Build this on
-   the element-reference rules, then improve returned-reference precision.
-7. **Add tuples, unpacking, and dictionary item iteration.** This unlocks ordinary
-   Python-style key/value loops and convenient multiple return values. Define
-   ownership of tuple components and distinguish borrowed items from snapshots.
-8. **Implement typed ranges and contextual numeric inference.** Support the
-   proposed `range[u8](8)` and annotated comprehension examples. Specify overflow,
-   argument compatibility, and inference boundaries so errors remain predictable.
-   This can begin with the compiler-known range operation while reserving syntax
-   compatible with user generics.
-9. **Explicit generic functions.** Begin with explicit type arguments and cached
-   concrete instantiations. Measure compilation cost and give useful diagnostics
-   before broadening inference or adding more generic declaration forms.
-10. **Structural protocols.** Check required methods and their ownership/borrowing
-    signatures at compile time, without import-sensitive method activation or
-    implicit dynamic dispatch. Numeric constraints such as the proposed `IntType`
-    need a deliberate builtin constraint design alongside ordinary protocols.
+- All 1,259 workspace tests pass with `runtime-checks`, including native ownership,
+  cleanup, module, inference, protocol, and allocation-failure regressions.
+- Every tutorial program and expected diagnostic runs through the tutorial test.
+- Strict workspace Clippy covers all targets; Rust formatting is checked.
+- All 68 existing allocation-checking runtime Miri tests pass, and the new
+  full-width unsigned-range Miri regression passes separately.
+- Failure-budget sweeps exercise every reached formatting-buffer growth and final
+  string allocation. Failed formatting writes no partial output and preserves its
+  input. Collection and tuple failure tests check owned-value cleanup.
+- A focused debug specialization test verifies that 100 calls plus recursion
+  create one concrete function; the measured expansion cost was about 0.34 ms
+  on the AMD Ryzen 7 7840HS development machine. This excludes native codegen and
+  linking and is not a broad compiler benchmark.
 
-The immediate recommendation is items 1–2. Allocator work should establish the
-necessary ownership rules without holding up all borrowing and generic-language
-work until a complete custom-allocator ecosystem exists.
+## Boundaries that remain
 
-## Following these foundations
+- **Allocation:** ordinary construction/printing and some runtime bookkeeping may
+  abort. Checked operations do not provide a process-wide OOM guarantee. Public
+  allocator selection, allocator state/lifetimes, and custom container buffers
+  remain to be designed; the internal provenance mechanism is groundwork.
+- **References:** collection loans cover the whole collection. Returned references
+  still require one reference parameter; only direct getter bodies have precise
+  field summaries. Stored references, disjoint indexed loans, and general lifetime
+  relationships remain unsupported.
+- **Tuples/items:** tuple storage currently allocates. Unpacking is flat;
+  dictionary `items()` is a loop/comprehension intrinsic, not a storable iterator.
+  Snapshots must be requested explicitly, including copies of owned values.
+- **Inference:** numeric context stays within supported expressions; it does not
+  flow backward through arbitrary calls, filters, or stored range values.
+- **Generics/protocols:** calls require explicit type arguments. Bodies are checked
+  per concrete instance, with a 256-instance compilation limit. Protocols currently
+  constrain classes, using exact method signatures. Generic classes/methods,
+  multiple bounds, associated types, inheritance, and runtime interface values
+  remain deferred.
 
-- C ABI adapters and trusted interface declarations, followed by shared-library
-  output and loading. Keep internal runtime layouts private in the meantime.
-- Multiline anonymous functions and closures with explicit capture/borrow rules.
-- Recursive data types with a clear indirection and destruction model.
-- Fallible file iteration, buffering, and binary I/O.
-- Runnable literate lesson files that generate `TUTORIAL.md`; the current guide's
-  examples already run in tests, so this is a workflow improvement rather than a
-  missing correctness check.
-- Thread-transfer rules, threads/channels, explicit parallel operations, and SIMD.
-  Automatic parallelization comes after those foundations.
+## Follow-on work
 
-Update `DESIGN.md` and the tested tutorial with every learner-visible change.
-Measure compilation latency as inference, borrowing, and instantiation become
-more capable. Keep cleanup and allocation-failure regression checks alongside
-the feature work.
+These are the next design/implementation areas, rather than unimplemented pieces
+of the ten-item foundation batch:
+
+1. C ABI adapters and trusted interface declarations, followed by shared-library
+   output and loading. Keep internal object layouts private.
+2. Multiline anonymous functions and closures with explicit capture/borrow rules.
+3. Recursive data types with a clear indirection and destruction model.
+4. Public allocator lifetimes and per-container selection, building on provenance
+   and the new protocol machinery.
+5. Fallible file iteration, buffering, and binary I/O, following Python's familiar
+   model where it fits Plenty's ownership and explicit error handling.
+6. Standalone literate lessons that generate `TUTORIAL.md`; its current examples
+   already run in tests.
+7. Thread-transfer rules, threads/channels, explicit parallel operations, and
+   SIMD. Automatic parallelization follows those foundations.
+
+Continue updating the design and executable tutorial alongside implementation.
+Measure compilation latency as inference and specialization expand.

@@ -62,7 +62,7 @@ Expansion uses a work queue, with at most 256 concrete generic instances per
 compilation and the existing type depth/name limits. This bounds expanding
 recursion and keeps diagnostics preferable to unbounded compiler work. A focused
 debug-mode check of 100 repeated calls plus recursion produced one instance in
-about 0.34 ms on the development machine; this measures AST specialization only,
+about 0.34 ms on the AMD Ryzen 7 7840HS development machine; this measures AST specialization only,
 not code generation or linking. Generic classes, generic methods, inferred type
 arguments, reference/unit type arguments, and first-class generic functions are
 deferred. A signature can borrow `T` directly using `&T` or `&mut T`.
@@ -118,7 +118,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Concrete enums, tagged payloads, exhaustive matching | Implemented, including fallible `Enum.Variant.try_new` |
 | Fixed-layout classes, constructors, methods, custom cleanup | Implemented, including `Class.try_new`, fallible initializers, and partial-field cleanup |
 | `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
-| Unit values | Expressions, function returns, and enum payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
+| Unit values | Expressions, function returns, enum and tuple payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
 | Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; stored references deferred |
 | Interpreter, REPL, JIT | Out of scope |
@@ -127,7 +127,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Tuples and unpacking | `(a, b)`, `(a,)`, `tuple[A, B]` / `(A, B)` annotations, literal indexing, flat binding/loop unpacking, and recoverable `try (a, b)` |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, explicit-separator splitting, sized numeric parsing, and fallible scalar formatting |
-| Tuples, unpacking, dictionary `items()` | Not implemented |
+| Dictionary `items()` | Borrowed key/value loops and comprehensions, including mutable value references; storable views and implicit snapshots are not supported |
 | Allocation-free text queries | `startswith`/`endswith` return `bool`; `find`/`rfind` return optional scalar positions; `count` returns non-overlapping occurrence counts |
 | Text classification | `isascii` checks ASCII membership; `isspace` requires nonempty Unicode White_Space text; neither allocates |
 | Allocation-free list queries | `count`, `find`, and `rfind` observe integer/float/bool/string lists; searches return `Option[i64]` |
@@ -468,8 +468,8 @@ Borrowed sources and string iteration are not accepted by this API yet.
 The compiler-known constructors `list[T]`, `set[T]`, and `dict[K, V]` accept
 concrete element types, including nested collections. Dictionary keys and set
 elements are restricted to integers, `bool`, and `str`; there is no user-defined
-hash/equality protocol. Unit elements are rejected. These built-ins do not expose
-general user generics or require a trait solver.
+hash/equality protocol. Unit elements are rejected. These built-ins use concrete
+compiler-known operations and require no trait solver.
 
 Literals use Python spelling: `[1, 2]`, `{"a": 1}`, and `{1, 2}`. Elements must
 have exactly the same type. Empty literals need context from an annotation,
@@ -510,7 +510,8 @@ input expression still uses that expression's allocation policy.
 booleans, strings, and enums whose payloads do not transfer ownership. Collections,
 classes, and enums containing them are rejected, even for temporary dictionaries;
 there is no hidden deep copy or alias to mutable storage. Use `pop` to remove and
-take ownership of such values; element borrowing remains future work. The `Option` wrapper keeps
+take ownership of such values; explicit indexed references borrow them instead.
+Optional borrowed access awaits stored-reference support. The `Option` wrapper keeps
 stored absence distinct from a missing key: a stored `Nothing` is returned as
 `Some(Nothing)`.
 
@@ -1993,20 +1994,22 @@ implemented. The new design review changes the recommended priority:
    matters: scalar error codes need no allocation, while user-defined enum
    records currently do. Recoverable OOM needs allocation-free error payloads
    as well as fallible runtime operations; wrapper layout alone does not promise it.
-3. Complete fallible allocation and allocator provenance (collection construction,
+3. Fallible allocation now covers collection construction,
    reservation, insertion, explicit copying, and text concatenation/joining/splitting
-   and checked character lookup, slices, replacement, and dictionary snapshots now have recoverable
-   `try_` APIs). Numeric parsing/formatting, console I/O, argument snapshots,
+   and checked character lookup, slices, replacement, and dictionary snapshots through
+   `try_` APIs. Numeric parsing/formatting, console I/O, argument snapshots,
    and Linux whole-file text helpers now have explicit failure contracts. Continue
-   with ordinary literal/comprehension construction and allocator provenance.
+   with public allocator lifetimes and buffer allocator selection. Explicit `try`
+   literals/comprehensions and aggregate formatting are implemented, as is internal
+   object allocator provenance.
    Class/enum/generator checked constructors and list/set iterator collection are
    implemented. Add allocation
    failure injection and checks for valid state/cleanup on every failure path.
-4. Broaden borrowing for elements, owned-element iteration,
-   and more precise returned-reference contracts. Concrete context managers now
+4. Element borrowing, borrowed owned-list iteration, dictionary item loops, and
+   precise direct-getter return summaries are implemented. Concrete context managers now
    use the same cleanup machinery; stored references remain a later extension.
-5. Add explicit generic functions and structural protocol constraints, with direct
-   inherent-method lookup and measured instantiation caching. No import-sensitive
+5. Explicit generic functions and structural protocol constraints are implemented,
+   with direct inherent-method lookup and measured instantiation caching. No import-sensitive
    method activation, specialization search, or implicit dynamic interface values.
 6. Introduce C ABI adapters and trusted interface declarations, then library output
    and typed runtime loading. Reserve these boundaries during steps 1–3; do not
@@ -2014,7 +2017,7 @@ implemented. The new design review changes the recommended priority:
 
 Move the tutorial to independently runnable literate sources and generated
 Markdown alongside the entrypoint migration if convenient, retaining reviewed
-expected results. Tuples/unpacking, recursive types, and richer standard-library
+expected results. Recursive types, closures, and richer standard-library
 APIs remain useful follow-on work. Threads and explicit parallel operations need
 thread-transfer rules and a compatible runtime before automatic parallelization
 is considered. SIMD needs a target/portable-lowering design of its own. Async/await
