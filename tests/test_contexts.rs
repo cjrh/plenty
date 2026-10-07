@@ -39,6 +39,92 @@ class Manager:
         print("manager dropped")
 "#;
 
+const BORROWING_MANAGER: &str = r#"
+class Counter:
+    count: i64
+    def __enter__(self: &mut Counter) -> &mut Counter:
+        &mut self
+    def __exit__(self: &mut Counter) -> ():
+        print(self.count)
+    def __del__(self) -> ():
+        print("drop")
+"#;
+
+#[test]
+fn entry_can_return_manager_borrow_for_owned_and_borrowed_contexts() {
+    run(
+        &format!(
+            r#"{BORROWING_MANAGER}
+with Counter(1) as counter:
+    counter.count = 2
+mut original = Counter(3)
+with &mut original as counter:
+    counter.count = 4
+print(original.count)
+"#
+        ),
+        "2\ndrop\n4\n4\ndrop\n",
+    );
+}
+
+#[test]
+fn entry_borrow_ends_before_exit_on_propagation_and_loop_exits() {
+    run(
+        &format!(
+            r#"{BORROWING_MANAGER}
+def work() -> Option[i64]:
+    with Counter(1) as counter:
+        counter.count = 8
+        n: Option[i64] = Nothing
+        return Some(n?)
+print(work())
+for n in range(2):
+    with Counter(n) as counter:
+        counter.count = counter.count + 10
+        if n == 0:
+            continue
+        break
+"#
+        ),
+        "8\ndrop\nOption[i64].Nothing\n10\ndrop\n11\ndrop\n",
+    );
+}
+
+#[test]
+fn manager_reference_cannot_escape_or_overlap_exit() {
+    reject(
+        &format!(
+            r#"{BORROWING_MANAGER}
+def bad(unrelated: &mut Counter) -> &mut Counter:
+    with Counter(1) as counter:
+        return counter
+"#
+        ),
+        "must originate",
+    );
+    reject(
+        &format!(
+            r#"{BORROWING_MANAGER}
+def bad(original: &mut Counter) -> &mut Counter:
+    with &mut original as counter:
+        return counter
+"#
+        ),
+        "conflicting borrow",
+    );
+    reject(
+        &format!(
+            r#"{BORROWING_MANAGER}
+mut original = Counter(1)
+with &mut original as counter:
+    original.count = 7
+    print(counter.count)
+"#
+        ),
+        "conflicting borrow",
+    );
+}
+
 #[test]
 fn multiple_managers_enter_left_to_right_and_share_prior_bindings() {
     run(&format!(r#"{MANAGER}

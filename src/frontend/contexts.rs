@@ -67,11 +67,6 @@ impl Lower<'_> {
             }
             if name == "__enter__" {
                 entry = sig.outputs.first().cloned();
-                if matches!(entry, Some(Ty::Ref(..))) {
-                    return Err(manager
-                        .at
-                        .error("reference entry results are not supported yet"));
-                }
             }
         }
         let context = Context {
@@ -79,8 +74,22 @@ impl Lower<'_> {
             exit: method(&class.name, "__exit__"),
             loan,
         };
-        self.context_receiver(&context, ops);
-        ops.push(Op::Call(method(&class.name, "__enter__")));
+        let entry_loan = self.new_loan(
+            loan.map(|id| self.loans[id].root).unwrap_or(slot),
+            true,
+            loan,
+            ops,
+        );
+        if loan.is_some() {
+            ops.push(Op::LoadLocal(slot));
+        } else {
+            ops.push(Op::BorrowLocal(slot, true));
+        }
+        let enter = method(&class.name, "__enter__");
+        ops.push(Op::Call(enter.clone()));
+        self.call_reference_result(&self.sigs[&enter].clone(), &[entry_loan], ops);
+        ops.push(Op::UseLoan(entry_loan));
+        let result_loan = matches!(entry, Some(Ty::Ref(..))).then(|| self.loans.len() - 1);
         self.contexts.push(context);
         if let Some(name) = name {
             if self.names.contains_key(name) {
@@ -90,6 +99,9 @@ impl Lower<'_> {
                 entry.ok_or_else(|| manager.at.error("unit entry cannot have an as binding"))?;
             let target = self.slot(ty.clone(), &manager.at)?;
             ops.push(Op::StoreLocal(target));
+            if let Some(loan) = result_loan {
+                self.reference_locals.insert(target, loan);
+            }
             self.names.insert(
                 name.into(),
                 Local {

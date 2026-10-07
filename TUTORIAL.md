@@ -3131,7 +3131,27 @@ first
 
 Exit is infallible and cannot suppress errors. Check fallible writes or flushes
 explicitly. Fatal traps do not run exits, and `yield` inside `with` is not yet
-supported. Entry results cannot yet be references to the manager.
+supported.
+
+Most resource managers will return a reference to themselves. This gives the
+body access to their methods and fields while `with` retains ownership and
+arranges cleanup. The reference cannot escape the block.
+
+```plenty
+class Counter:
+    count: i64
+    def __enter__(self: &mut Counter) -> &mut Counter:
+        &mut self
+    def __exit__(self: &mut Counter) -> ():
+        print(self.count)
+
+def main() -> ():
+    with Counter(1) as counter:
+        counter.count = 7
+```
+```output
+7
+```
 
 ## Where the language goes next
 

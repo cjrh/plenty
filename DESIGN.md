@@ -100,7 +100,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Typed ranges and contextual numeric inference | Proposed: `range[u8](8)` and expression-local constraints from annotations; ranges currently yield `i64` |
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types and automatic early-exit cleanup |
-| `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
+| `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
 | Recoverable allocation failure | Collection `try_new`/`try_with_capacity` constructors and `try_reserve`/`try_append`/`try_add`/`try_insert` methods return `Result` with allocation-free `AllocError`; other allocating operations remain terminal on failure |
 | Recoverable duplication | `try_copy(value)` returns `Result[T, AllocError]`, preserving the source and reclaiming partial copies on failure |
 | Recoverable dictionary snapshots | `try_keys()` and `try_values()` return `Result[list[T], AllocError]` in insertion order, with no implicit deep copy |
@@ -1638,7 +1638,13 @@ original manager conflicts during the body. After exit the caller retains the
 manager with its mutations, and its destructor runs at its owner's usual scope
 boundary. An existing reference must also be explicitly reborrowed with `&mut`.
 
-Reference entry results remain future work. `yield` inside
+`__enter__` may return `&T` or `&mut T` using the single-reference-parameter
+contract. The `as` binding carries that loan, allowing the common `&mut self`
+result without moving the manager out of its hidden owner. The loan ends before
+exit; it cannot escape an owned context or remain live across a borrowed
+manager's exit call. Owned entry results may still be moved out normally.
+
+`yield` inside
 `with` is rejected until generator frames can retain exit obligations. Concrete
 lookup requires no traits or user generics.
 
