@@ -5,6 +5,10 @@
   the environment, and the current working directory. Its exit code is propagated;
   on Unix, signal termination is reported as 128 plus the signal number.
 - `plenty --compile FILE -o OUT` produces a standalone executable.
+- `plenty --emit-object FILE -o OUT` emits one native application object,
+  including imported modules, without invoking a linker. It still requires `main`.
+- `plenty --emit-runtime DIR` extracts the embedded `libplenty_runtime.a` and
+  `link-args.txt`, with one required native driver argument per line.
 - `plenty --check FILE` validates without native emission, linking, or execution.
 - `plenty --check-module FILE` checks a library and its imports without requiring `main`.
 - `--module-root DIR` selects the source root for modern file commands.
@@ -30,3 +34,13 @@ Unix native link flags, and `-o OUT`, as GCC and Clang do. Raw `ld`, MSVC's
 `link.exe`, and drivers with different conventions need a wrapper; selecting a
 driver does not enable another target. Failures identify the driver and report
 its status and diagnostics.
+
+Object emission exports `plenty_main`, which the runtime's C `main` calls. Link
+exactly one Plenty application object, followed by the runtime archive from the
+same compiler build and its native dependencies. Ordinary Plenty functions,
+including `pub` functions, use private symbols and calling conventions. Object
+output does not yet export a C library API or enable separate Plenty module
+compilation. The Rust API exposes `compile_source_to_object`,
+`compile_file_to_object`, and `emit_runtime`; the latter also returns archive and
+argument paths/values for a build system. Object emission and runtime extraction
+need no linker, Cargo, or rustc on PATH.

@@ -3,6 +3,33 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The exact runtime embedded in this compiler and its native dependencies.
+#[derive(Debug)]
+pub struct RuntimeArtifacts {
+    pub archive: PathBuf,
+    pub link_args: Vec<OsString>,
+}
+
+/// Extract the packaged runtime for external linking. The directory is created
+/// if necessary; the archive and `link-args.txt` (one argument per line) are
+/// replaced. Use the runtime from the same compiler build as the object.
+pub fn emit_runtime(directory: &Path) -> Result<RuntimeArtifacts, Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(directory)?;
+    let archive = directory.join("libplenty_runtime.a");
+    let args: Vec<_> = crate::codegen::RUNTIME_LINK_ARGS
+        .split_whitespace()
+        .collect();
+    std::fs::write(&archive, crate::codegen::RUNTIME_ARCHIVE)?;
+    std::fs::write(
+        directory.join("link-args.txt"),
+        format!("{}\n", args.join("\n")),
+    )?;
+    Ok(RuntimeArtifacts {
+        archive,
+        link_args: args.into_iter().map(Into::into).collect(),
+    })
+}
+
 /// Options for native compilation. Linkers must accept the Unix C compiler
 /// driver interface (object/archive inputs, native `-l` flags, and `-o OUT`).
 /// Use a wrapper for drivers with another interface; this is not a raw `ld` API.

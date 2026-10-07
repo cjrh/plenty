@@ -99,3 +99,82 @@ fn cli_rejects_missing_or_unused_link_options() {
         assert!(!String::from_utf8_lossy(&output.stderr).contains("reading"));
     }
 }
+
+#[test]
+fn application_object_links_with_extracted_runtime() {
+    let temp = tempfile::tempdir().unwrap();
+    let object = temp.path().join("program.o");
+    plenty::compile_source_to_object(
+        "def main() -> i32:\n    print(42).unwrap()\n    7\n",
+        &object,
+    )
+    .unwrap();
+    let runtime = plenty::emit_runtime(&temp.path().join("runtime")).unwrap();
+    let executable = temp.path().join("app");
+    success(
+        Command::new("cc")
+            .arg(&object)
+            .arg(runtime.archive)
+            .args(runtime.link_args)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap(),
+    );
+    let output = Command::new(executable).output().unwrap();
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(output.stdout, b"42\n");
+}
+
+#[test]
+fn cli_emits_objects_with_imports_without_any_toolchain_on_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("main.plenty");
+    std::fs::write(
+        &source,
+        "import value\ndef main() -> i32:\n    value.answer()\n",
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("value.plenty"),
+        "pub def answer() -> i32:\n    42\n",
+    )
+    .unwrap();
+    let object = temp.path().join("program.o");
+    success(
+        Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .env("PATH", "")
+            .arg("--emit-object")
+            .arg(&source)
+            .arg("-o")
+            .arg(&object)
+            .output()
+            .unwrap(),
+    );
+    let runtime = temp.path().join("runtime");
+    success(
+        Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .env("PATH", "")
+            .arg("--emit-runtime")
+            .arg(&runtime)
+            .output()
+            .unwrap(),
+    );
+    let args = std::fs::read_to_string(runtime.join("link-args.txt")).unwrap();
+    let executable = temp.path().join("app");
+    success(
+        Command::new("cc")
+            .arg(&object)
+            .arg(runtime.join("libplenty_runtime.a"))
+            .args(args.lines())
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(Command::new(executable).status().unwrap().code(), Some(42));
+    let error = plenty::compile_source_to_object("def helper() -> ():\n    pass\n", &object)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("main"), "{error}");
+}

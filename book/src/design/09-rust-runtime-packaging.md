@@ -15,6 +15,11 @@ only as the linker driver. No C runtime sources remain. Rust compilation occurs
 when building the compiler, with no rustc or LLVM invocation on the Plenty-program
 compilation path. This is still native host compilation, not cross-compilation.
 
+`--emit-object` separates code generation from linking; `--emit-runtime` extracts
+the exact packaged archive and native dependencies for an external build system.
+The runtime owns the executable startup symbol `main` and calls `plenty_main`
+from one application object. See [execution commands](07-execution-commands.md).
+
 The public signatures and memory layouts are checked by native regression tests
 and compile-time layout assertions. Standalone runtime tests also run under Miri
 with exposed-provenance semantics for the ABI's packed pointer slots. The

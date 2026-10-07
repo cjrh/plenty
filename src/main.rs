@@ -8,6 +8,8 @@ Usage: plenty FILE
        plenty --check FILE
        plenty --check-module FILE
        plenty --compile FILE -o OUT
+       plenty --emit-object FILE -o OUT
+       plenty --emit-runtime DIR
        plenty -h | --help
 
 FILE: compile to a temporary executable and run it.
@@ -16,6 +18,8 @@ Programs require def main() -> () or def main() -> i32.
 --check: parse and type-check without executing the program.
 --check-module: check a library module without requiring main.
 --compile: emit a native executable with Cranelift.
+--emit-object: emit an application object without linking (requires main).
+--emit-runtime: extract the matching runtime archive and native link arguments.
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
 --legacy before FILE or --compile selects the historical stack syntax.
@@ -76,12 +80,28 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     if link_options
         && (args.is_empty()
             || args.first().is_some_and(|a| {
-                matches!(a.as_str(), "--check" | "--check-module" | "--help" | "-h")
+                matches!(
+                    a.as_str(),
+                    "--check"
+                        | "--check-module"
+                        | "--help"
+                        | "-h"
+                        | "--emit-object"
+                        | "--emit-runtime"
+                )
             }))
     {
         return Err("linker options require compilation or execution".into());
     }
     match args.as_slice() {
+        [flag, directory] if flag == "--emit-runtime" && !legacy && root.is_none() => {
+            plenty::emit_runtime(Path::new(directory))?;
+        }
+        [flag, source, option, output]
+            if flag == "--emit-object" && !legacy && (option == "-o" || option == "--output") =>
+        {
+            plenty::compile_file_to_object(Path::new(source), Path::new(output), root.as_deref())?;
+        }
         [] if !legacy => {
             print!("{USAGE}");
         }

@@ -96,6 +96,12 @@ executable statements are not allowed at module scope
 Use `--compile` when you want to keep the executable and run it repeatedly
 without compiling again. The executable does not need Plenty installed.
 
+For an external build system, use `plenty --emit-object hello.plenty -o hello.o`
+and `plenty --emit-runtime runtime`. Link the object with
+`runtime/libplenty_runtime.a` followed by the arguments in `runtime/link-args.txt`.
+These two commands do not invoke a linker. They emit a complete application,
+including its imports; ordinary `pub` functions are not C exports.
+
 Every Plenty example in this guide is a separate, complete program. You can
 copy any example into a file without first running the earlier examples. In the
 modules chapter, also save the companion files labelled with their filenames.

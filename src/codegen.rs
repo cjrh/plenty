@@ -203,8 +203,27 @@ fn compile_ops_to_executable(
 
 /// Prebuilt for the compiler's target and embedded so an installed or relocated
 /// Plenty binary never needs runtime source files, Cargo, or rustc at run time.
-const RUNTIME_ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libplenty_runtime.a"));
-const RUNTIME_LINK_ARGS: &str = include_str!(concat!(env!("OUT_DIR"), "/runtime-link-args.txt"));
+pub(crate) const RUNTIME_ARCHIVE: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/libplenty_runtime.a"));
+pub(crate) const RUNTIME_LINK_ARGS: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/runtime-link-args.txt"));
+
+/// Emit an application object without invoking a linker. It exports
+/// `plenty_main`; link exactly one application object with the matching runtime.
+pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
+    let mut heap = Heap::default();
+    let program = crate::frontend::compile(source, &mut heap)?;
+    op::check(&program.ops)?;
+    compile_to_object(&program.ops, &heap, output, program.returns_status)
+}
+
+/// Emit an application object, resolving absolute Plenty imports.
+pub fn compile_file_to_object(path: &Path, output: &Path, root: Option<&Path>) -> Result<()> {
+    let mut heap = Heap::default();
+    let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
+    op::check(&program.ops)?;
+    compile_to_object(&program.ops, &heap, output, program.returns_status)
+}
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
