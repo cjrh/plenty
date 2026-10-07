@@ -33,12 +33,18 @@ impl EnumType {
     pub fn tuple(&self) -> bool {
         self.name.starts_with("tuple[")
     }
-    /// Builtin sums have one payload and a binary discriminant at each level.
+    /// Builtin sums have binary payload branches or fieldless inline markers.
     pub fn inline(&self) -> bool {
         self.propagatable()
             || matches!(
                 self.name.as_str(),
-                "AllocError" | "ParseError" | "IoError" | "DataError" | "Failure" | "CStrError"
+                "AllocError"
+                    | "ParseError"
+                    | "IoError"
+                    | "DataError"
+                    | "Failure"
+                    | "CStrError"
+                    | "LoadError"
             )
     }
     pub fn propagatable(&self) -> bool {
@@ -97,6 +103,32 @@ pub fn alloc_error() -> Ty {
 
 pub fn allocation_result() -> Ty {
     result(Ty::Unit, alloc_error())
+}
+
+/// Loader failures are fieldless markers with a three-bit inline discriminant.
+pub fn load_error() -> Ty {
+    let Ty::Enum(template) = alloc_error() else {
+        unreachable!()
+    };
+    let mut ty = (*template).clone();
+    ty.name = "LoadError".into();
+    ty.depth = 3;
+    ty.variants = [
+        "OutOfMemory",
+        "CapacityOverflow",
+        "InvalidPath",
+        "OpenFailed",
+        "InvalidSymbol",
+        "MissingSymbol",
+        "IncompatibleContract",
+    ]
+    .into_iter()
+    .map(|name| Variant {
+        name: name.into(),
+        fields: vec![],
+    })
+    .collect();
+    Ty::Enum(Rc::new(ty))
 }
 
 pub fn data_error() -> Ty {

@@ -79,7 +79,7 @@ impl Type {
     fn active_payload(&self, value: u128) -> Option<&Type> {
         match self.kind {
             b'R' | b'G' if self.payload_bytes() != 0 && value as u64 != 0 => Some(self),
-            b'B' => self.variants[((value >> 64) & 1) as usize]
+            b'B' => self.variants[self.tag(value)]
                 .fields
                 .first()
                 .and_then(|t| t.active_payload(payload(value))),
@@ -90,7 +90,7 @@ impl Type {
     pub(crate) fn active_range(&self, value: u128) -> bool {
         match self.kind {
             b'R' => value as u64 != 0,
-            b'B' => self.variants[((value >> 64) & 1) as usize]
+            b'B' => self.variants[self.tag(value)]
                 .fields
                 .first()
                 .is_some_and(|t| t.active_range(payload(value))),

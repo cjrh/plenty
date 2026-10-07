@@ -131,7 +131,10 @@ impl Lowerer<'_, '_> {
                 }
                 EnumOp::Tag(_) => {
                     let (value, _) = self.pop_typed(inputs[0].clone())?;
-                    let tag = self.sum_tag(value);
+                    let tags = self.bcx.ins().ushr_imm(value, 64);
+                    let tags = self.raw_word(tags);
+                    let mask = (t.variants.len().next_power_of_two() - 1).max(1);
+                    let tag = self.bcx.ins().band_imm(tags, mask as i64);
                     self.release(value, &inputs[0]);
                     tag
                 }

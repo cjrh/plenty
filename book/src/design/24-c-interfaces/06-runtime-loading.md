@@ -1,5 +1,26 @@
 # Runtime library loading
 
+`runtime_interface_source(path, root, library_name)` in the compiler's Rust API
+generates a trusted module from the same export source used to build a library.
+Save it as, for example, `plugin.plentyi`. Its public API is `load(path: &str) ->
+Result[Library, LoadError]`, and the returned `Library` has a method for each
+export. Initial generated methods support numeric scalar inputs/results and
+unit results. Generating the source does not run or link native code.
+
+Load opens the requested library, checks exact discovery metadata, requires its
+fingerprint guard, and resolves every export before returning a usable table.
+The private lookup lease is cleaned up on every exit. A `Library` stores cached
+addresses; calls use native indirect C instructions without repeated lookup or
+allocation. The table itself is an ordinary fallibly allocated Plenty class.
+Its private fields prevent callers from constructing an unchecked table.
+
+The allocation-free builtin `LoadError` distinguishes OutOfMemory, CapacityOverflow, InvalidPath, OpenFailed,
+InvalidSymbol, MissingSymbol, and IncompatibleContract. Generated loading uses
+the normal `Result` and `?` rules. Metadata agreement is compatibility checking,
+not authentication. Library bodies can still trap or violate their contracts.
+
+## Trusted binding primitives
+
 Trusted `.plentyi` modules can build explicit runtime-loading wrappers using
 versioned runtime declarations. These are the only exceptions to the
 reserved `plenty_` C symbol namespace; the compiler checks their exact ABI.

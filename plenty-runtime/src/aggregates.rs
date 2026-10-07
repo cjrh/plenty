@@ -45,11 +45,12 @@ impl Type {
     fn value(&self) -> &Type {
         self.value.expect("dictionary value type")
     }
+    pub(crate) fn tag(&self, value: u128) -> usize {
+        let mask = (self.variants.len().next_power_of_two() - 1).max(1);
+        (value >> 64) as usize & mask
+    }
     fn payload(&self, value: u128) -> Option<&Type> {
-        self.variants[((value >> 64) & 1) as usize]
-            .fields
-            .first()
-            .copied()
+        self.variants[self.tag(value)].fields.first().copied()
     }
 }
 pub(crate) fn payload(value: u128) -> u128 {
@@ -479,7 +480,7 @@ unsafe fn equal_inner(
         }
         match ty.kind {
             b'B' => {
-                if (a >> 64) & 1 != (b >> 64) & 1 {
+                if ty.tag(a) != ty.tag(b) {
                     return false;
                 }
                 ty.payload(a)
@@ -835,7 +836,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'B' => {
                 out.extend_from_slice(ty.name.as_bytes());
                 out.push(b'.');
-                let variant = &ty.variants[((value >> 64) & 1) as usize];
+                let variant = &ty.variants[ty.tag(value)];
                 out.extend_from_slice(variant.name.as_bytes());
                 if let Some(t) = ty.payload(value) {
                     out.push(b'(');

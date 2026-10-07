@@ -1,0 +1,48 @@
+# Generated loading helpers. All native pointers remain private.
+opaque _LibraryLease
+opaque _FunctionAddress
+extern def _open(path: &str as utf8, output: &mut _LibraryLease) -> u32 = "plenty_library_open_v1"
+extern def _symbol(lease: _LibraryLease, name: &str as utf8, output: &mut _FunctionAddress) -> u32 = "plenty_library_symbol_v1"
+extern def _close(lease: _LibraryLease) -> () = "plenty_library_close_v1"
+extern def _check(lease: _LibraryLease, discovery: &str as utf8, expected: &str as utf8) -> u32 = "plenty_library_contract_v1"
+
+def _error(status: u32) -> LoadError:
+    if status == 1:
+        return LoadError.OutOfMemory
+    if status == 2:
+        return LoadError.CapacityOverflow
+    if status == 3:
+        return LoadError.InvalidPath
+    if status == 4:
+        return LoadError.OpenFailed
+    if status == 5:
+        return LoadError.InvalidSymbol
+    if status == 6:
+        return LoadError.MissingSymbol
+    LoadError.IncompatibleContract
+
+def _allocation(error: AllocError) -> LoadError:
+    match error:
+        case AllocError.OutOfMemory:
+            LoadError.OutOfMemory
+        case AllocError.CapacityOverflow:
+            LoadError.CapacityOverflow
+
+class _Lease:
+    _handle: _LibraryLease
+    def __del__(self: &mut _Lease) -> ():
+        _close(self._handle)
+
+def _lease() -> Result[_Lease, LoadError]:
+    match _Lease(_LibraryLease.null()):
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(_allocation(error))
+
+def _lookup(lease: _LibraryLease, name: str) -> Result[_FunctionAddress, LoadError]:
+    mut address = _FunctionAddress.null()
+    status = _symbol(lease, &name, &mut address)
+    if status != 0:
+        return Err(_error(status))
+    Ok(address)

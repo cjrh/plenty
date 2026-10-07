@@ -125,3 +125,114 @@ fn runtime_loader_prototypes_cannot_be_redeclared_with_another_abi() {
         assert!(error.contains("fixed runtime loader signature"), "{error}");
     }
 }
+
+#[test]
+fn generated_loader_checks_contract_and_calls_cached_scalar_addresses() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let producer = root.join("producer.plenty");
+    std::fs::write(
+        &producer,
+        r#"
+export def add(a: i32, b: i32) -> i32 = "calc_add":
+    a + b
+export def scale(value: f32) -> f32 = "calc_scale":
+    value * 2.0
+export def nothing() -> () = "calc_nothing":
+    pass
+"#,
+    )
+    .unwrap();
+    let native = root.join("libcalc.so");
+    let options = plenty::LibraryOptions::new("calc", plenty::LibraryKind::Shared);
+    plenty::compile_file_to_library(&producer, &native, None, &options).unwrap();
+    let source = plenty::runtime_interface_source(&producer, None, "calc").unwrap();
+    std::fs::write(root.join("plugin.plentyi"), source).unwrap();
+    let output = run(
+        root,
+        &format!(
+            r#"
+import plugin
+def main() -> Result[(), Failure]:
+    path = "{}"
+    library = plugin.load(&path)?
+    print(library.add(20, 22))?
+    print(library.scale(1.25))?
+    library.nothing()
+    missing = "/no/plenty/library.so"
+    match plugin.load(&missing):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error)?
+    Ok(())
+"#,
+            native.display()
+        ),
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"42\n2.5\nLoadError.OpenFailed\n");
+    // A changed return signature is refused before any exported function runs.
+    std::fs::write(
+        &producer,
+        "export def add(a: i32, b: i32) -> i64 = \"calc_add\":\n    i64(a + b)\n",
+    )
+    .unwrap();
+    plenty::compile_file_to_library(&producer, &native, None, &options).unwrap();
+    let output = run(
+        root,
+        &format!(
+            r#"
+import plugin
+def main() -> Result[(), Failure]:
+    path = "{}"
+    match plugin.load(&path):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error)?
+    Ok(())
+"#,
+            native.display()
+        ),
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"LoadError.IncompatibleContract\n");
+}
+
+#[test]
+fn loader_error_markers_preserve_all_tags_in_nested_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = run(
+        dir.path(),
+        r#"
+def code(error: LoadError) -> i64:
+    match error:
+        case LoadError.OutOfMemory:
+            1
+        case LoadError.CapacityOverflow:
+            2
+        case LoadError.InvalidPath:
+            3
+        case LoadError.OpenFailed:
+            4
+        case LoadError.InvalidSymbol:
+            5
+        case LoadError.MissingSymbol:
+            6
+        case LoadError.IncompatibleContract:
+            7
+def main() -> Result[(), Failure]:
+    errors = [LoadError.OutOfMemory, LoadError.CapacityOverflow, LoadError.InvalidPath, LoadError.OpenFailed, LoadError.InvalidSymbol, LoadError.MissingSymbol, LoadError.IncompatibleContract]?
+    for error in &errors:
+        print(code(error))?
+    left: Result[Option[LoadError], LoadError] = Ok(Some(LoadError.InvalidPath))
+    right: Result[Option[LoadError], LoadError] = Ok(Some(LoadError.IncompatibleContract))
+    print(left == right)?
+    print(right)?
+    Ok(())
+"#,
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1\n2\n3\n4\n5\n6\n7\nFalse\nResult[Option[LoadError], LoadError].Ok(Option[LoadError].Some(LoadError.IncompatibleContract))\n");
+}

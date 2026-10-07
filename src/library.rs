@@ -9,6 +9,18 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const RUNTIME: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libplenty_library_runtime.a"));
 const NATIVE_ARGS: &str = include_str!(concat!(env!("OUT_DIR"), "/library-runtime-link-args.txt"));
 
+/// Generate a typed runtime-loading module from the same checked export source
+/// used to build a library. Does not emit, link, load, or execute native code.
+pub fn runtime_interface_source(path: &Path, root: Option<&Path>, name: &str) -> Result<String> {
+    crate::validate_target(None)?;
+    let mut heap = crate::value::Heap::default();
+    let program = crate::frontend::compile_file(path, root, false, &mut heap)?;
+    crate::op::check(&program.ops)?;
+    let interface = Interface::new(name, &program.exports)?;
+    interface.validate_imports(&program.imported_symbols)?;
+    interface.runtime_source(&program.exports)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LibraryKind {
     Static,

@@ -20,8 +20,9 @@ integration tests. Expanded C representations are tracked separately as B27.
 Trusted indirect C calls are implemented as the first runtime-loading building
 block. The runtime now provides resident mappings and fallible lookup leases;
 fixed ABI-checked declarations now expose those helpers to trusted interfaces.
-Exact discovery-contract validation now returns recoverable errors. Generated
-typed loading is still in progress.
+Exact discovery-contract validation returns recoverable errors. Generated scalar
+loaders now expose a typed Library with cached callable addresses; richer
+adapters and command-line generation remain in progress.
 
 ## Later candidates
 

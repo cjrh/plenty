@@ -1302,6 +1302,7 @@ fn named_type(name: &str) -> Type {
         "IoError" => crate::sum::io_error(),
         "Failure" => crate::sum::failure(),
         "CStrError" => crate::sum::c_str_error(),
+        "LoadError" => crate::sum::load_error(),
         _ => return None,
     })
 }

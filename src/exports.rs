@@ -1,6 +1,7 @@
 //! A checked C export drives native entry adapters and both interface views.
 use crate::op::{FnSig, Ty};
 use std::rc::Rc;
+mod dynamic;
 mod handles;
 pub(crate) use handles::Handle;
 
@@ -109,6 +110,9 @@ pub(crate) struct Interface {
 }
 
 impl Interface {
+    pub fn runtime_source(&self, exports: &[Export]) -> Result<String, Box<dyn std::error::Error>> {
+        dynamic::generate(self, exports)
+    }
     pub fn validate_imports(
         &self,
         imports: &std::collections::HashSet<String>,
