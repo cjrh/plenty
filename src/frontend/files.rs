@@ -35,16 +35,34 @@ impl Lower<'_> {
         let operation = match name {
             "close" => CollectionOp::FileClose,
             "read" => CollectionOp::FileRead,
+            "write" => CollectionOp::FileWrite,
+            "flush" => CollectionOp::FileFlush,
+            "sync" => CollectionOp::FileSync,
             _ => return Err(base.at.error(format!("unknown File method `{name}`"))),
         };
-        if !args.is_empty() {
-            return Err(base.at.error(format!("{name} takes no arguments")));
+        let count = usize::from(name == "write");
+        if args.len() != count {
+            return Err(base.at.error(if count == 0 {
+                format!("{name} takes no arguments")
+            } else {
+                "write takes one string argument".into()
+            }));
+        }
+        let mut reads = Vec::new();
+        if let Some(arg) = args.first() {
+            let (ty, loans) = self.observe(arg, ops)?;
+            self.same(Some(ty), Some(Ty::Str), &arg.at)?;
+            reads = loans;
         }
         let (_, loan) = self.borrow(base, true, ops)?;
         ops.push(Op::ReadRef(Ty::File));
+        if count == 1 {
+            ops.push(Op::Swap);
+        }
         let output = operation.signature().1;
         ops.push(Op::Collection(operation));
         ops.push(Op::UseLoan(loan));
+        Self::end_reads(reads, ops);
         Ok(Some(output))
     }
 }

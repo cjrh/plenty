@@ -93,7 +93,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and scoped File open/read/close implemented; stream writes remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and scoped File open/read/write/flush/sync/close implemented; line reads remain deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -1620,7 +1620,22 @@ loans and exit paths as user-defined classes. `with &mut file as stream:` leaves
 the original owner closed on exit. Entry of an already closed file is allowed;
 operations report the closed-state error. Automatic exit discards close errors
 to preserve the body's control flow; use explicit `close()?` in the body when
-the caller must handle them. Stream writes and line reads remain future work.
+the caller must handle them.
+
+`file.write(text) -> Result[i64, IoError]` borrows and writes exact UTF-8 bytes,
+without adding or translating newlines. Its count is Unicode scalars. Evaluate
+the text once before taking the exclusive receiver loan. The handle must be
+open for writing, including for empty text. Errors can leave partial output;
+append mode uses OS append semantics but a whole logical write need not be one
+atomic record. The runtime does not allocate a write buffer.
+
+`file.flush() -> Result[(), IoError]` flushes runtime buffers; files are currently
+unbuffered so it validates the open state and normally does no extra work.
+`file.sync() -> Result[(), IoError]` requests OS synchronization of file data and
+metadata. Neither close nor flush substitutes for sync. Filesystem, device, and
+directory-entry durability rules still apply; sync is not an atomic-save API.
+Both methods require exclusive access and report errors without allocating.
+Line reads remain future work.
 
 ## Returned references
 

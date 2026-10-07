@@ -139,6 +139,112 @@ fn file_reads_require_exclusive_access() {
 }
 
 #[test]
+fn writes_preserve_exact_bytes_and_append_mode() {
+    let (out, dir) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt", "w")? as file:
+        print(file.write("é\0\r\n")?)
+        file.flush()?
+        file.sync()?
+        file.close()?
+    with open("sample.txt", "a")? as file:
+        print(file.write("🙂")?)
+    Ok(())
+print(work())
+"#,
+        Some(b"old contents"),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "4\n1\nResult[(), IoError].Ok(())\n"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        "é\0\r\n🙂".as_bytes()
+    );
+}
+
+#[test]
+fn writes_evaluate_text_once_before_exclusive_access() {
+    let (out, dir) = run(
+        r#"
+def text(file: &File) -> str:
+    print(file.closed)
+    "hello"
+def work() -> Result[(), IoError]:
+    with open("sample.txt", "w")? as file:
+        print(file.write(text(file))?)
+    Ok(())
+print(work())
+"#,
+        None,
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "False\n5\nResult[(), IoError].Ok(())\n"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"hello"
+    );
+}
+
+#[test]
+fn wrong_mode_closed_and_os_write_failures_are_results() {
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    mut file = open("sample.txt")?
+    print(file.write(""))
+    file.close()?
+    print(file.write("x"))
+    print(file.flush())
+    print(file.sync())
+    with open("/dev/full", "w")? as full:
+        print(full.write("x"))
+    Ok(())
+print(work())
+"#,
+        Some(b"old"),
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(text.matches(".Err(").count(), 5, "{text}");
+    reject(
+        "def write(file: &mut File) -> Result[i64, IoError]:\n    file.write(1)\n",
+        "expected str",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn writes_flushes_and_sync_need_no_runtime_allocation() {
+    let (out, dir) = run(
+        r#"
+def write(file: File) -> Result[(), IoError]:
+    with file as stream:
+        stream.write("hello")?
+        stream.flush()?
+        stream.sync()?
+    Ok(())
+def work() -> Result[(), IoError]:
+    file = open("sample.txt", "w")?
+    print("__test_fail_allocations_after_0__")
+    result = write(file)
+    print("__test_restore_allocations__")
+    result
+print(work())
+"#,
+        None,
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Result[(), IoError].Ok(())"));
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"hello"
+    );
+}
+
+#[test]
 fn open_modes_create_truncate_or_preserve_and_errors_are_recoverable() {
     for (mode, expected) in [("r", &b"old"[..]), ("w", &b""[..]), ("a", &b"old"[..])] {
         let (_, dir) = run(

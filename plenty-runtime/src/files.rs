@@ -2,15 +2,18 @@
 use crate::aggregates::Type;
 use crate::memory::{self, Header};
 use crate::text_io::{self, Error, OpenMode};
+use std::io::Write;
 
 #[repr(C)]
 pub(crate) struct File {
     header: Header,
     ty: &'static Type,
     file: Option<std::fs::File>,
+    writable: bool,
 }
 
 pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Error> {
+    let writable = mode != "r";
     let mode = match mode {
         "r" => OpenMode::Read,
         "w" => OpenMode::Replace,
@@ -28,6 +31,7 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
                     header: Header::new(destroy),
                     ty,
                     file: Some(file),
+                    writable,
                 });
             }
             Ok(pointer as u128)
@@ -63,6 +67,33 @@ pub(crate) unsafe fn read(pointer: *mut File) -> Result<u128, Error> {
     Ok(text_io::read_all(file)? as u128)
 }
 
+pub(crate) unsafe fn write(pointer: *mut File, text: &str) -> Result<u128, Error> {
+    // SAFETY: the compiler supplies a live exclusively borrowed owner; no user
+    // callback runs during writing. Validate state even for an empty string.
+    let owner = unsafe { &mut *pointer };
+    let file = owner
+        .file
+        .as_mut()
+        .ok_or(std::io::ErrorKind::NotConnected)?;
+    if !owner.writable {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    file.write_all(text.as_bytes())?;
+    Ok(text.chars().count() as u128)
+}
+
+pub(crate) unsafe fn flush(pointer: *mut File, durable: bool) -> Result<u128, Error> {
+    // SAFETY: the compiler holds exclusive access for this operation.
+    let file = unsafe { &mut (*pointer).file };
+    let file = file.as_mut().ok_or(std::io::ErrorKind::NotConnected)?;
+    if durable {
+        file.sync_all()?;
+    } else {
+        file.flush()?;
+    }
+    Ok(0)
+}
+
 unsafe extern "C" fn destroy(pointer: *mut Header) {
     let file = pointer.cast::<File>();
     // SAFETY: the reference count reached zero. Rust's sole descriptor owner
@@ -96,6 +127,7 @@ mod tests {
                 header: Header::new(destroy),
                 ty: &TYPE,
                 file: None,
+                writable: false,
             });
             memory::plenty_retain(pointer.cast());
             memory::plenty_release(pointer.cast());

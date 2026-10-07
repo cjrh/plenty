@@ -7,6 +7,9 @@ pub enum CollectionOp {
     FileClose,
     FileClosed,
     FileRead,
+    FileWrite,
+    FileFlush,
+    FileSync,
     WriteStdout,
     WriteStderr,
     FlushStdout,
@@ -127,6 +130,14 @@ impl CollectionOp {
             FileRead => (
                 vec![Ty::File],
                 crate::sum::result(Ty::Str, crate::sum::io_error()),
+            ),
+            FileWrite => (
+                vec![Ty::File, Ty::Str],
+                crate::sum::result(Ty::I64, crate::sum::io_error()),
+            ),
+            FileFlush | FileSync => (
+                vec![Ty::File],
+                crate::sum::result(Ty::Unit, crate::sum::io_error()),
             ),
             WriteText | AppendText => (
                 vec![Ty::Str, Ty::Str],
@@ -312,6 +323,9 @@ impl CollectionOp {
             Self::FileClose => 90,
             Self::FileClosed => 91,
             Self::FileRead => 92,
+            Self::FileWrite => 93,
+            Self::FileFlush => 94,
+            Self::FileSync => 95,
             Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,
