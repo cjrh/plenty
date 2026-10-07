@@ -4026,8 +4026,9 @@ narrowing.
 
 ## Writing generic functions
 
-Declare type parameters after the function name and supply them before the call.
-Ownership still follows the concrete type: `identity[list[i64]]` transfers the
+Declare type parameters after the function name. Calls infer them from the
+argument types, or you can supply them explicitly before the call.
+Ownership still follows the concrete type: `identity(values)` transfers the
 list, while a function taking `&T` borrows its argument.
 
 ```plenty
@@ -4044,9 +4045,9 @@ def first[T](values: &list[T]) -> &T:
     &values[0]
 
 def main() -> Result[(), Failure]:
-    print(sum_to[u16](5)?)?
-    values = identity[list[i64]]([3, 4]?)
-    print(first[i64](&values))?
+    print(sum_to(5u16)?)?
+    values = identity([3, 4]?)
+    print(first(&values))?
     print(values)?
     Ok(())
 ```
@@ -4058,8 +4059,46 @@ def main() -> Result[(), Failure]:
 
 `IntType` restricts a parameter to integer types. Unconstrained `T` is useful
 when the body only moves, borrows, or uses operations supported by the chosen
-concrete type. Each specialization is checked and compiled once. Type arguments
-are currently mandatory; generic classes and methods are not implemented yet.
+concrete type. Each specialization is checked and compiled once, whether the call
+uses explicit or inferred type arguments. Generic classes and methods are not
+implemented yet.
+
+Inference matches the signature against the argument types. In `first(&values)`,
+the parameter is `&list[T]` and the argument is `&list[i64]`, so `T` is `i64`.
+When multiple arguments determine the same parameter, their types must agree.
+Unsuffixed literals in generic positions use their normal defaults (`i64` or
+`f64`); another argument does not change them. Keep explicit type arguments when
+you want them to guide literals: `sum_to[u16](5)` is equivalent to `sum_to(5u16)`.
+
+Types must be determined from arguments, not the expected return type. For
+example, this function needs `empty[u8]()` because it has no input mentioning `T`:
+
+```plenty
+def empty[T]() -> Result[list[T], AllocError]:
+    []
+
+def main() -> Result[(), Failure]:
+    values = empty[u8]()?
+    print(values)?
+    Ok(())
+```
+```output
+[]
+```
+
+An annotation on the receiving binding does not change that rule:
+
+```plenty-error
+def empty[T]() -> Result[list[T], AllocError]:
+    []
+
+def main() -> Result[(), Failure]:
+    values: list[u8] = empty()?
+    Ok(())
+```
+```error
+cannot infer type parameter `T` for `empty` from its arguments
+```
 
 ## Requiring methods with a protocol
 
@@ -4082,7 +4121,7 @@ def read_message[T: Readable](source: &T) -> str:
 
 def main() -> Result[(), Failure]:
     message = Message("hello")?
-    print(read_message[Message](&message))?
+    print(read_message(&message))?
     Ok(())
 ```
 ```output
@@ -4094,6 +4133,10 @@ method mutates the receiver. Method parameters, return types, and receiver
 borrowing must match exactly. All required methods are checked at specialization,
 including methods the generic function does not happen to use. Across modules,
 the class methods must be visible to the generic function's defining module.
+
+Here `&message` determines `T = Message`; the compiler then checks the `Readable`
+requirements. Writing `read_message[Message](&message)` explicitly also works.
+The protocol does not make the compiler search for a type to use.
 
 Protocols currently constrain class type arguments; they cannot be stored as
 values. Use `source: &T` with `T: Readable`, not `source: Readable`. Protocol

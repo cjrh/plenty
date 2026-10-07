@@ -81,7 +81,8 @@ Supported today:
 - `range[T](...)` for explicit integer widths; annotations and typed arithmetic
   guide unsuffixed literals without converting already typed values.
 - Tuple values and flat unpacking, plus borrowed dictionary `items()` loops.
-- Explicit generic functions with cached concrete specializations, `IntType`,
+- Generic functions with argument-based type inference, optional explicit type
+  arguments, cached concrete specializations, `IntType`,
   and structural class-method protocol constraints.
 - Allocation failures returned as Results from collection and tuple literals,
   construction and mutation APIs, `str.repr`, and `print`.

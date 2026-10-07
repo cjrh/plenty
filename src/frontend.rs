@@ -1340,7 +1340,8 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 
 struct Lower<'a> {
     heap: &'a mut Heap,
-    sigs: &'a HashMap<String, Rc<FnSig>>,
+    sigs: &'a mut HashMap<String, Rc<FnSig>>,
+    generics: &'a mut generics::Engine,
     aliases: &'a TypeAliases,
     access: &'a modules::AccessMap,
     names: HashMap<String, Local>,
@@ -1357,11 +1358,15 @@ struct Lower<'a> {
     expression_temps: Vec<u8>,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
-    returned_fields: &'a HashMap<String, Vec<usize>>,
+    returned_fields: &'a mut HashMap<String, Vec<usize>>,
 }
 impl Lower<'_> {
     fn numeric_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
+            Expression::GenericCall(name, types, _) => self
+                .generics
+                .explicit_output(name, types, self.aliases)
+                .filter(Ty::is_numeric),
             Expression::Number(n) if numeric_suffix(n) => {
                 self.number(n, false, &e.at, &mut Vec::new()).ok()
             }
@@ -1547,8 +1552,8 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
-            Expression::GenericCall(..) => {
-                return Err(e.at.error("generic call was not specialized"))
+            Expression::GenericCall(name, types, args) => {
+                self.generic_call(name, Some(types), args, &e.at, ops)?
             }
             Expression::Try(value) => self.propagate(e, value, None, ops)?,
             Expression::Type(_) => {
@@ -1915,6 +1920,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if self.generics.templates.contains_key(name) {
+            return self.generic_call(name, None, args, at, ops);
+        }
         let constructor = generators::constructor(name);
         let name = if self.sigs.contains_key(&constructor) {
             &constructor
@@ -1924,7 +1932,8 @@ impl Lower<'_> {
         let sig = self
             .sigs
             .get(name)
-            .ok_or_else(|| at.error(format!("unknown function `{name}`")))?;
+            .ok_or_else(|| at.error(format!("unknown function `{name}`")))?
+            .clone();
         if sig.inputs.len() != args.len() {
             return Err(at.error(format!(
                 "`{name}` expects {} arguments, got {}",
@@ -1939,9 +1948,28 @@ impl Lower<'_> {
         }
         let argument_loans = self.call_arguments(args, &sig.inputs, ops)?;
         ops.push(Op::Call(name.to_owned()));
-        self.call_reference_result(name, sig, &argument_loans, ops);
+        self.call_reference_result(name, &sig, &argument_loans, ops);
         Self::end_reads(argument_loans, ops);
         Ok(sig.outputs.first().cloned())
+    }
+    fn call_borrow(&mut self, arg: &Expr, mutable: bool, ops: &mut Vec<Op>) -> Result<(Ty, usize)> {
+        let base = match &ungroup(arg).kind {
+            Expression::Unary(op, base) if op == if mutable { "&mut" } else { "&" } => &**base,
+            Expression::Name(name)
+                if self
+                    .names
+                    .get(name)
+                    .is_some_and(|l| matches!(l.ty, Ty::Ref(..))) =>
+            {
+                arg
+            }
+            _ => {
+                return Err(arg
+                    .at
+                    .error("reference arguments require explicit & or &mut borrowing"))
+            }
+        };
+        self.borrow(base, mutable, ops)
     }
     fn call_arguments(
         &mut self,
@@ -1952,25 +1980,7 @@ impl Lower<'_> {
         let mut argument_loans = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(inputs) {
             if let Ty::Ref(_, mutable) = expected {
-                let base = match &ungroup(arg).kind {
-                    Expression::Unary(op, base) if op == if *mutable { "&mut" } else { "&" } => {
-                        &**base
-                    }
-                    Expression::Name(name)
-                        if self
-                            .names
-                            .get(name)
-                            .is_some_and(|l| matches!(l.ty, Ty::Ref(..))) =>
-                    {
-                        arg
-                    }
-                    _ => {
-                        return Err(arg
-                            .at
-                            .error("reference arguments require explicit & or &mut borrowing"))
-                    }
-                };
-                let (ty, loan) = self.borrow(base, *mutable, ops)?;
+                let (ty, loan) = self.call_borrow(arg, *mutable, ops)?;
                 self.same(Some(ty), Some(expected.clone()), &arg.at)?;
                 argument_loans.push(loan);
                 continue;
@@ -2171,7 +2181,9 @@ impl Lower<'_> {
                             || !matches!(&ungroup(value).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
                                 && !matches!(
                                     &ungroup(value).kind,
-                                    Expression::Call(..) | Expression::Method(..)
+                                    Expression::Call(..)
+                                        | Expression::GenericCall(..)
+                                        | Expression::Method(..)
                                 ))
                     {
                         return Err(stmt.at.error(
@@ -2349,6 +2361,73 @@ pub(crate) fn compile_file(
     lower(modules::load(path, root, require_main)?, heap)
 }
 
+fn register_signature(
+    f: &Function,
+    aliases: &TypeAliases,
+    sigs: &mut HashMap<String, Rc<FnSig>>,
+    returned_fields: &mut HashMap<String, Vec<usize>>,
+) -> Result<()> {
+    if f.inputs.len() > 256 {
+        return Err(f
+            .at
+            .error("at most 256 parameter/local slots are supported"));
+    }
+    if aliases.contains_key(&f.name) {
+        return Err(f
+            .at
+            .error(format!("function `{}` conflicts with a type alias", f.name)));
+    }
+    if sigs.contains_key(&f.name) {
+        return Err(f.at.error(format!(
+            "function `{}` is already defined; redefinition is not supported",
+            f.name
+        )));
+    }
+    let mut inputs = Vec::with_capacity(f.inputs.len());
+    for (name, ty) in &f.inputs {
+        let resolved = ty
+            .resolve(aliases)?
+            .ok_or_else(|| ty.at.error("unit parameters are not supported yet"))?;
+        inputs.push((name.clone(), resolved));
+    }
+    let output = f.output.resolve(aliases)?;
+    if let Some(Ty::Ref(_, mutable)) = &output {
+        let references: Vec<_> = inputs
+            .iter()
+            .filter(|(_, ty)| matches!(ty, Ty::Ref(..)))
+            .collect();
+        if references.len() != 1 {
+            return Err(f
+                .at
+                .error("returned references require exactly one reference parameter"));
+        }
+        if *mutable && !matches!(&references[0].1, Ty::Ref(_, true)) {
+            return Err(f
+                .at
+                .error("mutable returned references require a mutable reference parameter"));
+        }
+    }
+    if generators::yields(&f.body) {
+        if let Some(Ty::Generator(_)) = &output {
+            let result = crate::sum::result(output.clone().unwrap(), crate::sum::alloc_error());
+            sigs.insert(
+                generators::constructor(&f.name),
+                Rc::new(FnSig {
+                    inputs: inputs.clone(),
+                    outputs: vec![result],
+                }),
+            );
+        }
+    }
+    let outputs = output.into_iter().collect();
+    sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
+
+    if let Some(fields) = references::returned_fields(f, &sigs[&f.name]) {
+        returned_fields.insert(f.name.clone(), fields);
+    }
+    Ok(())
+}
+
 fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let modules::Resolved {
         mut functions,
@@ -2364,74 +2443,20 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
     modules::check_api(&public_api, &aliases, &access)?;
     functions.extend(classes::expand(classes, &aliases)?);
-    let functions = generics::expand(functions, &aliases, &protocols, &access)?;
+    let mut generics = generics::prepare(functions, &aliases, protocols)?;
     let mut sigs = HashMap::new();
-    for f in &functions {
-        if f.inputs.len() > 256 {
-            return Err(f
-                .at
-                .error("at most 256 parameter/local slots are supported"));
-        }
-        if aliases.contains_key(&f.name) {
-            return Err(f
-                .at
-                .error(format!("function `{}` conflicts with a type alias", f.name)));
-        }
-        if sigs.contains_key(&f.name) {
-            return Err(f.at.error(format!(
-                "function `{}` is already defined; redefinition is not supported",
-                f.name
-            )));
-        }
-        let mut inputs = Vec::with_capacity(f.inputs.len());
-        for (name, ty) in &f.inputs {
-            let resolved = ty
-                .resolve(&aliases)?
-                .ok_or_else(|| ty.at.error("unit parameters are not supported yet"))?;
-            inputs.push((name.clone(), resolved));
-        }
-        let output = f.output.resolve(&aliases)?;
-        if let Some(Ty::Ref(_, mutable)) = &output {
-            let references: Vec<_> = inputs
-                .iter()
-                .filter(|(_, ty)| matches!(ty, Ty::Ref(..)))
-                .collect();
-            if references.len() != 1 {
-                return Err(f
-                    .at
-                    .error("returned references require exactly one reference parameter"));
-            }
-            if *mutable && !matches!(&references[0].1, Ty::Ref(_, true)) {
-                return Err(f
-                    .at
-                    .error("mutable returned references require a mutable reference parameter"));
-            }
-        }
-        if generators::yields(&f.body) {
-            if let Some(Ty::Generator(_)) = &output {
-                let result = crate::sum::result(output.clone().unwrap(), crate::sum::alloc_error());
-                sigs.insert(
-                    generators::constructor(&f.name),
-                    Rc::new(FnSig {
-                        inputs: inputs.clone(),
-                        outputs: vec![result],
-                    }),
-                );
-            }
-        }
-        let outputs = output.into_iter().collect();
-        sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
+    let mut returned_fields = HashMap::new();
+    for f in &generics.pending {
+        register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;
     }
-    let returned_fields = functions
-        .iter()
-        .filter_map(|f| {
-            references::returned_fields(f, &sigs[&f.name]).map(|fields| (f.name.clone(), fields))
-        })
-        .collect();
     let returns_status = if require_main {
-        let entry = functions.iter().find(|f| f.name == "main").ok_or_else(|| {
-            at.error("binary application requires `def main() -> ()` or `def main() -> i32`")
-        })?;
+        let entry = generics
+            .pending
+            .iter()
+            .find(|f| f.name == "main")
+            .ok_or_else(|| {
+                at.error("binary application requires `def main() -> ()` or `def main() -> i32`")
+            })?;
         let entry_sig = &sigs["main"];
         if !entry_sig.inputs.is_empty()
             || !matches!(entry_sig.outputs.as_slice(), [] | [Ty::I32])
@@ -2447,7 +2472,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         false
     };
     let mut ops = Vec::new();
-    for f in functions {
+    while let Some(f) = generics.pending.pop_front() {
         let sig = Rc::clone(&sigs[&f.name]);
         let yield_type = if generators::yields(&f.body) {
             let Some(Ty::Generator(element)) = sig.outputs.first() else {
@@ -2460,9 +2485,10 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             None
         };
         let mut lower = Lower {
-            returned_fields: &returned_fields,
+            returned_fields: &mut returned_fields,
             heap,
-            sigs: &sigs,
+            sigs: &mut sigs,
+            generics: &mut generics,
             aliases: &aliases,
             access: &access,
             names: HashMap::new(),

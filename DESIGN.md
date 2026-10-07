@@ -43,11 +43,30 @@ Consequences:
 - No async/await, dynamic attributes, monkey-patching, metaclasses, inheritance,
   implicit nullable references, or exceptions in the initial language.
 
-## Explicit generic functions
+## Generic functions and argument inference
 
 Functions may declare type parameters, for example
 `def identity[T](value: T) -> T:` or `def add[T: IntType](a: T, b: T) -> T:`.
-Calls supply all type arguments explicitly: `identity[list[i64]](values)`.
+Calls may supply all type arguments explicitly (`identity[list[i64]](values)`)
+or infer all of them from arguments (`identity(values)`). Inference structurally
+matches parameter types against concrete argument types: `&T` with `&Message`
+infers `T = Message`, and `&dict[K, V]` with `&dict[str, u8]` infers both parameters.
+Lists, sets, ranges, generators, tuples, Option, and Result participate too.
+Repeated occurrences of a parameter must agree after alias resolution. No
+numeric widening, implicit borrowing, protocol implementation search, or runtime
+dispatch is introduced. Protocol constraints are checked after inference.
+
+Inference is local to the call and uses the ordinary expression checker. Arguments
+are evaluated once in source order. A generic parameter position supplies no
+expected type to its argument: unsuffixed integers default to `i64` and floats to
+`f64`, independently of other arguments or the expected result. Thus
+`add(1u8, 2u8)` works, while `add(1u8, 2)` and `add(1, 2u8)` conflict; use
+`add[u8](1, 2)` to guide unsuffixed literals. Nongeneric parameter positions keep
+their usual contextual typing. Empty literals and incomplete sum constructors
+can require an annotated binding or explicit type arguments. All parameters
+must be determined by inputs: output-only/unused parameters require an explicit
+type argument list. Partial explicit lists and inference from expected return
+types remain deferred. Existing builtin range inference is unchanged.
 `IntType` accepts the eight fixed-width integer types, including aliases; it is
 a constraint rather than a value type. Unconstrained parameters are also allowed.
 
@@ -58,14 +77,15 @@ operations are checked when instantiated; unused generic bodies are not checked
 against every possible type. Module names are resolved in the definition's scope,
 and importing a function does not alter which methods are available.
 
-Expansion uses a work queue, with at most 256 concrete generic instances per
-compilation and the existing type depth/name limits. This bounds expanding
-recursion and keeps diagnostics preferable to unbounded compiler work. A focused
-debug-mode check of 100 repeated calls plus recursion produced one instance in
-about 0.34 ms on the AMD Ryzen 7 7840HS development machine; this measures AST specialization only,
-not code generation or linking. Generic classes, generic methods, inferred type
-arguments, reference/unit type arguments, and first-class generic functions are
-deferred. A signature can borrow `T` directly using `&T` or `&mut T`.
+Specialization is requested during typed body lowering and uses a work queue,
+with at most 256 concrete generic instances per compilation and the existing
+type depth/name limits. Each concrete signature and returned-reference summary
+is registered before its body is queued. Explicit, inferred, alias-equivalent,
+and recursive calls share one cache keyed by function and resolved types; the
+backend still receives only concrete checked operations. This bounds expanding
+recursion without maintaining a second expression type checker. Generic classes,
+generic methods, reference/unit type arguments, and first-class generic functions
+are deferred. A signature can borrow `T` directly using `&T` or `&mut T`.
 
 ## Structural protocols
 
@@ -144,7 +164,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Modern program input, file I/O, and command-line argument APIs | Recoverable console I/O, arguments, Linux whole-file helpers, and scoped File operations implemented, including bounded reads, capability queries, update/exclusive modes, saved text positions, truncation, `readlines`, and `writelines`; direct file iteration remains deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
-| User generic functions | Explicit `def f[T](...)` / `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
+| User generic functions | `def f[T](...)`, argument-based inference or explicit `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
 | Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
 | Anonymous functions and closures | Proposed future work, including multiline bodies and checked capture ownership |

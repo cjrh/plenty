@@ -43,7 +43,7 @@ print(down[i32](1000)).unwrap()
 #[test]
 fn invalid_type_arguments_and_concrete_bodies_are_diagnosed() {
     for source in [
-        "def f[T](x: T) -> T:\n    x\nf(1)",
+        "def f[T]() -> T:\n    1\nf()",
         "def f[T](x: T) -> T:\n    x\nf[i64, i32](1)",
         "def f[T: IntType](x: T) -> T:\n    x\nf[str]('bad')",
         "def f[T](x: T) -> T:\n    x + True\nf[i64](1)",

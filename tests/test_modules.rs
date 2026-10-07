@@ -46,6 +46,16 @@ fn protocol_imports_do_not_activate_methods_and_preserve_visibility() {
         "main.plenty",
         "7\n7\n",
     );
+    let inferred_main = main.replace("api.read[Box]", "api.read");
+    run(
+        &[
+            ("api.plenty", api),
+            ("data.plenty", implementation),
+            ("main.plenty", &inferred_main),
+        ],
+        "main.plenty",
+        "7\n7\n",
+    );
     let private = implementation.replace("pub def", "def");
     let private_main = main.replace("    print(box.read()).unwrap()\n", "");
     let workspace = workspace(&[
@@ -53,6 +63,15 @@ fn protocol_imports_do_not_activate_methods_and_preserve_visibility() {
         ("data.plenty", &private),
         ("main.plenty", &private_main),
     ]);
+    let error = plenty::check_file(
+        &workspace.path().join("main.plenty"),
+        Some(workspace.path()),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("private"), "{error}");
+    let inferred = private_main.replace("api.read[Box]", "api.read");
+    std::fs::write(workspace.path().join("main.plenty"), inferred).unwrap();
     let error = plenty::check_file(
         &workspace.path().join("main.plenty"),
         Some(workspace.path()),

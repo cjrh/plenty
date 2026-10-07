@@ -1,6 +1,7 @@
 //! Structural method requirements, checked before generic specialization.
 use super::*;
 
+#[derive(Clone)]
 pub(super) struct Protocol {
     pub(super) name: String,
     pub(super) at: Token,

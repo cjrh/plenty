@@ -29,8 +29,10 @@ def increment[T: Incrementable](source: &mut T) -> ():
     print(source.view()).unwrap()
 text = Text("hello").unwrap()
 print(read[Text](&text)).unwrap()
+print(read(&text)).unwrap()
 mut counter = Counter(3).unwrap()
 increment[Counter](&mut counter)
+increment(&mut counter)
 print(counter.value).unwrap()
 "#,
     );
@@ -39,7 +41,10 @@ print(counter.value).unwrap()
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "hello\n5\n5\n");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "hello\nhello\n5\n7\n7\n"
+    );
 }
 
 #[test]
@@ -51,9 +56,11 @@ fn constraints_check_every_required_method_and_exact_signature() {
         ("class Bad:\n    value: i64\n    def read(self: &mut Bad) -> i64:\n        self.value\n", "signature of `read`"),
         ("class Bad:\n    value: i64\n    def read(self, n: i64) -> i64:\n        n\n", "signature of `read`"),
     ] {
-        let source = format!("{prefix}{declaration}x = Bad(1)\naccepts[Bad](&x)");
-        let error = support::check_source(&source).unwrap_err().to_string();
-        assert!(error.contains(expected), "{error}");
+        for callee in ["accepts[Bad]", "accepts"] {
+            let source = format!("{prefix}{declaration}x = Bad(1).unwrap()\n{callee}(&x)");
+            let error = support::check_source(&source).unwrap_err().to_string();
+            assert!(error.contains(expected), "{error}");
+        }
     }
     for source in [
         "protocol P:\n    def f(self) -> i64:\n        1",
