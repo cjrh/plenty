@@ -15,6 +15,8 @@ pub enum CollectionOp {
     FileReadLineSized,
     FileReadable,
     FileWritable,
+    FileTell,
+    FileSeek,
     WriteStdout,
     WriteStderr,
     FlushStdout,
@@ -135,6 +137,14 @@ impl CollectionOp {
             FileReadable | FileWritable => (
                 vec![Ty::File],
                 crate::sum::result(Ty::Bool, crate::sum::io_error()),
+            ),
+            FileTell => (
+                vec![Ty::File],
+                crate::sum::result(Ty::U64, crate::sum::io_error()),
+            ),
+            FileSeek => (
+                vec![Ty::File, Ty::U64],
+                crate::sum::result(Ty::Unit, crate::sum::io_error()),
             ),
             FileRead | FileReadLine => (
                 vec![Ty::File],
@@ -344,6 +354,8 @@ impl CollectionOp {
             Self::FileReadLineSized => 98,
             Self::FileReadable => 99,
             Self::FileWritable => 100,
+            Self::FileTell => 101,
+            Self::FileSeek => 102,
             Self::FormatScalar(_) => 79,
             Self::ParseNumber(_) => 78,
             Self::Copy(_) => 14,

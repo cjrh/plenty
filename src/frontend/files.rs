@@ -43,11 +43,12 @@ impl Lower<'_> {
             "sync" => CollectionOp::FileSync,
             "readable" => CollectionOp::FileReadable,
             "writable" => CollectionOp::FileWritable,
+            "tell" => CollectionOp::FileTell,
+            "seek" => CollectionOp::FileSeek,
             _ => return Err(base.at.error(format!("unknown File method `{name}`"))),
         };
-        let count = usize::from(
-            name == "write" || (matches!(name, "read" | "readline") && !args.is_empty()),
-        );
+        let (inputs, output) = operation.signature();
+        let count = inputs.len() - 1;
         if args.len() != count {
             return Err(base.at.error(if count == 0 {
                 format!("{name} takes no arguments")
@@ -58,11 +59,7 @@ impl Lower<'_> {
         let mut reads = Vec::new();
         if let Some(arg) = args.first() {
             let (ty, loans) = self.observe(arg, ops)?;
-            let expected = if matches!(name, "read" | "readline") {
-                Ty::I64
-            } else {
-                Ty::Str
-            };
+            let expected = inputs[1].clone();
             self.same(Some(ty), Some(expected), &arg.at)?;
             reads = loans;
         }
@@ -71,7 +68,6 @@ impl Lower<'_> {
         if count == 1 {
             ops.push(Op::Swap);
         }
-        let output = operation.signature().1;
         ops.push(Op::Collection(operation));
         ops.push(Op::UseLoan(loan));
         Self::end_reads(reads, ops);

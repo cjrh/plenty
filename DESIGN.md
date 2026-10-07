@@ -93,7 +93,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | While loops, break/continue | Implemented |
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
-| Modern program input, file I/O, and command-line argument APIs | Recoverable console writes/flushes, Unix line input, owned argument snapshots, Linux whole-file UTF-8 helpers, and scoped File open/read/readline/write/flush/sync/close implemented, including bounded read; seeking and file iteration remain deferred |
+| Modern program input, file I/O, and command-line argument APIs | Recoverable console I/O, arguments, Linux whole-file helpers, and scoped File operations implemented, including bounded reads, capability queries, update/exclusive modes, and saved text positions; direct file iteration remains deferred |
 | Recursive class/enum types | Not implemented; acyclic forward declarations work |
 | Native FFI / shared-library loading | Not implemented |
 | User generics and structural protocols | Proposed; no user generics or protocol checking implemented yet |
@@ -1654,7 +1654,8 @@ The reader stops at CR immediately and records a one-bit pending-LF state. Its
 next read consumes an optional LF, so it never reads beyond a line just to find
 out whether CR was followed by LF. `read()` honors the same state before resuming
 bulk reads. Line reading currently uses byte reads; buffering,
-seek/tell, file iteration, and configurable encodings remain future work.
+file iteration and configurable encodings remain future work. Saved text positions
+are supported as described below.
 
 ## Returned references
 
@@ -1722,6 +1723,18 @@ manager's exit call. Owned entry results may still be moved out normally.
 `yield` inside
 `with` is rejected until generator frames can retain exit obligations. Concrete
 lookup requires no traits or user generics.
+
+## Text stream positions
+
+`tell() -> Result[u64, IoError]` returns an opaque text-position cookie;
+`seek(cookie: u64) -> Result[(), IoError]` restores it. Both require exclusive
+access, allocate nothing, and report native seek errors (including nonseekable
+streams). Zero rewinds. Other values must come from `tell()` on the same stream
+with unchanged contents; arithmetic and persistence of cookies are unsupported.
+Cookies retain pending CRLF state, not just the physical offset. The private
+encoding uses a byte offset and a decoder-state bit. A failed seek leaves decoder
+state unchanged. Arbitrary cookies cannot violate memory safety but may produce
+invalid text or surprising positions. Relative/end seeks remain deferred.
 
 ## Bounded stream operations
 

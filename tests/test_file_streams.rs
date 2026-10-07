@@ -467,6 +467,82 @@ fn file_ownership_types_and_mutability_are_checked() {
 }
 
 #[test]
+fn text_positions_restore_unicode_and_pending_crlf_state() {
+    for input in ["é\r\n🦀end", "é\r🦀end"] {
+        let (out, _) = run(
+            r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt")? as file:
+        file.readline()?
+        position = file.tell()?
+        print(file.read(1)?)
+        file.seek(position)?
+        print(file.read()?)
+        file.seek(0u64)?
+        print(file.read(1)?)
+        file.close()?
+        print(file.tell())
+        print(file.seek(position))
+    Ok(())
+print(work())
+"#,
+            Some(input.as_bytes()),
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "🦀\n🦀end\né\nResult[u64, IoError].Err(IoError.System(0))\nResult[(), IoError].Err(IoError.System(0))\nResult[(), IoError].Ok(())\n");
+    }
+}
+
+#[test]
+fn seeking_an_append_stream_does_not_reposition_writes() {
+    let (out, dir) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt", "a+")? as file:
+        file.seek(0u64)?
+        print(file.read(1)?)
+        file.seek(0u64)?
+        file.write("!")?
+    Ok(())
+print(work())
+"#,
+        Some(b"abc"),
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("a\n"));
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"abc!"
+    );
+    reject(
+        "def bad(file: &File) -> Result[u64, IoError]:\n    file.tell()",
+        "shared reference as mutable",
+    );
+    reject(
+        "def bad(file: &mut File) -> Result[(), IoError]:\n    file.seek(1)",
+        "expected u64",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn saved_position_operations_do_not_allocate() {
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    with open("sample.txt")? as file:
+        print("__test_fail_allocations_after_0__")
+        position = file.tell()?
+        result = file.seek(position)
+        print("__test_restore_allocations__")
+        print(result)
+    Ok(())
+print(work())
+"#,
+        Some(b"ok"),
+    );
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(".Err("));
+}
+
+#[test]
 fn exclusive_creation_never_replaces_an_existing_file() {
     let (out, dir) = run(
         r#"

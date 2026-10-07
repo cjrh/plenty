@@ -2,7 +2,7 @@
 use crate::aggregates::Type;
 use crate::memory::{self, Header};
 use crate::text_io::{self, Error, OpenMode};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 
 #[repr(C)]
 pub(crate) struct File {
@@ -144,6 +144,34 @@ pub(crate) unsafe fn capability(pointer: *const File, write: bool) -> Result<u12
     } else {
         owner.readable
     } as u128)
+}
+
+pub(crate) unsafe fn tell(pointer: *mut File) -> Result<u128, Error> {
+    // SAFETY: the caller holds exclusive access to a live File owner.
+    let owner = unsafe { &mut *pointer };
+    let file = owner
+        .file
+        .as_mut()
+        .ok_or(std::io::ErrorKind::NotConnected)?;
+    let offset = file.stream_position()?;
+    if offset > u64::MAX >> 1 {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    }
+    // Text cookies reserve one bit for pending universal-newline state.
+    Ok(((offset << 1) | u64::from(owner.skip_lf)) as u128)
+}
+
+pub(crate) unsafe fn seek(pointer: *mut File, cookie: u64) -> Result<u128, Error> {
+    // SAFETY: the caller holds exclusive access to a live File owner.
+    let owner = unsafe { &mut *pointer };
+    let file = owner
+        .file
+        .as_mut()
+        .ok_or(std::io::ErrorKind::NotConnected)?;
+    file.seek(SeekFrom::Start(cookie >> 1))?;
+    // Preserve decoder state on failed seeks; replace it only after success.
+    owner.skip_lf = cookie & 1 != 0;
+    Ok(0)
 }
 
 pub(crate) unsafe fn flush(pointer: *mut File, durable: bool) -> Result<u128, Error> {

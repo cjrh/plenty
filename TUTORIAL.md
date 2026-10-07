@@ -3131,7 +3131,7 @@ Result[i64, IoError].Ok(3)
 Each call reports decoding, I/O, or allocation failure through its Result. You
 can mix `readline()` and `read()` on the same file; both share newline state.
 Failures may consume input, so retrying is not a rollback. Direct `for line in
-file` iteration and seeking are not yet implemented. Size-limited reads are
+file` iteration is not yet implemented. Size-limited reads and saved positions are
 introduced below.
 
 ## Writing through a file
@@ -3374,6 +3374,32 @@ def main() -> ():
 ```
 ```output
 hallo
+Result[(), IoError].Ok(())
+```
+
+## Saving and restoring text positions
+
+`tell()` returns an opaque `u64` position. Pass it back to `seek()` on the same
+file to resume reading there, or use `seek(0u64)` to rewind. Do not calculate with
+these values: they include newline state and are not byte or character counts.
+Saved positions are only meaningful while the file contents remain unchanged.
+
+```plenty
+def demo() -> Result[(), IoError]:
+    write_text("positions.txt", "one\r\ntwo")?
+    with open("positions.txt")? as file:
+        file.readline()?
+        saved = file.tell()?
+        print(file.read()?)
+        file.seek(saved)?
+        print(file.read()?)
+    Ok(())
+def main() -> ():
+    print(demo())
+```
+```output
+two
+two
 Result[(), IoError].Ok(())
 ```
 
