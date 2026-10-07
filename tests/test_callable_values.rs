@@ -121,3 +121,55 @@ def main() -> Result[(), Failure]:
         assert!(check_source(source).is_err(), "{source}");
     }
 }
+
+#[test]
+fn returned_callable_references_keep_their_origin_alive() {
+    let output = run(r#"
+def identity(value: &mut i64) -> &mut i64:
+    value
+def factory() -> Callable[[&mut i64], &mut i64]:
+    identity
+def main() -> Result[(), Failure]:
+    mut value = 4
+    alias = factory()(&mut value)
+    *alias = 12
+    print(value)?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "12\n");
+    for (source, diagnostic) in [
+        ("def identity(value: &mut i64) -> &mut i64:\n    value\ncallback = identity\nmut x = 1\nalias = callback(&mut x)\nx = 2\nprint(alias).unwrap()", "conflicting borrow"),
+        ("def escape() -> &i64:\n    x = 1\n    x", "exactly one reference parameter"),
+        ("type Invalid = Callable[[&i64, &i64], &i64]", "exactly one reference parameter"),
+        ("type Invalid = Callable[[&i64], &mut i64]", "mutable reference parameter"),
+    ] {
+        let error = check_source(source).unwrap_err().to_string();
+        assert!(error.contains(diagnostic), "{error}");
+    }
+}
+
+#[test]
+fn returned_callable_projections_conservatively_borrow_the_whole_origin() {
+    let error = check_source(
+        r#"
+class Pair:
+    left: i64
+    right: i64
+def left(value: &mut Pair) -> &mut i64:
+    &mut value.left
+mut pair = Pair(1, 2).unwrap()
+select = left
+reference = select(&mut pair)
+pair.right = 4
+print(reference).unwrap()
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("conflicting borrow"), "{error}");
+}

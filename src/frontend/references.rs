@@ -61,7 +61,10 @@ impl Lower<'_> {
         if matches!(&ungroup(e).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
             || matches!(
                 &ungroup(e).kind,
-                Expression::Call(..) | Expression::GenericCall(..) | Expression::Method(..)
+                Expression::Call(..)
+                    | Expression::GenericCall(..)
+                    | Expression::Method(..)
+                    | Expression::Invoke(..)
             )
         {
             if let Some(id) = ops.iter().rev().find_map(|op| {

@@ -14,8 +14,20 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
     if sig.inputs.iter().chain(sig.output.iter()).any(frame) {
         return Err(at.error("callable signatures do not yet support generator frames"));
     }
-    if matches!(sig.output, Some(Ty::Ref(..))) {
-        return Err(at.error("callable signatures do not yet support returned references"));
+    if let Some(Ty::Ref(_, mutable)) = &sig.output {
+        let references: Vec<_> = sig
+            .inputs
+            .iter()
+            .filter(|ty| matches!(ty, Ty::Ref(..)))
+            .collect();
+        if references.len() != 1 {
+            return Err(at.error("returned references require exactly one reference parameter"));
+        }
+        if *mutable && !matches!(references[0], Ty::Ref(_, true)) {
+            return Err(
+                at.error("mutable returned references require a mutable reference parameter")
+            );
+        }
     }
     Ok(())
 }
@@ -55,6 +67,9 @@ impl Lower<'_> {
         }
         let loans = self.call_arguments(args, &sig.function().inputs, ops)?;
         ops.push(Op::CallIndirect(sig.clone()));
+        // A structural callable has no function-specific field projection summary.
+        // Retain the full origin loan even when today's value happens to be named.
+        self.call_reference_result("", &sig.function(), &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.output.clone())
     }

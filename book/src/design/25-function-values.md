@@ -22,7 +22,11 @@ functions: wrap a builtin in a typed function when a callable value is needed.
 Reference parameters retain ordinary explicit `&` / `&mut` argument syntax.
 The borrow checker keeps these loans live through the indirect call. Owned
 arguments move exactly as they do in direct calls, and unit results leave no value.
+Returned references require exactly one reference parameter, which supplies their
+lifetime. A mutable result requires a mutable reference input. An indirect call
+borrows that whole origin; it does not use a named function's more precise field
+projection summary. The loan remains live until the returned reference's last use.
 
 Currently only concrete named functions are values. Callable signatures exclude
-returned references and generator frames. Capture environments and anonymous bodies are
+generator frames. Capture environments and anonymous bodies are
 not yet implemented. See the [backlog](../backlog.md) for remaining work.

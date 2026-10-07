@@ -2351,6 +2351,7 @@ impl Lower<'_> {
                                 && !matches!(
                                     &ungroup(value).kind,
                                     Expression::Call(..)
+                                        | Expression::Invoke(..)
                                         | Expression::GenericCall(..)
                                         | Expression::Method(..)
                                 ))
