@@ -14,7 +14,6 @@ stages describe technical dependencies, not a second priority list.
 
 | ID | Work | Scope and completion evidence |
 | --- | --- | --- |
-| B03 | Target compatibility | Make supported target and pointer-width assumptions explicit. Check compatibility with the packaged runtime; reject unsupported combinations before code generation. Audit pointer uses across signatures, storage, and runtime layouts before expanding target support. |
 | B04 | Initial C imports | Add trusted interface declarations for C scalars and opaque pointers, with explicit link configuration and native C-fixture tests. Keep source visibility, C linkage, and private Plenty layouts separate. See the [FFI design](proposals/ffi-and-dynamic-libraries.md). |
 | B05 | Ownership-aware C adapters | Add opaque owned handles with matching destruction, call-scoped buffers, explicit string adapters, nullability, and transfer/error contracts. Test success, failure, partial initialization, and cleanup against C fixtures. Depends on B04. |
 
@@ -53,6 +52,7 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
+| B03: Target compatibility | Native compilation validates the supported x86_64 Linux GNU target, packaged runtime triple, and ISA pointer width. Explicit target selection rejects incompatible layouts before source loading/emission; runtime extraction includes target metadata. See [runtime packaging](design/09-rust-runtime-packaging.md). |
 | B02: Object-file output | CLI/API application object emission and matching runtime extraction work without a linker on PATH. External-driver tests link and run single-file and imported programs. See [execution commands](design/07-execution-commands.md). |
 | B01: Linker selection | CLI `--linker` / `--link-arg` and Rust `CompileOptions` select a cc-compatible driver without shell parsing. Native and mock-driver tests cover argument fidelity, failure diagnostics, and temporary cleanup. See [execution commands](design/07-execution-commands.md). |
 | B25: Allocation-free generator frames | Generator calls return concrete inline frames directly. Consumers specialize by producer identity; factories and standard sums preserve that identity. Native tests disable heap allocation across creation, moves, calls, nested frames, resume, and cleanup. Recursive inline layouts are rejected. See [native generators](design/16-native-generators.md). |

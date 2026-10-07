@@ -9,6 +9,10 @@ fn main() {
     println!("cargo:rerun-if-changed=plenty-runtime/Cargo.toml");
     println!("cargo:rerun-if-env-changed=PLENTY_RUNTIME_RUSTFLAGS");
     let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    println!(
+        "cargo:rustc-env=PLENTY_RUNTIME_TARGET={}",
+        std::env::var("TARGET").unwrap()
+    );
     let archive = out.join("libplenty_runtime.a");
     let mut rustc = Command::new(std::env::var_os("RUSTC").unwrap());
     rustc.args([

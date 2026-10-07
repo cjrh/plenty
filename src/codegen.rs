@@ -140,6 +140,7 @@ pub fn compile_source_to_executable_with_options(
     output: &Path,
     options: &crate::CompileOptions,
 ) -> Result<()> {
+    crate::validate_target(options.target.as_deref())?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
     compile_ops_to_executable(&program.ops, &heap, output, program.returns_status, options)
@@ -158,6 +159,7 @@ pub fn compile_file_to_executable_with_options(
     root: Option<&Path>,
     options: &crate::CompileOptions,
 ) -> Result<()> {
+    crate::validate_target(options.target.as_deref())?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
     compile_ops_to_executable(&program.ops, &heap, output, program.returns_status, options)
@@ -178,6 +180,7 @@ pub fn compile_legacy_source_to_executable_with_options(
     output: &Path,
     options: &crate::CompileOptions,
 ) -> Result<()> {
+    crate::validate_target(options.target.as_deref())?;
     let toks = lexer::lex(source)?;
     let mut heap = Heap::default();
     let ops = op::compile(&toks, &mut heap)?;
@@ -211,6 +214,7 @@ pub(crate) const RUNTIME_LINK_ARGS: &str =
 /// Emit an application object without invoking a linker. It exports
 /// `plenty_main`; link exactly one application object with the matching runtime.
 pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
+    crate::validate_target(None)?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
     op::check(&program.ops)?;
@@ -219,6 +223,7 @@ pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
 
 /// Emit an application object, resolving absolute Plenty imports.
 pub fn compile_file_to_object(path: &Path, output: &Path, root: Option<&Path>) -> Result<()> {
+    crate::validate_target(None)?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
     op::check(&program.ops)?;
@@ -297,6 +302,7 @@ fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path, returns_status: boo
 /// inspects the running CPU's features so emitted code can take
 /// advantage of what's available without us having to enumerate it.
 fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
+    crate::validate_target(None)?;
     let mut flags = settings::builder();
     // `is_pic` so the object can be linked into a position-independent
     // executable, which is what every modern Linux/macOS toolchain
@@ -310,7 +316,13 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     // implementation relies on [frame pointers] being present".
     flags.set("preserve_frame_pointers", "true")?;
     let isa_builder = cranelift_native::builder().map_err(|e| -> Box<dyn Error> { e.into() })?;
-    Ok(isa_builder.finish(settings::Flags::new(flags))?)
+    let isa = isa_builder.finish(settings::Flags::new(flags))?;
+    if isa.triple().to_string() != crate::native_target() || isa.pointer_type() != PTR_TY {
+        return Err(
+            "native ISA does not match the packaged runtime's target and 64-bit pointer ABI".into(),
+        );
+    }
+    Ok(isa)
 }
 
 /// Handles for every runtime helper the lowerer can call. We declare

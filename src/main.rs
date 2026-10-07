@@ -10,6 +10,7 @@ Usage: plenty FILE
        plenty --compile FILE -o OUT
        plenty --emit-object FILE -o OUT
        plenty --emit-runtime DIR
+       plenty --print-target
        plenty -h | --help
 
 FILE: compile to a temporary executable and run it.
@@ -22,6 +23,7 @@ Programs require def main() -> () or def main() -> i32.
 --emit-runtime: extract the matching runtime archive and native link arguments.
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
+--target TRIPLE: require this target to match the supported packaged runtime.
 --legacy before FILE or --compile selects the historical stack syntax.
 ";
 
@@ -46,13 +48,16 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     let mut link_options = false;
     let mut index = 0;
     while index < args.len() {
-        if matches!(args[index].as_str(), "--linker" | "--link-arg") {
+        if matches!(args[index].as_str(), "--linker" | "--link-arg" | "--target") {
             let flag = args.remove(index);
             if index == args.len() {
                 return Err(format!("{flag} requires a value").into());
             }
             let value = args.remove(index);
-            if flag == "--linker" {
+            if flag == "--target" {
+                options.target = Some(value);
+                continue;
+            } else if flag == "--linker" {
                 if value.is_empty() {
                     return Err("--linker requires a nonempty path".into());
                 }
@@ -77,6 +82,9 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
     } else {
         None
     };
+    if options.target.is_some() {
+        plenty::validate_target(options.target.as_deref())?;
+    }
     if link_options
         && (args.is_empty()
             || args.first().is_some_and(|a| {
@@ -94,6 +102,9 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
         return Err("linker options require compilation or execution".into());
     }
     match args.as_slice() {
+        [flag] if flag == "--print-target" && !legacy && root.is_none() && !link_options => {
+            println!("{}", plenty::native_target());
+        }
         [flag, directory] if flag == "--emit-runtime" && !legacy && root.is_none() => {
             plenty::emit_runtime(Path::new(directory))?;
         }

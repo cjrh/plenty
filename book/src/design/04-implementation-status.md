@@ -22,6 +22,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Cranelift AOT and compile-and-run file command | Implemented |
 | Native linker configuration | CLI `--linker` / `--link-arg` and Rust `CompileOptions`; cc-compatible driver interface, default `cc` |
 | Native object output | `--emit-object` / Rust APIs emit an application object without linking; `--emit-runtime` extracts the matching archive and native dependencies for external linking |
+| Native target validation | `x86_64-unknown-linux-gnu` only; requested target, packaged runtime, and Cranelift ISA must agree before emission. `--print-target` reports the packaged target |
 | Explicit binary `main` entry point | Implemented: parameterless `main` returns `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`; module scope contains declarations and imports |
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
 | Direct and mutual tail calls | Implemented where borrowing and observable cleanup permit |

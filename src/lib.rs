@@ -24,7 +24,9 @@ pub use codegen::{
     compile_source_to_executable, compile_source_to_executable_with_options,
     compile_source_to_object,
 };
-pub use toolchain::{emit_runtime, CompileOptions, RuntimeArtifacts};
+pub use toolchain::{
+    emit_runtime, native_target, validate_target, CompileOptions, RuntimeArtifacts,
+};
 
 /// Parse and type-check a standalone modern Plenty binary without executing
 /// it or generating native code. Requires a parameterless `main` returning

@@ -101,6 +101,9 @@ and `plenty --emit-runtime runtime`. Link the object with
 `runtime/libplenty_runtime.a` followed by the arguments in `runtime/link-args.txt`.
 These two commands do not invoke a linker. They emit a complete application,
 including its imports; ordinary `pub` functions are not C exports.
+Native compilation currently supports `x86_64-unknown-linux-gnu`. Use
+`plenty --print-target` to inspect the packaged target. An explicit
+`--target TRIPLE` must match it; choosing a linker does not enable cross-compilation.
 
 Every Plenty example in this guide is a separate, complete program. You can
 copy any example into a file without first running the earlier examples. In the

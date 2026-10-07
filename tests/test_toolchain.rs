@@ -50,6 +50,7 @@ fn driver_receives_literal_arguments_and_reports_failure() {
     let options = plenty::CompileOptions {
         linker: driver.clone(),
         link_args: vec!["a b;$(false)".into(), "-lfixture".into()],
+        ..Default::default()
     };
     let error = plenty::compile_source_to_executable_with_options(
         "def main() -> ():\n    pass\n",
@@ -82,6 +83,48 @@ fn driver_receives_literal_arguments_and_reports_failure() {
     .unwrap_err()
     .to_string();
     assert!(error.contains("failed to invoke linker driver"), "{error}");
+}
+
+#[test]
+fn unsupported_target_fails_before_source_or_codegen() {
+    let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .args([
+            "--emit-object",
+            "missing.plenty",
+            "-o",
+            "unused.o",
+            "--target",
+            "i686-unknown-linux-gnu",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unsupported native target"));
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("untouched");
+    std::fs::write(&output, "original").unwrap();
+    let options = plenty::CompileOptions {
+        target: Some("x86_64-pc-windows-msvc".into()),
+        ..Default::default()
+    };
+    assert!(
+        plenty::compile_source_to_executable_with_options("invalid source", &output, &options)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported native target")
+    );
+    assert_eq!(std::fs::read_to_string(&output).unwrap(), "original");
+    let result = success(
+        Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .arg("--print-target")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(result.stdout).unwrap().trim(),
+        plenty::native_target()
+    );
+    plenty::validate_target(Some(plenty::native_target())).unwrap();
 }
 
 #[test]

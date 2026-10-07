@@ -20,6 +20,16 @@ the exact packaged archive and native dependencies for an external build system.
 The runtime owns the executable startup symbol `main` and calls `plenty_main`
 from one application object. See [execution commands](07-execution-commands.md).
 
+Native emission is gated to `x86_64-unknown-linux-gnu`, matching the tested runtime
+and compiler target. The build records Cargo's runtime target; emission also
+checks the Cranelift ISA triple and pointer type. The ABI currently relies on
+64-bit pointers, 128-bit value slots, little-endian metadata, System V runtime and
+generator callback signatures, and fixed header/descriptor offsets. Existing
+runtime layout assertions and native tests cover those layouts. Other platforms
+need their own ABI and runtime validation before this gate is expanded; a custom
+linker alone cannot provide it. Checking Plenty source remains independent of
+native emission unless a target is explicitly requested.
+
 The public signatures and memory layouts are checked by native regression tests
 and compile-time layout assertions. Standalone runtime tests also run under Miri
 with exposed-provenance semantics for the ABI's packed pointer slots. The

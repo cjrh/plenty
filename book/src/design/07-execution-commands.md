@@ -8,7 +8,11 @@
 - `plenty --emit-object FILE -o OUT` emits one native application object,
   including imported modules, without invoking a linker. It still requires `main`.
 - `plenty --emit-runtime DIR` extracts the embedded `libplenty_runtime.a` and
-  `link-args.txt`, with one required native driver argument per line.
+  `link-args.txt`, with one required native driver argument per line, plus `target.txt`.
+- `plenty --print-target` prints the target of the packaged runtime.
+- `--target TRIPLE` explicitly requires that target. Only native
+  `x86_64-unknown-linux-gnu` is currently supported; other triples fail before
+  source loading/code generation. This option does not enable cross-compilation.
 - `plenty --check FILE` validates without native emission, linking, or execution.
 - `plenty --check-module FILE` checks a library and its imports without requiring `main`.
 - `--module-root DIR` selects the source root for modern file commands.
