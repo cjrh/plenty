@@ -32,6 +32,9 @@ impl DerefMut for TypeAliases {
     }
 }
 impl DataTypes {
+    pub(super) fn is_class(&self, name: &str) -> bool {
+        self.classes.contains_key(name)
+    }
     pub(super) fn contains(&self, name: &str) -> bool {
         self.enums.contains_key(name) || self.classes.contains_key(name)
     }
@@ -45,6 +48,66 @@ impl DataTypes {
             _ => return None,
         };
         self.arguments.borrow().get(name).cloned()
+    }
+
+    pub(super) fn factories(&self) -> Vec<Function> {
+        let mut classes: Vec<_> = self.classes.values().collect();
+        classes.sort_by(|a, b| a.name.cmp(&b.name));
+        classes
+            .into_iter()
+            .map(|class| {
+                let at = &class.at;
+                let reference = |name: String, args: Vec<TypeRef>| TypeRef {
+                    concrete: None,
+                    at: at.clone(),
+                    name: Some(name),
+                    args,
+                };
+                let types: Vec<_> = class
+                    .type_params
+                    .iter()
+                    .map(|(n, _)| reference(n.clone(), vec![]))
+                    .collect();
+                let inputs = class
+                    .methods
+                    .iter()
+                    .find(|m| m.name == "__init__")
+                    .map(|m| m.inputs[1..].to_vec())
+                    .unwrap_or_else(|| class.fields.clone());
+                let args = inputs
+                    .iter()
+                    .map(|(n, _)| Expr {
+                        at: at.clone(),
+                        kind: Expression::Name(n.clone()),
+                    })
+                    .collect();
+                Function {
+                    once: false,
+                    captures: vec![],
+                    foreign: None,
+                    export: None,
+                    name: class.name.clone(),
+                    type_params: class.type_params.clone(),
+                    at: at.clone(),
+                    inputs,
+                    output: reference(
+                        "Result".into(),
+                        vec![
+                            reference(class.name.clone(), types.clone()),
+                            reference("AllocError".into(), vec![]),
+                        ],
+                    ),
+                    doc: String::new(),
+                    body: vec![Stmt {
+                        at: at.clone(),
+                        kind: Statement::Expr(Expr {
+                            at: at.clone(),
+                            kind: Expression::GenericCall(class.name.clone(), types, args),
+                        }),
+                    }],
+                }
+            })
+            .collect()
     }
 }
 impl TypeAliases {

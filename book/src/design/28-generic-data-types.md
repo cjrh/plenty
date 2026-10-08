@@ -22,7 +22,14 @@ storage, allocation, ownership, and drop rules; generic syntax adds no runtime
 type lookup or extra allocation. User enum construction still returns Result.
 Option and Result retain their separate allocation-free representation.
 
-Constructors require explicit arguments. Generic functions infer arguments from
+Class constructors infer parameters from their input arguments, using generated
+field order or an explicit initializer's signature. `Cell(7u8)` means
+`Cell[u8](7)`; `Cell(7)` uses i64. Output-only or phantom parameters require
+explicit arguments. A result annotation does not change argument inference.
+Arguments evaluate exactly once in source order. Enum qualifiers still require
+explicit arguments.
+
+Generic functions infer arguments from
 data instances: `def read[T](value: &Cell[T]) -> T` learns T from `Cell[u8]`,
 including through aliases, nested collections, and repeated parameters. Inference
 checks the nominal declaration as well as its arguments; matching fields alone

@@ -2,6 +2,58 @@ mod support;
 use support::{check_source, run};
 
 #[test]
+fn constructors_infer_from_fields_and_explicit_initializers() {
+    let output = run(r#"
+class Pair[A, B]:
+    a: A
+    b: B
+class Sized[T]:
+    values: list[T]
+    def __init__(self, value: T, count: u8) -> Result[(), AllocError]:
+        self.values = [value for n in range(count)]?
+        Ok(())
+def main() -> Result[(), Failure]:
+    pair = Pair(7u8, "seven")?
+    print(pair)?
+    sized = Sized(9u16, 2)?
+    print(sized)?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Pair[u8, str](a=7, b=\"seven\")\nSized[u16](values=[9, 9])\n"
+    );
+}
+
+#[test]
+fn constructor_inference_requires_all_parameters_and_matching_evidence() {
+    for (declaration, call, expected) in [
+        (
+            "class Pair[T]:\n    a: T\n    b: T\n",
+            "Pair(1u8, 2u16)",
+            "conflicting types",
+        ),
+        (
+            "class Marker[T]:\n    n: i64\n",
+            "Marker(1)",
+            "cannot infer type parameter",
+        ),
+    ] {
+        let error = check_source(&format!(
+            "{declaration}def main() -> ():\n    value = {call}.unwrap()\n"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn function_inference_reads_nominal_data_arguments() {
     let output = run(r#"
 class Pair[K, V]:

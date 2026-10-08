@@ -13,10 +13,11 @@ fn callable_pattern(bound: &TypeRef) -> TypeRef {
 }
 
 pub(super) fn prepare(
-    functions: Vec<Function>,
+    mut functions: Vec<Function>,
     aliases: &TypeAliases,
     protocols: Vec<protocols::Protocol>,
 ) -> Result<Engine> {
+    functions.extend(aliases.data.factories());
     let mut declarations = HashMap::new();
     for protocol in &protocols {
         if aliases.contains_key(&protocol.name)
@@ -317,6 +318,9 @@ impl Lower<'_> {
     }
 
     pub(super) fn specialize(&mut self, name: &str, actual: Vec<Ty>, at: &Token) -> Result<String> {
+        if self.aliases.data.is_class(name) {
+            modules::check_member(self.access, name, "__new__", at)?;
+        }
         self.sync_data()?;
         let (symbol, function) =
             self.generics
