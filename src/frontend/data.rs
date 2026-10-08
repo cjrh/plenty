@@ -219,6 +219,13 @@ impl TypeAliases {
                     generics::substitute(field, &substitutions)?;
                 }
                 for method in &mut declaration.methods {
+                    for bound in method
+                        .type_params
+                        .iter_mut()
+                        .filter_map(|(_, b)| b.as_mut())
+                    {
+                        generics::substitute(bound, &substitutions)?;
+                    }
                     for (_, ty) in &mut method.inputs {
                         generics::substitute(ty, &substitutions)?;
                     }
@@ -316,12 +323,20 @@ impl generics::Engine {
         let pending = std::mem::take(&mut *aliases.data.pending.borrow_mut());
         let functions = classes::expand(pending, aliases)?;
         for f in &functions {
+            if !f.type_params.is_empty() {
+                self.validate_template(f, aliases)?;
+                self.templates.insert(f.name.clone(), Rc::new(f.clone()));
+                continue;
+            }
             self.methods
                 .insert(f.name.clone(), protocols::signature(f, aliases)?);
             self.functions.insert(f.name.clone(), f.clone());
             self.pending.push_back(f.clone());
         }
-        Ok(functions)
+        Ok(functions
+            .into_iter()
+            .filter(|f| f.type_params.is_empty())
+            .collect())
     }
 }
 impl Lower<'_> {

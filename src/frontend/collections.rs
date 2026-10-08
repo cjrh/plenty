@@ -1277,6 +1277,11 @@ impl Lower<'_> {
                 kind: Expression::Name(receiver.clone()),
             };
             let result = self.class_method(&expr, class.clone(), name, args, ops)?;
+            if matches!(result, Some(Ty::Ref(..))) {
+                return Err(base
+                    .at
+                    .error("reference-returning methods require a named receiver or class field"));
+            }
             self.names.remove(&receiver);
             self.expression_temps.push(slot);
             Self::end_reads(loans, ops);

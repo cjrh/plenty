@@ -28,6 +28,14 @@ impl Parser {
             let public = self.eat("pub");
             let member = if self.peek().is("def") {
                 let mut f = self.function_in(Some(&name))?;
+                if f.type_params
+                    .iter()
+                    .any(|(n, _)| type_params.iter().any(|(owner, _)| owner == n))
+                {
+                    return Err(f
+                        .at
+                        .error("method type parameters cannot shadow class type parameters"));
+                }
                 if let Some((_, receiver)) = f.inputs.first_mut() {
                     if let Some(owner) = receiver
                         .args
@@ -210,7 +218,11 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             {
                 return Err(f.at.error("method receiver must be self: &Class (or self: &mut Class); lifecycle methods require &mut"));
             }
-            let output = f.output.resolve(aliases)?;
+            let output = if f.type_params.is_empty() {
+                f.output.resolve(aliases)?
+            } else {
+                None
+            };
             if special
                 && (generators::yields(&f.body)
                     || (output.is_some()
@@ -608,6 +620,19 @@ impl Lower<'_> {
         let callee = method(&class.name, name);
         self.sync_data()?;
         modules::check_member(self.access, &class.name, name, &base.at)?;
+        if let Some(template) = self.generics.templates.get(&callee) {
+            let receiver = Expr {
+                at: base.at.clone(),
+                kind: Expression::Unary(
+                    template.inputs[0].1.name.clone().unwrap(),
+                    Box::new(base.clone()),
+                ),
+            };
+            let arguments: Vec<_> = std::iter::once(receiver)
+                .chain(args.iter().cloned())
+                .collect();
+            return self.generic_call(&callee, None, &arguments, &base.at, ops);
+        }
         let sig = self
             .sigs
             .get(&callee)

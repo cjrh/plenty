@@ -173,6 +173,7 @@
 
 - [72. Parameterize an enum](tutorial/72-parameterize-an-enum.md)
 - [73. Parameterize a class](tutorial/73-parameterize-a-class.md)
+- [74. Write a generic method](tutorial/74-write-a-generic-method.md)
 
 # Proposals
 

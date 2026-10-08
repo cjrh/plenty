@@ -70,31 +70,7 @@ pub(super) fn prepare(
             if f.name == "main" {
                 return Err(f.at.error("main cannot have type parameters"));
             }
-            for (_, bound) in &f.type_params {
-                if let Some(bound) = bound {
-                    if callable_bound(bound) && !bound.args.is_empty() {
-                        // Validate the signature's shape even for unused templates.
-                        // Concrete capability checks still happen at specialization.
-                        let mut validation = aliases.clone();
-                        for (name, _) in &f.type_params {
-                            validation.insert(name.clone(), Some(Ty::I64));
-                        }
-                        callable_pattern(bound).resolve(&validation)?;
-                        continue;
-                    }
-                    if (bound.name.as_deref() != Some("IntType")
-                        && !bound
-                            .name
-                            .as_ref()
-                            .is_some_and(|n| engine.protocols.contains_key(n)))
-                        || !bound.args.is_empty()
-                    {
-                        return Err(bound.at.error(
-                            "generic constraints require IntType, Callable, OnceCallable, or a declared protocol",
-                        ));
-                    }
-                }
-            }
+            engine.validate_template(&f, aliases)?;
             engine.templates.insert(f.name.clone(), Rc::new(f));
         }
     }
@@ -449,6 +425,27 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
 }
 
 impl Engine {
+    pub(super) fn validate_template(&self, f: &Function, aliases: &TypeAliases) -> Result<()> {
+        for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+            if callable_bound(bound) && !bound.args.is_empty() {
+                let mut validation = aliases.clone();
+                for (name, _) in &f.type_params {
+                    validation.insert(name.clone(), Some(Ty::I64));
+                }
+                callable_pattern(bound).resolve(&validation)?;
+            } else if (bound.name.as_deref() != Some("IntType")
+                && !bound
+                    .name
+                    .as_ref()
+                    .is_some_and(|n| self.protocols.contains_key(n)))
+                || !bound.args.is_empty()
+            {
+                return Err(bound.at.error("generic constraints require IntType, Callable, OnceCallable, or a declared protocol"));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn explicit_output(
         &self,
         name: &str,

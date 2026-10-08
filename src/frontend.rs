@@ -876,8 +876,8 @@ impl Parser {
         }
         let mut type_params = Vec::new();
         if !anonymous && self.eat("[") {
-            if class.is_some() {
-                return Err(at.error("generic methods are not supported yet"));
+            if class.is_some() && matches!(name.as_str(), "__init__" | "__del__") {
+                return Err(at.error("lifecycle methods cannot declare their own type parameters"));
             }
             loop {
                 let param = self.name()?;

@@ -24,6 +24,11 @@ impl Parser {
                     .error("protocols contain method signatures with pass bodies"));
             }
             let f = self.function_in(Some(&name))?;
+            if !f.type_params.is_empty() {
+                return Err(f
+                    .at
+                    .error("protocol requirements cannot declare method type parameters"));
+            }
             if !seen.insert(f.name.clone()) {
                 return Err(f.at.error("duplicate protocol method"));
             }

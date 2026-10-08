@@ -975,6 +975,12 @@ fn resolve(
                     },
                 );
                 if exposed {
+                    let params: Vec<_> = c
+                        .type_params
+                        .iter()
+                        .chain(&f.type_params)
+                        .cloned()
+                        .collect();
                     for t in f
                         .inputs
                         .iter()
@@ -982,7 +988,16 @@ fn resolve(
                         .map(|(_, t)| t)
                         .chain(std::iter::once(&f.output))
                     {
-                        data_public_types(t, &c.type_params, &mut result.public_api);
+                        data_public_types(t, &params, &mut result.public_api);
+                    }
+                    for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+                        if matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable")) {
+                            for part in &bound.args {
+                                data_public_types(part, &params, &mut result.public_api);
+                            }
+                        } else {
+                            data_public_types(bound, &params, &mut result.public_api);
+                        }
                     }
                 }
             }

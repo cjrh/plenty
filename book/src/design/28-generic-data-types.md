@@ -9,8 +9,12 @@ Generic classes can be constructed inside generic functions.
 
 Specialization adds no instance allocation beyond ordinary class storage. Moves,
 field borrowing, partial initialization cleanup, and custom destruction keep
-their ordinary class semantics. Generic methods with their own parameters are
-not yet implemented.
+their ordinary class semantics. Methods may declare their own parameters and
+IntType, protocol, or callable constraints. Their arguments determine these
+parameters; class parameters are already fixed by the receiver. Method parameters
+cannot shadow class parameters. Lifecycle methods cannot add parameters.
+Generic method bodies are checked when used. A generic method does not currently
+satisfy a protocol's monomorphic method requirement.
 
 An enum can declare type parameters: `enum Choice[T]:` with a variant `Value(T)`.
 Use `Choice[u8].Value(7)` and `case Choice[u8].Value(value):` to select a concrete
