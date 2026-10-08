@@ -112,13 +112,14 @@ impl Ty {
     }
     pub fn has_inline_storage(&self) -> bool {
         match self {
-            Self::Range(_) | Self::Generator(_) => true,
+            Self::Range(_) | Self::Generator(_) | Self::Closure(_) => true,
             Self::Enum(t) if t.inline() => t.inline_range || t.restricted_storage,
             _ => false,
         }
     }
     pub fn inline_bytes(&self) -> usize {
         match self {
+            Self::Closure(t) => t.bytes(),
             Self::Range(_) => 32,
             Self::Generator(t) => *t.bytes.get().expect("resolved generator layout"),
             Self::Enum(t) if t.inline() => *t.payload_bytes.get_or_init(|| {
@@ -139,6 +140,12 @@ impl Ty {
 
 pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
     match ty {
+        Ty::Closure(t) => {
+            for (_, field) in &t.captures {
+                layout(field, active)?;
+            }
+            Ok(t.bytes())
+        }
         Ty::Generator(t) => {
             if let Some(bytes) = t.bytes.get() {
                 return Ok(*bytes);

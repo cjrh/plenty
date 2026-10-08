@@ -11,6 +11,7 @@
 #[cfg(feature = "allocation-checks")]
 mod accounting;
 mod aggregates;
+mod closures;
 mod entries;
 mod files;
 mod generators;

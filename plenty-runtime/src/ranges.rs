@@ -78,7 +78,7 @@ impl Type {
 
     fn active_payload(&self, value: u128) -> Option<&Type> {
         match self.kind {
-            b'R' | b'G' if self.payload_bytes() != 0 && value as u64 != 0 => Some(self),
+            b'R' | b'G' | b'H' if self.payload_bytes() != 0 && value as u64 != 0 => Some(self),
             b'B' => self.variants[self.tag(value)]
                 .fields
                 .first()
@@ -112,6 +112,8 @@ pub(crate) unsafe fn copy_payload(value: u128, ty: &Type, destination: *mut Rang
             );
             if active.kind == b'G' {
                 crate::generators::relocate(destination.cast());
+            } else if active.kind == b'H' {
+                crate::closures::relocate(destination.cast());
             }
         }
         (value & !(u64::MAX as u128)) | destination as u128
@@ -142,6 +144,8 @@ pub(crate) unsafe fn relocate(slot: *mut u128, ty: &Type) {
             slot.write((value & !(u64::MAX as u128)) | destination as u128);
             if active.kind == b'G' {
                 crate::generators::relocate(destination.cast());
+            } else if active.kind == b'H' {
+                crate::closures::relocate(destination.cast());
             }
         }
     }

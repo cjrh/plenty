@@ -58,6 +58,7 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
     bytes[0] = match ty {
         Ty::I8 => b'1',
         Ty::Callable(_) => b'c',
+        Ty::Closure(_) => b'H',
         Ty::I16 => b'2',
         Ty::I32 => b'3',
         Ty::I64 => b'4',
@@ -100,6 +101,10 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
         _ => {}
     }
     let (name, variants): (&str, Vec<(&str, Vec<&Ty>)>) = match ty {
+        Ty::Closure(t) => (
+            &t.name,
+            vec![("captures", t.captures.iter().map(|(_, t)| t).collect())],
+        ),
         Ty::Enum(t) => (
             &t.name,
             t.variants

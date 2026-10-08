@@ -86,7 +86,11 @@ unsafe fn value_type<'a>(value: u128) -> &'a Type {
     }
 }
 pub(crate) unsafe fn retain(value: u128, ty: &Type) {
-    if ty.kind == b'B' {
+    if ty.kind == b'H' {
+        unsafe {
+            crate::closures::retain(value as *mut u128);
+        }
+    } else if ty.kind == b'B' {
         if let Some(t) = ty.payload(value) {
             unsafe {
                 retain(payload(value), t);
@@ -99,7 +103,11 @@ pub(crate) unsafe fn retain(value: u128, ty: &Type) {
     }
 }
 pub(crate) unsafe fn release(value: u128, ty: &Type) {
-    if ty.kind == b'B' {
+    if ty.kind == b'H' {
+        unsafe {
+            crate::closures::release(value as *mut u128);
+        }
+    } else if ty.kind == b'B' {
         if let Some(t) = ty.payload(value) {
             unsafe {
                 release(payload(value), t);

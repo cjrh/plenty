@@ -21,9 +21,10 @@ signatures, indirect borrow checking, generic callable inference, explicit gener
 function values, expected-signature specialization, capture-free multiline anonymous
 functions, and eligible indirect tail calls are implemented and tested with heap
 allocation disabled.
-Continue with checked captures. Settle
-environment ownership, escape rules, and allocation behavior before higher-order
-APIs. Expanded C representations are B27; additional loader tooling and library
+Owned read-only captures now move into reusable inline environments with scoped
+destruction. Continue with mutable and borrowed captures, environment escape rules,
+and generic closure arguments before higher-order APIs.
+Expanded C representations are B27; additional loader tooling and library
 lifecycle work are B28.
 
 ## Later candidates

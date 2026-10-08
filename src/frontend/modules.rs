@@ -454,7 +454,8 @@ impl Scope {
             scope.ty(ty)?;
         }
         scope.ty(&mut f.output)?;
-        let mut locals = f.inputs.iter().map(|(n, _)| n.clone()).collect();
+        let mut locals: HashSet<_> = f.inputs.iter().map(|(n, _)| n.clone()).collect();
+        locals.extend(f.captures.iter().map(|c| c.name.clone()));
         scope.block(&mut f.body, &mut locals)
     }
     fn block(&self, body: &mut [Stmt], locals: &mut HashSet<String>) -> Result<()> {
@@ -649,6 +650,14 @@ impl Scope {
         }
         match &mut e.kind {
             Expression::Anonymous(function) => {
+                for capture in &function.captures {
+                    if !locals.contains(&capture.name) {
+                        return Err(e.at.error(format!(
+                            "capture requires a local binding `{}`",
+                            capture.name
+                        )));
+                    }
+                }
                 let mut scope = self.clone();
                 scope.uncaptured.extend(locals.iter().cloned());
                 scope.function(function)?;

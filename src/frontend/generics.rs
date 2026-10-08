@@ -99,6 +99,14 @@ type Substitution = HashMap<String, TypeRef>;
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
     let (name, children): (Option<String>, Vec<&Ty>) = match ty {
         Ty::Unit => (None, vec![]),
+        Ty::Closure(_) => {
+            return TypeRef {
+                at: at.clone(),
+                concrete: Some(ty.clone()),
+                name: None,
+                args: vec![],
+            }
+        }
         Ty::Callable(sig) => (
             Some("Callable".into()),
             sig.inputs

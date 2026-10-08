@@ -61,6 +61,7 @@ use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::lexer;
+mod closures;
 mod collections;
 mod enums;
 mod exports;
@@ -917,6 +918,7 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::F64 => types::F64,
         Ty::Str
         | Ty::Callable(_)
+        | Ty::Closure(_)
         | Ty::File
         | Ty::ForeignPtr(_)
         | Ty::List(_)
@@ -1018,7 +1020,7 @@ struct Lowerer<'a, 'b> {
 
 impl Lowerer<'_, '_> {
     fn retain(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
-        if ty.inline_sum() {
+        if ty.inline_sum() || matches!(ty, Ty::Closure(_)) {
             if ty.managed() {
                 self.collection_call(26, &[value], Some(ty))
                     .expect("sum metadata");
@@ -1034,7 +1036,7 @@ impl Lowerer<'_, '_> {
         }
     }
     fn release(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
-        if ty.inline_sum() || matches!(ty, Ty::Generator(_)) {
+        if ty.inline_sum() || matches!(ty, Ty::Generator(_) | Ty::Closure(_)) {
             if ty.managed() {
                 self.collection_call(27, &[value], Some(ty))
                     .expect("sum metadata");
@@ -1162,6 +1164,8 @@ impl Lowerer<'_, '_> {
                 self.store_slot(ptr, value, ty);
             }
             Op::Collection(operation) => self.lower_collection(operation)?,
+            Op::ClosureNew(t) => self.lower_closure_new(t)?,
+            Op::ClosureCall(t) => self.lower_closure_call(t)?,
             Op::Class(operation) => self.lower_class(operation)?,
             Op::Enum(operation) => self.lower_enum(operation)?,
             Op::Yield(ty) => self.lower_yield(ty)?,

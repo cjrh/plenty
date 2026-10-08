@@ -11,6 +11,7 @@ use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 mod callables;
 mod classes;
+mod closures;
 mod collections;
 mod contexts;
 mod enums;
@@ -340,6 +341,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
 
 #[derive(Clone)]
 struct Function {
+    captures: Vec<Capture>,
     foreign: Option<crate::foreign::Declaration>,
     export: Option<String>,
     name: String,
@@ -349,6 +351,13 @@ struct Function {
     output: TypeRef,
     doc: String,
     body: Vec<Stmt>,
+}
+
+#[derive(Clone)]
+struct Capture {
+    name: String,
+    mutable: bool,
+    borrowed: bool,
 }
 
 #[derive(Clone)]
@@ -798,11 +807,28 @@ impl Parser {
         if class.is_none() && builtin(&name) {
             return Err(at.error("cannot redefine a builtin"));
         }
-        let mut type_params = Vec::new();
-        if self.eat("[") {
-            if anonymous {
-                return Err(at.error("anonymous functions use enclosing type parameters; they cannot declare their own"));
+        let mut captures = Vec::new();
+        if anonymous && self.eat("[") {
+            while !self.eat("]") {
+                let borrowed = self.eat("&");
+                let mutable = self.eat("mut");
+                let name = self.name()?;
+                if captures.iter().any(|c: &Capture| c.name == name) {
+                    return Err(at.error("duplicate closure capture"));
+                }
+                captures.push(Capture {
+                    name,
+                    mutable,
+                    borrowed,
+                });
+                if self.eat("]") {
+                    break;
+                }
+                self.expect(",")?;
             }
+        }
+        let mut type_params = Vec::new();
+        if !anonymous && self.eat("[") {
             if class.is_some() {
                 return Err(at.error("generic methods are not supported yet"));
             }
@@ -828,6 +854,9 @@ impl Parser {
         let mut adapters = Vec::new();
         while !self.eat(")") {
             let param = self.name()?;
+            if captures.iter().any(|c| c.name == param) {
+                return Err(at.error("a parameter cannot shadow a closure capture"));
+            }
             if inputs.iter().any(|(n, _)| n == &param) {
                 return Err(self.peek().error("duplicate parameter"));
             }
@@ -918,6 +947,7 @@ impl Parser {
         if foreign {
             self.kind(Kind::Newline, "the end of the C declaration")?;
             return Ok(Function {
+                captures,
                 foreign: Some(crate::foreign::Declaration {
                     target: match address_parameter {
                         Some(index) => crate::foreign::Target::Parameter(index),
@@ -962,6 +992,7 @@ impl Parser {
             String::new()
         };
         Ok(Function {
+            captures,
             foreign: None,
             export: symbol,
             type_params,
@@ -1524,6 +1555,7 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 }
 
 struct Lower<'a> {
+    captures: HashSet<String>,
     heap: &'a mut Heap,
     sigs: &'a mut HashMap<String, Rc<FnSig>>,
     generics: &'a mut generics::Engine,
@@ -1737,6 +1769,9 @@ impl Lower<'_> {
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
             Expression::Anonymous(function) => {
+                if !function.captures.is_empty() {
+                    return self.closure_value(function, &e.at, ops).map(Some);
+                }
                 let mut function = (**function).clone();
                 function.name = format!("__plenty_anonymous_{}", self.generics.functions.len());
                 let name = function.name.clone();
@@ -1819,6 +1854,17 @@ impl Lower<'_> {
             Expression::Unit => None,
             Expression::Group(inner) => self.expr(inner, ops)?,
             Expression::Name(name) => {
+                if self.captures.contains(name) {
+                    let ty = self.place_type(e).expect("capture parameter");
+                    if ty.affine() {
+                        return Err(e
+                            .at
+                            .error("cannot move out of a closure capture; borrow it or use copy"));
+                    }
+                    let (ty, loans) = self.observe(e, ops)?;
+                    Self::end_reads(loans, ops);
+                    return Ok(Some(ty));
+                }
                 if enums::prelude_variant(name) && !self.names.contains_key(name) {
                     return self.prelude_constructor(name, None, None, &e.at, ops);
                 }
@@ -2724,6 +2770,7 @@ fn lower_function(
         None
     };
     let mut lower = Lower {
+        captures: f.captures.iter().map(|c| c.name.clone()).collect(),
         returned_fields,
         heap,
         sigs,

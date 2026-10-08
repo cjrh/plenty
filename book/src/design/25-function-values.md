@@ -56,8 +56,18 @@ substituted. Their own value parameters and local bindings form an independent
 scope. Capturing a surrounding local is rejected, including locals that shadow a
 module function. Indented anonymous bodies inside delimiters are unsupported.
 
-Callable signatures exclude generator frames. Capture environments are not yet
-implemented. See the [backlog](../backlog.md) for remaining work.
+Callable signatures exclude generator frames. Capturing functions have their own
+concrete environment type; they do not convert to a code-only `Callable`.
+
+An explicit capture list, `def [offset, values](index: i64) -> i64:`, transfers
+those bindings into inline environment storage. Scalars copy as usual; owners
+move. The body can observe and borrow captures, but cannot move them out. Calling
+the closure borrows its environment, so calls can repeat. Assignment moves the
+closure; `copy` is unavailable. Captured owners drop in reverse capture order when
+the environment leaves scope. Creating and moving the environment do not allocate.
+Currently these closures must be called through a named binding, cannot return
+references or yield, and cannot capture references or other restricted storage.
+See the [backlog](../backlog.md) for remaining work.
 
 Indirect calls in tail position use native tail calls under the same cleanup and
 borrowing restrictions as direct calls. Calls involving inline argument/result

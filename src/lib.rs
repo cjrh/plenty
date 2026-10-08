@@ -6,6 +6,7 @@
 //!
 //! Compile with [`compile_source_to_executable`] or validate with [`check_source`].
 
+mod closure;
 mod codegen;
 mod collection;
 mod exports;

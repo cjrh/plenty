@@ -98,6 +98,9 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if let Some(Ty::Closure(closure)) = self.place_type(callee) {
+            return self.call_closure(callee, args, closure, ops);
+        }
         let ty = self.value(callee, ops)?;
         let Ty::Callable(sig) = ty else {
             if let Expression::Name(name) = &ungroup(callee).kind {

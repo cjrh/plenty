@@ -20,6 +20,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// generic functions are specialized before native lowering.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
+    Closure(Rc<crate::closure::ClosureType>),
     Callable(Rc<CallableSig>),
     I8,
     I16,
@@ -68,6 +69,14 @@ impl Ty {
     }
     pub fn layout_depth(&self) -> usize {
         match self {
+            Self::Closure(t) => {
+                1 + t
+                    .captures
+                    .iter()
+                    .map(|(_, t)| t.layout_depth())
+                    .max()
+                    .unwrap_or(0)
+            }
             Ty::Callable(sig) => {
                 1 + sig
                     .inputs
@@ -89,6 +98,7 @@ impl Ty {
         matches!(
             self,
             Self::List(_)
+                | Self::Closure(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
                 | Self::Generator(_)
@@ -98,7 +108,7 @@ impl Ty {
     }
     pub fn restricted_storage(&self) -> bool {
         match self {
-            Self::Generator(_) | Self::Ref(..) => true,
+            Self::Generator(_) | Self::Closure(_) | Self::Ref(..) => true,
             Self::Enum(t) => t.restricted_storage,
             _ => false,
         }
@@ -109,7 +119,7 @@ impl Ty {
     }
     pub fn can_copy(&self) -> bool {
         match self {
-            Self::Generator(_) | Self::Ref(..) | Self::File => false,
+            Self::Generator(_) | Self::Closure(_) | Self::Ref(..) | Self::File => false,
             Self::Class(t) => t.copyable,
             Self::Enum(t) => t.copyable,
             Self::List(t) | Self::Set(t) => t.can_copy(),
@@ -119,7 +129,7 @@ impl Ty {
     }
     pub fn has_destructor(&self) -> bool {
         match self {
-            Self::Generator(_) | Self::File => true,
+            Self::Generator(_) | Self::Closure(_) | Self::File => true,
             Self::Class(t) => t.has_destructor,
             Self::Enum(t) => t.has_destructor,
             Self::List(t) | Self::Set(t) => t.has_destructor(),
@@ -138,6 +148,7 @@ impl Ty {
         matches!(
             self,
             Self::Str
+                | Self::Closure(_)
                 | Self::File
                 | Self::List(_)
                 | Self::Set(_)
@@ -178,6 +189,7 @@ impl Ty {
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Ty::Closure(t) => return write!(f, "closure {} from `{}`", t.signature, t.name),
             Ty::Callable(sig) => return write!(f, "{sig}"),
             Ty::I8 => "i8",
             Ty::I16 => "i16",
@@ -292,6 +304,8 @@ impl fmt::Display for CallableSig {
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    ClosureNew(Rc<crate::closure::ClosureType>),
+    ClosureCall(Rc<crate::closure::ClosureType>),
     FunctionAddress(String, Rc<CallableSig>),
     CallIndirect(Rc<CallableSig>),
     TailCallIndirect(Rc<CallableSig>),
@@ -1437,6 +1451,44 @@ fn step(
             )?
         }
         Op::Call(name) => check_call(name, stack, sigs)?,
+        Op::ClosureNew(t) => {
+            for (_, ty) in t.captures.iter().rev() {
+                if stack.pop().as_ref() != Some(ty) {
+                    return Err("closure capture type mismatch".into());
+                }
+            }
+            let expected = FnSig {
+                inputs: t
+                    .captures
+                    .iter()
+                    .map(|(n, ty)| (n.clone(), Ty::Ref(Rc::new(ty.clone()), t.mutable)))
+                    .chain(t.signature.function().inputs)
+                    .collect(),
+                outputs: t.signature.output.iter().cloned().collect(),
+            };
+            let actual = sigs.get(&t.name).ok_or("undefined closure body")?;
+            if actual
+                .inputs
+                .iter()
+                .map(|(_, t)| t)
+                .ne(expected.inputs.iter().map(|(_, t)| t))
+                || actual.outputs != expected.outputs
+            {
+                return Err("closure body signature mismatch".into());
+            }
+            stack.push(Ty::Closure(t.clone()));
+        }
+        Op::ClosureCall(t) => {
+            for ty in t.signature.inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(ty) {
+                    return Err("closure argument type mismatch".into());
+                }
+            }
+            if stack.pop() != Some(Ty::Ref(Rc::new(Ty::Closure(t.clone())), t.mutable)) {
+                return Err("closure call requires an environment borrow".into());
+            }
+            stack.extend(t.signature.output.iter().cloned());
+        }
         Op::FunctionAddress(name, signature) => {
             let actual = sigs.get(name).ok_or("undefined function value")?;
             if actual.outputs.len() > 1 || CallableSig::from_function(actual) != **signature {
