@@ -834,9 +834,6 @@ fn resolve(
             let public = m.exports.contains(&f.name);
             scope.function(f)?;
             if public {
-                result
-                    .public_api
-                    .extend(f.type_params.iter().filter_map(|(_, b)| b.clone()));
                 fn concrete_parts(
                     t: &TypeRef,
                     params: &[(String, Option<TypeRef>)],
@@ -861,6 +858,15 @@ fn resolve(
                     .chain(std::iter::once(&f.output))
                 {
                     concrete_parts(t, &f.type_params, &mut result.public_api);
+                }
+                for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+                    if matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable")) {
+                        for part in &bound.args {
+                            concrete_parts(part, &f.type_params, &mut result.public_api);
+                        }
+                    } else {
+                        result.public_api.push(bound.clone());
+                    }
                 }
             }
             f.name = qualified(&m.name, &f.name);

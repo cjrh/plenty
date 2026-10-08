@@ -16,34 +16,17 @@ The initial toolchain and C boundary batch (B01–B07) is complete, including ty
 runtime loading with resident code, recoverable LoadError values, and ownership
 wrappers checked against their originating library instance.
 
-B08 is in progress: first-class concrete named functions and explicit callable
-signatures, indirect borrow checking, generic callable inference, explicit generic
-function values, expected-signature specialization, capture-free multiline anonymous
-functions, and eligible indirect tail calls are implemented and tested with heap
-allocation disabled.
-Owned captures now move into reusable inline environments with scoped destruction
-and explicit per-capture mutation. Shared and exclusive borrowed captures retain
-checked loans through calls and moves. Owned factories and concrete `Closure`
-signature annotations and transitive capture loans across borrowed calls are
-implemented, as are generic signature inference, nested owned environments, and
-inline Option/Result storage. Temporary expression calls preserve ownership and
-propagation cleanup. Native tests disable allocation across the full closure
-lifecycle and relocation inside suspended generators.
+B08's initial callable and closure feature set is complete: allocation-free thin
+functions and concrete environments, checked owned/shared/exclusive captures,
+signature inference, factories, inline sums, reusable and consuming callable
+constraints, and explicit one-shot closures. Native tests cover moves, suspended
+generator relocation, and normal/early/failure cleanup with allocation disabled.
 
-Callable constraints now accept named functions and concrete owned closures in
-the same higher-order API, including inference through their input/output signatures.
-Borrowed callable constraints preserve transitive loans across generic consumers.
-Concrete callable bounds also specialize generic named callback arguments;
-native higher-order mutation is covered with allocation disabled.
-Explicit `def once` environments can transfer owned captures into their body.
-One-shot factories and `OnceClosure` annotations preserve inline identity through
-generic calls, temporaries, and Option/Result. `OnceCallable` constraints accept
-all callable modes in consuming APIs. Nested one-shot ownership and captured
-generator frames are covered with allocation disabled, including relocation in
-suspended generators. Local one-shot borrowed captures preserve loans through
-consuming calls. Next in B08: final lifecycle, diagnostics, and documentation checks.
-Borrowing environments remain local or reference-passed; broader escaping/stored
-lifetime relationships belong to B11. Generic data types remain B09.
+Next is B09: generic data types and richer protocols. Start with concrete generic
+classes and enums and their layout/ownership rules, then generic methods and the
+protocol constraints needed by actual container and callback examples. Keep
+specialization bounded and method lookup explicit. Borrowing environments remain
+local or reference-passed; escaping/stored lifetime relationships belong to B11.
 Expanded C representations are B27; additional loader tooling and library
 lifecycle work are B28.
 
@@ -54,7 +37,6 @@ guide breakdown when an item is selected; detailed syntax is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B08 | Function values and multiline closures | In progress: allocation-free function values and concrete closure environments, explicit owned/shared/exclusive captures, transitive loans, factories, generic signatures, nested ownership, and temporary calls are implemented. Next: a common callable constraint for higher-order APIs and explicit consuming/one-shot captures. [Closure reference](design/26-closures.md). |
 | B09 | Generic data types and richer protocols | Generic classes/enums and methods, with parameterized protocols or additional bounds when concrete library use cases justify them. Keep method lookup explicit and measure specialization cost. [Protocol design](proposals/protocols-generics-and-context-managers.md). |
 | B10 | Recursive data types | Define indirection, ownership, allocation failure, and bounded destruction for recursive classes/enums. Current acyclic forward declarations are already supported. [Sum-type design](proposals/sum-types.md). |
 | B11 | Broader borrowing | Stored references, relationships among multiple reference parameters, and more precise collection loans. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
@@ -82,6 +64,7 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
+| B08: Function values and multiline closures | Thin functions, reusable/consuming concrete environments, explicit captures, factories, signature inference, `Callable`/`OnceCallable` constraints, inline sums, captured generator frames, and checked lifecycle cleanup are implemented without implicit allocation. Stored/escaping borrows remain B11. See [closures](design/26-closures.md) and [consuming closures](design/27-consuming-closures.md). |
 | B07: Initial runtime library loading | CLI/API generation emits self-contained typed loaders; exact discovery metadata and all symbols are checked before returning a table. Scalar/borrow/Result adapters and owned factories/transfers preserve signatures, destruction, and instance provenance. Allocation-free LoadError, injected failures, private-address checks, and the executable library tutorial cover the initial resident implementation. [Runtime reference](design/24-c-interfaces/06-runtime-loading.md). |
 | B06: Initial C library exports | Static/shared packaging, scalar and Result adapters, owned factories, matching destruction, shared/mutable and consuming handles, precise C contracts, embedded/extractable interfaces, SHA-256 link guards, explicit binary verification, and staged publication are implemented. Native callers and injected failures validate cleanup. [Library reference](design/24-c-interfaces/02-library-exports.md). |
 | B05: Ownership-aware C adapters | Scalar/pointer borrows and explicit UTF-8/C-string adapters integrate with normal borrowing. Private opaque pointers in classes provide owned handles and matching destruction; C fixtures verify partial acquisition, allocation errors, and conditional/unconditional transfer. Mutable/returned byte buffers remain outside this subset. See [adapters](design/24-c-interfaces/01-ownership-and-text-adapters.md). |

@@ -59,6 +59,8 @@ shadow a module function. Indented anonymous bodies inside delimiters are unsupp
 Callable signatures exclude generator frames and closure environments. A named
 Callable value can be borrowed through an explicit reference parameter. For
 functions with explicit captures, see [closure environments](26-closures.md).
+For one generic API that accepts both representations, use a `Callable` constraint
+as described in [generic functions](02-generic-functions-and-argument-inference.md).
 
 Indirect calls in tail position use native tail calls under the same cleanup and
 borrowing restrictions as direct calls. Calls involving inline argument/result

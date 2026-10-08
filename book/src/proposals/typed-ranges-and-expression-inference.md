@@ -215,7 +215,8 @@ An initial closure model should distinguish:
 - Captures consumed during a call, making the closure callable at most once.
 
 The implemented capture syntax and limits are recorded in the
-[closure reference](../design/26-closures.md). Do not infer an invisible deep copy, or decide
+[closure reference](../design/26-closures.md) and
+[consuming closure reference](../design/27-consuming-closures.md). Do not infer an invisible deep copy, or decide
 capture ownership by whether a later compiler pass happens to let a closure
 escape. A borrowing closure cannot outlive its owners, and captured borrows must
 remain active while future calls may use them. Owned captures drop with the

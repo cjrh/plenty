@@ -72,6 +72,13 @@ pub(super) fn prepare(
             for (_, bound) in &f.type_params {
                 if let Some(bound) = bound {
                     if callable_bound(bound) && !bound.args.is_empty() {
+                        // Validate the signature's shape even for unused templates.
+                        // Concrete capability checks still happen at specialization.
+                        let mut validation = aliases.clone();
+                        for (name, _) in &f.type_params {
+                            validation.insert(name.clone(), Some(Ty::I64));
+                        }
+                        callable_pattern(bound).resolve(&validation)?;
                         continue;
                     }
                     if (bound.name.as_deref() != Some("IntType")

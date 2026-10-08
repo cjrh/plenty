@@ -118,6 +118,7 @@
 - [Generic closure consumers](tutorial/68-generic-closure-consumers.md)
 - [Write a shared callback API](tutorial/69-write-a-shared-callback-api.md)
 - [Consume a capture](tutorial/70-consume-a-capture.md)
+- [Consume a callback](tutorial/71-consume-a-callback.md)
 
 # Reference
 

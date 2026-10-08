@@ -388,6 +388,9 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == "OnceCallable" {
+            return Err(self.at.error("OnceCallable is a generic constraint; use Callable or OnceClosure for a value annotation"));
+        }
         if matches!(name.as_str(), "Callable" | "Closure" | "OnceClosure") {
             let (output, inputs) = self.args.split_last().ok_or_else(|| {
                 self.at

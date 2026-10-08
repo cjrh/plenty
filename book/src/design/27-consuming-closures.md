@@ -46,3 +46,9 @@ and invocation, and can end after that call. These environments cannot escape,
 cross a function boundary by value, own-nest, enter sums/containers, or suspend
 inside a generator. Passing them by reference cannot grant permission to consume
 them; use a local call while their captures are in scope.
+
+Native regressions check reverse cleanup both before body entry (a later argument
+propagates an error) and after entry (`?` in the body), plus uncalled environments
+on loop exits. Frame-dependent environment sizes are finalized after body lowering
+through the ordinary work queue; recursive or more than 64 nested inline layouts
+receive diagnostics. Cached sizes avoid re-expanding shared environment graphs.

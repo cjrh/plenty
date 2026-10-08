@@ -8,63 +8,6 @@ fn owned_capture(ty: &Ty, once: bool) -> bool {
 }
 
 impl Lower<'_> {
-    /// Environments have an eager cached size, while generator bodies normally
-    /// finalize later. Resolve captured producers before asking for slot sizes.
-    fn capture_layout(&mut self, ty: &Ty, at: &Token) -> Result<()> {
-        let mut work = vec![ty.clone()];
-        let mut seen = HashSet::new();
-        while let Some(ty) = work.pop() {
-            match ty {
-                Ty::Generator(t) => {
-                    let name = t
-                        .name
-                        .as_ref()
-                        .ok_or_else(|| at.error("capture requires a concrete generator"))?;
-                    if !seen.insert((0, name.clone())) {
-                        continue;
-                    }
-                    if t.slots.get().is_none() {
-                        if self.generics.active.contains(name) {
-                            return Err(
-                                at.error("recursive inline generator capture has no finite layout")
-                            );
-                        }
-                        let function = self
-                            .generics
-                            .functions
-                            .get(name)
-                            .cloned()
-                            .ok_or_else(|| at.error("missing captured generator body"))?;
-                        lower_function(
-                            function,
-                            self.heap,
-                            self.sigs,
-                            self.generics,
-                            self.aliases,
-                            self.access,
-                            self.returned_fields,
-                        )?;
-                    }
-                    work.extend(
-                        t.slots
-                            .get()
-                            .expect("lowered generator slots")
-                            .iter()
-                            .cloned(),
-                    );
-                }
-                Ty::Enum(t)
-                    if t.inline() && t.restricted_storage && seen.insert((1, t.name.clone())) =>
-                {
-                    work.extend(t.variants.iter().flat_map(|v| v.fields.iter().cloned()));
-                }
-                _ => {}
-            }
-        }
-        crate::generator::layout(ty, &mut Vec::new()).map_err(|message| at.error(message))?;
-        Ok(())
-    }
-
     pub(super) fn closure_value(
         &mut self,
         function: &Function,
@@ -96,9 +39,6 @@ impl Lower<'_> {
             };
             if !capture.borrowed && !owned_capture(&ty, function.once) {
                 return Err(at.error("this type cannot be captured yet"));
-            }
-            if !capture.borrowed && ty.contains_generator_frame() {
-                self.capture_layout(&ty, at)?;
             }
             if ty.layout_depth() >= 64 {
                 return Err(

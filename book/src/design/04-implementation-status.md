@@ -8,7 +8,7 @@ control flow, collections, classes, sum types, generators, ownership, and automa
 cleanup are implemented. It is still an early language implementation, with a
 small built-in library and important limits on borrowing. Basic console, argument,
 numeric text, and whole-file APIs now work. Important remaining gaps include
-recursive types, capturing closures, broader borrowing, and public allocator control. An implemented row below describes the
+generic data types, recursive types, broader borrowing, and public allocator control. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
 | Area | Status on this branch |
@@ -20,7 +20,9 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Floating-point types and arithmetic (`f32`, `f64`, `/`) | Implemented with IEEE arithmetic and explicit numeric casts |
 | Transparent module-level type aliases | Implemented |
 | Function values | Named functions, explicit generic specializations, and capture-free multiline anonymous functions use allocation-free `Callable[[parameters], result]` values; indirect calls preserve ownership and returned-reference loans |
-| Closure captures | Explicit owned/shared/exclusive captures, mutable state, transitive loans, concrete `Closure` signatures, generic inference, factories, nested environments, Option/Result storage, and temporary calls; complete lifecycle tested with allocation disabled |
+| Closure captures | Explicit owned/shared/exclusive captures, mutable state, transitive loans, concrete `Closure` / `OnceClosure` signatures, factories, nested environments, Option/Result storage, and temporary calls; complete lifecycle tested with allocation disabled |
+| Consuming closures | `def once [...]` transfers owned captures into the body; local borrowed captures, nested environments, and captured generator frames retain checked cleanup and allocation-free storage |
+| Higher-order APIs | `Callable` and `OnceCallable` generic constraints accept concrete callbacks with signature inference; borrowing consumers preserve capture loans, and consuming consumers retain move checking |
 | Cranelift AOT and compile-and-run file command | Implemented |
 | Native linker configuration | CLI `--linker` / `--link-arg` and Rust `CompileOptions`; cc-compatible driver interface, default `cc` |
 | Native object output | `--emit-object` / Rust APIs emit an application object without linking; `--emit-runtime` extracts the matching archive and native dependencies for external linking |
@@ -67,7 +69,6 @@ supported subset, not Python's full API or Rust's full ownership system.
 | User generic functions | `def f[T](...)`, argument-based inference or explicit `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
 | Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
-| Anonymous functions and closures | Multiline `def(...) -> T:` values are implemented without captures; borrowed and owned environments remain unsupported |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types or explicit erasure into `Failure`, and automatic early-exit cleanup |
 | `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
 | Recoverable allocation failure | Default literals/comprehensions and allocating constructors, mutation, copy, text, and formatting return `Result`; no `try_` alternatives. Explicit `?`, `match`, or `.unwrap()` handle outcomes |

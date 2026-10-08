@@ -157,11 +157,9 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
             if t.name.is_empty() {
                 return Err("cannot infer a concrete closure environment".into());
             }
-            // Capture construction already checks and sizes every owned payload.
-            // Rewalking a shared environment graph here can be exponential.
-            // Borrowed generator frames are laid out through their own slots
-            // and the hidden reference parameters of the compiled closure body.
-            Ok(t.bytes())
+            // Environments without captured frames already have cached sizes.
+            // Resolve frame-dependent environments once, after body lowering.
+            t.layout(active)
         }
         Ty::Generator(t) => {
             if let Some(bytes) = t.bytes.get() {
@@ -223,6 +221,7 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
     use crate::op::Op;
     for op in ops {
         let types = match op {
+            Op::ClosureNew(t) | Op::ClosureCall(t) => vec![Ty::Closure(t.clone())],
             Op::Collection(op) => {
                 let (mut inputs, output) = op.signature();
                 inputs.push(output);

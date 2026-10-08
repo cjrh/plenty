@@ -9,7 +9,7 @@ infers `T = Message`, and `&dict[K, V]` with `&dict[str, u8]` infers both parame
 Lists, sets, ranges, generators, tuples, Option, Result, and Callable signatures participate too.
 Repeated occurrences of a parameter must agree after alias resolution. No
 numeric widening, implicit borrowing, protocol implementation search, or runtime
-dispatch is introduced. Protocol constraints are checked after inference.
+dispatch is introduced. Protocol and callable constraints are checked after inference.
 
 Inference is local to the call and uses the ordinary expression checker. Arguments
 are evaluated once in source order. A generic parameter position supplies no
@@ -50,6 +50,8 @@ backend still receives only concrete checked operations. This bounds expanding
 recursion without maintaining a second expression type checker. Generic classes,
 generic methods, reference/unit type arguments, and polymorphic function values
 are deferred. A signature can borrow `T` directly using `&T` or `&mut T`.
+The narrow exception for borrowing closures is a callable-constrained `F` passed
+by reference; its capture loans remain live across the call.
 
 A generic function can become a concrete [function value](25-function-values.md)
 using `identity[u8]`, or using a concrete expected Callable annotation, parameter,
@@ -59,3 +61,6 @@ inference rules for ordinary generic calls described above.
 A fully concrete `Callable` constraint also supplies an expected signature for
 a generic named function passed directly by value: a parameter `F` constrained
 by `Callable[[u8], u8]` can accept `identity` without writing `identity[u8]`.
+[`OnceCallable`](27-consuming-closures.md) accepts consuming callbacks too, with
+the same inference rules. Constraint signature shapes are checked on declaration;
+actual ownership capabilities are checked when a concrete body is specialized.
