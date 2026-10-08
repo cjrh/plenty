@@ -55,6 +55,9 @@ and `callbacks[index](value)` calls the selected function. These are indirect
 calls with a fixed signature; captured environments are the missing storage
 capability. B32 tracks that extension after B31, with lower urgency because this
 baseline works. See [function values](design/25-function-values.md).
+Explicit state beside a named callback also supports stateful registries today;
+the [runnable lesson](tutorial/76-store-stateful-callbacks.md) and native tests
+cover generic state, allocation-free dispatch, and exactly-once resource cleanup.
 
 ### Scope of the new priorities
 

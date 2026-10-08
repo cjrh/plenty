@@ -1,0 +1,21 @@
+# A stateful registry built from ordinary records and named function values.
+class Handler[State]:
+    state: State
+    callback: Callable[[&mut State, i64], i64]
+    def call(self: &mut Handler[State], value: i64) -> i64:
+        self.callback(&mut self.state, value)
+
+def accumulate(total: &mut i64, value: i64) -> i64:
+    *total = *total + value
+    *total
+
+def subtract(total: &mut i64, value: i64) -> i64:
+    *total = *total - value
+    *total
+
+def main() -> Result[(), Failure]:
+    mut handlers = [Handler(10, accumulate)?, Handler(100, subtract)?]?
+    for handler in &mut handlers:
+        print(handler.call(3))?
+    print(handlers[0].call(2))?
+    Ok(())

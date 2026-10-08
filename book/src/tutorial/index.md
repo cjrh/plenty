@@ -21,3 +21,6 @@ surrounding state, [factories](67-return-a-closure.md) when returning captured
 state, and [consuming callbacks](70-consume-a-capture.md) when handing owned
 resources out of a callback. These are advanced paths, not prerequisites for
 building a named-function registry or using a local closure.
+
+For a registry with per-callback state, [store explicit state beside a named
+function](76-store-stateful-callbacks.md) using an ordinary generic class.
