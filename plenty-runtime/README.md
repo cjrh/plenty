@@ -61,7 +61,9 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
 - Destruction is queued iteratively, preserving child order. User drop hooks may
   reenter the runtime; no queue borrow or mutable Rust view of the dying record
   survives such a callback. The queue is thread-local; Plenty execution remains
-  single-threaded and reference counts are non-atomic.
+  single-threaded at the language level. Reference counts use atomic retain and
+  release, with an acquire handoff to the final destructor. This is an ownership
+  primitive, not permission to share mutable payloads across threads.
 - Collection dispatcher opcodes 28 (reserve) and 29 (insert) return inline
   `Result[(), AllocError]`: zero on success, `1 << 64` for exhaustion, and
   `3 << 64` for capacity overflow. Inputs are borrowed on both outcomes; only

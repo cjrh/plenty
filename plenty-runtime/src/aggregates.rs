@@ -218,7 +218,9 @@ unsafe extern "C" fn record_destroy(header: *mut Header) {
         let tag = (*r).tag_or_hook;
         let count = record_count(ty, tag);
         if ty.kind == b'C' && tag != 0 {
-            (*header).refs = u64::MAX;
+            (*header)
+                .refs
+                .store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
             // Reconstitute an exposed native pointer before casting to its ABI
             // function type; transmuting an integer directly loses provenance.
             let address = std::ptr::with_exposed_provenance::<()>(tag as usize);
@@ -1032,8 +1034,9 @@ pub(crate) unsafe fn collection(
                 let position = if c.ty().kind == b'L' {
                     index(b as i64, c.entries.len())
                 } else {
-                    c.find(b)
-                        .unwrap_or_else(|| crate::fail("dictionary key not found"))
+                    c.find(b).unwrap_or_else(|| {
+                        crate::fail("dictionary key not found; use insert to add a new key")
+                    })
                 };
                 c.entries.slot(position, c.ty().kind != b'L') as u128
             }

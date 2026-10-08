@@ -54,7 +54,6 @@ pub enum CollectionOp {
     SetTrySymmetricDifference(Ty),
     SetIntersectionUpdate(Ty),
     SetDifferenceUpdate(Ty),
-    Put(Ty), // exclusive in-place indexed update
     Get(Ty),
     ListGet(Ty), // observed list/index -> Option[non-affine element]
     ListCount(Ty),
@@ -323,11 +322,6 @@ impl CollectionOp {
                 }
                 (args, t.clone())
             }
-            Put(t) => match t {
-                Ty::List(v) => (vec![t.clone(), Ty::I64, (**v).clone()], t.clone()),
-                Ty::Dict(k, v) => (vec![t.clone(), (**k).clone(), (**v).clone()], t.clone()),
-                _ => unreachable!(),
-            },
             Get(t) => match t {
                 Ty::Dict(k, v) => (vec![t.clone(), (**k).clone()], (**v).clone()),
                 _ => (vec![t.clone(), Ty::I64], t.element().unwrap()),
@@ -439,7 +433,6 @@ impl CollectionOp {
             Self::SetTrySymmetricDifference(_) => 68,
             Self::SetIntersectionUpdate(_) => 69,
             Self::SetDifferenceUpdate(_) => 70,
-            Self::Put(_) => 3,
             Self::Get(_) => 4,
             Self::DictGet(_) => 38,
             Self::ListGet(_) => 42,

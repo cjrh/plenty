@@ -75,9 +75,7 @@ pub(crate) unsafe fn release_inline(g: *mut Generator) {
         if g.is_null() {
             return;
         }
-        debug_assert!((*g).header.refs > 0);
-        (*g).header.refs -= 1;
-        if (*g).header.refs == 0 {
+        if (*g).header.release_last() {
             memory::with_nested_drops(|| plenty_generator_finish(g));
         }
     }

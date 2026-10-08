@@ -2,6 +2,7 @@
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::cell::Cell;
 use std::ptr;
+use std::sync::atomic::{fence, AtomicU64, Ordering};
 
 /// Tags match the compiler's allocation-free AllocError builtin.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,19 +30,38 @@ pub(crate) fn try_reserve<T>(buffer: &mut Vec<T>, additional: usize) -> Result<(
 
 #[repr(C)]
 pub(crate) struct Header {
-    pub refs: u64,
+    pub refs: AtomicU64,
     // None is valid for compiler-emitted immortal string literals.
     pub destroy: Option<unsafe extern "C" fn(*mut Header)>,
 }
 impl Header {
     pub fn new(destroy: unsafe extern "C" fn(*mut Header)) -> Self {
         Self {
-            refs: 1,
+            refs: AtomicU64::new(1),
             destroy: Some(destroy),
         }
     }
+
+    /// Consume one count and synchronize with every earlier release before the
+    /// final owner destroys the payload. This does not synchronize payload use.
+    pub(crate) fn release_last(&self) -> bool {
+        if self.refs.load(Ordering::Relaxed) == u64::MAX {
+            return false;
+        }
+        let previous = self.refs.fetch_sub(1, Ordering::Release);
+        debug_assert!(previous > 0);
+        if previous != 1 {
+            return false;
+        }
+        fence(Ordering::Acquire);
+        true
+    }
 }
-const _: () = assert!(size_of::<Header>() == 16);
+const _: () = {
+    assert!(size_of::<Header>() == 16);
+    assert!(align_of::<Header>() == 8);
+    assert!(std::mem::offset_of!(Header, destroy) == 8);
+};
 
 #[derive(Clone, Copy, Default)]
 struct Queue {
@@ -71,13 +91,20 @@ pub(crate) fn with_nested_drops(f: impl FnOnce()) {
 pub(crate) unsafe extern "C" fn plenty_retain(object: *mut Header) {
     // SAFETY: callers supply a live object or the null moved-slot sentinel.
     unsafe {
-        if object.is_null() || (*object).refs == u64::MAX {
+        if object.is_null() || (*object).refs.load(Ordering::Relaxed) == u64::MAX {
             return;
         }
-        if (*object).refs == u64::MAX - 1 {
+        // An existing live owner permits relaxed retain. Reject overflow
+        // before incrementing so concurrent retains cannot reach the sentinel.
+        if (*object)
+            .refs
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                (count < u64::MAX - 1).then(|| count + 1)
+            })
+            .is_err()
+        {
             crate::fail("reference count overflow");
         }
-        (*object).refs += 1;
     }
 }
 
@@ -86,17 +113,16 @@ pub(crate) unsafe extern "C" fn plenty_release(object: *mut Header) {
     // SAFETY: each caller consumes exactly one live owned reference. The dead
     // object's count stores the queue link until its destruction callback runs.
     unsafe {
-        if object.is_null() || (*object).refs == u64::MAX {
-            return;
-        }
-        debug_assert!((*object).refs > 0);
-        (*object).refs -= 1;
-        if (*object).refs != 0 {
+        if object.is_null() || !(*object).release_last() {
             return;
         }
         let should_drain = QUEUE.with(|q| {
             let mut state = q.get();
-            (*object).refs = state.pending as u64;
+            // No other owner remains after the acquire handoff. Queue links
+            // are thread-local and can now reuse the dead count word.
+            (*object)
+                .refs
+                .store(state.pending as u64, Ordering::Relaxed);
             state.pending = object;
             let drain = !state.dropping;
             state.dropping = true;
@@ -113,7 +139,7 @@ pub(crate) unsafe extern "C" fn plenty_release(object: *mut Header) {
                 if next.is_null() {
                     state.dropping = false;
                 } else {
-                    state.pending = (*next).refs as *mut Header;
+                    state.pending = (*next).refs.load(Ordering::Relaxed) as *mut Header;
                 }
                 q.set(state);
                 next
@@ -222,5 +248,67 @@ mod allocator_tests {
             free::<Aligned, u128>(first, 3);
         }
         assert_eq!(FREED.with(Cell::get), 1);
+    }
+}
+
+#[cfg(test)]
+mod sharing_tests {
+    use super::*;
+    use std::sync::{atomic::AtomicUsize, Arc, Barrier};
+
+    #[repr(C)]
+    struct Shared {
+        header: Header,
+        destroyed: Arc<AtomicUsize>,
+        writes: [AtomicUsize; 4],
+    }
+
+    unsafe extern "C" fn destroy(header: *mut Header) {
+        // SAFETY: the sole final release owns this Box and has acquired every
+        // worker's preceding release. The count itself is now a queue link.
+        let object = unsafe { Box::from_raw(header.cast::<Shared>()) };
+        for slot in &object.writes {
+            assert_eq!(slot.load(Ordering::Relaxed), 1);
+        }
+        assert_eq!(object.destroyed.fetch_add(1, Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn concurrent_retain_release_has_one_synchronized_final_destructor() {
+        for _ in 0..32 {
+            let destroyed = Arc::new(AtomicUsize::new(0));
+            let object = Box::into_raw(Box::new(Shared {
+                header: Header::new(destroy),
+                destroyed: destroyed.clone(),
+                writes: std::array::from_fn(|_| AtomicUsize::new(0)),
+            }));
+            let barrier = Barrier::new(4);
+            // Allocate one live ownership count per worker before publishing
+            // the exposed address. All shared payload writes are atomic.
+            for _ in 1..4 {
+                unsafe { plenty_retain(object.cast()) };
+            }
+            let address = object.expose_provenance();
+            std::thread::scope(|scope| {
+                for worker in 0..4 {
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        let object = ptr::with_exposed_provenance_mut::<Shared>(address);
+                        barrier.wait();
+                        for _ in 0..1000 {
+                            unsafe {
+                                plenty_retain(object.cast());
+                                plenty_release(object.cast());
+                            }
+                        }
+                        unsafe {
+                            (*object).writes[worker].store(1, Ordering::Relaxed);
+                            plenty_release(object.cast());
+                        }
+                    });
+                }
+            });
+            assert_eq!(destroyed.load(Ordering::Relaxed), 1);
+        }
     }
 }

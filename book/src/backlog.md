@@ -41,8 +41,9 @@ The remaining immediate order is:
 1. **B22: concurrency contract and runtime feasibility.** Settle transfer, sharing,
    and cleanup requirements before recursive ownership adds more cases. The
    [contract/runtime audit](proposals/native-concurrency.md) is complete: metadata
-   is already static, while counts and last-release cleanup need synchronization.
-   Validate that runtime foundation; public threads, effect/eligibility checking,
+   is static, and atomic counts now synchronize last-release cleanup, including
+   inline frames. A concurrent ownership-count stress test validates the handoff.
+   Public threads, effect/eligibility checking,
    channels, and executors remain separate follow-on work.
 2. **B10: recursive data types.** Then settle explicit indirection, recoverable
    allocation, and bounded destruction. Keep acyclic layouts and compilation

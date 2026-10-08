@@ -13,12 +13,16 @@ release locals; compiler-private temporaries are bounded by local slots.
 Tail-call arguments are owned before caller cleanup. Observable resource cleanup
 prevents tail-call rewriting in functions with resource-bearing slots. Traps terminate the process without unwinding language scopes.
 
-Runtime objects share `{u64 refs, destroy_callback}`. Heap objects start with one
+Runtime objects share `{atomic u64 refs, destroy_callback}`. Heap objects start with one
 reference; literal strings use an immortal count. Helpers borrow arguments and
 return owned managed results, including retained projections and builder aliases.
 Buffers have explicit owners too; type metadata is immutable program data. Destruction uses an
 iterative queue, avoiding recursive C-stack growth through owned value graphs.
-Reference counts are non-atomic; the language has no concurrency. The current
+Retain uses relaxed atomic updates; final release acquires preceding releases
+before destruction. The final thread owns the destruction queue entry. Inline
+generator release uses the same count handoff but finishes synchronously.
+This protects ownership counts; it does not permit concurrent mutable payload
+access or make foreign resources transferable. The language still has no thread API. The current
 unique mutable ownership and restricted aggregate types prevent source-visible
 ownership cycles.
 

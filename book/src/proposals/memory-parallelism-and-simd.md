@@ -245,10 +245,10 @@ complicate the first custom-allocator interface.
 ### Runtime prerequisites
 
 The [native concurrency audit](native-concurrency.md) records the current runtime
-and boundary contract. Type metadata is already static and immutable. Object
-reference counts remain non-atomic, including immutable strings: a list move
-may leave a string alias in the originating thread. Atomic ownership alone also
-does not make a mutable payload safe to share.
+and boundary contract. Type metadata is static and immutable, and object counts
+now use atomic ownership handoff, including immutable strings: a list move
+may leave a string alias in the originating thread. Atomic ownership alone
+does not make a mutable payload safe to share or grant foreign thread permissions.
 
 Retain static immutable type metadata and use atomic reference counts for storage
 that can be shared between threads, including the single public `str` type.

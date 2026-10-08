@@ -9,9 +9,9 @@ parallel, with no interpreter lock and no async/await requirement.
 | Component | Current evidence | Consequence |
 | --- | --- | --- |
 | Type metadata | `src/codegen/metadata.rs` emits immutable `Type`/`Variant` graphs; aggregates retain static pointers | No `Rc<Type>` conversion is needed; loaded code and descriptors must stay resident |
-| Shared storage | `plenty-runtime/src/memory.rs` uses non-atomic counts, including immutable text | Moving a list can leave text aliases on another thread; unique outer ownership is insufficient |
+| Shared storage | `plenty-runtime/src/memory.rs` now uses atomic counts, including immutable text | Count handoff is tested concurrently; mutable payload access still needs compiler eligibility checks |
 | Destruction | The final release reuses the dead count as a thread-local queue link | Only the final releaser may enqueue; synchronize before repurposing the count |
-| Inline frames | Generator cleanup decrements the same header directly; closures visit captured slots | Audit every count access, not just exported retain/release helpers |
+| Inline frames | Generator cleanup uses the same final-release primitive; closures visit captured slots | Inline frames finish synchronously rather than entering the heap destruction queue |
 | Allocators | Allocations retain an allocator identity; the built-in one uses the system allocator | Custom allocators need explicit transfer/deallocation permissions and lifetime guarantees |
 | Files and foreign resources | File methods mutate state; foreign interfaces do not certify thread affinity | Exclude from initial cross-thread eligibility unless a contract proves transfer and drop are permitted |
 | Runtime loading | Library leases release lookup ownership while code stays resident | Residency prevents dangling code, but grants no concurrent-call or affinity permission |

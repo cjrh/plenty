@@ -1843,7 +1843,7 @@ fn compiler_literal_prefix_is_read_only_and_immortal() {
     }
     static LITERAL: Literal = Literal {
         header: Header {
-            refs: u64::MAX,
+            refs: std::sync::atomic::AtomicU64::new(u64::MAX),
             destroy: None,
         },
         byte_len: 3,
