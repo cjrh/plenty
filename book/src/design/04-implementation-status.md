@@ -16,6 +16,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Python-shaped lexer/parser, typed function declarations | Implemented |
 | Infix expressions, conditional expressions and blocks | Implemented |
 | Immutable bindings and explicit `mut` reassignment | Implemented |
+| Nested assignment | List elements, existing dictionary values, and class fields; RHS then indices once in path order, delayed address resolution, no enclosing copies or allocations |
 | Checked sized integers, booleans, strings, unit returns | Implemented |
 | Floating-point types and arithmetic (`f32`, `f64`, `/`) | Implemented with IEEE arithmetic and explicit numeric casts |
 | Transparent module-level type aliases | Implemented |

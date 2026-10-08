@@ -31,6 +31,24 @@ True
 ```
 
 A repeated dictionary key replaces its value and keeps its insertion position.
+Indexed assignment updates an existing key; `insert` can add a new one and
+returns an allocation result. Nested values update directly too:
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut groups = {"first": [10, 20]?}?
+    groups["first"][0] = 11
+    print(groups)?
+    Ok(())
+```
+
+```output
+{"first": [11, 20]}
+```
+
+The assignment itself allocates nothing. Either a missing key or an invalid
+list index is a runtime error.
+
 `keys()` and `values()` return new lists in insertion order. When dictionary
 values contain mutable collections, use `copy(scores).values()` to request
 independent payloads explicitly. Sets remove
