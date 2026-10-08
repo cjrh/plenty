@@ -7,6 +7,18 @@ assigns to an existing local and requires `mut` and the same type. Repeating
 `mut` or a type annotation on an existing name is a duplicate declaration.
 Parameters are immutable. Initializers cannot read their own new binding.
 
+Indexed and field assignments accept nested writable paths such as
+`rows[0][-1] = 9` and `records[0].values[1] = 7`. The root must be mutable or
+an exclusive reference. Existing list slots and dictionary values update in
+place, without allocating or copying their containing owners. Assignment does
+not insert a missing dictionary key; use fallible `insert` for growth.
+
+Evaluate the right-hand value first, then destination indices once each in
+root-to-leaf order. The destination is exclusively borrowed during index
+evaluation; index expressions cannot access a conflicting loan. Replacing an
+owned value drops the previous value exactly once. A right-hand owner remains
+tracked for cleanup if an index propagates an error with `?`.
+
 Branch-local declarations do not escape their branch. Assignments to existing
 mutable locals do persist across branch joins. There are no uninitialized
 declarations. Parameters plus locals are currently limited to 256 slots per

@@ -999,37 +999,7 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        let Expression::Index(base, index) = &target.kind else {
-            return Err(target
-                .at
-                .error("assignment target must be a binding or an index"));
-        };
-        let target_ty = self.place_type(base).ok_or_else(|| {
-            base.at
-                .error("mutation requires a named binding or class field")
-        })?;
-        let (key, val) = match &target_ty {
-            Ty::List(v) => (Ty::I64, (**v).clone()),
-            Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
-            _ => return Err(base.at.error("indexed assignment requires list or dict")),
-        };
-        // Like Python, evaluate the value before the target's index.
-        let actual = self.expr_expected(value, Some(val.clone()), ops)?;
-        self.same(actual, Some(val.clone()), &value.at)?;
-        let temp = self.slot(val, &value.at)?;
-        ops.push(Op::StoreLocal(temp));
-        let actual = self.expr_expected(index, Some(key.clone()), ops)?;
-        self.same(actual, Some(key.clone()), &index.at)?;
-        let index_slot = self.slot(key, &index.at)?;
-        ops.push(Op::StoreLocal(index_slot));
-        let loan = self.mutation_place(base, ops)?;
-        ops.push(Op::MoveLocal(index_slot, "mutation index".into()));
-        ops.push(Op::LoadLocal(temp));
-        ops.push(Op::Collection(CollectionOp::Put(target_ty)));
-        ops.push(Op::Drop);
-        ops.push(Op::UseLoan(loan));
-        ops.push(Op::DropLocal(temp));
-        Ok(())
+        self.set_field(target, value, ops)
     }
 
     fn unwrap_result(

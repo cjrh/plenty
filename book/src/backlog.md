@@ -30,7 +30,9 @@ specialization tests cover the implemented subset.
 The usability review changes the immediate order:
 
 1. **B30: nested assignment without copying.** Make ordinary updates such as
-   `rows[0][0] = 1` practical under the existing ownership model.
+   `rows[0][0] = 1` practical under the existing ownership model. Unified nested
+   writes and root-to-leaf evaluation are implemented; allocation, failure,
+   aliasing, and lifecycle acceptance checks are in progress.
 2. **B31: callable simplicity audit.** Review the implemented surface and its
    teaching cost before adding more callable types or capture rules.
 3. **B22: concurrency contract and runtime feasibility.** Settle transfer, sharing,

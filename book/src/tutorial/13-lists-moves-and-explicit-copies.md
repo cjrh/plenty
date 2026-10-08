@@ -34,7 +34,21 @@ runtime error.
 `copy(original)` returns a `Result`, as do all allocating operations. The
 examples here propagate failures with `?`; lesson 19 shows how to recover instead.
 
-Collections can nest. To update an inner list while keeping the outer collection,
-use `mut child = copy(rows[0])?`, update `child`, then assign it back with
-`rows[0] = child`. This last assignment transfers the child into the collection. Direct nested
-assignment such as `rows[0][0] = 1` is not implemented.
+Collections can nest. Write directly through the indices to update an inner list;
+this neither copies nor allocates any containing list.
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut rows = [[1, 2]?, [3]?]?
+    rows[0][-1] = 9
+    print(rows)?
+    Ok(())
+```
+
+```output
+[[1, 9], [3]]
+```
+
+Assignment evaluates its right-hand value first, then its destination indices
+once each from left to right. The destination stays exclusively borrowed while
+its indices are evaluated, so those expressions cannot mutate the same collection.

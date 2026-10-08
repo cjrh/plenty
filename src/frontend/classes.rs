@@ -573,16 +573,23 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        // Resolve the target without emitting its borrow until after evaluating the RHS.
-        let mut address = Vec::new();
-        let (reference, loan) = self.borrow(target, true, &mut address)?;
-        let Ty::Ref(ty, _) = reference else {
-            unreachable!()
-        };
-        let actual = self.expr_expected(value, Some((*ty).clone()), ops)?;
-        self.same(actual, Some((*ty).clone()), &value.at)?;
-        ops.extend(address);
-        ops.push(Op::WriteRef((*ty).clone()));
+        let ty = self.place_type(target).ok_or_else(|| {
+            target
+                .at
+                .error("assignment requires a named binding, field, or collection element")
+        })?;
+        // Evaluate the RHS before borrowing the destination. Keep its owner in a
+        // local until all indices succeed, so `?` also cleans it up on failure.
+        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
+        self.same(actual, Some(ty.clone()), &value.at)?;
+        let temp = self.slot(ty.clone(), &value.at)?;
+        ops.push(Op::StoreLocal(temp));
+        // Recursive place lowering evaluates each index once, root to leaf,
+        // with a loan protecting every intermediate address from invalidation.
+        let (_, loan) = self.borrow(target, true, ops)?;
+        ops.push(Op::MoveLocal(temp, "assignment value".into()));
+        ops.push(Op::Swap);
+        ops.push(Op::WriteRef(ty));
         ops.push(Op::UseLoan(loan));
         Ok(())
     }
