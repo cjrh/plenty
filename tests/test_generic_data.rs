@@ -2,6 +2,51 @@ mod support;
 use support::{check_source, run};
 
 #[test]
+fn function_inference_reads_nominal_data_arguments() {
+    let output = run(r#"
+class Pair[K, V]:
+    key: K
+    value: V
+enum Choice[T]:
+    Value(T)
+def key[K, V](pair: &Pair[K, V]) -> K:
+    pair.key
+def unpack[T](choice: Choice[T]) -> T:
+    match choice:
+        case Choice[T].Value(value):
+            value
+def same[T](left: &Pair[T, T], right: T) -> T:
+    right
+def main() -> Result[(), Failure]:
+    pair = Pair[u8, str](4, "four")?
+    print(key(&pair))?
+    choice = Choice[list[i64]].Value([2, 3]?)?
+    print(unpack(choice))?
+    equal = Pair[u16, u16](1, 2)?
+    print(same(&equal, 7u16))?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n[2, 3]\n7\n");
+}
+
+#[test]
+fn inference_rejects_conflicting_and_different_nominal_arguments() {
+    for (actual, expected) in [
+        ("Pair[u8, u16](1, 2)", "conflicting types"),
+        ("Other[u8, u8](1, 2)", "does not match"),
+    ] {
+        let source = format!("class Pair[A, B]:\n    a: A\n    b: B\nclass Other[A, B]:\n    a: A\n    b: B\ndef require[T](value: &Pair[T, T]) -> ():\n    pass\ndef main() -> ():\n    value = {actual}.unwrap()\n    require(&value)\n");
+        let error = check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn generic_classes_specialize_fields_methods_and_lifecycle() {
     let output = run(r#"
 class Cell[T]:

@@ -15,6 +15,7 @@ pub(super) struct DataTypes {
     classes: HashMap<String, classes::ClassDecl>,
     instances: RefCell<HashMap<(String, Vec<Ty>), Ty>>,
     named: RefCell<HashMap<String, Ty>>,
+    arguments: RefCell<HashMap<String, (String, Vec<Ty>)>>,
     pending: RefCell<Vec<classes::ClassDecl>>,
     active: RefCell<Vec<String>>,
 }
@@ -36,6 +37,14 @@ impl DataTypes {
     }
     pub(super) fn lookup(&self, name: &str) -> Type {
         self.named.borrow().get(name).cloned()
+    }
+    pub(super) fn arguments(&self, ty: &Ty) -> Option<(String, Vec<Ty>)> {
+        let name = match ty {
+            Ty::Class(t) => &t.name,
+            Ty::Enum(t) => &t.name,
+            _ => return None,
+        };
+        self.arguments.borrow().get(name).cloned()
     }
 }
 impl TypeAliases {
@@ -155,6 +164,10 @@ impl TypeAliases {
         })();
         self.data.active.borrow_mut().pop();
         let (ty, class): (Ty, Option<classes::ClassDecl>) = result?;
+        self.data
+            .arguments
+            .borrow_mut()
+            .insert(concrete_name.clone(), key.clone());
         self.data.instances.borrow_mut().insert(key, ty.clone());
         self.data
             .named

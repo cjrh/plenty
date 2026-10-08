@@ -199,6 +199,14 @@ fn infer(
         }
         return Ok(());
     }
+    if let Some((name, arguments)) = aliases.data.arguments(actual) {
+        if pattern.name.as_ref() == Some(&name) && pattern.args.len() == arguments.len() {
+            for (pattern, argument) in pattern.args.iter().zip(&arguments) {
+                infer(pattern, argument, template, inferred, aliases, at)?;
+            }
+            return Ok(());
+        }
+    }
     let children: Option<Vec<&Ty>> = match (pattern.name.as_deref(), actual) {
         (Some("Closure" | "OnceClosure"), Ty::Closure(t))
             if t.once == (pattern.name.as_deref() == Some("OnceClosure")) =>

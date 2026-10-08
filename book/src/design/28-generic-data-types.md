@@ -22,7 +22,13 @@ storage, allocation, ownership, and drop rules; generic syntax adds no runtime
 type lookup or extra allocation. User enum construction still returns Result.
 Option and Result retain their separate allocation-free representation.
 
-The initial syntax requires explicit arguments. Type arguments cannot be unit,
+Constructors require explicit arguments. Generic functions infer arguments from
+data instances: `def read[T](value: &Cell[T]) -> T` learns T from `Cell[u8]`,
+including through aliases, nested collections, and repeated parameters. Inference
+checks the nominal declaration as well as its arguments; matching fields alone
+do not make unrelated classes interchangeable.
+
+Type arguments cannot be unit,
 references, generators, or closure environments. Recursive data layouts remain
 unsupported. Data specialization is capped at 256 instances; nesting at 64 and
 concrete names at 16,384 bytes. Bounds on data parameters are not implemented.
