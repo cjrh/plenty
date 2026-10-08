@@ -1461,7 +1461,8 @@ fn step(
                 inputs: t
                     .captures
                     .iter()
-                    .map(|(n, ty)| (n.clone(), Ty::Ref(Rc::new(ty.clone()), t.mutable)))
+                    .enumerate()
+                    .map(|(i, (n, ty))| (n.clone(), Ty::Ref(Rc::new(ty.clone()), t.writable[i])))
                     .chain(t.signature.function().inputs)
                     .collect(),
                 outputs: t.signature.output.iter().cloned().collect(),

@@ -65,6 +65,11 @@ move. The body can observe and borrow captures, but cannot move them out. Callin
 the closure borrows its environment, so calls can repeat. Assignment moves the
 closure; `copy` is unavailable. Captured owners drop in reverse capture order when
 the environment leaves scope. Creating and moving the environment do not allocate.
+`def [mut count, values](...)` allows changing `count` while keeping `values`
+read-only. The source binding need not be mutable: the new environment owns it.
+Such a closure requires an exclusive environment borrow and a `mut` binding to
+call. Assignment to a captured scalar changes the environment slot; methods on
+captured owners obey the same explicit mutation permissions.
 Currently these closures must be called through a named binding, cannot return
 references or yield, and cannot capture references or other restricted storage.
 See the [backlog](../backlog.md) for remaining work.

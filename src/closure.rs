@@ -7,6 +7,7 @@ pub struct ClosureType {
     pub name: String,
     pub signature: CallableSig,
     pub captures: Vec<(String, Ty)>,
+    pub writable: Vec<bool>,
     pub mutable: bool,
 }
 

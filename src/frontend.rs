@@ -2423,6 +2423,24 @@ impl Lower<'_> {
                     annotation,
                     value,
                 } => {
+                    if self.captures.contains(name) {
+                        if *mutable || annotation.is_some() {
+                            return Err(stmt.at.error("cannot redeclare a closure capture"));
+                        }
+                        let target = Expr {
+                            at: stmt.at.clone(),
+                            kind: Expression::Unary(
+                                "*".into(),
+                                Box::new(Expr {
+                                    at: stmt.at.clone(),
+                                    kind: Expression::Name(name.clone()),
+                                }),
+                            ),
+                        };
+                        self.write_reference(&target, value, ops)?;
+                        self.finish_temporaries(temporary_start, ops);
+                        continue;
+                    }
                     if self
                         .names
                         .get(name)

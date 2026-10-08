@@ -15,8 +15,8 @@ impl Lower<'_> {
         let mut captures = Vec::new();
         let mut hidden = Vec::new();
         for capture in &function.captures {
-            if capture.borrowed || capture.mutable {
-                return Err(at.error("borrowed and mutable captures are not supported yet"));
+            if capture.borrowed {
+                return Err(at.error("borrowed captures are not supported yet"));
             }
             let source = Expr {
                 at: at.clone(),
@@ -30,7 +30,7 @@ impl Lower<'_> {
                 capture.name.clone(),
                 TypeRef {
                     at: at.clone(),
-                    concrete: Some(Ty::Ref(Rc::new(ty.clone()), false)),
+                    concrete: Some(Ty::Ref(Rc::new(ty.clone()), capture.mutable)),
                     name: None,
                     args: vec![],
                 },
@@ -56,7 +56,8 @@ impl Lower<'_> {
             name: function.name.clone(),
             signature,
             captures,
-            mutable: false,
+            writable: function.captures.iter().map(|c| c.mutable).collect(),
+            mutable: function.captures.iter().any(|c| c.mutable),
         });
         hidden.append(&mut function.inputs);
         function.inputs = hidden;

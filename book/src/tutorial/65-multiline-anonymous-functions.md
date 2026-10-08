@@ -49,6 +49,29 @@ the closure itself does not allocate. Its concrete environment type differs from
 the code-only `Callable` type. Captures cannot be moved out of the body; borrow
 them or explicitly `copy` when an independent owner is needed.
 
+Use `mut` in the capture list for private state. A stateful closure also needs
+a mutable binding to call:
+
+```plenty
+def main() -> Result[(), Failure]:
+    count = 0
+    mut next = def [mut count]() -> i64:
+        count = count + 1
+        count
+    print(next())?
+    print(next())?
+    print(count)?
+    Ok(())
+```
+```output
+1
+2
+0
+```
+
+The captured scalar is independent of the original scalar. An owned collection
+instead moves into the environment, just as it does on ordinary assignment.
+
 Named module functions and imported symbols remain
 available normally. Bind the anonymous function before passing it to another
 call: indented anonymous bodies inside parentheses are not supported.

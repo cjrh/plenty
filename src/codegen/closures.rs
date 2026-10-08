@@ -37,7 +37,7 @@ impl Lowerer<'_, '_> {
         for (i, (_, field)) in t.captures.iter().enumerate() {
             let slot = self.bcx.ins().iadd_imm(storage, t.offset(i) as i64);
             self.stack
-                .push((slot, Ty::Ref(Rc::new(field.clone()), t.mutable)));
+                .push((slot, Ty::Ref(Rc::new(field.clone()), t.writable[i])));
         }
         self.stack.extend(args);
         self.lower_call(&t.name)
