@@ -22,7 +22,8 @@ function values, expected-signature specialization, capture-free multiline anony
 functions, and eligible indirect tail calls are implemented and tested with heap
 allocation disabled.
 Owned captures now move into reusable inline environments with scoped destruction
-and explicit per-capture mutation. Continue with borrowed captures, environment escape rules,
+and explicit per-capture mutation. Shared borrowed captures retain checked loans
+through calls and moves. Continue with exclusive borrowed captures, environment escape rules,
 and generic closure arguments before higher-order APIs.
 Expanded C representations are B27; additional loader tooling and library
 lifecycle work are B28.

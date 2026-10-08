@@ -2,6 +2,39 @@ mod support;
 use support::{check_source, run};
 
 #[test]
+fn shared_captures_borrow_owners_until_the_last_closure_use() {
+    let output = run(r#"
+def main() -> Result[(), Failure]:
+    mut values = [4]?
+    read = def [&values]() -> i64:
+        values[0]
+    print(read())?
+    moved = read
+    print(moved())?
+    values.append(5)?
+    print(values)?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n4\n[4, 5]\n");
+}
+
+#[test]
+fn shared_capture_loans_survive_moves_and_control_flow() {
+    for action in ["values.append(2)?", "drop(values)"] {
+        let source = format!("def main() -> Result[(), Failure]:\n    mut values = [1]?\n    read = def [&values]() -> i64:\n        len(values)\n    moved = read\n    {action}\n    print(moved())?\n    Ok(())\n");
+        let error = check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("borrow"), "{error}");
+    }
+    let error = check_source("def main() -> Result[(), Failure]:\n    values = [1]?\n    read = def [&values]() -> i64:\n        len(values)\n    wrapped = Some(read)\n    Ok(())\n").unwrap_err().to_string();
+    assert!(error.contains("references cannot be stored"), "{error}");
+}
+
+#[test]
 fn mutable_owned_captures_retain_state_between_calls() {
     let output = run(r#"
 def main() -> Result[(), Failure]:

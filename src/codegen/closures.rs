@@ -36,8 +36,12 @@ impl Lowerer<'_, '_> {
             .load(PTR_TY, MemFlags::trusted(), reference, 0);
         for (i, (_, field)) in t.captures.iter().enumerate() {
             let slot = self.bcx.ins().iadd_imm(storage, t.offset(i) as i64);
-            self.stack
-                .push((slot, Ty::Ref(Rc::new(field.clone()), t.writable[i])));
+            let pointer = if matches!(field, Ty::Ref(..)) {
+                self.bcx.ins().load(PTR_TY, MemFlags::trusted(), slot, 0)
+            } else {
+                slot
+            };
+            self.stack.push((pointer, t.parameter(i)));
         }
         self.stack.extend(args);
         self.lower_call(&t.name)

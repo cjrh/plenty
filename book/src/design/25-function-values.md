@@ -70,8 +70,13 @@ read-only. The source binding need not be mutable: the new environment owns it.
 Such a closure requires an exclusive environment borrow and a `mut` binding to
 call. Assignment to a captured scalar changes the environment slot; methods on
 captured owners obey the same explicit mutation permissions.
-Currently these closures must be called through a named binding, cannot return
-references or yield, and cannot capture references or other restricted storage.
+`def [&values](...)` borrows a surrounding binding without taking ownership.
+Shared capture loans remain live through later calls and moves, preventing changes
+to or destruction of the owner. They can end after the last use. Borrowing
+closures cannot escape their function, enter enum/container storage, or be
+suspended in generators. Borrowing another closure is currently unsupported.
+Currently closures must be called through a named binding, cannot return
+references or yield, and cannot own other restricted storage.
 See the [backlog](../backlog.md) for remaining work.
 
 Indirect calls in tail position use native tail calls under the same cleanup and

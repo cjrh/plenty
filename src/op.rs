@@ -116,6 +116,7 @@ impl Ty {
     pub fn contains_reference(&self) -> bool {
         // Composite references are rejected at their construction boundary.
         matches!(self, Self::Ref(..))
+            || matches!(self, Self::Closure(t) if t.captures.iter().any(|(_, ty)| ty.contains_reference()))
     }
     pub fn can_copy(&self) -> bool {
         match self {
@@ -1462,7 +1463,7 @@ fn step(
                     .captures
                     .iter()
                     .enumerate()
-                    .map(|(i, (n, ty))| (n.clone(), Ty::Ref(Rc::new(ty.clone()), t.writable[i])))
+                    .map(|(i, (n, _))| (n.clone(), t.parameter(i)))
                     .chain(t.signature.function().inputs)
                     .collect(),
                 outputs: t.signature.output.iter().cloned().collect(),

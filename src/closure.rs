@@ -12,6 +12,14 @@ pub struct ClosureType {
 }
 
 impl ClosureType {
+    pub fn parameter(&self, index: usize) -> Ty {
+        let ty = &self.captures[index].1;
+        if matches!(ty, Ty::Ref(..)) {
+            ty.clone()
+        } else {
+            Ty::Ref(std::rc::Rc::new(ty.clone()), self.writable[index])
+        }
+    }
     pub fn bytes(&self) -> usize {
         16 + self
             .captures

@@ -1555,6 +1555,7 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 }
 
 struct Lower<'a> {
+    closure_loans: HashMap<String, Vec<usize>>,
     captures: HashSet<String>,
     heap: &'a mut Heap,
     sigs: &'a mut HashMap<String, Rc<FnSig>>,
@@ -1880,6 +1881,11 @@ impl Lower<'_> {
                     .ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
                 if let Some(loan) = self.reference_locals.get(&local.slot) {
                     ops.push(Op::UseLoan(*loan));
+                }
+                if let Ty::Closure(t) = &local.ty {
+                    if let Some(loans) = self.closure_loans.get(&t.name) {
+                        ops.extend(loans.iter().copied().map(Op::UseLoan));
+                    }
                 }
                 if local.ty.affine() {
                     ops.push(Op::MoveLocal(
@@ -2788,6 +2794,7 @@ fn lower_function(
         None
     };
     let mut lower = Lower {
+        closure_loans: HashMap::new(),
         captures: f.captures.iter().map(|c| c.name.clone()).collect(),
         returned_fields,
         heap,

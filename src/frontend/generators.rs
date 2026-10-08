@@ -14,6 +14,12 @@ pub(super) fn yields(body: &[Stmt]) -> bool {
 
 impl Lower<'_> {
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
+        if actual
+            .as_ref()
+            .is_some_and(|t| !matches!(t, Ty::Ref(..)) && t.contains_reference())
+        {
+            return Err(at.error("a closure with borrowed captures cannot escape its function"));
+        }
         let expected = self.return_type.clone().flatten();
         self.same(actual.clone(), expected.clone(), at)?;
         if let (Some(expected), Some(actual)) = (expected, actual) {
