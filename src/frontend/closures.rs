@@ -16,9 +16,6 @@ impl Lower<'_> {
         let mut hidden = Vec::new();
         let mut loans = Vec::new();
         for capture in &function.captures {
-            if capture.borrowed && capture.mutable {
-                return Err(at.error("mutable borrowed captures are not supported yet"));
-            }
             let source = Expr {
                 at: at.clone(),
                 kind: Expression::Name(capture.name.clone()),
@@ -31,7 +28,7 @@ impl Lower<'_> {
                         "borrowed captures cannot be suspended or capture another closure yet",
                     ));
                 }
-                let (ty, loan) = self.borrow(&source, false, ops)?;
+                let (ty, loan) = self.borrow(&source, capture.mutable, ops)?;
                 loans.push(loan);
                 ty
             } else {

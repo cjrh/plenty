@@ -75,6 +75,10 @@ Shared capture loans remain live through later calls and moves, preventing chang
 to or destruction of the owner. They can end after the last use. Borrowing
 closures cannot escape their function, enter enum/container storage, or be
 suspended in generators. Borrowing another closure is currently unsupported.
+`&mut` captures exclusively borrow a mutable source binding. Calls require a
+mutable closure binding and can update the original value; other reads, writes,
+and borrows of that source are excluded while future closure uses keep the loan
+live. Explicit reference arguments must also be disjoint from captured loans.
 Currently closures must be called through a named binding, cannot return
 references or yield, and cannot own other restricted storage.
 See the [backlog](../backlog.md) for remaining work.

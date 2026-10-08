@@ -2,6 +2,43 @@ mod support;
 use support::{check_source, run};
 
 #[test]
+fn exclusive_captures_update_the_original_owner() {
+    let output = run(r#"
+def main() -> Result[(), Failure]:
+    mut count = 0
+    mut values = [10]?
+    mut change = def [&mut count, &mut values](step: i64) -> Result[(), AllocError]:
+        count = count + step
+        values.append(count)?
+        Ok(())
+    change(2)?
+    change(3)?
+    print(count)?
+    print(values)?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "5\n[10, 2, 5]\n");
+}
+
+#[test]
+fn exclusive_captures_exclude_competing_access_and_arguments() {
+    for access in ["print(count)?", "count = 9", "other = &count"] {
+        let source = format!("def main() -> Result[(), Failure]:\n    mut count = 0\n    mut change = def [&mut count]() -> ():\n        count = count + 1\n    {access}\n    change()\n    Ok(())\n");
+        let error = check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("borrow"), "{error}");
+    }
+    let error = check_source("def main() -> ():\n    count = 0\n    mut change = def [&mut count]() -> ():\n        count = 1\n    change()\n").unwrap_err().to_string();
+    assert!(error.contains("mut binding"), "{error}");
+    let error = check_source("def main() -> ():\n    mut count = 0\n    mut change = def [&mut count](other: &i64) -> ():\n        count = 1\n    change(&count)\n").unwrap_err().to_string();
+    assert!(error.contains("borrow"), "{error}");
+}
+
+#[test]
 fn shared_captures_borrow_owners_until_the_last_closure_use() {
     let output = run(r#"
 def main() -> Result[(), Failure]:
