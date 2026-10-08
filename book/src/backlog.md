@@ -27,22 +27,91 @@ enums, inferred construction, generic methods, parameterized structural protocol
 and signature-driven inference. Native failure/lifecycle tests and bounded
 specialization tests cover the implemented subset.
 
-Next is B10: recursive data types. Settle explicit indirection, recoverable
-allocation, ownership, and bounded destruction before allowing recursive
-declarations. Keep existing acyclic layouts and fast compilation predictable.
-Broader borrowing remains B11. Further generic constraints are B29; expanded C
-representations (including names for exported generic handles) are B27. Additional
-loader tooling and library lifecycle work are B28.
+The usability review changes the immediate order:
 
-## Later candidates
+1. **B30: nested assignment without copying.** Make ordinary updates such as
+   `rows[0][0] = 1` practical under the existing ownership model.
+2. **B31: callable simplicity audit.** Review the implemented surface and its
+   teaching cost before adding more callable types or capture rules.
+3. **B22: concurrency contract and runtime feasibility.** Settle transfer, sharing,
+   and cleanup requirements before recursive ownership adds more cases. This
+   first slice is a design/runtime audit; the full threading implementation is
+   separate follow-on work.
+4. **B10: recursive data types.** Then settle explicit indirection, recoverable
+   allocation, and bounded destruction. Keep acyclic layouts and compilation
+   predictable.
 
-These entries are not ordered within the table. Dependencies and design links
-guide breakdown when an item is selected; detailed syntax is still open.
+Named function values already support basic callback registries: a
+`list[Callable[[i64], i64]]` can hold named functions, including inside a class,
+and `callbacks[index](value)` calls the selected function. These are indirect
+calls with a fixed signature; captured environments are the missing storage
+capability. B32 tracks that extension after B31, with lower urgency because this
+baseline works. See [function values](design/25-function-values.md).
+
+### Scope of the new priorities
+
+**B30 — writable nested paths.** Begin with existing list elements and paths
+through class fields; define dictionary-value updates separately from insertion.
+An assignment to an existing scalar slot must not copy its containing collections
+or allocate. Allocating the right-hand value or growing a container keeps its
+ordinary fallible contract. Lower the destination as a writable storage location,
+with precisely specified evaluation order and one evaluation of each expression.
+Investigate scoped reborrows, delayed address resolution, and reservation of a
+destination during evaluation. In particular, a call on the right-hand side must
+not invalidate a saved element address by resizing or removing its parent.
+Start with conservative loans over the enclosing collection; finer disjoint-index
+reasoning belongs to B11. Acceptance includes allocation-disabled nested writes,
+alias conflicts, side-effecting indices, invalid indices/missing keys, `?` exits,
+and exactly-once destruction of replaced owners.
+
+**B31 — fewer concepts to learn.** Audit `Closure`, `OnceClosure`, `Callable`,
+`OnceCallable`, `def once`, and capture syntax using small callback, factory, and
+owned-resource examples. Separate semantic requirements from their spellings:
+reusable versus consuming calls affect ownership, and owned/shared/exclusive
+captures reuse general borrowing rules, but that does not justify every exposed
+name. Review inference, the dual role of `Callable` as a stored type and generic
+constraint, and whether consuming behavior needs explicit syntax everywhere.
+For each concept, retain it with a concrete reason, simplify it, or move it to a
+library. Audit the functions-as-values lessons alongside the design; the basic
+path should teach named callbacks and ordinary closures before advanced ownership
+cases. Preserve explicit allocation, deterministic cleanup, useful diagnostics,
+and bounded compilation. Decide this before B32 or executor APIs expand the surface.
+
+**B22 — useful native concurrency.** Target native threads that execute Plenty
+code in parallel without a global interpreter lock. First audit reference counts,
+type metadata, allocators, destructors, and foreign-handle thread affinity;
+moving a container can still leave shared string aliases behind. Define which
+owners may transfer and which borrows may be shared. Then implement scoped
+threads and bounded channels, followed by a Python-style thread-pool executor
+with submission, result retrieval, ordered mapping, and context-managed shutdown.
+Thread/task creation and queue allocation must report failures; specify bounded
+queues/backpressure, failed-send ownership, joining on every exit, cooperative
+cancellation, and partial-result cleanup. Executor result handles do not require
+async/await. Build explicit Rayon-style parallel operations on these foundations;
+automatic parallelization remains B24. Prefer library APIs over new syntax, with
+compiler support for ownership checks and runtime support for native threading.
+Scoped generic tasks need not wait for heterogeneous closure storage in B32.
+
+**B32 — stored stateful callbacks.** After B31, compare storing one known concrete
+environment type in generic containers/classes/enums with storing different
+environments behind one callable signature. The former can use a known layout;
+the latter needs an explicit representation and dispatch contract. Evaluate
+fallible owned boxing and bounded inline storage against actual registry/event
+handler needs before adding public types. Specify reusable/consuming invocation,
+move/drop behavior, allocation failure, and capture lifetimes. Begin with owned
+environments; escaping borrowed captures depend on B11. Keep Plenty callback
+storage distinct from C ABI callbacks and foreign-library lifetimes in B28.
+
+## Work items
+
+The order above selects the next slices. This table is the catalog of open items,
+including later candidates; its row order does not set priority. Detailed syntax
+is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
 | B10 | Recursive data types | Define indirection, ownership, allocation failure, and bounded destruction for recursive classes/enums. Current acyclic forward declarations are already supported. [Sum-type design](proposals/sum-types.md). |
-| B11 | Broader borrowing | Stored references, relationships among multiple reference parameters, and more precise collection loans. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
+| B11 | Broader borrowing | Stored references, relationships among multiple reference parameters, and more precise collection loans. B30 takes the immediate nested-write subset without requiring this whole item. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
 | B12 | Practical I/O and iteration | Fallible file iteration, explicit binary buffers and read/write, buffering, and reusable iterator/view protocols. Follow familiar Python conventions where they fit ownership and Result-based errors. |
 | B13 | Public allocator control | Global/default and per-container selection, allocator state/lifetimes, and buffer provenance. Internal object allocator identity already exists. Consider bounded/inline-capacity storage separately. [Memory design](proposals/memory-parallelism-and-simd.md). |
 | B14 | Typed error composition | Preserve details across multiple error types through explicit unions/conversions. `Failure` already supplies deliberate erasure; it does not replace recoverable typed errors. |
@@ -53,12 +122,15 @@ guide breakdown when an item is selected; detailed syntax is still open.
 | B19 | Measured codegen and storage improvements | Benchmark dense-match dispatch before adding jump tables. Investigate compact tuple/aggregate layouts, packed numeric buffers, code size, and compilation/link latency. Do not carry over assumptions from the legacy stack frontend. |
 | B20 | Optional GCC backend | Evaluate the proposed backend with a small feasibility experiment before committing to another backend or common IR. Cranelift remains the current backend. [GCC proposal](proposals/codegen-gcc.md). |
 | B21 | Documentation authoring | Evaluate independently runnable literate lesson sources that generate mdBook pages if they improve authoring. Current Markdown lessons are already executable and tested; do not create another manually maintained copy. [Documentation design](proposals/entrypoints-modules-and-tutorials.md). |
-| B22 | Threads, channels, and parallel operations | Establish transfer/share rules, compatible reference counting, allocator and foreign-handle constraints; then scoped threads, bounded channels, and explicit parallel map/collect/reduce with defined failure and cancellation behavior. [Concurrency design](proposals/memory-parallelism-and-simd.md). |
+| B22 | Threads, channels, and parallel operations | Promoted: contract/runtime audit, then scoped threads and bounded channels, a Python-style thread-pool executor, and explicit Rayon-style parallel operations. Follow the staged scope above, including fallible submission and deterministic shutdown. [Concurrency design](proposals/memory-parallelism-and-simd.md). |
 | B23 | SIMD | Define vector values, contiguous numeric storage, supported operations, and scalar fallbacks. Ordinary generic lists are not automatically packed native arrays. [SIMD design](proposals/memory-parallelism-and-simd.md). |
 | B24 | Automatic parallelization | Research only after B22: require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |
 | B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/24-c-interfaces/06-runtime-loading.md). |
 | B29 | Further generic constraints | Consider protocol/callable bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Preserve explicit lookup and bounded specialization. See [generic data](design/28-generic-data-types.md) and [parameterized protocols](design/29-parameterized-protocols.md). |
+| B30 | Nested assignment | Immediate usability and low-memory priority: writable nested collection/field paths without copying enclosing owners. Begin with conservative loans and verify existing-slot updates with allocation disabled. See scope above. |
+| B31 | Callable simplicity and teaching audit | Review the existing types, constraints, invocation modes, captures, and lessons before further callable expansion. Require a reason for each language-level concept; prefer inference and library composition where they preserve clear ownership. See scope above. |
+| B32 | Stored stateful callbacks | Named-function registries already work. After B31, design owned captured-environment storage, separating homogeneous concrete layouts from heterogeneous dispatch. Borrowed storage depends on B11; concurrency eligibility is B22. See scope above. |
 
 ## Reconciled completed work
 
@@ -69,7 +141,7 @@ active list.
 | Previous item | Resolution |
 | --- | --- |
 | B09: Initial generic data types and richer protocols | Concrete generic classes/enums, IntType data bounds, function/constructor inference, inferred/explicit generic methods, parameterized structural contracts, and protocol-driven inference are implemented. Native allocation-failure/drop checks and specialization reuse/limits cover the initial subset. Extensions are B29; recursive storage is B10. |
-| B08: Function values and multiline closures | Thin functions, reusable/consuming concrete environments, explicit captures, factories, signature inference, `Callable`/`OnceCallable` constraints, inline sums, captured generator frames, and checked lifecycle cleanup are implemented without implicit allocation. Stored/escaping borrows remain B11. See [closures](design/26-closures.md) and [consuming closures](design/27-consuming-closures.md). |
+| B08: Function values and multiline closures | Thin functions, reusable/consuming concrete environments, explicit captures, factories, signature inference, `Callable`/`OnceCallable` constraints, inline sums, captured generator frames, and checked lifecycle cleanup are implemented without implicit allocation. Completion records implementation, not final approval of the surface: simplification is B31 and broader captured-environment storage is B32. Stored/escaping borrows remain B11. See [closures](design/26-closures.md) and [consuming closures](design/27-consuming-closures.md). |
 | B07: Initial runtime library loading | CLI/API generation emits self-contained typed loaders; exact discovery metadata and all symbols are checked before returning a table. Scalar/borrow/Result adapters and owned factories/transfers preserve signatures, destruction, and instance provenance. Allocation-free LoadError, injected failures, private-address checks, and the executable library tutorial cover the initial resident implementation. [Runtime reference](design/24-c-interfaces/06-runtime-loading.md). |
 | B06: Initial C library exports | Static/shared packaging, scalar and Result adapters, owned factories, matching destruction, shared/mutable and consuming handles, precise C contracts, embedded/extractable interfaces, SHA-256 link guards, explicit binary verification, and staged publication are implemented. Native callers and injected failures validate cleanup. [Library reference](design/24-c-interfaces/02-library-exports.md). |
 | B05: Ownership-aware C adapters | Scalar/pointer borrows and explicit UTF-8/C-string adapters integrate with normal borrowing. Private opaque pointers in classes provide owned handles and matching destruction; C fixtures verify partial acquisition, allocation errors, and conditional/unconditional transfer. Mutable/returned byte buffers remain outside this subset. See [adapters](design/24-c-interfaces/01-ownership-and-text-adapters.md). |
@@ -94,6 +166,9 @@ active list.
   detail instead of copying a task list into a proposal, tutorial, or reference.
 - When selecting a candidate, settle its scope and acceptance checks. The table
   order does not approve every proposed API or require all later candidates.
+- Before adding syntax or builtins, show the user problem, why ordinary library
+  code cannot solve it, and the ownership, allocation, compilation, and teaching
+  costs. Ease of implementation alone is not a reason to enlarge the language.
 - On completion, remove it from the active queue and update implementation
   status, the relevant reference pages, and runnable lessons in the same change.
   Retain a short completion note here only when it explains a retired entry.
