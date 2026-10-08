@@ -157,7 +157,11 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
             for (_, field) in &t.captures {
                 layout(field, active)?;
             }
-            Ok(t.bytes())
+            let bytes = t.bytes();
+            if bytes > i32::MAX as usize {
+                return Err("closure environment exceeds the native stack-layout limit".into());
+            }
+            Ok(bytes)
         }
         Ty::Generator(t) => {
             if let Some(bytes) = t.bytes.get() {

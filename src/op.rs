@@ -113,6 +113,18 @@ impl Ty {
             _ => false,
         }
     }
+    pub fn contains_generator_frame(&self) -> bool {
+        match self {
+            Self::Generator(_) => true,
+            Self::Enum(t) => t
+                .variants
+                .iter()
+                .flat_map(|v| &v.fields)
+                .any(Ty::contains_generator_frame),
+            Self::Closure(t) => t.captures.iter().any(|(_, t)| t.contains_generator_frame()),
+            _ => false,
+        }
+    }
     pub fn contains_reference(&self) -> bool {
         // Composite references are rejected at their construction boundary.
         matches!(self, Self::Ref(..))

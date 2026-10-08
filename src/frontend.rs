@@ -2110,7 +2110,7 @@ impl Lower<'_> {
                         return Err(e.at.error("print takes one argument"));
                     }
                     let (ty, loans) = self.observe(&args[0], ops)?;
-                    if ty.restricted_storage() {
+                    if ty.contains_generator_frame() {
                         return Err(e.at.error("generators cannot be printed"));
                     }
                     let operation = CollectionOp::TryPrint(ty);

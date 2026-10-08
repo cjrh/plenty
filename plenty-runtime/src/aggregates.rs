@@ -858,6 +858,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'd' => write!(out, "{:?}", f64::from_bits(value as u64)).unwrap(),
             b'v' => out.extend_from_slice(b"()"),
             b'c' => out.extend_from_slice(b"<function>"),
+            b'H' => out.extend_from_slice(b"<closure>"),
             b'b' => out.extend_from_slice(if value == 0 { b"False" } else { b"True" }),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(

@@ -93,8 +93,13 @@ including its result type. An owned environment can itself be a concrete generic
 argument, retaining its exact layout through moves and returns. Borrowing
 environments use explicit reference-to-Closure parameters instead of an unconstrained
 by-value type parameter.
-Currently closures must be called through a named binding, cannot return
-references or yield, and cannot own other restricted storage.
+Owned closures can capture other owned closures, ranges, and inline Option/Result
+values. Their nested addresses are repaired when the environment moves. Owned
+closures also fit in Option/Result payloads without allocation; captured borrows
+remain excluded from these owning compositions. Generator captures are unsupported.
+Closure values display as `<closure>` and cannot be compared or copied.
+Currently closures must be called through a named binding and cannot return
+references or yield.
 See the [backlog](../backlog.md) for remaining work.
 
 Indirect calls in tail position use native tail calls under the same cleanup and
