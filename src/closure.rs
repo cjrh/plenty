@@ -10,6 +10,7 @@ pub struct ClosureType {
     pub captures: Vec<(String, Ty)>,
     pub writable: Vec<bool>,
     pub mutable: bool,
+    pub once: bool,
     pub depth: usize,
     pub borrowed: bool,
     bytes: usize,
@@ -19,7 +20,9 @@ pub struct ClosureType {
 // capture graph would repeatedly expand shared nested environments.
 impl PartialEq for ClosureType {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && (!self.name.is_empty() || self.signature == other.signature)
+        self.name == other.name
+            && (!self.name.is_empty()
+                || (self.signature == other.signature && self.once == other.once))
     }
 }
 impl Eq for ClosureType {}
@@ -28,6 +31,7 @@ impl Hash for ClosureType {
         self.name.hash(state);
         if self.name.is_empty() {
             self.signature.hash(state);
+            self.once.hash(state);
         }
     }
 }
@@ -38,6 +42,7 @@ impl ClosureType {
         signature: CallableSig,
         captures: Vec<(String, Ty)>,
         writable: Vec<bool>,
+        once: bool,
     ) -> Result<Self, String> {
         let bytes = captures.iter().try_fold(16usize, |size, (_, ty)| {
             size.checked_add(ty.slot_bytes())
@@ -59,6 +64,7 @@ impl ClosureType {
             captures,
             writable,
             mutable,
+            once,
             depth,
             borrowed,
             bytes,
@@ -66,7 +72,7 @@ impl ClosureType {
     }
     pub fn parameter(&self, index: usize) -> Ty {
         let ty = &self.captures[index].1;
-        if matches!(ty, Ty::Ref(..)) {
+        if self.once || matches!(ty, Ty::Ref(..)) {
             ty.clone()
         } else {
             Ty::Ref(std::rc::Rc::new(ty.clone()), self.writable[index])

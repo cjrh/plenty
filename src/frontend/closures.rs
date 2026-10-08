@@ -23,6 +23,9 @@ impl Lower<'_> {
         let mut hidden = Vec::new();
         let mut loans = Vec::new();
         for capture in &function.captures {
+            if function.once && capture.borrowed {
+                return Err(at.error("one-shot closures currently require owned captures"));
+            }
             let source = Expr {
                 at: at.clone(),
                 kind: Expression::Name(capture.name.clone()),
@@ -45,7 +48,7 @@ impl Lower<'_> {
                     at.error("closure capture nesting exceeds the implementation limit of 64")
                 );
             }
-            let parameter = if capture.borrowed {
+            let parameter = if function.once || capture.borrowed {
                 ty.clone()
             } else {
                 Ty::Ref(Rc::new(ty.clone()), capture.mutable)
@@ -82,6 +85,7 @@ impl Lower<'_> {
                 signature,
                 captures,
                 function.captures.iter().map(|c| c.mutable).collect(),
+                function.once,
             )
             .map_err(|message| at.error(message))?,
         );
@@ -108,6 +112,22 @@ impl Lower<'_> {
         closure: Rc<ClosureType>,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if closure.once {
+            if self
+                .names
+                .get(match &ungroup(callee).kind {
+                    Expression::Name(name) => name.as_str(),
+                    _ => "",
+                })
+                .is_some_and(|local| matches!(local.ty, Ty::Ref(..)))
+            {
+                return Err(callee
+                    .at
+                    .error("a one-shot closure must be owned to call it"));
+            }
+            self.value(callee, ops)?;
+            return self.consume_closure(args, closure, &callee.at, ops);
+        }
         if args.len() != closure.signature.inputs.len() {
             return Err(callee.at.error(format!(
                 "closure expects {} arguments, got {}",
@@ -126,6 +146,9 @@ impl Lower<'_> {
         closure: Rc<ClosureType>,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if closure.once {
+            return self.consume_closure(args, closure, at, ops);
+        }
         if args.len() != closure.signature.inputs.len() {
             return Err(at.error(format!(
                 "closure expects {} arguments, got {}",
@@ -139,6 +162,22 @@ impl Lower<'_> {
         let loan = self.new_loan(slot, closure.mutable, None, ops);
         ops.push(Op::BorrowLocal(slot, closure.mutable));
         self.closure_arguments(args, closure, loan, ops)
+    }
+
+    fn consume_closure(
+        &mut self,
+        args: &[Expr],
+        closure: Rc<ClosureType>,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if args.len() != closure.signature.inputs.len() {
+            return Err(at.error("one-shot closure argument count mismatch"));
+        }
+        let loans = self.call_arguments(args, &closure.signature.function().inputs, ops)?;
+        ops.push(Op::ClosureCall(closure.clone()));
+        Self::end_reads(loans, ops);
+        Ok(closure.signature.output.clone())
     }
 
     fn closure_arguments(

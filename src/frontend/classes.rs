@@ -167,6 +167,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 })
                 .collect();
             methods.push(Function {
+                once: false,
                 captures: vec![],
                 foreign: None,
                 export: None,
@@ -234,6 +235,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
             };
             functions.push(Function {
+                once: false,
                 captures: vec![],
                 foreign: None,
                 export: None,

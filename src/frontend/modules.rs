@@ -496,8 +496,11 @@ impl Scope {
                     name,
                     annotation,
                     value,
-                    ..
+                    mutable,
                 } => {
+                    if self.captures.contains(name) && (*mutable || annotation.is_some()) {
+                        return Err(stmt.at.error("cannot redeclare a closure capture"));
+                    }
                     if let Some(ty) = annotation {
                         self.ty(ty)?;
                     }

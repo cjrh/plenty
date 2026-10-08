@@ -341,6 +341,7 @@ fn lex(source: &str) -> Result<Vec<Token>> {
 
 #[derive(Clone)]
 struct Function {
+    once: bool,
     captures: Vec<Capture>,
     foreign: Option<crate::foreign::Declaration>,
     export: Option<String>,
@@ -405,8 +406,14 @@ impl TypeRef {
             callables::validate(&signature, &self.at)?;
             if name == "Closure" {
                 return Ok(Some(Ty::Closure(Rc::new(
-                    crate::closure::ClosureType::new(String::new(), signature, vec![], vec![])
-                        .map_err(|message| self.at.error(message))?,
+                    crate::closure::ClosureType::new(
+                        String::new(),
+                        signature,
+                        vec![],
+                        vec![],
+                        false,
+                    )
+                    .map_err(|message| self.at.error(message))?,
                 ))));
             }
             return Ok(Some(Ty::Callable(Rc::new(signature))));
@@ -805,6 +812,7 @@ impl Parser {
         anonymous: bool,
     ) -> Result<Function> {
         let at = self.take(); // def
+        let once = anonymous && self.eat("once");
         let name = if anonymous {
             "__plenty_anonymous".into()
         } else {
@@ -953,6 +961,7 @@ impl Parser {
         if foreign {
             self.kind(Kind::Newline, "the end of the C declaration")?;
             return Ok(Function {
+                once,
                 captures,
                 foreign: Some(crate::foreign::Declaration {
                     target: match address_parameter {
@@ -998,6 +1007,7 @@ impl Parser {
             String::new()
         };
         Ok(Function {
+            once,
             captures,
             foreign: None,
             export: symbol,
@@ -1214,7 +1224,7 @@ impl Parser {
             if self
                 .tokens
                 .get(self.pos + 1)
-                .is_some_and(|t| !t.is("(") && !t.is("["))
+                .is_some_and(|t| !t.is("(") && !t.is("[") && !t.is("once"))
             {
                 return Err(self.peek().error("nested named functions are not supported; assign an anonymous def expression instead"));
             }
@@ -1781,7 +1791,7 @@ impl Lower<'_> {
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
             Expression::Anonymous(function) => {
-                if !function.captures.is_empty() {
+                if function.once || !function.captures.is_empty() {
                     return self.closure_value(function, &e.at, ops).map(Some);
                 }
                 let mut function = (**function).clone();
@@ -2810,7 +2820,12 @@ fn lower_function(
     let mut lower = Lower {
         function_name: f.name.clone(),
         closure_loans: HashMap::new(),
-        captures: f.captures.iter().map(|c| c.name.clone()).collect(),
+        captures: f
+            .captures
+            .iter()
+            .filter(|_| !f.once)
+            .map(|c| c.name.clone())
+            .collect(),
         returned_fields,
         heap,
         sigs,
@@ -2847,7 +2862,7 @@ fn lower_function(
             Local {
                 slot: i as u8,
                 ty: ty.clone(),
-                mutable: false,
+                mutable: f.once && f.captures.get(i).is_some_and(|c| c.mutable),
             },
         );
     }

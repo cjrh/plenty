@@ -490,7 +490,9 @@ impl Engine {
                     let Some(Ty::Callable(expected)) = bound.resolve(aliases)? else {
                         unreachable!("Callable constraint resolves to a callable signature")
                     };
-                    if callables::signature(ty) != Some(expected.as_ref()) {
+                    if callables::signature(ty) != Some(expected.as_ref())
+                        || matches!(ty, Ty::Closure(t) if t.once)
+                    {
                         return Err(at.error(format!("{ty} does not satisfy {expected}")));
                     }
                 } else {

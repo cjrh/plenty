@@ -200,7 +200,11 @@ impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Ty::Closure(t) => {
-                let signature = t.signature.to_string().replacen("Callable", "Closure", 1);
+                let signature = t.signature.to_string().replacen(
+                    "Callable",
+                    if t.once { "OnceClosure" } else { "Closure" },
+                    1,
+                );
                 return if t.name.is_empty() {
                     f.write_str(&signature)
                 } else {
@@ -1502,8 +1506,13 @@ fn step(
                     return Err("closure argument type mismatch".into());
                 }
             }
-            if stack.pop() != Some(Ty::Ref(Rc::new(Ty::Closure(t.clone())), t.mutable)) {
-                return Err("closure call requires an environment borrow".into());
+            let expected = if t.once {
+                Ty::Closure(t.clone())
+            } else {
+                Ty::Ref(Rc::new(Ty::Closure(t.clone())), t.mutable)
+            };
+            if stack.pop() != Some(expected) {
+                return Err("closure call environment ownership mismatch".into());
             }
             stack.extend(t.signature.output.iter().cloned());
         }

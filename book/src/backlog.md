@@ -35,7 +35,8 @@ the same higher-order API, including inference through their input/output signat
 Borrowed callable constraints preserve transitive loans across generic consumers.
 Concrete callable bounds also specialize generic named callback arguments;
 native higher-order mutation is covered with allocation disabled.
-Next in B08: explicit consuming/one-shot capture semantics.
+Explicit `def once` environments can transfer owned captures into their body.
+Next in B08: one-shot factories, consuming callable constraints, and integration.
 Borrowing environments remain local or reference-passed; broader escaping/stored
 lifetime relationships belong to B11. Generic data types remain B09.
 Expanded C representations are B27; additional loader tooling and library

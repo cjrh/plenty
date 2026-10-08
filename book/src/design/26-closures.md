@@ -18,6 +18,8 @@ capture's source binding need not be mutable; a borrowed mutable source must be.
 Assignment to a captured scalar updates its slot. Captured owners support normal
 field and method borrowing but cannot be moved out. Captures cannot be redeclared
 or shadowed by loop, comprehension, unpacking, or match bindings in that body.
+Use [a consuming closure](27-consuming-closures.md), `def once [...]`, when the
+body needs to take ownership of its captures.
 
 Assignment moves a closure; `copy` is unavailable. Captured owners drop exactly
 once, in reverse capture order, when the environment leaves scope. Scope exits,

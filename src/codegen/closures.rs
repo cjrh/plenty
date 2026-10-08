@@ -30,13 +30,22 @@ impl Lowerer<'_, '_> {
             .ok_or("closure call underflow")?;
         let args: Vec<_> = self.stack.drain(split..).collect();
         let (reference, _) = self.stack.pop().ok_or("missing closure environment")?;
-        let storage = self
-            .bcx
-            .ins()
-            .load(PTR_TY, MemFlags::trusted(), reference, 0);
+        let storage = if t.once {
+            reference
+        } else {
+            self.bcx
+                .ins()
+                .load(PTR_TY, MemFlags::trusted(), reference, 0)
+        };
         for (i, (_, field)) in t.captures.iter().enumerate() {
             let slot = self.bcx.ins().iadd_imm(storage, t.offset(i) as i64);
-            let pointer = if matches!(field, Ty::Ref(..)) {
+            let pointer = if t.once {
+                let packed = self
+                    .bcx
+                    .ins()
+                    .load(types::I128, MemFlags::trusted(), slot, 0);
+                self.unpack(packed, field)
+            } else if matches!(field, Ty::Ref(..)) {
                 self.bcx.ins().load(PTR_TY, MemFlags::trusted(), slot, 0)
             } else {
                 slot

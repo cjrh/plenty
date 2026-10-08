@@ -72,7 +72,7 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
         return Some(actual.clone());
     }
     match (pattern, actual) {
-        (Ty::Closure(a), Ty::Closure(b)) if a.signature == b.signature => {
+        (Ty::Closure(a), Ty::Closure(b)) if a.signature == b.signature && a.once == b.once => {
             if a.name.is_empty() {
                 Some(actual.clone())
             } else if b.name.is_empty() {

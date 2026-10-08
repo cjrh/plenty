@@ -117,6 +117,7 @@
     - [Return a closure](tutorial/67-return-a-closure.md)
 - [Generic closure consumers](tutorial/68-generic-closure-consumers.md)
 - [Write a shared callback API](tutorial/69-write-a-shared-callback-api.md)
+- [Consume a capture](tutorial/70-consume-a-capture.md)
 
 # Reference
 
@@ -164,7 +165,8 @@
         - [Publishing library artifacts](design/24-c-interfaces/05-artifact-publication.md)
         - [Runtime library loading](design/24-c-interfaces/06-runtime-loading.md)
     - [Function values](design/25-function-values.md)
-    - [Closure environments](design/26-closures.md)
+- [Closure environments](design/26-closures.md)
+- [Consuming closures](design/27-consuming-closures.md)
 - [Native runtime](runtime.md)
 
 # Proposals
