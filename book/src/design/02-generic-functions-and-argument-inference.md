@@ -56,3 +56,6 @@ using `identity[u8]`, or using a concrete expected Callable annotation, paramete
 or return type to infer its specialization. That value has one concrete signature.
 This contextual selection of a function value does not change the argument-only
 inference rules for ordinary generic calls described above.
+A fully concrete `Callable` constraint also supplies an expected signature for
+a generic named function passed directly by value: a parameter `F` constrained
+by `Callable[[u8], u8]` can accept `identity` without writing `identity[u8]`.

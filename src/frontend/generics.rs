@@ -340,7 +340,22 @@ impl Lower<'_> {
         // Lower once, left to right, using ordinary ownership and borrow rules.
         // Generic positions get no contextual type: literals use their defaults.
         for (arg, (_, pattern)) in args.iter().zip(&template.inputs) {
-            let ty = if !mentions_parameter(pattern, &template)
+            let callback_bound = template.type_params.iter().find_map(|(name, bound)| {
+                (pattern.name.as_ref() == Some(name))
+                    .then_some(bound.as_ref())
+                    .flatten()
+                    .filter(|bound| {
+                        bound.name.as_deref() == Some("Callable")
+                            && !mentions_parameter(bound, &template)
+                    })
+            });
+            let generic_function = matches!(&ungroup(arg).kind, Expression::Name(name)
+                if !self.names.contains_key(name) && self.generics.templates.contains_key(name));
+            let ty = if let Some(bound) = callback_bound.filter(|_| generic_function) {
+                let expected = bound.resolve(self.aliases)?;
+                self.expr_expected(arg, expected, ops)?
+                    .ok_or_else(|| arg.at.error("expected a callable value"))?
+            } else if !mentions_parameter(pattern, &template)
                 && !pattern
                     .resolve(self.aliases)?
                     .as_ref()

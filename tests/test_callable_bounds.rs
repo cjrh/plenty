@@ -2,6 +2,52 @@ mod support;
 use support::{check_source, run};
 
 #[test]
+fn concrete_callable_bounds_specialize_generic_function_arguments() {
+    let output = run(r#"
+def identity[T](value: T) -> T:
+    value
+def invoke[F: Callable[[u8], u8]](f: F) -> u8:
+    f(42)
+def main() -> Result[(), Failure]:
+    print(invoke(identity))?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn higher_order_borrowed_mutation_needs_no_allocation() {
+    let output = run(r#"
+def visit[F: Callable[[i64], ()]](callback: &mut F, count: i64) -> ():
+    for value in range(count):
+        callback(value)
+def main() -> ():
+    mut sum = 0
+    print("__test_begin_no_allocations__").unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    mut callback = def [&mut sum](value: i64) -> ():
+        sum = sum + value
+    visit(&mut callback, 5)
+    drop(callback)
+    print("__test_restore_allocations__").unwrap()
+    print("__test_end_no_allocations__").unwrap()
+    print(sum).unwrap()
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n");
+}
+
+#[test]
 fn constrained_borrowed_callbacks_keep_transitive_loans() {
     let output = run(r#"
 def twice[T, F: Callable[[], T]](f: &mut F) -> T:
