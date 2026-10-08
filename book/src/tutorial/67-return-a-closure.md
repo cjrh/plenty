@@ -57,3 +57,7 @@ def main() -> Result[(), Failure]:
 
 Moves preserve all nested state. When the final owner leaves scope, captured
 resources are cleaned up exactly once, in reverse capture order.
+
+You can call a returned closure immediately, for example `counter(10)()` or
+`make(3).unwrap()(4)`. Its environment remains alive through the complete expression
+and is then dropped. `?` in a later argument also cleans up that temporary.

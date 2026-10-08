@@ -98,8 +98,12 @@ values. Their nested addresses are repaired when the environment moves. Owned
 closures also fit in Option/Result payloads without allocation; captured borrows
 remain excluded from these owning compositions. Generator captures are unsupported.
 Closure values display as `<closure>` and cannot be compared or copied.
-Currently closures must be called through a named binding and cannot return
-references or yield.
+Calls can also target temporary environments, such as `make(3)(4)` or
+`wrapped.unwrap()(4)`. The callee is evaluated once before its arguments and kept
+in a hidden owner slot until the containing expression ends. Argument propagation
+cleans up pending owners and this temporary environment. A temporary can be
+mutated by its call; named mutable environments still require `mut`.
+Capturing closures cannot return references or yield.
 See the [backlog](../backlog.md) for remaining work.
 
 Indirect calls in tail position use native tail calls under the same cleanup and

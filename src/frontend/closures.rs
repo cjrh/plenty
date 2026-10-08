@@ -119,6 +119,38 @@ impl Lower<'_> {
             )));
         }
         let (_, loan) = self.borrow(callee, closure.mutable, ops)?;
+        self.closure_arguments(args, closure, loan, ops)
+    }
+
+    pub(super) fn call_temporary_closure(
+        &mut self,
+        at: &Token,
+        args: &[Expr],
+        closure: Rc<ClosureType>,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if args.len() != closure.signature.inputs.len() {
+            return Err(at.error(format!(
+                "closure expects {} arguments, got {}",
+                closure.signature.inputs.len(),
+                args.len()
+            )));
+        }
+        let slot = self.slot(Ty::Closure(closure.clone()), at)?;
+        ops.push(Op::StoreLocal(slot));
+        self.expression_temps.push(slot);
+        let loan = self.new_loan(slot, closure.mutable, None, ops);
+        ops.push(Op::BorrowLocal(slot, closure.mutable));
+        self.closure_arguments(args, closure, loan, ops)
+    }
+
+    fn closure_arguments(
+        &mut self,
+        args: &[Expr],
+        closure: Rc<ClosureType>,
+        loan: usize,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
         let loans = self.call_arguments(args, &closure.signature.function().inputs, ops)?;
         ops.push(Op::ClosureCall(closure.clone()));
         Self::end_reads(loans, ops);

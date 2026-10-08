@@ -104,6 +104,9 @@ impl Lower<'_> {
             return self.call_closure(callee, args, closure, ops);
         }
         let ty = self.value(callee, ops)?;
+        if let Ty::Closure(closure) = ty {
+            return self.call_temporary_closure(&callee.at, args, closure, ops);
+        }
         let Ty::Callable(sig) = ty else {
             if let Expression::Name(name) = &ungroup(callee).kind {
                 return Err(callee.at.error(format!("binding `{name}` is not callable")));
