@@ -54,7 +54,8 @@ passing such an environment by value remains rejected.
 
 Owned closures can capture other owned closures, ranges, and inline Option/Result
 values. Nested addresses are repaired when the environment moves. Owned closures
-also fit in Option/Result without allocation. Generator captures are unsupported.
+also fit in Option/Result without allocation. Reusable closures cannot capture
+generator frames; consuming closures can own and resume them.
 Closures cannot be placed in heap collections, classes, tuples, or user enums.
 
 Calls may target temporaries, such as `make(3)(4)` or `wrapped.unwrap()(4)`.

@@ -10,7 +10,7 @@ does not need `mut`; it is consumed, not borrowed.
 Calling twice, calling through a reference, or passing it to a reusable `Callable`
 constraint is rejected. A capture-free `def once (...)` is still affine. Captured
 names cannot be shadowed. Borrowed captures are currently rejected for one-shot
-closures. Reference returns, generators, and heap storage retain the limits of
+closures. Reference returns, yielding, and heap storage retain the limits of
 [reusable environments](26-closures.md).
 
 Uncalled environments drop their captures in reverse order. When called, the body
@@ -32,3 +32,10 @@ calling a one-shot argument twice is rejected even inside a generic function.
 The signature supplies the same inference evidence as `Callable`; a fully concrete
 bound can specialize a generic named function value. `OnceCallable` is a constraint,
 not a storage type. `Callable` constraints accept only reusable callbacks.
+
+Owned one-shot environments can capture other owned closures and concrete
+generator frames. `mut source` allows resuming a captured generator; a called or
+uncalled environment releases the remaining frame exactly once. Nested inline
+addresses are repaired across environment moves, Option/Result wrapping, and
+suspension inside a generator. Native tests exercise these paths with allocation
+disabled. Printing a closure shows `<closure>` without inspecting its captures.

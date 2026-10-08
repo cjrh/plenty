@@ -107,6 +107,13 @@ impl Ty {
         }
     }
     pub fn contains_generator_frame(&self) -> bool {
+        self.find_generator_frame(true)
+    }
+    /// Formatting renders a closure as an opaque marker, never its captures.
+    pub fn prints_generator_frame(&self) -> bool {
+        self.find_generator_frame(false)
+    }
+    fn find_generator_frame(&self, inspect_captures: bool) -> bool {
         let mut work = vec![self];
         let mut seen = std::collections::HashSet::new();
         while let Some(ty) = work.pop() {
@@ -115,7 +122,7 @@ impl Ty {
                 Self::Enum(t) if t.restricted_storage && seen.insert((0, t.name.as_str())) => {
                     work.extend(t.variants.iter().flat_map(|v| &v.fields));
                 }
-                Self::Closure(t) if seen.insert((1, t.name.as_str())) => {
+                Self::Closure(t) if inspect_captures && seen.insert((1, t.name.as_str())) => {
                     work.extend(t.captures.iter().map(|(_, t)| t));
                 }
                 _ => {}

@@ -48,6 +48,9 @@ impl GeneratorType {
                     }
                 }
                 Ty::Ref(t, _) => work.push(t),
+                Ty::Closure(t) if seen.insert(Some(t.name.as_str())) => {
+                    work.extend(t.captures.iter().map(|(_, ty)| ty));
+                }
                 _ => {}
             }
         }
