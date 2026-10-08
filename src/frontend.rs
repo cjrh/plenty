@@ -1592,6 +1592,9 @@ struct Lower<'a> {
 impl Lower<'_> {
     fn numeric_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
+            Expression::Name(n) if self.captures.contains(n) => {
+                self.place_type(e).filter(Ty::is_numeric)
+            }
             Expression::GenericCall(name, types, _) => self
                 .generics
                 .explicit_output(name, types, self.aliases)

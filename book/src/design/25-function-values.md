@@ -88,6 +88,11 @@ compiler infers the producer identity and specializes consumers for its layout.
 Different closure expressions do not unify merely because their signatures match.
 The annotation introduces neither boxing nor a dynamically sized environment.
 An owning return moves captures into caller-provided storage.
+Generic consumers infer parameters inside a `Closure` signature from the argument,
+including its result type. An owned environment can itself be a concrete generic
+argument, retaining its exact layout through moves and returns. Borrowing
+environments use explicit reference-to-Closure parameters instead of an unconstrained
+by-value type parameter.
 Currently closures must be called through a named binding, cannot return
 references or yield, and cannot own other restricted storage.
 See the [backlog](../backlog.md) for remaining work.

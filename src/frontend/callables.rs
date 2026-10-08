@@ -2,6 +2,15 @@
 use super::*;
 use crate::op::CallableSig;
 
+fn output(ty: &Ty) -> Type {
+    match ty {
+        Ty::Callable(sig) => sig.output.clone(),
+        Ty::Closure(t) => t.signature.output.clone(),
+        Ty::Ref(t, _) => output(t),
+        _ => None,
+    }
+}
+
 pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
     fn frame(ty: &Ty) -> bool {
         match ty {
@@ -45,11 +54,7 @@ impl Lower<'_> {
             }),
             Expression::Call(name, _) => {
                 if let Some(local) = self.names.get(name) {
-                    if let Ty::Callable(sig) = &local.ty {
-                        sig.output.clone()
-                    } else {
-                        None
-                    }
+                    output(&local.ty)
                 } else {
                     self.sigs
                         .get(name)
@@ -57,12 +62,7 @@ impl Lower<'_> {
                         .or_else(|| lookup_type(name, self.aliases).flatten())
                 }
             }
-            Expression::Invoke(callee, _) => {
-                let Ty::Callable(sig) = self.expression_type_hint(callee)? else {
-                    return None;
-                };
-                sig.output.clone()
-            }
+            Expression::Invoke(callee, _) => output(&self.expression_type_hint(callee)?),
             Expression::GenericCall(name, types, _) => {
                 self.generics.explicit_output(name, types, self.aliases)
             }

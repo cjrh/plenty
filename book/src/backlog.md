@@ -25,8 +25,8 @@ Owned captures now move into reusable inline environments with scoped destructio
 and explicit per-capture mutation. Shared and exclusive borrowed captures retain
 checked loans through calls and moves. Owned factories and concrete `Closure`
 signature annotations and transitive capture loans across borrowed calls are
-implemented. Continue with generic closure arguments and nested owned environments
-before higher-order APIs.
+implemented, as is generic inference through closure signatures. Continue with
+nested owned environments and expression-call integration before higher-order APIs.
 Expanded C representations are B27; additional loader tooling and library
 lifecycle work are B28.
 
