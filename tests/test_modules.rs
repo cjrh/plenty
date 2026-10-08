@@ -12,6 +12,47 @@ fn workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 }
 
 #[test]
+fn generic_data_imports_keep_methods_and_constructors_visible() {
+    run(&[
+        ("data.plenty", "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n"),
+        ("main.plenty", "import data\nfrom data import Cell as Box\ndef main() -> Result[(), Failure]:\n    box = Box(7u8)?\n    print(data.read(&box))?\n    item = data.Choice[u8].Value(9)?\n    match item:\n        case data.Choice[u8].Value(value):\n            print(value)?\n    Ok(())\n"),
+    ], "main.plenty", "7\n9\n");
+}
+
+#[test]
+fn generic_data_cannot_bypass_member_privacy() {
+    for body in [
+        "cell = data.Cell(1)",
+        "cell = data.Cell[i64](1)",
+        "f: Callable[[i64], Result[data.Cell[i64], AllocError]] = data.Cell",
+        "cell = data.make().unwrap()\n    print(cell.value).unwrap()",
+        "cell = data.make().unwrap()\n    cell.hidden()",
+    ] {
+        let dir = workspace(&[
+            ("data.plenty", "pub class Cell[T]:\n    value: T\n    def hidden(self) -> ():\n        pass\npub def make() -> Result[Cell[i64], AllocError]:\n    Cell(1)\n"),
+            ("main.plenty", &format!("import data\ndef main() -> ():\n    {body}\n    pass\n")),
+        ]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path()))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("private"), "{error}");
+    }
+}
+
+#[test]
+fn generic_public_signatures_preserve_nominal_and_phantom_privacy() {
+    for source in [
+        "class Hidden[T]:\n    item: T\npub def expose[T](value: &Hidden[T]) -> ():\n    pass\n",
+        "class Hidden:\n    item: i64\npub class Marker[T]:\n    pub number: i64\npub type Leak = Marker[Hidden]\n",
+        "class Hidden[T]:\n    item: T\npub enum Exposed[T]:\n    Value(Hidden[T])\n",
+    ] {
+        let dir = workspace(&[("data.plenty", source), ("main.plenty", "import data\ndef main() -> ():\n    pass\n")]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path())).unwrap_err().to_string();
+        assert!(error.contains("private"), "{error}");
+    }
+}
+
+#[test]
 fn public_protocol_signatures_cannot_expose_private_requirements() {
     for source in [
         "protocol Hidden:\n    def read(self) -> i64:\n        pass\npub def read[T: Hidden](x: &T) -> i64:\n    x.read()\ndef main() -> ():\n    pass\n",

@@ -24,7 +24,8 @@ generator relocation, and normal/early/failure cleanup with allocation disabled.
 
 Active is B09: generic data types and richer protocols. Explicit concrete generic
 enums and classes (including specialized methods and lifecycle hooks) are implemented.
-Generic function inference now reads concrete data arguments. Continue with
+Generic function and constructor inference read concrete data arguments;
+IntType constraints and cross-module public/member checks are covered. Continue with
 generic methods and the
 protocol constraints needed by actual container and callback examples. Keep
 specialization bounded and method lookup explicit. Borrowing environments remain

@@ -2,6 +2,27 @@ mod support;
 use support::{check_source, run};
 
 #[test]
+fn integer_constraints_apply_to_class_and_enum_arguments() {
+    let output = run("class Counter[T: IntType]:\n    value: T\nenum Integer[T: IntType]:\n    Value(T)\ndef main() -> ():\n    print(Counter(3u8).unwrap()).unwrap()\n    print(Integer[u16].Value(4).unwrap()).unwrap()\n");
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Counter[u8](value=3)\nInteger[u16].Value(4)\n"
+    );
+    for declaration in [
+        "class Value[T: IntType]:\n    item: T\n",
+        "enum Value[T: IntType]:\n    Item(T)\n",
+    ] {
+        let error = check_source(&format!(
+            "{declaration}type Bad = Value[str]\ndef main() -> ():\n    pass\n"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("does not satisfy IntType"), "{error}");
+    }
+}
+
+#[test]
 fn constructors_infer_from_fields_and_explicit_initializers() {
     let output = run(r#"
 class Pair[A, B]:

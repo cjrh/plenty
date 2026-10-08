@@ -1,10 +1,11 @@
 # Parameterize an enum
 
 Use a type parameter when the same alternatives should carry different kinds of
-values. Choose the concrete payload type in brackets.
+values. Choose the concrete payload type in brackets. Here, `T: IntType` accepts
+any supported sized integer. Omit the constraint to allow other stored types.
 
 ```plenty
-enum Choice[T]:
+enum Choice[T: IntType]:
     Empty
     Value(T)
 

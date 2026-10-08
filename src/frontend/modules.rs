@@ -834,35 +834,18 @@ fn resolve(
             let public = m.exports.contains(&f.name);
             scope.function(f)?;
             if public {
-                fn concrete_parts(
-                    t: &TypeRef,
-                    params: &[(String, Option<TypeRef>)],
-                    out: &mut Vec<TypeRef>,
-                ) {
-                    fn mentions(t: &TypeRef, params: &[(String, Option<TypeRef>)]) -> bool {
-                        params.iter().any(|(n, _)| t.name.as_ref() == Some(n))
-                            || t.args.iter().any(|t| mentions(t, params))
-                    }
-                    if !mentions(t, params) {
-                        out.push(t.clone());
-                    } else {
-                        for arg in &t.args {
-                            concrete_parts(arg, params, out);
-                        }
-                    }
-                }
                 for t in f
                     .inputs
                     .iter()
                     .map(|(_, t)| t)
                     .chain(std::iter::once(&f.output))
                 {
-                    concrete_parts(t, &f.type_params, &mut result.public_api);
+                    data_public_types(t, &f.type_params, &mut result.public_api);
                 }
                 for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
                     if matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable")) {
                         for part in &bound.args {
-                            concrete_parts(part, &f.type_params, &mut result.public_api);
+                            data_public_types(part, &f.type_params, &mut result.public_api);
                         }
                     } else {
                         result.public_api.push(bound.clone());
@@ -926,6 +909,9 @@ fn resolve(
             scope
                 .type_params
                 .extend(e.type_params.iter().map(|(n, _)| n.clone()));
+            for bound in e.type_params.iter_mut().filter_map(|(_, b)| b.as_mut()) {
+                scope.ty(bound)?;
+            }
             for (_, fields) in &mut e.variants {
                 for t in fields {
                     scope.ty(t)?;
@@ -942,6 +928,9 @@ fn resolve(
             scope
                 .type_params
                 .extend(c.type_params.iter().map(|(n, _)| n.clone()));
+            for bound in c.type_params.iter_mut().filter_map(|(_, b)| b.as_mut()) {
+                scope.ty(bound)?;
+            }
             result.access.types.insert(
                 c.name.clone(),
                 Access {
@@ -1025,12 +1014,24 @@ pub(super) fn check_member(
 }
 
 fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mut Vec<TypeRef>) {
+    fn mentions(t: &TypeRef, params: &[(String, Option<TypeRef>)]) -> bool {
+        params.iter().any(|(n, _)| t.name.as_ref() == Some(n))
+            || t.args.iter().any(|t| mentions(t, params))
+    }
     if params.iter().any(|(n, _)| t.name.as_ref() == Some(n)) {
         return;
     }
-    if t.args.is_empty() {
+    if !mentions(t, params) {
         out.push(t.clone());
     } else {
+        if t.name
+            .as_ref()
+            .is_some_and(|n| !builtin(n) && !matches!(n.as_str(), "&" | "&mut"))
+        {
+            let mut head = t.clone();
+            head.args.clear();
+            out.push(head);
+        }
         for arg in &t.args {
             data_public_types(arg, params, out);
         }
@@ -1038,7 +1039,16 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
 }
 
 pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &AccessMap) -> Result<()> {
-    fn visible(ty: &Ty, at: &Token, access: &AccessMap) -> Result<()> {
+    fn visible(ty: &Ty, at: &Token, access: &AccessMap, aliases: &TypeAliases) -> Result<()> {
+        if let Some((name, arguments)) = aliases.data.arguments(ty) {
+            if access.types.get(&name).is_some_and(|rule| !rule.public) {
+                return Err(at.error(format!("public signature exposes private type `{name}`")));
+            }
+            for argument in &arguments {
+                visible(argument, at, access, aliases)?;
+            }
+            return Ok(());
+        }
         let nominal = match ty {
             Ty::Class(c) => Some(c.name.as_str()),
             Ty::Enum(e) => Some(e.name.as_str()),
@@ -1056,23 +1066,23 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
         match ty {
             Ty::Closure(t) => {
                 for ty in t.signature.inputs.iter().chain(t.signature.output.iter()) {
-                    visible(ty, at, access)?;
+                    visible(ty, at, access, aliases)?;
                 }
             }
             Ty::Callable(sig) => {
                 for ty in sig.inputs.iter().chain(sig.output.iter()) {
-                    visible(ty, at, access)?;
+                    visible(ty, at, access, aliases)?;
                 }
             }
-            Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) => visible(t, at, access)?,
-            Ty::Generator(t) => visible(&t.element, at, access)?,
+            Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) => visible(t, at, access, aliases)?,
+            Ty::Generator(t) => visible(&t.element, at, access, aliases)?,
             Ty::Dict(k, v) => {
-                visible(k, at, access)?;
-                visible(v, at, access)?;
+                visible(k, at, access, aliases)?;
+                visible(v, at, access, aliases)?;
             }
             Ty::Enum(e) => {
                 for t in e.variants.iter().flat_map(|v| &v.fields) {
-                    visible(t, at, access)?;
+                    visible(t, at, access, aliases)?;
                 }
             }
             _ => {}
@@ -1080,6 +1090,18 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
         Ok(())
     }
     for t in refs {
+        if let Some(name) = t
+            .name
+            .as_ref()
+            .filter(|n| aliases.data.contains(n) && t.args.is_empty())
+        {
+            if access.types.get(name).is_some_and(|rule| !rule.public) {
+                return Err(t
+                    .at
+                    .error(format!("public signature exposes private type `{name}`")));
+            }
+            continue;
+        }
         if t.name.as_deref() == Some("IntType") && t.args.is_empty() {
             continue;
         }
@@ -1092,7 +1114,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             continue;
         }
         if let Some(ty) = t.resolve(aliases)? {
-            visible(&ty, &t.at, access)?;
+            visible(&ty, &t.at, access, aliases)?;
         }
     }
     Ok(())

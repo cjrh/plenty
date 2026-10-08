@@ -72,7 +72,7 @@ impl DataTypes {
                     .methods
                     .iter()
                     .find(|m| m.name == "__init__")
-                    .map(|m| m.inputs[1..].to_vec())
+                    .map(|m| m.inputs.iter().skip(1).cloned().collect())
                     .unwrap_or_else(|| class.fields.clone());
                 let args = inputs
                     .iter()
@@ -117,15 +117,11 @@ impl TypeAliases {
     ) -> Result<Self> {
         let mut data = DataTypes::default();
         for e in enums.iter().filter(|e| !e.type_params.is_empty()) {
-            if e.type_params.iter().any(|(_, b)| b.is_some()) {
-                return Err(e.at.error("generic data type bounds are not supported yet"));
-            }
+            validate_parameters(&e.name, &e.type_params, &e.at)?;
             data.enums.insert(e.name.clone(), e.clone());
         }
         for c in classes.iter().filter(|c| !c.type_params.is_empty()) {
-            if c.type_params.iter().any(|(_, b)| b.is_some()) {
-                return Err(c.at.error("generic data type bounds are not supported yet"));
-            }
+            validate_parameters(&c.name, &c.type_params, &c.at)?;
             data.classes.insert(c.name.clone(), c.clone());
         }
         Ok(Self {
@@ -163,6 +159,13 @@ impl TypeAliases {
             })
             .collect::<Result<Vec<_>>>()?;
         let key = (name.clone(), actual.clone());
+        for ((_, bound), ty) in params.iter().zip(&actual) {
+            if bound.is_some() && !ty.is_int() {
+                return Err(application
+                    .at
+                    .error(format!("{ty} does not satisfy IntType")));
+            }
+        }
         if let Some(ty) = self.data.instances.borrow().get(&key) {
             return Ok(ty.clone());
         }
@@ -289,6 +292,23 @@ impl TypeAliases {
             payload_bytes: std::cell::OnceCell::new(),
         })))
     }
+}
+
+fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &Token) -> Result<()> {
+    if params
+        .iter()
+        .any(|(n, _)| n == name.rsplit('.').next().unwrap())
+    {
+        return Err(at.error("a data parameter cannot shadow its declaration name"));
+    }
+    for bound in params.iter().filter_map(|(_, b)| b.as_ref()) {
+        if bound.name.as_deref() != Some("IntType") || !bound.args.is_empty() {
+            return Err(bound
+                .at
+                .error("generic data constraints currently require IntType"));
+        }
+    }
+    Ok(())
 }
 
 impl generics::Engine {
