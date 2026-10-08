@@ -22,17 +22,17 @@ signature inference, factories, inline sums, reusable and consuming callable
 constraints, and explicit one-shot closures. Native tests cover moves, suspended
 generator relocation, and normal/early/failure cleanup with allocation disabled.
 
-Active is B09: generic data types and richer protocols. Explicit concrete generic
-enums and classes (including specialized methods and lifecycle hooks) are implemented.
-Generic function and constructor inference read concrete data arguments;
-IntType constraints and cross-module public/member checks are covered. Continue with
-specialization/lifecycle hardening. Protocol-driven inference, parameterized
-structural protocols and inferred/explicit generic methods support container and
-callback examples. Keep
-specialization bounded and method lookup explicit. Borrowing environments remain
-local or reference-passed; escaping/stored lifetime relationships belong to B11.
-Expanded C representations are B27; additional loader tooling and library
-lifecycle work are B28.
+B09's initial generic data and protocol batch is complete: concrete classes and
+enums, inferred construction, generic methods, parameterized structural protocols,
+and signature-driven inference. Native failure/lifecycle tests and bounded
+specialization tests cover the implemented subset.
+
+Next is B10: recursive data types. Settle explicit indirection, recoverable
+allocation, ownership, and bounded destruction before allowing recursive
+declarations. Keep existing acyclic layouts and fast compilation predictable.
+Broader borrowing remains B11. Further generic constraints are B29; expanded C
+representations (including names for exported generic handles) are B27. Additional
+loader tooling and library lifecycle work are B28.
 
 ## Later candidates
 
@@ -41,7 +41,6 @@ guide breakdown when an item is selected; detailed syntax is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B09 | Generic data types and richer protocols | Generic classes/enums and methods, with parameterized protocols or additional bounds when concrete library use cases justify them. Keep method lookup explicit and measure specialization cost. [Protocol design](proposals/protocols-generics-and-context-managers.md). |
 | B10 | Recursive data types | Define indirection, ownership, allocation failure, and bounded destruction for recursive classes/enums. Current acyclic forward declarations are already supported. [Sum-type design](proposals/sum-types.md). |
 | B11 | Broader borrowing | Stored references, relationships among multiple reference parameters, and more precise collection loans. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
 | B12 | Practical I/O and iteration | Fallible file iteration, explicit binary buffers and read/write, buffering, and reusable iterator/view protocols. Follow familiar Python conventions where they fit ownership and Result-based errors. |
@@ -59,6 +58,7 @@ guide breakdown when an item is selected; detailed syntax is still open.
 | B24 | Automatic parallelization | Research only after B22: require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |
 | B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/24-c-interfaces/06-runtime-loading.md). |
+| B29 | Further generic constraints | Consider protocol/callable bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Preserve explicit lookup and bounded specialization. See [generic data](design/28-generic-data-types.md) and [parameterized protocols](design/29-parameterized-protocols.md). |
 
 ## Reconciled completed work
 
@@ -68,6 +68,7 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
+| B09: Initial generic data types and richer protocols | Concrete generic classes/enums, IntType data bounds, function/constructor inference, inferred/explicit generic methods, parameterized structural contracts, and protocol-driven inference are implemented. Native allocation-failure/drop checks and specialization reuse/limits cover the initial subset. Extensions are B29; recursive storage is B10. |
 | B08: Function values and multiline closures | Thin functions, reusable/consuming concrete environments, explicit captures, factories, signature inference, `Callable`/`OnceCallable` constraints, inline sums, captured generator frames, and checked lifecycle cleanup are implemented without implicit allocation. Stored/escaping borrows remain B11. See [closures](design/26-closures.md) and [consuming closures](design/27-consuming-closures.md). |
 | B07: Initial runtime library loading | CLI/API generation emits self-contained typed loaders; exact discovery metadata and all symbols are checked before returning a table. Scalar/borrow/Result adapters and owned factories/transfers preserve signatures, destruction, and instance provenance. Allocation-free LoadError, injected failures, private-address checks, and the executable library tutorial cover the initial resident implementation. [Runtime reference](design/24-c-interfaces/06-runtime-loading.md). |
 | B06: Initial C library exports | Static/shared packaging, scalar and Result adapters, owned factories, matching destruction, shared/mutable and consuming handles, precise C contracts, embedded/extractable interfaces, SHA-256 link guards, explicit binary verification, and staged publication are implemented. Native callers and injected failures validate cleanup. [Library reference](design/24-c-interfaces/02-library-exports.md). |

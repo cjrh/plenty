@@ -1648,6 +1648,11 @@ struct Lower<'a> {
 impl Lower<'_> {
     fn numeric_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
+            Expression::Constructor(ty, _) => ty
+                .resolve(self.aliases)
+                .ok()
+                .flatten()
+                .filter(Ty::is_numeric),
             Expression::Name(n) if self.captures.contains(n) => {
                 self.place_type(e).filter(Ty::is_numeric)
             }
@@ -3100,7 +3105,21 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             .iter()
             .any(|(_, t)| t.unresolved_generator())
     });
-    while let Some(f) = generics.pending.pop_front() {
+    loop {
+        // Resolving a specialized return type can introduce data instances even
+        // when its body only returns Err. Drain those methods before finishing.
+        loop {
+            let functions = generics.expand_data(&aliases)?;
+            if functions.is_empty() {
+                break;
+            }
+            for f in functions {
+                register_signature(&f, &aliases, &mut sigs, &mut returned_fields)?;
+            }
+        }
+        let Some(f) = generics.pending.pop_front() else {
+            break;
+        };
         lower_function(
             f,
             heap,

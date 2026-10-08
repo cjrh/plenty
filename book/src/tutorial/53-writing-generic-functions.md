@@ -34,8 +34,9 @@ def main() -> Result[(), Failure]:
 `IntType` restricts a parameter to integer types. Unconstrained `T` is useful
 when the body only moves, borrows, or uses operations supported by the chosen
 concrete type. Each specialization is checked and compiled once, whether the call
-uses explicit or inferred type arguments. Generic classes and methods are not
-implemented yet.
+uses explicit or inferred type arguments. Later lessons cover
+[generic classes](73-parameterize-a-class.md) and
+[generic methods](74-write-a-generic-method.md).
 
 Inference matches the signature against the argument types. In `first(&values)`,
 the parameter is `&list[T]` and the argument is `&list[i64]`, so `T` is `i64`.

@@ -50,3 +50,17 @@ concrete names at 16,384 bytes. `T: IntType` limits a data parameter to sized
 integers. Other data bounds are not yet supported. Imports and `pub` apply to the
 declaration and its members; concrete arguments must also be public when exposed
 in a public signature, including parameters with no stored field.
+
+Signature shape validation uses an isolated instance cache, so placeholder types
+cannot enqueue methods in the real program. Actual specializations drain through
+the normal method/body work queue, including instances introduced solely by a
+generic function's return signature. Alias-equivalent arguments share layouts
+and methods. A regression workload with 300 explicit, inferred, and aliased
+method calls produces one method specialization.
+
+Native tests disable allocations after construction across protocol and generic
+method calls, moves through Option, generator capture/resumption, and cleanup.
+Injected allocation failures verify moved argument cleanup for generic class and
+enum construction; failed initialization skips the outer destructor and reclaims
+initialized fields. Generic class instances do not yet have C handle names:
+export a nongeneric facade class when an ABI needs to own generic storage.

@@ -33,7 +33,7 @@ pub(super) fn prepare(
         }
         // Validate requirements even if no function uses this protocol. The
         // receiver placeholder is replaced by the implementing class at use.
-        let mut validation = aliases.clone();
+        let mut validation = aliases.validation();
         validation.insert(protocol.name.clone(), Some(Ty::I64));
         for (name, _) in &protocol.type_params {
             validation.insert(name.clone(), Some(Ty::I64));
@@ -137,6 +137,9 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
 }
 
 fn mentions_parameter(pattern: &TypeRef, template: &Function) -> bool {
+    if pattern.concrete.is_some() {
+        return false;
+    }
     template
         .type_params
         .iter()
@@ -153,6 +156,12 @@ fn infer(
     aliases: &TypeAliases,
     at: &Token,
 ) -> Result<()> {
+    if let Some(expected) = &pattern.concrete {
+        if crate::generator::refine(expected, actual).is_none() {
+            return Err(at.error(format!("expected {expected}, got {actual}")));
+        }
+        return Ok(());
+    }
     if let Some(name) = pattern
         .name
         .as_ref()
@@ -418,6 +427,9 @@ impl Lower<'_> {
 }
 
 pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result<()> {
+    if t.concrete.is_some() {
+        return Ok(());
+    }
     if let Some(replacement) = t.name.as_ref().and_then(|n| replacements.get(n)) {
         if !t.args.is_empty() {
             return Err(t.at.error("a type parameter cannot take type arguments"));
@@ -506,7 +518,7 @@ impl Engine {
     pub(super) fn validate_template(&self, f: &Function, aliases: &TypeAliases) -> Result<()> {
         for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
             if callable_bound(bound) && !bound.args.is_empty() {
-                let mut validation = aliases.clone();
+                let mut validation = aliases.validation();
                 for (name, _) in &f.type_params {
                     validation.insert(name.clone(), Some(Ty::I64));
                 }
@@ -736,11 +748,7 @@ fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
                 substitute_expr(arg, substitutions)?;
             }
             if let Some(t) = substitutions.get(name) {
-                if t.args.is_empty() {
-                    *name = t.name.clone().unwrap();
-                } else {
-                    e.kind = Expression::Constructor(t.clone(), std::mem::take(args));
-                }
+                e.kind = Expression::Constructor(t.clone(), std::mem::take(args));
             }
         }
         Expression::Type(t) => substitute(t, substitutions)?,

@@ -6,7 +6,8 @@ Calls may supply all type arguments explicitly (`identity[list[i64]](values)`)
 or infer all of them from arguments (`identity(values)`). Inference structurally
 matches parameter types against concrete argument types: `&T` with `&Message`
 infers `T = Message`, and `&dict[K, V]` with `&dict[str, u8]` infers both parameters.
-Lists, sets, ranges, generators, tuples, Option, Result, and Callable signatures participate too.
+Lists, sets, ranges, generators, tuples, Option, Result, Callable signatures,
+and nominal generic class/enum arguments participate too.
 Repeated occurrences of a parameter must agree after alias resolution. No
 numeric widening, implicit borrowing, protocol implementation search, or runtime
 dispatch is introduced. Protocol and callable constraints are checked after inference.
@@ -51,9 +52,10 @@ type depth/name limits. Each concrete signature and returned-reference summary
 is registered before its body is queued. Explicit, inferred, alias-equivalent,
 and recursive calls share one cache keyed by function and resolved types; the
 backend still receives only concrete checked operations. This bounds expanding
-recursion without maintaining a second expression type checker. Generic classes,
-generic methods, reference/unit type arguments, and polymorphic function values
-are deferred. A signature can borrow `T` directly using `&T` or `&mut T`.
+recursion without maintaining a second expression type checker. Generic classes
+and methods use the [data specialization rules](28-generic-data-types.md).
+Reference/unit type arguments and polymorphic function values remain unsupported.
+A signature can borrow `T` directly using `&T` or `&mut T`.
 The narrow exception for borrowing closures is a callable-constrained `F` passed
 by reference; its capture loans remain live across the call.
 

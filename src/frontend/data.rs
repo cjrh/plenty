@@ -111,6 +111,17 @@ impl DataTypes {
     }
 }
 impl TypeAliases {
+    /// Shape checks must not enqueue placeholder data instances in the real program.
+    pub(super) fn validation(&self) -> Self {
+        Self {
+            named: self.named.clone(),
+            data: Rc::new(DataTypes {
+                enums: self.data.enums.clone(),
+                classes: self.data.classes.clone(),
+                ..DataTypes::default()
+            }),
+        }
+    }
     pub(super) fn with_data(
         enums: &[enums::EnumDecl],
         classes: &[classes::ClassDecl],
@@ -351,5 +362,51 @@ impl Lower<'_> {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_data_method_calls_share_native_specializations() {
+        let mut source = String::from("class Cell[T]:\n    value: T\n    def keep[U](self, value: U) -> U:\n        value\ntype Byte = u8\ntype ByteCell = Cell[Byte]\ndef main() -> ():\n    cell = ByteCell(7).unwrap()\n");
+        for _ in 0..100 {
+            source.push_str("    cell.keep(1u8)\n    cell.keep[u8](1)\n    cell.keep[Byte](1)\n");
+        }
+        source.push_str("    pass\n");
+        let start = std::time::Instant::now();
+        let program = compile(&source, &mut Heap::default()).unwrap();
+        let names: Vec<_> = program
+            .ops
+            .iter()
+            .filter_map(|op| {
+                if let Op::DefineFn(name, _) = op {
+                    Some(name.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(
+            names
+                .iter()
+                .filter(|name| name.starts_with("__plenty_generic_"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            names
+                .iter()
+                .filter(|name| **name == "__plenty_class_Cell[u8].new")
+                .count(),
+            1
+        );
+        eprintln!(
+            "300 generic method calls: {} native functions, frontend {:?}",
+            names.len(),
+            start.elapsed()
+        );
     }
 }

@@ -21,7 +21,7 @@ visibility rules.
 
 Protocols currently constrain class type arguments only. They are not runtime
 value types or existential containers. Fields, protocol inheritance, multiple
-bounds, default implementations, generic methods, and associated types are
+bounds, default implementations, method-local type parameters, and associated types are
 deferred; lifecycle hooks cannot be requirements. `IntType` remains a separate
 builtin numeric-family constraint. Generic bodies are still checked per concrete
 instance, so requirements express a minimum interface rather than a separately

@@ -1858,6 +1858,26 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        if let Ty::Class(class) = &ty {
+            if class.depth >= 64 {
+                return Err(at.error("type nesting exceeds the implementation limit of 64"));
+            }
+            modules::check_member(self.access, &class.name, "__new__", at)?;
+            return self
+                .call_named(&crate::record::method(&class.name, "new"), args, at, ops)?
+                .ok_or_else(|| at.error("class constructor must return Result"));
+        }
+        if ty.is_numeric() {
+            if args.len() != 1 {
+                return Err(at.error("numeric casts take one argument"));
+            }
+            let source = self.value(&args[0], ops)?;
+            if !source.is_numeric() {
+                return Err(at.error("numeric casts require a number"));
+            }
+            ops.push(Op::Cast(ty.clone()));
+            return Ok(ty);
+        }
         if let Ty::Range(element) = &ty {
             return self.range(args, (**element).clone(), at, ops);
         }

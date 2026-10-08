@@ -17,6 +17,23 @@ pub(crate) fn check_signature(
     inputs: &[(String, Ty)],
     output: &Option<Ty>,
 ) -> Result<(), &'static str> {
+    fn generic_class(ty: &Ty) -> bool {
+        match ty {
+            Ty::Class(class) => class.name.contains('['),
+            Ty::Ref(inner, _) => generic_class(inner),
+            _ => false,
+        }
+    }
+    if inputs.iter().any(|(_, ty)| generic_class(ty))
+        || output
+            .as_ref()
+            .and_then(result_payloads)
+            .is_some_and(|(ok, _)| generic_class(ok))
+    {
+        return Err(
+            "generic class instances cannot be C export handles yet; use a nongeneric facade class",
+        );
+    }
     if inputs
         .iter()
         .any(|(_, ty)| !ty.is_numeric() && !matches!(ty, Ty::Class(_)) && !matches!(ty, Ty::Ref(inner, _) if inner.is_numeric() || matches!(inner.as_ref(), Ty::Class(_))))

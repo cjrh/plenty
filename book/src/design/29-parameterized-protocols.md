@@ -27,3 +27,7 @@ pass bodies and cannot declare method-local parameters. A generic implementation
 method does not yet satisfy a monomorphic requirement. Protocols are constraints,
 not value types; dynamic protocol values and inheritance are not implemented.
 Protocol arguments exclude unit, references, generators, and closure environments.
+
+Inference is bounded by the declared parameter count: each pass either learns a
+previously unknown parameter or stops. It reads the known class's registered
+signatures and respects member visibility before taking inference evidence.
