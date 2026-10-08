@@ -40,8 +40,8 @@ One-shot factories and `OnceClosure` annotations preserve inline identity throug
 generic calls, temporaries, and Option/Result. `OnceCallable` constraints accept
 all callable modes in consuming APIs. Nested one-shot ownership and captured
 generator frames are covered with allocation disabled, including relocation in
-suspended generators. Next in B08: local borrowed one-shot captures and lifecycle
-integration.
+suspended generators. Local one-shot borrowed captures preserve loans through
+consuming calls. Next in B08: final lifecycle, diagnostics, and documentation checks.
 Borrowing environments remain local or reference-passed; broader escaping/stored
 lifetime relationships belong to B11. Generic data types remain B09.
 Expanded C representations are B27; additional loader tooling and library

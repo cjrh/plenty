@@ -9,8 +9,7 @@ does not need `mut`; it is consumed, not borrowed.
 
 Calling twice, calling through a reference, or passing it to a reusable `Callable`
 constraint is rejected. A capture-free `def once (...)` is still affine. Captured
-names cannot be shadowed. Borrowed captures are currently rejected for one-shot
-closures. Reference returns, yielding, and heap storage retain the limits of
+names cannot be shadowed. Reference returns, yielding, and heap storage retain the limits of
 [reusable environments](26-closures.md).
 
 Uncalled environments drop their captures in reverse order. When called, the body
@@ -39,3 +38,11 @@ uncalled environment releases the remaining frame exactly once. Nested inline
 addresses are repaired across environment moves, Option/Result wrapping, and
 suspension inside a generator. Native tests exercise these paths with allocation
 disabled. Printing a closure shows `<closure>` without inspecting its captures.
+
+One-shot closures may also capture `&value` and `&mut value` for a local call.
+Borrowed captures stay references while owned captures transfer into the body.
+Capture loans, including transitive ones, remain live through argument evaluation
+and invocation, and can end after that call. These environments cannot escape,
+cross a function boundary by value, own-nest, enter sums/containers, or suspend
+inside a generator. Passing them by reference cannot grant permission to consume
+them; use a local call while their captures are in scope.

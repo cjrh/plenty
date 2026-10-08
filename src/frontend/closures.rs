@@ -53,10 +53,10 @@ impl Lower<'_> {
                             .cloned(),
                     );
                 }
-                Ty::Enum(t) if t.inline() && t.restricted_storage => {
-                    if seen.insert((1, t.name.clone())) {
-                        work.extend(t.variants.iter().flat_map(|v| v.fields.iter().cloned()));
-                    }
+                Ty::Enum(t)
+                    if t.inline() && t.restricted_storage && seen.insert((1, t.name.clone())) =>
+                {
+                    work.extend(t.variants.iter().flat_map(|v| v.fields.iter().cloned()));
                 }
                 _ => {}
             }
@@ -80,9 +80,6 @@ impl Lower<'_> {
         let mut hidden = Vec::new();
         let mut loans = Vec::new();
         for capture in &function.captures {
-            if function.once && capture.borrowed {
-                return Err(at.error("one-shot closures currently require owned captures"));
-            }
             let source = Expr {
                 at: at.clone(),
                 kind: Expression::Name(capture.name.clone()),
@@ -237,6 +234,9 @@ impl Lower<'_> {
         let loans = self.call_arguments(args, &closure.signature.function().inputs, ops)?;
         ops.push(Op::ClosureCall(closure.clone()));
         Self::end_reads(loans, ops);
+        if let Some(loans) = self.closure_loans.get(&closure.name) {
+            ops.extend(loans.iter().copied().map(Op::UseLoan));
+        }
         Ok(closure.signature.output.clone())
     }
 

@@ -2828,7 +2828,7 @@ fn lower_function(
         captures: f
             .captures
             .iter()
-            .filter(|_| !f.once)
+            .filter(|capture| !f.once || capture.borrowed)
             .map(|c| c.name.clone())
             .collect(),
         returned_fields,
