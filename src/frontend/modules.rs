@@ -892,7 +892,7 @@ fn resolve(
                             data_public_types(part, &f.type_params, &mut result.public_api);
                         }
                     } else {
-                        result.public_api.push(bound.clone());
+                        data_public_types(bound, &f.type_params, &mut result.public_api);
                     }
                 }
             }
@@ -901,6 +901,12 @@ fn resolve(
         for p in &mut m.protocols {
             let public = m.exports.contains(&p.name);
             p.name = qualified(&m.name, &p.name);
+            let mut scope = scope.clone();
+            scope
+                .type_params
+                .extend(p.type_params.iter().map(|(n, _)| n.clone()));
+            let mut parameters = p.type_params.clone();
+            parameters.push((p.name.clone(), None));
             result.access.protocols.insert(p.name.clone());
             result.access.types.insert(
                 p.name.clone(),
@@ -918,7 +924,7 @@ fn resolve(
                         .map(|(_, t)| t)
                         .chain(std::iter::once(&method.output))
                     {
-                        protocols::public_types(t, &p.name, &mut result.public_api);
+                        data_public_types(t, &parameters, &mut result.public_api);
                     }
                 }
             }
@@ -1169,6 +1175,11 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
                 return Err(t.at.error(format!(
                     "public signature exposes private protocol `{name}`"
                 )));
+            }
+            for argument in &t.args {
+                if let Some(ty) = argument.resolve(aliases)? {
+                    visible(&ty, &argument.at, access, aliases)?;
+                }
             }
             continue;
         }

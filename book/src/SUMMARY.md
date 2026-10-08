@@ -169,11 +169,13 @@
 - [Closure environments](design/26-closures.md)
 - [Consuming closures](design/27-consuming-closures.md)
 - [Generic data types](design/28-generic-data-types.md)
+- [Parameterized protocols](design/29-parameterized-protocols.md)
 - [Native runtime](runtime.md)
 
 - [72. Parameterize an enum](tutorial/72-parameterize-an-enum.md)
 - [73. Parameterize a class](tutorial/73-parameterize-a-class.md)
 - [74. Write a generic method](tutorial/74-write-a-generic-method.md)
+- [75. Parameterize a protocol](tutorial/75-parameterize-a-protocol.md)
 
 # Proposals
 

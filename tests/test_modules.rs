@@ -12,6 +12,22 @@ fn workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 }
 
 #[test]
+fn parameterized_protocols_are_explicit_imported_contracts() {
+    run(&[
+        ("api.plenty", "pub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def read[T, R: Readable[T]](source: &R) -> T:\n    source.read()\n"),
+        ("main.plenty", "import api\npub class Cell:\n    value: u8\n    pub def read(self) -> u8:\n        self.value\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)?\n    print(api.read[u8, Cell](&cell))?\n    Ok(())\n"),
+    ], "main.plenty", "7\n");
+    for api in [
+        "class Hidden:\n    value: i64\npub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def use[R: Readable[Hidden]](source: &R) -> ():\n    pass\n",
+        "protocol Hidden[T]:\n    def read(self) -> T:\n        pass\npub def use[T, R: Hidden[T]](source: &R) -> ():\n    pass\n",
+    ] {
+        let dir = workspace(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> ():\n    pass\n")]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), Some(dir.path())).unwrap_err().to_string();
+        assert!(error.contains("private"), "{error}");
+    }
+}
+
+#[test]
 fn generic_data_imports_keep_methods_and_constructors_visible() {
     run(&[
         ("data.plenty", "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n"),

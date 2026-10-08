@@ -35,6 +35,9 @@ pub(super) fn prepare(
         // receiver placeholder is replaced by the implementing class at use.
         let mut validation = aliases.clone();
         validation.insert(protocol.name.clone(), Some(Ty::I64));
+        for (name, _) in &protocol.type_params {
+            validation.insert(name.clone(), Some(Ty::I64));
+        }
         for method in &protocol.methods {
             protocols::signature(method, &validation)?;
         }
@@ -433,6 +436,18 @@ impl Engine {
                     validation.insert(name.clone(), Some(Ty::I64));
                 }
                 callable_pattern(bound).resolve(&validation)?;
+            } else if let Some(protocol) = bound
+                .name
+                .as_ref()
+                .and_then(|name| self.protocols.get(name))
+            {
+                if bound.args.len() != protocol.type_params.len() {
+                    return Err(bound.at.error(format!(
+                        "protocol `{}` requires {} type arguments",
+                        protocol.name,
+                        protocol.type_params.len()
+                    )));
+                }
             } else if (bound.name.as_deref() != Some("IntType")
                 && !bound
                     .name
@@ -524,15 +539,15 @@ impl Engine {
                         return Err(at.error(format!("{ty} does not satisfy {expected}")));
                     }
                 } else {
-                    protocols::check(
+                    let mut application = bound.clone();
+                    substitute(&mut application, &replacements)?;
+                    let protocol = protocols::instantiate(
                         &self.protocols[bound.name.as_ref().unwrap()],
-                        ty,
-                        &self.methods,
+                        &application.args,
                         aliases,
-                        access,
-                        &bound.at,
                         at,
                     )?;
+                    protocols::check(&protocol, ty, &self.methods, aliases, access, &bound.at, at)?;
                 }
             }
         }

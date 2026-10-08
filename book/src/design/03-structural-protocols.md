@@ -14,6 +14,11 @@ definition, and public signatures cannot expose private protocols or private
 types from their requirements. Within requirements, the protocol's own name
 denotes the implementing class, including in returned references.
 
+Protocols can declare parameters, for example `protocol Readable[T]:`, and bounds
+can supply them as `R: Readable[u8]` or `R: Readable[T]`. See
+[parameterized protocols](29-parameterized-protocols.md) for substitution and
+visibility rules.
+
 Protocols currently constrain class type arguments only. They are not runtime
 value types or existential containers. Fields, protocol inheritance, multiple
 bounds, default implementations, generic methods, and associated types are

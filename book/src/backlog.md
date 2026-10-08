@@ -26,8 +26,9 @@ Active is B09: generic data types and richer protocols. Explicit concrete generi
 enums and classes (including specialized methods and lifecycle hooks) are implemented.
 Generic function and constructor inference read concrete data arguments;
 IntType constraints and cross-module public/member checks are covered. Continue with
-parameterized protocols. Inferred and explicit generic methods already support
-container/callback examples. Keep
+protocol-driven inference and specialization/lifecycle hardening. Parameterized
+structural protocols and inferred/explicit generic methods support container and
+callback examples. Keep
 specialization bounded and method lookup explicit. Borrowing environments remain
 local or reference-passed; escaping/stored lifetime relationships belong to B11.
 Expanded C representations are B27; additional loader tooling and library

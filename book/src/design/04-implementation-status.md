@@ -8,7 +8,7 @@ control flow, collections, classes, sum types, generators, ownership, and automa
 cleanup are implemented. It is still an early language implementation, with a
 small built-in library and important limits on borrowing. Basic console, argument,
 numeric text, and whole-file APIs now work. Important remaining gaps include
-generic data types, recursive types, broader borrowing, and public allocator control. An implemented row below describes the
+recursive types, broader borrowing, and public allocator control. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
 | Area | Status on this branch |
@@ -68,7 +68,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Library contracts and tooling | Embedded interfaces, bounded compile-time extraction, SHA-256 compatibility symbols, explicit binary/interface verification, and staged artifact publication with rollback; [contract inspection](24-c-interfaces/04-embedded-contracts.md) |
 | Runtime shared-library loading | CLI `--runtime-interface` and Rust APIs generate typed scalar/borrow/Result and owned-handle loaders; exact metadata checks, cached addresses, allocation-free LoadError values, resident mappings, and object-instance checks; [runtime loading](24-c-interfaces/06-runtime-loading.md) |
 | User generic functions | `def f[T](...)`, argument-based inference or explicit `f[Type](...)`, cached concrete specializations, and builtin `IntType` constraints |
-| Structural protocols | `protocol Name:` method requirements, checked for class type arguments at specialization; exact signatures and normal module visibility, with no dynamic dispatch |
+| Structural protocols | Plain and parameterized method contracts checked against concrete classes; exact signatures, receiver mutability, and normal module visibility, with no dynamic dispatch |
 | Typed ranges and contextual numeric inference | `range[T](...)` for all integer widths; annotations guide literals and direct arithmetic range comprehensions; typed values never implicitly change width |
 | `?` error propagation | Implemented for `Result` and `Option`, with matching error types or explicit erasure into `Failure`, and automatic early-exit cleanup |
 | `with` context managers | Concrete owned or explicitly borrowed managers, owned/unit/reference entry results, lexical exit on fallthrough, return, `?`, break, and continue; no suspension inside the body |
