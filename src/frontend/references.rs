@@ -64,6 +64,7 @@ impl Lower<'_> {
                 Expression::Call(..)
                     | Expression::GenericCall(..)
                     | Expression::Method(..)
+                    | Expression::GenericMethod(..)
                     | Expression::Invoke(..)
             )
         {

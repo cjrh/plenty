@@ -349,7 +349,9 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
                 | Expression::Group(a)
                 | Expression::Unary(_, a)
                 | Expression::Try(a) => self.expr(a, initialized)?,
-                Expression::Method(a, _, args) | Expression::Invoke(a, args) => {
+                Expression::Method(a, _, args)
+                | Expression::GenericMethod(a, _, _, args)
+                | Expression::Invoke(a, args) => {
                     self.expr(a, initialized)?;
                     for arg in args {
                         self.expr(arg, initialized)?;
@@ -611,6 +613,7 @@ impl Lower<'_> {
         base: &Expr,
         class: Rc<ClassType>,
         name: &str,
+        types: Option<&[TypeRef]>,
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
@@ -631,7 +634,10 @@ impl Lower<'_> {
             let arguments: Vec<_> = std::iter::once(receiver)
                 .chain(args.iter().cloned())
                 .collect();
-            return self.generic_call(&callee, None, &arguments, &base.at, ops);
+            return self.generic_call(&callee, types, &arguments, &base.at, ops);
+        }
+        if types.is_some() {
+            return Err(base.at.error(format!("`{name}` is not a generic method")));
         }
         let sig = self
             .sigs
@@ -657,6 +663,61 @@ impl Lower<'_> {
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())
+    }
+
+    pub(super) fn generic_method(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        types: &[TypeRef],
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if let Some(Ty::Class(class)) = self.place_type(base) {
+            return self.class_method(base, class, name, Some(types), args, ops);
+        }
+        let observed = self.observe(base, ops)?;
+        self.temporary_class_method(base, name, Some(types), args, observed, ops)
+    }
+
+    pub(super) fn temporary_class_method(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        types: Option<&[TypeRef]>,
+        args: &[Expr],
+        observed: (Ty, Vec<usize>),
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let (ty, loans) = observed;
+        let Ty::Class(class) = &ty else {
+            return Err(base.at.error("generic methods require a class receiver"));
+        };
+        let slot = self.slot(ty.clone(), &base.at)?;
+        ops.push(Op::StoreLocal(slot));
+        let receiver = format!("__plenty_receiver_{slot}");
+        self.names.insert(
+            receiver.clone(),
+            Local {
+                slot,
+                ty: ty.clone(),
+                mutable: loans.is_empty(),
+            },
+        );
+        let expr = Expr {
+            at: base.at.clone(),
+            kind: Expression::Name(receiver.clone()),
+        };
+        let result = self.class_method(&expr, class.clone(), name, types, args, ops)?;
+        if matches!(result, Some(Ty::Ref(..))) {
+            return Err(base
+                .at
+                .error("reference-returning methods require a named receiver or class field"));
+        }
+        self.names.remove(&receiver);
+        self.expression_temps.push(slot);
+        Self::end_reads(loans, ops);
+        Ok(result)
     }
 }
 

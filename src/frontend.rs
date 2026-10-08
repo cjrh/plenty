@@ -635,6 +635,7 @@ enum Expression {
     },
     Index(Box<Expr>, Box<Expr>),
     Method(Box<Expr>, String, Vec<Expr>),
+    GenericMethod(Box<Expr>, String, Vec<TypeRef>, Vec<Expr>),
     Constructor(TypeRef, Vec<Expr>),
     Unit,
     Group(Box<Expr>),
@@ -1333,6 +1334,18 @@ impl Parser {
                 continue;
             }
             if self.peek().is("[") {
+                if let Expression::Member(base, name) = &left.kind {
+                    let saved = self.pos;
+                    if let Ok(types) = self.type_arguments() {
+                        if self.eat("(") {
+                            let args = self.arguments()?;
+                            left.kind =
+                                Expression::GenericMethod(base.clone(), name.clone(), types, args);
+                            continue;
+                        }
+                    }
+                    self.pos = saved;
+                }
                 fn path(e: &Expr) -> Option<String> {
                     match &e.kind {
                         Expression::Name(n) => Some(n.clone()),
@@ -1653,9 +1666,10 @@ impl Lower<'_> {
             Expression::Member(..) | Expression::Index(..) => {
                 self.place_type(e).filter(Ty::is_numeric)
             }
-            Expression::Call(..) | Expression::Invoke(..) | Expression::Method(..) => {
-                self.expression_type_hint(e).filter(Ty::is_numeric)
-            }
+            Expression::Call(..)
+            | Expression::Invoke(..)
+            | Expression::Method(..)
+            | Expression::GenericMethod(..) => self.expression_type_hint(e).filter(Ty::is_numeric),
             Expression::Unary(op, inner) if op == "+" || op == "-" => self.numeric_hint(inner),
             Expression::Binary(op, a, b)
                 if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%") =>
@@ -1912,6 +1926,9 @@ impl Lower<'_> {
                 }
             }
             Expression::Method(base, name, args) => self.method(base, name, args, ops)?,
+            Expression::GenericMethod(base, name, types, args) => {
+                self.generic_method(base, name, types, args, ops)?
+            }
             Expression::Constructor(ty, args) => {
                 let ty = ty.resolve(self.aliases)?.unwrap();
                 Some(self.construct(ty, args, &e.at, ops)?)
@@ -2557,6 +2574,7 @@ impl Lower<'_> {
                                         | Expression::Invoke(..)
                                         | Expression::GenericCall(..)
                                         | Expression::Method(..)
+                                        | Expression::GenericMethod(..)
                                 ))
                     {
                         return Err(stmt.at.error(

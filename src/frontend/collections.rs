@@ -1202,7 +1202,7 @@ impl Lower<'_> {
             return self.variant(ty, name, Some(args), &base.at, ops);
         }
         if let Some(Ty::Class(class)) = self.place_type(base) {
-            return self.class_method(base, class, name, args, ops);
+            return self.class_method(base, class, name, None, args, ops);
         }
         if self.place_type(base) == Some(Ty::File) {
             return self.file_method(base, name, args, ops);
@@ -1251,41 +1251,8 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(Ty::Bool));
         }
-        if let Ty::Class(class) = &ty {
-            if self
-                .sigs
-                .get(&crate::record::method(&class.name, name))
-                .is_some_and(|sig| matches!(sig.outputs.first(), Some(Ty::Ref(..))))
-            {
-                return Err(base
-                    .at
-                    .error("reference-returning methods require a named receiver or class field"));
-            }
-            let slot = self.slot(ty.clone(), &base.at)?;
-            ops.push(Op::StoreLocal(slot));
-            let receiver = format!("__plenty_receiver_{slot}");
-            self.names.insert(
-                receiver.clone(),
-                Local {
-                    slot,
-                    ty: ty.clone(),
-                    mutable: loans.is_empty(),
-                },
-            );
-            let expr = Expr {
-                at: base.at.clone(),
-                kind: Expression::Name(receiver.clone()),
-            };
-            let result = self.class_method(&expr, class.clone(), name, args, ops)?;
-            if matches!(result, Some(Ty::Ref(..))) {
-                return Err(base
-                    .at
-                    .error("reference-returning methods require a named receiver or class field"));
-            }
-            self.names.remove(&receiver);
-            self.expression_temps.push(slot);
-            Self::end_reads(loans, ops);
-            return Ok(result);
+        if matches!(ty, Ty::Class(_)) {
+            return self.temporary_class_method(base, name, None, args, (ty, loans), ops);
         }
         if name == "pop" {
             return Err(base

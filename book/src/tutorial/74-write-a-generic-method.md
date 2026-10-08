@@ -29,3 +29,22 @@ def main() -> Result[(), Failure]:
 `map` borrows the original cell. Here its u8 field is copyable. The result is a
 new `Cell[u16]`, and its allocation can fail. Method parameters cannot shadow
 class parameters. Constructors and destructors use only the class parameters.
+
+When a type appears only in the result, specify it on the method call:
+
+```plenty
+class Number:
+    value: i64
+
+    def convert[T: IntType](self) -> T:
+        T(self.value)
+
+def main() -> Result[(), Failure]:
+    number = Number(7)?
+    small: u8 = number.convert[u8]()
+    print(small)?
+    Ok(())
+```
+```output
+7
+```

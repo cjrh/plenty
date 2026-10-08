@@ -564,7 +564,9 @@ impl Scope {
                 | Expression::Call(n, _)
                 | Expression::GenericCall(n, _, _)
                 | Expression::GenericValue(n, _) => n.split('.').next(),
-                Expression::Member(base, _) | Expression::Method(base, _, _) => root(base),
+                Expression::Member(base, _)
+                | Expression::Method(base, _, _)
+                | Expression::GenericMethod(base, _, _, _) => root(base),
                 _ => None,
             }
         }
@@ -624,6 +626,27 @@ impl Scope {
                 };
             }
         }
+        if let Expression::GenericMethod(base, name, types, args) = &mut e.kind {
+            if let [index] = types.as_slice() {
+                if index.args.is_empty() && index.name.as_ref().is_some_and(|n| locals.contains(n))
+                {
+                    let indexed = Expr {
+                        at: e.at.clone(),
+                        kind: Expression::Index(
+                            Box::new(Expr {
+                                at: e.at.clone(),
+                                kind: Expression::Member(base.clone(), name.clone()),
+                            }),
+                            Box::new(Expr {
+                                at: index.at.clone(),
+                                kind: Expression::Name(index.name.clone().unwrap()),
+                            }),
+                        ),
+                    };
+                    e.kind = Expression::Invoke(Box::new(indexed), std::mem::take(args));
+                }
+            }
+        }
         fn path(e: &Expr) -> Option<String> {
             match &e.kind {
                 Expression::Name(n) => Some(n.clone()),
@@ -632,7 +655,9 @@ impl Scope {
             }
         }
         let candidate = match &e.kind {
-            Expression::Method(base, name, _) => path(base).map(|p| format!("{p}.{name}")),
+            Expression::Method(base, name, _) | Expression::GenericMethod(base, name, _, _) => {
+                path(base).map(|p| format!("{p}.{name}"))
+            }
             Expression::Member(..) => path(e),
             _ => None,
         };
@@ -640,13 +665,23 @@ impl Scope {
             candidate.filter(|p| !locals.contains(p.split('.').next().unwrap()))
         {
             if let Some(symbol) = self.symbol(&candidate, &e.at)? {
-                e.kind = if let Expression::Method(_, _, args) = &mut e.kind {
-                    Expression::Call(symbol, std::mem::take(args))
-                } else {
-                    Expression::Name(symbol)
+                e.kind = match &mut e.kind {
+                    Expression::Method(_, _, args) => {
+                        Expression::Call(symbol, std::mem::take(args))
+                    }
+                    Expression::GenericMethod(_, _, types, args) => {
+                        Expression::GenericCall(symbol, std::mem::take(types), std::mem::take(args))
+                    }
+                    _ => Expression::Name(symbol),
                 };
                 // The resolved name must not pass through local resolution a second time.
-                if let Expression::Call(_, args) = &mut e.kind {
+                if let Expression::GenericCall(_, types, _) = &mut e.kind {
+                    for ty in types {
+                        self.ty(ty)?;
+                    }
+                }
+                if let Expression::Call(_, args) | Expression::GenericCall(_, _, args) = &mut e.kind
+                {
                     for arg in args {
                         self.expr(arg, locals)?;
                     }
@@ -670,6 +705,15 @@ impl Scope {
             _ => {}
         }
         match &mut e.kind {
+            Expression::GenericMethod(base, _, types, args) => {
+                self.expr(base, locals)?;
+                for ty in types {
+                    self.ty(ty)?;
+                }
+                for arg in args {
+                    self.expr(arg, locals)?;
+                }
+            }
             Expression::Anonymous(function) => {
                 for capture in &function.captures {
                     if !locals.contains(&capture.name) {

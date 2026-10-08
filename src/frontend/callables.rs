@@ -76,6 +76,16 @@ impl Lower<'_> {
             Expression::GenericCall(name, types, _) => {
                 self.generics.explicit_output(name, types, self.aliases)
             }
+            Expression::GenericMethod(base, name, types, _) => {
+                let Ty::Class(class) = self.place_type(base)? else {
+                    return None;
+                };
+                self.generics.explicit_output(
+                    &crate::record::method(&class.name, name),
+                    types,
+                    self.aliases,
+                )
+            }
             Expression::Method(base, name, _) => {
                 let field = Expr {
                     at: e.at.clone(),

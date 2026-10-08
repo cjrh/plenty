@@ -15,6 +15,10 @@ parameters; class parameters are already fixed by the receiver. Method parameter
 cannot shadow class parameters. Lifecycle methods cannot add parameters.
 Generic method bodies are checked when used. A generic method does not currently
 satisfy a protocol's monomorphic method requirement.
+Explicit calls use `receiver.method[Types](arguments)`, including class fields
+and temporary owned receivers. Supply every method parameter when using explicit
+arguments; class parameters are not repeated. Returned references require a named
+receiver or class field and retain their ordinary root loans.
 
 An enum can declare type parameters: `enum Choice[T]:` with a variant `Value(T)`.
 Use `Choice[u8].Value(7)` and `case Choice[u8].Value(value):` to select a concrete
