@@ -38,16 +38,18 @@ constraint for generic consumers; factory and consuming annotations are advanced
 
 The remaining immediate order is:
 
-1. **B22: concurrency contract and runtime feasibility.** Settle transfer, sharing,
-   and cleanup requirements before recursive ownership adds more cases. The
-   [contract/runtime audit](proposals/native-concurrency.md) is complete: metadata
-   is static, and atomic counts now synchronize last-release cleanup, including
-   inline frames. A concurrent ownership-count stress test validates the handoff.
-   Public threads, effect/eligibility checking,
-   channels, and executors remain separate follow-on work.
-2. **B10: recursive data types.** Then settle explicit indirection, recoverable
-   allocation, and bounded destruction. Keep acyclic layouts and compilation
-   predictable.
+B22's contract/runtime audit and atomic ownership foundation are complete.
+Metadata is static, and counts synchronize last-release cleanup, including inline
+frames. Concurrent stress tests cover the handoff. Public threads, effect/eligibility
+checking, channels, and executors remain separate follow-on work under B22.
+
+**Next: B10, recursive data types.** The [representation design](proposals/recursive-data.md)
+uses existing heap records as indirection, preserves fallible constructors and
+inline standard sums, and requires a compilation-owned nominal definition table.
+Implement stable identities and component property analysis before accepting
+source recursion. Validate allocation-free deep destruction; explicitly gate
+automatic operations whose runtime traversal is still recursive. Recursive source
+declarations remain unsupported until these pieces are connected.
 
 Named function values already support basic callback registries: a
 `list[Callable[[i64], i64]]` can hold named functions, including inside a class,
