@@ -74,7 +74,10 @@ captured owners obey the same explicit mutation permissions.
 Shared capture loans remain live through later calls and moves, preventing changes
 to or destruction of the owner. They can end after the last use. Borrowing
 closures cannot escape their function, enter enum/container storage, or be
-suspended in generators. Borrowing another closure is currently unsupported.
+suspended in generators. They can be passed by reference and can borrow another
+closure: an environment loan keeps all transitive captured loans live through the
+call, including evaluation of later arguments. Passing a borrowing closure by
+value is currently rejected.
 `&mut` captures exclusively borrow a mutable source binding. Calls require a
 mutable closure binding and can update the original value; other reads, writes,
 and borrows of that source are excluded while future closure uses keep the loan

@@ -123,7 +123,23 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> usize {
         let id = self.loans.len();
+        let dependencies = if let Some(parent) = parent {
+            self.loans[parent].dependencies.clone()
+        } else {
+            self.names
+                .values()
+                .find(|local| local.slot == root)
+                .and_then(|local| {
+                    if let Ty::Closure(t) = &local.ty {
+                        self.closure_loans.get(&t.name).cloned()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default()
+        };
         let loan = crate::ownership::Loan {
+            dependencies,
             id,
             root,
             fields: parent

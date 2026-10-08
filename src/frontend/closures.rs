@@ -24,12 +24,8 @@ impl Lower<'_> {
                 kind: Expression::Name(capture.name.clone()),
             };
             let ty = if capture.borrowed {
-                if self.yield_type.is_some()
-                    || matches!(self.place_type(&source), Some(Ty::Closure(_)))
-                {
-                    return Err(at.error(
-                        "borrowed captures cannot be suspended or capture another closure yet",
-                    ));
+                if self.yield_type.is_some() {
+                    return Err(at.error("borrowed captures cannot be suspended in generators"));
                 }
                 let (ty, loan) = self.borrow(&source, capture.mutable, ops)?;
                 loans.push(loan);

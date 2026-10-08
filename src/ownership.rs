@@ -13,6 +13,8 @@ pub struct Loan {
     pub precise: bool,
     pub mutable: bool,
     pub parent: Option<usize>,
+    /// Borrowing an environment keeps all references stored inside it live.
+    pub dependencies: Vec<usize>,
 }
 #[derive(Default)]
 struct Loop {
@@ -184,6 +186,17 @@ fn graph(ops: &[Op], next: usize, targets: Option<(usize, usize)>, nodes: &mut V
 }
 
 fn check_loans(ops: &[Op]) -> Result<()> {
+    fn use_loan(
+        id: usize,
+        loans: &std::collections::HashMap<usize, Loan>,
+        live: &mut BTreeSet<usize>,
+    ) {
+        if live.insert(id) {
+            for dependency in &loans[&id].dependencies {
+                use_loan(*dependency, loans, live);
+            }
+        }
+    }
     fn has_loans(ops: &[Op]) -> bool {
         ops.iter().any(|op| match op {
             Op::Try { cleanup, .. } => has_loans(cleanup),
@@ -222,7 +235,8 @@ fn check_loans(ops: &[Op]) -> Result<()> {
             }
             match &nodes[i].op {
                 Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
-                    before.insert(*id);
+                    before.remove(id);
+                    use_loan(*id, &loans, &mut before);
                 }
                 Some(Op::Loan(l)) => {
                     before.remove(&l.id);

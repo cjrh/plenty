@@ -22,8 +22,28 @@ def main() -> Result[(), Failure]:
 
 The list remains owned by `values`. Its shared borrow follows the closure through
 the move into `moved`, and ends after the last call. Changing the list before a
-later call would be rejected. Borrowing closures currently stay in the function
-that creates them and cannot be stored in collections or sum types.
+later call would be rejected. Borrowing closures cannot be returned from the
+function that creates them or stored in collections or sum types. Other functions
+can use them through reference parameters:
+
+```plenty
+def invoke(f: &Closure[[], i64]) -> i64:
+    f()
+
+def main() -> Result[(), Failure]:
+    value = 7
+    read = def [&value]() -> i64:
+        value
+    print(invoke(&read))?
+    Ok(())
+```
+```output
+7
+```
+
+The capture remains borrowed throughout `invoke`, including while its other
+arguments are being evaluated. A closure can also explicitly borrow another
+closure; the same rule protects all of their captured owners.
 
 Use `&mut` to modify an existing binding rather than moving it into private state:
 
