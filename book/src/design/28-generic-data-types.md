@@ -45,7 +45,11 @@ do not make unrelated classes interchangeable.
 
 Type arguments cannot be unit,
 references, generators, or closure environments. Recursive data layouts remain
-unsupported. Data specialization is capped at 256 instances; nesting at 64 and
+unsupported. Declaration diagnostics distinguish transparent alias cycles from
+recursive data and show the dependency path, including paths through collections
+and aliases. Long cycle messages abbreviate intermediate declarations; resolving
+long acyclic alias chains uses an explicit worklist.
+Data specialization is capped at 256 instances; nesting at 64 and
 concrete names at 16,384 bytes. `T: IntType` limits a data parameter to sized
 integers. Other data bounds are not yet supported. Imports and `pub` apply to the
 declaration and its members; concrete arguments must also be public when exposed

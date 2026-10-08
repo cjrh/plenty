@@ -50,6 +50,9 @@ Implement stable identities and component property analysis before accepting
 source recursion. Validate allocation-free deep destruction; explicitly gate
 automatic operations whose runtime traversal is still recursive. Recursive source
 declarations remain unsupported until these pieces are connected.
+Dependency diagnostics now distinguish alias cycles from recursive data, show the
+actual cycle, and bound long messages. Native compiler tests cover a 5,000-alias
+chain, cycle closure, shared dependencies, and generic parameter shadowing.
 
 Named function values already support basic callback registries: a
 `list[Callable[[i64], i64]]` can hold named functions, including inside a class,

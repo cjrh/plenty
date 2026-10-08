@@ -182,6 +182,7 @@ pub(super) fn resolve_types(
     }
     let mut resolved = TypeAliases::with_data(enums, classes)?;
     let mut active = HashSet::new();
+    let mut path = Vec::new();
     let mut completed = HashSet::new();
     for root in 0..declarations.len() {
         let mut work = vec![(root, false)];
@@ -194,6 +195,7 @@ pub(super) fn resolve_types(
             if finish {
                 completed.insert(i);
                 active.remove(&i);
+                debug_assert_eq!(path.pop(), Some(i));
                 if declaration.generic() {
                     continue;
                 }
@@ -248,14 +250,33 @@ pub(super) fn resolve_types(
                         .error("type nesting exceeds the implementation limit of 64"));
                 }
                 resolved.insert(name.to_owned(), ty);
-                active.remove(&i);
                 continue;
             }
             if !active.insert(i) {
-                return Err(declaration.at().error(format!(
-                    "cyclic type alias or recursive enum involving `{name}`"
-                )));
+                let start = path.iter().position(|&node| node == i).unwrap();
+                let cycle = &path[start..];
+                let aliases_only = cycle
+                    .iter()
+                    .all(|&node| matches!(declarations[node], Decl::Alias(_)));
+                let mut steps: Vec<_> = cycle
+                    .iter()
+                    .take(16)
+                    .map(|&node| declarations[node].name().to_owned())
+                    .collect();
+                if cycle.len() > 16 {
+                    steps.push(format!("... ({} declarations omitted)", cycle.len() - 16));
+                }
+                steps.push(name.to_owned());
+                let reason = if aliases_only {
+                    "cyclic type alias"
+                } else {
+                    "recursive data declarations are not supported yet"
+                };
+                return Err(declaration
+                    .at()
+                    .error(format!("{reason}: {}", steps.join(" -> "))));
             }
+            path.push(i);
             work.push((i, true));
             let mut refs = declaration.refs();
             while let Some(t) = refs.pop() {
