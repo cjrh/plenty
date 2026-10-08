@@ -421,7 +421,7 @@ impl Lower<'_> {
     }
 }
 
-fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result<()> {
+pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result<()> {
     if let Some(replacement) = t.name.as_ref().and_then(|n| replacements.get(n)) {
         if !t.args.is_empty() {
             return Err(t.at.error("a type parameter cannot take type arguments"));

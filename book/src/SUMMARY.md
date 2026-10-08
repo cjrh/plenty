@@ -168,7 +168,10 @@
     - [Function values](design/25-function-values.md)
 - [Closure environments](design/26-closures.md)
 - [Consuming closures](design/27-consuming-closures.md)
+- [Generic data types](design/28-generic-data-types.md)
 - [Native runtime](runtime.md)
+
+- [72. Parameterize an enum](tutorial/72-parameterize-an-enum.md)
 
 # Proposals
 

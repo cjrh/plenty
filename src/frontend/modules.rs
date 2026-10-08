@@ -922,11 +922,15 @@ fn resolve(
                     public,
                 },
             );
+            let mut scope = scope.clone();
+            scope
+                .type_params
+                .extend(e.type_params.iter().map(|(n, _)| n.clone()));
             for (_, fields) in &mut e.variants {
                 for t in fields {
                     scope.ty(t)?;
                     if public {
-                        result.public_api.push(t.clone());
+                        data_public_types(t, &e.type_params, &mut result.public_api);
                     }
                 }
             }
@@ -1008,6 +1012,19 @@ pub(super) fn check_member(
         }
     }
     Ok(())
+}
+
+fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mut Vec<TypeRef>) {
+    if params.iter().any(|(n, _)| t.name.as_ref() == Some(n)) {
+        return;
+    }
+    if t.args.is_empty() {
+        out.push(t.clone());
+    } else {
+        for arg in &t.args {
+            data_public_types(arg, params, out);
+        }
+    }
 }
 
 pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &AccessMap) -> Result<()> {

@@ -22,8 +22,8 @@ signature inference, factories, inline sums, reusable and consuming callable
 constraints, and explicit one-shot closures. Native tests cover moves, suspended
 generator relocation, and normal/early/failure cleanup with allocation disabled.
 
-Next is B09: generic data types and richer protocols. Start with concrete generic
-classes and enums and their layout/ownership rules, then generic methods and the
+Active is B09: generic data types and richer protocols. Explicit concrete generic
+enums are implemented. Continue with classes and their layout/ownership rules, then generic methods and the
 protocol constraints needed by actual container and callback examples. Keep
 specialization bounded and method lookup explicit. Borrowing environments remain
 local or reference-passed; escaping/stored lifetime relationships belong to B11.

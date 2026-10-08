@@ -14,6 +14,7 @@ mod classes;
 mod closures;
 mod collections;
 mod contexts;
+mod data;
 mod enums;
 mod files;
 mod foreign;
@@ -25,7 +26,7 @@ mod references;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit expressions have no operand; enum slots use Ty::Unit.
-pub(crate) type TypeAliases = HashMap<String, Type>;
+pub(crate) use data::TypeAliases;
 
 /// A checked binary's source entrypoint determines the native process result.
 pub(crate) struct Program {
@@ -390,6 +391,9 @@ impl TypeRef {
         };
         if name == "OnceCallable" {
             return Err(self.at.error("OnceCallable is a generic constraint; use Callable or OnceClosure for a value annotation"));
+        }
+        if aliases.data.contains(name) {
+            return aliases.instantiate(self).map(Some);
         }
         if matches!(name.as_str(), "Callable" | "Closure" | "OnceClosure") {
             let (output, inputs) = self.args.split_last().ok_or_else(|| {
@@ -795,6 +799,29 @@ impl Parser {
             }
         }
         Ok(args)
+    }
+    fn type_parameters(&mut self) -> Result<Vec<(String, Option<TypeRef>)>> {
+        let mut params = Vec::new();
+        if self.eat("[") {
+            loop {
+                let at = self.peek().clone();
+                let name = self.name()?;
+                if builtin(&name) || params.iter().any(|(n, _)| n == &name) {
+                    return Err(at.error("duplicate or builtin type parameter"));
+                }
+                let bound = if self.eat(":") {
+                    Some(self.ty()?)
+                } else {
+                    None
+                };
+                params.push((name, bound));
+                if self.eat("]") {
+                    break;
+                }
+                self.expect(",")?;
+            }
+        }
+        Ok(params)
     }
     fn alias(&mut self) -> Result<TypeAlias> {
         let at = self.take(); // type

@@ -1,9 +1,11 @@
 use super::*;
 use crate::sum::{EnumOp, EnumType, Variant};
 
+#[derive(Clone)]
 pub(super) struct EnumDecl {
     pub(super) at: Token,
     pub(super) name: String,
+    pub(super) type_params: Vec<(String, Option<TypeRef>)>,
     pub(super) variants: Vec<(String, Vec<TypeRef>)>,
 }
 #[derive(Clone)]
@@ -17,6 +19,7 @@ impl Parser {
     pub(super) fn enum_decl(&mut self) -> Result<EnumDecl> {
         let at = self.take();
         let name = self.name()?;
+        let type_params = self.type_parameters()?;
         self.expect(":")?;
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented enum declaration")?;
@@ -46,7 +49,12 @@ impl Parser {
         if variants.is_empty() {
             return Err(at.error("an enum needs at least one variant"));
         }
-        Ok(EnumDecl { at, name, variants })
+        Ok(EnumDecl {
+            at,
+            name,
+            type_params,
+            variants,
+        })
     }
 
     pub(super) fn match_statement(&mut self) -> Result<Stmt> {
@@ -137,6 +145,12 @@ pub(super) fn resolve_types(
                 Self::Class(c) => c.fields.iter().map(|(_, t)| t).collect(),
             }
         }
+        fn generic(&self) -> bool {
+            matches!(self, Self::Enum(e) if !e.type_params.is_empty())
+        }
+        fn parameter(&self, name: &str) -> bool {
+            matches!(self, Self::Enum(e) if e.type_params.iter().any(|(n, _)| n == name))
+        }
     }
     let declarations: Vec<_> = aliases
         .iter()
@@ -158,17 +172,23 @@ pub(super) fn resolve_types(
                 .error(format!("type `{name}` is already defined")));
         }
     }
-    let mut resolved = TypeAliases::new();
+    let mut resolved = TypeAliases::with_enums(enums)?;
     let mut active = HashSet::new();
+    let mut completed = HashSet::new();
     for root in 0..declarations.len() {
         let mut work = vec![(root, false)];
         while let Some((i, finish)) = work.pop() {
             let declaration = &declarations[i];
             let name = declaration.name();
-            if resolved.contains_key(name) {
+            if completed.contains(&i) {
                 continue;
             }
             if finish {
+                completed.insert(i);
+                active.remove(&i);
+                if declaration.generic() {
+                    continue;
+                }
                 let ty = match declaration {
                     Decl::Alias(a) => a.target.resolve(&resolved)?,
                     Decl::Class(c) => Some(c.resolve(&resolved)?),
@@ -233,8 +253,11 @@ pub(super) fn resolve_types(
             while let Some(t) = refs.pop() {
                 refs.extend(&t.args);
                 if let Some(name) = &t.name {
+                    if declaration.parameter(name) {
+                        continue;
+                    }
                     if let Some(&dep) = names.get(name.as_str()) {
-                        if !resolved.contains_key(name) {
+                        if !completed.contains(&dep) {
                             work.push((dep, false));
                         }
                     }
@@ -295,6 +318,13 @@ impl Lower<'_> {
     pub(super) fn qualified_type(&self, base: &Expr) -> Result<Type> {
         match &base.kind {
             Expression::Type(ty) => ty.resolve(self.aliases),
+            Expression::GenericValue(name, args) if self.aliases.data.contains(name) => TypeRef {
+                concrete: None,
+                at: base.at.clone(),
+                name: Some(name.clone()),
+                args: args.clone(),
+            }
+            .resolve(self.aliases),
             Expression::Name(name) if lookup_type(name, self.aliases).is_some() => {
                 if self.names.contains_key(name) {
                     return Err(base
