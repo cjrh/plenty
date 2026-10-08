@@ -176,6 +176,44 @@ impl Lower<'_> {
         mutable: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        self.borrow_with_indices(e, mutable, &mut None, ops)
+    }
+
+    /// Save index values before taking an assignment loan. No element address
+    /// survives evaluation of user code that could resize its enclosing owner.
+    pub(super) fn assignment_indices(
+        &mut self,
+        e: &Expr,
+        slots: &mut Vec<u8>,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        match &ungroup(e).kind {
+            Expression::Member(base, _) => self.assignment_indices(base, slots, ops),
+            Expression::Index(base, index) => {
+                self.assignment_indices(base, slots, ops)?;
+                let key = match self.place_type(base) {
+                    Some(Ty::List(_)) => Ty::I64,
+                    Some(Ty::Dict(key, _)) => (*key).clone(),
+                    _ => return Err(e.at.error("indexed assignment requires list or dict")),
+                };
+                let actual = self.expr_expected(index, Some(key.clone()), ops)?;
+                self.same(actual, Some(key.clone()), &index.at)?;
+                let slot = self.slot(key, &index.at)?;
+                ops.push(Op::StoreLocal(slot));
+                slots.push(slot);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub(super) fn borrow_with_indices(
+        &mut self,
+        e: &Expr,
+        mutable: bool,
+        indices: &mut Option<std::slice::Iter<'_, u8>>,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, usize)> {
         if let Expression::Index(base, index) = &ungroup(e).kind {
             let collection = self.place_type(base).ok_or_else(|| {
                 e.at.error("element borrowing requires a named collection or field")
@@ -189,7 +227,7 @@ impl Lower<'_> {
                         .error("element references require a list or dictionary"))
                 }
             };
-            let (_, loan) = self.borrow(base, mutable, ops)?;
+            let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
             // Index identities are not proven disjoint. Descendant projections
             // must therefore retain the whole collection's loan footprint.
             self.loans[loan].precise = false;
@@ -201,15 +239,20 @@ impl Lower<'_> {
                     }
                 }
             }
-            let actual = self.expr_expected(index, Some(key.clone()), ops)?;
-            self.same(actual, Some(key), &index.at)?;
+            if let Some(indices) = indices {
+                let slot = *indices.next().expect("prepared assignment index");
+                ops.push(Op::MoveLocal(slot, "assignment index".into()));
+            } else {
+                let actual = self.expr_expected(index, Some(key.clone()), ops)?;
+                self.same(actual, Some(key), &index.at)?;
+            }
             let operation = CollectionOp::ElementRef(collection, mutable);
             let output = operation.signature().1;
             ops.push(Op::Collection(operation));
             return Ok((output, loan));
         }
         if let Expression::Member(base, name) = &ungroup(e).kind {
-            let (reference, loan) = self.borrow(base, mutable, ops)?;
+            let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
             let Ty::Ref(inner, _) = reference else {
                 unreachable!()
             };

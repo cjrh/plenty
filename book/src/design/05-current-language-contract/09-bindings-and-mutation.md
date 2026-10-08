@@ -14,8 +14,10 @@ place, without allocating or copying their containing owners. Assignment does
 not insert a missing dictionary key; use fallible `insert` for growth.
 
 Evaluate the right-hand value first, then destination indices once each in
-root-to-leaf order. The destination is exclusively borrowed during index
-evaluation; index expressions cannot access a conflicting loan. Replacing an
+root-to-leaf order. Save their values before resolving any destination address;
+index expressions may read or resize the destination. Bounds and key checks use
+its resulting contents. Address resolution and the write hold an exclusive loan;
+no user expression runs between them. Replacing an
 owned value drops the previous value exactly once. A right-hand owner remains
 tracked for cleanup if an index propagates an error with `?`.
 

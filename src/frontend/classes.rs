@@ -584,9 +584,10 @@ impl Lower<'_> {
         self.same(actual, Some(ty.clone()), &value.at)?;
         let temp = self.slot(ty.clone(), &value.at)?;
         ops.push(Op::StoreLocal(temp));
-        // Recursive place lowering evaluates each index once, root to leaf,
-        // with a loan protecting every intermediate address from invalidation.
-        let (_, loan) = self.borrow(target, true, ops)?;
+        let mut indices = Vec::new();
+        self.assignment_indices(target, &mut indices, ops)?;
+        // Resolve addresses only once all user code has finished evaluating.
+        let (_, loan) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
         ops.push(Op::MoveLocal(temp, "assignment value".into()));
         ops.push(Op::Swap);
         ops.push(Op::WriteRef(ty));

@@ -50,5 +50,6 @@ def main() -> Result[(), Failure]:
 ```
 
 Assignment evaluates its right-hand value first, then its destination indices
-once each from left to right. The destination stays exclusively borrowed while
-its indices are evaluated, so those expressions cannot mutate the same collection.
+once each from left to right. It saves those index values before resolving the
+destination, so `rows[0][len(rows[0]) - 1] = 9` works too. Bounds and key checks
+use the collection's contents after all these expressions finish.

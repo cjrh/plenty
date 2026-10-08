@@ -42,3 +42,35 @@ print(rows).unwrap()
         "[Row(values=[8, 7])]\n",
     );
 }
+
+#[test]
+fn index_expressions_can_read_the_destination_before_its_exclusive_loan() {
+    expect(
+        r#"
+mut rows = [[1, 2].unwrap()].unwrap()
+rows[len(rows) - 1][len(rows[0]) - 1] = 9
+print(rows).unwrap()
+"#,
+        "[[1, 9]]\n",
+    );
+}
+
+#[test]
+fn rhs_and_indices_can_resize_before_addresses_are_resolved() {
+    expect(
+        r#"
+def replace(rows: &mut list[list[i64]]) -> i64:
+    rows.clear()
+    rows.append([3].unwrap()).unwrap()
+    8
+def extend(rows: &mut list[list[i64]]) -> i64:
+    rows.reserve(100).unwrap()
+    rows[0].append(4).unwrap()
+    -1
+mut rows = [[1, 2].unwrap()].unwrap()
+rows[0][extend(&mut rows)] = replace(&mut rows)
+print(rows).unwrap()
+"#,
+        "[[3, 8]]\n",
+    );
+}
