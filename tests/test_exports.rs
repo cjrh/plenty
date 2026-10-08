@@ -49,6 +49,74 @@ pub def hidden() -> i32:
 "#;
 
 #[test]
+fn recursive_owners_keep_the_opaque_c_handle_and_generated_wrapper_contract() {
+    let source = r#"
+class Node:
+    value: i64
+    next: Option[Node]
+    def __del__(self) -> ():
+        print(self.value).unwrap()
+export def create(value: i64) -> Result[Node, AllocError] = "calc_create":
+    child = Node(value, Nothing)?
+    Node(value + 1, Some(child))
+export def read(owner: &Node) -> i64 = "calc_read":
+    owner.value
+"#;
+    for kind in [LibraryKind::Static, LibraryKind::Shared] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let (library, artifacts) = build(root, source, kind);
+        let header = std::fs::read_to_string(&artifacts.header).unwrap();
+        assert!(header.contains("const calc_Node * p0"));
+        let c = root.join("recursive.c");
+        std::fs::write(
+            &c,
+            r#"
+#include "calc.h"
+#include <assert.h>
+int main(void) {
+    calc_Node *owner = 0;
+    uint32_t error = 99;
+    assert(calc_create(41, &owner, &error) == 0);
+    assert(calc_read(owner) == 42);
+    calc_Node_destroy(owner);
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+        let executable = root.join("caller");
+        let args = std::fs::read_to_string(artifacts.link_args).unwrap();
+        success(
+            Command::new("cc")
+                .args(["-Wall", "-Wextra", "-Werror"])
+                .arg(&c)
+                .arg(&library)
+                .args(args.lines())
+                .arg("-o")
+                .arg(&executable)
+                .output()
+                .unwrap(),
+        );
+        assert_eq!(
+            success(Command::new(&executable).output().unwrap()).stdout,
+            b"42\n41\n"
+        );
+        let app = root.join("main.plenty");
+        std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    owner = calc.create(41)?\n    print(calc.read(&owner))?\n    Ok(())\n").unwrap();
+        let options = plenty::CompileOptions {
+            link_args: vec![library.into_os_string()],
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&app, &executable, None, &options).unwrap();
+        assert_eq!(
+            success(Command::new(&executable).output().unwrap()).stdout,
+            b"42\n42\n41\n"
+        );
+    }
+}
+
+#[test]
 fn static_and_shared_exports_work_from_c_cpp_and_plenty() {
     for kind in [LibraryKind::Static, LibraryKind::Shared] {
         let temp = tempfile::tempdir().unwrap();

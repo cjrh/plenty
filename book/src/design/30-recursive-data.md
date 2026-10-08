@@ -1,5 +1,8 @@
 # Recursive data
 
+See the [runnable lesson](../tutorial/77-build-recursive-data.md) for a consuming
+chain traversal and a tree declared in an imported module.
+
 Classes and user enums can refer to themselves or one another, including through
 `Option`, `Result`, tuples, lists, dictionary values, and transparent aliases.
 Concrete generic instances can recur too: `Node[T]` may contain
@@ -32,6 +35,12 @@ run before fields; ordinary scope exit, replacement, early return, and failed
 construction retain their cleanup rules. Native tests build class and enum chains
 of 100,000 nodes each, then drop both with allocation disabled on a 256 KiB stack.
 Explicit recursion in user methods or destructor hooks still uses the native stack.
+
+Imports preserve the nominal identity and member visibility of recursive types.
+Recursive classes can also remain behind existing opaque C export handles. Static
+and shared library tests call their factories and shared borrows from C and from
+generated Plenty wrappers, then verify matching destruction of the owned chain.
+The recursive field layout is not exposed as a C record layout.
 
 The compiler reserves nominal identities before resolving fields. A table owns
 immutable definitions; stored edges use weak handles and escaped type handles

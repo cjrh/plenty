@@ -124,6 +124,7 @@
 - [74. Write a generic method](tutorial/74-write-a-generic-method.md)
 - [75. Parameterize a protocol](tutorial/75-parameterize-a-protocol.md)
 - [76. Store stateful callbacks](tutorial/76-store-stateful-callbacks.md)
+- [77. Build recursive data](tutorial/77-build-recursive-data.md)
 
 # Reference
 

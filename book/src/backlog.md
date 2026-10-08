@@ -36,21 +36,24 @@ records a concrete reason for retained representation and invocation distinction
 The tutorial now offers a short callback path and uses the common `Callable`
 constraint for generic consumers; factory and consuming annotations are advanced.
 
-The remaining immediate order is:
-
 B22's contract/runtime audit and atomic ownership foundation are complete.
 Metadata is static, and counts synchronize last-release cleanup, including inline
 frames. Concurrent stress tests cover the handoff. Public threads, effect/eligibility
 checking, channels, and executors remain separate follow-on work under B22.
 
-**In progress: B10, recursive data types.** Source classes, enums, aliases, and
-finite generic instances now resolve through a compilation-owned definition table.
-Native tests cover construction, consuming matches, borrowing/moves, failed
-construction, and allocation-free replacement. Class and enum chains of 100,000
-nodes each drop with allocation disabled on a 256 KiB stack. Automatic deep copy,
-equality, and formatting are explicitly gated. The remaining acceptance work is
-the runnable learning guide and cross-module examples. See the
-[implemented contract](design/30-recursive-data.md).
+B10 is complete for the initial source subset: classes, enums, aliases, and finite
+generic instances support recursive ownership. Native tests cover construction,
+consuming matches, borrowing/moves, allocation failure, allocation-free replacement,
+and deep drop. Imports preserve visibility; static and shared libraries preserve
+opaque C handles and generated ownership wrappers. The
+[runnable lesson](tutorial/77-build-recursive-data.md) teaches chains and trees.
+See the [implemented contract](design/30-recursive-data.md) for precise limits.
+
+**Next: B11, borrowed enum matching and payload loans.** Recursive class fields
+such as `next: Option[Node]` make non-consuming inspection a practical need.
+Implement that slice before broader stored-reference work, then return to B22's
+native concurrency foundation and B32's callback storage. Automatic deep recursive
+copy, equality, and formatting remain explicitly gated and are tracked by B33.
 
 Named function values already support basic callback registries: a
 `list[Callable[[i64], i64]]` can hold named functions, including inside a class,
@@ -63,6 +66,14 @@ the [runnable lesson](tutorial/76-store-stateful-callbacks.md) and native tests
 cover generic state, allocation-free dispatch, and exactly-once resource cleanup.
 
 ### Scope of follow-on work
+
+**B11 — inspect recursive values through borrows.** Define matching a borrowed enum,
+including standard sums in class fields, without moving the owner or allocating.
+Payload references must remain tied to the original owner and active variant;
+account for replacement, mutable access, branch-local lifetimes, and returned
+references. Teach traversal of a borrowed chain and reject escaping temporary
+payload references. Stored references and broader inter-parameter relationships
+remain separate slices under this item.
 
 **B22 — useful native concurrency.** Target native threads that execute Plenty
 code in parallel without a global interpreter lock. Building on the completed
@@ -96,8 +107,7 @@ is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B10 | Recursive data types | Source implementation and native lifecycle checks complete; finish the runnable guide and cross-module acceptance coverage. [Reference](design/30-recursive-data.md). |
-| B11 | Broader borrowing | Stored references, relationships among multiple reference parameters, and more precise collection loans. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
+| B11 | Broader borrowing | Borrowed enum matching and payload loans first; then stored references, relationships among multiple reference parameters, and more precise collection loans. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
 | B12 | Practical I/O and iteration | Fallible file iteration, explicit binary buffers and read/write, buffering, and reusable iterator/view protocols. Follow familiar Python conventions where they fit ownership and Result-based errors. |
 | B13 | Public allocator control | Global/default and per-container selection, allocator state/lifetimes, and buffer provenance. Internal object allocator identity already exists. Consider bounded/inline-capacity storage separately. [Memory design](proposals/memory-parallelism-and-simd.md). |
 | B14 | Typed error composition | Preserve details across multiple error types through explicit unions/conversions. `Failure` already supplies deliberate erasure; it does not replace recoverable typed errors. |
@@ -115,6 +125,7 @@ is still open.
 | B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/24-c-interfaces/06-runtime-loading.md). |
 | B29 | Further generic constraints | Consider protocol/callable bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Preserve explicit lookup and bounded specialization. See [generic data](design/28-generic-data-types.md) and [parameterized protocols](design/29-parameterized-protocols.md). |
 | B32 | Stored stateful callbacks | Named functions paired with explicit state already support registries. Following the completed B31 audit, design captured-environment storage, separating homogeneous concrete layouts from heterogeneous dispatch. Borrowed storage depends on B11; concurrency eligibility is B22. See scope above. |
+| B33 | Deep operations on recursive values | Recursive source storage is implemented under B10. Replace native recursive copy/format traversals with iterative fallible work storage before enabling them; select an explicit bounded-memory contract for structural equality and membership without adding hidden allocation failure. Preserve failure cleanup, shared-string ownership, and float/NaN semantics. [Design rationale](proposals/recursive-data.md). |
 
 ## Reconciled completed work
 
@@ -124,7 +135,8 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
-| B09: Initial generic data types and richer protocols | Concrete generic classes/enums, IntType data bounds, function/constructor inference, inferred/explicit generic methods, parameterized structural contracts, and protocol-driven inference are implemented. Native allocation-failure/drop checks and specialization reuse/limits cover the initial subset. Extensions are B29; recursive storage is B10. |
+| B10: Recursive source types | Self/mutual recursive classes and enums, aliases, and finite generic instances use ordinary fallible records. Finite compiler graphs avoid type-table leaks; native source tests drop 100,000-node class and enum chains without allocation on a 256 KiB stack. Runnable lessons, module visibility, and C/Plenty library consumers cover the initial subset. Borrowed matching is B11; automatic deep operations are B33. |
+| B09: Initial generic data types and richer protocols | Concrete generic classes/enums, IntType data bounds, function/constructor inference, inferred/explicit generic methods, parameterized structural contracts, and protocol-driven inference are implemented. Native allocation-failure/drop checks and specialization reuse/limits cover the initial subset. Extensions are B29; recursive storage was completed under B10. |
 | B08: Function values and multiline closures | Thin functions, reusable/consuming concrete environments, explicit captures, factories, signature inference, `Callable`/`OnceCallable` constraints, inline sums, captured generator frames, and checked lifecycle cleanup are implemented without implicit allocation. B31 reviewed the surface and simplified its teaching path; captured-environment storage remains B32 and stored/escaping borrows remain B11. See [closures](design/26-closures.md) and [consuming closures](design/27-consuming-closures.md). |
 | B30: Nested assignment | Existing list/dictionary/field slots update without enclosing copies or allocations. RHS and saved indices precede address resolution; tests cover resizing, aliases, failure cleanup, and owner replacement. |
 | B31: Callable simplicity audit | Retained concepts have explicit use-case rationale; the tutorial teaches inferred local closures and one reusable generic callback interface before advanced factory/consuming annotations. Ordinary generic records demonstrate stateful registries without another callable type. |

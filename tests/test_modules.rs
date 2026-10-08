@@ -36,6 +36,58 @@ fn generic_data_imports_keep_methods_and_constructors_visible() {
 }
 
 #[test]
+fn recursive_enum_instances_keep_identity_through_import_aliases() {
+    run(
+        &[
+            (
+                "forest.plenty",
+                "pub enum Tree[T]:\n    Leaf(T)\n    Branch(Tree[T], Tree[T])\n",
+            ),
+            (
+                "main.plenty",
+                r#"
+from forest import Tree as Expr
+def total(tree: Expr[i64]) -> i64:
+    match tree:
+        case Expr[i64].Leaf(value):
+            value
+        case Expr[i64].Branch(left, right):
+            total(left) + total(right)
+def main() -> Result[(), Failure]:
+    tree = Expr[i64].Branch(Expr[i64].Leaf(3)?, Expr[i64].Leaf(7)?)?
+    print(total(tree))?
+    Ok(())
+"#,
+            ),
+        ],
+        "main.plenty",
+        "10\n",
+    );
+}
+
+#[test]
+fn recursive_declarations_preserve_field_and_public_signature_privacy() {
+    let api = "pub class Node:\n    pub value: i64\n    next: Option[Node]\npub def make() -> Result[Node, AllocError]:\n    Node(7, Nothing)\n";
+    run(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> Result[(), Failure]:\n    node = api.make()?\n    print(node.value)?\n    Ok(())\n")], "main.plenty", "7\n");
+    let dir = workspace(&[("api.plenty", api), ("main.plenty", "import api\ndef main() -> Result[(), Failure]:\n    node = api.make()?\n    drop(node.next)\n    Ok(())\n")]);
+    let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("private"), "{error}");
+    let dir = workspace(&[
+        ("api.plenty", "class Hidden:\n    parent: Option[Visible]\npub class Visible:\n    pub hidden: Option[Hidden]\n"),
+        ("main.plenty", "import api\ndef main() -> ():\n    pass\n"),
+    ]);
+    let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("public signature exposes private type"),
+        "{error}"
+    );
+}
+
+#[test]
 fn generic_data_cannot_bypass_member_privacy() {
     for body in [
         "cell = data.Cell(1)",
