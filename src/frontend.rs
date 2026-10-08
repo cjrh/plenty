@@ -745,7 +745,10 @@ impl Parser {
                     name.push('.');
                     name.push_str(&self.name()?);
                 }
-                if matches!(name.as_str(), "Callable" | "Closure" | "OnceClosure") {
+                if matches!(
+                    name.as_str(),
+                    "Callable" | "Closure" | "OnceClosure" | "OnceCallable"
+                ) {
                     self.expect("[")?;
                     self.expect("[")?;
                     let mut args = Vec::new();
@@ -1474,6 +1477,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "Callable"
                 | "Closure"
                 | "OnceClosure"
+                | "OnceCallable"
                 | "tuple"
                 | "IntType"
                 | "next"

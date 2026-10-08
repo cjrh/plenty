@@ -23,3 +23,12 @@ a consuming environment. Like `Closure`, it retains the concrete producer layout
 and specializes consumers. Factories, generic signature inference, moves through
 inline Option/Result, and temporary calls such as `factory(value)()` preserve that
 identity. `OnceClosure` and reusable `Closure` do not unify.
+
+The generic constraint `F: OnceCallable[[inputs], result]` accepts named functions,
+reusable closures, and one-shot closures with that signature. A consuming API
+takes `F` by value. It can bind `mut callback = f` to also support mutable reusable
+environments. Concrete specialization still checks every move and borrow, so
+calling a one-shot argument twice is rejected even inside a generic function.
+The signature supplies the same inference evidence as `Callable`; a fully concrete
+bound can specialize a generic named function value. `OnceCallable` is a constraint,
+not a storage type. `Callable` constraints accept only reusable callbacks.

@@ -2,6 +2,16 @@
 use super::*;
 use std::collections::VecDeque;
 
+fn callable_bound(bound: &TypeRef) -> bool {
+    matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable"))
+}
+
+fn callable_pattern(bound: &TypeRef) -> TypeRef {
+    let mut pattern = bound.clone();
+    pattern.name = Some("Callable".into());
+    pattern
+}
+
 pub(super) fn prepare(
     functions: Vec<Function>,
     aliases: &TypeAliases,
@@ -61,7 +71,7 @@ pub(super) fn prepare(
             }
             for (_, bound) in &f.type_params {
                 if let Some(bound) = bound {
-                    if bound.name.as_deref() == Some("Callable") && !bound.args.is_empty() {
+                    if callable_bound(bound) && !bound.args.is_empty() {
                         continue;
                     }
                     if (bound.name.as_deref() != Some("IntType")
@@ -72,7 +82,7 @@ pub(super) fn prepare(
                         || !bound.args.is_empty()
                     {
                         return Err(bound.at.error(
-                            "generic constraints require IntType, Callable, or a declared protocol",
+                            "generic constraints require IntType, Callable, OnceCallable, or a declared protocol",
                         ));
                     }
                 }
@@ -235,16 +245,17 @@ fn infer_callable_bounds(
     loop {
         let before = inferred.len();
         for (name, bound) in &template.type_params {
-            let Some(bound) = bound.as_ref().filter(|b| {
-                b.name.as_deref() == Some("Callable") && mentions_parameter(b, template)
-            }) else {
+            let Some(bound) = bound
+                .as_ref()
+                .filter(|b| callable_bound(b) && mentions_parameter(b, template))
+            else {
                 continue;
             };
             let Some(signature) = inferred.get(name).and_then(callables::signature).cloned() else {
                 continue;
             };
             infer(
-                bound,
+                &callable_pattern(bound),
                 &Ty::Callable(Rc::new(signature)),
                 template,
                 inferred,
@@ -348,15 +359,12 @@ impl Lower<'_> {
                 (pattern.name.as_ref() == Some(name))
                     .then_some(bound.as_ref())
                     .flatten()
-                    .filter(|bound| {
-                        bound.name.as_deref() == Some("Callable")
-                            && !mentions_parameter(bound, &template)
-                    })
+                    .filter(|bound| callable_bound(bound) && !mentions_parameter(bound, &template))
             });
             let generic_function = matches!(&ungroup(arg).kind, Expression::Name(name)
                 if !self.names.contains_key(name) && self.generics.templates.contains_key(name));
             let ty = if let Some(bound) = callback_bound.filter(|_| generic_function) {
-                let expected = bound.resolve(self.aliases)?;
+                let expected = callable_pattern(bound).resolve(self.aliases)?;
                 self.expr_expected(arg, expected, ops)?
                     .ok_or_else(|| arg.at.error("expected a callable value"))?
             } else if !mentions_parameter(pattern, &template)
@@ -474,10 +482,8 @@ impl Engine {
             if *ty == Ty::Unit {
                 return Err(at.error("unit type arguments are not supported yet"));
             }
-            let borrowed_callable = matches!(ty, Ty::Closure(_))
-                && bound
-                    .as_ref()
-                    .is_some_and(|b| b.name.as_deref() == Some("Callable"));
+            let borrowed_callable =
+                matches!(ty, Ty::Closure(_)) && bound.as_ref().is_some_and(callable_bound);
             if ty.contains_reference() && !borrowed_callable {
                 return Err(at.error(
                     "reference type arguments are not supported; borrow T in the signature",
@@ -488,14 +494,15 @@ impl Engine {
                     if !ty.is_int() {
                         return Err(at.error(format!("{ty} does not satisfy IntType")));
                     }
-                } else if bound.name.as_deref() == Some("Callable") {
-                    let mut bound = bound.clone();
-                    substitute(&mut bound, &replacements)?;
-                    let Some(Ty::Callable(expected)) = bound.resolve(aliases)? else {
+                } else if callable_bound(bound) {
+                    let mut pattern = callable_pattern(bound);
+                    substitute(&mut pattern, &replacements)?;
+                    let Some(Ty::Callable(expected)) = pattern.resolve(aliases)? else {
                         unreachable!("Callable constraint resolves to a callable signature")
                     };
                     if callables::signature(ty) != Some(expected.as_ref())
-                        || matches!(ty, Ty::Closure(t) if t.once)
+                        || (bound.name.as_deref() == Some("Callable")
+                            && matches!(ty, Ty::Closure(t) if t.once))
                     {
                         return Err(at.error(format!("{ty} does not satisfy {expected}")));
                     }

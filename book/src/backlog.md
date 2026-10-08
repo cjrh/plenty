@@ -37,8 +37,9 @@ Concrete callable bounds also specialize generic named callback arguments;
 native higher-order mutation is covered with allocation disabled.
 Explicit `def once` environments can transfer owned captures into their body.
 One-shot factories and `OnceClosure` annotations preserve inline identity through
-generic calls, temporaries, and Option/Result. Next in B08: consuming callable
-constraints and integration.
+generic calls, temporaries, and Option/Result. `OnceCallable` constraints accept
+all callable modes in consuming APIs. Next in B08: nested one-shot ownership,
+local borrowed one-shot captures, and lifecycle integration.
 Borrowing environments remain local or reference-passed; broader escaping/stored
 lifetime relationships belong to B11. Generic data types remain B09.
 Expanded C representations are B27; additional loader tooling and library
