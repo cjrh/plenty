@@ -78,7 +78,7 @@ const _: () = assert!(std::mem::offset_of!(Collection, ty) == 16);
 const _: () = assert!(std::mem::offset_of!(Record, fields) == 32);
 
 unsafe fn value_type<'a>(value: u128) -> &'a Type {
-    // SAFETY: all managed aggregates have a raw Rc-owned Type pointer at byte 16.
+    // SAFETY: all managed aggregates have an immutable static Type pointer at byte 16.
     unsafe {
         &**(value as *const u8)
             .add(size_of::<Header>())

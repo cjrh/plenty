@@ -244,14 +244,13 @@ complicate the first custom-allocator interface.
 
 ### Runtime prerequisites
 
-Do not expose thread spawn over today's pointer-word ABI. Non-atomic object
-counts and `Rc<Type>` metadata can race, even for immutable strings. A list move
-may leave a string alias in the originating thread. Rust's `Rc` explicitly lacks
-cross-thread transfer for this reason; atomic ownership does not by itself make
-the payload safe to share. [Rust `Rc`](https://doc.rust-lang.org/std/rc/index.html),
-[Rust `Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html).
+The [native concurrency audit](native-concurrency.md) records the current runtime
+and boundary contract. Type metadata is already static and immutable. Object
+reference counts remain non-atomic, including immutable strings: a list move
+may leave a string alias in the originating thread. Atomic ownership alone also
+does not make a mutable payload safe to share.
 
-Recommend static immutable type metadata and atomic reference counts for storage
+Retain static immutable type metadata and use atomic reference counts for storage
 that can be shared between threads, including the single public `str` type.
 Benchmark the cost before choosing whether all headers should use the same atomic
 implementation or whether internal unshared objects can keep a cheaper path.

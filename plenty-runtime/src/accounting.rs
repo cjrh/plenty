@@ -83,7 +83,8 @@ pub(crate) fn end_no_allocations() {
 #[cfg(plenty_runtime_embedded)]
 pub(crate) fn start() {
     // Exclude process-owned standard I/O buffers, but count every runtime-owned
-    // allocation: raw values, Vec buffers, Rc metadata, and temporary renderings.
+    // allocation: raw values, Vec buffers, and temporary renderings. Type
+    // descriptors are immutable compiler-emitted static data.
     drop(std::io::stdout().lock());
     drop(std::io::stderr().lock());
     drop(std::io::stdin().lock());
