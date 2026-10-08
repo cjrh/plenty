@@ -190,7 +190,14 @@ impl Ty {
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Ty::Closure(t) => return write!(f, "closure {} from `{}`", t.signature, t.name),
+            Ty::Closure(t) => {
+                let signature = t.signature.to_string().replacen("Callable", "Closure", 1);
+                return if t.name.is_empty() {
+                    f.write_str(&signature)
+                } else {
+                    write!(f, "{signature} from `{}`", t.name)
+                };
+            }
             Ty::Callable(sig) => return write!(f, "{sig}"),
             Ty::I8 => "i8",
             Ty::I16 => "i16",

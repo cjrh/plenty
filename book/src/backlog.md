@@ -23,8 +23,9 @@ functions, and eligible indirect tail calls are implemented and tested with heap
 allocation disabled.
 Owned captures now move into reusable inline environments with scoped destruction
 and explicit per-capture mutation. Shared and exclusive borrowed captures retain
-checked loans through calls and moves. Continue with environment escape rules,
-and generic closure arguments before higher-order APIs.
+checked loans through calls and moves. Owned factories and concrete `Closure`
+signature annotations are implemented. Continue with borrowing environments across
+calls, generic closure arguments, and nested environments before higher-order APIs.
 Expanded C representations are B27; additional loader tooling and library
 lifecycle work are B28.
 

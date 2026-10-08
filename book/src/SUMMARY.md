@@ -114,6 +114,7 @@
     - [Generic function values](tutorial/64-generic-function-values.md)
     - [Multiline anonymous functions](tutorial/65-multiline-anonymous-functions.md)
     - [Borrow in a closure](tutorial/66-borrow-in-a-closure.md)
+    - [Return a closure](tutorial/67-return-a-closure.md)
 
 # Reference
 

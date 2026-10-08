@@ -998,6 +998,11 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             }
         }
         match ty {
+            Ty::Closure(t) => {
+                for ty in t.signature.inputs.iter().chain(t.signature.output.iter()) {
+                    visible(ty, at, access)?;
+                }
+            }
             Ty::Callable(sig) => {
                 for ty in sig.inputs.iter().chain(sig.output.iter()) {
                     visible(ty, at, access)?;

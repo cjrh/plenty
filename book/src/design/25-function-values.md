@@ -79,6 +79,12 @@ suspended in generators. Borrowing another closure is currently unsupported.
 mutable closure binding and can update the original value; other reads, writes,
 and borrows of that source are excluded while future closure uses keep the loan
 live. Explicit reference arguments must also be disjoint from captured loans.
+`Closure[[parameter types], result]` constrains a concrete environment's signature.
+Owned closures can be returned and passed by reference with this annotation; the
+compiler infers the producer identity and specializes consumers for its layout.
+Different closure expressions do not unify merely because their signatures match.
+The annotation introduces neither boxing nor a dynamically sized environment.
+An owning return moves captures into caller-provided storage.
 Currently closures must be called through a named binding, cannot return
 references or yield, and cannot own other restricted storage.
 See the [backlog](../backlog.md) for remaining work.

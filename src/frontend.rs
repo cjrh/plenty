@@ -387,7 +387,7 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
-        if name == "Callable" {
+        if name == "Callable" || name == "Closure" {
             let (output, inputs) = self.args.split_last().ok_or_else(|| {
                 self.at
                     .error("use Callable[[parameter types], return type]")
@@ -403,6 +403,15 @@ impl TypeRef {
                 output: output.resolve(aliases)?,
             };
             callables::validate(&signature, &self.at)?;
+            if name == "Closure" {
+                return Ok(Some(Ty::Closure(Rc::new(crate::closure::ClosureType {
+                    name: String::new(),
+                    signature,
+                    captures: vec![],
+                    writable: vec![],
+                    mutable: false,
+                }))));
+            }
             return Ok(Some(Ty::Callable(Rc::new(signature))));
         }
         if name == "tuple" {
@@ -732,7 +741,7 @@ impl Parser {
                     name.push('.');
                     name.push_str(&self.name()?);
                 }
-                if name == "Callable" {
+                if name == "Callable" || name == "Closure" {
                     self.expect("[")?;
                     self.expect("[")?;
                     let mut args = Vec::new();
@@ -1456,6 +1465,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "Result"
                 | "Generator"
                 | "Callable"
+                | "Closure"
                 | "tuple"
                 | "IntType"
                 | "next"
@@ -1555,6 +1565,7 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 }
 
 struct Lower<'a> {
+    function_name: String,
     closure_loans: HashMap<String, Vec<usize>>,
     captures: HashSet<String>,
     heap: &'a mut Heap,
@@ -2794,6 +2805,7 @@ fn lower_function(
         None
     };
     let mut lower = Lower {
+        function_name: f.name.clone(),
         closure_loans: HashMap::new(),
         captures: f.captures.iter().map(|c| c.name.clone()).collect(),
         returned_fields,

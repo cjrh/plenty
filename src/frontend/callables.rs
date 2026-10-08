@@ -5,14 +5,16 @@ use crate::op::CallableSig;
 pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
     fn frame(ty: &Ty) -> bool {
         match ty {
-            Ty::Generator(_) => true,
+            Ty::Generator(_) | Ty::Closure(_) => true,
             Ty::Ref(inner, _) => frame(inner),
             Ty::Enum(t) => t.variants.iter().flat_map(|v| &v.fields).any(frame),
             _ => false,
         }
     }
     if sig.inputs.iter().chain(sig.output.iter()).any(frame) {
-        return Err(at.error("callable signatures do not yet support generator frames"));
+        return Err(at.error(
+            "callable signatures do not yet support generator frames or closure environments",
+        ));
     }
     if let Some(Ty::Ref(_, mutable)) = &sig.output {
         let references: Vec<_> = sig

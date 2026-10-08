@@ -11,7 +11,10 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let mut function = function.clone();
-        function.name = format!("__plenty_closure_{}", self.generics.functions.len());
+        function.name = format!(
+            "__plenty_closure_{}_{}_{}",
+            self.function_name, at.line, at.column
+        );
         let mut captures = Vec::new();
         let mut hidden = Vec::new();
         let mut loans = Vec::new();
@@ -77,11 +80,13 @@ impl Lower<'_> {
         });
         hidden.append(&mut function.inputs);
         function.inputs = hidden;
-        register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
-        self.generics
-            .functions
-            .insert(function.name.clone(), function.clone());
-        self.generics.pending.push_back(function);
+        if !self.sigs.contains_key(&function.name) {
+            register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
+            self.generics
+                .functions
+                .insert(function.name.clone(), function.clone());
+            self.generics.pending.push_back(function);
+        }
         self.closure_loans
             .insert(closure.name.clone(), loans.clone());
         ops.push(Op::ClosureNew(closure.clone()));

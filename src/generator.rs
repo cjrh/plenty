@@ -72,6 +72,15 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
         return Some(actual.clone());
     }
     match (pattern, actual) {
+        (Ty::Closure(a), Ty::Closure(b)) if a.signature == b.signature => {
+            if a.name.is_empty() {
+                Some(actual.clone())
+            } else if b.name.is_empty() {
+                Some(pattern.clone())
+            } else {
+                None
+            }
+        }
         (Ty::Generator(a), Ty::Generator(b)) if a.element == b.element => {
             if a.name.is_none() {
                 Some(actual.clone())
@@ -100,6 +109,7 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
 impl Ty {
     pub fn unresolved_generator(&self) -> bool {
         match self {
+            Self::Closure(t) => t.name.is_empty(),
             Self::Generator(t) => t.name.is_none(),
             Self::Ref(t, _) => t.unresolved_generator(),
             Self::Enum(t) if t.inline() && t.restricted_storage => t
@@ -141,6 +151,9 @@ impl Ty {
 pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
     match ty {
         Ty::Closure(t) => {
+            if t.name.is_empty() {
+                return Err("cannot infer a concrete closure environment".into());
+            }
             for (_, field) in &t.captures {
                 layout(field, active)?;
             }
