@@ -1,8 +1,9 @@
 # Recursive owned data
 
-Recursive source declarations are not implemented yet. This design preserves the
-existing ownership, fallible construction, and allocation-free `Option`/`Result`
-contracts. It does not add shared mutable graphs or a garbage collector.
+The initial source contract is implemented; see the [recursive-data reference](../design/30-recursive-data.md)
+for its current limits. This design record explains the ownership, fallible
+construction, and allocation-free `Option`/`Result` choices. It does not add
+shared mutable graphs or a garbage collector.
 
 ## Source model and finite storage
 
@@ -37,9 +38,9 @@ the runtime value's depth is a substitute for that distinction.
 
 ## Ownership and destruction
 
-Recursive classes move under the existing rules. A recursively immutable enum
-may retain ordinary immutable sharing only if its whole component is copyable;
-mutable collections or classes make its containing values affine. Storing an
+Recursive classes and enums move under the existing rules. The implemented subset
+also makes aggregates containing recursive values affine and gates automatic deep
+copying. Mutable collections or classes already make their containing values affine. Storing an
 owner inside its own descendant must fail the normal move/borrow checks. There
 are no stored references or weak edges in this design, so source ownership cycles
 are not introduced by recursive *types*.
@@ -55,14 +56,16 @@ and destructor effect.
 ## Compiler identity and bounded analysis
 
 Use a compilation-owned table of nominal definitions. Type edges refer to stable
-IDs; the table owns definitions, avoiding an `Rc` cycle that leaks compiler memory.
+identities; the table owns definitions, avoiding an `Rc` cycle that leaks compiler memory.
 Reserve identities before resolving fields, then finalize immutable definitions.
 Aliases resolve to those identities. Type equality and hashing compare nominal
 identity and concrete generic arguments, never recursively expanded fields.
 
-Analyze strongly connected components to compute copyability, destructor presence,
-storage eligibility, and eventually thread effects. Each property needs an explicit
-monotone rule and fixed point; a temporary placeholder must not cache a wrong fact.
+Compute properties over the finite type graph, with explicit monotone rules for
+copyability and destructor presence; a temporary placeholder must not cache a
+wrong fact. The implementation uses visited identities and leaf elimination to
+find recursive storage and aggregates that reach it. More detailed component
+analysis may support future thread effects without changing source syntax.
 Keep finite inline-layout checks distinct from heap graph recursion. Emit native
 descriptor IDs before their edges, as the current metadata emitter already does.
 Every metadata/visibility/debug traversal needs visited identities or a bounded

@@ -41,7 +41,7 @@ impl Lowerer<'_, '_> {
         let (inputs, output) = op.signature().ok_or("invalid class operation")?;
         let result = match op {
             ClassOp::TryNew(t) | ClassOp::ArmDrop(t) => {
-                let callback = if let Some(name) = &t.destructor {
+                let callback = if let Some(name) = &t.get().destructor {
                     let id = self.user_fns[name]
                         .drop_callback
                         .ok_or("missing destructor adapter")?;
@@ -81,7 +81,7 @@ impl Lowerer<'_, '_> {
                     address,
                     0,
                 );
-                let offset: i64 = t.fields[..*i]
+                let offset: i64 = t.get().fields[..*i]
                     .iter()
                     .map(|(_, t)| t.slot_bytes() as i64)
                     .sum();
@@ -133,7 +133,7 @@ impl Lowerer<'_, '_> {
                     let (value, _) = self.pop_typed(inputs[0].clone())?;
                     let tags = self.bcx.ins().ushr_imm(value, 64);
                     let tags = self.raw_word(tags);
-                    let mask = (t.variants.len().next_power_of_two() - 1).max(1);
+                    let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
                     let tag = self.bcx.ins().band_imm(tags, mask as i64);
                     self.release(value, &inputs[0]);
                     tag
@@ -291,8 +291,8 @@ impl Lowerer<'_, '_> {
     }
     pub(super) fn lower_try(
         &mut self,
-        source: &std::rc::Rc<crate::sum::EnumType>,
-        target: &std::rc::Rc<crate::sum::EnumType>,
+        source: &crate::nominal::Nominal<crate::sum::EnumType>,
+        target: &crate::nominal::Nominal<crate::sum::EnumType>,
         cleanup: &[Op],
     ) -> Result<()> {
         let (value, _) = self.pop_typed(Ty::Enum(source.clone()))?;
@@ -311,7 +311,7 @@ impl Lowerer<'_, '_> {
         let residual = if target.discards_error() {
             // Erasure consumes the original error, including its destructor,
             // before cleaning up earlier operands and the enclosing scope.
-            self.release(payload, &source.variants[1].fields[0]);
+            self.release(payload, &source.get().variants[1].fields[0]);
             let zero = self.bcx.ins().iconst(types::I64, 0);
             let marker = self.bcx.ins().uextend(types::I128, zero);
             self.wrap_sum(marker, 1)
@@ -329,7 +329,7 @@ impl Lowerer<'_, '_> {
         self.stack = pending;
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);
-        let ty = source.variants[success_tag].fields[0].clone();
+        let ty = source.get().variants[success_tag].fields[0].clone();
         let payload = self.unpack(payload, &ty);
         self.stack.push((payload, ty));
         debug_assert!(target.inline());

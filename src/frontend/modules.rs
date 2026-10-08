@@ -1146,7 +1146,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
                 visible(v, at, access, aliases)?;
             }
             Ty::Enum(e) => {
-                for t in e.variants.iter().flat_map(|v| &v.fields) {
+                for t in e.get().variants.iter().flat_map(|v| &v.fields) {
                     visible(t, at, access, aliases)?;
                 }
             }

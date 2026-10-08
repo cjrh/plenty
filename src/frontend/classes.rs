@@ -109,15 +109,8 @@ impl ClassDecl {
             .iter()
             .any(|f| f.name == "__del__")
             .then(|| method(&self.name, "__del__"));
-        Ok(Ty::Class(Rc::new(ClassType {
+        Ok(Ty::Class(crate::nominal::Nominal::new(ClassType {
             name: self.name.clone(),
-            depth: 1 + fields
-                .iter()
-                .map(|(_, t)| t.layout_depth())
-                .max()
-                .unwrap_or(0),
-            copyable: destructor.is_none() && fields.iter().all(|(_, t)| t.can_copy()),
-            has_destructor: destructor.is_some() || fields.iter().any(|(_, t)| t.has_destructor()),
             fallible_init: match self.methods.iter().find(|f| f.name == "__init__") {
                 Some(f) => f.output.resolve(aliases)?.is_some(),
                 None => false,
@@ -245,7 +238,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
         let instance = "__plenty_instance";
         // Unused depth-64 declarations remain valid; constructing one would
         // exceed the checked constructor's Result nesting limit.
-        if ty.depth < 64 {
+        if Ty::Class(ty.clone()).layout_depth() < 64 {
             let mut args = vec![expression(
                 at,
                 Expression::Unary("&mut".into(), Box::new(name(at, instance))),
@@ -282,7 +275,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                     ),
                     statement(
                         at,
-                        Statement::Expr(if ty.fallible_init {
+                        Statement::Expr(if ty.get().fallible_init {
                             expression(at, Expression::Try(Box::new(init)))
                         } else {
                             init
@@ -318,7 +311,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
 
 /// Definite initialization is deliberately local: a partially initialized self
 /// may only be accessed through already initialized fields, never passed away.
-fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
+fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Result<()> {
     struct Check<'a> {
         ty: &'a ClassType,
     }
@@ -522,7 +515,8 @@ fn validate_init(f: &Function, ty: &ClassType) -> Result<()> {
             Ok(Some(set))
         }
     }
-    let check = Check { ty };
+    let definition = ty.get();
+    let check = Check { ty: &definition };
     if let Some(set) = check.block(&f.body, HashSet::new())? {
         check.complete(&set, &f.at)?;
     }
@@ -563,7 +557,7 @@ impl Lower<'_> {
         };
         let index = field_index(&class, name, &e.at)?;
         modules::check_member(self.access, &class.name, name, &e.at)?;
-        let ty = class.fields[index].1.clone();
+        let ty = class.get().fields[index].1.clone();
         ops.push(Op::Class(ClassOp::Field(class, index)));
         Ok((ty, loans))
     }
@@ -608,7 +602,8 @@ impl Lower<'_> {
                 let Ty::Class(t) = self.place_type(base)? else {
                     return None;
                 };
-                t.fields
+                t.get()
+                    .fields
                     .iter()
                     .find(|(f, _)| f == n)
                     .map(|(_, t)| t.clone())
@@ -619,7 +614,7 @@ impl Lower<'_> {
     pub(super) fn class_method(
         &mut self,
         base: &Expr,
-        class: Rc<ClassType>,
+        class: crate::nominal::Nominal<ClassType>,
         name: &str,
         types: Option<&[TypeRef]>,
         args: &[Expr],
@@ -729,8 +724,13 @@ impl Lower<'_> {
     }
 }
 
-pub(super) fn field_index(class: &ClassType, name: &str, at: &Token) -> Result<usize> {
+pub(super) fn field_index(
+    class: &crate::nominal::Nominal<ClassType>,
+    name: &str,
+    at: &Token,
+) -> Result<usize> {
     class
+        .get()
         .fields
         .iter()
         .position(|(n, _)| n == name)

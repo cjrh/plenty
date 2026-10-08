@@ -54,11 +54,12 @@ escaping references.
 
 Every class instance moves on assignment and owned argument passing, including
 records containing only integers. `copy(instance)` recursively duplicates owned
-fields, but is rejected if the class or any nested value has custom destruction.
+fields, but is rejected for recursive data or if any nested value has custom destruction.
 Field reads copy immutable values; owned fields must be observed, explicitly
 copied, or borrowed. Partial moves out of classes are deferred. Structural
 equality compares the nominal type and field values; printing produces
-`Point(x=3, y=4)`. These operations do not invoke user-defined magic methods.
+`Point(x=3, y=4)`. Automatic equality and formatting reject recursive data.
+These operations do not invoke user-defined magic methods.
 
 `&point.x` and `&mut point.x` borrow stable field slots, including nested
 class fields. Loans record field-index paths from the root: different sibling
@@ -71,11 +72,11 @@ a named field instead. This also prevents a destructor from replacing its dying
 receiver through an alias.
 
 Fields may contain classes, enums, and collections, but not references,
-generators, or unit. Acyclic forward declarations and aliases are supported;
-recursive layouts remain rejected. Methods become statically resolved native
+generators, or unit. Forward declarations, aliases, and
+[recursive owners](30-recursive-data.md) are supported. Methods become statically resolved native
 functions. Class instances currently use one owned heap allocation with a runtime
 header, concrete type metadata, an optional destructor adapter, and typed field
 slots. Slots use 16 bytes, with 32 additional inline bytes for ranges or standard
 sums containing ranges. This representation favors simple lowering and fast compilation; it is not
-a public FFI layout guarantee. The compiler caches nesting, copyability, and
-destructor flags on nominal metadata.
+a public FFI layout guarantee. The compiler caches complete graph properties;
+recursive nominal boundaries keep physical layouts finite.

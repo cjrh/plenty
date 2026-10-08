@@ -43,7 +43,7 @@ impl Declaration {
         let Ty::Enum(t) = &sig.outputs[0] else {
             unreachable!("checked C-string result")
         };
-        let payload = &t.variants[0].fields[0];
+        let payload = &t.local().variants[0].fields[0];
         (payload != &Ty::Unit).then_some(payload)
     }
 }

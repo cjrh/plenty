@@ -120,12 +120,21 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         Ty::Range(t) => (Some("range".into()), vec![t]),
         Ty::Generator(t) => (Some("Generator".into()), vec![&t.element]),
         Ty::Ref(t, mutable) => (Some(if *mutable { "&mut" } else { "&" }.into()), vec![t]),
-        Ty::Enum(t) if t.is_option() => (Some("Option".into()), vec![&t.variants[1].fields[0]]),
+        Ty::Enum(t) if t.is_option() => (
+            Some("Option".into()),
+            vec![&t.local().variants[1].fields[0]],
+        ),
         Ty::Enum(t) if t.propagatable() => (
             Some("Result".into()),
-            vec![&t.variants[0].fields[0], &t.variants[1].fields[0]],
+            vec![
+                &t.local().variants[0].fields[0],
+                &t.local().variants[1].fields[0],
+            ],
         ),
-        Ty::Enum(t) if t.tuple() => (Some("tuple".into()), t.variants[0].fields.iter().collect()),
+        Ty::Enum(t) if t.tuple() => (
+            Some("tuple".into()),
+            t.local().variants[0].fields.iter().collect(),
+        ),
         _ => (Some(ty.to_string()), vec![]),
     };
     TypeRef {
@@ -222,11 +231,16 @@ fn infer(
         (Some("Generator"), Ty::Generator(t)) => Some(vec![&t.element]),
         (Some("dict"), Ty::Dict(k, v)) => Some(vec![k, v]),
         (Some("&"), Ty::Ref(t, false)) | (Some("&mut"), Ty::Ref(t, true)) => Some(vec![t]),
-        (Some("Option"), Ty::Enum(t)) if t.is_option() => Some(vec![&t.variants[1].fields[0]]),
-        (Some("Result"), Ty::Enum(t)) if t.propagatable() && !t.is_option() => {
-            Some(vec![&t.variants[0].fields[0], &t.variants[1].fields[0]])
+        (Some("Option"), Ty::Enum(t)) if t.is_option() => {
+            Some(vec![&t.local().variants[1].fields[0]])
         }
-        (Some("tuple"), Ty::Enum(t)) if t.tuple() => Some(t.variants[0].fields.iter().collect()),
+        (Some("Result"), Ty::Enum(t)) if t.propagatable() && !t.is_option() => Some(vec![
+            &t.local().variants[0].fields[0],
+            &t.local().variants[1].fields[0],
+        ]),
+        (Some("tuple"), Ty::Enum(t)) if t.tuple() => {
+            Some(t.local().variants[0].fields.iter().collect())
+        }
         _ => None,
     };
     let Some(children) = children.filter(|c| c.len() == pattern.args.len()) else {

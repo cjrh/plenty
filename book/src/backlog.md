@@ -43,19 +43,14 @@ Metadata is static, and counts synchronize last-release cleanup, including inlin
 frames. Concurrent stress tests cover the handoff. Public threads, effect/eligibility
 checking, channels, and executors remain separate follow-on work under B22.
 
-**Next: B10, recursive data types.** The [representation design](proposals/recursive-data.md)
-uses existing heap records as indirection, preserves fallible constructors and
-inline standard sums, and requires a compilation-owned nominal definition table.
-Implement stable identities and component property analysis before accepting
-source recursion. Validate allocation-free deep destruction; explicitly gate
-automatic operations whose runtime traversal is still recursive. Recursive source
-declarations remain unsupported until these pieces are connected.
-Dependency diagnostics now distinguish alias cycles from recursive data, show the
-actual cycle, and bound long messages. Native compiler tests cover a 5,000-alias
-chain, cycle closure, shared dependencies, and generic parameter shadowing.
-The runtime now has direct recursive-descriptor acceptance tests: a 100,000-node
-owned chain drops on a 64 KiB worker stack with allocation disabled, and failed
-parent allocation preserves the child owner until its caller cleans it up.
+**In progress: B10, recursive data types.** Source classes, enums, aliases, and
+finite generic instances now resolve through a compilation-owned definition table.
+Native tests cover construction, consuming matches, borrowing/moves, failed
+construction, and allocation-free replacement. Class and enum chains of 100,000
+nodes each drop with allocation disabled on a 256 KiB stack. Automatic deep copy,
+equality, and formatting are explicitly gated. The remaining acceptance work is
+the runnable learning guide and cross-module examples. See the
+[implemented contract](design/30-recursive-data.md).
 
 Named function values already support basic callback registries: a
 `list[Callable[[i64], i64]]` can hold named functions, including inside a class,
@@ -101,7 +96,7 @@ is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B10 | Recursive data types | Representation design, dependency diagnostics, and runtime deep-drop checks are complete. Connect stable nominal identities and component analysis before enabling recursive declarations; gate unsupported automatic traversals. [Recursive-data design](proposals/recursive-data.md). |
+| B10 | Recursive data types | Source implementation and native lifecycle checks complete; finish the runnable guide and cross-module acceptance coverage. [Reference](design/30-recursive-data.md). |
 | B11 | Broader borrowing | Stored references, relationships among multiple reference parameters, and more precise collection loans. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
 | B12 | Practical I/O and iteration | Fallible file iteration, explicit binary buffers and read/write, buffering, and reusable iterator/view protocols. Follow familiar Python conventions where they fit ownership and Result-based errors. |
 | B13 | Public allocator control | Global/default and per-container selection, allocator state/lifetimes, and buffer provenance. Internal object allocator identity already exists. Consider bounded/inline-capacity storage separately. [Memory design](proposals/memory-parallelism-and-simd.md). |

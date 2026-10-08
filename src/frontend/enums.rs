@@ -1,5 +1,5 @@
 use super::*;
-use crate::sum::{EnumOp, EnumType, Variant};
+use crate::sum::EnumOp;
 
 #[derive(Clone)]
 pub(super) struct EnumDecl {
@@ -111,8 +111,8 @@ impl Parser {
     }
 }
 
-/// Resolve aliases and enum fields in one acyclic dependency graph. Each name
-/// finishes once; an explicit work list also handles long alias chains.
+/// Reserve nominal identities before resolving transparent aliases. Definitions
+/// are finalized from a work queue after every alias is available.
 pub(super) fn resolve_types(
     aliases: &[TypeAlias],
     enums: &[EnumDecl],
@@ -145,20 +145,6 @@ pub(super) fn resolve_types(
                 Self::Class(c) => c.fields.iter().map(|(_, t)| t).collect(),
             }
         }
-        fn generic(&self) -> bool {
-            match self {
-                Self::Enum(e) => !e.type_params.is_empty(),
-                Self::Class(c) => !c.type_params.is_empty(),
-                Self::Alias(_) => false,
-            }
-        }
-        fn parameter(&self, name: &str) -> bool {
-            match self {
-                Self::Enum(e) => e.type_params.iter().any(|(n, _)| n == name),
-                Self::Class(c) => c.type_params.iter().any(|(n, _)| n == name),
-                Self::Alias(_) => false,
-            }
-        }
     }
     let declarations: Vec<_> = aliases
         .iter()
@@ -181,10 +167,29 @@ pub(super) fn resolve_types(
         }
     }
     let mut resolved = TypeAliases::with_data(enums, classes)?;
+    for declaration in &declarations {
+        let generic = match declaration {
+            Decl::Alias(_) => continue,
+            Decl::Enum(e) => !e.type_params.is_empty(),
+            Decl::Class(c) => !c.type_params.is_empty(),
+        };
+        if !generic {
+            let ty = resolved.instantiate(&TypeRef {
+                concrete: None,
+                at: declaration.at().clone(),
+                name: Some(declaration.name().into()),
+                args: vec![],
+            })?;
+            resolved.insert(declaration.name().into(), Some(ty));
+        }
+    }
     let mut active = HashSet::new();
     let mut path = Vec::new();
     let mut completed = HashSet::new();
     for root in 0..declarations.len() {
+        if !matches!(declarations[root], Decl::Alias(_)) {
+            continue;
+        }
         let mut work = vec![(root, false)];
         while let Some((i, finish)) = work.pop() {
             let declaration = &declarations[i];
@@ -196,54 +201,10 @@ pub(super) fn resolve_types(
                 completed.insert(i);
                 active.remove(&i);
                 debug_assert_eq!(path.pop(), Some(i));
-                if declaration.generic() {
-                    continue;
-                }
-                let ty = match declaration {
-                    Decl::Alias(a) => a.target.resolve(&resolved)?,
-                    Decl::Class(c) => Some(c.resolve(&resolved)?),
-                    Decl::Enum(e) => {
-                        let variants = e
-                            .variants
-                            .iter()
-                            .map(|(name, fields)| {
-                                let fields = fields
-                                    .iter()
-                                    .map(|field| Ok(field.resolve(&resolved)?.unwrap_or(Ty::Unit)))
-                                    .collect::<Result<Vec<_>>>()?;
-                                if fields.iter().any(Ty::restricted_storage) {
-                                    return Err(e
-                                        .at
-                                        .error("generators cannot be stored in enum payloads"));
-                                }
-                                Ok(Variant {
-                                    name: name.clone(),
-                                    fields,
-                                })
-                            })
-                            .collect::<Result<Vec<_>>>()?;
-                        Some(Ty::Enum(Rc::new(EnumType {
-                            restricted_storage: false,
-                            name: e.name.clone(),
-                            managed: true,
-                            inline_range: false,
-                            payload_bytes: std::cell::OnceCell::new(),
-                            affine: variants.iter().flat_map(|v| &v.fields).any(Ty::affine),
-                            copyable: variants.iter().flat_map(|v| &v.fields).all(Ty::can_copy),
-                            has_destructor: variants
-                                .iter()
-                                .flat_map(|v| &v.fields)
-                                .any(Ty::has_destructor),
-                            depth: 1 + variants
-                                .iter()
-                                .flat_map(|v: &Variant| &v.fields)
-                                .map(Ty::layout_depth)
-                                .max()
-                                .unwrap_or(0),
-                            variants,
-                        })))
-                    }
+                let Decl::Alias(alias) = declaration else {
+                    unreachable!()
                 };
+                let ty = alias.target.resolve(&resolved)?;
                 if ty.as_ref().is_some_and(|t| t.layout_depth() > 64) {
                     return Err(declaration
                         .at()
@@ -255,9 +216,6 @@ pub(super) fn resolve_types(
             if !active.insert(i) {
                 let start = path.iter().position(|&node| node == i).unwrap();
                 let cycle = &path[start..];
-                let aliases_only = cycle
-                    .iter()
-                    .all(|&node| matches!(declarations[node], Decl::Alias(_)));
                 let mut steps: Vec<_> = cycle
                     .iter()
                     .take(16)
@@ -267,14 +225,9 @@ pub(super) fn resolve_types(
                     steps.push(format!("... ({} declarations omitted)", cycle.len() - 16));
                 }
                 steps.push(name.to_owned());
-                let reason = if aliases_only {
-                    "cyclic type alias"
-                } else {
-                    "recursive data declarations are not supported yet"
-                };
                 return Err(declaration
                     .at()
-                    .error(format!("{reason}: {}", steps.join(" -> "))));
+                    .error(format!("cyclic type alias: {}", steps.join(" -> "))));
             }
             path.push(i);
             work.push((i, true));
@@ -282,11 +235,9 @@ pub(super) fn resolve_types(
             while let Some(t) = refs.pop() {
                 refs.extend(&t.args);
                 if let Some(name) = &t.name {
-                    if declaration.parameter(name) {
-                        continue;
-                    }
                     if let Some(&dep) = names.get(name.as_str()) {
-                        if !completed.contains(&dep) {
+                        if matches!(declarations[dep], Decl::Alias(_)) && !completed.contains(&dep)
+                        {
                             work.push((dep, false));
                         }
                     }
@@ -294,6 +245,7 @@ pub(super) fn resolve_types(
             }
         }
     }
+    resolved.finish_types()?;
     Ok(resolved)
 }
 
@@ -376,15 +328,16 @@ impl Lower<'_> {
         let Ty::Enum(mut t) = ty else {
             return Err(at.error("variant qualification requires an enum type"));
         };
-        if !t.inline() && t.depth >= 64 {
+        if !t.inline() && Ty::Enum(t.clone()).layout_depth() >= 64 {
             return Err(at.error("type nesting exceeds the implementation limit of 64"));
         }
         let tag = t
+            .get()
             .variants
             .iter()
             .position(|v| v.name == name)
             .ok_or_else(|| at.error(format!("unknown variant `{}.{name}`", t.name)))?;
-        let fields = t.variants[tag].fields.clone();
+        let fields = t.get().variants[tag].fields.clone();
         if fields.is_empty() && args.is_some() {
             return Err(at.error("nullary variants do not take parentheses"));
         }
@@ -407,9 +360,9 @@ impl Lower<'_> {
                 let updated = if t.is_option() {
                     crate::sum::option(resolved)
                 } else if tag == 0 {
-                    crate::sum::result(resolved, t.variants[1].fields[0].clone())
+                    crate::sum::result(resolved, t.get().variants[1].fields[0].clone())
                 } else {
-                    crate::sum::result(t.variants[0].fields[0].clone(), resolved)
+                    crate::sum::result(t.get().variants[0].fields[0].clone(), resolved)
                 };
                 let Ty::Enum(updated) = updated else {
                     unreachable!()
@@ -453,7 +406,7 @@ impl Lower<'_> {
         let mut arms = Vec::new();
         let mut joined: Option<Type> = None;
         for case in cases {
-            if wildcard || covered.len() == t.variants.len() {
+            if wildcard || covered.len() == t.get().variants.len() {
                 return Err(case.at.error("unreachable case"));
             }
             self.names = saved.clone();
@@ -473,6 +426,7 @@ impl Lower<'_> {
                     )));
                 }
                 let tag = t
+                    .get()
                     .variants
                     .iter()
                     .position(|v| &v.name == name)
@@ -480,7 +434,7 @@ impl Lower<'_> {
                 if !covered.insert(tag) {
                     return Err(case.at.error("duplicate variant case"));
                 }
-                let fields = &t.variants[tag].fields;
+                let fields = &t.get().variants[tag].fields;
                 if bindings.as_ref().map_or(0, Vec::len) != fields.len()
                     || (fields.is_empty() && bindings.is_some())
                 {
@@ -550,8 +504,9 @@ impl Lower<'_> {
             });
         }
         self.names = saved;
-        if !wildcard && covered.len() != t.variants.len() {
+        if !wildcard && covered.len() != t.get().variants.len() {
             let missing = t
+                .get()
                 .variants
                 .iter()
                 .enumerate()

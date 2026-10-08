@@ -18,7 +18,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// declared on the surface rather than hidden behind a polymorphic "Int".
 /// Collections, enums, and generators carry resolved concrete type metadata;
 /// generic functions are specialized before native lowering.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     Closure(Rc<crate::closure::ClosureType>),
     Callable(Rc<CallableSig>),
@@ -43,8 +43,8 @@ pub enum Ty {
     Set(Rc<Ty>),
     Dict(Rc<Ty>, Rc<Ty>),
     Range(Rc<Ty>),
-    Enum(Rc<crate::sum::EnumType>),
-    Class(Rc<crate::record::ClassType>),
+    Enum(crate::nominal::Nominal<crate::sum::EnumType>),
+    Class(crate::nominal::Nominal<crate::record::ClassType>),
     Generator(Rc<crate::generator::GeneratorType>),
     Ref(Rc<Ty>, bool),
 }
@@ -53,7 +53,8 @@ impl Ty {
     /// Range payloads also occur inside standard sums. Tags remain in the
     /// ordinary 128-bit representation; slot_bytes includes owner-local payloads.
     pub fn has_inline_range(&self) -> bool {
-        matches!(self, Self::Range(_)) || matches!(self, Self::Enum(t) if t.inline_range)
+        matches!(self, Self::Range(_))
+            || matches!(self, Self::Enum(t) if t.inline() && t.get().inline_range)
     }
     pub fn slot_bytes(&self) -> usize {
         16 + self.inline_bytes()
@@ -82,8 +83,7 @@ impl Ty {
             Self::List(t) | Self::Set(t) => 1 + t.layout_depth(),
             Self::Generator(t) => 1 + t.element.layout_depth(),
             Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
-            Self::Enum(t) => t.depth,
-            Self::Class(t) => t.depth,
+            Self::Enum(_) | Self::Class(_) => self.facts().depth,
             _ => 0,
         }
     }
@@ -97,12 +97,12 @@ impl Ty {
                 | Self::Generator(_)
                 | Self::Class(_)
                 | Self::File
-        ) || matches!(self, Self::Enum(t) if t.affine)
+        ) || matches!(self, Self::Enum(_) if self.facts().affine)
     }
     pub fn restricted_storage(&self) -> bool {
         match self {
             Self::Generator(_) | Self::Closure(_) | Self::Ref(..) => true,
-            Self::Enum(t) => t.restricted_storage,
+            Self::Enum(t) => t.try_get().is_some_and(|t| t.restricted_storage),
             _ => false,
         }
     }
@@ -119,8 +119,10 @@ impl Ty {
         while let Some(ty) = work.pop() {
             match ty {
                 Self::Generator(_) => return true,
-                Self::Enum(t) if t.restricted_storage && seen.insert((0, t.name.as_str())) => {
-                    work.extend(t.variants.iter().flat_map(|v| &v.fields));
+                Self::Enum(t)
+                    if t.get().restricted_storage && seen.insert((0, t.name.as_str())) =>
+                {
+                    work.extend(t.local().variants.iter().flat_map(|v| &v.fields));
                 }
                 Self::Closure(t) if inspect_captures && seen.insert((1, t.name.as_str())) => {
                     work.extend(t.captures.iter().map(|(_, t)| t));
@@ -135,31 +137,17 @@ impl Ty {
         matches!(self, Self::Ref(..)) || matches!(self, Self::Closure(t) if t.borrowed)
     }
     pub fn can_copy(&self) -> bool {
-        match self {
-            Self::Generator(_) | Self::Closure(_) | Self::Ref(..) | Self::File => false,
-            Self::Class(t) => t.copyable,
-            Self::Enum(t) => t.copyable,
-            Self::List(t) | Self::Set(t) => t.can_copy(),
-            Self::Dict(k, v) => k.can_copy() && v.can_copy(),
-            _ => true,
-        }
+        self.facts().copyable
     }
     pub fn has_destructor(&self) -> bool {
-        match self {
-            Self::Generator(_) | Self::Closure(_) | Self::File => true,
-            Self::Class(t) => t.has_destructor,
-            Self::Enum(t) => t.has_destructor,
-            Self::List(t) | Self::Set(t) => t.has_destructor(),
-            Self::Dict(k, v) => k.has_destructor() || v.has_destructor(),
-            _ => false,
-        }
+        self.facts().destructor
     }
     /// Values requiring cleanup have one owner per operand/local. This includes
     /// inline generators as well as heap-backed values; scalars copy as bits.
     pub fn managed(&self) -> bool {
         if let Self::Enum(t) = self {
             if t.inline() {
-                return t.managed;
+                return t.get().managed;
             }
         }
         matches!(
@@ -339,8 +327,8 @@ pub enum Op {
     TailCallIndirect(Rc<CallableSig>),
     /// Unwrap a standard sum or return its residual, releasing pending operands.
     Try {
-        source: Rc<crate::sum::EnumType>,
-        target: Rc<crate::sum::EnumType>,
+        source: crate::nominal::Nominal<crate::sum::EnumType>,
+        target: crate::nominal::Nominal<crate::sum::EnumType>,
         cleanup: Rc<[Op]>,
     },
     Class(crate::record::ClassOp),
@@ -1238,14 +1226,14 @@ fn step(
                 || source.is_option() != target.is_option()
                 || (!source.is_option()
                     && !target.discards_error()
-                    && source.variants[1].fields != target.variants[1].fields)
+                    && source.get().variants[1].fields != target.get().variants[1].fields)
                 || yield_ty.is_some()
                 || returns != Some(&[Ty::Enum(target.clone())][..])
                 || stack.pop() != Some(Ty::Enum(source.clone()))
             {
                 return Err("invalid Result/Option propagation".into());
             }
-            stack.push(source.variants[usize::from(source.is_option())].fields[0].clone());
+            stack.push(source.get().variants[usize::from(source.is_option())].fields[0].clone());
         }
         Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
         Op::BorrowLocal(i, mutable) => {

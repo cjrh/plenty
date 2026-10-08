@@ -25,34 +25,37 @@ fn define(
 fn word(bytes: &mut [u8], offset: usize, value: usize) {
     bytes[offset..offset + 8].copy_from_slice(&(value as u64).to_ne_bytes());
 }
-#[expect(
-    clippy::mutable_key_type,
-    reason = "generator layout caches never participate in type equality or hashing"
-)]
-fn reflexive(ty: &Ty, seen: &mut std::collections::HashSet<Ty>) -> bool {
-    if !seen.insert(ty.clone()) {
-        return true;
+pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> Result<DataId> {
+    let mut pending = Vec::new();
+    let root = reserve(module, runtime, ty, &mut pending)?;
+    while let Some(ty) = pending.pop() {
+        define_type(module, runtime, &ty, &mut pending)?;
     }
-    match ty {
-        Ty::F32 | Ty::F64 => false,
-        Ty::Enum(t) => t
-            .variants
-            .iter()
-            .flat_map(|v| &v.fields)
-            .all(|t| reflexive(t, seen)),
-        Ty::Class(t) => t.fields.iter().all(|(_, t)| reflexive(t, seen)),
-        Ty::List(t) | Ty::Set(t) => reflexive(t, seen),
-        Ty::Dict(k, v) => reflexive(k, seen) && reflexive(v, seen),
-        _ => true,
-    }
+    Ok(root)
 }
 
-pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> Result<DataId> {
+fn reserve(
+    module: &mut ObjectModule,
+    runtime: &Runtime,
+    ty: &Ty,
+    pending: &mut Vec<Ty>,
+) -> Result<DataId> {
     if let Some(id) = runtime.type_data.borrow().get(ty) {
         return Ok(*id);
     }
     let id = module.declare_anonymous_data(false, false)?;
     runtime.type_data.borrow_mut().insert(ty.clone(), id);
+    pending.push(ty.clone());
+    Ok(id)
+}
+
+fn define_type(
+    module: &mut ObjectModule,
+    runtime: &Runtime,
+    ty: &Ty,
+    pending: &mut Vec<Ty>,
+) -> Result<()> {
+    let id = runtime.type_data.borrow()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
     let mut bytes = vec![0; 56];
     bytes[0] = match ty {
@@ -88,18 +91,30 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
         Ty::Ref(..) => b'v',
     };
     bytes[1] = u8::from(ty.affine());
-    bytes[2] = u8::from(reflexive(ty, &mut Default::default()));
+    bytes[2] = u8::from(ty.facts().reflexive);
     bytes[3] = u8::from(ty.has_inline_range());
     bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());
     let mut links = Vec::new();
     match ty {
-        Ty::List(t) | Ty::Set(t) | Ty::Range(t) => links.push((8, declare(module, runtime, t)?)),
+        Ty::List(t) | Ty::Set(t) | Ty::Range(t) => {
+            links.push((8, reserve(module, runtime, t, pending)?))
+        }
         Ty::Dict(k, v) => {
-            links.push((8, declare(module, runtime, k)?));
-            links.push((16, declare(module, runtime, v)?));
+            links.push((8, reserve(module, runtime, k, pending)?));
+            links.push((16, reserve(module, runtime, v, pending)?));
         }
         _ => {}
     }
+    let enum_definition = if let Ty::Enum(t) = ty {
+        Some(t.get())
+    } else {
+        None
+    };
+    let class_definition = if let Ty::Class(t) = ty {
+        Some(t.get())
+    } else {
+        None
+    };
     let (name, variants): (&str, Vec<(&str, Vec<&Ty>)>) = match ty {
         Ty::Closure(t) => (
             &t.name,
@@ -107,14 +122,20 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
         ),
         Ty::Enum(t) => (
             &t.name,
-            t.variants
+            enum_definition
+                .as_ref()
+                .unwrap()
+                .variants
                 .iter()
                 .map(|v| (v.name.as_str(), v.fields.iter().collect()))
                 .collect(),
         ),
         Ty::Class(t) => (
             &t.name,
-            t.fields
+            class_definition
+                .as_ref()
+                .unwrap()
+                .fields
                 .iter()
                 .map(|(n, t)| (n.as_str(), vec![t]))
                 .collect(),
@@ -130,7 +151,7 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
         word(&mut entries, i * 32 + 8, name.len());
         let mut field_links = Vec::new();
         for (j, ty) in fields.iter().enumerate() {
-            field_links.push((j * 8, declare(module, runtime, ty)?));
+            field_links.push((j * 8, reserve(module, runtime, ty, pending)?));
         }
         variant_links.push((
             i * 32 + 16,
@@ -140,6 +161,5 @@ pub(super) fn declare(module: &mut ObjectModule, runtime: &Runtime, ty: &Ty) -> 
     }
     links.push((40, blob(module, entries, &variant_links)?));
     word(&mut bytes, 48, variants.len());
-    define(module, id, bytes, &links)?;
-    Ok(id)
+    define(module, id, bytes, &links)
 }

@@ -1,6 +1,6 @@
 //! Demand-driven concrete data types. Specializations share nominal identities.
 use super::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Clone, Default)]
@@ -17,7 +17,17 @@ pub(super) struct DataTypes {
     named: RefCell<HashMap<String, Ty>>,
     arguments: RefCell<HashMap<String, (String, Vec<Ty>)>>,
     pending: RefCell<Vec<classes::ClassDecl>>,
-    active: RefCell<Vec<String>>,
+    definitions: Rc<crate::nominal::Types>,
+    pending_types: RefCell<std::collections::VecDeque<DefinitionJob>>,
+    deferred: Cell<bool>,
+    depth: Cell<usize>,
+}
+
+struct DefinitionJob {
+    name: String,
+    actual: Vec<Ty>,
+    at: Token,
+    depth: usize,
 }
 
 impl Deref for TypeAliases {
@@ -51,7 +61,11 @@ impl DataTypes {
     }
 
     pub(super) fn factories(&self) -> Vec<Function> {
-        let mut classes: Vec<_> = self.classes.values().collect();
+        let mut classes: Vec<_> = self
+            .classes
+            .values()
+            .filter(|c| !c.type_params.is_empty())
+            .collect();
         classes.sort_by(|a, b| a.name.cmp(&b.name));
         classes
             .into_iter()
@@ -118,6 +132,9 @@ impl TypeAliases {
             data: Rc::new(DataTypes {
                 enums: self.data.enums.clone(),
                 classes: self.data.classes.clone(),
+                instances: self.data.instances.clone(),
+                named: self.data.named.clone(),
+                arguments: self.data.arguments.clone(),
                 ..DataTypes::default()
             }),
         }
@@ -127,11 +144,12 @@ impl TypeAliases {
         classes: &[classes::ClassDecl],
     ) -> Result<Self> {
         let mut data = DataTypes::default();
-        for e in enums.iter().filter(|e| !e.type_params.is_empty()) {
+        data.deferred.set(true);
+        for e in enums {
             validate_parameters(&e.name, &e.type_params, &e.at)?;
             data.enums.insert(e.name.clone(), e.clone());
         }
-        for c in classes.iter().filter(|c| !c.type_params.is_empty()) {
+        for c in classes {
             validate_parameters(&c.name, &c.type_params, &c.at)?;
             data.classes.insert(c.name.clone(), c.clone());
         }
@@ -180,74 +198,45 @@ impl TypeAliases {
         if let Some(ty) = self.data.instances.borrow().get(&key) {
             return Ok(ty.clone());
         }
-        if self.data.instances.borrow().len() + self.data.active.borrow().len() >= 256 {
+        if !actual.is_empty()
+            && self
+                .data
+                .instances
+                .borrow()
+                .keys()
+                .filter(|(_, args)| !args.is_empty())
+                .count()
+                >= 256
+        {
             return Err(application
                 .at
                 .error("generic data specialization limit of 256 exceeded"));
         }
-        if self.data.active.borrow().len() >= 64 || self.data.active.borrow().contains(name) {
+        if self.data.depth.get() >= 64 {
             return Err(application.at.error("recursive generic data type or type nesting exceeds the implementation limit of 64"));
         }
-        let concrete_name = format!(
-            "{name}[{}]",
-            actual
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        let concrete_name = if actual.is_empty() {
+            name.clone()
+        } else {
+            format!(
+                "{name}[{}]",
+                actual
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
         if concrete_name.len() > 16_384 {
             return Err(application
                 .at
                 .error("concrete type name exceeds the implementation limit"));
         }
-        let substitutions = params
-            .iter()
-            .map(|(n, _)| n.clone())
-            .zip(
-                actual
-                    .iter()
-                    .map(|t| generics::type_ref(t, &application.at)),
-            )
-            .collect();
-        self.data.active.borrow_mut().push(name.clone());
-        let result: Result<(Ty, Option<classes::ClassDecl>)> = (|| {
-            if let Some(template) = self.data.enums.get(name) {
-                let mut declaration = template.clone();
-                declaration.name = concrete_name.clone();
-                declaration.type_params.clear();
-                for (_, fields) in &mut declaration.variants {
-                    for field in fields {
-                        generics::substitute(field, &substitutions)?;
-                    }
-                }
-                Ok((self.resolve_enum(&declaration)?, None))
-            } else {
-                let mut declaration = self.data.classes[name].clone();
-                declaration.name = concrete_name.clone();
-                declaration.type_params.clear();
-                for (_, field) in &mut declaration.fields {
-                    generics::substitute(field, &substitutions)?;
-                }
-                for method in &mut declaration.methods {
-                    for bound in method
-                        .type_params
-                        .iter_mut()
-                        .filter_map(|(_, b)| b.as_mut())
-                    {
-                        generics::substitute(bound, &substitutions)?;
-                    }
-                    for (_, ty) in &mut method.inputs {
-                        generics::substitute(ty, &substitutions)?;
-                    }
-                    generics::substitute(&mut method.output, &substitutions)?;
-                    generics::substitute_block(&mut method.body, &substitutions)?;
-                }
-                Ok((declaration.resolve(self)?, Some(declaration)))
-            }
-        })();
-        self.data.active.borrow_mut().pop();
-        let (ty, class): (Ty, Option<classes::ClassDecl>) = result?;
+        let ty = if self.data.enums.contains_key(name) {
+            Ty::Enum(self.data.definitions.enumeration(&concrete_name))
+        } else {
+            Ty::Class(self.data.definitions.class(&concrete_name))
+        };
         self.data
             .arguments
             .borrow_mut()
@@ -257,10 +246,109 @@ impl TypeAliases {
             .named
             .borrow_mut()
             .insert(concrete_name, ty.clone());
-        if let Some(class) = class {
-            self.data.pending.borrow_mut().push(class);
+        self.data
+            .pending_types
+            .borrow_mut()
+            .push_back(DefinitionJob {
+                name: name.clone(),
+                actual,
+                at: application.at.clone(),
+                depth: self.data.depth.get() + 1,
+            });
+        if !self.data.deferred.get() {
+            self.finish_types()?;
         }
         Ok(ty)
+    }
+
+    pub(super) fn finish_types(&self) -> Result<()> {
+        self.data.deferred.set(true);
+        let result = (|| {
+            loop {
+                let next = self.data.pending_types.borrow_mut().pop_front();
+                let Some(DefinitionJob {
+                    name,
+                    actual,
+                    at,
+                    depth,
+                }) = next
+                else {
+                    break;
+                };
+                self.data.depth.set(depth);
+                let ty = self.data.instances.borrow()[&(name.clone(), actual.clone())].clone();
+                let concrete_name = ty.to_string();
+                let params = if let Some(e) = self.data.enums.get(&name) {
+                    &e.type_params
+                } else {
+                    &self.data.classes[&name].type_params
+                };
+                let substitutions = params
+                    .iter()
+                    .map(|(n, _)| n.clone())
+                    .zip(actual.iter().map(|t| generics::type_ref(t, &at)))
+                    .collect();
+                let result: Result<(Ty, Option<classes::ClassDecl>)> = (|| {
+                    if let Some(template) = self.data.enums.get(&name) {
+                        let mut declaration = template.clone();
+                        declaration.name = concrete_name.clone();
+                        declaration.type_params.clear();
+                        for (_, fields) in &mut declaration.variants {
+                            for field in fields {
+                                generics::substitute(field, &substitutions)?;
+                            }
+                        }
+                        Ok((self.resolve_enum(&declaration)?, None))
+                    } else {
+                        let mut declaration = self.data.classes[&name].clone();
+                        declaration.name = concrete_name.clone();
+                        declaration.type_params.clear();
+                        for (_, field) in &mut declaration.fields {
+                            generics::substitute(field, &substitutions)?;
+                        }
+                        for method in &mut declaration.methods {
+                            for bound in method
+                                .type_params
+                                .iter_mut()
+                                .filter_map(|(_, b)| b.as_mut())
+                            {
+                                generics::substitute(bound, &substitutions)?;
+                            }
+                            for (_, ty) in &mut method.inputs {
+                                generics::substitute(ty, &substitutions)?;
+                            }
+                            generics::substitute(&mut method.output, &substitutions)?;
+                            generics::substitute_block(&mut method.body, &substitutions)?;
+                        }
+                        Ok((declaration.resolve(self)?, Some(declaration)))
+                    }
+                })();
+                let (definition, class): (Ty, Option<classes::ClassDecl>) = result?;
+                match (&ty, definition) {
+                    (Ty::Class(t), Ty::Class(value)) => t.define((*value.get()).clone()),
+                    (Ty::Enum(t), Ty::Enum(value)) => t.define((*value.get()).clone()),
+                    _ => unreachable!(),
+                }
+                if let Some(class) = class.filter(|_| !params.is_empty()) {
+                    self.data.pending.borrow_mut().push(class);
+                }
+            }
+            for ((name, _), ty) in self.data.instances.borrow().iter() {
+                if ty.layout_depth() > 64 {
+                    let at = self
+                        .data
+                        .enums
+                        .get(name)
+                        .map(|d| &d.at)
+                        .unwrap_or_else(|| &self.data.classes[name].at);
+                    return Err(at.error("type nesting exceeds the implementation limit of 64"));
+                }
+            }
+            Ok(())
+        })();
+        self.data.deferred.set(false);
+        self.data.depth.set(0);
+        result
     }
 
     fn resolve_enum(&self, declaration: &enums::EnumDecl) -> Result<Ty> {
@@ -294,21 +382,17 @@ impl TypeAliases {
                 .at
                 .error("type nesting exceeds the implementation limit of 64"));
         }
-        Ok(Ty::Enum(Rc::new(crate::sum::EnumType {
-            name: declaration.name.clone(),
-            depth,
-            affine: variants.iter().flat_map(|v| &v.fields).any(Ty::affine),
-            copyable: variants.iter().flat_map(|v| &v.fields).all(Ty::can_copy),
-            has_destructor: variants
-                .iter()
-                .flat_map(|v| &v.fields)
-                .any(Ty::has_destructor),
-            variants,
-            restricted_storage: false,
-            managed: true,
-            inline_range: false,
-            payload_bytes: std::cell::OnceCell::new(),
-        })))
+        Ok(Ty::Enum(crate::nominal::Nominal::new(
+            crate::sum::EnumType {
+                name: declaration.name.clone(),
+                facts: std::cell::OnceCell::new(),
+                variants,
+                restricted_storage: false,
+                managed: true,
+                inline_range: false,
+                payload_bytes: std::cell::OnceCell::new(),
+            },
+        )))
     }
 }
 

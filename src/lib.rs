@@ -16,11 +16,13 @@ mod generator;
 mod lexer;
 mod library;
 mod library_metadata;
+mod nominal;
 mod op;
 mod ownership;
 mod record;
 mod sum;
 mod toolchain;
+mod type_facts;
 mod value;
 
 pub use codegen::{

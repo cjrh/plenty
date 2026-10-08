@@ -15,7 +15,11 @@ and lowering. It emits operations directly, never translated legacy source.
 The parser retains type references with source positions. Before collecting
 signatures, the frontend resolves aliases with an iterative dependency walk,
 including references inside collection arguments, and caches each concrete
-result. Cycles are rejected without Rust recursion on long alias chains. All signatures and annotations normalize to existing `Ty`
+result. Alias-only cycles are rejected without Rust recursion on long alias chains.
+Nominal definitions reserve identities before resolving fields; weak stored edges
+and table-owning handles support [recursive types](30-recursive-data.md) without
+compiler memory cycles. Type facts and native metadata use finite graph walks.
+All signatures and annotations normalize to existing `Ty`
 values before the backend runs. The frontend returns operations only; aliases
 produce no runtime operations or persistent session state.
 `op.rs` remains a backend-neutral operation IR and an independent type checker.

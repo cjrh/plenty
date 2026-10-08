@@ -92,7 +92,7 @@ impl Lower<'_> {
         if !t.tuple() {
             return Err(value.at.error("unpacking requires a tuple"));
         }
-        let fields = &t.variants[0].fields;
+        let fields = &t.get().variants[0].fields;
         if fields.len() != names.len() {
             return Err(value.at.error("unpacking arity does not match tuple"));
         }
@@ -152,7 +152,7 @@ impl Lower<'_> {
         let expected = if fallible {
             match expected {
                 Some(Ty::Enum(t)) if t.name.starts_with("Result[") => {
-                    Some(t.variants[0].fields[0].clone())
+                    Some(t.get().variants[0].fields[0].clone())
                 }
                 _ => None,
             }
@@ -160,7 +160,7 @@ impl Lower<'_> {
             expected
         };
         let fields = match &expected {
-            Some(Ty::Enum(t)) if t.tuple() => Some(&t.variants[0].fields),
+            Some(Ty::Enum(t)) if t.tuple() => Some(&t.get().variants[0].fields),
             _ => None,
         };
         if fields.is_some_and(|f| f.len() != values.len()) {
@@ -314,7 +314,7 @@ impl Lower<'_> {
             {
                 let expected = match expected {
                     Some(Ty::Enum(t)) if t.propagatable() && !t.is_option() => {
-                        Some(t.variants[0].fields[0].clone())
+                        Some(t.get().variants[0].fields[0].clone())
                     }
                     other => other,
                 };
@@ -360,10 +360,10 @@ impl Lower<'_> {
             Some(Ty::Enum(t))
                 if t.propagatable()
                     && !t.is_option()
-                    && (t.variants[1].fields == vec![crate::sum::alloc_error()]
+                    && (t.get().variants[1].fields == vec![crate::sum::alloc_error()]
                         || t.discards_error()) =>
             {
-                Some(t.variants[0].fields[0].clone())
+                Some(t.get().variants[0].fields[0].clone())
             }
             None => None,
             _ => {
@@ -945,7 +945,7 @@ impl Lower<'_> {
                         .at
                         .error("tuple index must be a nonnegative integer literal")
                 })?;
-                let value = t.variants[0]
+                let value = t.get().variants[0]
                     .fields
                     .get(i)
                     .ok_or_else(|| index.at.error("tuple index out of bounds"))?
@@ -1070,12 +1070,13 @@ impl Lower<'_> {
             }
             if let Expression::Member(owner, variant) = &ungroup(base).kind {
                 if let Some(Ty::Enum(t)) = self.qualified_type(owner)? {
-                    if t.depth >= 64 {
+                    if Ty::Enum(t.clone()).layout_depth() >= 64 {
                         return Err(base
                             .at
                             .error("type nesting exceeds the implementation limit of 64"));
                     }
                     let nullary = t
+                        .get()
                         .variants
                         .iter()
                         .find(|v| v.name == *variant)
@@ -1111,7 +1112,7 @@ impl Lower<'_> {
                         .at
                         .error("class construction uses Class(...) or Class.new(...)"));
                 }
-                if class.depth >= 64 {
+                if Ty::Class(class.clone()).layout_depth() >= 64 {
                     return Err(base
                         .at
                         .error("type nesting exceeds the implementation limit of 64"));
@@ -1131,6 +1132,9 @@ impl Lower<'_> {
                 let (source, loans) = self.observe(&args[0], ops)?;
                 if source.restricted_storage() {
                     return Err(base.at.error("generators cannot be formatted"));
+                }
+                if source.recursive_data() {
+                    return Err(base.at.error("automatic formatting is not supported for recursive data; format selected fields"));
                 }
                 let operation = CollectionOp::FormatValue(source);
                 let output = operation.signature().1;
@@ -1829,7 +1833,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         if let Ty::Class(class) = &ty {
-            if class.depth >= 64 {
+            if Ty::Class(class.clone()).layout_depth() >= 64 {
                 return Err(at.error("type nesting exceeds the implementation limit of 64"));
             }
             modules::check_member(self.access, &class.name, "__new__", at)?;

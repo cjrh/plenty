@@ -98,13 +98,15 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
                 "c_string adapters require Result[T, CStrError] as the declared return type",
             ));
         };
-        if !t.propagatable() || t.is_option() || t.variants[1].fields != [crate::sum::c_str_error()]
+        if !t.propagatable()
+            || t.is_option()
+            || t.get().variants[1].fields != [crate::sum::c_str_error()]
         {
             return Err(f.at.error(
                 "c_string adapters require Result[T, CStrError] as the declared return type",
             ));
         }
-        Some(&t.variants[0].fields[0])
+        Some(&t.get().variants[0].fields[0])
     } else {
         output.as_ref()
     };

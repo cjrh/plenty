@@ -9,24 +9,26 @@ fn errors_show_the_actual_cycle_without_an_unrelated_prefix() {
             "cyclic type alias: A -> B -> A",
         ),
         (
-            "class Node:\n    next: Option[Node]",
-            "recursive data declarations are not supported yet: Node -> Node",
-        ),
-        (
-            "class Left:\n    child: Right\nclass Right:\n    children: list[Left]",
-            "recursive data declarations are not supported yet: Left -> Right -> Left",
-        ),
-        (
-            "type Link = Node\nenum Node:\n    End\n    Next(Link)",
-            "recursive data declarations are not supported yet: Link -> Node -> Link",
-        ),
-        (
-            "class Node[T]:\n    children: list[Node[T]]",
-            "recursive data declarations are not supported yet: Node -> Node",
+            "type A = list[B]\ntype B = Option[A]",
+            "cyclic type alias: A -> B -> A",
         ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{source}\n{error}");
+    }
+}
+
+#[test]
+fn nominal_boundaries_allow_recursive_storage() {
+    for source in [
+        "class Node:\n    next: Option[Node]",
+        "class Left:\n    child: Right\nclass Right:\n    children: list[Left]",
+        "type Link = Node\nenum Node:\n    End\n    Next(Link)",
+        "class Node[T]:\n    children: list[Node[T]]\ntype Numbers = Node[i64]",
+        "enum E:\n    A(E)",
+        "type A = list[E]\nenum E:\n    A(A)",
+    ] {
+        support::check_source(source).unwrap();
     }
 }
 

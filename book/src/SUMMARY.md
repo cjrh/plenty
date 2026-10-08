@@ -175,6 +175,7 @@
 - [Consuming closures](design/27-consuming-closures.md)
 - [Generic data types](design/28-generic-data-types.md)
 - [Parameterized protocols](design/29-parameterized-protocols.md)
+- [Recursive data](design/30-recursive-data.md)
 - [Native runtime](runtime.md)
 
 # Proposals

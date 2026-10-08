@@ -93,14 +93,6 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
     "enum E:\n    A(i64)\nmatch E.A(1).unwrap():\n    case E.A(x):\n        pass\nprint(x).unwrap()",
     "unknown binding"
 )]
-#[case(
-    "enum E:\n    A(E)",
-    "recursive data declarations are not supported yet: E -> E"
-)]
-#[case(
-    "type A = list[E]\nenum E:\n    A(A)",
-    "recursive data declarations are not supported yet: A -> E -> A"
-)]
 #[case("enum E:\n    A\nx: set[E] = set().unwrap()", "set elements must")]
 #[case("x = Option[i64, str].Nothing", "Option requires 1")]
 #[case("x = Result[i64].Ok(1)", "Result requires 2")]

@@ -193,7 +193,7 @@ fn data_specialization_and_recursive_layouts_have_bounded_diagnostics() {
     let error = check_source(&source).unwrap_err().to_string();
     assert!(error.contains("specialization limit of 256"), "{error}");
     let error = check_source(
-        "class Recursive[T]:\n    value: Recursive[list[T]]\ndef main() -> ():\n    pass\n",
+        "class Recursive[T]:\n    value: Recursive[list[T]]\ntype Bad = Recursive[i64]\ndef main() -> ():\n    pass\n",
     )
     .unwrap_err()
     .to_string();

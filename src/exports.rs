@@ -54,7 +54,7 @@ pub(crate) fn check_signature(
 pub(crate) fn error_variants(ty: &Ty) -> Option<&[crate::sum::Variant]> {
     match ty {
         Ty::Enum(t) if matches!(t.name.as_str(), "AllocError" | "ParseError" | "Failure") => {
-            Some(&t.variants)
+            Some(&t.local().variants)
         }
         _ => None,
     }
@@ -62,9 +62,10 @@ pub(crate) fn error_variants(ty: &Ty) -> Option<&[crate::sum::Variant]> {
 
 pub(crate) fn result_payloads(ty: &Ty) -> Option<(&Ty, &Ty)> {
     match ty {
-        Ty::Enum(t) if t.propagatable() && !t.is_option() => {
-            Some((&t.variants[0].fields[0], &t.variants[1].fields[0]))
-        }
+        Ty::Enum(t) if t.propagatable() && !t.is_option() => Some((
+            &t.local().variants[0].fields[0],
+            &t.local().variants[1].fields[0],
+        )),
         _ => None,
     }
 }

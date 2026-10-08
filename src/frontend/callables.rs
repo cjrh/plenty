@@ -24,8 +24,8 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
         match ty {
             Ty::Generator(_) | Ty::Closure(_) => true,
             Ty::Ref(inner, _) => frame(inner),
-            Ty::Enum(t) if t.restricted_storage => {
-                t.variants.iter().flat_map(|v| &v.fields).any(frame)
+            Ty::Enum(t) if t.get().restricted_storage => {
+                t.get().variants.iter().flat_map(|v| &v.fields).any(frame)
             }
             _ => false,
         }

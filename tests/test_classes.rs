@@ -509,8 +509,7 @@ print(Box(Option[i64].Nothing).unwrap()).unwrap()
 }
 
 #[test]
-fn recursive_layout_and_stored_references_are_rejected() {
-    reject("class C:\n    child: C", "recursive");
+fn stored_references_and_duplicate_members_are_rejected() {
     reject("class C:\n    field: &i64", "cannot be stored");
     reject("class C:\n    field: Generator[i64]", "cannot be stored");
     reject(

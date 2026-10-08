@@ -36,15 +36,15 @@ pub(super) fn returned_fields(function: &Function, sig: &FnSig) -> Option<Vec<us
     let Ty::Ref(inner, _) = ty else {
         unreachable!()
     };
-    let mut ty = &**inner;
+    let mut ty = (**inner).clone();
     let mut fields = Vec::new();
     for name in names {
         let Ty::Class(class) = ty else {
             return None;
         };
-        let index = class.fields.iter().position(|(n, _)| *n == name)?;
+        let index = class.get().fields.iter().position(|(n, _)| *n == name)?;
         fields.push(index);
-        ty = &class.fields[index].1;
+        ty = class.get().fields[index].1.clone();
     }
     Some(fields)
 }
@@ -274,7 +274,7 @@ impl Lower<'_> {
                     }
                 }
             }
-            let result = Ty::Ref(Rc::new(class.fields[index].1.clone()), mutable);
+            let result = Ty::Ref(Rc::new(class.get().fields[index].1.clone()), mutable);
             ops.push(Op::Class(crate::record::ClassOp::FieldRef(
                 class.clone(),
                 index,
@@ -375,7 +375,7 @@ impl Lower<'_> {
                                 .at
                                 .error("tuple index must be a nonnegative integer literal")
                         })?;
-                        let value = t.variants[0]
+                        let value = t.get().variants[0]
                             .fields
                             .get(i)
                             .ok_or_else(|| index.at.error("tuple index out of bounds"))?
@@ -439,6 +439,11 @@ impl Lower<'_> {
             return Ok(None);
         }
         let (ty, loans) = self.observe(arg, ops)?;
+        if ty.recursive_data() {
+            return Err(at.error(
+                "automatic copy is not supported for recursive data; rebuild it explicitly",
+            ));
+        }
         if !ty.can_copy() {
             return Err(at.error("this resource cannot be copied"));
         }

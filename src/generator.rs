@@ -42,9 +42,9 @@ impl GeneratorType {
                         }
                     }
                 }
-                Ty::Enum(t) if t.inline() && t.restricted_storage => {
+                Ty::Enum(t) if t.inline() && t.get().restricted_storage => {
                     if seen.insert(Some(t.name.as_str())) {
-                        work.extend(t.variants.iter().flat_map(|v| &v.fields));
+                        work.extend(t.local().variants.iter().flat_map(|v| &v.fields));
                     }
                 }
                 Ty::Ref(t, _) => work.push(t),
@@ -94,15 +94,24 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
             }
         }
         (Ty::Ref(a, am), Ty::Ref(b, bm)) if am == bm => Some(Ty::Ref(Rc::new(refine(a, b)?), *am)),
-        (Ty::Enum(a), Ty::Enum(b)) if a.is_option() && b.is_option() => Some(crate::sum::option(
-            refine(&a.variants[1].fields[0], &b.variants[1].fields[0])?,
-        )),
+        (Ty::Enum(a), Ty::Enum(b)) if a.is_option() && b.is_option() => {
+            Some(crate::sum::option(refine(
+                &a.get().variants[1].fields[0],
+                &b.get().variants[1].fields[0],
+            )?))
+        }
         (Ty::Enum(a), Ty::Enum(b))
             if a.propagatable() && b.propagatable() && !a.is_option() && !b.is_option() =>
         {
             Some(crate::sum::result(
-                refine(&a.variants[0].fields[0], &b.variants[0].fields[0])?,
-                refine(&a.variants[1].fields[0], &b.variants[1].fields[0])?,
+                refine(
+                    &a.get().variants[0].fields[0],
+                    &b.get().variants[0].fields[0],
+                )?,
+                refine(
+                    &a.get().variants[1].fields[0],
+                    &b.get().variants[1].fields[0],
+                )?,
             ))
         }
         _ => None,
@@ -115,7 +124,8 @@ impl Ty {
             Self::Closure(t) => t.name.is_empty(),
             Self::Generator(t) => t.name.is_none(),
             Self::Ref(t, _) => t.unresolved_generator(),
-            Self::Enum(t) if t.inline() && t.restricted_storage => t
+            Self::Enum(t) if t.inline() && t.get().restricted_storage => t
+                .get()
                 .variants
                 .iter()
                 .flat_map(|v| &v.fields)
@@ -126,7 +136,7 @@ impl Ty {
     pub fn has_inline_storage(&self) -> bool {
         match self {
             Self::Range(_) | Self::Generator(_) | Self::Closure(_) => true,
-            Self::Enum(t) if t.inline() => t.inline_range || t.restricted_storage,
+            Self::Enum(t) if t.inline() => t.get().inline_range || t.get().restricted_storage,
             _ => false,
         }
     }
@@ -135,11 +145,12 @@ impl Ty {
             Self::Closure(t) => t.bytes(),
             Self::Range(_) => 32,
             Self::Generator(t) => *t.bytes.get().expect("resolved generator layout"),
-            Self::Enum(t) if t.inline() => *t.payload_bytes.get_or_init(|| {
+            Self::Enum(t) if t.inline() => *t.get().payload_bytes.get_or_init(|| {
                 if !self.has_inline_storage() {
                     return 0;
                 }
-                t.variants
+                t.get()
+                    .variants
                     .iter()
                     .flat_map(|v| &v.fields)
                     .map(Ty::inline_bytes)
@@ -190,18 +201,20 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
             Ok(bytes)
         }
         Ty::Enum(t) if t.inline() => {
-            if let Some(bytes) = t.payload_bytes.get() {
+            if let Some(bytes) = t.get().payload_bytes.get() {
                 return Ok(*bytes);
             }
             let bytes = if ty.has_inline_storage() {
-                t.variants
+                t.get()
+                    .variants
                     .iter()
                     .flat_map(|v| &v.fields)
                     .try_fold(0, |n, t| Ok::<_, String>(n.max(layout(t, active)?)))?
             } else {
                 0
             };
-            t.payload_bytes
+            t.get()
+                .payload_bytes
                 .set(bytes)
                 .expect("sum layout computed once");
             Ok(bytes)

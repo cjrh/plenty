@@ -8,9 +8,6 @@ pub struct ClassType {
     pub name: String,
     pub fields: Vec<(String, Ty)>,
     pub destructor: Option<String>,
-    pub depth: usize,
-    pub copyable: bool,
-    pub has_destructor: bool,
     pub fallible_init: bool,
 }
 impl PartialEq for ClassType {
@@ -29,10 +26,10 @@ pub fn method(class: &str, method: &str) -> String {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClassOp {
-    TryNew(Rc<ClassType>),
-    ArmDrop(Rc<ClassType>),
-    Field(Rc<ClassType>, usize),
-    FieldRef(Rc<ClassType>, usize, bool),
+    TryNew(crate::nominal::Nominal<ClassType>),
+    ArmDrop(crate::nominal::Nominal<ClassType>),
+    Field(crate::nominal::Nominal<ClassType>, usize),
+    FieldRef(crate::nominal::Nominal<ClassType>, usize, bool),
 }
 impl ClassOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
@@ -42,10 +39,13 @@ impl ClassOp {
                 vec![],
                 crate::sum::result(Ty::Class(t.clone()), crate::sum::alloc_error()),
             ),
-            Self::Field(t, i) => (vec![Ty::Class(t.clone())], t.fields.get(*i)?.1.clone()),
+            Self::Field(t, i) => (
+                vec![Ty::Class(t.clone())],
+                t.get().fields.get(*i)?.1.clone(),
+            ),
             Self::FieldRef(t, i, mutable) => (
                 vec![Ty::Ref(Rc::new(Ty::Class(t.clone())), *mutable)],
-                Ty::Ref(Rc::new(t.fields.get(*i)?.1.clone()), *mutable),
+                Ty::Ref(Rc::new(t.get().fields.get(*i)?.1.clone()), *mutable),
             ),
         })
     }

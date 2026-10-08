@@ -4,14 +4,14 @@ use crate::record::ClassType;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Handle {
-    pub class: Rc<ClassType>,
+    pub class: crate::nominal::Nominal<ClassType>,
     pub name: String,
     pub pointer: String,
     pub c_name: String,
     pub destroy: String,
 }
 
-pub(super) fn short_name(class: &ClassType) -> &str {
+pub(super) fn short_name(class: &crate::nominal::Nominal<ClassType>) -> &str {
     class.name.rsplit('.').next().unwrap()
 }
 

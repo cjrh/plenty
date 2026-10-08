@@ -621,8 +621,8 @@ enum Expression {
     GenericCall(String, Vec<TypeRef>, Vec<Expr>),
     Tuple(Vec<Expr>, bool),
     Try(Box<Expr>),
-    ClassNew(Rc<crate::record::ClassType>),
-    ClassReady(Rc<crate::record::ClassType>, Box<Expr>),
+    ClassNew(crate::nominal::Nominal<crate::record::ClassType>),
+    ClassReady(crate::nominal::Nominal<crate::record::ClassType>, Box<Expr>),
     Type(TypeRef),
     Member(Box<Expr>, String),
     Number(String),
@@ -1806,7 +1806,7 @@ impl Lower<'_> {
             {
                 crate::sum::option(ty)
             } else {
-                crate::sum::result(ty, target.variants[1].fields[0].clone())
+                crate::sum::result(ty, target.get().variants[1].fields[0].clone())
             }
         });
         let Some(Ty::Enum(source)) = self.expr_expected(value, operand_context, ops)? else {
@@ -1819,14 +1819,14 @@ impl Lower<'_> {
         }
         if !source.is_option()
             && !target.discards_error()
-            && source.variants[1].fields != target.variants[1].fields
+            && source.get().variants[1].fields != target.get().variants[1].fields
         {
             return Err(e
                 .at
                 .error("`?` requires identical Result error types; convert the error explicitly"));
         }
         let success = usize::from(source.is_option());
-        let payload = source.variants[success].fields[0].clone();
+        let payload = source.get().variants[success].fields[0].clone();
         let mut cleanup = Vec::new();
         if !self.contexts.is_empty() {
             self.cleanup(0, &mut cleanup);
@@ -2065,6 +2065,9 @@ impl Lower<'_> {
                 let element = b
                     .element()
                     .ok_or_else(|| e.at.error("membership requires an iterable"))?;
+                if element.recursive_data() {
+                    return Err(e.at.error("automatic equality is not supported for recursive data; search using selected fields"));
+                }
                 self.same(
                     Some(a),
                     Some(if b == Ty::Str { Ty::Str } else { element }),
@@ -2109,6 +2112,9 @@ impl Lower<'_> {
                     return Err(e.at.error("generators do not support binary operators"));
                 }
                 self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
+                if matches!(op.as_str(), "==" | "!=") && a.recursive_data() {
+                    return Err(e.at.error("automatic equality is not supported for recursive data; compare fields explicitly"));
+                }
                 if op == "and" || op == "or" {
                     self.same(Some(a.clone()), Some(Ty::Bool), &e.at)?;
                     let constant = vec![Op::PushBool(op == "or")];
@@ -2197,6 +2203,9 @@ impl Lower<'_> {
                     if ty.prints_generator_frame() {
                         return Err(e.at.error("generators cannot be printed"));
                     }
+                    if ty.recursive_data() {
+                        return Err(e.at.error("automatic formatting is not supported for recursive data; print selected fields"));
+                    }
                     let operation = CollectionOp::TryPrint(ty);
                     let output = operation.signature().1;
                     ops.push(Op::Collection(operation));
@@ -2236,7 +2245,7 @@ impl Lower<'_> {
                     return self.builtin_collection(name, args, &e.at, ops).map(Some);
                 }
                 if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
-                    if t.depth >= 64 {
+                    if Ty::Class(t.clone()).layout_depth() >= 64 {
                         return Err(e
                             .at
                             .error("type nesting exceeds the implementation limit of 64"));
@@ -3088,7 +3097,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         let entry_sig = &sigs["main"];
         if !entry_sig.inputs.is_empty()
             || !matches!(entry_sig.outputs.as_slice(), [] | [Ty::I32])
-                && !matches!(entry_sig.outputs.as_slice(), [Ty::Enum(t)] if t.propagatable() && !t.is_option() && matches!(t.variants[0].fields.as_slice(), [Ty::Unit | Ty::I32]))
+                && !matches!(entry_sig.outputs.as_slice(), [Ty::Enum(t)] if t.propagatable() && !t.is_option() && matches!(t.get().variants[0].fields.as_slice(), [Ty::Unit | Ty::I32]))
             || generators::yields(&entry.body)
         {
             return Err(entry.at.error(
@@ -3164,7 +3173,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                 Op::PushInt(Value::I64(0)),
                 Op::Eq,
                 branch(
-                    if t.variants[0].fields[0] == Ty::I32 {
+                    if t.get().variants[0].fields[0] == Ty::I32 {
                         vec![Op::Enum(crate::sum::EnumOp::Take(t.clone(), 0, 0))]
                     } else {
                         vec![Op::Drop, Op::PushInt(Value::I32(0))]

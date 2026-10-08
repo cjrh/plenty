@@ -8,7 +8,7 @@ control flow, collections, classes, sum types, generators, ownership, and automa
 cleanup are implemented. It is still an early language implementation, with a
 small built-in library and important limits on borrowing. Basic console, argument,
 numeric text, and whole-file APIs now work. Important remaining gaps include
-recursive types, broader borrowing, and public allocator control. An implemented row below describes the
+public concurrency, broader borrowing, and public allocator control. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
 | Area | Status on this branch |
@@ -62,7 +62,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented with allocation-free concrete frames, direct construction, specialized consumers, and moves through factories and standard sums; recursive inline layouts are rejected |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
 | Modern program input, file I/O, and command-line argument APIs | Recoverable console I/O, arguments, Linux whole-file helpers, and scoped File operations implemented, including bounded reads, capability queries, update/exclusive modes, saved text positions, truncation, `readlines`, and `writelines`; direct file iteration remains deferred |
-| Recursive class/enum types | Not implemented; acyclic forward declarations work |
+| Recursive class/enum types | Self and mutual recursion, aliases and finite generic instances; ordinary fallible records and allocation-free deep drop. Automatic deep copy, equality, and formatting are gated; [reference](30-recursive-data.md) |
 | Native C imports | Trusted `.plentyi` interfaces, sized scalars and nominal opaque pointers, explicit symbols, private wrappers, and static or shared linking; [C interface reference](24-c-interfaces.md) |
 | Ownership-aware C adapters | Call-scoped scalar/output references, allocation-free UTF-8 views, fallible C-string conversion, and owned class wrappers with matching native destruction and explicit transfer/error policies; [adapter reference](24-c-interfaces/01-ownership-and-text-adapters.md) |
 | C library exports | Numeric and Result C entries, scalar/class borrows, owned factories and consuming arguments, matching destruction, static/shared output, precise C headers, and owning `.plentyi` wrappers; [library reference](24-c-interfaces/02-library-exports.md) |

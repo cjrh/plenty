@@ -25,8 +25,8 @@ def describe(reading: Reading) -> str:
 Enums are nominal module-level types. Variants have zero or more fixed positional
 payloads; nullary variants omit parentheses. Qualified constructors and patterns
 use an enum name, a transparent alias, or an explicit builtin instantiation such
-as `Option[i64]`. Type/alias declarations may refer forward; recursive enum
-dependencies (including through containers) are rejected initially. Enum names
+as `Option[i64]`. Type/alias declarations may refer forward;
+[recursive enums](30-recursive-data.md), including through containers, are supported. Enum names
 share the type declaration namespace. A binding shadowing a type qualifier is
 diagnosed rather than silently selecting different behavior.
 
@@ -37,7 +37,7 @@ do not expand exponentially. There is no runtime metadata parsing or allocation.
 
 `Option[T]` and `Result[T, E]` are compiler-known concrete enum constructors,
 without user generics or traits. Payloads may be integers, floats, bool, str,
-collections, classes, other nonrecursive enums, generators, or unit. References
+collections, classes, other enums, generators, or unit. References
 cannot be payloads. Enums without generator payloads can be list elements and dictionary values, but are
 not dictionary keys or set elements in the initial closed hashable-type set.
 
@@ -75,8 +75,9 @@ payload contents, using IEEE comparisons for floats. Runtime metadata records
 whether equality is reflexive; float-containing values cannot use pointer identity
 as an equality shortcut because of NaN. Aggregate pairs are memoized during a
 structural comparison in a bounded 256-entry stack cache, with no allocator
-calls. Eviction may repeat work on very large shared graphs; recursive types are
-still rejected. Common shared graphs fit without exponential expansion.
+calls. Eviction may repeat work on very large shared graphs. Automatic equality
+and formatting reject recursive data types. Common acyclic shared graphs fit
+without exponential expansion.
 Printing uses qualified variant names. No niche optimization,
 stable external layout, or per-instantiation code generation is required.
 Frontend coverage lowers to the existing scalar-tag match with an invalid-tag
