@@ -31,15 +31,18 @@ B30 is complete: nested list/dictionary/field writes save RHS and index values
 before resolving addresses. Native checks cover disabled allocation, resizing
 index expressions, conflicting loans, invalid paths, propagation, and owner drops.
 
+B31 is complete: the [callable surface review](proposals/callable-simplicity.md)
+records a concrete reason for retained representation and invocation distinctions.
+The tutorial now offers a short callback path and uses the common `Callable`
+constraint for generic consumers; factory and consuming annotations are advanced.
+
 The remaining immediate order is:
 
-1. **B31: callable simplicity audit.** Review the implemented surface and its
-   teaching cost before adding more callable types or capture rules.
-2. **B22: concurrency contract and runtime feasibility.** Settle transfer, sharing,
+1. **B22: concurrency contract and runtime feasibility.** Settle transfer, sharing,
    and cleanup requirements before recursive ownership adds more cases. This
    first slice is a design/runtime audit; the full threading implementation is
    separate follow-on work.
-3. **B10: recursive data types.** Then settle explicit indirection, recoverable
+2. **B10: recursive data types.** Then settle explicit indirection, recoverable
    allocation, and bounded destruction. Keep acyclic layouts and compilation
    predictable.
 
@@ -130,7 +133,6 @@ is still open.
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |
 | B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/24-c-interfaces/06-runtime-loading.md). |
 | B29 | Further generic constraints | Consider protocol/callable bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Preserve explicit lookup and bounded specialization. See [generic data](design/28-generic-data-types.md) and [parameterized protocols](design/29-parameterized-protocols.md). |
-| B31 | Callable simplicity and teaching audit | Review the existing types, constraints, invocation modes, captures, and lessons before further callable expansion. Require a reason for each language-level concept; prefer inference and library composition where they preserve clear ownership. See scope above. |
 | B32 | Stored stateful callbacks | Named-function registries already work. After B31, design owned captured-environment storage, separating homogeneous concrete layouts from heterogeneous dispatch. Borrowed storage depends on B11; concurrency eligibility is B22. See scope above. |
 
 ## Reconciled completed work

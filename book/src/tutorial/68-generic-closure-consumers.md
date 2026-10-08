@@ -4,7 +4,7 @@ Generic functions can infer types inside a closure signature, including the
 result. The environment stays concrete, so this requires no boxing or allocation.
 
 ```plenty
-def apply[T](f: &Closure[[T], T], value: T) -> T:
+def apply[T, F: Callable[[T], T]](f: &F, value: T) -> T:
     f(value)
 
 def make[T: IntType](offset: T) -> Closure[[T], T]:
@@ -20,7 +20,9 @@ def main() -> Result[(), Failure]:
 5
 ```
 
-Here `T` is inferred as `u8` from both arguments. Conflicting evidence is an error.
-Use `&mut Closure[...]` for a callback that needs to change its captured state.
+Here `T` is inferred as `u8` from both arguments, and `F` is the closure's concrete
+type. Conflicting evidence is an error. This consumer also accepts a named
+function with the same signature; it does not need a separate closure-only API.
+Use `&mut F` for a callback that needs to change its captured state.
 Such consumers can also borrow closures with shared or exclusive captures; those
 captures remain protected throughout the call.

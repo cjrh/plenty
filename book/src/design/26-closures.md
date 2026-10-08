@@ -1,5 +1,11 @@
 # Closure environments
 
+Local environment types are inferred. Prefer `F: Callable[...]` with a reference
+parameter for reusable generic callback APIs; it accepts both named functions and
+captured closures. `Closure[...]` is chiefly useful when describing a factory's
+concrete result. The [surface review](../proposals/callable-simplicity.md) explains
+the retained representation and invocation distinctions.
+
 An explicit capture list, `def [offset, values](index: i64) -> i64:`, transfers
 bindings into a concrete inline environment. Scalars copy as usual; owners move.
 Immutable strings retain their ordinary sharing semantics. There is no implicit
