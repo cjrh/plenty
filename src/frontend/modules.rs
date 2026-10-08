@@ -461,7 +461,7 @@ impl Scope {
             .extend(f.type_params.iter().map(|(n, _)| n.clone()));
         for (_, bound) in &mut f.type_params {
             if let Some(bound) = bound {
-                self.ty(bound)?;
+                scope.ty(bound)?;
             }
         }
         for (_, ty) in &mut f.inputs {

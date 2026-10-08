@@ -61,6 +61,9 @@ pub(super) fn prepare(
             }
             for (_, bound) in &f.type_params {
                 if let Some(bound) = bound {
+                    if bound.name.as_deref() == Some("Callable") && !bound.args.is_empty() {
+                        continue;
+                    }
                     if (bound.name.as_deref() != Some("IntType")
                         && !bound
                             .name
@@ -68,9 +71,9 @@ pub(super) fn prepare(
                             .is_some_and(|n| engine.protocols.contains_key(n)))
                         || !bound.args.is_empty()
                     {
-                        return Err(bound
-                            .at
-                            .error("generic constraints require IntType or a declared protocol"));
+                        return Err(bound.at.error(
+                            "generic constraints require IntType, Callable, or a declared protocol",
+                        ));
                     }
                 }
             }
@@ -406,6 +409,12 @@ impl Engine {
         if let Some(symbol) = self.cache.get(&key) {
             return Ok((symbol.clone(), None));
         }
+        let replacements: Substitution = template
+            .type_params
+            .iter()
+            .map(|(n, _)| n.clone())
+            .zip(actual.iter().map(|ty| type_ref(ty, at)))
+            .collect();
         for ((_, bound), ty) in template.type_params.iter().zip(&actual) {
             if *ty == Ty::Unit {
                 return Err(at.error("unit type arguments are not supported yet"));
@@ -419,6 +428,15 @@ impl Engine {
                 if bound.name.as_deref() == Some("IntType") {
                     if !ty.is_int() {
                         return Err(at.error(format!("{ty} does not satisfy IntType")));
+                    }
+                } else if bound.name.as_deref() == Some("Callable") {
+                    let mut bound = bound.clone();
+                    substitute(&mut bound, &replacements)?;
+                    let Some(Ty::Callable(expected)) = bound.resolve(aliases)? else {
+                        unreachable!("Callable constraint resolves to a callable signature")
+                    };
+                    if callables::signature(ty) != Some(expected.as_ref()) {
+                        return Err(at.error(format!("{ty} does not satisfy {expected}")));
                     }
                 } else {
                     protocols::check(
@@ -440,12 +458,6 @@ impl Engine {
         }
         let symbol = format!("__plenty_generic_{}", self.cache.len());
         let mut f = (**template).clone();
-        let replacements = f
-            .type_params
-            .iter()
-            .map(|(n, _)| n.clone())
-            .zip(actual.iter().map(|ty| type_ref(ty, at)))
-            .collect();
         f.name = symbol.clone();
         f.type_params.clear();
         for (_, ty) in &mut f.inputs {

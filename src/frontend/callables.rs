@@ -2,6 +2,14 @@
 use super::*;
 use crate::op::CallableSig;
 
+pub(super) fn signature(ty: &Ty) -> Option<&CallableSig> {
+    match ty {
+        Ty::Callable(sig) => Some(sig),
+        Ty::Closure(t) => Some(&t.signature),
+        _ => None,
+    }
+}
+
 fn output(ty: &Ty) -> Type {
     match ty {
         Ty::Callable(sig) => sig.output.clone(),

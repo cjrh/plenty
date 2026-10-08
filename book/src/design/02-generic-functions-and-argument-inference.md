@@ -25,6 +25,12 @@ types remain deferred. Existing builtin range inference is unchanged.
 `IntType` accepts the eight fixed-width integer types, including aliases; it is
 a constraint rather than a value type. Unconstrained parameters are also allowed.
 
+`F: Callable[[i64], i64]` accepts a named function or a concrete captured closure
+with that exact signature. A consumer borrows `&F` for shared calls or `&mut F`
+for mutable calls; ordinary borrow checking enforces the environment's needs.
+The constraint does not convert an environment into a code pointer or allocate.
+Its signature may mention other type parameters of the same function.
+
 The frontend creates one concrete function for each distinct function/type tuple.
 Alias-equivalent arguments and recursive calls reuse the same instance. Generated
 bodies pass through ordinary type, ownership, and borrow checking. Generic body

@@ -30,8 +30,9 @@ inline Option/Result storage. Temporary expression calls preserve ownership and
 propagation cleanup. Native tests disable allocation across the full closure
 lifecycle and relocation inside suspended generators.
 
-Next in B08: a common callable constraint for named functions and concrete closures
-in reusable higher-order APIs, then explicit consuming/one-shot capture semantics.
+Callable constraints now accept named functions and concrete owned closures in
+the same higher-order API. Next in B08: inference through those constraints,
+borrowed callable integration, then explicit consuming/one-shot capture semantics.
 Borrowing environments remain local or reference-passed; broader escaping/stored
 lifetime relationships belong to B11. Generic data types remain B09.
 Expanded C representations are B27; additional loader tooling and library
