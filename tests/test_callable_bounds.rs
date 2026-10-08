@@ -2,6 +2,46 @@ mod support;
 use support::{check_source, run};
 
 #[test]
+fn constrained_borrowed_callbacks_keep_transitive_loans() {
+    let output = run(r#"
+def twice[T, F: Callable[[], T]](f: &mut F) -> T:
+    f()
+    f()
+def forward[T, F: Callable[[], T]](f: &mut F) -> T:
+    twice(f)
+def main() -> Result[(), Failure]:
+    mut value = 0
+    mut inner = def [&mut value]() -> i64:
+        value = value + 1
+        value
+    mut outer = def [&mut inner]() -> i64:
+        inner()
+    print(forward(&mut outer))?
+    print(value)?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n2\n");
+}
+
+#[test]
+fn constrained_callbacks_cannot_erase_loans_or_mutation_permissions() {
+    for (parameters, call, expected) in [
+        ("f: F", "consume(f)", "by reference"),
+        ("f: &F", "consume(&f)", "mutable"),
+        ("f: &mut F, value: i64", "consume(&mut f, value)", "borrow"),
+    ] {
+        let source = format!("def consume[F: Callable[[], i64]]({parameters}) -> i64:\n    f()\ndef main() -> ():\n    mut value = 0\n    mut f = def [&mut value]() -> i64:\n        value = value + 1\n        value\n    {call}\n    pass\n");
+        let error = check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
 fn callback_signatures_infer_input_and_output_parameters() {
     let output = run(r#"
 def apply[T, U, F: Callable[[T], U]](f: &F, value: T) -> U:

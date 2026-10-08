@@ -455,7 +455,11 @@ impl Engine {
             if *ty == Ty::Unit {
                 return Err(at.error("unit type arguments are not supported yet"));
             }
-            if ty.contains_reference() {
+            let borrowed_callable = matches!(ty, Ty::Closure(_))
+                && bound
+                    .as_ref()
+                    .is_some_and(|b| b.name.as_deref() == Some("Callable"));
+            if ty.contains_reference() && !borrowed_callable {
                 return Err(at.error(
                     "reference type arguments are not supported; borrow T in the signature",
                 ));

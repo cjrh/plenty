@@ -32,7 +32,8 @@ lifecycle and relocation inside suspended generators.
 
 Callable constraints now accept named functions and concrete owned closures in
 the same higher-order API, including inference through their input/output signatures.
-Next in B08: borrowed callable integration, then explicit consuming/one-shot
+Borrowed callable constraints preserve transitive loans across generic consumers.
+Next in B08: higher-order integration coverage, then explicit consuming/one-shot
 capture semantics.
 Borrowing environments remain local or reference-passed; broader escaping/stored
 lifetime relationships belong to B11. Generic data types remain B09.

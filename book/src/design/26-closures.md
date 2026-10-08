@@ -46,7 +46,9 @@ factories move results into caller-provided storage.
 Generic consumers infer parameters inside the signature, including the result.
 An owned environment can itself be a concrete generic argument, retaining its
 layout through moves and returns. Borrowing environments use explicit
-reference-to-Closure parameters instead of an unconstrained by-value parameter.
+reference-to-Closure parameters or `&F`/`&mut F` with a `Callable` constraint.
+The latter retains the concrete capture loans through nested generic consumers;
+passing such an environment by value remains rejected.
 
 Owned closures can capture other owned closures, ranges, and inline Option/Result
 values. Nested addresses are repaired when the environment moves. Owned closures
