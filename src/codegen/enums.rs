@@ -7,7 +7,7 @@ pub(super) fn pack_value(
     value: cranelift_codegen::ir::Value,
     ty: &Ty,
 ) -> cranelift_codegen::ir::Value {
-    if ty.inline_sum() {
+    if ty.inline_sum() || matches!(ty, Ty::Ref(..)) {
         return value;
     }
     let word = if ty.is_float() {
@@ -52,6 +52,7 @@ impl Lowerer<'_, '_> {
                 };
                 if matches!(op, ClassOp::ArmDrop(_)) {
                     let (address, _) = self.pop_typed(inputs[0].clone())?;
+                    let address = self.raw_word(address);
                     let owner = self.bcx.ins().load(
                         PTR_TY,
                         cranelift_codegen::ir::MemFlags::trusted(),
@@ -75,6 +76,7 @@ impl Lowerer<'_, '_> {
             }
             ClassOp::FieldRef(t, i, _) => {
                 let (address, _) = self.pop_typed(inputs[0].clone())?;
+                let address = self.raw_word(address);
                 let owner = self.bcx.ins().load(
                     PTR_TY,
                     cranelift_codegen::ir::MemFlags::trusted(),
@@ -225,7 +227,7 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
         let target = clif_type(ty.clone());
-        if ty.inline_sum() {
+        if ty.inline_sum() || matches!(ty, Ty::Ref(..)) {
             return if self.bcx.func.dfg.value_type(value) == types::I128 {
                 value
             } else {

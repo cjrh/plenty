@@ -2,7 +2,11 @@
 use super::*;
 
 pub(super) fn parameter(ty: &Ty) -> AbiParam {
-    let parameter = AbiParam::new(clif_type(ty.clone()));
+    let parameter = AbiParam::new(if matches!(ty, Ty::Ref(..)) {
+        PTR_TY
+    } else {
+        clif_type(ty.clone())
+    });
     match ty {
         Ty::I8 | Ty::I16 | Ty::I32 => parameter.sext(),
         Ty::U8 | Ty::U16 | Ty::U32 => parameter.uext(),
@@ -53,6 +57,11 @@ impl Lowerer<'_, '_> {
             if address_index == Some(index) {
                 continue;
             }
+            let argument = if matches!(sig.inputs[index].1, Ty::Ref(..)) {
+                self.raw_word(argument)
+            } else {
+                argument
+            };
             match mode {
                 Argument::Direct => native_arguments.push(argument),
                 Argument::Utf8 | Argument::CString => {

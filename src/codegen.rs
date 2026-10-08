@@ -69,6 +69,7 @@ mod foreign;
 mod generators;
 mod inline;
 mod metadata;
+mod references;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
@@ -822,6 +823,7 @@ fn emit_user_function(
         b.switch_to_block(block);
         b.seal_block(block);
         let receiver = b.block_params(block)[0];
+        let receiver = b.ins().uextend(types::I128, receiver);
         let callee = module.declare_func_in_func(decl.id, b.func);
         b.ins().call(callee, &[receiver]);
         b.ins().return_(&[]);
@@ -927,8 +929,8 @@ fn clif_type(ty: Ty) -> types::Type {
         | Ty::Range(_)
         | Ty::Class(_)
         | Ty::Enum(_)
-        | Ty::Generator(_)
-        | Ty::Ref(..) => PTR_TY,
+        | Ty::Generator(_) => PTR_TY,
+        Ty::Ref(..) => types::I128,
     }
 }
 
@@ -1123,6 +1125,7 @@ impl Lowerer<'_, '_> {
                 };
                 let offset = offset + self.local_offset(*i as usize);
                 let ptr = self.bcx.ins().iadd_imm(frame, offset);
+                let ptr = self.bcx.ins().uextend(types::I128, ptr);
                 self.stack.push((
                     ptr,
                     Ty::Ref(
@@ -1132,13 +1135,8 @@ impl Lowerer<'_, '_> {
                 ));
             }
             Op::ReadRef(ty) => {
-                let (ptr, _) = self.stack.pop().ok_or("reference stack underflow")?;
-                let packed = self.bcx.ins().load(
-                    types::I128,
-                    cranelift_codegen::ir::MemFlags::trusted(),
-                    ptr,
-                    0,
-                );
+                let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
+                let packed = self.read_reference(reference);
                 let value = self.unpack(packed, ty);
                 let value = if ty.can_copy() {
                     self.snapshot_inline(value, ty)
@@ -1152,16 +1150,11 @@ impl Lowerer<'_, '_> {
                 self.stack.last_mut().ok_or("reference stack underflow")?.1 = ty.clone();
             }
             Op::WriteRef(ty) => {
-                let (ptr, _) = self.stack.pop().ok_or("reference stack underflow")?;
+                let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let (value, _) = self.pop_typed(ty.clone())?;
-                let old = self.bcx.ins().load(
-                    types::I128,
-                    cranelift_codegen::ir::MemFlags::trusted(),
-                    ptr,
-                    0,
-                );
+                let old = self.read_reference(reference);
                 self.release(old, ty);
-                self.store_slot(ptr, value, ty);
+                self.write_reference(reference, value, ty);
             }
             Op::Collection(operation) => self.lower_collection(operation)?,
             Op::ClosureNew(t) => self.lower_closure_new(t)?,

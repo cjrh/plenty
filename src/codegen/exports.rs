@@ -77,7 +77,7 @@ pub(super) fn emit(
                 if *mutable && !object {
                     writebacks.push((*argument, temporary, scalar_type));
                 }
-                *argument = temporary;
+                *argument = b.ins().uextend(types::I128, temporary);
             }
         }
         let callee = module.declare_func_in_func(functions[&export.function].id, b.func);

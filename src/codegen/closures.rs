@@ -33,6 +33,7 @@ impl Lowerer<'_, '_> {
         let storage = if t.once {
             reference
         } else {
+            let reference = self.raw_word(reference);
             self.bcx
                 .ins()
                 .load(PTR_TY, MemFlags::trusted(), reference, 0)
@@ -46,9 +47,11 @@ impl Lowerer<'_, '_> {
                     .load(types::I128, MemFlags::trusted(), slot, 0);
                 self.unpack(packed, field)
             } else if matches!(field, Ty::Ref(..)) {
-                self.bcx.ins().load(PTR_TY, MemFlags::trusted(), slot, 0)
+                self.bcx
+                    .ins()
+                    .load(types::I128, MemFlags::trusted(), slot, 0)
             } else {
-                slot
+                self.bcx.ins().uextend(types::I128, slot)
             };
             self.stack.push((pointer, t.parameter(i)));
         }

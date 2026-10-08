@@ -32,6 +32,11 @@ temporary shared loans through the operation that consumes them.
 
 Native references address typed local storage slots, generator frame slots, or
 fixed class field slots, or collection entry slots protected against invalidation.
+The internal reference value contains a 64-bit address and a 64-bit inline-sum
+tag offset. Reads decode the selected payload; writes preserve its enclosing
+variant tags. These two words travel by value, without allocation or a temporary
+reference descriptor. Ordinary references have a zero offset. C ABI adapters
+continue to expose ordinary pointers and marshal them to the internal form.
 Each slot starts with 128-bit value bits; slots containing a range have an adjacent
 32-byte payload. Writes through references update that inline storage. Functions
 taking addresses or storing inline ranges spill their locals; other functions retain SSA locals.
