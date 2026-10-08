@@ -30,6 +30,9 @@ with that exact signature. A consumer borrows `&F` for shared calls or `&mut F`
 for mutable calls; ordinary borrow checking enforces the environment's needs.
 The constraint does not convert an environment into a code pointer or allocate.
 Its signature may mention other type parameters of the same function.
+The concrete callback signature supplies inference evidence: `F: Callable[[], T]`
+can determine `T` from `F`'s return type. Such evidence must agree with all other
+arguments. This does not search for protocol implementations or widen numbers.
 
 The frontend creates one concrete function for each distinct function/type tuple.
 Alias-equivalent arguments and recursive calls reuse the same instance. Generated

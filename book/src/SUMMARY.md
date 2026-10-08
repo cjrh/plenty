@@ -115,7 +115,8 @@
     - [Multiline anonymous functions](tutorial/65-multiline-anonymous-functions.md)
     - [Borrow in a closure](tutorial/66-borrow-in-a-closure.md)
     - [Return a closure](tutorial/67-return-a-closure.md)
-    - [Generic closure consumers](tutorial/68-generic-closure-consumers.md)
+- [Generic closure consumers](tutorial/68-generic-closure-consumers.md)
+- [Write a shared callback API](tutorial/69-write-a-shared-callback-api.md)
 
 # Reference
 

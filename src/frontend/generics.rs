@@ -147,7 +147,7 @@ fn mentions_parameter(pattern: &TypeRef, template: &Function) -> bool {
         || pattern.args.iter().any(|p| mentions_parameter(p, template))
 }
 
-/// Infer only from concrete argument types; bounds never select a candidate type.
+/// Infer from concrete argument types without searching for implementations.
 fn infer(
     pattern: &TypeRef,
     actual: &Ty,
@@ -220,6 +220,40 @@ fn infer(
     Ok(())
 }
 
+/// A callable argument carries concrete signature evidence. Follow that evidence
+/// to a fixed point; bounds never invent a type or search for an implementation.
+fn infer_callable_bounds(
+    template: &Function,
+    inferred: &mut HashMap<String, Ty>,
+    aliases: &TypeAliases,
+    at: &Token,
+) -> Result<()> {
+    loop {
+        let before = inferred.len();
+        for (name, bound) in &template.type_params {
+            let Some(bound) = bound.as_ref().filter(|b| {
+                b.name.as_deref() == Some("Callable") && mentions_parameter(b, template)
+            }) else {
+                continue;
+            };
+            let Some(signature) = inferred.get(name).and_then(callables::signature).cloned() else {
+                continue;
+            };
+            infer(
+                bound,
+                &Ty::Callable(Rc::new(signature)),
+                template,
+                inferred,
+                aliases,
+                at,
+            )?;
+        }
+        if before == inferred.len() {
+            return Ok(());
+        }
+    }
+}
+
 impl Lower<'_> {
     pub(super) fn infer_function_value(
         &mut self,
@@ -244,6 +278,7 @@ impl Lower<'_> {
             self.aliases,
             at,
         )?;
+        infer_callable_bounds(&template, &mut inferred, self.aliases, at)?;
         let actual = template.type_params.iter().map(|(param, _)| {
             inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from the expected Callable; supply explicit type arguments")))
         }).collect::<Result<_>>()?;
@@ -338,6 +373,7 @@ impl Lower<'_> {
             )?;
             arguments.push(ty);
         }
+        infer_callable_bounds(&template, &mut inferred, self.aliases, at)?;
         let actual = template.type_params.iter().map(|(param, _)| {
             inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from its arguments; supply explicit type arguments")))
         }).collect::<Result<_>>()?;
