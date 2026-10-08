@@ -2,9 +2,11 @@
 use super::*;
 use crate::record::{method, ClassOp, ClassType};
 
+#[derive(Clone)]
 pub(super) struct ClassDecl {
     pub(super) at: Token,
     pub(super) name: String,
+    pub(super) type_params: Vec<(String, Option<TypeRef>)>,
     pub(super) fields: Vec<(String, TypeRef)>,
     pub(super) methods: Vec<Function>,
     pub(super) public_members: HashSet<String>,
@@ -14,6 +16,7 @@ impl Parser {
     pub(super) fn class_decl(&mut self) -> Result<ClassDecl> {
         let at = self.take();
         let name = self.name()?;
+        let type_params = self.type_parameters()?;
         self.expect(":")?;
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented class declaration")?;
@@ -24,7 +27,16 @@ impl Parser {
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
             let public = self.eat("pub");
             let member = if self.peek().is("def") {
-                let f = self.function_in(Some(&name))?;
+                let mut f = self.function_in(Some(&name))?;
+                if let Some((_, receiver)) = f.inputs.first_mut() {
+                    if let Some(owner) = receiver
+                        .args
+                        .first_mut()
+                        .filter(|t| t.name.as_ref() == Some(&name) && t.args.is_empty())
+                    {
+                        owner.args = type_params.iter().map(|(n, _)| type_ref(&at, n)).collect();
+                    }
+                }
                 let member = f.name.clone();
                 methods.push(f);
                 member
@@ -59,6 +71,7 @@ impl Parser {
         Ok(ClassDecl {
             at,
             name,
+            type_params,
             fields,
             methods,
             public_members,
@@ -134,7 +147,7 @@ fn statement(at: &Token, kind: Statement) -> Stmt {
 pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<Vec<Function>> {
     let mut functions = Vec::new();
     for class in classes {
-        let Some(Ty::Class(ty)) = &aliases[&class.name] else {
+        let Some(Some(Ty::Class(ty))) = lookup_type(&class.name, aliases) else {
             unreachable!()
         };
         let at = &class.at;
@@ -212,7 +225,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 return Err(f.at.error("__del__ takes only self"));
             }
             if f.name == "__init__" {
-                validate_init(f, ty)?;
+                validate_init(f, &ty)?;
                 constructor_inputs = f.inputs[1..].to_vec();
             }
             f.name = method(&class.name, &f.name);
@@ -593,6 +606,7 @@ impl Lower<'_> {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
         }
         let callee = method(&class.name, name);
+        self.sync_data()?;
         modules::check_member(self.access, &class.name, name, &base.at)?;
         let sig = self
             .sigs

@@ -1474,6 +1474,7 @@ fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
     named_type(name)
         .map(Some)
         .or_else(|| aliases.get(name).cloned())
+        .or_else(|| aliases.data.lookup(name).map(Some))
 }
 
 pub(crate) fn builtin(name: &str) -> bool {
@@ -1851,7 +1852,23 @@ impl Lower<'_> {
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
             Expression::GenericCall(name, types, args) => {
-                self.generic_call(name, Some(types), args, &e.at, ops)?
+                if self.aliases.data.contains(name) {
+                    let ty = TypeRef {
+                        concrete: None,
+                        at: e.at.clone(),
+                        name: Some(name.clone()),
+                        args: types.clone(),
+                    }
+                    .resolve(self.aliases)?
+                    .unwrap();
+                    let Ty::Class(t) = ty else {
+                        return Err(e.at.error("select a variant to construct an enum"));
+                    };
+                    modules::check_member(self.access, &t.name, "__new__", &e.at)?;
+                    self.call_named(&crate::record::method(&t.name, "new"), args, &e.at, ops)?
+                } else {
+                    self.generic_call(name, Some(types), args, &e.at, ops)?
+                }
             }
             Expression::Try(value) => self.propagate(e, value, None, ops)?,
             Expression::Type(_) => {
@@ -2251,6 +2268,7 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        self.sync_data()?;
         if self.generics.templates.contains_key(name) {
             return self.generic_call(name, None, args, at, ops);
         }
@@ -2985,8 +3003,15 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     } = resolved;
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
     modules::check_api(&public_api, &aliases, &access)?;
-    functions.extend(classes::expand(classes, &aliases)?);
+    functions.extend(classes::expand(
+        classes
+            .into_iter()
+            .filter(|c| c.type_params.is_empty())
+            .collect(),
+        &aliases,
+    )?);
     let mut generics = generics::prepare(functions, &aliases, protocols)?;
+    while !generics.expand_data(&aliases)?.is_empty() {}
     let mut sigs = HashMap::new();
     let mut returned_fields = HashMap::new();
     for f in &generics.pending {

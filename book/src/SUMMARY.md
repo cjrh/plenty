@@ -172,6 +172,7 @@
 - [Native runtime](runtime.md)
 
 - [72. Parameterize an enum](tutorial/72-parameterize-an-enum.md)
+- [73. Parameterize a class](tutorial/73-parameterize-a-class.md)
 
 # Proposals
 

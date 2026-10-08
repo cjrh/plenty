@@ -938,6 +938,10 @@ fn resolve(
         for c in &mut m.classes {
             let public = m.exports.contains(&c.name);
             c.name = qualified(&m.name, &c.name);
+            let mut scope = scope.clone();
+            scope
+                .type_params
+                .extend(c.type_params.iter().map(|(n, _)| n.clone()));
             result.access.types.insert(
                 c.name.clone(),
                 Access {
@@ -968,7 +972,7 @@ fn resolve(
                     },
                 );
                 if exposed {
-                    result.public_api.push(t.clone());
+                    data_public_types(t, &c.type_params, &mut result.public_api);
                 }
             }
             for f in &mut c.methods {
@@ -982,10 +986,15 @@ fn resolve(
                     },
                 );
                 if exposed {
-                    result
-                        .public_api
-                        .extend(f.inputs.iter().skip(1).map(|(_, t)| t.clone()));
-                    result.public_api.push(f.output.clone());
+                    for t in f
+                        .inputs
+                        .iter()
+                        .skip(1)
+                        .map(|(_, t)| t)
+                        .chain(std::iter::once(&f.output))
+                    {
+                        data_public_types(t, &c.type_params, &mut result.public_api);
+                    }
                 }
             }
         }
@@ -1004,6 +1013,7 @@ pub(super) fn check_member(
     member: &str,
     at: &Token,
 ) -> Result<()> {
+    let class = class.split('[').next().unwrap();
     if let Some(rule) = access.members.get(&(class.into(), member.into())) {
         if !rule.public && rule.owner != at.source {
             return Err(at.error(format!(

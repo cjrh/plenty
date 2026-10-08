@@ -146,10 +146,18 @@ pub(super) fn resolve_types(
             }
         }
         fn generic(&self) -> bool {
-            matches!(self, Self::Enum(e) if !e.type_params.is_empty())
+            match self {
+                Self::Enum(e) => !e.type_params.is_empty(),
+                Self::Class(c) => !c.type_params.is_empty(),
+                Self::Alias(_) => false,
+            }
         }
         fn parameter(&self, name: &str) -> bool {
-            matches!(self, Self::Enum(e) if e.type_params.iter().any(|(n, _)| n == name))
+            match self {
+                Self::Enum(e) => e.type_params.iter().any(|(n, _)| n == name),
+                Self::Class(c) => c.type_params.iter().any(|(n, _)| n == name),
+                Self::Alias(_) => false,
+            }
         }
     }
     let declarations: Vec<_> = aliases
@@ -172,7 +180,7 @@ pub(super) fn resolve_types(
                 .error(format!("type `{name}` is already defined")));
         }
     }
-    let mut resolved = TypeAliases::with_enums(enums)?;
+    let mut resolved = TypeAliases::with_data(enums, classes)?;
     let mut active = HashSet::new();
     let mut completed = HashSet::new();
     for root in 0..declarations.len() {

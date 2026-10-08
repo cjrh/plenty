@@ -1,5 +1,17 @@
 # Generic data types
 
+Classes also accept parameters: `class Cell[T]:` can store `value: T` and define
+methods using T. `Cell[u8](7)` returns `Result[Cell[u8], AllocError]`. Bare `self`
+uses the current concrete class; an explicit mutable receiver is written
+`self: &mut Cell[T]`. Methods, generated or explicit initializers, and destructors
+are specialized with the class. Their bodies are checked for each used instance.
+Generic classes can be constructed inside generic functions.
+
+Specialization adds no instance allocation beyond ordinary class storage. Moves,
+field borrowing, partial initialization cleanup, and custom destruction keep
+their ordinary class semantics. Generic methods with their own parameters are
+not yet implemented.
+
 An enum can declare type parameters: `enum Choice[T]:` with a variant `Value(T)`.
 Use `Choice[u8].Value(7)` and `case Choice[u8].Value(value):` to select a concrete
 instance. Type aliases can name complete instances. Different arguments produce

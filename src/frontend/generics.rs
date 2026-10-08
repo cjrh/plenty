@@ -102,7 +102,7 @@ pub(super) fn prepare(
 
 pub(super) struct Engine {
     protocols: HashMap<String, protocols::Protocol>,
-    methods: HashMap<String, (Vec<Ty>, Type)>,
+    pub(super) methods: HashMap<String, (Vec<Ty>, Type)>,
     pub(super) templates: HashMap<String, Rc<Function>>,
     cache: HashMap<(String, Vec<Ty>), String>,
     pub(super) pending: VecDeque<Function>,
@@ -309,6 +309,7 @@ impl Lower<'_> {
     }
 
     pub(super) fn specialize(&mut self, name: &str, actual: Vec<Ty>, at: &Token) -> Result<String> {
+        self.sync_data()?;
         let (symbol, function) =
             self.generics
                 .instantiate(name, actual, at, self.aliases, self.access)?;
@@ -546,7 +547,7 @@ impl Engine {
     }
 }
 
-fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) -> Result<()> {
+pub(super) fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) -> Result<()> {
     for stmt in body {
         match &mut stmt.kind {
             Statement::Assign {

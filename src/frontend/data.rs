@@ -12,7 +12,10 @@ pub(crate) struct TypeAliases {
 #[derive(Default)]
 pub(super) struct DataTypes {
     enums: HashMap<String, enums::EnumDecl>,
+    classes: HashMap<String, classes::ClassDecl>,
     instances: RefCell<HashMap<(String, Vec<Ty>), Ty>>,
+    named: RefCell<HashMap<String, Ty>>,
+    pending: RefCell<Vec<classes::ClassDecl>>,
     active: RefCell<Vec<String>>,
 }
 
@@ -29,17 +32,29 @@ impl DerefMut for TypeAliases {
 }
 impl DataTypes {
     pub(super) fn contains(&self, name: &str) -> bool {
-        self.enums.contains_key(name)
+        self.enums.contains_key(name) || self.classes.contains_key(name)
+    }
+    pub(super) fn lookup(&self, name: &str) -> Type {
+        self.named.borrow().get(name).cloned()
     }
 }
 impl TypeAliases {
-    pub(super) fn with_enums(enums: &[enums::EnumDecl]) -> Result<Self> {
+    pub(super) fn with_data(
+        enums: &[enums::EnumDecl],
+        classes: &[classes::ClassDecl],
+    ) -> Result<Self> {
         let mut data = DataTypes::default();
         for e in enums.iter().filter(|e| !e.type_params.is_empty()) {
             if e.type_params.iter().any(|(_, b)| b.is_some()) {
                 return Err(e.at.error("generic data type bounds are not supported yet"));
             }
             data.enums.insert(e.name.clone(), e.clone());
+        }
+        for c in classes.iter().filter(|c| !c.type_params.is_empty()) {
+            if c.type_params.iter().any(|(_, b)| b.is_some()) {
+                return Err(c.at.error("generic data type bounds are not supported yet"));
+            }
+            data.classes.insert(c.name.clone(), c.clone());
         }
         Ok(Self {
             named: HashMap::new(),
@@ -49,11 +64,15 @@ impl TypeAliases {
 
     pub(super) fn instantiate(&self, application: &TypeRef) -> Result<Ty> {
         let name = application.name.as_ref().unwrap();
-        let template = &self.data.enums[name];
-        if application.args.len() != template.type_params.len() {
+        let params = if let Some(e) = self.data.enums.get(name) {
+            &e.type_params
+        } else {
+            &self.data.classes[name].type_params
+        };
+        if application.args.len() != params.len() {
             return Err(application.at.error(format!(
                 "generic type `{name}` requires {} type arguments",
-                template.type_params.len()
+                params.len()
             )));
         }
         let actual = application
@@ -96,8 +115,7 @@ impl TypeAliases {
                 .at
                 .error("concrete type name exceeds the implementation limit"));
         }
-        let substitutions = template
-            .type_params
+        let substitutions = params
             .iter()
             .map(|(n, _)| n.clone())
             .zip(
@@ -106,19 +124,45 @@ impl TypeAliases {
                     .map(|t| generics::type_ref(t, &application.at)),
             )
             .collect();
-        let mut declaration = template.clone();
-        declaration.name = concrete_name;
-        declaration.type_params.clear();
-        for (_, fields) in &mut declaration.variants {
-            for field in fields {
-                generics::substitute(field, &substitutions)?;
-            }
-        }
         self.data.active.borrow_mut().push(name.clone());
-        let result = self.resolve_enum(&declaration);
+        let result: Result<(Ty, Option<classes::ClassDecl>)> = (|| {
+            if let Some(template) = self.data.enums.get(name) {
+                let mut declaration = template.clone();
+                declaration.name = concrete_name.clone();
+                declaration.type_params.clear();
+                for (_, fields) in &mut declaration.variants {
+                    for field in fields {
+                        generics::substitute(field, &substitutions)?;
+                    }
+                }
+                Ok((self.resolve_enum(&declaration)?, None))
+            } else {
+                let mut declaration = self.data.classes[name].clone();
+                declaration.name = concrete_name.clone();
+                declaration.type_params.clear();
+                for (_, field) in &mut declaration.fields {
+                    generics::substitute(field, &substitutions)?;
+                }
+                for method in &mut declaration.methods {
+                    for (_, ty) in &mut method.inputs {
+                        generics::substitute(ty, &substitutions)?;
+                    }
+                    generics::substitute(&mut method.output, &substitutions)?;
+                    generics::substitute_block(&mut method.body, &substitutions)?;
+                }
+                Ok((declaration.resolve(self)?, Some(declaration)))
+            }
+        })();
         self.data.active.borrow_mut().pop();
-        let ty = result?;
+        let (ty, class): (Ty, Option<classes::ClassDecl>) = result?;
         self.data.instances.borrow_mut().insert(key, ty.clone());
+        self.data
+            .named
+            .borrow_mut()
+            .insert(concrete_name, ty.clone());
+        if let Some(class) = class {
+            self.data.pending.borrow_mut().push(class);
+        }
         Ok(ty)
     }
 
@@ -168,5 +212,33 @@ impl TypeAliases {
             inline_range: false,
             payload_bytes: std::cell::OnceCell::new(),
         })))
+    }
+}
+
+impl generics::Engine {
+    pub(super) fn expand_data(&mut self, aliases: &TypeAliases) -> Result<Vec<Function>> {
+        let pending = std::mem::take(&mut *aliases.data.pending.borrow_mut());
+        let functions = classes::expand(pending, aliases)?;
+        for f in &functions {
+            self.methods
+                .insert(f.name.clone(), protocols::signature(f, aliases)?);
+            self.functions.insert(f.name.clone(), f.clone());
+            self.pending.push_back(f.clone());
+        }
+        Ok(functions)
+    }
+}
+impl Lower<'_> {
+    pub(super) fn sync_data(&mut self) -> Result<()> {
+        loop {
+            let functions = self.generics.expand_data(self.aliases)?;
+            if functions.is_empty() {
+                break;
+            }
+            for f in functions {
+                register_signature(&f, self.aliases, self.sigs, self.returned_fields)?;
+            }
+        }
+        Ok(())
     }
 }
