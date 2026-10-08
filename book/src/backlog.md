@@ -26,8 +26,14 @@ and explicit per-capture mutation. Shared and exclusive borrowed captures retain
 checked loans through calls and moves. Owned factories and concrete `Closure`
 signature annotations and transitive capture loans across borrowed calls are
 implemented, as are generic signature inference, nested owned environments, and
-inline Option/Result storage. Temporary expression calls also preserve ownership
-and propagation cleanup. Finish the allocation/cleanup audit before higher-order APIs.
+inline Option/Result storage. Temporary expression calls preserve ownership and
+propagation cleanup. Native tests disable allocation across the full closure
+lifecycle and relocation inside suspended generators.
+
+Next in B08: a common callable constraint for named functions and concrete closures
+in reusable higher-order APIs, then explicit consuming/one-shot capture semantics.
+Borrowing environments remain local or reference-passed; broader escaping/stored
+lifetime relationships belong to B11. Generic data types remain B09.
 Expanded C representations are B27; additional loader tooling and library
 lifecycle work are B28.
 
@@ -38,7 +44,7 @@ guide breakdown when an item is selected; detailed syntax is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B08 | Function values and multiline closures | In progress: allocation-free named/anonymous function values, generic signatures, indirect borrowing and tail calls are implemented. Next: explicit borrowed versus owned captures, environment lifetime/escape rules, and allocation behavior before higher-order library APIs. |
+| B08 | Function values and multiline closures | In progress: allocation-free function values and concrete closure environments, explicit owned/shared/exclusive captures, transitive loans, factories, generic signatures, nested ownership, and temporary calls are implemented. Next: a common callable constraint for higher-order APIs and explicit consuming/one-shot captures. [Closure reference](design/26-closures.md). |
 | B09 | Generic data types and richer protocols | Generic classes/enums and methods, with parameterized protocols or additional bounds when concrete library use cases justify them. Keep method lookup explicit and measure specialization cost. [Protocol design](proposals/protocols-generics-and-context-managers.md). |
 | B10 | Recursive data types | Define indirection, ownership, allocation failure, and bounded destruction for recursive classes/enums. Current acyclic forward declarations are already supported. [Sum-type design](proposals/sum-types.md). |
 | B11 | Broader borrowing | Stored references, relationships among multiple reference parameters, and more precise collection loans. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |

@@ -163,6 +163,7 @@
         - [Publishing library artifacts](design/24-c-interfaces/05-artifact-publication.md)
         - [Runtime library loading](design/24-c-interfaces/06-runtime-loading.md)
     - [Function values](design/25-function-values.md)
+    - [Closure environments](design/26-closures.md)
 - [Native runtime](runtime.md)
 
 # Proposals

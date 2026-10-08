@@ -53,58 +53,12 @@ Multiline anonymous functions use `def(parameters) -> ResultType:` followed by a
 indented suite. They lower to ordinary native functions with no environment.
 They can be assigned, returned, and nested; enclosing generic type parameters are
 substituted. Their own value parameters and local bindings form an independent
-scope. Capturing a surrounding local is rejected, including locals that shadow a
-module function. Indented anonymous bodies inside delimiters are unsupported.
+scope. Implicit capture of a surrounding local is rejected, including locals that
+shadow a module function. Indented anonymous bodies inside delimiters are unsupported.
 
-Callable signatures exclude generator frames. Capturing functions have their own
-concrete environment type; they do not convert to a code-only `Callable`.
-
-An explicit capture list, `def [offset, values](index: i64) -> i64:`, transfers
-those bindings into inline environment storage. Scalars copy as usual; owners
-move. The body can observe and borrow captures, but cannot move them out. Calling
-the closure borrows its environment, so calls can repeat. Assignment moves the
-closure; `copy` is unavailable. Captured owners drop in reverse capture order when
-the environment leaves scope. Creating and moving the environment do not allocate.
-`def [mut count, values](...)` allows changing `count` while keeping `values`
-read-only. The source binding need not be mutable: the new environment owns it.
-Such a closure requires an exclusive environment borrow and a `mut` binding to
-call. Assignment to a captured scalar changes the environment slot; methods on
-captured owners obey the same explicit mutation permissions.
-`def [&values](...)` borrows a surrounding binding without taking ownership.
-Shared capture loans remain live through later calls and moves, preventing changes
-to or destruction of the owner. They can end after the last use. Borrowing
-closures cannot escape their function, enter enum/container storage, or be
-suspended in generators. They can be passed by reference and can borrow another
-closure: an environment loan keeps all transitive captured loans live through the
-call, including evaluation of later arguments. Passing a borrowing closure by
-value is currently rejected.
-`&mut` captures exclusively borrow a mutable source binding. Calls require a
-mutable closure binding and can update the original value; other reads, writes,
-and borrows of that source are excluded while future closure uses keep the loan
-live. Explicit reference arguments must also be disjoint from captured loans.
-`Closure[[parameter types], result]` constrains a concrete environment's signature.
-Owned closures can be returned and passed by reference with this annotation; the
-compiler infers the producer identity and specializes consumers for its layout.
-Different closure expressions do not unify merely because their signatures match.
-The annotation introduces neither boxing nor a dynamically sized environment.
-An owning return moves captures into caller-provided storage.
-Generic consumers infer parameters inside a `Closure` signature from the argument,
-including its result type. An owned environment can itself be a concrete generic
-argument, retaining its exact layout through moves and returns. Borrowing
-environments use explicit reference-to-Closure parameters instead of an unconstrained
-by-value type parameter.
-Owned closures can capture other owned closures, ranges, and inline Option/Result
-values. Their nested addresses are repaired when the environment moves. Owned
-closures also fit in Option/Result payloads without allocation; captured borrows
-remain excluded from these owning compositions. Generator captures are unsupported.
-Closure values display as `<closure>` and cannot be compared or copied.
-Calls can also target temporary environments, such as `make(3)(4)` or
-`wrapped.unwrap()(4)`. The callee is evaluated once before its arguments and kept
-in a hidden owner slot until the containing expression ends. Argument propagation
-cleans up pending owners and this temporary environment. A temporary can be
-mutated by its call; named mutable environments still require `mut`.
-Capturing closures cannot return references or yield.
-See the [backlog](../backlog.md) for remaining work.
+Callable signatures exclude generator frames and closure environments. A named
+Callable value can be borrowed through an explicit reference parameter. For
+functions with explicit captures, see [closure environments](26-closures.md).
 
 Indirect calls in tail position use native tail calls under the same cleanup and
 borrowing restrictions as direct calls. Calls involving inline argument/result

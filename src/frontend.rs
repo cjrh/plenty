@@ -404,13 +404,10 @@ impl TypeRef {
             };
             callables::validate(&signature, &self.at)?;
             if name == "Closure" {
-                return Ok(Some(Ty::Closure(Rc::new(crate::closure::ClosureType {
-                    name: String::new(),
-                    signature,
-                    captures: vec![],
-                    writable: vec![],
-                    mutable: false,
-                }))));
+                return Ok(Some(Ty::Closure(Rc::new(
+                    crate::closure::ClosureType::new(String::new(), signature, vec![], vec![])
+                        .map_err(|message| self.at.error(message))?,
+                ))));
             }
             return Ok(Some(Ty::Callable(Rc::new(signature))));
         }
@@ -2022,6 +2019,9 @@ impl Lower<'_> {
                     loans.extend(other_loans);
                 }
                 if a.restricted_storage() {
+                    if matches!(a, Ty::Closure(_)) {
+                        return Err(e.at.error("closures do not support binary operators"));
+                    }
                     return Err(e.at.error("generators do not support binary operators"));
                 }
                 self.same(Some(b.clone()), Some(a.clone()), &e.at)?;

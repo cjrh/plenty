@@ -4,12 +4,7 @@ use crate::closure::ClosureType;
 use crate::op::CallableSig;
 
 fn owned_capture(ty: &Ty) -> bool {
-    match ty {
-        Ty::Ref(..) | Ty::Generator(_) => false,
-        Ty::Closure(t) => t.captures.iter().all(|(_, ty)| owned_capture(ty)),
-        Ty::Enum(t) if t.inline() => t.variants.iter().flat_map(|v| &v.fields).all(owned_capture),
-        _ => true,
-    }
+    !ty.contains_reference() && !ty.contains_generator_frame()
 }
 
 impl Lower<'_> {
@@ -81,13 +76,15 @@ impl Lower<'_> {
         if matches!(signature.output, Some(Ty::Ref(..))) || generators::yields(&function.body) {
             return Err(at.error("capturing closures cannot return references or yield yet"));
         }
-        let closure = Rc::new(ClosureType {
-            name: function.name.clone(),
-            signature,
-            captures,
-            writable: function.captures.iter().map(|c| c.mutable).collect(),
-            mutable: function.captures.iter().any(|c| c.mutable),
-        });
+        let closure = Rc::new(
+            ClosureType::new(
+                function.name.clone(),
+                signature,
+                captures,
+                function.captures.iter().map(|c| c.mutable).collect(),
+            )
+            .map_err(|message| at.error(message))?,
+        );
         hidden.append(&mut function.inputs);
         function.inputs = hidden;
         if !self.sigs.contains_key(&function.name) {

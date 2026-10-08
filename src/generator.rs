@@ -154,14 +154,11 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
             if t.name.is_empty() {
                 return Err("cannot infer a concrete closure environment".into());
             }
-            for (_, field) in &t.captures {
-                layout(field, active)?;
-            }
-            let bytes = t.bytes();
-            if bytes > i32::MAX as usize {
-                return Err("closure environment exceeds the native stack-layout limit".into());
-            }
-            Ok(bytes)
+            // Capture construction already checks and sizes every owned payload.
+            // Rewalking a shared environment graph here can be exponential.
+            // Borrowed generator frames are laid out through their own slots
+            // and the hidden reference parameters of the compiled closure body.
+            Ok(t.bytes())
         }
         Ty::Generator(t) => {
             if let Some(bytes) = t.bytes.get() {

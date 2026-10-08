@@ -103,7 +103,13 @@ impl Lower<'_> {
         if let Some(Ty::Closure(closure)) = self.place_type(callee) {
             return self.call_closure(callee, args, closure, ops);
         }
-        let ty = self.value(callee, ops)?;
+        let ty = if matches!(self.place_type(callee), Some(Ty::Callable(_))) {
+            let (ty, loans) = self.observe(callee, ops)?;
+            Self::end_reads(loans, ops);
+            ty
+        } else {
+            self.value(callee, ops)?
+        };
         if let Ty::Closure(closure) = ty {
             return self.call_temporary_closure(&callee.at, args, closure, ops);
         }

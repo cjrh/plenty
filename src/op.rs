@@ -69,14 +69,7 @@ impl Ty {
     }
     pub fn layout_depth(&self) -> usize {
         match self {
-            Self::Closure(t) => {
-                1 + t
-                    .captures
-                    .iter()
-                    .map(|(_, t)| t.layout_depth())
-                    .max()
-                    .unwrap_or(0)
-            }
+            Self::Closure(t) => t.depth,
             Ty::Callable(sig) => {
                 1 + sig
                     .inputs
@@ -114,21 +107,25 @@ impl Ty {
         }
     }
     pub fn contains_generator_frame(&self) -> bool {
-        match self {
-            Self::Generator(_) => true,
-            Self::Enum(t) => t
-                .variants
-                .iter()
-                .flat_map(|v| &v.fields)
-                .any(Ty::contains_generator_frame),
-            Self::Closure(t) => t.captures.iter().any(|(_, t)| t.contains_generator_frame()),
-            _ => false,
+        let mut work = vec![self];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(ty) = work.pop() {
+            match ty {
+                Self::Generator(_) => return true,
+                Self::Enum(t) if t.restricted_storage && seen.insert((0, t.name.as_str())) => {
+                    work.extend(t.variants.iter().flat_map(|v| &v.fields));
+                }
+                Self::Closure(t) if seen.insert((1, t.name.as_str())) => {
+                    work.extend(t.captures.iter().map(|(_, t)| t));
+                }
+                _ => {}
+            }
         }
+        false
     }
     pub fn contains_reference(&self) -> bool {
         // Composite references are rejected at their construction boundary.
-        matches!(self, Self::Ref(..))
-            || matches!(self, Self::Closure(t) if t.captures.iter().any(|(_, ty)| ty.contains_reference()))
+        matches!(self, Self::Ref(..)) || matches!(self, Self::Closure(t) if t.borrowed)
     }
     pub fn can_copy(&self) -> bool {
         match self {

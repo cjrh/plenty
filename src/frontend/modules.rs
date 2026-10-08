@@ -395,6 +395,7 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
 
 #[derive(Clone)]
 struct Scope {
+    captures: HashSet<String>,
     uncaptured: HashSet<String>,
     module: String,
     symbols: HashMap<String, String>,
@@ -403,6 +404,18 @@ struct Scope {
 }
 
 impl Scope {
+    fn fresh_capture_binding<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a String>,
+        at: &Token,
+    ) -> Result<()> {
+        if let Some(name) = names.into_iter().find(|name| self.captures.contains(*name)) {
+            return Err(at.error(format!(
+                "cannot shadow closure capture `{name}` with a new binding"
+            )));
+        }
+        Ok(())
+    }
     fn symbol(&self, path: &str, at: &Token) -> Result<Option<String>> {
         if let Some(symbol) = self.symbols.get(path) {
             return Ok(Some(symbol.clone()));
@@ -442,6 +455,7 @@ impl Scope {
     }
     fn function(&self, f: &mut Function) -> Result<()> {
         let mut scope = self.clone();
+        scope.captures = f.captures.iter().map(|c| c.name.clone()).collect();
         scope
             .type_params
             .extend(f.type_params.iter().map(|(n, _)| n.clone()));
@@ -467,6 +481,7 @@ impl Scope {
                     body,
                 } => {
                     self.expr(manager, locals)?;
+                    self.fresh_capture_binding(name.iter(), &stmt.at)?;
                     let mut inner = locals.clone();
                     inner.extend(name.iter().cloned());
                     self.block(body, &mut inner)?;
@@ -490,6 +505,7 @@ impl Scope {
                     locals.insert(name.clone());
                 }
                 Statement::Unpack { names, value, .. } => {
+                    self.fresh_capture_binding(names.iter(), &stmt.at)?;
                     self.expr(value, locals)?;
                     locals.extend(names.iter().cloned());
                 }
@@ -512,6 +528,7 @@ impl Scope {
                     body,
                 } => {
                     self.expr(iterable, locals)?;
+                    self.fresh_capture_binding(name.iter(), &stmt.at)?;
                     let mut inner = locals.clone();
                     inner.extend(name.iter().cloned());
                     self.block(body, &mut inner)?;
@@ -525,6 +542,7 @@ impl Scope {
                                 self.ty(ty)?;
                             }
                             if let Some(bindings) = bindings {
+                                self.fresh_capture_binding(bindings.iter(), &stmt.at)?;
                                 inner.extend(bindings.iter().cloned());
                             }
                         }
@@ -713,6 +731,7 @@ impl Scope {
                 for clause in clauses {
                     match clause {
                         Clause::For(n, e) => {
+                            self.fresh_capture_binding(n.iter(), &e.at)?;
                             self.expr(e, &inner)?;
                             inner.extend(n.iter().cloned());
                         }
@@ -769,6 +788,7 @@ fn resolve(
     };
     for (i, m) in modules.iter_mut().enumerate() {
         let mut scope = Scope {
+            captures: HashSet::new(),
             uncaptured: HashSet::new(),
             type_params: HashSet::new(),
             module: m.name.clone(),

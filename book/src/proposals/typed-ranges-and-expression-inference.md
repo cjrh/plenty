@@ -214,12 +214,13 @@ An initial closure model should distinguish:
 - Explicit ownership capture for a closure that outlives the surrounding scope.
 - Captures consumed during a call, making the closure callable at most once.
 
-Exact capture syntax remains open. Do not infer an invisible deep copy, or decide
+The implemented capture syntax and limits are recorded in the
+[closure reference](../design/26-closures.md). Do not infer an invisible deep copy, or decide
 capture ownership by whether a later compiler pass happens to let a closure
 escape. A borrowing closure cannot outlive its owners, and captured borrows must
 remain active while future calls may use them. Owned captures drop with the
-closure, subject to moves and consumption. Checking these rules will require
-extending today's borrow model, not just lowering a function plus an environment.
+closure, subject to moves and consumption. The implementation extends loan
+liveness with environment dependencies, rather than only lowering code and data.
 
 Use concrete environment layouts and static call contracts for generic callable
 parameters where possible. Avoid mandatory heap allocation, reference counting,
