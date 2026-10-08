@@ -17,3 +17,9 @@ Uncalled environments drop their captures in reverse order. When called, the bod
 owns cleanup: captures that are moved into the result remain alive, and all other
 captures drop on exit. Argument failure before entry drops the pending environment.
 There is no heap allocation for creating, moving, calling, or dropping the closure.
+
+`OnceClosure[[parameter types], result]` is the explicit signature annotation for
+a consuming environment. Like `Closure`, it retains the concrete producer layout
+and specializes consumers. Factories, generic signature inference, moves through
+inline Option/Result, and temporary calls such as `factory(value)()` preserve that
+identity. `OnceClosure` and reusable `Closure` do not unify.

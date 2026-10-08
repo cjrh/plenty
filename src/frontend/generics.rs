@@ -183,15 +183,19 @@ fn infer(
         return Ok(());
     }
     let children: Option<Vec<&Ty>> = match (pattern.name.as_deref(), actual) {
-        (Some("Closure"), Ty::Closure(t)) => Some(
-            t.signature
-                .inputs
-                .iter()
-                .chain(std::iter::once(
-                    t.signature.output.as_ref().unwrap_or(&Ty::Unit),
-                ))
-                .collect(),
-        ),
+        (Some("Closure" | "OnceClosure"), Ty::Closure(t))
+            if t.once == (pattern.name.as_deref() == Some("OnceClosure")) =>
+        {
+            Some(
+                t.signature
+                    .inputs
+                    .iter()
+                    .chain(std::iter::once(
+                        t.signature.output.as_ref().unwrap_or(&Ty::Unit),
+                    ))
+                    .collect(),
+            )
+        }
         (Some("Callable"), Ty::Callable(sig)) => Some(
             sig.inputs
                 .iter()

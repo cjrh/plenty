@@ -388,7 +388,7 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
-        if name == "Callable" || name == "Closure" {
+        if matches!(name.as_str(), "Callable" | "Closure" | "OnceClosure") {
             let (output, inputs) = self.args.split_last().ok_or_else(|| {
                 self.at
                     .error("use Callable[[parameter types], return type]")
@@ -404,14 +404,14 @@ impl TypeRef {
                 output: output.resolve(aliases)?,
             };
             callables::validate(&signature, &self.at)?;
-            if name == "Closure" {
+            if matches!(name.as_str(), "Closure" | "OnceClosure") {
                 return Ok(Some(Ty::Closure(Rc::new(
                     crate::closure::ClosureType::new(
                         String::new(),
                         signature,
                         vec![],
                         vec![],
-                        false,
+                        name == "OnceClosure",
                     )
                     .map_err(|message| self.at.error(message))?,
                 ))));
@@ -745,7 +745,7 @@ impl Parser {
                     name.push('.');
                     name.push_str(&self.name()?);
                 }
-                if name == "Callable" || name == "Closure" {
+                if matches!(name.as_str(), "Callable" | "Closure" | "OnceClosure") {
                     self.expect("[")?;
                     self.expect("[")?;
                     let mut args = Vec::new();
@@ -1473,6 +1473,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "Generator"
                 | "Callable"
                 | "Closure"
+                | "OnceClosure"
                 | "tuple"
                 | "IntType"
                 | "next"
