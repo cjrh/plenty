@@ -34,6 +34,10 @@ The concrete callback signature supplies inference evidence: `F: Callable[[], T]
 can determine `T` from `F`'s return type. Such evidence must agree with all other
 arguments. This does not search for protocol implementations or widen numbers.
 
+Parameterized protocol bounds also contribute evidence from the already-known
+implementing class's method signatures. For example, `R: Readable[T]` can infer T
+from R's read result. See [parameterized protocols](29-parameterized-protocols.md).
+
 The frontend creates one concrete function for each distinct function/type tuple.
 Alias-equivalent arguments and recursive calls reuse the same instance. Generated
 bodies pass through ordinary type, ownership, and borrow checking. Generic body

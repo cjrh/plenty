@@ -7,8 +7,13 @@ relationship. Its accessible methods must match exactly, including receiver
 mutability, parameter types, and return type.
 
 Function and method constraints may mention other parameters, for example
-`def read[T, R: Readable[T]](source: &R) -> T`. Supply these arguments explicitly
-when T is not determined by ordinary inputs. Requirements are substituted and
+`def read[T, R: Readable[T]](source: &R) -> T`. Once an argument determines R,
+its concrete method signatures also supply evidence for T. Nested parameter
+types and return types participate. Evidence from ordinary arguments, callable
+bounds, and protocol bounds must agree. The compiler follows these fixed
+signatures until no further parameters are learned; it never searches for a
+class or an implementation. A protocol parameter absent from every requirement
+still needs explicit arguments. Requirements are substituted and
 checked before the consumer is specialized. Protocols do not introduce runtime
 objects, dispatch tables, boxing, or method-import side effects.
 

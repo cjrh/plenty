@@ -15,7 +15,7 @@ fn workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 fn parameterized_protocols_are_explicit_imported_contracts() {
     run(&[
         ("api.plenty", "pub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def read[T, R: Readable[T]](source: &R) -> T:\n    source.read()\n"),
-        ("main.plenty", "import api\npub class Cell:\n    value: u8\n    pub def read(self) -> u8:\n        self.value\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)?\n    print(api.read[u8, Cell](&cell))?\n    Ok(())\n"),
+        ("main.plenty", "import api\npub class Cell:\n    value: u8\n    pub def read(self) -> u8:\n        self.value\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)?\n    print(api.read(&cell))?\n    Ok(())\n"),
     ], "main.plenty", "7\n");
     for api in [
         "class Hidden:\n    value: i64\npub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def use[R: Readable[Hidden]](source: &R) -> ():\n    pass\n",

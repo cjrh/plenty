@@ -288,7 +288,9 @@ impl Lower<'_> {
             self.aliases,
             at,
         )?;
-        infer_callable_bounds(&template, &mut inferred, self.aliases, at)?;
+        self.sync_data()?;
+        self.generics
+            .infer_bounds(&template, &mut inferred, self.aliases, self.access, at)?;
         let actual = template.type_params.iter().map(|(param, _)| {
             inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from the expected Callable; supply explicit type arguments")))
         }).collect::<Result<_>>()?;
@@ -399,7 +401,9 @@ impl Lower<'_> {
             )?;
             arguments.push(ty);
         }
-        infer_callable_bounds(&template, &mut inferred, self.aliases, at)?;
+        self.sync_data()?;
+        self.generics
+            .infer_bounds(&template, &mut inferred, self.aliases, self.access, at)?;
         let actual = template.type_params.iter().map(|(param, _)| {
             inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from its arguments; supply explicit type arguments")))
         }).collect::<Result<_>>()?;
@@ -428,6 +432,77 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
 }
 
 impl Engine {
+    fn infer_bounds(
+        &self,
+        template: &Function,
+        inferred: &mut HashMap<String, Ty>,
+        aliases: &TypeAliases,
+        access: &modules::AccessMap,
+        at: &Token,
+    ) -> Result<()> {
+        loop {
+            let before = inferred.len();
+            infer_callable_bounds(template, inferred, aliases, at)?;
+            for (parameter, bound) in &template.type_params {
+                let Some(bound) = bound.as_ref().filter(|b| mentions_parameter(b, template)) else {
+                    continue;
+                };
+                let Some(protocol) = bound.name.as_ref().and_then(|n| self.protocols.get(n)) else {
+                    continue;
+                };
+                let Some(actual @ Ty::Class(_)) = inferred.get(parameter).cloned() else {
+                    continue;
+                };
+                let Ty::Class(class) = &actual else {
+                    unreachable!()
+                };
+                let mut substitutions: Substitution = protocol
+                    .type_params
+                    .iter()
+                    .map(|(n, _)| n.clone())
+                    .zip(bound.args.iter().cloned())
+                    .collect();
+                substitutions.insert(protocol.name.clone(), type_ref(&actual, at));
+                for requirement in &protocol.methods {
+                    modules::check_member(access, &class.name, &requirement.name, &bound.at)?;
+                    let (inputs, output) = self
+                        .methods
+                        .get(&crate::record::method(&class.name, &requirement.name))
+                        .ok_or_else(|| {
+                            at.error(format!(
+                                "{actual} does not satisfy {}: missing method `{}`",
+                                protocol.name, requirement.name
+                            ))
+                        })?;
+                    if inputs.len() != requirement.inputs.len() {
+                        return Err(at.error(format!(
+                            "signature of `{}` does not match {}",
+                            requirement.name, protocol.name
+                        )));
+                    }
+                    for (pattern, actual) in requirement
+                        .inputs
+                        .iter()
+                        .map(|(_, t)| t)
+                        .chain(std::iter::once(&requirement.output))
+                        .zip(
+                            inputs
+                                .iter()
+                                .chain(std::iter::once(output.as_ref().unwrap_or(&Ty::Unit))),
+                        )
+                    {
+                        let mut pattern = pattern.clone();
+                        substitute(&mut pattern, &substitutions)?;
+                        infer(&pattern, actual, template, inferred, aliases, at)?;
+                    }
+                }
+            }
+            if before == inferred.len() {
+                return Ok(());
+            }
+        }
+    }
+
     pub(super) fn validate_template(&self, f: &Function, aliases: &TypeAliases) -> Result<()> {
         for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
             if callable_bound(bound) && !bound.args.is_empty() {
