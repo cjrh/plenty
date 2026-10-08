@@ -2019,6 +2019,10 @@ impl Lower<'_> {
                     ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
                     ops.push(Op::ReadRef((*ty).clone()));
                     ops.push(Op::UseLoan(loan));
+                    if *ty == Ty::Unit {
+                        ops.push(Op::Drop);
+                        return Ok(None);
+                    }
                     return Ok(Some((*ty).clone()));
                 }
                 if op == "-" {

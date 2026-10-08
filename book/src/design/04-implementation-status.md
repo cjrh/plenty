@@ -39,6 +39,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Unit values | Expressions, function returns, enum and tuple payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
 | Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; stored references deferred |
+| Borrowed enum matching | Shared matches preserve owners; mutable matches update inline sums and affine enum payloads. Payload loans protect variants, support restricted returns, and allocate nothing; [reference](31-borrowed-enum-matching.md) |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Allocation-free ranges | `range(...)` and `range[T](...)` return inline range values directly; calls, returns, standard sums, indexing, membership, and repeated iteration need no range allocation |
@@ -88,7 +89,7 @@ Collections, classes, generators, and enums containing owned values transfer own
 owner early. Immutable strings and immutable enums may share storage. Collection
 updates operate in place. Named local and parameter references use `&T` / `&mut T`,
 with last-use loan checking over an access CFG. Class fields, list elements, and
-dictionary values can also be borrowed; stored references are deferred. Returned
+dictionary values and enum payloads can also be borrowed; stored references are deferred. Returned
 references must originate from a function's single reference parameter.
 
 The original four feature proposals are in [Proposals](../proposals/index.md).

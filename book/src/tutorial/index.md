@@ -25,5 +25,7 @@ building a named-function registry or using a local closure.
 For a registry with per-callback state, [store explicit state beside a named
 function](76-store-stateful-callbacks.md) using an ordinary generic class.
 
+To inspect enums and recursive chains without consuming them,
+[match borrowed values](78-match-borrowed-values.md).
 For chains and trees, [build recursive data](77-build-recursive-data.md) with
 ordinary classes, enums, and ownership-driven cleanup.

@@ -18,8 +18,9 @@ Recursive values and aggregates containing them move on assignment and owned
 argument passing. Mutable fields retain ordinary explicit borrowing rules.
 `match` consumes recursive enums and transfers bound payloads; an iterative
 `while`/`match` loop can dismantle a chain without recursive function calls.
-Matching references, partial moves from classes, stored references, shared mutable
-graphs, and source ownership cycles remain unsupported. A terminating variant,
+Matching a [shared or mutable reference](31-borrowed-enum-matching.md) instead
+borrows the payloads and preserves the owner. Partial moves from classes, stored
+references, shared mutable graphs, and source ownership cycles remain unsupported. A terminating variant,
 `Nothing`, or an empty collection supplies the usual construction base case.
 
 Automatic `copy`, structural equality (including list membership), `print`, and

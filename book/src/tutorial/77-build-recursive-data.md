@@ -76,8 +76,8 @@ uses an allocation-free queue, so its native stack usage does not grow with the
 number of nodes in a chain. If you write a recursive traversal function yourself,
 ordinary function-call stack limits still apply; the loop above avoids that.
 
-There are a few current limits. Matching consumes recursive enums; matching a
-reference and moving individual owned fields out of a class are not supported.
+To inspect a structure while keeping it, [match a borrowed value](78-match-borrowed-values.md).
+Moving individual owned fields out of a class remains unsupported.
 Automatic `copy`, equality, `print`, and `str.repr` also reject recursive data,
 including containers holding it. Print selected scalar fields as above, or write
 an explicit traversal. These restrictions prevent the existing recursive runtime

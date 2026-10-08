@@ -57,7 +57,9 @@ the ordinary runtime field slot. Matching may ignore or bind that payload; readi
 a unit pattern binding yields the no-register unit expression, so it can be
 returned from a unit-returning function. It does not introduce nullability.
 
-`match` currently accepts enums. Each `case` names a variant and binds payload
+`match` accepts enums and [enum references](31-borrowed-enum-matching.md).
+Owned matching binds values; shared/exclusive matching binds shared/exclusive
+payload references. Each `case` names a variant and binds payload
 positions to immutable locals or `_`; a whole-value `_` covers the remaining
 variants. Coverage is exhaustive and checked before lowering. Duplicate variants,
 redundant wildcards, incorrect payload arity, and wrong enum identities are
@@ -67,9 +69,11 @@ may shadow outer bindings. Continuing arms agree on result type; arms ending in
 return/break/continue do not contribute a join value. A function-tail match
 produces its final arm expression, like the existing statement-form `if`.
 
-Native user-defined enum values are immutable pointer-sized handles to tagged
-records. A record contains a managed header, immutable type metadata pointer,
-tag, and one typed slot per active payload field. Slots use 16 bytes plus 32 inline
+Native user-defined enum values are pointer-sized handles to tagged
+records. Owned payloads may be mutated through exclusive match loans; copyable
+enum records retain immutable shared storage. A record contains a managed header,
+immutable type metadata pointer, tag, and one typed slot per active payload field.
+Slots use 16 bytes plus 32 inline
 bytes when the field is a range or a standard sum containing one. Equality compares nominal type, tag, and
 payload contents, using IEEE comparisons for floats. Runtime metadata records
 whether equality is reflexive; float-containing values cannot use pointer identity

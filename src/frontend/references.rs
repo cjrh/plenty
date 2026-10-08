@@ -491,8 +491,12 @@ impl Lower<'_> {
                 "cannot replace a whole class through a reference; assign its fields instead",
             ));
         }
-        let got = self.expr_expected(value, Some((**ty).clone()), ops)?;
-        self.same(got, Some((**ty).clone()), &value.at)?;
+        let expected = (**ty != Ty::Unit).then(|| (**ty).clone());
+        let got = self.expr_expected(value, expected.clone(), ops)?;
+        self.same(got, expected, &value.at)?;
+        if **ty == Ty::Unit {
+            ops.push(Op::PushUnit);
+        }
         let loan = self.reference_locals[&local.slot];
         ops.push(Op::Access(self.loans[loan].root, true, Some(loan)));
         ops.push(Op::LoadLocal(local.slot));

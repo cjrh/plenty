@@ -49,10 +49,16 @@ opaque C handles and generated ownership wrappers. The
 [runnable lesson](tutorial/77-build-recursive-data.md) teaches chains and trees.
 See the [implemented contract](design/30-recursive-data.md) for precise limits.
 
-**Next: B11, borrowed enum matching and payload loans.** Recursive class fields
-such as `next: Option[Node]` make non-consuming inspection a practical need.
-Implement that slice before broader stored-reference work, then return to B22's
-native concurrency foundation and B32's callback storage. Automatic deep recursive
+B11's borrowed enum matching slice is complete. Shared matches preserve owners;
+mutable matches support inline sums and affine enum payloads. Payload loans protect
+variants, support single-origin returns, and allocate nothing, including nested
+`Option`/`Result` projections. Copyable heap enum storage remains immutable.
+See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
+[implemented contract](design/31-borrowed-enum-matching.md).
+
+**Next: B22, native concurrency eligibility and scoped threads**, followed by
+B32's callback storage. Broader stored-reference work remains under B11.
+Automatic deep recursive
 copy, equality, and formatting remain explicitly gated and are tracked by B33.
 
 Named function values already support basic callback registries: a
@@ -67,13 +73,11 @@ cover generic state, allocation-free dispatch, and exactly-once resource cleanup
 
 ### Scope of follow-on work
 
-**B11 — inspect recursive values through borrows.** Define matching a borrowed enum,
-including standard sums in class fields, without moving the owner or allocating.
-Payload references must remain tied to the original owner and active variant;
-account for replacement, mutable access, branch-local lifetimes, and returned
-references. Teach traversal of a borrowed chain and reject escaping temporary
-payload references. Stored references and broader inter-parameter relationships
-remain separate slices under this item.
+**B11 — broader reference relationships.** Borrowed enum matching and payload
+loans are implemented. Remaining slices include stored references, relationships
+among multiple reference parameters, and more precise collection loans. Preserve
+owner/variant stability and reject references into temporary storage as this
+subset expands; evaluate additional precision against compile-time cost.
 
 **B22 — useful native concurrency.** Target native threads that execute Plenty
 code in parallel without a global interpreter lock. Building on the completed
@@ -107,7 +111,7 @@ is still open.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B11 | Broader borrowing | Borrowed enum matching and payload loans first; then stored references, relationships among multiple reference parameters, and more precise collection loans. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
+| B11 | Broader borrowing | Borrowed enum matching and payload loans complete. Remaining: stored references, relationships among multiple reference parameters, and more precise collection loans. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/18-returned-references.md). |
 | B12 | Practical I/O and iteration | Fallible file iteration, explicit binary buffers and read/write, buffering, and reusable iterator/view protocols. Follow familiar Python conventions where they fit ownership and Result-based errors. |
 | B13 | Public allocator control | Global/default and per-container selection, allocator state/lifetimes, and buffer provenance. Internal object allocator identity already exists. Consider bounded/inline-capacity storage separately. [Memory design](proposals/memory-parallelism-and-simd.md). |
 | B14 | Typed error composition | Preserve details across multiple error types through explicit unions/conversions. `Failure` already supplies deliberate erasure; it does not replace recoverable typed errors. |

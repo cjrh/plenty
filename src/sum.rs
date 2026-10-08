@@ -1,6 +1,7 @@
 //! Concrete nominal sum types and their checked operations.
 use crate::op::Ty;
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct EnumType {
@@ -245,6 +246,8 @@ pub enum EnumOp {
     TryNew(crate::nominal::Nominal<EnumType>, usize),
     Unwrap(crate::nominal::Nominal<EnumType>),
     Tag(crate::nominal::Nominal<EnumType>),
+    TagRef(crate::nominal::Nominal<EnumType>, bool),
+    FieldRef(crate::nominal::Nominal<EnumType>, usize, usize, bool),
     Field(crate::nominal::Nominal<EnumType>, usize, usize),
     Take(crate::nominal::Nominal<EnumType>, usize, usize),
 }
@@ -265,6 +268,17 @@ impl EnumOp {
                 result(Ty::Enum(t.clone()), alloc_error()),
             ),
             Self::Tag(t) => (vec![Ty::Enum(t.clone())], Ty::I64),
+            Self::TagRef(t, mutable) => (
+                vec![Ty::Ref(Rc::new(Ty::Enum(t.clone())), *mutable)],
+                Ty::I64,
+            ),
+            Self::FieldRef(t, tag, field, mutable) => (
+                vec![Ty::Ref(Rc::new(Ty::Enum(t.clone())), *mutable)],
+                Ty::Ref(
+                    Rc::new(t.get().variants.get(*tag)?.fields.get(*field)?.clone()),
+                    *mutable,
+                ),
+            ),
             Self::Field(t, tag, field) | Self::Take(t, tag, field) => (
                 vec![Ty::Enum(t.clone())],
                 t.get().variants.get(*tag)?.fields.get(*field)?.clone(),

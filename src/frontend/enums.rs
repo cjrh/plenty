@@ -392,14 +392,33 @@ impl Lower<'_> {
     ) -> Result<BlockResult> {
         let temporary_start = self.expression_temps.len();
         let ty = self.value(value, ops)?;
-        let Ty::Enum(t) = ty else {
-            return Err(value.at.error("match currently requires an enum value"));
+        let (t, borrowed) = match &ty {
+            Ty::Enum(t) => (t.clone(), None),
+            Ty::Ref(inner, mutable) => {
+                let Ty::Enum(t) = &**inner else {
+                    return Err(value.at.error("match requires an enum value or reference"));
+                };
+                (
+                    t.clone(),
+                    Some((self.reference_origin(value, ops)?, *mutable)),
+                )
+            }
+            _ => return Err(value.at.error("match requires an enum value or reference")),
         };
-        let source = self.slot(Ty::Enum(t.clone()), &value.at)?;
+        if matches!(borrowed, Some((_, true))) && !t.inline() && !Ty::Enum(t.clone()).affine() {
+            return Err(value.at.error("mutable payload matching requires an owned enum; immutable enum storage may be shared; use a shared match or replace the whole value"));
+        }
+        let source = self.slot(ty, &value.at)?;
         ops.push(Op::StoreLocal(source));
         self.finish_temporaries(temporary_start, ops);
         ops.push(Op::LoadLocal(source));
-        ops.push(Op::Enum(EnumOp::Tag(t.clone())));
+        if let Some((loan, mutable)) = borrowed {
+            ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
+            ops.push(Op::Enum(EnumOp::TagRef(t.clone(), mutable)));
+            ops.push(Op::UseLoan(loan));
+        } else {
+            ops.push(Op::Enum(EnumOp::Tag(t.clone())));
+        }
         let saved = self.names.clone();
         let mut covered = HashSet::new();
         let mut wildcard = false;
@@ -454,31 +473,59 @@ impl Lower<'_> {
                     if !bound.insert(name) {
                         return Err(case.at.error("duplicate payload binding"));
                     }
-                    let slot = self.slot(ty.clone(), &case.at)?;
+                    let binding_ty = if let Some((_, mutable)) = borrowed {
+                        Ty::Ref(Rc::new(ty.clone()), mutable)
+                    } else {
+                        ty.clone()
+                    };
+                    let slot = self.slot(binding_ty.clone(), &case.at)?;
                     self.names.insert(
                         name.clone(),
                         Local {
                             slot,
-                            ty: ty.clone(),
+                            ty: binding_ty,
                             mutable: false,
                         },
                     );
-                    body.extend([
-                        if t.inline() {
-                            Op::MoveLocal(
-                                source,
-                                format!("{}:{}: matched payload", case.at.line, case.at.column),
-                            )
-                        } else {
-                            Op::LoadLocal(source)
-                        },
-                        Op::Enum(if ty.affine() {
-                            EnumOp::Take(t.clone(), tag, field)
-                        } else {
-                            EnumOp::Field(t.clone(), tag, field)
-                        }),
-                        Op::StoreLocal(slot),
-                    ]);
+                    if let Some((parent, mutable)) = borrowed {
+                        let loan = self.new_loan(
+                            self.loans[parent].root,
+                            mutable,
+                            Some(parent),
+                            &mut body,
+                        );
+                        // A payload loan protects its enclosing variant from
+                        // replacement, while sibling fields remain disjoint.
+                        if self.loans[loan].precise {
+                            self.loans[loan].fields.push(field);
+                            if let Some(Op::Loan(fact)) = body.last_mut() {
+                                *fact = self.loans[loan].clone();
+                            }
+                        }
+                        self.reference_locals.insert(slot, loan);
+                        body.extend([
+                            Op::LoadLocal(source),
+                            Op::Enum(EnumOp::FieldRef(t.clone(), tag, field, mutable)),
+                            Op::StoreLocal(slot),
+                        ]);
+                    } else {
+                        body.extend([
+                            if t.inline() {
+                                Op::MoveLocal(
+                                    source,
+                                    format!("{}:{}: matched payload", case.at.line, case.at.column),
+                                )
+                            } else {
+                                Op::LoadLocal(source)
+                            },
+                            Op::Enum(if ty.affine() {
+                                EnumOp::Take(t.clone(), tag, field)
+                            } else {
+                                EnumOp::Field(t.clone(), tag, field)
+                            }),
+                            Op::StoreLocal(slot),
+                        ]);
+                    }
                 }
                 Pattern::Int {
                     value: Value::I64(tag as i64),

@@ -4,7 +4,8 @@ A function or method returning `&T` or `&mut T` must take exactly one reference
 parameter. A mutable result requires a mutable parameter. Every return path must
 produce a borrow originating in that parameter; local owners and owned value
 parameters cannot escape. No lifetime syntax or whole-program inference is needed.
-Direct parameter references, reborrows, field projections, and forwarding calls
+Direct parameter references, reborrows, field projections,
+[borrowed match payloads](31-borrowed-enum-matching.md), and forwarding calls
 are supported, including branches with explicit returns. Conditional reference
 expressions are not supported yet. Reference-returning methods require a named
 receiver, class-field place, or indexed place in named storage; temporary

@@ -45,6 +45,7 @@ temporary storage lifetime, but the static checker establishes access permission
 Reference calls retain the caller frame, so native tail calls do not invalidate it.
 
 Partial moves and stored references remain rejected. Class field loans distinguish disjoint projections,
+and [borrowed matches](31-borrowed-enum-matching.md) extend this to enum payloads,
 including through reborrowed reference parameters. A generator cannot capture reference parameters or retain a live
 loan across `yield`; short borrows completed within one resume are permitted.
 No lifetime annotation syntax or general trait system is required for this subset.

@@ -125,6 +125,7 @@
 - [75. Parameterize a protocol](tutorial/75-parameterize-a-protocol.md)
 - [76. Store stateful callbacks](tutorial/76-store-stateful-callbacks.md)
 - [77. Build recursive data](tutorial/77-build-recursive-data.md)
+- [78. Match borrowed values](tutorial/78-match-borrowed-values.md)
 
 # Reference
 
@@ -177,6 +178,7 @@
 - [Generic data types](design/28-generic-data-types.md)
 - [Parameterized protocols](design/29-parameterized-protocols.md)
 - [Recursive data](design/30-recursive-data.md)
+- [Borrowed enum matching](design/31-borrowed-enum-matching.md)
 - [Native runtime](runtime.md)
 
 # Proposals

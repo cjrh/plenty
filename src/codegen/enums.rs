@@ -96,6 +96,53 @@ impl Lowerer<'_, '_> {
     }
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
+        if let EnumOp::TagRef(t, _) | EnumOp::FieldRef(t, ..) = op {
+            let (reference, _) = self.pop_typed(inputs[0].clone())?;
+            let result = match op {
+                EnumOp::TagRef(..) => {
+                    let packed = self.read_reference(reference);
+                    if t.inline() {
+                        let tags = self.bcx.ins().ushr_imm(packed, 64);
+                        let tags = self.raw_word(tags);
+                        let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
+                        self.bcx.ins().band_imm(tags, mask as i64)
+                    } else {
+                        let owner = self.raw_word(packed);
+                        self.bcx.ins().load(
+                            types::I64,
+                            cranelift_codegen::ir::MemFlags::trusted(),
+                            owner,
+                            24,
+                        )
+                    }
+                }
+                EnumOp::FieldRef(_, tag, field, _) => {
+                    if t.inline() {
+                        let one = self.bcx.ins().iconst(types::I64, 1);
+                        let one = self.bcx.ins().uextend(types::I128, one);
+                        let step = self.bcx.ins().ishl_imm(one, 64);
+                        self.bcx.ins().iadd(reference, step)
+                    } else {
+                        let address = self.raw_word(reference);
+                        let owner = self.bcx.ins().load(
+                            PTR_TY,
+                            cranelift_codegen::ir::MemFlags::trusted(),
+                            address,
+                            0,
+                        );
+                        let offset: i64 = t.get().variants[*tag].fields[..*field]
+                            .iter()
+                            .map(|t| t.slot_bytes() as i64)
+                            .sum();
+                        self.bcx.ins().iadd_imm(owner, 32 + offset)
+                    }
+                }
+                _ => unreachable!(),
+            };
+            let result = self.unpack(result, &output);
+            self.stack.push((result, output));
+            return Ok(());
+        }
         let t = match op {
             EnumOp::New(t, _)
             | EnumOp::Unwrap(t)
@@ -103,6 +150,7 @@ impl Lowerer<'_, '_> {
             | EnumOp::Tag(t)
             | EnumOp::Field(t, _, _)
             | EnumOp::Take(t, _, _) => t,
+            EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
         };
         if t.inline() {
             let result = match op {
@@ -146,6 +194,7 @@ impl Lowerer<'_, '_> {
                     let (value, _) = self.pop_typed(inputs[0].clone())?;
                     self.sum_payload(value)
                 }
+                EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
             };
             let result = self.unpack(result, &output);
             self.stack.push((result, output));
@@ -159,6 +208,7 @@ impl Lowerer<'_, '_> {
         values.reverse();
         let result = match op {
             EnumOp::Unwrap(_) => unreachable!("standard sums are inline"),
+            EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
             EnumOp::TryNew(t, tag) => {
                 let tag = self.bcx.ins().iconst(types::I64, *tag as i64);
                 let result = self.collection_call(108, &[tag], Some(&Ty::Enum(t.clone())))?;
