@@ -226,7 +226,7 @@ Repository evidence at proposal time:
 - `build.rs` embeds a host-target runtime archive. Shared-library output needs
   a reviewed runtime link mode, exported-symbol policy, and startup path without
   the executable's `main`/`plenty_main` dependency.
-- `plenty-runtime/README.md` documents non-atomic counts, thread-local destruction,
+- `plenty-runtime/README.md` documents atomic counts, thread-local destruction,
   and compiler-private 64-bit slots. Native threads cannot safely share current
   Plenty objects merely because an FFI function spawns them.
 

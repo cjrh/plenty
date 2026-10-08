@@ -86,7 +86,9 @@ internal and is not the future FFI contract.
 Retain/release of internal null handles are no-ops. Null is only the compiler's
 empty ownership-slot marker; it is never a language value or an absent option.
 Check retain overflow rather than wrapping into zero or the immortal sentinel.
-Counts are non-atomic while the language exposes no concurrent execution.
+The implemented counts are now atomic; see the
+[ownership reference](../design/13-ownership-and-reclamation.md) for final-release
+ordering. This alone does not expose concurrent execution.
 Release invokes the destructor at zero; the destructor frees children and the
 object itself. Do not invoke a destructor twice or free the object again after
 its callback. This callback design lets scalar-only programs link the basic

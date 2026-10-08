@@ -25,12 +25,14 @@ explicit parallel collection operations after those are sound. Start SIMD with
 a small set of explicit fixed-width vectors. Neither automatic parallelization
 nor a general auto-vectorizer should be necessary for the basic language.
 
-## What the implementation actually does today
+## Historical implementation audit
 
-The runtime is Rust, but compiled Plenty is single-threaded and allocation
-failure is not recoverable through a Plenty `Result`:
+This snapshot predates fallible allocation, inline sums/ranges/generators, static
+type metadata, and atomic ownership counts. It explains the original proposal's
+motivation, not current behavior. See the [implementation status](../design/04-implementation-status.md)
+and [native concurrency audit](native-concurrency.md) for the current contracts.
 
-| Area | Current behavior and implication |
+| Area | Original behavior and implication |
 | --- | --- |
 | Raw object allocation | `plenty-runtime/src/memory.rs::allocate` calls `alloc_zeroed`, then `handle_alloc_error` on null; layout overflow exits through `fail`. |
 | Collection growth | `aggregates.rs::insert` uses `try_reserve` for entries, but turns failure into process termination. Hash-table rebuilding uses an infallible `vec!` allocation. |

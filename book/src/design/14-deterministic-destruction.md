@@ -1,5 +1,11 @@
 # Deterministic destruction
 
+The runtime's iterative heap destruction is tested with a 100,000-record chain
+whose static descriptors refer back to themselves through inline `Option`.
+The sole owner transfers to a worker with a 64 KiB stack; all hooks run exactly
+once with allocation disabled. This validates the runtime mechanism, not source
+support for recursive declarations or a public thread API.
+
 Plenty uses ownership-driven destruction, without a tracing garbage collector.
 The compiler inserts cleanup on ordinary control-flow exits. This applies to memory
 and custom class cleanup, including owned file handles. General foreign handles

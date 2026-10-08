@@ -225,7 +225,7 @@ the allocation audit, failure guarantees, allocator design, and sources.
 
 Owned values make concurrency easier to reason about, but moving a collection
 does not prove all its storage is exclusive. Shared immutable strings and runtime
-metadata currently involve non-atomic reference counting. Allocators, destructors,
+metadata now use atomic counts and immutable descriptors respectively. Allocators, destructors,
 and foreign handles can also have thread affinity. These need compiler-recognized
 transfer/share rules and runtime changes before safe thread APIs.
 

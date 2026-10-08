@@ -2168,3 +2168,103 @@ fn deeply_nested_generator_frames_drop_iteratively() {
         assert_eq!(trace(), [1]);
     }
 }
+
+// Recursive descriptors exercise the runtime representation independently of
+// the frontend, which still rejects recursive source declarations.
+static RECURSIVE_NODE: Type = Type {
+    affine: true,
+    name: "RecursiveNode",
+    variants: &[Variant {
+        name: "next",
+        fields: &[&OPTION_RECURSIVE_NODE],
+    }],
+    ..scalar(b'C')
+};
+static OPTION_RECURSIVE_NODE: Type = Type {
+    affine: true,
+    name: "Option[RecursiveNode]",
+    variants: &[
+        Variant {
+            name: "Nothing",
+            fields: &[],
+        },
+        Variant {
+            name: "Some",
+            fields: &[&RECURSIVE_NODE],
+        },
+    ],
+    ..scalar(b'B')
+};
+thread_local! {
+    static RECURSIVE_DROPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+unsafe extern "C" fn recursive_node_drop(_: *mut u128) {
+    RECURSIVE_DROPS.with(|count| count.set(count.get() + 1));
+}
+
+#[test]
+fn recursive_heap_records_drop_on_a_small_worker_stack_without_allocating() {
+    const DEPTH: usize = 100_000;
+    let mut child = 0;
+    // SAFETY: each record gets one valid inline Option payload. Ownership of
+    // the previous record transfers directly into the newly allocated parent.
+    unsafe {
+        for _ in 0..DEPTH {
+            let node = collection(
+                30,
+                recursive_node_drop as *const () as u128,
+                0,
+                0,
+                &RECURSIVE_NODE,
+            );
+            *(node as *mut u8).add(32).cast::<u128>() =
+                crate::aggregates::wrap(child, u64::from(child != 0));
+            child = node;
+        }
+    }
+    // The parent no longer accesses this graph. Its only payload is an owned
+    // successor and its only callback updates a worker-local counter.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            RECURSIVE_DROPS.with(|count| count.set(0));
+            #[cfg(feature = "allocation-checks")]
+            crate::accounting::fail_after(Some(0));
+            unsafe { plenty_release(child as *mut Header) };
+            #[cfg(feature = "allocation-checks")]
+            crate::accounting::fail_after(None);
+            assert_eq!(RECURSIVE_DROPS.with(std::cell::Cell::get), DEPTH);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn recursive_record_allocation_failure_leaves_the_child_owner_live() {
+    RECURSIVE_DROPS.with(|count| count.set(0));
+    unsafe {
+        let child = collection(
+            30,
+            recursive_node_drop as *const () as u128,
+            0,
+            0,
+            &RECURSIVE_NODE,
+        );
+        *(child as *mut u8).add(32).cast::<u128>() = 0; // Nothing
+        crate::accounting::fail_after(Some(0));
+        let parent = collection(
+            108,
+            recursive_node_drop as *const () as u128,
+            0,
+            0,
+            &RECURSIVE_NODE,
+        );
+        crate::accounting::fail_after(None);
+        assert_eq!(parent >> 64 & 1, 1); // Result.Err(AllocError.OutOfMemory)
+        assert_eq!(RECURSIVE_DROPS.with(std::cell::Cell::get), 0);
+        plenty_release(child as *mut Header);
+        assert_eq!(RECURSIVE_DROPS.with(std::cell::Cell::get), 1);
+    }
+}
