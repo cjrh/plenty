@@ -2,14 +2,38 @@
 use super::*;
 use std::collections::VecDeque;
 
-fn callable_bound(bound: &TypeRef) -> bool {
+pub(super) fn callable_bound(bound: &TypeRef) -> bool {
     matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable"))
 }
 
-fn callable_pattern(bound: &TypeRef) -> TypeRef {
+pub(super) fn callable_pattern(bound: &TypeRef) -> TypeRef {
     let mut pattern = bound.clone();
     pattern.name = Some("Callable".into());
     pattern
+}
+
+pub(super) fn check_callable_bound(
+    bound: &TypeRef,
+    ty: &Ty,
+    replacements: &Substitution,
+    aliases: &TypeAliases,
+    at: &Token,
+) -> Result<()> {
+    let mut pattern = callable_pattern(bound);
+    substitute(&mut pattern, replacements)?;
+    let Some(Ty::Callable(expected)) = pattern.resolve(aliases)? else {
+        unreachable!("Callable constraint resolves to a callable signature")
+    };
+    if callables::signature(ty) != Some(expected.as_ref())
+        || (bound.name.as_deref() == Some("Callable") && matches!(ty, Ty::Closure(t) if t.once))
+    {
+        let requirement =
+            expected
+                .to_string()
+                .replacen("Callable", bound.name.as_deref().unwrap(), 1);
+        return Err(at.error(format!("{ty} does not satisfy {requirement}")));
+    }
+    Ok(())
 }
 
 pub(super) fn prepare(
@@ -17,6 +41,7 @@ pub(super) fn prepare(
     aliases: &TypeAliases,
     protocols: Vec<protocols::Protocol>,
 ) -> Result<Engine> {
+    aliases.validate_data_bounds()?;
     functions.extend(aliases.data.factories());
     let mut declarations = HashMap::new();
     for protocol in &protocols {
@@ -628,17 +653,7 @@ impl Engine {
                         return Err(at.error(format!("{ty} does not satisfy IntType")));
                     }
                 } else if callable_bound(bound) {
-                    let mut pattern = callable_pattern(bound);
-                    substitute(&mut pattern, &replacements)?;
-                    let Some(Ty::Callable(expected)) = pattern.resolve(aliases)? else {
-                        unreachable!("Callable constraint resolves to a callable signature")
-                    };
-                    if callables::signature(ty) != Some(expected.as_ref())
-                        || (bound.name.as_deref() == Some("Callable")
-                            && matches!(ty, Ty::Closure(t) if t.once))
-                    {
-                        return Err(at.error(format!("{ty} does not satisfy {expected}")));
-                    }
+                    check_callable_bound(bound, ty, &replacements, aliases, at)?;
                 } else {
                     let mut application = bound.clone();
                     substitute(&mut application, &replacements)?;

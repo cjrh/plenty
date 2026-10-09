@@ -51,9 +51,21 @@ alias cycles remain invalid; bounded diagnostics show their dependency paths.
 Aliases and nominal definitions resolve through work queues.
 Data specialization is capped at 256 instances; nesting at 64 and
 concrete names at 16,384 bytes. `T: IntType` limits a data parameter to sized
-integers. Other data bounds are not yet supported. Imports and `pub` apply to the
+integers. `F: Callable[[T], U]` and `F: OnceCallable[[T], U]` constrain a class or
+enum parameter using the same signature and invocation rules as generic functions.
+For example, `class Handler[T, F: Callable[[T], T]]:` can store `callback: F`.
+Its constructor infers both parameters from a concrete callback's signature.
+The constraint does not erase the environment or change storage costs. Explicit
+instances and aliases are checked too; unused declaration bounds must have valid
+signature shapes. Protocol bounds on data remain unsupported.
+
+Constraints resolve on the existing bounded definition queue after alias names
+and nominal identities are available. Shape probes keep placeholder arguments in
+an isolated cache and do not enforce instance constraints on those placeholders.
+Imports and `pub` apply to the
 declaration and its members; concrete arguments must also be public when exposed
-in a public signature, including parameters with no stored field.
+in a public signature, including parameters with no stored field and types named
+only in a callback constraint.
 
 Signature shape validation uses an isolated instance cache, so placeholder types
 cannot enqueue methods in the real program. Actual specializations drain through

@@ -962,6 +962,13 @@ fn resolve(
             for bound in e.type_params.iter_mut().filter_map(|(_, b)| b.as_mut()) {
                 scope.ty(bound)?;
             }
+            if public {
+                for bound in e.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+                    for part in &bound.args {
+                        data_public_types(part, &e.type_params, &mut result.public_api);
+                    }
+                }
+            }
             for (_, fields) in &mut e.variants {
                 for t in fields {
                     scope.ty(t)?;
@@ -980,6 +987,13 @@ fn resolve(
                 .extend(c.type_params.iter().map(|(n, _)| n.clone()));
             for bound in c.type_params.iter_mut().filter_map(|(_, b)| b.as_mut()) {
                 scope.ty(bound)?;
+            }
+            if public {
+                for bound in c.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+                    for part in &bound.args {
+                        data_public_types(part, &c.type_params, &mut result.public_api);
+                    }
+                }
             }
             result.access.types.insert(
                 c.name.clone(),

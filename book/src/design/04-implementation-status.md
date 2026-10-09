@@ -34,7 +34,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Direct and mutual tail calls | Implemented where borrowing and observable cleanup permit |
 | Early returns and return-aware branch checking | Implemented in AOT |
 | Concrete enums, tagged payloads, exhaustive matching | Implemented, including fallible `Enum.Variant(...)` |
-| Generic data declarations | Concrete enums and classes with cached specialization, aliases, inferred class construction, nested payloads, IntType constraints, generic methods, and ordinary ownership rules; see [generic data types](28-generic-data-types.md) |
+| Generic data declarations | Concrete enums and classes with cached specialization, aliases, inferred class construction, nested payloads, IntType/Callable/OnceCallable constraints, generic methods, and ordinary ownership rules; see [generic data types](28-generic-data-types.md) |
 | Fixed-layout classes, constructors, methods, custom cleanup | Implemented, including checked `Class(...)`, fallible initializers, and partial-field cleanup |
 | `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
 | Unit values | Expressions, function returns, enum and tuple payloads implemented; standalone bindings, parameters, and collection/class storage deferred |

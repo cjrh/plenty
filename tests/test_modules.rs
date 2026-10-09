@@ -36,6 +36,28 @@ fn generic_data_imports_keep_methods_and_constructors_visible() {
 }
 
 #[test]
+fn callable_data_constraints_preserve_imports_and_public_type_visibility() {
+    run(&[
+        ("handlers.plenty", "pub class Handler[T, F: Callable[[T], T]]:\n    pub callback: F\n    pub def call(self, value: T) -> T:\n        self.callback(value)\n"),
+        ("main.plenty", "from handlers import Handler\ndef main() -> Result[(), Failure]:\n    offset = 5u8\n    callback = def [offset](n: u8) -> u8:\n        n + offset\n    handler = Handler(callback)?\n    print(handler.call(3))?\n    Ok(())\n"),
+    ], "main.plenty", "8\n");
+    for declaration in [
+        "pub class Handler[F: Callable[[Hidden], i64]]:\n    value: i64\n",
+        "pub enum Job[F: OnceCallable[[], Hidden]]:\n    Empty\n",
+    ] {
+        let api = format!("class Hidden:\n    value: i64\n{declaration}");
+        let dir = workspace(&[
+            ("api.plenty", &api),
+            ("main.plenty", "import api\ndef main() -> ():\n    pass\n"),
+        ]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("private"), "{error}");
+    }
+}
+
+#[test]
 fn recursive_enum_instances_keep_identity_through_import_aliases() {
     run(
         &[

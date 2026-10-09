@@ -40,14 +40,14 @@ An enum can also own a callback. Match a borrow when you want to leave the owner
 in place, or match the value to transfer its environment into an arm.
 
 ```plenty
-enum Job[F]:
+enum Job[F: Callable[[], i64]]:
     Run(F)
     Empty
 
-def package[F](callback: F) -> Result[Job[F], AllocError]:
+def package[F: Callable[[], i64]](callback: F) -> Result[Job[F], AllocError]:
     Job[F].Run(callback)
 
-def invoke[F](job: &Job[F]) -> i64:
+def invoke[F: Callable[[], i64]](job: &Job[F]) -> i64:
     match &job:
         case Job[F].Run(callback):
             callback()

@@ -21,6 +21,8 @@ pub(super) struct DataTypes {
     pending_types: RefCell<std::collections::VecDeque<DefinitionJob>>,
     deferred: Cell<bool>,
     depth: Cell<usize>,
+    /// Signature-shape probes use placeholder arguments, not real instances.
+    shapes_only: bool,
 }
 
 struct DefinitionJob {
@@ -125,6 +127,33 @@ impl DataTypes {
     }
 }
 impl TypeAliases {
+    pub(super) fn validate_data_bounds(&self) -> Result<()> {
+        let mut declarations: Vec<_> = self
+            .data
+            .enums
+            .values()
+            .map(|e| (&e.name, &e.type_params))
+            .chain(
+                self.data
+                    .classes
+                    .values()
+                    .map(|c| (&c.name, &c.type_params)),
+            )
+            .collect();
+        declarations.sort_by_key(|(name, _)| *name);
+        for (_, params) in declarations {
+            let mut validation = self.validation();
+            for (name, _) in params {
+                validation.insert(name.clone(), Some(Ty::I64));
+            }
+            for bound in params.iter().filter_map(|(_, b)| b.as_ref()) {
+                if generics::callable_bound(bound) {
+                    generics::callable_pattern(bound).resolve(&validation)?;
+                }
+            }
+        }
+        Ok(())
+    }
     /// Shape checks must not enqueue placeholder data instances in the real program.
     pub(super) fn validation(&self) -> Self {
         Self {
@@ -135,6 +164,7 @@ impl TypeAliases {
                 instances: self.data.instances.clone(),
                 named: self.data.named.clone(),
                 arguments: self.data.arguments.clone(),
+                shapes_only: true,
                 ..DataTypes::default()
             }),
         }
@@ -188,13 +218,6 @@ impl TypeAliases {
             })
             .collect::<Result<Vec<_>>>()?;
         let key = (name.clone(), actual.clone());
-        for ((_, bound), ty) in params.iter().zip(&actual) {
-            if bound.is_some() && !ty.is_int() {
-                return Err(application
-                    .at
-                    .error(format!("{ty} does not satisfy IntType")));
-            }
-        }
         if let Some(ty) = self.data.instances.borrow().get(&key) {
             return Ok(ty.clone());
         }
@@ -288,6 +311,26 @@ impl TypeAliases {
                     .map(|(n, _)| n.clone())
                     .zip(actual.iter().map(|t| generics::type_ref(t, &at)))
                     .collect();
+                // Resolve constraints after aliases and nominal identities exist.
+                // Nested applications join this bounded work queue instead of
+                // recursively rechecking their own declaration's constraints.
+                if !self.data.shapes_only {
+                    for ((_, bound), ty) in params.iter().zip(&actual) {
+                        if let Some(bound) = bound {
+                            if generics::callable_bound(bound) {
+                                generics::check_callable_bound(
+                                    bound,
+                                    ty,
+                                    &substitutions,
+                                    self,
+                                    &at,
+                                )?;
+                            } else if !ty.is_int() {
+                                return Err(at.error(format!("{ty} does not satisfy IntType")));
+                            }
+                        }
+                    }
+                }
                 let result: Result<(Ty, Option<classes::ClassDecl>)> = (|| {
                     if let Some(template) = self.data.enums.get(&name) {
                         let mut declaration = template.clone();
@@ -404,10 +447,12 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
         return Err(at.error("a data parameter cannot shadow its declaration name"));
     }
     for bound in params.iter().filter_map(|(_, b)| b.as_ref()) {
-        if bound.name.as_deref() != Some("IntType") || !bound.args.is_empty() {
-            return Err(bound
-                .at
-                .error("generic data constraints currently require IntType"));
+        if !(bound.name.as_deref() == Some("IntType") && bound.args.is_empty()
+            || generics::callable_bound(bound) && !bound.args.is_empty())
+        {
+            return Err(bound.at.error(
+                "generic data constraints currently require IntType, Callable, or OnceCallable",
+            ));
         }
     }
     Ok(())
