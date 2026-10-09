@@ -379,7 +379,7 @@ mod tests {
             let text = read_chars(&mut reader, &mut skip, count, true).unwrap();
             // SAFETY: each returned text has one live owner, released once.
             unsafe {
-                assert_eq!(strings::utf8(text), expected);
+                assert_eq!(strings::text(text), expected);
                 plenty_release(text.cast());
             }
             assert_eq!(reader.position(), position);
@@ -405,7 +405,7 @@ mod tests {
             let text = read_file_line(&mut reader, &mut skip).unwrap();
             // SAFETY: each freshly allocated text is observed then released once.
             unsafe {
-                assert_eq!(strings::utf8(text), expected);
+                assert_eq!(strings::text(text), expected);
                 plenty_release(text.cast::<Header>());
             }
             assert_eq!(reader.position(), position);
@@ -425,8 +425,8 @@ mod tests {
             let first = read_file_line(&mut reader, &mut skip).unwrap();
             let rest = read_remaining(&mut reader, &mut skip).unwrap();
             unsafe {
-                assert_eq!(strings::utf8(first), "a\n");
-                assert_eq!(strings::utf8(rest), remaining);
+                assert_eq!(strings::text(first), "a\n");
+                assert_eq!(strings::text(rest), remaining);
                 plenty_release(first.cast::<Header>());
                 plenty_release(rest.cast::<Header>());
             }
@@ -439,7 +439,7 @@ mod tests {
         ));
         let next = read_file_line(&mut reader, &mut skip).unwrap();
         unsafe {
-            assert_eq!(strings::utf8(next), "ok\n");
+            assert_eq!(strings::text(next), "ok\n");
             plenty_release(next.cast::<Header>());
         }
     }
@@ -449,7 +449,7 @@ mod tests {
         input.extend_from_slice(b"\r\n\r\0\n");
         let text = read_all(&mut input.as_slice()).unwrap();
         unsafe {
-            let content = strings::utf8(text);
+            let content = strings::text(text);
             assert_eq!(content.len(), 8195);
             assert!(content.ends_with("\n\n\0\n"));
             plenty_release(text.cast());
@@ -467,7 +467,7 @@ mod tests {
             assert_eq!(value >> 64, 1);
             unsafe {
                 let text = value as u64 as *const strings::Text;
-                assert_eq!(strings::utf8(text), expected);
+                assert_eq!(strings::text(text), expected);
                 plenty_release(text.cast_mut().cast::<Header>());
             }
         }

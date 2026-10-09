@@ -259,7 +259,7 @@ print(text.slice({start}, {stop})).unwrap()
                 ),
                 &format!(
                     "Result[str, AllocError].{}\nAé🙂Z\nResult[str, AllocError].Ok(\"{expected}\")",
-                    if budget == 0 {
+                    if budget == 0 && expected.len() > support::INLINE_MAX {
                         "Err(AllocError.OutOfMemory)".to_owned()
                     } else {
                         format!("Ok(\"{expected}\")")

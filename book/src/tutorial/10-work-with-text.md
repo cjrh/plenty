@@ -21,8 +21,9 @@ True
 integers without width suffixes. `contains(text, part)` tests for a substring.
 There is just one string type, `str`. Strings are immutable values; `mut` permits
 replacing a binding rather than editing its bytes. `len` counts Unicode scalar
-values; indexing returns `Result[str, AllocError]` containing one scalar.
-Iteration yields the same result type for each character. Storage uses explicit lengths,
+values; indexing returns one scalar as a `str`, and iteration yields one per
+step. Neither allocates: strings of up to seven UTF-8 bytes, which includes every
+single character, are stored inline in the value. Storage uses explicit lengths,
 so an embedded NUL does not end a string. Interpolation and general conversion
 to strings are not available yet.
 
@@ -30,7 +31,7 @@ to strings are not available yet.
 def main() -> Result[(), Failure]:
     text = "é\0😀"
     print(len(text))?
-    print(text[-1]?)?
+    print(text[-1])?
     print("\0" in text)?
     print([text]?)?
     Ok(())

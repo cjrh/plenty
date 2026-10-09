@@ -27,7 +27,7 @@ def main() -> Result[(), Failure]:
     print(pair)?
     n: u8 = u8.parse("42")?
     print(n)?
-    print("é"[0]?)?
+    print("é"[0])?
     Ok(())
 "#,
         "[0, 1, 4, 9]\n{}\n(7, \"seven\")\n42\né\n",

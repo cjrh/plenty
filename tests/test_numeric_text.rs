@@ -81,7 +81,7 @@ fn scalar_formatting_has_one_recoverable_allocation() {
             &format!(
                 r#"
 print("__test_fail_allocations_after_{budget}__").unwrap()
-a = str.from(1.25f64)
+a = str.from(1234.5678f64)
 print("__test_restore_allocations__").unwrap()
 print(a).unwrap()
 "#
@@ -89,7 +89,7 @@ print(a).unwrap()
             if budget == 0 {
                 "Result[str, AllocError].Err(AllocError.OutOfMemory)"
             } else {
-                "Result[str, AllocError].Ok(\"1.25\")"
+                "Result[str, AllocError].Ok(\"1234.5678\")"
             },
         );
     }

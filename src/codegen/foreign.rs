@@ -69,6 +69,28 @@ impl Lowerer<'_, '_> {
                         .bcx
                         .ins()
                         .load(PTR_TY, MemFlags::trusted(), argument, 0);
+                    if *mode == Argument::Utf8 {
+                        // Inline strings keep their bytes after the length byte
+                        // of the borrowed slot; heap texts after a 32-byte prefix.
+                        let inline = self.bcx.ins().band_imm(text, 1);
+                        let heap_len = self.bcx.ins().iadd_imm(text, 16);
+                        let len_word = self.bcx.ins().select(inline, argument, heap_len);
+                        let raw = self
+                            .bcx
+                            .ins()
+                            .load(types::I64, MemFlags::trusted(), len_word, 0);
+                        let low = self.bcx.ins().band_imm(raw, 0xff);
+                        let inline_len = self.bcx.ins().ushr_imm(low, 1);
+                        let inline_data = self.bcx.ins().iadd_imm(argument, 1);
+                        let heap_data = self.bcx.ins().iadd_imm(text, 32);
+                        native_arguments.push(self.bcx.ins().select(
+                            inline,
+                            inline_data,
+                            heap_data,
+                        ));
+                        native_arguments.push(self.bcx.ins().select(inline, inline_len, raw));
+                        continue;
+                    }
                     let text = if *mode == Argument::CString {
                         let converted = self.collection_call(118, &[text], None)?;
                         let failed = self.sum_tag(converted);
@@ -91,14 +113,6 @@ impl Lowerer<'_, '_> {
                         text
                     };
                     native_arguments.push(self.bcx.ins().iadd_imm(text, 32));
-                    if *mode == Argument::Utf8 {
-                        native_arguments.push(self.bcx.ins().load(
-                            types::I64,
-                            MemFlags::trusted(),
-                            text,
-                            16,
-                        ));
-                    }
                 }
             }
         }

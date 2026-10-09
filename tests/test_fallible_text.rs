@@ -134,11 +134,11 @@ print(Custom().unwrap().split("custom")).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn splitting_recovers_at_every_allocation_and_preserves_sources() {
-    // One entry buffer, one list owner, and three piece allocations.
+    // One entry buffer, one list owner, and three pieces too long to be inline.
     for budget in 0..=5 {
         native(
             &format!(r#"
-source = ("a:" + "b:").unwrap()
+source = ("alphabet:" + "betagamma:deltaepsilon").unwrap()
 separator = ("" + ":").unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = source.split(separator)
@@ -148,8 +148,8 @@ print(source).unwrap()
 print(separator).unwrap()
 print(source.split(separator)).unwrap()
 "#),
-            &format!("Result[list[str], AllocError].{}\na:b:\n:\nResult[list[str], AllocError].Ok([\"a\", \"b\", \"\"])",
-                if budget < 5 { "Err(AllocError.OutOfMemory)" } else { "Ok([\"a\", \"b\", \"\"])" }),
+            &format!("Result[list[str], AllocError].{}\nalphabet:betagamma:deltaepsilon\n:\nResult[list[str], AllocError].Ok([\"alphabet\", \"betagamma\", \"deltaepsilon\"])",
+                if budget < 5 { "Err(AllocError.OutOfMemory)" } else { "Ok([\"alphabet\", \"betagamma\", \"deltaepsilon\"])" }),
         );
     }
 }
@@ -168,7 +168,7 @@ def split(source: str, guard: Guard) -> Result[list[str], AllocError]:
     pieces = source.split(":")?
     print("unreachable").unwrap()
     Ok(pieces)
-source = ("a:" + "b:").unwrap()
+source = ("alphabet:" + "betagamma:deltaepsilon").unwrap()
 guard = Guard().unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = split(source, guard)
@@ -200,7 +200,7 @@ fn checked_character_lookup_uses_scalar_indices_and_handles_extreme_bounds() {
     native(
         r#"
 def show(text: &str, index: i64) -> Result[(), AllocError]:
-    print(text.get(index)?).unwrap()
+    print(text.get(index)).unwrap()
     Ok(())
 text = "é🙂\0"
 for index in [-4, -3, -2, -1, 0, 1, 2, 3, -9223372036854775808, 9223372036854775807].unwrap():
@@ -235,71 +235,39 @@ print(text.value).unwrap()
 print(source().get(index())).unwrap()
 print(Custom().unwrap().get(42)).unwrap()
 "#,
-        "Result[Option[str], AllocError].Ok(Option[str].Some(\"b\"))\nabc\nsource\nindex\nResult[Option[str], AllocError].Ok(Option[str].Some(\"🙂\"))\n42",
+        "Option[str].Some(\"b\")\nabc\nsource\nindex\nOption[str].Some(\"🙂\")\n42",
     );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn missing_character_needs_no_allocation_and_present_character_needs_one() {
-    for budget in 0..=1 {
-        native(
-            &format!(r#"
-text = ("é" + "🙂").unwrap()
-print("__test_fail_allocations_after_{budget}__").unwrap()
-print("__test_begin_no_allocations__").unwrap()
-missing = text.get(-3)
-print("__test_end_no_allocations__").unwrap()
-present = text.get(-1)
-print("__test_restore_allocations__").unwrap()
-print(missing).unwrap()
-print(present).unwrap()
-print(text).unwrap()
-print(text.get(-1)).unwrap()
-"#),
-            &format!("Result[Option[str], AllocError].Ok(Option[str].Nothing)\nResult[Option[str], AllocError].{}\né🙂\nResult[Option[str], AllocError].Ok(Option[str].Some(\"🙂\"))", if budget == 0 { "Err(AllocError.OutOfMemory)" } else { "Ok(Option[str].Some(\"🙂\"))" }),
-        );
-    }
-}
-
-#[cfg(feature = "runtime-checks")]
-#[test]
-fn character_allocation_failure_propagates_and_drops_locals() {
+fn character_lookup_never_allocates() {
     native(
         r#"
-class Guard:
-    def __del__(self: &mut Guard) -> ():
-        print("dropped").unwrap()
-def lookup(text: str, guard: Guard) -> Result[Option[str], AllocError]:
-    character = text.get(0)?
-    print("unreachable").unwrap()
-    Ok(character)
 text = ("é" + "🙂").unwrap()
-guard = Guard().unwrap()
-print("__test_fail_allocations_after_0__").unwrap()
-result = lookup(text, guard)
 print("__test_begin_no_allocations__").unwrap()
-match result:
-    case Ok(character):
-        print("unexpected success").unwrap()
-    case Err(error):
-        print("handled").unwrap()
-print("__test_restore_allocations__").unwrap()
+missing = text.get(-3)
+present = text.get(-1)
+indexed = text[0]
 print("__test_end_no_allocations__").unwrap()
+print(missing).unwrap()
+print(present).unwrap()
+print(indexed).unwrap()
+print(text).unwrap()
 "#,
-        "dropped\nhandled",
+        "Option[str].Nothing\nOption[str].Some(\"🙂\")\né\né🙂",
     );
 }
 
 #[test]
-fn index_expression_can_propagate_before_character_allocation() {
+fn index_expression_can_propagate_before_character_lookup() {
     native(
         r#"
 def missing_index() -> Result[i64, AllocError]:
     print("index").unwrap()
     Err(AllocError.CapacityOverflow)
 def lookup() -> Result[Option[str], AllocError]:
-    (("a" + "b").unwrap()).get(missing_index()?)
+    Ok((("a" + "b").unwrap()).get(missing_index()?))
 print(lookup()).unwrap()
 "#,
         "index\nResult[Option[str], AllocError].Err(AllocError.CapacityOverflow)",
@@ -310,7 +278,6 @@ print(lookup()).unwrap()
 #[rstest]
 #[case("left.concat(right)", "left-right")]
 #[case("separator.join(parts)", "left|right")]
-#[case("separator.join(empty)", "")]
 fn one_output_allocation_suffices_and_failure_can_be_retried(
     #[case] expression: &str,
     #[case] expected: &str,

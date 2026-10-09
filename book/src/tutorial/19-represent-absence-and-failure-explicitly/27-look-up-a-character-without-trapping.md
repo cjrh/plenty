@@ -1,13 +1,11 @@
 # Look up a character without trapping
 
-Use `text.get(index)` when the index might be out of range or character
-allocation might fail. It returns `Result[Option[str], AllocError]`: `Result`
-reports allocation failure, while `Option` tells you whether the index exists.
+Use `text.get(index)` when the index might be out of range. It returns
+`Option[str]`: `Some(character)` when the index exists, `Nothing` otherwise.
 
 ```plenty
 def show_character(text: &str, index: i64) -> Result[(), Failure]:
-    character = text.get(index)?
-    match character:
+    match text.get(index):
         case Some(value):
             print(value)?
         case Nothing:
@@ -35,12 +33,10 @@ café🙂
 
 Indices are `i64` and count Unicode scalars, as with `text[index]`. Negative
 indices count backward from the end; `-1` selects the last scalar. Empty strings
-and indices outside either end return `Ok(Nothing)` without allocating. A valid
-index allocates one independent string for the character. Neither wrapper
-allocates, and the original string remains available on every outcome.
+and indices outside either end return `Nothing`. Neither form allocates: a
+character is a short string stored inline in the value, independent of the
+original, which remains available.
 
-In the example, `?` handles the allocation-error path and leaves an `Option[str]`
-for the match. `Nothing` is a successful lookup with no character, so it does not
-propagate an error. Ordinary `text[index]` still terminates the program for a
-missing index; allocation failure is returned in its Result. Both forms scan UTF-8 to reach the requested
-scalar; repeated indexing is not a constant-time way to traverse text.
+Ordinary `text[index]` terminates the program for a missing index. Indexing
+ASCII text takes constant time; other text is scanned from the start to reach
+the requested scalar, so use `for character in text` to traverse it.

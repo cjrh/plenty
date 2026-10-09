@@ -81,7 +81,7 @@ pub enum CollectionOp {
     TextTryJoin,
     TextTrySplit,
     TextTrySplitLines,
-    TextTryGet,
+    TextGet,
     TextTrySlice,
     TextTryReplace,
     TextStartsWith,
@@ -124,7 +124,7 @@ impl Ty {
         match self {
             Self::List(t) | Self::Set(t) | Self::Dict(t, _) => Some((**t).clone()),
             Self::Range(t) => Some((**t).clone()),
-            Self::Str => Some(crate::sum::result(Self::Str, crate::sum::alloc_error())),
+            Self::Str => Some(Self::Str),
             Self::Generator(t) => Some(t.element.clone()),
             _ => None,
         }
@@ -254,10 +254,7 @@ impl CollectionOp {
                 vec![Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
-            TextAtByte | TextIndex => (
-                vec![Ty::Str, Ty::I64],
-                crate::sum::result(Ty::Str, crate::sum::alloc_error()),
-            ),
+            TextAtByte | TextIndex => (vec![Ty::Str, Ty::I64], Ty::Str),
             TextNextByte => (vec![Ty::Str, Ty::I64], Ty::I64),
             TextTryConcat | TextTryRemovePrefix | TextTryRemoveSuffix => (
                 vec![Ty::Str, Ty::Str],
@@ -281,10 +278,7 @@ impl CollectionOp {
                     crate::sum::alloc_error(),
                 ),
             ),
-            TextTryGet => (
-                vec![Ty::Str, Ty::I64],
-                crate::sum::result(crate::sum::option(Ty::Str), crate::sum::alloc_error()),
-            ),
+            TextGet => (vec![Ty::Str, Ty::I64], crate::sum::option(Ty::Str)),
             TextTrySlice => (
                 vec![Ty::Str, Ty::I64, Ty::I64],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
@@ -471,7 +465,7 @@ impl CollectionOp {
             Self::TextTryJoin => 35,
             Self::TextTrySplit => 36,
             Self::TextTrySplitLines => 107,
-            Self::TextTryGet => 37,
+            Self::TextGet => 37,
             Self::TextTrySlice => 46,
             Self::TextTryReplace => 47,
             Self::TextStartsWith => 48,

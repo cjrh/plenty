@@ -8,6 +8,14 @@ hashing include every byte and do not normalize Unicode. `len` counts scalars,
 not grapheme clusters; indexing (including negative indices) returns a one-scalar
 `str`. Concatenation and indexing return independent values.
 
+Strings of at most seven UTF-8 bytes, including every single scalar and the empty
+string, are stored inline in the value and never allocate. Indexing, `get`, and
+iteration therefore always produce inline results and are not fallible. Every
+other operation that produces a string allocates only when its result is longer;
+statements below that an operation "allocates its output" apply to such results.
+The two forms are indistinguishable to programs: equality, hashing, and printing
+compare bytes.
+
 `text.isascii() -> bool` is true when every character belongs to ASCII, including
 controls and NUL; it is true for empty text. `text.isspace() -> bool` requires at
 least one character and all characters to have Unicode's White_Space property,
@@ -21,7 +29,7 @@ and allocate nothing.
 Empty patterns and missing matches preserve the contents; no normalization,
 character-set stripping, or repeated removal occurs. Receiver and argument are
 observed once, left to right. One independent output allocation occurs even for
-empty or unchanged results, with recoverable failure and unchanged inputs.
+unchanged results, with recoverable failure and unchanged inputs.
 
 `text.startswith(prefix)` and `text.endswith(suffix)` return `bool` without
 allocating. Each takes exactly one string (or reference), observes both operands
@@ -53,7 +61,7 @@ provides the Unicode classification; NUL and zero-width space are not whitespace
 Interior text is preserved byte-for-byte. No explicit character-set argument is
 supported. The receiver is observed once, including references. Boundary scanning
 does not allocate; creating the independent result requires one allocation even
-for empty or unchanged output. Failures preserve the source, and the output
+for unchanged output. Failures preserve the source, and the output
 outlives it. No case folding or normalization occurs.
 
 `text.repeat(count) -> Result[str, AllocError]` observes one `i64` count and
@@ -61,7 +69,7 @@ the receiver. Positive counts repeat the exact UTF-8 contents; zero and negative
 counts produce an empty string, like Python repetition. Empty input produces
 empty output for any count without iterating count times. Checked byte/scalar
 multiplication and layout validation precede one final allocation, including
-empty or single-copy results. Overflow returns `CapacityOverflow`, exhaustion
+single-copy results. Overflow returns `CapacityOverflow`, exhaustion
 returns `OutOfMemory`, and the source remains unchanged. The runtime fills the
 output by copying and doubling its initialized prefix without intermediate text.
 The result owns independent storage. String multiplication syntax is deferred.
@@ -70,12 +78,13 @@ The result owns independent storage. String multiplication syntax is deferred.
 slice's two required `i64` bounds, negative indexing, exclusive stop, and clamping,
 but positions count Unicode scalars. Reversed bounds produce an empty string.
 The receiver and bounds are observed once in source order, including references.
-The result owns a new UTF-8 buffer, independent of the source; even empty and
-full slices allocate one header/payload buffer. Allocation/layout failure is
-recoverable and leaves the source unchanged. The runtime scans scalar boundaries
-without an intermediate array, then copies the byte interval. This is linear in
-the scanned text length; combining marks remain separate scalars and no Unicode
-normalization occurs. Slice syntax and steps remain deferred.
+The result owns a new UTF-8 buffer, independent of the source; even full slices
+allocate one header/payload buffer. Allocation/layout failure is
+recoverable and leaves the source unchanged. ASCII text, whose byte length equals
+its scalar count, uses the bounds as byte offsets directly. Other text scans
+scalar boundaries without an intermediate array, then copies the byte interval,
+which is linear in the scanned text length; combining marks remain separate
+scalars and no Unicode normalization occurs. Slice syntax and steps remain deferred.
 
 `text.concat(other)` and `separator.join(parts)` return
 `Result[str, AllocError]`. Both observe their inputs; `other` must be a `str`,
@@ -88,15 +97,14 @@ Joining inserts the separator between consecutive pieces, including empty
 pieces. An empty list produces an empty string; a one-element list produces its
 contents without a separator. The runtime first computes checked byte and scalar
 lengths, then allocates one final header/payload buffer and copies the exact UTF-8
-bytes. This currently includes empty and singleton results. There is no intermediate
+bytes. This includes singleton results. There is no intermediate
 text buffer or allocated array of pieces. Length/layout overflow returns
 `CapacityOverflow`, allocator rejection returns `OutOfMemory`, and the inputs
 remain unchanged. Error transport uses the allocation-free standard sum ABI.
-String `+` and indexing return `Result[str, AllocError]`. Index bounds still
-trap; `get` returns `Result[Option[str], AllocError]` for recoverable absence.
-String iteration yields `Result[str, AllocError]` per scalar, and advances its
-byte cursor without allocation even after an error. String literals are immortal
-and need no allocation. Ranges are inline values: `range(...)` and
+String `+` returns `Result[str, AllocError]`. Indexing returns `str` and traps
+on a missing index; `get` returns `Option[str]` for recoverable absence. String
+iteration yields `str` per scalar and advances its byte cursor without
+allocation. String literals are immortal and need no allocation. Ranges are inline values: `range(...)` and
 `range[T](...)` return `range[T]` directly without allocating.
 
 `text.replace(old, new)` returns `Result[str, AllocError]`. It requires two
@@ -108,8 +116,8 @@ an empty pattern inserts new once. Empty new strings remove matches. There is no
 count limit, regex interpretation, grapheme matching, or normalization.
 
 Count matches and check the final byte/scalar lengths and object layout before
-allocating. Only the final output buffer is allocated, even for empty results,
-unchanged results, or zero matches. Byte copying uses a second match scan, with
+allocating. Only the final output buffer is allocated, even for unchanged results
+or zero matches. Byte copying uses a second match scan, with
 no intermediate strings, lists, or arrays of match positions. Overflow returns
 `CapacityOverflow` and allocation failure returns `OutOfMemory`. All inputs remain
 unchanged on either outcome, and successful output outlives them independently.
@@ -127,29 +135,34 @@ and adjacent separators produce empty pieces; an empty input produces `[""]`.
 No match produces a one-element list containing the input's contents. Multibyte
 separators and embedded NUL bytes work without normalization. The runtime counts
 pieces without allocating, reserves the result list, then allocates each piece's
-UTF-8 storage independently. Even empty pieces currently allocate. A failed
+UTF-8 storage independently. A failed
 allocation reclaims the list and every completed piece without changing either
 input; successful pieces remain valid after the original strings are dropped.
 The compiler supplies immutable result metadata; no descriptor allocation or
 intermediate array of substrings is needed. Input expression construction and
 ordinary indexing retain their existing failure policies.
 
-`text.get(index)` returns `Result[Option[str], AllocError]`. The `i64` index
-counts Unicode scalars, with negative indices relative to the end, just like
-ordinary indexing. An out-of-range index (including either extreme `i64` value)
-returns `Ok(Nothing)` without allocating. A valid index returns
-`Ok(Some(character))`, using one checked allocation for the scalar's independent
-UTF-8 string; allocator rejection returns `Err(AllocError.OutOfMemory)`. The
-`Result` and `Option` wrappers themselves never allocate. The source is observed
-and remains unchanged, and a successful character outlives it. Receiver and index
-are evaluated once in source order; references to either input are accepted.
-Lookup takes linear time to reach the scalar within UTF-8 storage; it does not
-build a temporary character array. Ordinary `text[index]` shares this runtime
-implementation but still traps on missing indices or allocation failure.
+`text.get(index)` returns `Option[str]`. The `i64` index counts Unicode
+scalars, with negative indices relative to the end, just like ordinary indexing.
+An out-of-range index (including either extreme `i64` value) returns `Nothing`;
+a valid index returns `Some(character)`. Neither allocates: the character is an
+inline string. The source is observed and remains unchanged, and the character
+outlives it. Receiver and index are evaluated once in source order; references
+to either input are accepted. Lookup in ASCII text, whose byte length equals its
+scalar count, takes constant time. In other text it takes linear time to reach
+the scalar within UTF-8 storage; it does not build a temporary character array.
+Ordinary `text[index]` shares this runtime implementation but traps on a missing
+index.
 
-The native value is one pointer to a 32-byte prefix followed by exactly the UTF-8
-payload: the 16-byte managed header, a u64 byte length, and a u64 scalar count.
-Literal headers are aligned to eight bytes and immortal. There is no public
+The native value is one 64-bit word. A heap or literal string is a pointer to a
+32-byte prefix followed by exactly the UTF-8 payload: the 16-byte managed header,
+a u64 byte length, and a u64 scalar count. Literal headers are aligned to eight
+bytes and immortal. Because those pointers are 8-aligned, a set low bit marks an
+inline string instead: the low byte holds `length << 1 | 1` and the remaining
+seven bytes hold the UTF-8 data. Inline values own nothing, so retain and release
+ignore them. A borrowed `text` argument to a C import passes a pointer into the
+borrowed slot for inline strings; C-string arguments are always converted to a
+terminated heap copy. There is no public
 owning/view string distinction. Legacy input validates UTF-8, rejecting malformed
 sequences and preserving embedded NUL. Future FFI adapters must explicitly
 convert to pointer/length or temporary terminated C text; C-text export must

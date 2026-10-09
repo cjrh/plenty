@@ -2,6 +2,11 @@
 
 use std::process::{Command, Output};
 
+/// Strings of at most this many UTF-8 bytes are stored inline and never
+/// allocate, so allocation-failure tests expect failure only for longer results.
+#[allow(dead_code)]
+pub const INLINE_MAX: usize = 7;
+
 /// Complete the small statement/declaration fragments used by feature tests.
 /// Entrypoint tests and tutorial programs go directly to the public compiler API.
 /// This is fixture construction, not a language compatibility mode.

@@ -321,7 +321,7 @@ pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
 unsafe fn hash(value: u128, ty: &Type) -> u64 {
     if ty.kind == b's' {
         let mut hash = 14695981039346656037u64;
-        for &b in unsafe { strings::bytes(value as *const Text) } {
+        for &b in unsafe { strings::bytes(&(value as *const Text)) } {
             hash = (hash ^ b as u64).wrapping_mul(1099511628211);
         }
         hash
@@ -551,7 +551,7 @@ unsafe fn equal_inner(
             }
             b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
             b'd' => f64::from_bits(a as u64) == f64::from_bits(b as u64),
-            b's' => strings::bytes(a as *const Text) == strings::bytes(b as *const Text),
+            b's' => strings::bytes(&(a as *const Text)) == strings::bytes(&(b as *const Text)),
             b'C' | b'E' => {
                 let (a, b) = (a as *const Record, b as *const Record);
                 if (*(*a).ty).name != (*(*b).ty).name {
@@ -674,7 +674,7 @@ pub(crate) unsafe fn try_reader_lines(
                 value: crate::text_io::read_file_line(reader, skip_lf)? as u128,
                 ty: ty.key(),
             };
-            if strings::utf8(line.value as *const Text).is_empty() {
+            if strings::utf8(&(line.value as *const Text)).is_empty() {
                 break;
             }
             (*output).try_insert(line.value, 0)?;
@@ -693,7 +693,7 @@ unsafe fn write_file_lines(
         // Validate state even for an empty list; an empty write preserves CRLF state.
         crate::files::write(file, "")?;
         for entry in (*lines).entries.iter() {
-            crate::files::write(file, strings::utf8(entry.key as *const Text))?;
+            crate::files::write(file, strings::utf8(&(entry.key as *const Text)))?;
         }
     }
     Ok(0)
@@ -727,11 +727,11 @@ unsafe fn try_split(
     ty: &'static Type,
 ) -> Result<u128, AllocError> {
     unsafe {
-        let separator = strings::utf8(separator);
+        let separator = strings::utf8(&separator);
         if separator.is_empty() {
             crate::fail("string split requires a nonempty separator");
         }
-        let pieces = strings::utf8(text).split(separator);
+        let pieces = strings::utf8(&text).split(separator);
         try_text_pieces(pieces, ty)
     }
 }
@@ -1074,8 +1074,8 @@ pub(crate) unsafe fn collection(
         if !descriptor.is_null() && (*descriptor).kind == b's' && !matches!(op, 110 | 111) {
             let text = a as *const Text;
             return match op {
-                5 => (*text).scalar_len as u128,
-                12 => (*text).byte_len as u128,
+                5 => strings::scalar_len(text) as u128,
+                12 => strings::byte_len(text) as u128,
                 13 => strings::at_byte(text, b as usize) as u128,
                 4 | 6 => strings::at(text, b as i64) as u128,
                 7 => strings::plenty_contains(b as *const Text, text) as u128,
@@ -1095,29 +1095,21 @@ pub(crate) unsafe fn collection(
                 };
                 c.entries.slot(position, c.ty().kind != b'L') as u128
             }
-            114 => match strings::try_get(a as *const Text, b as i64) {
-                Ok(Some(text)) => wrap(text as u128, 0),
-                Ok(None) => crate::fail("index out of bounds"),
-                Err(error) => wrap(wrap(0, error as u64), 1),
-            },
+            114 => strings::at(a as *const Text, b as i64) as u128,
             115 | 116 => {
-                let source = strings::utf8(a as *const Text);
-                let tail = &source[b as usize..];
-                let width = tail.chars().next().expect("valid string cursor").len_utf8();
-                if op == 116 {
-                    b + width as u128
-                } else {
-                    match strings::try_new(&tail[..width]) {
-                        Ok(text) => wrap(text as u128, 0),
-                        Err(error) => wrap(wrap(0, error as u64), 1),
-                    }
+                let a_text = a as *const Text;
+                if op == 115 {
+                    return strings::at_byte(a_text, b as usize) as u128;
                 }
+                let source = strings::utf8(&a_text);
+                let tail = &source[b as usize..];
+                b + tail.chars().next().expect("valid string cursor").len_utf8() as u128
             }
             110 | 111 => {
                 #[cfg(feature = "allocation-checks")]
                 if op == 111
                     && (*descriptor).kind == b's'
-                    && strings::bytes(a as *const Text).starts_with(b"__test_")
+                    && strings::bytes(&(a as *const Text)).starts_with(b"__test_")
                 {
                     crate::io::plenty_println(a as *const Text);
                     return wrap(0, 0);
@@ -1128,7 +1120,7 @@ pub(crate) unsafe fn collection(
                     let mut stdout = std::io::stdout().lock();
                     return crate::text_io::result(
                         stdout
-                            .write_all(strings::bytes(a as *const Text))
+                            .write_all(strings::bytes(&(a as *const Text)))
                             .and_then(|()| stdout.write_all(b"\n"))
                             .map(|()| 0)
                             .map_err(crate::text_io::Error::from),
@@ -1136,7 +1128,7 @@ pub(crate) unsafe fn collection(
                 }
                 let mut out = crate::render_buffer::Buffer::default();
                 if op == 111 && (*descriptor).kind == b's' {
-                    out.extend_from_slice(strings::bytes(a as *const Text));
+                    out.extend_from_slice(strings::bytes(&(a as *const Text)));
                 } else {
                     render(a, &*descriptor, &mut out);
                 }
@@ -1163,8 +1155,8 @@ pub(crate) unsafe fn collection(
                 }
             }
             89 => crate::text_io::result(crate::files::open(
-                strings::utf8(a as *const Text),
-                strings::utf8(b as *const Text),
+                strings::utf8(&(a as *const Text)),
+                strings::utf8(&(b as *const Text)),
                 (*descriptor).variants[0].fields[0],
             )),
             90 => crate::text_io::result(crate::files::close(a as *mut crate::files::File)),
@@ -1198,19 +1190,19 @@ pub(crate) unsafe fn collection(
             )),
             93 => crate::text_io::result(crate::files::write(
                 a as *mut crate::files::File,
-                strings::utf8(b as *const Text),
+                strings::utf8(&(b as *const Text)),
             )),
             94 | 95 => {
                 crate::text_io::result(crate::files::flush(a as *mut crate::files::File, op == 95))
             }
             87 | 88 => crate::text_io::result(crate::text_io::write_text(
-                strings::utf8(a as *const Text),
-                strings::utf8(b as *const Text),
+                strings::utf8(&(a as *const Text)),
+                strings::utf8(&(b as *const Text)),
                 op == 88,
             )),
-            86 => {
-                crate::text_io::result(crate::text_io::read_text(strings::utf8(a as *const Text)))
-            }
+            86 => crate::text_io::result(crate::text_io::read_text(strings::utf8(
+                &(a as *const Text),
+            ))),
             85 => crate::text_io::result(crate::text_io::arguments(
                 (*descriptor).variants[0].fields[0],
             )),
@@ -1221,9 +1213,10 @@ pub(crate) unsafe fn collection(
                 Ok(text) => wrap(text as u128, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },
-            78 => crate::numbers::parse(strings::utf8(a as *const Text), (*descriptor).kind),
+            78 => crate::numbers::parse(strings::utf8(&(a as *const Text)), (*descriptor).kind),
             76 | 77 => {
-                let source = strings::utf8(a as *const Text);
+                let a_text = a as *const Text;
+                let source = strings::utf8(&a_text);
                 if op == 76 {
                     source.is_ascii() as u128
                 } else {
@@ -1248,8 +1241,10 @@ pub(crate) unsafe fn collection(
                 }
             }
             71 | 72 => {
-                let source = strings::utf8(a as *const Text);
-                let affix = strings::utf8(b as *const Text);
+                let a_text = a as *const Text;
+                let source = strings::utf8(&a_text);
+                let b_text = b as *const Text;
+                let affix = strings::utf8(&b_text);
                 let trimmed = if op == 71 {
                     source.strip_prefix(affix)
                 } else {
@@ -1365,12 +1360,14 @@ pub(crate) unsafe fn collection(
                 Ok(text) => wrap(text as u128, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },
-            52 => strings::utf8(a as *const Text)
-                .matches(strings::utf8(b as *const Text))
+            52 => strings::utf8(&(a as *const Text))
+                .matches(strings::utf8(&(b as *const Text)))
                 .count() as u128,
             50 | 51 => {
-                let source = strings::utf8(a as *const Text);
-                let needle = strings::utf8(b as *const Text);
+                let a_text = a as *const Text;
+                let source = strings::utf8(&a_text);
+                let b_text = b as *const Text;
+                let needle = strings::utf8(&b_text);
                 let found = if op == 50 {
                     source.find(needle)
                 } else {
@@ -1382,11 +1379,11 @@ pub(crate) unsafe fn collection(
                 }
             }
             48 => {
-                strings::utf8(a as *const Text).starts_with(strings::utf8(b as *const Text)) as u128
+                strings::utf8(&(a as *const Text)).starts_with(strings::utf8(&(b as *const Text)))
+                    as u128
             }
-            49 => {
-                strings::utf8(a as *const Text).ends_with(strings::utf8(b as *const Text)) as u128
-            }
+            49 => strings::utf8(&(a as *const Text)).ends_with(strings::utf8(&(b as *const Text)))
+                as u128,
             47 => {
                 match strings::try_replace(a as *const Text, b as *const Text, value as *const Text)
                 {
@@ -1415,14 +1412,14 @@ pub(crate) unsafe fn collection(
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
-            37 => match strings::try_get(a as *const Text, b as i64) {
-                Ok(Some(text)) => wrap(wrap(text as u128, 1), 0),
-                Ok(None) => wrap(wrap(0, 0), 0),
-                Err(error) => wrap(wrap(0, error as u64), 1),
+            37 => match strings::scalar(a as *const Text, b as i64) {
+                Some(text) => wrap(text as u128, 1),
+                None => wrap(0, 0),
             },
             107 => {
                 let ty = (*descriptor).variants[0].fields[0];
-                let pieces = crate::text_lines::Lines::new(strings::utf8(a as *const Text), b != 0);
+                let a_text = a as *const Text;
+                let pieces = crate::text_lines::Lines::new(strings::utf8(&a_text), b != 0);
                 match try_text_pieces(pieces, ty) {
                     Ok(list) => wrap(list, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),

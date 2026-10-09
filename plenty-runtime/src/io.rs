@@ -15,7 +15,7 @@ pub(crate) fn io_result(result: std::io::Result<u128>) -> u128 {
 
 pub(crate) unsafe fn write_stream(text: *const Text, stderr: bool) -> u128 {
     // SAFETY: the dispatcher borrows a live text throughout this call.
-    let source = unsafe { strings::utf8(text) };
+    let source = unsafe { strings::utf8(&text) };
     let result = if stderr {
         std::io::stderr().lock().write_all(source.as_bytes())
     } else {
@@ -45,7 +45,7 @@ pub(crate) fn flush() {
 pub(crate) unsafe fn repr(text: *const Text, legacy: bool, out: &mut crate::render_buffer::Buffer) {
     out.push(b'"');
     // SAFETY: the caller borrows a live, validated string throughout rendering.
-    for &byte in unsafe { strings::bytes(text) } {
+    for &byte in unsafe { strings::bytes(&text) } {
         if out.failed() {
             return;
         }
@@ -78,11 +78,11 @@ pub(crate) unsafe extern "C" fn plenty_print_str(text: *const Text) {
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_println(text: *const Text) {
     #[cfg(feature = "allocation-checks")]
-    if unsafe { strings::bytes(text) } == b"__test_small_live_heap__" {
+    if unsafe { strings::bytes(&text) } == b"__test_small_live_heap__" {
         crate::accounting::checkpoint();
     }
     #[cfg(feature = "allocation-checks")]
-    match unsafe { strings::bytes(text) } {
+    match unsafe { strings::bytes(&text) } {
         b"__test_begin_no_allocations__" => crate::accounting::begin_no_allocations(),
         b"__test_end_no_allocations__" => crate::accounting::end_no_allocations(),
         b"__test_restore_allocations__" => crate::accounting::fail_after(None),
@@ -101,7 +101,7 @@ pub(crate) unsafe extern "C" fn plenty_println(text: *const Text) {
         _ => {}
     }
     unsafe {
-        output(strings::bytes(text));
+        output(strings::bytes(&text));
     }
     output(b"\n");
 }

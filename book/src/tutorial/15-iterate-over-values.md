@@ -16,7 +16,7 @@ def main() -> Result[(), Failure]:
         print(scores[name])?
 
     print(list(range(5, 0, -2))?)?
-    print([character? for character in "hé"]?)?
+    print([character for character in "hé"]?)?
     Ok(())
 ```
 
@@ -34,8 +34,8 @@ Grace
 step, but never zero. The stop value is excluded. A range is a small inline value:
 creating, copying, and iterating it require no heap allocation. `range(5)` returns
 a range directly; `list(range(5))?` handles the allocation needed for the list.
-You can iterate the same range repeatedly. String iteration returns
-one checked character at a time: `[character? for character in text]?`.
+You can iterate the same range repeatedly. String iteration yields one
+character at a time without allocating.
 
 Ranges default to `i64`; `range[u8](8)` explicitly produces u8 values. Start
 and stop must fit the chosen type. Step remains signed i64, so unsigned ranges

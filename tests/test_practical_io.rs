@@ -56,7 +56,7 @@ print("__test_restore_allocations__").unwrap()
 print(a).unwrap()
 "#
             ),
-            b"abc\n",
+            b"abcdefgh\n",
         );
         assert!(
             output.status.success(),
@@ -68,7 +68,7 @@ print(a).unwrap()
             text.contains(if budget < 2 {
                 "Allocation(AllocError.OutOfMemory)"
             } else {
-                "Some(\"abc\")"
+                "Some(\"abcdefgh\")"
             }),
             "{text}"
         );

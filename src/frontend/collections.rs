@@ -1419,7 +1419,7 @@ impl Lower<'_> {
             let (expected, operation) = match name {
                 "concat" => (Ty::Str, CollectionOp::TextTryConcat),
                 "split" => (Ty::Str, CollectionOp::TextTrySplit),
-                "get" => (Ty::I64, CollectionOp::TextTryGet),
+                "get" => (Ty::I64, CollectionOp::TextGet),
                 "replace" => (Ty::Str, CollectionOp::TextTryReplace),
                 "startswith" => (Ty::Str, CollectionOp::TextStartsWith),
                 "endswith" => (Ty::Str, CollectionOp::TextEndsWith),

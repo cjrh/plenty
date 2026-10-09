@@ -13,7 +13,7 @@ fn run(source: &str) -> std::process::Output {
 
 #[rstest]
 #[case(
-    "print('a\\0b').unwrap()\nprint(len('a\\0b')).unwrap()\nprint('a\\0b'[1].unwrap()).unwrap()",
+    "print('a\\0b').unwrap()\nprint(len('a\\0b')).unwrap()\nprint('a\\0b'[1]).unwrap()",
     "a\0b\n3\n\0\n"
 )]
 #[case(
@@ -22,7 +22,7 @@ fn run(source: &str) -> std::process::Output {
 )]
 #[case("d = {'a\\0b': 1, 'a\\0c': 2, 'a': 3}.unwrap()\nprint(len(d)).unwrap()\nprint(d['a\\0c']).unwrap()\nprint(len({'a\\0b', 'a\\0c', 'a'}.unwrap())).unwrap()", "3\n2\n3\n")]
 #[case(
-    "print(len('é中😀é')).unwrap()\nprint('é中😀'[-1].unwrap()).unwrap()\nfor c in 'é\\0😀':\n    print(c.unwrap()).unwrap()",
+    "print(len('é中😀é')).unwrap()\nprint('é中😀'[-1]).unwrap()\nfor c in 'é\\0😀':\n    print(c).unwrap()",
     "5\n😀\né\n\0\n😀\n"
 )]
 #[case(

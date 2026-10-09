@@ -87,11 +87,16 @@ pub(crate) fn with_nested_drops(f: impl FnOnce()) {
     f();
 }
 
+/// The null moved-slot sentinel and inline strings (low bit set) own nothing.
+fn inert(object: *mut Header) -> bool {
+    object.is_null() || object as usize & 1 != 0
+}
+
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_retain(object: *mut Header) {
     // SAFETY: callers supply a live object or the null moved-slot sentinel.
     unsafe {
-        if object.is_null() || (*object).refs.load(Ordering::Relaxed) == u64::MAX {
+        if inert(object) || (*object).refs.load(Ordering::Relaxed) == u64::MAX {
             return;
         }
         // An existing live owner permits relaxed retain. Reject overflow
@@ -113,7 +118,7 @@ pub(crate) unsafe extern "C" fn plenty_release(object: *mut Header) {
     // SAFETY: each caller consumes exactly one live owned reference. The dead
     // object's count stores the queue link until its destruction callback runs.
     unsafe {
-        if object.is_null() || !(*object).release_last() {
+        if inert(object) || !(*object).release_last() {
             return;
         }
         let should_drain = QUEUE.with(|q| {

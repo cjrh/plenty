@@ -31,4 +31,4 @@ joining `["a", "", "b"]` with `"-"` gives `"a--b"`.
 UTF-8 characters and embedded `\0` are preserved, just as with ordinary strings.
 These methods currently require strings and a `list[str]`; joining a generator
 or another kind of iterable is not supported yet. Input construction, string `+`,
-string indexing, and printing also return results when they can fail.
+and printing also return results when they can fail.

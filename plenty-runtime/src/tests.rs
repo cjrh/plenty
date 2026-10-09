@@ -41,10 +41,10 @@ fn c_string_adapter_preserves_utf8_terminates_and_rejects_nuls() {
         for source in ["", "é🦀"] {
             let text = strings::new(source.as_bytes());
             let result = strings::try_c_string(text).ok().unwrap();
-            let bytes = strings::bytes(result);
+            let bytes = strings::text_bytes(result);
             assert_eq!(&bytes[..bytes.len() - 1], source.as_bytes());
             assert_eq!(bytes.last(), Some(&0));
-            assert_eq!(strings::bytes(text), source.as_bytes());
+            assert_eq!(strings::text_bytes(text), source.as_bytes());
             plenty_release(result.cast());
             plenty_release(text.cast());
         }
@@ -72,7 +72,7 @@ fn c_string_conversion_failure_preserves_source_without_allocating_an_error() {
                 crate::memory::AllocError::OutOfMemory
             ))
         ));
-        assert_eq!(strings::bytes(text), b"hello");
+        assert_eq!(strings::text_bytes(text), b"hello");
         plenty_release(text.cast());
     }
 }
@@ -320,7 +320,7 @@ fn reader_lines_release_partial_prefixes_and_own_their_results() {
         assert_eq!(collection(5, lines, 0, 0, ptr::null()), 2);
         let last = collection(4, lines, 1, 0, ptr::null());
         plenty_release(lines as *mut Header);
-        assert_eq!(strings::utf8(last as *const strings::Text), "two");
+        assert_eq!(strings::text(last as *const strings::Text), "two");
         plenty_release(last as *mut Header);
         assert!(crate::aggregates::try_reader_lines(
             &mut std::io::Cursor::new(b"one\n\xff\n"),
@@ -371,7 +371,7 @@ fn text_snapshots_own_members_and_clean_partial_validation_failures() {
                 .unwrap();
         let text = collection(4, value, 1, 0, ptr::null());
         plenty_release(value as *mut Header);
-        assert_eq!(strings::utf8(text as *const strings::Text), "é\0");
+        assert_eq!(strings::text(text as *const strings::Text), "é\0");
         plenty_release(text as *mut Header);
         assert!(crate::aggregates::try_text_list(
             [Ok("first"), Err(crate::text_io::Error::InvalidUtf8)].into_iter(),
@@ -420,7 +420,7 @@ fn split_line_results_own_members_after_source_destruction() {
         assert_eq!(collection(5, result, 0, 0, ptr::null()), 3);
         let last = collection(4, result, 2, 0, ptr::null());
         plenty_release(result as *mut Header);
-        assert_eq!(strings::utf8(last as *const strings::Text), "🦀");
+        assert_eq!(strings::text(last as *const strings::Text), "🦀");
         plenty_release(last as *mut Header);
     }
 }
@@ -501,10 +501,10 @@ fn optional_dictionary_lookup_retains_values_across_update_and_destruction() {
         for text in [key, equal_key, value, replacement] {
             plenty_release(text.cast());
         }
-        assert_eq!(strings::utf8(found as *const strings::Text), "Ada🙂");
+        assert_eq!(strings::text(found as *const strings::Text), "Ada🙂");
         crate::aggregates::retain(found, &OPTION_TEXT);
         crate::aggregates::release(found, &OPTION_TEXT);
-        assert_eq!(strings::utf8(found as *const strings::Text), "Ada🙂");
+        assert_eq!(strings::text(found as *const strings::Text), "Ada🙂");
         crate::aggregates::release(found, &OPTION_TEXT);
     }
 }
@@ -610,7 +610,7 @@ fn set_discard_releases_stored_strings_and_keeps_query_owners_valid() {
         let other = strings::new(b"other");
         assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 1);
         assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 0);
-        assert_eq!(strings::utf8(query), "é\0🙂");
+        assert_eq!(strings::text(query), "é\0🙂");
         assert_eq!(collection(7, other as u128, set, 0, ptr::null()), 1);
         plenty_release(collection(1, set, query as u128, 0, ptr::null()) as *mut Header);
         assert_eq!(collection(7, query as u128, set, 0, ptr::null()), 1);
@@ -618,7 +618,7 @@ fn set_discard_releases_stored_strings_and_keeps_query_owners_valid() {
         assert_eq!(collection(41, set, query as u128, 0, ptr::null()), 1);
         assert_eq!(collection(5, set, 0, 0, ptr::null()), 0);
         plenty_release(set as *mut Header);
-        assert_eq!(strings::utf8(query), "é\0🙂");
+        assert_eq!(strings::text(query), "é\0🙂");
         plenty_release(query.cast());
         plenty_release(other.cast());
     }
@@ -692,7 +692,7 @@ fn set_algebra_cleans_partial_storage_and_retains_result_members() {
                     // Reads after both inputs die validate retained string owners.
                     for i in 0..length {
                         let text = collection(6, result, i, 0, ptr::null());
-                        assert!(!strings::utf8(text as *const strings::Text).is_empty());
+                        assert!(!strings::text(text as *const strings::Text).is_empty());
                         plenty_release(text as *mut Header);
                     }
                     plenty_release(result as *mut Header);
@@ -720,7 +720,7 @@ fn list_lookup_retains_string_payload_without_transferring_the_entry() {
         assert_eq!(found, again);
         crate::aggregates::release(again, &OPTION_TEXT);
         plenty_release(list as *mut Header);
-        assert_eq!(strings::utf8(text), "é\0🙂");
+        assert_eq!(strings::text(text), "é\0🙂");
         crate::aggregates::release(found, &OPTION_TEXT);
     }
 }
@@ -747,9 +747,9 @@ fn set_filter_releases_removed_strings_and_keeps_source_owners() {
             plenty_release(other as *mut Header);
             assert_eq!(collection(5, target, 0, 0, ptr::null()), 1);
             let kept = collection(6, target, 0, 0, ptr::null());
-            assert_eq!(strings::utf8(kept as *const strings::Text), expected);
+            assert_eq!(strings::text(kept as *const strings::Text), expected);
             plenty_release(target as *mut Header);
-            assert_eq!(strings::utf8(kept as *const strings::Text), expected);
+            assert_eq!(strings::text(kept as *const strings::Text), expected);
             plenty_release(kept as *mut Header);
         }
     }
@@ -819,8 +819,8 @@ fn removed_affixes_have_independent_storage_and_recoverable_failure() {
                     assert_eq!(result, 1u128 << 64);
                 } else {
                     let result = crate::aggregates::payload(result) as *mut strings::Text;
-                    assert_eq!(strings::utf8(result), expected);
-                    assert_eq!((*result).scalar_len, 2);
+                    assert_eq!(strings::text(result), expected);
+                    assert_eq!(strings::scalar_len(result), 2);
                     plenty_release(result.cast());
                 }
             }
@@ -872,7 +872,7 @@ fn set_update_preserves_string_owners_across_duplicate_and_failure_paths() {
             assert_eq!(collection(7, query as u128, target, 0, ptr::null()), 1);
             plenty_release(source as *mut Header);
             plenty_release(target as *mut Header);
-            assert_eq!(strings::utf8(query), "key0");
+            assert_eq!(strings::text(query), "key0");
             plenty_release(query.cast());
         }
     }
@@ -1001,7 +1001,7 @@ fn dictionary_clear_releases_entries_but_reuses_buffers() {
         assert_eq!(collection(5, source, 0, 0, ptr::null()), 1);
         assert_eq!(collection(7, saved, source, 0, ptr::null()), 1);
         plenty_release(source as *mut Header);
-        assert_eq!(strings::utf8(saved as *const _), "é\0🙂");
+        assert_eq!(strings::text(saved as *const _), "é\0🙂");
         plenty_release(saved as *mut Header);
     }
 }
@@ -1050,8 +1050,8 @@ fn repeated_strings_fill_checked_storage_without_temporary_allocations() {
                 } else {
                     assert_eq!(result >> 64, 0);
                     let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
-                    assert_eq!(strings::utf8(output), "é\0🙂".repeat(count.max(0) as usize));
-                    assert_eq!((*output).scalar_len, count.max(0) as u64 * 3);
+                    assert_eq!(strings::text(output), "é\0🙂".repeat(count.max(0) as usize));
+                    assert_eq!(strings::scalar_len(output), count.max(0) as u64 * 3);
                     plenty_release(output.cast());
                 }
             }
@@ -1077,15 +1077,15 @@ fn trimmed_strings_have_independent_storage_and_recover_from_allocation_failure(
                     crate::accounting::fail_after(Some(budget));
                     collection(op, source as u128, 0, 0, ptr::null())
                 };
-                assert_eq!(strings::utf8(source), "　é\0🙂 ");
+                assert_eq!(strings::text(source), "　é\0🙂 ");
                 plenty_release(source.cast());
                 if budget == 0 {
                     assert_eq!(result, 1u128 << 64);
                 } else {
                     assert_eq!(result >> 64, 0);
                     let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
-                    assert_eq!(strings::utf8(output), expected);
-                    assert_eq!((*output).scalar_len, expected.chars().count() as u64);
+                    assert_eq!(strings::text(output), expected);
+                    assert_eq!(strings::scalar_len(output), expected.chars().count() as u64);
                     plenty_release(output.cast());
                 }
             }
@@ -1139,9 +1139,9 @@ fn string_replacement_is_fallible_and_outputs_survive_all_inputs() {
                         ptr::null(),
                     )
                 };
-                assert_eq!(strings::utf8(source), text);
-                assert_eq!(strings::utf8(old_text), old);
-                assert_eq!(strings::utf8(new_text), new);
+                assert_eq!(strings::text(source), text);
+                assert_eq!(strings::text(old_text), old);
+                assert_eq!(strings::text(new_text), new);
                 plenty_release(source.cast());
                 plenty_release(old_text.cast());
                 plenty_release(new_text.cast());
@@ -1150,8 +1150,8 @@ fn string_replacement_is_fallible_and_outputs_survive_all_inputs() {
                 } else {
                     assert_eq!(result >> 64, 0);
                     let output = crate::aggregates::payload(result) as *mut crate::strings::Text;
-                    assert_eq!(strings::utf8(output), expected);
-                    assert_eq!((*output).scalar_len, expected.chars().count() as u64);
+                    assert_eq!(strings::text(output), expected);
+                    assert_eq!(strings::scalar_len(output), expected.chars().count() as u64);
                     plenty_release(output.cast());
                 }
             }
@@ -1178,15 +1178,15 @@ fn string_slice_failure_and_utf8_result_lifetime() {
                     crate::accounting::fail_after(Some(budget));
                     collection(46, source as u128, start as u128, stop as u128, ptr::null())
                 };
-                assert_eq!(strings::utf8(source), "Aé\0🙂Z");
+                assert_eq!(strings::text(source), "Aé\0🙂Z");
                 plenty_release(source.cast());
                 if budget == 0 {
                     assert_eq!(result, 1u128 << 64);
                 } else {
                     assert_eq!(result >> 64, 0);
                     let text = crate::aggregates::payload(result) as *mut crate::strings::Text;
-                    assert_eq!(strings::utf8(text), expected);
-                    assert_eq!((*text).scalar_len, expected.chars().count() as u64);
+                    assert_eq!(strings::text(text), expected);
+                    assert_eq!(strings::scalar_len(text), expected.chars().count() as u64);
                     plenty_release(text.cast());
                 }
             }
@@ -1277,7 +1277,7 @@ fn dictionary_snapshots_retain_strings_only_after_successful_reservation() {
                     let item = collection(4, list, 0, 0, ptr::null());
                     assert_eq!(item, if op == 43 { key as u128 } else { value as u128 });
                     assert_eq!(
-                        strings::utf8(item as *const _),
+                        strings::text(item as *const _),
                         if op == 43 { "key" } else { "é\0🙂" }
                     );
                     plenty_release(item as *mut Header);
@@ -1392,12 +1392,12 @@ fn checked_character_results_use_inline_tags_and_outlive_the_source() {
         assert_eq!(result >> 64, 2);
         let character = result as *const strings::Text;
         plenty_release(text.cast());
-        assert_eq!(strings::utf8(character), "🙂");
-        assert_eq!((*character).byte_len, 4);
-        assert_eq!((*character).scalar_len, 1);
+        assert_eq!(strings::text(character), "🙂");
+        assert_eq!(strings::byte_len(character), 4);
+        assert_eq!(strings::scalar_len(character), 1);
         crate::aggregates::retain(result, &RESULT_OPTION_TEXT);
         crate::aggregates::release(result, &RESULT_OPTION_TEXT);
-        assert_eq!(strings::utf8(character), "🙂");
+        assert_eq!(strings::text(character), "🙂");
         crate::aggregates::release(result, &RESULT_OPTION_TEXT);
     }
 }
@@ -1427,10 +1427,10 @@ fn checked_character_allocation_failure_and_missing_index_are_distinct() {
                 assert_eq!(present, 1u128 << 64);
             } else {
                 assert_eq!(present >> 64, 2);
-                assert_eq!(strings::bytes(present as *const strings::Text), b"\0");
+                assert_eq!(strings::text_bytes(present as *const strings::Text), b"\0");
             }
             crate::aggregates::release(present, &RESULT_OPTION_TEXT);
-            assert_eq!(strings::utf8(text), "é🙂\0");
+            assert_eq!(strings::text(text), "é🙂\0");
         }
         plenty_release(text.cast());
     }
@@ -1449,8 +1449,8 @@ fn split_output_outlives_inputs_and_preserves_exact_utf8() {
         assert_eq!(collection(5, list, 0, 0, ptr::null()), 4);
         for (i, expected) in ["é\0", "🙂", "", ""].iter().enumerate() {
             let part = collection(4, list, i as u128, 0, ptr::null()) as *mut strings::Text;
-            assert_eq!(strings::utf8(part), *expected);
-            assert_eq!((*part).scalar_len, expected.chars().count() as u64);
+            assert_eq!(strings::text(part), *expected);
+            assert_eq!(strings::scalar_len(part), expected.chars().count() as u64);
             plenty_release(part.cast());
         }
         crate::aggregates::release(result, &RESULT_TEXT_LIST);
@@ -1482,8 +1482,8 @@ fn partial_split_cleanup_handles_every_allocation_failure() {
                 assert_eq!(result >> 64, 0);
             }
             crate::aggregates::release(result, &RESULT_TEXT_LIST);
-            assert_eq!(strings::utf8(text), "é\0::🙂::::");
-            assert_eq!(strings::utf8(separator), "::");
+            assert_eq!(strings::text(text), "é\0::🙂::::");
+            assert_eq!(strings::text(separator), "::");
         }
         plenty_release(text.cast());
         plenty_release(separator.cast());
@@ -1501,14 +1501,14 @@ fn fallible_text_builders_copy_exact_bytes_and_unicode_lengths() {
             [first.cast_const(), second.cast_const(), first.cast_const()].into_iter(),
         )
         .unwrap();
-        assert_eq!(strings::bytes(joined), "é\0界🙂界é\0".as_bytes());
-        assert_eq!((*joined).scalar_len, 7);
+        assert_eq!(strings::text_bytes(joined), "é\0界🙂界é\0".as_bytes());
+        assert_eq!(strings::scalar_len(joined), 7);
         let combined = strings::try_concat(first, second).unwrap();
-        assert_eq!(strings::bytes(combined), "é\0🙂".as_bytes());
-        assert_eq!((*combined).scalar_len, 3);
+        assert_eq!(strings::text_bytes(combined), "é\0🙂".as_bytes());
+        assert_eq!(strings::scalar_len(combined), 3);
         let empty = strings::try_join(Some(separator), [].into_iter()).unwrap();
-        assert!(strings::bytes(empty).is_empty());
-        assert_eq!((*empty).scalar_len, 0);
+        assert!(strings::text_bytes(empty).is_empty());
+        assert_eq!(strings::scalar_len(empty), 0);
         for text in [joined, combined, empty, first, second, separator] {
             plenty_release(text.cast());
         }
@@ -1537,11 +1537,11 @@ fn text_builders_recover_from_allocation_failure_without_consuming_inputs() {
                 assert_eq!(result, Err(crate::memory::AllocError::OutOfMemory));
             } else {
                 let result = result.unwrap();
-                assert_eq!(strings::bytes(result), b"a\0b");
+                assert_eq!(strings::text_bytes(result), b"a\0b");
                 plenty_release(result.cast());
             }
-            assert_eq!(strings::bytes(a), b"a\0");
-            assert_eq!(strings::bytes(b), b"b");
+            assert_eq!(strings::text_bytes(a), b"a\0");
+            assert_eq!(strings::text_bytes(b), b"b");
         }
         plenty_release(a.cast());
         plenty_release(b.cast());
@@ -1820,9 +1820,9 @@ fn strings_keep_lengths_utf8_and_nul_bytes() {
         let a = strings::new("é\0".as_bytes());
         let b = strings::new("🦀".as_bytes());
         let joined = plenty_concat(a, b);
-        assert_eq!(strings::utf8(joined), "é\0🦀");
-        assert_eq!((*joined).byte_len, 7);
-        assert_eq!((*joined).scalar_len, 3);
+        assert_eq!(strings::text(joined), "é\0🦀");
+        assert_eq!(strings::byte_len(joined), 7);
+        assert_eq!(strings::scalar_len(joined), 3);
         assert_eq!(plenty_contains(joined, b), 1);
         let last = strings::at(joined, -1);
         assert_eq!(plenty_str_eq(last, b), 1);
@@ -1854,9 +1854,9 @@ fn compiler_literal_prefix_is_read_only_and_immortal() {
         let pointer = std::ptr::addr_of!(LITERAL).cast::<strings::Text>();
         plenty_retain(pointer.cast_mut().cast());
         plenty_release(pointer.cast_mut().cast());
-        assert_eq!(strings::bytes(pointer), b"a\0b");
+        assert_eq!(strings::text_bytes(pointer), b"a\0b");
         let copy = plenty_concat(pointer, pointer);
-        assert_eq!(strings::bytes(copy), b"a\0ba\0b");
+        assert_eq!(strings::text_bytes(copy), b"a\0ba\0b");
         plenty_release(copy.cast());
     }
 }

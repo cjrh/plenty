@@ -34,7 +34,7 @@ fn splitlines_recovers_from_each_allocation_and_preserves_source() {
         native(
             &format!(
                 r#"
-source = ("one\ntwo\nthree" + "").unwrap()
+source = ("firstline\nsecondline\nthirdline" + "").unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = source.splitlines()
 print("__test_restore_allocations__").unwrap()
@@ -43,11 +43,11 @@ print(len(source)).unwrap()
 "#
             ),
             &format!(
-                "Result[list[str], AllocError].{}\n13",
+                "Result[list[str], AllocError].{}\n30",
                 if budget < 5 {
                     "Err(AllocError.OutOfMemory)"
                 } else {
-                    "Ok([\"one\", \"two\", \"three\"])"
+                    "Ok([\"firstline\", \"secondline\", \"thirdline\"])"
                 }
             ),
         );
@@ -112,11 +112,14 @@ fn affix_removal_recovers_from_its_single_output_allocation(
     #[values("é", "missing", "")] pattern: &str,
     #[values(0, 1)] budget: usize,
 ) {
-    let expected = if pattern == "é" { "" } else { "é" };
+    let expected = match (method, pattern) {
+        ("removeprefix", "é") => "légante",
+        _ => "élégante",
+    };
     native(
         &format!(
             r#"
-source = ("" + "é").unwrap()
+source = ("" + "élégante").unwrap()
 pattern = ("" + {pattern:?}).unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = source.{method}(pattern)
@@ -126,7 +129,7 @@ print(source).unwrap()
 "#
         ),
         &format!(
-            "Result[str, AllocError].{}\né",
+            "Result[str, AllocError].{}\nélégante",
             if budget == 0 {
                 "Err(AllocError.OutOfMemory)".to_owned()
             } else {
@@ -239,7 +242,7 @@ print(text.strip()).unwrap()
                 ),
                 &format!(
                     "Result[str, AllocError].{}\nResult[str, AllocError].Ok({expected:?})",
-                    if budget == 0 {
+                    if budget == 0 && expected.len() > support::INLINE_MAX {
                         "Err(AllocError.OutOfMemory)".to_owned()
                     } else {
                         format!("Ok({expected:?})")
@@ -327,7 +330,7 @@ print(text.repeat({count})).unwrap()
                 ),
                 &format!(
                     "Result[str, AllocError].{}\né🙂\nResult[str, AllocError].Ok({expected:?})",
-                    if budget == 0 {
+                    if budget == 0 && expected.len() > support::INLINE_MAX {
                         "Err(AllocError.OutOfMemory)".to_owned()
                     } else {
                         format!("Ok({expected:?})")

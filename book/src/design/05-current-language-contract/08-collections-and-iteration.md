@@ -82,8 +82,8 @@ usable. Lookup is constant-time and does not allocate or change the list. Manage
 immutable results retain their existing storage, surviving entry replacement or
 list destruction. As with dictionary `get`, affine elements are rejected: use
 `pop` to remove and take ownership, or explicit copying with ordinary indexing.
-There is no default argument. Unlike string `get`, list lookup does not create
-new character storage and therefore needs no allocation-error result. Constructing
+There is no default argument. Like string `get`, list lookup creates no new
+storage and therefore needs no allocation-error result. Constructing
 the receiver or index expression still follows its own allocation policy.
 
 `dictionary.pop(key)` requires a mutable binding, mutable class field, or exclusive

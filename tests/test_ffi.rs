@@ -243,6 +243,11 @@ def main() -> Result[(), Failure]:
     print(native.bytes(&text))?
     empty = ""
     print(native.bytes(&empty))?
+    character = text[0]
+    print(native.bytes(&character))?
+    short = text.slice(0, 3)?
+    print(native.bytes(&short))?
+    print(native.strings(&character, &empty))?
     good = "é"
     print(native.strings(&good, &empty))?
     print(native.strings(&good, &text))?
@@ -255,7 +260,7 @@ def main() -> Result[(), Failure]:
 "#,
         library,
     );
-    assert_eq!(visible(output), "-128\n65535\n1.5\n-2.25\n-9223372036854775808\n429\n0\nResult[u64, CStrError].Ok(2)\nResult[u64, CStrError].Err(CStrError.EmbeddedNul)\nResult[u64, CStrError].Err(CStrError.EmbeddedNul)\n3\n2.5\n42");
+    assert_eq!(visible(output), "-128\n65535\n1.5\n-2.25\n-9223372036854775808\n429\n0\n364\n429\nResult[u64, CStrError].Ok(2)\nResult[u64, CStrError].Ok(2)\nResult[u64, CStrError].Err(CStrError.EmbeddedNul)\nResult[u64, CStrError].Err(CStrError.EmbeddedNul)\n4\n2.5\n42");
 }
 
 #[test]

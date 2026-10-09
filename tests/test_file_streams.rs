@@ -169,7 +169,7 @@ fn bounded_reads_report_allocation_failure_and_remain_closable() {
 def work() -> Result[(), IoError]:
     mut file = open("sample.txt")?
     print("__test_fail_allocations_after_{budget}__").unwrap()
-    result = file.{method}(2)
+    result = file.{method}(3)
     file.close()?
     print("__test_restore_allocations__").unwrap()
     print(result).unwrap()
@@ -178,14 +178,14 @@ def work() -> Result[(), IoError]:
 print(work()).unwrap()
 "#
                 ),
-                Some("é🦀".as_bytes()),
+                Some("é🦀é".as_bytes()),
             );
             let text = String::from_utf8_lossy(&out.stdout);
             assert!(
                 text.contains(if budget < 2 {
                     "OutOfMemory"
                 } else {
-                    ".Ok(\"é🦀\")"
+                    ".Ok(\"é🦀é\")"
                 }),
                 "{text}"
             );
@@ -215,14 +215,14 @@ def work() -> Result[(), IoError]:
 print(work()).unwrap()
 "#
             ),
-            Some(b"a\r\nb\n"),
+            Some(b"abcdefg\nb\n"),
         );
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(
             text.contains(if budget < 2 {
                 "OutOfMemory"
             } else {
-                ".Ok(\"a\\n\")"
+                ".Ok(\"abcdefg\\n\")"
             }),
             "{text}"
         );
@@ -298,14 +298,14 @@ def work() -> Result[(), IoError]:
 print(work()).unwrap()
 "#
             ),
-            Some(b"text"),
+            Some(b"text file"),
         );
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(
             text.contains(if budget < 2 {
                 "OutOfMemory"
             } else {
-                ".Ok(\"text\")"
+                ".Ok(\"text file\")"
             }),
             "{text}"
         );

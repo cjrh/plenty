@@ -52,7 +52,7 @@ fn run(source: &str) -> std::process::Output {
     "4999950000\n"
 )]
 #[case(
-    "def chars() -> Generator[str]:\n    for c in 'é\\0😀':\n        yield c.unwrap()\nprint(list(chars()).unwrap()).unwrap()",
+    "def chars() -> Generator[str]:\n    for c in 'é\\0😀':\n        yield c\nprint(list(chars()).unwrap()).unwrap()",
     "[\"é\", \"\\0\", \"😀\"]\n"
 )]
 #[case("def g(x: i8, y: u64, flag: bool) -> Generator[i8]:\n    if flag and y > 0u64:\n        yield x\n        yield x + 1i8\nprint(list(g(-128i8, 18446744073709551615u64, True)).unwrap()).unwrap()", "[-128, -127]\n")]

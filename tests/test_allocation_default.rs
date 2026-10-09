@@ -76,24 +76,21 @@ fn old_prefixes_are_rejected() {
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn ranges_succeed_while_text_index_and_iteration_report_allocation_failure() {
+fn ranges_text_index_and_iteration_succeed_without_allocation() {
     let output = support::run(
         r#"
 def main() -> ():
     print("__test_fail_allocations_after_0__").unwrap()
     sequence = range[u8](4)
     character = "é🙂"[1]
-    mut failures = 0
+    mut count = 0
     for item in "é🙂":
-        match item:
-            case Ok(_):
-                pass
-            case Err(_):
-                failures = failures + 1
+        if item == "🙂":
+            count = count + 1
     print("__test_restore_allocations__").unwrap()
     print(sequence).unwrap()
     print(character).unwrap()
-    print(failures).unwrap()
+    print(count).unwrap()
 "#,
     );
     assert!(
@@ -102,12 +99,7 @@ def main() -> ():
         String::from_utf8_lossy(&output.stderr)
     );
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.contains("range(0, 4, 1)"), "{text}");
-    assert!(
-        text.contains("Result[str, AllocError].Err(AllocError.OutOfMemory)"),
-        "{text}"
-    );
-    assert!(text.ends_with("2\n"), "{text}");
+    assert!(text.contains("range(0, 4, 1)\n🙂\n1\n"), "{text}");
 }
 
 #[test]

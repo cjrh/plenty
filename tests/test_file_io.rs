@@ -249,7 +249,7 @@ print(value).unwrap()
 print(read_text("sample.txt")).unwrap()
 "#
             ),
-            Some(b"hello"),
+            Some(b"hello, world"),
         );
         assert!(
             out.status.success(),
@@ -261,10 +261,10 @@ print(read_text("sample.txt")).unwrap()
             text.contains(if budget < 3 {
                 "Allocation(AllocError.OutOfMemory)"
             } else {
-                "Result[str, IoError].Ok(\"hello\")"
+                "Result[str, IoError].Ok(\"hello, world\")"
             }),
             "{text}"
         );
-        assert!(text.ends_with("Result[str, IoError].Ok(\"hello\")\n"));
+        assert!(text.ends_with("Result[str, IoError].Ok(\"hello, world\")\n"));
     }
 }

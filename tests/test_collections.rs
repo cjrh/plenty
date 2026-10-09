@@ -78,7 +78,7 @@ use rstest::rstest;
 )]
 #[case("d = {'a': 1, 'b': 2}.unwrap()\nfor key in &d:\n    print(key).unwrap()\n    print(d[key]).unwrap()\nprint(d.keys().unwrap()).unwrap()\nprint(d.values().unwrap()).unwrap()", "a\n1\nb\n2\n[\"a\", \"b\"]\n[1, 2]\n")]
 #[case(
-    "for c in 'hé🙂':\n    print(c.unwrap()).unwrap()\nprint(len('hé🙂')).unwrap()\nprint('hé🙂'[-1].unwrap()).unwrap()",
+    "for c in 'hé🙂':\n    print(c).unwrap()\nprint(len('hé🙂')).unwrap()\nprint('hé🙂'[-1]).unwrap()",
     "h\né\n🙂\n3\n🙂\n"
 )]
 #[case("print(list(range(5, -2, -2)).unwrap()).unwrap()\nprint(len(range(5, 0))).unwrap()\nprint(3 in range(1, 8, 2)).unwrap()\nprint(4 not in range(1, 8, 2)).unwrap()", "[5, 3, 1, -1]\n0\nTrue\nTrue\n")]
@@ -88,7 +88,7 @@ use rstest::rstest;
     "6\nTrue\n"
 )]
 #[case(
-    "print([c.unwrap() for c in 'hé'].unwrap()).unwrap()\nprint(len(set([1, 1, 2].unwrap()).unwrap())).unwrap()\nprint(list({'a': 1, 'b': 2}.unwrap()).unwrap()).unwrap()",
+    "print([c for c in 'hé'].unwrap()).unwrap()\nprint(len(set([1, 1, 2].unwrap()).unwrap())).unwrap()\nprint(list({'a': 1, 'b': 2}.unwrap()).unwrap()).unwrap()",
     "[\"h\", \"é\"]\n2\n[\"a\", \"b\"]\n"
 )]
 #[case(
