@@ -38,8 +38,11 @@ constraint for generic consumers; factory and consuming annotations are advanced
 
 B22's contract/runtime audit and atomic ownership foundation are complete.
 Metadata is static, and counts synchronize last-release cleanup, including inline
-frames. Concurrent stress tests cover the handoff. Public threads, effect/eligibility
-checking, channels, and executors remain separate follow-on work under B22.
+frames. Concurrent stress tests cover the handoff. Initial compiler eligibility
+checks and scoped native threads are also complete: borrowed jobs, transferred
+results, fallible starts, and automatic joining on every normal exit. See the
+[reference](design/32-scoped-native-threads.md) and
+[runnable lesson](tutorial/79-run-scoped-threads.md).
 
 B10 is complete for the initial source subset: classes, enums, aliases, and finite
 generic instances support recursive ownership. Native tests cover construction,
@@ -56,8 +59,8 @@ variants, support single-origin returns, and allocate nothing, including nested
 See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
 [implemented contract](design/31-borrowed-enum-matching.md).
 
-**Next: B22, native concurrency eligibility and scoped threads**, followed by
-B32's callback storage. Broader stored-reference work remains under B11.
+**Next: B32, stored stateful callbacks**, following the completed initial B22
+eligibility/scoped-thread slice. Broader stored-reference work remains under B11.
 Automatic deep recursive
 copy, equality, and formatting remain explicitly gated and are tracked by B33.
 
@@ -79,11 +82,11 @@ among multiple reference parameters, and more precise collection loans. Preserve
 owner/variant stability and reject references into temporary storage as this
 subset expands; evaluate additional precision against compile-time cost.
 
-**B22 — useful native concurrency.** Target native threads that execute Plenty
-code in parallel without a global interpreter lock. Building on the completed
-runtime audit and atomic ownership foundation, define which
-owners may transfer and which borrows may be shared. Then implement scoped
-threads and bounded channels, followed by a Python-style thread-pool executor
+**B22 — useful native concurrency.** Scoped native threads, structural eligibility,
+reachable worker/destructor effect checks, and atomic ownership are implemented.
+Current jobs borrow owners; results transfer at join. Remaining slices include
+consuming submission that preserves unstarted ownership, richer certified effects
+and eligible types, and bounded channels, followed by a Python-style thread-pool executor
 with submission, result retrieval, ordered mapping, and context-managed shutdown.
 Thread/task creation and queue allocation must report failures; specify bounded
 queues/backpressure, failed-send ownership, joining on every exit, cooperative
@@ -122,7 +125,7 @@ is still open.
 | B19 | Measured codegen and storage improvements | Benchmark dense-match dispatch before adding jump tables. Investigate compact tuple/aggregate layouts, packed numeric buffers, code size, and compilation/link latency. Do not carry over assumptions from the legacy stack frontend. |
 | B20 | Optional GCC backend | Evaluate the proposed backend with a small feasibility experiment before committing to another backend or common IR. Cranelift remains the current backend. [GCC proposal](proposals/codegen-gcc.md). |
 | B21 | Documentation authoring | Evaluate independently runnable literate lesson sources that generate mdBook pages if they improve authoring. Current Markdown lessons are already executable and tested; do not create another manually maintained copy. [Documentation design](proposals/entrypoints-modules-and-tutorials.md). |
-| B22 | Threads, channels, and parallel operations | Contract/runtime audit and atomic ownership foundation complete. Remaining: compiler eligibility/effects, scoped threads and bounded channels, a Python-style executor, and explicit parallel operations. Follow the scope above, including fallible submission and deterministic shutdown. [Concurrency design](proposals/native-concurrency.md). |
+| B22 | Threads, channels, and parallel operations | Initial eligibility/effect checks and scoped native threads complete. Remaining: consuming job submission, richer eligibility/effect contracts, bounded channels, a Python-style executor, and explicit parallel operations. Preserve fallible submission and deterministic shutdown. [Implemented subset](design/32-scoped-native-threads.md); [concurrency design](proposals/native-concurrency.md). |
 | B23 | SIMD | Define vector values, contiguous numeric storage, supported operations, and scalar fallbacks. Ordinary generic lists are not automatically packed native arrays. [SIMD design](proposals/memory-parallelism-and-simd.md). |
 | B24 | Automatic parallelization | Research only after B22: require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |

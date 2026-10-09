@@ -60,8 +60,8 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
   raw field addresses. Their destruction callbacks deallocate matching layouts.
 - Destruction is queued iteratively, preserving child order. User drop hooks may
   reenter the runtime; no queue borrow or mutable Rust view of the dying record
-  survives such a callback. The queue is thread-local; Plenty execution remains
-  single-threaded at the language level. Reference counts use atomic retain and
+  survives such a callback. The queue is thread-local; checked scoped workers can
+  execute Plenty code concurrently. Reference counts use atomic retain and
   release, with an acquire handoff to the final destructor. This is an ownership
   primitive, not permission to share mutable payloads across threads.
 - Collection dispatcher opcodes 28 (reserve) and 29 (insert) return inline

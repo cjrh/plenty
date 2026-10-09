@@ -23,6 +23,7 @@ mod generics;
 mod modules;
 mod protocols;
 mod references;
+mod threads;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit expressions have no operand; enum slots use Ty::Unit.
@@ -1480,6 +1481,7 @@ fn named_type(name: &str) -> Type {
         "Failure" => crate::sum::failure(),
         "CStrError" => crate::sum::c_str_error(),
         "LoadError" => crate::sum::load_error(),
+        "ThreadError" => crate::sum::thread_error(),
         _ => return None,
     })
 }
@@ -1495,6 +1497,7 @@ pub(crate) fn builtin(name: &str) -> bool {
         || matches!(
             name,
             "print"
+                | "spawn"
                 | "open"
                 | "write_stdout"
                 | "write_stderr"
@@ -1974,6 +1977,9 @@ impl Lower<'_> {
                     .names
                     .get(name)
                     .ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
+                if matches!(local.ty, Ty::Task(_)) {
+                    return Err(e.at.error("scoped tasks cannot escape or be copied; use task.join() inside its with block"));
+                }
                 if let Some(loan) = self.reference_locals.get(&local.slot) {
                     ops.push(Op::UseLoan(*loan));
                 }
@@ -2189,6 +2195,9 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if name == "spawn" {
+                    return Err(e.at.error("spawn is a scoped operation; use with spawn(worker, arguments...)? as task:"));
+                }
                 if self.names.contains_key(name) {
                     let callee = Expr {
                         at: e.at.clone(),

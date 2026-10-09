@@ -6,6 +6,7 @@ pub(super) struct Context {
     pub slot: u8,
     pub exit: Vec<Op>,
     pub loan: Option<usize>,
+    pub thread: bool,
 }
 
 impl Lower<'_> {
@@ -18,6 +19,9 @@ impl Lower<'_> {
     ) -> Result<BlockResult> {
         if generators::yields(body) {
             return Err(manager.at.error("yield inside with is not supported yet"));
+        }
+        if let Some((call, propagate)) = threads::spawn_expression(manager) {
+            return self.with_thread(call, propagate, name, body, ops);
         }
         let saved = self.names.clone();
         let start = self.locals.len();
@@ -82,7 +86,12 @@ impl Lower<'_> {
                 ],
             )
         };
-        let context = Context { slot, exit, loan };
+        let context = Context {
+            slot,
+            exit,
+            loan,
+            thread: false,
+        };
         let entry_loan = self.new_loan(
             loan.map(|id| self.loans[id].root).unwrap_or(slot),
             true,
@@ -139,6 +148,9 @@ impl Lower<'_> {
     }
 
     pub(super) fn context_receiver(&self, context: &Context, ops: &mut Vec<Op>) {
+        if context.thread {
+            return;
+        }
         if let Some(loan) = context.loan {
             ops.push(Op::Access(self.loans[loan].root, true, Some(loan)));
             ops.push(Op::LoadLocal(context.slot));

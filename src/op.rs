@@ -20,6 +20,8 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// generic functions are specialized before native lowering.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
+    /// Lexical join token: only direct `.join()` consumes a source task.
+    Task(Rc<crate::threading::Task>),
     Closure(Rc<crate::closure::ClosureType>),
     Callable(Rc<CallableSig>),
     I8,
@@ -91,6 +93,7 @@ impl Ty {
         matches!(
             self,
             Self::List(_)
+                | Self::Task(_)
                 | Self::Closure(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
@@ -101,7 +104,7 @@ impl Ty {
     }
     pub fn restricted_storage(&self) -> bool {
         match self {
-            Self::Generator(_) | Self::Closure(_) | Self::Ref(..) => true,
+            Self::Task(_) | Self::Generator(_) | Self::Closure(_) | Self::Ref(..) => true,
             Self::Enum(t) => t.try_get().is_some_and(|t| t.restricted_storage),
             _ => false,
         }
@@ -194,6 +197,7 @@ impl Ty {
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Ty::Task(_) => "scoped task",
             Ty::Closure(t) => {
                 let signature = t.signature.to_string().replacen(
                     "Callable",
@@ -320,6 +324,7 @@ impl fmt::Display for CallableSig {
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    Thread(crate::threading::ThreadOp),
     ClosureNew(Rc<crate::closure::ClosureType>),
     ClosureCall(Rc<crate::closure::ClosureType>),
     FunctionAddress(String, Rc<CallableSig>),
@@ -1123,6 +1128,7 @@ pub fn check(ops: &[Op]) -> Result<()> {
     // `LoadLocal` here either), and there is no end-of-stream invariant.
     let mut stack = Vec::new();
     check_sequence(ops, &mut stack, &[], &sigs, None, None, None)?;
+    crate::threading::check(ops)?;
     Ok(())
 }
 
@@ -1209,6 +1215,32 @@ fn step(
     yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     match op {
+        Op::Thread(operation) => match operation {
+            crate::threading::ThreadOp::Start(task, slot) => {
+                if locals.get(*slot as usize) != Some(&Ty::Task(task.clone())) {
+                    return Err("invalid scoped thread slot".into());
+                }
+                for ty in task.inputs.iter().rev() {
+                    if stack.pop().as_ref() != Some(ty) {
+                        return Err("invalid scoped thread argument".into());
+                    }
+                }
+                stack.push(crate::sum::result(Ty::Unit, crate::sum::thread_error()));
+            }
+            crate::threading::ThreadOp::Join(task) => {
+                if stack.pop() != Some(Ty::Task(task.clone())) {
+                    return Err("invalid scoped join token".into());
+                }
+                if task.output != Ty::Unit {
+                    stack.push(task.output.clone());
+                }
+            }
+            crate::threading::ThreadOp::Finish(task, slot) => {
+                if locals.get(*slot as usize) != Some(&Ty::Task(task.clone())) {
+                    return Err("invalid scoped thread cleanup".into());
+                }
+            }
+        },
         Op::Try {
             source,
             target,

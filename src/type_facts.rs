@@ -25,7 +25,10 @@ impl Ty {
             self,
             Self::Class(_) | Self::Enum(_) | Self::List(_) | Self::Set(_) | Self::Dict(..)
         ) {
-            let resource = matches!(self, Self::File | Self::Generator(_) | Self::Closure(_));
+            let resource = matches!(
+                self,
+                Self::File | Self::Generator(_) | Self::Closure(_) | Self::Task(_)
+            );
             return Facts {
                 affine: resource,
                 copyable: !resource && !matches!(self, Self::Ref(..)),

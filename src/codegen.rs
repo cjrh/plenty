@@ -70,6 +70,7 @@ mod generators;
 mod inline;
 mod metadata;
 mod references;
+mod threads;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
@@ -294,6 +295,14 @@ fn emit_object(
 
     // An immortal empty string substitutes for the legacy input helper's EOF.
     let eof_empty_str = declare_eof_empty_str(&mut module)?;
+    threads::emit_adapters(
+        ops,
+        &user_fns,
+        &str_data,
+        eof_empty_str,
+        &runtime,
+        &mut module,
+    )?;
 
     // Pass 2: emit each user function's body. Bodies can refer to each
     // other (forward references, mutual recursion) because every callee
@@ -363,6 +372,9 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
 /// them all up-front so each call site is just `module.declare_func_in_func`
 /// plus an `ins().call`.
 struct Runtime {
+    thread_start: FuncId,
+    thread_join: FuncId,
+    thread_adapters: std::cell::RefCell<HashMap<String, FuncId>>,
     type_data: std::cell::RefCell<HashMap<Ty, DataId>>,
     collection: FuncId,
     retain: FuncId,
@@ -436,6 +448,15 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        thread_start: two_args_one_return(
+            module,
+            "plenty_thread_start",
+            PTR_TY,
+            PTR_TY,
+            types::I32,
+        )?,
+        thread_join: one_arg(module, "plenty_thread_join", PTR_TY)?,
+        thread_adapters: Default::default(),
         generator_init: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
@@ -670,7 +691,7 @@ fn collect_user_fns(
 /// ensured those values match the declared outputs).
 fn needs_local_addresses(ops: &[Op]) -> bool {
     ops.iter().any(|op| match op {
-        Op::BorrowLocal(..) => true,
+        Op::BorrowLocal(..) | Op::Thread(_) => true,
         Op::Match(arms) => arms.iter().any(|a| needs_local_addresses(&a.body)),
         Op::Loop { condition, body } => {
             needs_local_addresses(condition) || needs_local_addresses(body)
@@ -919,6 +940,7 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::F32 => types::F32,
         Ty::F64 => types::F64,
         Ty::Str
+        | Ty::Task(_)
         | Ty::Callable(_)
         | Ty::Closure(_)
         | Ty::File
@@ -1111,6 +1133,7 @@ impl Lowerer<'_, '_> {
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
         match op {
+            Op::Thread(operation) => self.lower_thread(operation)?,
             Op::Try {
                 source,
                 target,

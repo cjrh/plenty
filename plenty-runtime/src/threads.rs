@@ -104,10 +104,10 @@ mod tests {
         };
         // SAFETY: both tasks remain at these addresses until both workers join.
         unsafe {
-            assert_eq!(plenty_thread_start(&mut a.thread, run), 0);
-            assert_eq!(plenty_thread_start(&mut b.thread, run), 0);
-            plenty_thread_join(&a.thread);
-            plenty_thread_join(&b.thread);
+            assert_eq!(plenty_thread_start((&raw mut a).cast(), run), 0);
+            assert_eq!(plenty_thread_start((&raw mut b).cast(), run), 0);
+            plenty_thread_join((&raw const a).cast());
+            plenty_thread_join((&raw const b).cast());
         }
         assert_eq!((a.result, b.result), (42, 42));
     }
@@ -122,7 +122,7 @@ mod tests {
         };
         fail_after(Some(0));
         // SAFETY: failure injection prevents entry; storage is nevertheless valid.
-        let status = unsafe { plenty_thread_start(&mut task.thread, run) };
+        let status = unsafe { plenty_thread_start((&raw mut task).cast(), run) };
         fail_after(None);
         assert_eq!(status, 11);
         assert_eq!(task.result, 99);

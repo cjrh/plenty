@@ -126,6 +126,7 @@
 - [76. Store stateful callbacks](tutorial/76-store-stateful-callbacks.md)
 - [77. Build recursive data](tutorial/77-build-recursive-data.md)
 - [78. Match borrowed values](tutorial/78-match-borrowed-values.md)
+- [79. Run scoped threads](tutorial/79-run-scoped-threads.md)
 
 # Reference
 
@@ -179,6 +180,7 @@
 - [Parameterized protocols](design/29-parameterized-protocols.md)
 - [Recursive data](design/30-recursive-data.md)
 - [Borrowed enum matching](design/31-borrowed-enum-matching.md)
+- [Scoped native threads](design/32-scoped-native-threads.md)
 - [Native runtime](runtime.md)
 
 # Proposals

@@ -44,3 +44,6 @@ manager's exit call. Owned entry results may still be moved out normally.
 `yield` inside
 `with` is rejected until generator frames can retain exit obligations. Concrete
 lookup requires no traits or user generics.
+
+The intrinsic [scoped-thread manager](32-scoped-native-threads.md) uses the same
+exit obligations to join workers before reclaiming their borrowed storage.

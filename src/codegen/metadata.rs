@@ -60,7 +60,7 @@ fn define_type(
     let mut bytes = vec![0; 56];
     bytes[0] = match ty {
         Ty::I8 => b'1',
-        Ty::Callable(_) => b'c',
+        Ty::Callable(_) | Ty::Task(_) => b'c',
         Ty::Closure(_) => b'H',
         Ty::I16 => b'2',
         Ty::I32 => b'3',

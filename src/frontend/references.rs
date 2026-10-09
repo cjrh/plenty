@@ -165,6 +165,9 @@ impl Lower<'_> {
                 if local.ty == Ty::Unit {
                     return Err(e.at.error("expected a value, got ()"));
                 }
+                if matches!(local.ty, Ty::Task(_)) {
+                    return Err(e.at.error("scoped tasks cannot be borrowed or stored; use task.join()"));
+                }
                 Ok(local)
             }
             _ => Err(e.at.error("borrowing requires a named binding; element and temporary references are not supported yet")),

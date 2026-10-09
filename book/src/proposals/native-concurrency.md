@@ -1,8 +1,9 @@
 # Native concurrency contract
 
-This is a design contract, not an implemented threading API. Plenty currently
-executes on one thread. Native threads should eventually run Plenty code in
-parallel, with no interpreter lock and no async/await requirement.
+This proposal records the broader concurrency contract and its rationale.
+[Scoped native threads](../design/32-scoped-native-threads.md) now implement the
+initial checked worker boundary. The reference describes its precise limits;
+future work and priorities live only in the [backlog](../backlog.md).
 
 ## Runtime audit
 
@@ -48,7 +49,10 @@ indefinitely. Imports never change eligibility implicitly.
 
 A scoped task can borrow its parent's data. Its scope joins every started task
 before locals are reclaimed, including on `return`, `?`, and loop exits. Start
-failure returns the unstarted owned job with an error. Join transfers one result
+failure must preserve the unstarted job. The initial API borrows owners and
+reusable closures, leaving the job with the caller on failure; a consuming
+submission API would need to return unstarted ownership with its error.
+Join transfers one result
 to one consumer. A task returning `Result[T, E]` keeps that application error
 distinct from failure to create a thread or allocate task storage.
 

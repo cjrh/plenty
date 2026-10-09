@@ -212,6 +212,7 @@ impl Ty {
 impl Clone for Ty {
     fn clone(&self) -> Self {
         match self {
+            Self::Task(t) => Self::Task(t.clone()),
             Self::Class(t) => Self::Class(t.clone()),
             Self::Enum(t) => Self::Enum(t.clone()),
             Self::List(t) => Self::List(Rc::new((**t).clone())),

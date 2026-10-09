@@ -53,6 +53,10 @@ fn backedge(state: &[bool], entry: &[bool], locals: &[Ty]) -> Result<()> {
 fn sequence(ops: &[Op], locals: &[Ty], state: &mut State, loops: &mut Vec<Loop>) -> Result<bool> {
     for op in ops {
         match op {
+            Op::Thread(crate::threading::ThreadOp::Start(_, slot)) => state[*slot as usize] = true,
+            Op::Thread(crate::threading::ThreadOp::Finish(_, slot)) => {
+                state[*slot as usize] = false
+            }
             Op::Try { cleanup, .. } => {
                 sequence(cleanup, locals, &mut state.clone(), &mut Vec::new())?;
             }

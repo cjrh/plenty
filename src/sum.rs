@@ -41,6 +41,7 @@ impl crate::nominal::Nominal<EnumType> {
                     | "Failure"
                     | "CStrError"
                     | "LoadError"
+                    | "ThreadError"
             )
     }
     pub fn propagatable(&self) -> bool {
@@ -92,6 +93,21 @@ pub fn alloc_error() -> Ty {
 
 pub fn allocation_result() -> Ty {
     result(Ty::Unit, alloc_error())
+}
+
+/// Native creation errors are represented inline, even under memory pressure.
+pub fn thread_error() -> Ty {
+    let Ty::Enum(template) = alloc_error() else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.facts = std::cell::OnceCell::new();
+    ty.name = "ThreadError".into();
+    ty.variants = vec![Variant {
+        name: "System".into(),
+        fields: vec![Ty::I32],
+    }];
+    Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 
 /// Loader failures are fieldless markers with a three-bit inline discriminant.

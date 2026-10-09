@@ -1037,6 +1037,9 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if matches!(self.place_type(base), Some(Ty::Task(_))) {
+            return self.join_thread(base, name, args, ops);
+        }
         let field = Expr {
             at: base.at.clone(),
             kind: Expression::Member(Box::new(base.clone()), name.into()),
