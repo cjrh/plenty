@@ -25,7 +25,7 @@ The executor helper owns a fixed worker set and bounded queue. Construction
 allocates its pinned worker records and ring together; partial native startup
 failure joins the started prefix. Each accepted job has one fallibly allocated
 cell holding its concrete environment and result. The queue/worker and public
-future own separate atomic counts. Results move once, cancellation only prevents
+future own separate atomic counts. Results move once, future cancellation only prevents
 pending work, and pool destruction drains and joins. Locks protect queue and job
 state; user callbacks and destruction run outside these locks. These helpers
 require compiler certification of owned jobs and exclude pool/future handles
@@ -41,6 +41,17 @@ pairs in rounds using a reusable typed scratch buffer and the same bounded job
 window. Pairs move directly into inline job environments; no tuple allocation is
 needed. Empty/singleton reductions allocate nothing, and every failure drains
 accepted jobs before destroying remaining values.
+
+Cancellation tokens use one fallible managed allocation, an atomic request flag,
+and a mutex/condition-variable handshake. Sharing and every operation thereafter
+allocate nothing. Dropping a token does not cancel work. Timed token, future, and
+channel waits share a monotonic elapsed-budget helper: repeated notifications do
+not extend the budget, and huge millisecond values never overflow an absolute
+deadline. Future waits observe completion without taking ownership of the result.
+Receive-pair selection registers pinned stack nodes in the participating queues,
+with a per-call condition variable and queue-to-waiter lock ordering. It transfers
+one typed value under the queue lock, then removes both registrations on every
+return. There is no global selection lock or per-wait heap allocation.
 
 - Exports use the host C calling convention, with fixed-width scalars and pointers.
   Rust collection and enum layouts do not cross this boundary.

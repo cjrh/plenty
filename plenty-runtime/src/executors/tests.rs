@@ -164,6 +164,62 @@ fn cell_moves_inline_result_before_releasing_storage() {
 }
 
 #[test]
+fn timed_wait_preserves_pending_cancelled_and_completed_futures() {
+    unsafe {
+        let words = 2;
+        let job = memory::try_allocate::<Job, u128>(words).unwrap();
+        job.write(Job {
+            header: Header::new(destroy_job),
+            input: &NUMBER,
+            output: &NUMBER,
+            entry: square,
+            data: job.add(1).cast(),
+            words,
+            phase: Mutex::new(Phase::Pending),
+            completed: Condvar::new(),
+        });
+        (*job).data.write(7);
+        assert!(!wait_timeout(job, 0));
+        assert!(!wait_timeout(job, 1));
+        assert!(!done(job));
+        assert!(cancel(job));
+        assert!(wait_timeout(job, 0));
+        assert!(wait_timeout(job, u64::MAX));
+        let mut out = 0;
+        result(job, &mut out);
+        assert_eq!(out, aggregates::wrap(0, 1));
+        plenty_release(job.cast());
+
+        let job = memory::try_allocate::<Job, u128>(words).unwrap();
+        job.write(Job {
+            header: Header::new(destroy_job),
+            input: &NUMBER,
+            output: &NUMBER,
+            entry: square,
+            data: job.add(1).cast(),
+            words,
+            phase: Mutex::new(Phase::Running),
+            completed: Condvar::new(),
+        });
+        assert!(!wait_timeout(job, 0));
+        let address = job.expose_provenance();
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                let job = std::ptr::with_exposed_provenance_mut::<Job>(address);
+                (*job).data.add(1).write(42);
+                *lock(&(*job).phase) = Phase::Ready;
+                (*job).completed.notify_all();
+            });
+            assert!(wait_timeout(job, u64::MAX));
+            assert!(wait_timeout(job, 0));
+            result(job, &mut out);
+            assert_eq!(out, 42);
+        });
+        plenty_release(job.cast());
+    }
+}
+
+#[test]
 fn ring_and_cells_synchronize_competing_workers() {
     // Rust-owned native test threads also work in Miri. They run the very same
     // scheduler entry as pthread workers; only startup/join differ.

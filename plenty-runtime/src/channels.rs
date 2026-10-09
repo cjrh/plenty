@@ -2,6 +2,7 @@
 //! allocation; cloning a handle and waiting on the Linux futex-backed std
 //! synchronization primitives need no additional allocator calls.
 use crate::aggregates::{self, Type};
+use crate::deadline::Deadline;
 use crate::memory::{self, AllocError, Header};
 use crate::ranges;
 use std::sync::{
@@ -9,6 +10,7 @@ use std::sync::{
     Condvar, Mutex, MutexGuard,
 };
 
+mod select;
 #[cfg(test)]
 mod tests;
 
@@ -23,6 +25,7 @@ struct State {
     len: usize,
     send_closed: bool,
     recv_closed: bool,
+    selectors: *const select::Node,
 }
 
 #[repr(C, align(16))]
@@ -85,6 +88,7 @@ pub(crate) fn create(message: &'static Type, capacity: usize) -> Result<(u128, u
                 len: 0,
                 send_closed: false,
                 recv_closed: false,
+                selectors: std::ptr::null(),
             }),
             readable: Condvar::new(),
             writable: Condvar::new(),
@@ -112,7 +116,10 @@ unsafe extern "C" fn drop_sender(endpoint: *mut Header) {
     unsafe {
         let pointer = (*endpoint.cast::<Endpoint>()).core;
         let channel = &*pointer;
-        channel.lock().send_closed = true;
+        let mut state = channel.lock();
+        state.send_closed = true;
+        select::notify(&state);
+        drop(state);
         channel.readable.notify_all();
         release_core(pointer);
     }
@@ -145,6 +152,15 @@ unsafe extern "C" fn drop_receiver(endpoint: *mut Header) {
 /// Transfer a message to the queue, or return it intact in an inline error.
 /// nowait reports Full; a disconnected receiver always takes precedence.
 pub(crate) unsafe fn send(endpoint: u128, value: u128, nowait: bool) -> u128 {
+    unsafe { send_wait(endpoint, value, nowait, None) }
+}
+
+unsafe fn send_wait(
+    endpoint: u128,
+    value: u128,
+    nowait: bool,
+    deadline: Option<&Deadline>,
+) -> u128 {
     unsafe {
         let channel = core(endpoint);
         let mut state = channel.lock();
@@ -152,17 +168,26 @@ pub(crate) unsafe fn send(endpoint: u128, value: u128, nowait: bool) -> u128 {
             if nowait {
                 return aggregates::wrap(aggregates::wrap(value, 0), 1);
             }
-            state = channel
-                .writable
-                .wait(state)
-                .unwrap_or_else(|_| crate::fail("poisoned channel mutex"));
+            if let Some(deadline) = deadline {
+                if deadline.expired() {
+                    return aggregates::wrap(aggregates::wrap(value, 1), 1);
+                }
+                state = deadline.wait(&channel.writable, state);
+            } else {
+                state = channel
+                    .writable
+                    .wait(state)
+                    .unwrap_or_else(|_| crate::fail("poisoned channel mutex"));
+            }
         }
         if state.recv_closed {
-            return aggregates::wrap(aggregates::wrap(value, 1), 1);
+            let variant = u64::from(deadline.is_none());
+            return aggregates::wrap(aggregates::wrap(value, variant), 1);
         }
         let index = (state.head + state.len) % channel.capacity;
         ranges::store(channel.slot(index), value, channel.message);
         state.len += 1;
+        select::notify(&state);
         drop(state);
         channel.readable.notify_one();
         0 // Ok(())
@@ -172,6 +197,10 @@ pub(crate) unsafe fn send(endpoint: u128, value: u128, nowait: bool) -> u128 {
 /// Move the message into caller-owned output storage while still holding the
 /// lock, before another producer can reuse its old ring slot.
 pub(crate) unsafe fn recv(endpoint: u128, nowait: bool, out: *mut u128) {
+    unsafe { recv_wait(endpoint, nowait, None, out) }
+}
+
+unsafe fn recv_wait(endpoint: u128, nowait: bool, deadline: Option<&Deadline>, out: *mut u128) {
     unsafe {
         let channel = core(endpoint);
         let mut state = channel.lock();
@@ -180,13 +209,22 @@ pub(crate) unsafe fn recv(endpoint: u128, nowait: bool, out: *mut u128) {
                 out.write(aggregates::wrap(aggregates::wrap(0, 0), 1));
                 return;
             }
-            state = channel
-                .readable
-                .wait(state)
-                .unwrap_or_else(|_| crate::fail("poisoned channel mutex"));
+            if let Some(deadline) = deadline {
+                if deadline.expired() {
+                    out.write(aggregates::wrap(aggregates::wrap(0, 1), 1));
+                    return;
+                }
+                state = deadline.wait(&channel.readable, state);
+            } else {
+                state = channel
+                    .readable
+                    .wait(state)
+                    .unwrap_or_else(|_| crate::fail("poisoned channel mutex"));
+            }
         }
         if state.len == 0 {
-            out.write(aggregates::wrap(aggregates::wrap(0, 1), 1));
+            let variant = u64::from(deadline.is_none());
+            out.write(aggregates::wrap(aggregates::wrap(0, variant), 1));
             return;
         }
         let value = channel.slot(state.head).read();
@@ -217,6 +255,26 @@ pub(crate) unsafe extern "C" fn plenty_channel(
                 out.write(result);
             }
             3 | 4 => recv(*args, op == 4, out),
+            5 => {
+                let deadline = Deadline::from_millis(*args.add(2) as u64);
+                let result = send_wait(*args, *args.add(1), false, Some(&deadline));
+                ranges::store(out, result, &*descriptor);
+            }
+            6 => {
+                let deadline = Deadline::from_millis(*args.add(1) as u64);
+                recv_wait(*args, false, Some(&deadline), out);
+            }
+            7..=9 => {
+                let deadline = (op == 9).then(|| Deadline::from_millis(*args.add(2) as u64));
+                select::recv(
+                    *args,
+                    *args.add(1),
+                    op == 8,
+                    deadline.as_ref(),
+                    &*descriptor,
+                    out,
+                );
+            }
             _ => crate::fail("invalid channel operation"),
         }
     }

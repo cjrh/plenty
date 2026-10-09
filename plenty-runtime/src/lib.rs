@@ -13,6 +13,8 @@ mod accounting;
 mod aggregates;
 mod channels;
 mod closures;
+mod control;
+mod deadline;
 mod entries;
 mod executors;
 mod files;

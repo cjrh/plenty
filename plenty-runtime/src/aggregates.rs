@@ -39,7 +39,18 @@ impl Type {
         self.kind == b'B'
             || matches!(
                 self.kind,
-                b's' | b'L' | b'S' | b'D' | b'E' | b'C' | b'G' | b'F' | b'X' | b'Y' | b'P' | b'Z'
+                b's' | b'L'
+                    | b'S'
+                    | b'D'
+                    | b'E'
+                    | b'C'
+                    | b'G'
+                    | b'F'
+                    | b'X'
+                    | b'Y'
+                    | b'P'
+                    | b'Z'
+                    | b'K'
             )
     }
     fn key(&self) -> &Type {
@@ -904,6 +915,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'Y' => out.extend_from_slice(b"<receiver>"),
             b'P' => out.extend_from_slice(b"<executor>"),
             b'Z' => out.extend_from_slice(b"<future>"),
+            b'K' => out.extend_from_slice(b"<cancellation token>"),
             b'b' => out.extend_from_slice(if value == 0 { b"False" } else { b"True" }),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(

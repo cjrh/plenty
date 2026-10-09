@@ -4,6 +4,7 @@
 //! submission allocates one independently owned future/environment/result cell.
 //! No user callback or destructor runs under a scheduler or future lock.
 use crate::aggregates::{self, Type};
+use crate::deadline::Deadline;
 use crate::memory::{self, plenty_release, plenty_retain, AllocError, Header};
 use crate::{ranges, threads};
 use std::ffi::c_void;
@@ -338,6 +339,25 @@ pub(crate) unsafe fn done(job: *mut Job) -> bool {
     }
 }
 
+pub(crate) unsafe fn wait_timeout(job: *mut Job, milliseconds: u64) -> bool {
+    let deadline = Deadline::from_millis(milliseconds);
+    // SAFETY: the caller borrows a live future count throughout the wait.
+    unsafe {
+        let mut phase = lock(&(*job).phase);
+        loop {
+            // Completion is checked before expiry, including for zero timeout.
+            // Waiting never takes or cancels the eventual result.
+            if matches!(*phase, Phase::Ready | Phase::Cancelled | Phase::Taken) {
+                return true;
+            }
+            if deadline.expired() {
+                return false;
+            }
+            phase = deadline.wait(&(*job).completed, phase);
+        }
+    }
+}
+
 pub(crate) unsafe fn map_window(pool: *mut Pool) -> Result<usize, ()> {
     unsafe {
         if lock(&(*pool).queue).closed {
@@ -467,6 +487,7 @@ pub(crate) unsafe extern "C" fn plenty_executor(
                     out,
                 );
             }
+            10 => out.write(wait_timeout(*args as *mut Job, *args.add(1) as u64) as u128),
             _ => crate::fail("invalid executor operation"),
         }
     }
