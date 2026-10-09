@@ -37,6 +37,8 @@ impl crate::nominal::Nominal<EnumType> {
         self.propagatable()
             || self.name.starts_with("SpawnError[")
             || self.name.starts_with("SendError[")
+            || self.name.starts_with("SendTimeoutError[")
+            || self.name.starts_with("Selected[")
             || self.name.starts_with("SubmitError[")
             || self.name.starts_with("ParallelError[")
             || matches!(
@@ -51,6 +53,8 @@ impl crate::nominal::Nominal<EnumType> {
                     | "ThreadError"
                     | "ChannelError"
                     | "RecvError"
+                    | "RecvTimeoutError"
+                    | "SelectError"
                     | "PoolError"
                     | "FutureError"
                     | "PoolMapError"
@@ -174,6 +178,53 @@ pub fn recv_error() -> Ty {
     ty.name = "RecvError".into();
     ty.variants[0].name = "Empty".into();
     ty.variants[1].name = "Disconnected".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn send_timeout_error(value: Ty) -> Ty {
+    let Ty::Enum(template) = send_error(value.clone()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = format!("SendTimeoutError[{value}]");
+    ty.variants[0].name = "Disconnected".into();
+    ty.variants[1].name = "TimedOut".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn recv_timeout_error() -> Ty {
+    let Ty::Enum(template) = recv_error() else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = "RecvTimeoutError".into();
+    ty.variants[0].name = "Disconnected".into();
+    ty.variants[1].name = "TimedOut".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+/// Both alternatives carry one owned value in caller-provided inline storage.
+pub fn selected(first: Ty, second: Ty) -> Ty {
+    let Ty::Enum(template) = result(first.clone(), second.clone()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = format!("Selected[{first}, {second}]");
+    ty.variants[0].name = "First".into();
+    ty.variants[1].name = "Second".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn select_error() -> Ty {
+    let Ty::Enum(template) = recv_error() else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = "SelectError".into();
+    ty.variants.push(Variant {
+        name: "TimedOut".into(),
+        fields: vec![],
+    });
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 

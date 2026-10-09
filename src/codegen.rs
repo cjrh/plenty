@@ -64,6 +64,7 @@ use crate::lexer;
 mod channels;
 mod closures;
 mod collections;
+mod control;
 mod enums;
 mod executors;
 mod exports;
@@ -388,6 +389,7 @@ struct Runtime {
     type_data: std::cell::RefCell<HashMap<Ty, DataId>>,
     collection: FuncId,
     channel: FuncId,
+    control: FuncId,
     executor: FuncId,
     retain: FuncId,
     release: FuncId,
@@ -460,6 +462,17 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        control: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([
+                AbiParam::new(types::I64),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+            ]);
+            module.declare_function("plenty_control", Linkage::Import, &sig)?
+        },
         executor: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
@@ -976,6 +989,7 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::Str
         | Ty::Task(_)
         | Ty::Channel(..)
+        | Ty::CancellationToken
         | Ty::Executor
         | Ty::Future(_)
         | Ty::Callable(_)
@@ -1172,6 +1186,7 @@ impl Lowerer<'_, '_> {
         match op {
             Op::Thread(operation) => self.lower_thread(operation)?,
             Op::Channel(operation) => self.lower_channel(operation)?,
+            Op::Control(operation) => self.lower_control(operation)?,
             Op::Executor(operation) => self.lower_executor(operation)?,
             Op::Try {
                 source,

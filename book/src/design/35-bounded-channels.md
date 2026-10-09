@@ -86,8 +86,12 @@ std primitives satisfy the current allocation contract. Inline environments move
 into receiver-owned storage before their ring slot is reused. User destructors
 run outside the mutex.
 
-Zero-capacity rendezvous, timeouts, selection, and a public cancellation token are
-not implemented. The [decision record](../proposals/bounded-channels.md) explains
+For bounded waiting and receiving from either of two queues, see
+[timed waits and selection](39-timed-waits-and-selection.md).
+[Cancellation tokens](38-cooperative-cancellation.md) let workers decide when to
+stop; ordinary blocking operations do not observe them automatically.
+Zero-capacity rendezvous is not implemented.
+The [decision record](../proposals/bounded-channels.md) explains
 the std/Crossbeam/parking_lot tradeoffs. Native integration tests and runtime Miri
 tests cover ownership, failed construction, backpressure, disconnection races,
 inline relocation, reentrant cleanup, and guarded early exit.

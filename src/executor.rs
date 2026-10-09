@@ -20,6 +20,7 @@ pub enum ExecutorOp {
     Result(Ty),
     Done(Ty),
     Cancel(Ty),
+    WaitTimeout(Ty),
     Shutdown,
 }
 
@@ -66,6 +67,7 @@ impl ExecutorOp {
                 crate::sum::result(t.clone(), crate::sum::future_error()),
             ),
             Self::Done(t) | Self::Cancel(t) => (vec![Ty::Future(Rc::new(t.clone()))], Ty::Bool),
+            Self::WaitTimeout(t) => (vec![Ty::Future(Rc::new(t.clone())), Ty::U64], Ty::Bool),
             Self::Shutdown => (vec![Ty::Executor, Ty::Bool], Ty::Unit),
         }
     }
@@ -81,6 +83,7 @@ impl ExecutorOp {
             Self::Map(_, _, false) => 7,
             Self::Map(_, _, true) => 8,
             Self::Reduce(..) => 9,
+            Self::WaitTimeout(_) => 10,
         }
     }
 

@@ -18,12 +18,17 @@ already started. These names are explicit prelude builtins, like `spawn` and
 | `pool.submit_nowait(...)` | Same | Return `Full(job)` if the queue is full |
 | `future.result()` | `Result[T, FutureError]` | Consume the future and wait for its result |
 | `future.done()` | `bool` | Observe whether completed or cancelled |
+| `future.wait_timeout(timeout_ms)` | `bool` | Observe completion or cancellation within a `u64` millisecond budget, without consuming the future |
 | `future.cancel()` | `bool` | Prevent a pending job from starting; cannot interrupt running work |
 | `pool.map(function, inputs)` | `Result[list[T], PoolMapError]` | Run a named function over an owned list or integer range, preserving input order |
 | `pool.map_result(function, inputs)` | `Result[list[T], ParallelError[E]]` | Collect successes or the earliest input's worker error |
 | `pool.reduce_tree(function, inputs)` | `Result[Option[T], PoolMapError]` | Combine adjacent pairs with fixed grouping |
 | `pool.shutdown()` | `()` | Stop accepting work, drain accepted jobs, join all workers |
 | `pool.shutdown(True)` | `()` | Cancel jobs still queued and join running workers |
+
+For running work, [cooperative cancellation](38-cooperative-cancellation.md)
+lets the worker decide when to stop. A timeout does not cancel a job; the future
+remains available for a later `result()` call.
 
 Methods other than `result()` observe their receiver; a `mut` binding is not
 needed. Executors and futures are affine managed values: assignment transfers

@@ -235,6 +235,11 @@ fn inspect(
             types.extend(inputs);
             types.push(output);
         }
+        Op::Control(op) => {
+            let (inputs, output) = op.signature();
+            types.extend(inputs);
+            types.push(output);
+        }
         Op::Class(op) => {
             if let Some((inputs, output)) = op.signature() {
                 types.extend(inputs);

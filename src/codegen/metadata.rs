@@ -64,6 +64,7 @@ fn define_type(
         Ty::Channel(_, true) => b'X',
         Ty::Channel(_, false) => b'Y',
         Ty::Executor => b'P',
+        Ty::CancellationToken => b'K',
         Ty::Future(_) => b'Z',
         Ty::Closure(_) => b'H',
         Ty::I16 => b'2',

@@ -34,6 +34,7 @@ impl Ty {
                     | Self::Closure(_)
                     | Self::Task(_)
                     | Self::Channel(..)
+                    | Self::CancellationToken
                     | Self::Executor
                     | Self::Future(_)
             );
@@ -46,7 +47,7 @@ impl Ty {
                 closure: matches!(self, Self::Closure(_)),
                 concurrent_handle: matches!(
                     self,
-                    Self::Channel(..) | Self::Executor | Self::Future(_)
+                    Self::Channel(..) | Self::CancellationToken | Self::Executor | Self::Future(_)
                 ),
                 ..Facts::default()
             };
@@ -76,7 +77,7 @@ impl Ty {
             facts.closure |= matches!(nodes[i], Self::Closure(_));
             facts.concurrent_handle |= matches!(
                 nodes[i],
-                Self::Channel(..) | Self::Executor | Self::Future(_)
+                Self::Channel(..) | Self::CancellationToken | Self::Executor | Self::Future(_)
             );
             facts.reflexive &= !nodes[i].is_float();
             let weight = match &nodes[i] {
@@ -130,6 +131,7 @@ impl Ty {
                 | Self::Closure(_)
                 | Self::Generator(_)
                 | Self::Channel(..)
+                | Self::CancellationToken
                 | Self::Executor
                 | Self::Future(_) => {
                     facts.affine = true;

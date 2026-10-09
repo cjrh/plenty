@@ -65,10 +65,13 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if let Some(Ty::Future(output)) = self.place_type(base) {
-            if !args.is_empty() || !matches!(name, "result" | "done" | "cancel") {
-                return Err(base
-                    .at
-                    .error("Future supports result(), done(), and cancel()"));
+            if !matches!(
+                (name, args.len()),
+                ("result" | "done" | "cancel", 0) | ("wait_timeout", 1)
+            ) {
+                return Err(base.at.error(
+                    "Future supports result(), done(), cancel(), and wait_timeout(timeout_ms)",
+                ));
             }
             let loans = if name == "result" {
                 let actual = self.value(base, ops)?;
@@ -80,6 +83,11 @@ impl Lower<'_> {
             let op = match name {
                 "result" => ExecutorOp::Result((*output).clone()),
                 "done" => ExecutorOp::Done((*output).clone()),
+                "wait_timeout" => {
+                    let actual = self.expr_expected(&args[0], Some(Ty::U64), ops)?;
+                    self.same(actual, Some(Ty::U64), &args[0].at)?;
+                    ExecutorOp::WaitTimeout((*output).clone())
+                }
                 _ => ExecutorOp::Cancel((*output).clone()),
             };
             let output = op.signature().1;

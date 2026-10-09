@@ -85,6 +85,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Bounded channels | Positive-capacity MPMC queues, explicit endpoint sharing, blocking/nowait transfer, recoverable construction and unsent messages, allocation-free operations, and endpoint context managers for ordered shutdown; [reference](35-bounded-channels.md) |
 | Thread-pool executors | Bounded fixed worker pools, owned named/closure submission, recoverable jobs, affine futures, pending cancellation, eager ordered map over lists/ranges, and automatic drain/join; [reference](36-thread-pool-executors.md) |
 | Explicit parallel operations | Ordered executor `map_result` with typed earliest-input errors and `reduce_tree` with fixed adjacent-pair grouping; bounded jobs, fallible allocation, and deterministic ownership cleanup; [reference](37-parallel-operations.md) |
+| Cancellation and bounded waits | Shared cooperative cancellation tokens, monotonic timed channel operations, and non-consuming future waits; no per-operation allocation; [cancellation](38-cooperative-cancellation.md) and [timed waits](39-timed-waits-and-selection.md) |
+| Channel selection | Allocation-free blocking/nowait/timed receive selection between two heterogeneous channels, inline typed result, first-receiver priority, and atomic message transfer; [reference](39-timed-waits-and-selection.md) |
 | Automatic parallel loops and SIMD | Not implemented; ordinary loops and comprehensions remain serial |
 | Tutorial sources | mdBook Markdown examples run directly in tests; standalone literate sources and generated lessons are not implemented |
 | Async/await | Out of scope |

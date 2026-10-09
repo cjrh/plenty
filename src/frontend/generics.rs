@@ -274,6 +274,13 @@ fn infer(
         (Some("SendError"), Ty::Enum(t)) if t.name.starts_with("SendError[") => {
             Some(vec![&t.local().variants[0].fields[0]])
         }
+        (Some("SendTimeoutError"), Ty::Enum(t)) if t.name.starts_with("SendTimeoutError[") => {
+            Some(vec![&t.local().variants[0].fields[0]])
+        }
+        (Some("Selected"), Ty::Enum(t)) if t.name.starts_with("Selected[") => Some(vec![
+            &t.local().variants[0].fields[0],
+            &t.local().variants[1].fields[0],
+        ]),
         (Some("SubmitError"), Ty::Enum(t)) if t.name.starts_with("SubmitError[") => {
             Some(vec![&t.local().variants[0].fields[0]])
         }

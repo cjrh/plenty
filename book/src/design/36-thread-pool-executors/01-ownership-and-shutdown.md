@@ -65,5 +65,7 @@ Queue and job-state locks are separate; callbacks and destructors execute outsid
 both. Inline ranges and environments relocate before their source storage is
 reclaimed. Atomic owners preserve cells across the worker/result-consumer race.
 There is no strict waiter fairness guarantee, work stealing, or automatic loop
-parallelization. Timeouts, public cooperative cancellation tokens, worker-side
-submission, and waiting on futures from workers are not implemented.
+parallelization. [Timed waits](../39-timed-waits-and-selection.md) observe a future
+without consuming it, and [cancellation tokens](../38-cooperative-cancellation.md)
+let running workers stop cooperatively. Worker-side submission and waiting on
+futures from workers are not implemented.

@@ -15,6 +15,7 @@ mod classes;
 mod closures;
 mod collections;
 mod contexts;
+mod control;
 mod data;
 mod enums;
 mod executors;
@@ -508,9 +509,20 @@ impl TypeRef {
         }
         if matches!(
             name.as_str(),
-            "Option" | "Result" | "SpawnError" | "SendError" | "SubmitError" | "ParallelError"
+            "Option"
+                | "Result"
+                | "SpawnError"
+                | "SendError"
+                | "SendTimeoutError"
+                | "Selected"
+                | "SubmitError"
+                | "ParallelError"
         ) {
-            let count = if name == "Result" { 2 } else { 1 };
+            let count = if matches!(name.as_str(), "Result" | "Selected") {
+                2
+            } else {
+                1
+            };
             if self.args.len() != count {
                 return Err(self
                     .at
@@ -537,6 +549,10 @@ impl TypeRef {
                 crate::sum::spawn_error(args[0].clone())
             } else if name == "SendError" {
                 crate::sum::send_error(args[0].clone())
+            } else if name == "SendTimeoutError" {
+                crate::sum::send_timeout_error(args[0].clone())
+            } else if name == "Selected" {
+                crate::sum::selected(args[0].clone(), args[1].clone())
             } else if name == "SubmitError" {
                 crate::sum::submit_error(args[0].clone())
             } else if name == "ParallelError" {
@@ -1337,6 +1353,8 @@ impl Parser {
                         | "Result"
                         | "SpawnError"
                         | "SendError"
+                        | "SendTimeoutError"
+                        | "Selected"
                         | "SubmitError"
                         | "ParallelError"
                         | "Sender"
@@ -1533,6 +1551,9 @@ fn named_type(name: &str) -> Type {
         "ThreadError" => crate::sum::thread_error(),
         "ChannelError" => crate::sum::channel_error(),
         "RecvError" => crate::sum::recv_error(),
+        "RecvTimeoutError" => crate::sum::recv_timeout_error(),
+        "SelectError" => crate::sum::select_error(),
+        "CancellationToken" => Ty::CancellationToken,
         "PoolError" => crate::sum::pool_error(),
         "FutureError" => crate::sum::future_error(),
         "PoolMapError" => crate::sum::pool_map_error(),
@@ -1583,6 +1604,11 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "Sender"
                 | "Receiver"
                 | "SendError"
+                | "SendTimeoutError"
+                | "Selected"
+                | "select_recv"
+                | "select_recv_nowait"
+                | "select_recv_timeout"
                 | "Generator"
                 | "Callable"
                 | "Closure"
@@ -2281,6 +2307,15 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if name == "CancellationToken" {
+                    return self.control_new(args, &e.at, ops);
+                }
+                if matches!(
+                    name.as_str(),
+                    "select_recv" | "select_recv_nowait" | "select_recv_timeout"
+                ) {
+                    return self.channel_select(name, args, &e.at, ops);
+                }
                 if name == "ThreadPoolExecutor" {
                     return self.executor_new(args, &e.at, ops);
                 }

@@ -24,6 +24,7 @@ pub enum Ty {
     Task(Rc<crate::threading::Task>),
     /// Shared channel core, with affine sender (true) or receiver (false) handles.
     Channel(Rc<Ty>, bool),
+    CancellationToken,
     Executor,
     Future(Rc<Ty>),
     Closure(Rc<crate::closure::ClosureType>),
@@ -101,6 +102,7 @@ impl Ty {
             Self::List(_)
                 | Self::Task(_)
                 | Self::Channel(..)
+                | Self::CancellationToken
                 | Self::Executor
                 | Self::Future(_)
                 | Self::Closure(_)
@@ -184,6 +186,7 @@ impl Ty {
                 | Self::Closure(_)
                 | Self::File
                 | Self::Channel(..)
+                | Self::CancellationToken
                 | Self::Executor
                 | Self::Future(_)
                 | Self::List(_)
@@ -227,6 +230,7 @@ impl fmt::Display for Ty {
         f.write_str(match self {
             Ty::Task(_) => "scoped task",
             Ty::Executor => "ThreadPoolExecutor",
+            Ty::CancellationToken => "CancellationToken",
             Ty::Future(t) => return write!(f, "Future[{t}]"),
             Ty::Channel(t, sender) => {
                 return write!(f, "{}[{t}]", if *sender { "Sender" } else { "Receiver" })
@@ -359,6 +363,7 @@ impl fmt::Display for CallableSig {
 pub enum Op {
     Thread(crate::threading::ThreadOp),
     Channel(crate::channel::ChannelOp),
+    Control(crate::control::ControlOp),
     Executor(crate::executor::ExecutorOp),
     ClosureNew(Rc<crate::closure::ClosureType>),
     ClosureCall(Rc<crate::closure::ClosureType>),
@@ -1250,6 +1255,15 @@ fn step(
     yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     match op {
+        Op::Control(operation) => {
+            let (inputs, output) = operation.signature();
+            for ty in inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(ty) {
+                    return Err("invalid cancellation token argument".into());
+                }
+            }
+            stack.push(output);
+        }
         Op::Executor(operation) => {
             let (inputs, output) = operation.signature();
             for ty in inputs.iter().rev() {

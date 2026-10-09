@@ -63,6 +63,9 @@ impl Lower<'_> {
                     .map(|sig| Ty::Callable(Rc::new(CallableSig::from_function(sig))))
             }),
             Expression::Call(name, _) => {
+                if name == "CancellationToken" {
+                    return Some(crate::control::ControlOp::New.signature().1);
+                }
                 if name == "ThreadPoolExecutor" {
                     return Some(crate::executor::ExecutorOp::New.signature().1);
                 }
@@ -90,6 +93,13 @@ impl Lower<'_> {
                 )
             }
             Expression::Method(base, name, _) => {
+                if self.place_type(base) == Some(Ty::CancellationToken) {
+                    return match name.as_str() {
+                        "share" => Some(Ty::CancellationToken),
+                        "is_cancelled" | "wait_timeout" => Some(Ty::Bool),
+                        _ => None,
+                    };
+                }
                 if let Some(Ty::Future(t)) = self.place_type(base) {
                     return match name.as_str() {
                         "result" => Some(
@@ -97,7 +107,7 @@ impl Lower<'_> {
                                 .signature()
                                 .1,
                         ),
-                        "done" | "cancel" => Some(Ty::Bool),
+                        "done" | "cancel" | "wait_timeout" => Some(Ty::Bool),
                         _ => None,
                     };
                 }
@@ -108,6 +118,20 @@ impl Lower<'_> {
                     let Ty::Channel(message, sender) = ty else {
                         unreachable!()
                     };
+                    if sender && name == "send_timeout" {
+                        return Some(
+                            crate::channel::ChannelOp::SendTimeout((*message).clone())
+                                .signature()
+                                .1,
+                        );
+                    }
+                    if !sender && name == "recv_timeout" {
+                        return Some(
+                            crate::channel::ChannelOp::RecvTimeout((*message).clone())
+                                .signature()
+                                .1,
+                        );
+                    }
                     if sender && matches!(name.as_str(), "send" | "send_nowait") {
                         return Some(
                             crate::channel::ChannelOp::Send(

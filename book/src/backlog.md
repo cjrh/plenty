@@ -60,25 +60,24 @@ variants, support single-origin returns, and allocate nothing, including nested
 See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
 [implemented contract](design/31-borrowed-enum-matching.md).
 
-**Next: B22, finish the concurrency batch**, building on the completed
+**B22's committed concurrency batch is complete**, building on the
 [thread-pool executor](design/36-thread-pool-executors.md). Fixed workers,
 bounded owned submission, recoverable jobs, affine futures, pending cancellation,
 ordered list/range mapping, and context-managed drain/join are implemented.
 Explicit [fallible mapping and fixed-tree reduction](design/37-parallel-operations.md)
-are implemented too. Finish these three slices in order:
+are implemented too. The final three slices are implemented:
 
-1. Cooperative cancellation tokens for running tasks.
-2. Timed channel operations and non-consuming future waits.
+1. [Cooperative cancellation tokens](design/38-cooperative-cancellation.md) for running tasks.
+2. [Timed channel operations and non-consuming future waits](design/39-timed-waits-and-selection.md).
 3. Allocation-free receive selection between two typed channels.
 
 Zero-capacity rendezvous, broader iterator/closure mapping, streaming results,
 richer certified effects/types, and automatic parallelization (B24) are explicitly
 deferred beyond this batch. Arbitrary-size and send-side selection are also
 deferred; the initial receive pair keeps heterogeneous messages statically typed.
-**Then: B34, cleanup and taking stock**, after the thread/parallel/concurrency
-batch is finished and before starting unrelated feature work. Finish or explicitly
-defer each remaining concurrency extension, including B24 research, before that
-review; speculative extensions must not keep the cleanup milestone open-ended.
+**Next: B34, cleanup and taking stock**, before starting unrelated feature work.
+The concurrency extensions above, including B24 research, are explicitly deferred;
+they do not postpone this review.
 Broader stored-reference work remains under B11.
 Automatic deep recursive
 copy, equality, and formatting remain explicitly gated and are tracked by B33.
@@ -132,8 +131,8 @@ ordered list/range mapping, pending cancellation, and context-managed shutdown.
 Fallible ordered mapping is implemented with deterministic earliest-input errors
 and partial-result cleanup; see [parallel operations](design/37-parallel-operations.md).
 Fixed adjacent-pair tree reduction is also implemented, including allocation-free
-empty/singleton paths and fallible scratch storage. The remaining committed batch
-is cooperative cancellation tokens, timed waits, and two-channel receive selection.
+empty/singleton paths and fallible scratch storage. Cooperative cancellation
+tokens, timed waits, and two-channel receive selection complete the committed batch.
 Broader iterator/closure mapping, streaming results, richer certified effects/types,
 zero-capacity rendezvous, and broader selection are deferred beyond B34.
 Thread/task creation and queue allocation must report failures; specify bounded
@@ -183,7 +182,7 @@ is still open.
 | B19 | Measured codegen and storage improvements | Benchmark dense-match dispatch before adding jump tables. Investigate compact tuple/aggregate layouts, packed numeric buffers, code size, and compilation/link latency. Do not carry over assumptions from the legacy stack frontend. |
 | B20 | Optional GCC backend | Evaluate the proposed backend with a small feasibility experiment before committing to another backend or common IR. Cranelift remains the current backend. [GCC proposal](proposals/codegen-gcc.md). |
 | B21 | Documentation authoring | Evaluate independently runnable literate lesson sources that generate mdBook pages if they improve authoring. Current Markdown lessons are already executable and tested; do not create another manually maintained copy. [Documentation design](proposals/entrypoints-modules-and-tutorials.md). |
-| B22 | Threads, channels, and parallel operations | Initial eligibility/effect checks, scoped native threads, consuming jobs, bounded channels, the Python-style executor, and explicit fallible mapping/tree reduction are complete. Finish cancellation tokens, timed waits, and receive-pair selection before B34. Broader mapping, richer effects, rendezvous, and broader selection are deferred. Preserve fallible submission and deterministic shutdown. [Threads](design/32-scoped-native-threads.md); [channels](design/35-bounded-channels.md); [executor](design/36-thread-pool-executors.md); [parallel operations](design/37-parallel-operations.md); [concurrency design](proposals/native-concurrency.md). |
+| B22 | Threads, channels, and parallel operations | Committed batch complete: eligibility/effect checks, scoped native threads, consuming jobs, bounded channels, executors, explicit fallible mapping/tree reduction, cancellation tokens, timed waits, and receive-pair selection. Broader mapping, richer effects, rendezvous, and broader selection are deferred beyond B34. Preserve fallible submission and deterministic shutdown. [Threads](design/32-scoped-native-threads.md); [channels](design/35-bounded-channels.md); [executor](design/36-thread-pool-executors.md); [parallel operations](design/37-parallel-operations.md); [cancellation](design/38-cooperative-cancellation.md); [timed waits and selection](design/39-timed-waits-and-selection.md). |
 | B23 | SIMD | Define vector values, contiguous numeric storage, supported operations, and scalar fallbacks. Ordinary generic lists are not automatically packed native arrays. [SIMD design](proposals/memory-parallelism-and-simd.md). |
 | B24 | Automatic parallelization | Explicitly deferred beyond B34. Require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |

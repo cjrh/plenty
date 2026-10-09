@@ -44,3 +44,6 @@ For many owned jobs, [reuse a fixed worker pool](87-reuse-workers-with-an-execut
 and [handle executor outcomes](88-handle-executor-outcomes.md).
 For workers that return errors, [map fallible work in parallel](89-map-fallible-work-in-parallel.md).
 To combine results, use an [explicit reduction tree](90-combine-values-in-parallel.md).
+Then [stop work cooperatively](91-stop-work-cooperatively.md),
+[bound your waits](92-bound-your-waits.md), and
+[receive from either channel](93-receive-from-either-channel.md).

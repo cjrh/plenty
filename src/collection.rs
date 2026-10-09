@@ -109,6 +109,7 @@ impl Ty {
                     | Self::Generator(_)
                     | Self::File
                     | Self::Channel(..)
+                    | Self::CancellationToken
                     | Self::Executor
                     | Self::Future(_)
             )

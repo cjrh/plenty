@@ -10,6 +10,7 @@ mod channel;
 mod closure;
 mod codegen;
 mod collection;
+mod control;
 mod executor;
 mod exports;
 mod foreign;

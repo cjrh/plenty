@@ -138,6 +138,9 @@
 - [Handle executor outcomes](tutorial/88-handle-executor-outcomes.md)
 - [Map fallible work in parallel](tutorial/89-map-fallible-work-in-parallel.md)
 - [Combine values in parallel](tutorial/90-combine-values-in-parallel.md)
+- [Stop work cooperatively](tutorial/91-stop-work-cooperatively.md)
+- [Bound your waits](tutorial/92-bound-your-waits.md)
+- [Receive from either channel](tutorial/93-receive-from-either-channel.md)
 
 # Reference
 
@@ -198,6 +201,8 @@
 - [Thread-pool executors](design/36-thread-pool-executors.md)
     - [Executor ownership, errors, and shutdown](design/36-thread-pool-executors/01-ownership-and-shutdown.md)
 - [Explicit parallel operations](design/37-parallel-operations.md)
+- [Cooperative cancellation](design/38-cooperative-cancellation.md)
+- [Timed waits and receive selection](design/39-timed-waits-and-selection.md)
 - [Native runtime](runtime.md)
 
 # Proposals

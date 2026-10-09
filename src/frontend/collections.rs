@@ -1043,6 +1043,9 @@ impl Lower<'_> {
         if matches!(self.place_type(base), Some(Ty::Channel(..))) {
             return self.channel_method(base, name, args, ops);
         }
+        if matches!(self.place_type(base), Some(Ty::CancellationToken)) {
+            return self.control_method(base, name, args, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Executor | Ty::Future(_))) {
             return self.executor_method(base, name, args, ops);
         }
@@ -1242,6 +1245,9 @@ impl Lower<'_> {
         }
         if matches!(ty, Ty::Executor | Ty::Future(_)) {
             return self.temporary_executor_method(base, name, args, (ty, loans), ops);
+        }
+        if ty == Ty::CancellationToken {
+            return self.observed_control_method(base, name, args, (ty, loans), ops);
         }
         if name == "pop" {
             return Err(base
