@@ -14,6 +14,7 @@ mod aggregates;
 mod channels;
 mod closures;
 mod entries;
+mod executors;
 mod files;
 mod generators;
 mod io;

@@ -21,6 +21,16 @@ the compiler build enables `plenty_runtime_embedded` to supply `main`.
 
 ## Native interface and safety
 
+The executor helper owns a fixed worker set and bounded queue. Construction
+allocates its pinned worker records and ring together; partial native startup
+failure joins the started prefix. Each accepted job has one fallibly allocated
+cell holding its concrete environment and result. The queue/worker and public
+future own separate atomic counts. Results move once, cancellation only prevents
+pending work, and pool destruction drains and joins. Locks protect queue and job
+state; user callbacks and destruction run outside these locks. These helpers
+require compiler certification of owned jobs and exclude pool/future handles
+from worker code, preventing self-join and executor dependency deadlocks.
+
 - Exports use the host C calling convention, with fixed-width scalars and pointers.
   Rust collection and enum layouts do not cross this boundary.
 - All object prefixes use `repr(C)`. Compile-time assertions preserve the layout
