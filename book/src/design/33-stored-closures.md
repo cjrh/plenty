@@ -31,8 +31,14 @@ Index calls borrow the collection; a live callback loan prevents resizing or
 removal. Extraction, invocation, and destruction allocate nothing. Appending may
 allocate when capacity is exhausted. Pop followed by append can reuse that slot.
 
+Dictionary values follow the same concrete storage rules. Indexing borrows a
+callback, replacement drops the old environment, and `pop` transfers a value into
+`Option` without allocation. Growth and update relocate environments with their
+typed rows. Keys remain restricted to the ordinary hashable scalar types; closures
+cannot be keys or set elements. Consuming item iteration transfers value owners.
+
 Borrowed captures, unresolved layouts, and generator-containing environments
-cannot enter heap storage. Consuming environments, dictionary values,
+cannot enter heap storage. Consuming environments
 and user enum payloads retain their existing storage restrictions in this subset.
 These rules also apply through inline `Option` and `Result` wrappers.
 

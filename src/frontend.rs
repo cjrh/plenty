@@ -523,13 +523,7 @@ impl TypeRef {
                         .ok_or_else(|| t.at.error("collection elements cannot be unit"))
                 })
                 .collect::<Result<_>>()?;
-            if args.iter().any(|t| {
-                if name == "list" {
-                    !t.heap_storable()
-                } else {
-                    t.restricted_storage()
-                }
-            }) {
+            if args.iter().any(|t| !t.heap_storable()) {
                 return Err(self.at.error("generators cannot be stored in collections"));
             }
             return Ok(Some(match name.as_str() {

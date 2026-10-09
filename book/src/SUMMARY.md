@@ -125,6 +125,7 @@
 - [75. Parameterize a protocol](tutorial/75-parameterize-a-protocol.md)
 - [76. Store stateful callbacks](tutorial/76-store-stateful-callbacks.md)
 - [Store owned closures](tutorial/80-store-owned-closures.md)
+- [Name stored callbacks](tutorial/81-name-stored-callbacks.md)
 - [77. Build recursive data](tutorial/77-build-recursive-data.md)
 - [78. Match borrowed values](tutorial/78-match-borrowed-values.md)
 - [79. Run scoped threads](tutorial/79-run-scoped-threads.md)

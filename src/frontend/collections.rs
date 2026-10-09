@@ -527,13 +527,8 @@ impl Lower<'_> {
                     if let Some(expected) = ty {
                         self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
                     }
-                    if inferred.element().is_some_and(|t| {
-                        if matches!(inferred, Ty::List(_)) {
-                            !t.heap_storable()
-                        } else {
-                            t.restricted_storage()
-                        }
-                    }) || matches!(&inferred, Ty::Dict(_, v) if v.restricted_storage())
+                    if inferred.element().is_some_and(|t| !t.heap_storable())
+                        || matches!(&inferred, Ty::Dict(_, v) if !v.heap_storable())
                     {
                         return Err(key.at.error("generators cannot be stored in collections"));
                     }

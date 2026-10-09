@@ -81,7 +81,7 @@ The current B32 batch is split into ten reviewable tasks, followed in this order
 3. **Complete:** store reusable owned environments in generic class fields.
 4. **Complete:** support owned environments in tuple slots and checked disjoint borrows.
 5. **Complete:** support homogeneous closure lists, including growth and extraction.
-6. Support closure dictionary values and replacement/removal cleanup.
+6. **Complete:** support closure dictionary values and replacement/removal cleanup.
 7. Support concrete closure payloads in user enums.
 8. Extend these storage paths to owned consuming closures.
 9. Check callable constraints on generic data declarations.

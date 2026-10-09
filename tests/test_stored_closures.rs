@@ -149,6 +149,72 @@ for callback in owned:
     }
 }
 
+#[test]
+fn dictionary_callbacks_survive_growth_replacement_removal_and_update() {
+    run(
+        r#"
+def make(n: i64) -> Closure[[], i64]:
+    span = range(n, n + 3)
+    def [span]() -> i64:
+        span[1]
+def single[F](callback: F) -> Result[dict[i64, F], AllocError]:
+    {0: callback}
+mut callbacks = single(make(10)).unwrap()
+for n in range(1, 60):
+    callbacks.insert(n, make(n)).unwrap()
+print(callbacks[59]()).unwrap()
+callbacks[0] = make(100)
+removed = callbacks.pop(0).unwrap()
+callbacks.insert(0, make(200)).unwrap()
+print(removed()).unwrap()
+print(callbacks[0]()).unwrap()
+replacement = {0: make(300), 70: make(400)}.unwrap()
+callbacks.update(replacement).unwrap()
+print(callbacks[0]()).unwrap()
+print(callbacks[70]()).unwrap()
+small = {n: make(n) for n in range(2)}.unwrap()
+for key, callback in small.items():
+    print(callback()).unwrap()
+"#,
+        "60\n101\n201\n301\n401\n1\n2\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn dictionary_callback_failure_preserves_members_and_drops_pending_capture() {
+    run(
+        r#"
+class Guard:
+    id: i64
+    def __del__(self) -> ():
+        write_stdout("drop\n").unwrap()
+        pass
+def make(n: i64) -> Result[Closure[[], i64], AllocError]:
+    guard = Guard(n)?
+    callback = def [guard]() -> i64:
+        guard.id
+    Ok(callback)
+mut callbacks = {0: make(10).unwrap()}.unwrap()
+pending = make(20).unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+match {1: pending}:
+    case Ok(unexpected):
+        drop(unexpected)
+    case Err(_):
+        write_stdout("failed\n").unwrap()
+        pass
+removed = callbacks.pop(0).unwrap()
+value = removed()
+drop(callbacks)
+drop(removed)
+print("__test_restore_allocations__").unwrap()
+print(value).unwrap()
+"#,
+        "__test_fail_allocations_after_0__\nfailed\ndrop\n__test_restore_allocations__\n10\ndrop\n",
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn pop_append_and_call_of_inline_list_callbacks_reuse_capacity() {
