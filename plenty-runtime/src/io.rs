@@ -86,6 +86,9 @@ pub(crate) unsafe extern "C" fn plenty_println(text: *const Text) {
         b"__test_begin_no_allocations__" => crate::accounting::begin_no_allocations(),
         b"__test_end_no_allocations__" => crate::accounting::end_no_allocations(),
         b"__test_restore_allocations__" => crate::accounting::fail_after(None),
+        b"__test_fail_thread_starts__" => crate::threads::fail_after(Some(0)),
+        b"__test_one_thread_start__" => crate::threads::fail_after(Some(1)),
+        b"__test_restore_thread_starts__" => crate::threads::fail_after(None),
         marker if marker.starts_with(b"__test_fail_allocations_after_") => {
             let count = marker
                 .strip_prefix(b"__test_fail_allocations_after_")

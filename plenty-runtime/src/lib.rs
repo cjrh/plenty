@@ -5,7 +5,7 @@
 //! Only the compiler may construct descriptors or call the opcode dispatcher.
 //! No Rust reference, Vec, String, or enum layout crosses this boundary.
 //! Raw slots may contain zero only while uninitialized/moved or being destroyed.
-//! Execution is single-threaded; native callbacks may reenter the runtime.
+//! Only compiler-checked jobs may execute on native worker threads.
 #![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(feature = "allocation-checks")]
@@ -26,6 +26,7 @@ mod strings;
 mod tests;
 mod text_io;
 mod text_lines;
+mod threads;
 
 fn fail(message: &str) -> ! {
     io::flush();

@@ -264,3 +264,13 @@ after the call and also frees earlier buffers when a later conversion fails.
 The call-scoped UTF-8 adapter instead lends bytes directly at offset 32, with the
 byte length from offset 16. Neither adapter passes a Plenty object header to C.
 Native fixtures verify the calls; raw conversion tests run under Miri.
+# Native task boundary
+
+The internal `plenty_thread_start`/`plenty_thread_join` ABI uses joinable POSIX
+threads on the supported x86_64 Linux GNU target. Generated adapters receive
+caller-owned, pinned storage. The parent owns the thread-id word; the worker owns
+the argument and result slots until join completes. Starting reports the native
+error code without consuming or running the job on failure. Joining is mandatory
+before reclaiming storage. There is no Rust closure box or language heap allocation
+for task bookkeeping; native thread stacks remain OS-managed resources.
+
