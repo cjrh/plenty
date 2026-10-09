@@ -74,6 +74,23 @@ Explicit state beside a named callback also supports stateful registries today;
 the [runnable lesson](tutorial/76-store-stateful-callbacks.md) and native tests
 cover generic state, allocation-free dispatch, and exactly-once resource cleanup.
 
+The current B32 batch is split into ten reviewable tasks, followed in this order:
+
+1. **Complete:** choose the owned concrete storage contract; compare erasure costs.
+2. Generalize allocation-free collection extraction to type-sized inline payloads.
+3. Store reusable owned environments in generic class fields.
+4. Support owned environments in tuple slots.
+5. Support homogeneous closure lists, including growth and extraction.
+6. Support closure dictionary values and replacement/removal cleanup.
+7. Support concrete closure payloads in user enums.
+8. Extend these storage paths to owned consuming closures.
+9. Check callable constraints on generic data declarations.
+10. Integrate stored environments with scoped-thread eligibility and borrowing.
+
+The [storage decision](proposals/stored-closures.md) preserves concrete identities
+and ordinary fallible container construction. Heterogeneous erased callbacks and
+escaping borrowed environments remain separate B32/B11 work.
+
 ### Scope of follow-on work
 
 **B11 — broader reference relationships.** Borrowed enum matching and payload

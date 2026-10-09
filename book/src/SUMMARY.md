@@ -188,6 +188,7 @@
 - [Proposals](proposals/index.md)
     - [Runtime allocation audit](proposals/allocation-audit.md)
     - [Callable surface review](proposals/callable-simplicity.md)
+    - [Stored closure environments](proposals/stored-closures.md)
     - [Keyword arguments, defaults, and static unpacking](proposals/keyword-arguments-and-unpacking.md)
     - [Native concurrency contract](proposals/native-concurrency.md)
     - [Recursive owned data](proposals/recursive-data.md)
