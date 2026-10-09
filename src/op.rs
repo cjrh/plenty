@@ -22,6 +22,8 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 pub enum Ty {
     /// Lexical join token: only direct `.join()` consumes a source task.
     Task(Rc<crate::threading::Task>),
+    /// Shared channel core, with affine sender (true) or receiver (false) handles.
+    Channel(Rc<Ty>, bool),
     Closure(Rc<crate::closure::ClosureType>),
     Callable(Rc<CallableSig>),
     I8,
@@ -82,7 +84,7 @@ impl Ty {
                     .max()
                     .unwrap_or(0)
             }
-            Self::List(t) | Self::Set(t) => 1 + t.layout_depth(),
+            Self::List(t) | Self::Set(t) | Self::Channel(t, _) => 1 + t.layout_depth(),
             Self::Generator(t) => 1 + t.element.layout_depth(),
             Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
             Self::Enum(_) | Self::Class(_) => self.facts().depth,
@@ -94,6 +96,7 @@ impl Ty {
             self,
             Self::List(_)
                 | Self::Task(_)
+                | Self::Channel(..)
                 | Self::Closure(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
@@ -174,6 +177,7 @@ impl Ty {
             Self::Str
                 | Self::Closure(_)
                 | Self::File
+                | Self::Channel(..)
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
@@ -214,6 +218,9 @@ impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Ty::Task(_) => "scoped task",
+            Ty::Channel(t, sender) => {
+                return write!(f, "{}[{t}]", if *sender { "Sender" } else { "Receiver" })
+            }
             Ty::Closure(t) => {
                 let signature = t.signature.to_string().replacen(
                     "Callable",
@@ -341,6 +348,7 @@ impl fmt::Display for CallableSig {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
     Thread(crate::threading::ThreadOp),
+    Channel(crate::channel::ChannelOp),
     ClosureNew(Rc<crate::closure::ClosureType>),
     ClosureCall(Rc<crate::closure::ClosureType>),
     FunctionAddress(String, Rc<CallableSig>),
@@ -1231,6 +1239,15 @@ fn step(
     yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     match op {
+        Op::Channel(operation) => {
+            let (inputs, output) = operation.signature();
+            for ty in inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(ty) {
+                    return Err("invalid channel argument".into());
+                }
+            }
+            stack.push(output);
+        }
         Op::Thread(operation) => match operation {
             crate::threading::ThreadOp::Start(task, slot) => {
                 if locals.get(*slot as usize) != Some(&Ty::Task(task.clone())) {

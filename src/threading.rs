@@ -51,35 +51,50 @@ pub enum ThreadOp {
 /// A structural signature cannot certify the effects of an indirect callee.
 pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
     let mut functions = HashMap::new();
-    let mut tasks = Vec::new();
+    let mut roots = Vec::new();
     walk(ops, &mut |op| {
         if let Op::DefineFn(name, function) = op {
             functions.insert(name.as_str(), function);
         }
         if let Op::Thread(ThreadOp::Start(task, _)) = op {
-            tasks.push(task);
+            let mut types = task.inputs.clone();
+            types.push(task.output.clone());
+            roots.push((
+                format!("worker `{}`", task.worker),
+                vec![task.worker.clone()],
+                types,
+            ));
+        }
+        if let Op::Channel(operation) = op {
+            let (mut types, output) = operation.signature();
+            types.push(output);
+            roots.push(("channel message".into(), vec![], types));
         }
     });
     let mut checked = HashSet::new();
-    for task in tasks {
-        let mut queue = vec![task.worker.clone()];
-        let mut types = task.inputs.clone();
-        types.push(task.output.clone());
+    let mut checked_receivers = HashSet::new();
+    for (origin, mut queue, mut types) in roots {
         let mut seen_types = HashSet::new();
         loop {
             while let Some(ty) = types.pop() {
-                check_type(&ty, &mut seen_types, &mut types, &mut queue)
-                    .map_err(|reason| format!("worker `{}`: {reason}", task.worker))?;
+                check_type(
+                    &ty,
+                    &mut seen_types,
+                    &mut checked_receivers,
+                    &mut types,
+                    &mut queue,
+                )
+                .map_err(|reason| format!("{origin}: {reason}"))?;
             }
             let Some(name) = queue.pop() else { break };
             if !checked.insert(name.clone()) {
                 continue;
             }
-            let function = functions.get(name.as_str()).ok_or_else(|| {
-                format!("worker `{}`: unavailable function `{name}`", task.worker)
-            })?;
+            let function = functions
+                .get(name.as_str())
+                .ok_or_else(|| format!("{origin}: unavailable function `{name}`"))?;
             inspect(function, &mut types, &mut queue)
-                .map_err(|reason| format!("worker `{}` reaches `{name}`: {reason}", task.worker))?;
+                .map_err(|reason| format!("{origin} reaches `{name}`: {reason}"))?;
         }
     }
     Ok(())
@@ -88,10 +103,16 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
 fn check_type(
     ty: &Ty,
     seen: &mut HashSet<String>,
+    checked_receivers: &mut HashSet<String>,
     types: &mut Vec<Ty>,
     functions: &mut Vec<String>,
 ) -> Result<(), String> {
     match ty {
+        Ty::Channel(message, false)
+            if checked_receivers.insert(ty.to_string()) && receiver_cycle(message, ty) =>
+        {
+            return Err(format!("recursive channel ownership through {ty} could retain its own receiver; keep receiving handles outside queued message cycles"));
+        }
         Ty::File | Ty::ForeignPtr(_) => {
             return Err(format!("{ty} has no cross-thread ownership contract"))
         }
@@ -101,7 +122,9 @@ fn check_type(
         Ty::Generator(_) => {
             return Err("generator worker eligibility is not implemented yet".into())
         }
-        Ty::Ref(t, _) | Ty::List(t) | Ty::Set(t) | Ty::Range(t) => types.push((**t).clone()),
+        Ty::Ref(t, _) | Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Channel(t, _) => {
+            types.push((**t).clone())
+        }
         Ty::Dict(k, v) => types.extend([(**k).clone(), (**v).clone()]),
         Ty::Class(t) if seen.insert(format!("class:{}", t.name)) => {
             let t = t.get();
@@ -127,6 +150,42 @@ fn check_type(
     Ok(())
 }
 
+/// Unlike a sender, the last receiver is responsible for releasing queued
+/// values. A cycle back to that receiver would prevent this cleanup from ever
+/// beginning. Inspect finite type identities, not potentially recursive values.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "nominal identities exclude definition cells"
+)]
+fn receiver_cycle(message: &Ty, receiver: &Ty) -> bool {
+    let mut pending = vec![message.clone()];
+    let mut seen = HashSet::new();
+    while let Some(ty) = pending.pop() {
+        if &ty == receiver {
+            return true;
+        }
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        match ty {
+            Ty::Channel(t, _) | Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) => {
+                pending.push((*t).clone())
+            }
+            Ty::Dict(k, v) => pending.extend([(*k).clone(), (*v).clone()]),
+            Ty::Class(t) => pending.extend(t.get().fields.iter().map(|(_, t)| t.clone())),
+            Ty::Enum(t) => pending.extend(
+                t.get()
+                    .variants
+                    .iter()
+                    .flat_map(|v| v.fields.iter().cloned()),
+            ),
+            Ty::Closure(t) => pending.extend(t.captures.iter().map(|(_, t)| t.clone())),
+            _ => {}
+        }
+    }
+    false
+}
+
 fn inspect(
     function: &CompiledFn,
     types: &mut Vec<Ty>,
@@ -150,6 +209,11 @@ fn inspect(
             error = Some("indirect callable effects are not certified for worker threads")
         }
         Op::Collection(op) => {
+            let (inputs, output) = op.signature();
+            types.extend(inputs);
+            types.push(output);
+        }
+        Op::Channel(op) => {
             let (inputs, output) = op.signature();
             types.extend(inputs);
             types.push(output);

@@ -28,6 +28,22 @@ fn parameterized_protocols_are_explicit_imported_contracts() {
 }
 
 #[test]
+fn channel_message_types_preserve_module_visibility_and_generic_inference() {
+    run(&[
+        ("messages.plenty", "pub def deliver[T](sender: &Sender[T], value: T) -> Result[(), SendError[T]]:\n    sender.send(value)\n"),
+        ("main.plenty", "import messages\ndef main() -> Result[(), Failure]:\n    sender, receiver = channel[u8](1)?\n    messages.deliver(&sender, 7u8)?\n    print(receiver.recv()?)?\n    Ok(())\n"),
+    ], "main.plenty", "7\n");
+    let dir = workspace(&[
+        ("api.plenty", "class Hidden:\n    value: i64\npub def receive(receiver: &Receiver[Hidden]) -> ():\n    pass\n"),
+        ("main.plenty", "import api\ndef main() -> ():\n    pass\n"),
+    ]);
+    let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("private"), "{error}");
+}
+
+#[test]
 fn generic_data_imports_keep_methods_and_constructors_visible() {
     run(&[
         ("data.plenty", "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n"),

@@ -132,6 +132,8 @@
 - [Store consuming jobs](tutorial/82-store-consuming-jobs.md)
 - [Run stored jobs](tutorial/83-run-stored-jobs.md)
 - [Move jobs to workers](tutorial/84-move-jobs-to-workers.md)
+- [Send values between threads](tutorial/85-send-values-between-threads.md)
+- [Handle channel backpressure](tutorial/86-handle-channel-backpressure.md)
 
 # Reference
 
@@ -188,6 +190,7 @@
 - [Borrowed enum matching](design/31-borrowed-enum-matching.md)
 - [Scoped native threads](design/32-scoped-native-threads.md)
 - [Consuming thread jobs](design/34-consuming-thread-jobs.md)
+- [Bounded channels](design/35-bounded-channels.md)
 - [Native runtime](runtime.md)
 
 # Proposals

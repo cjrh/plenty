@@ -1153,7 +1153,9 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
                     visible(ty, at, access, aliases)?;
                 }
             }
-            Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) => visible(t, at, access, aliases)?,
+            Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) | Ty::Channel(t, _) => {
+                visible(t, at, access, aliases)?
+            }
             Ty::Generator(t) => visible(&t.element, at, access, aliases)?,
             Ty::Dict(k, v) => {
                 visible(k, at, access, aliases)?;

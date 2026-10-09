@@ -39,10 +39,41 @@ impl Lower<'_> {
             Ty::Ref(inner, true) if loan.is_some() => (**inner).clone(),
             ty => ty.clone(),
         };
+        if matches!(ty, Ty::Channel(..)) {
+            // An owned endpoint guard drops its handle in lexical cleanup order.
+            // Placing it after a task manager disconnects its peers before join.
+            let slot = self.slot(ty.clone(), &manager.at)?;
+            ops.push(Op::StoreLocal(slot));
+            if let Some(name) = name {
+                if self.names.contains_key(name) {
+                    return Err(manager.at.error(format!("duplicate binding `{name}`")));
+                }
+                let loan = self.new_loan(slot, false, None, ops);
+                let reference = Ty::Ref(Rc::new(ty), false);
+                ops.push(Op::BorrowLocal(slot, false));
+                let target = self.slot(reference.clone(), &manager.at)?;
+                ops.push(Op::StoreLocal(target));
+                self.reference_locals.insert(target, loan);
+                self.names.insert(
+                    name.into(),
+                    Local {
+                        slot: target,
+                        ty: reference,
+                        mutable: false,
+                    },
+                );
+            }
+            let result = self.block_inner(body, ops, false)?;
+            if matches!(result, BlockResult::Continues(_)) {
+                self.cleanup(start, ops);
+            }
+            self.names = saved;
+            return Ok(result);
+        }
         if !matches!(owner, Ty::Class(_) | Ty::File) {
             return Err(manager
                 .at
-                .error("with requires an owned class instance or File, or explicit &mut borrow"));
+                .error("with requires an owned class instance, File, or channel endpoint, or explicit &mut borrow"));
         }
         let slot = self.slot(ty, &manager.at)?;
         ops.push(Op::StoreLocal(slot));

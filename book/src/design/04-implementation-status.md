@@ -82,6 +82,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Checked text lookup | `str.get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
 | Custom allocators and allocator provenance | Object allocations retain internal allocator identity; container buffers still use the global allocator. Public allocator selection and allocator lifetimes are not supported |
 | Scoped native threads | `with spawn(...)?`, checked shared/exclusive borrows, consuming owned jobs with recoverable SpawnError, worker effect/destructor checks, one-use result joins, automatic joining on every normal exit, and borrowed-start ThreadError; [reference](32-scoped-native-threads.md) |
+| Bounded channels | Positive-capacity MPMC queues, explicit endpoint sharing, blocking/nowait transfer, recoverable construction and unsent messages, allocation-free operations, and endpoint context managers for ordered shutdown; [reference](35-bounded-channels.md) |
 | Channels, executors, parallel loops, SIMD | Not implemented |
 | Tutorial sources | mdBook Markdown examples run directly in tests; standalone literate sources and generated lessons are not implemented |
 | Async/await | Out of scope |

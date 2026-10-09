@@ -10,6 +10,7 @@ use crate::collection::CollectionOp;
 use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 mod callables;
+mod channels;
 mod classes;
 mod closures;
 mod collections;
@@ -480,7 +481,22 @@ impl TypeRef {
             }
             return Ok(Some(crate::generator::ty(element, None)));
         }
-        if matches!(name.as_str(), "Option" | "Result" | "SpawnError") {
+        if matches!(name.as_str(), "Sender" | "Receiver") {
+            if self.args.len() != 1 {
+                return Err(self.at.error(format!("{name} requires one message type")));
+            }
+            let message = self.args[0]
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("channel messages cannot be unit"))?;
+            if !message.heap_storable() {
+                return Err(self.at.error("channel messages require a concrete wholly owned type without references or generator frames"));
+            }
+            return Ok(Some(Ty::Channel(Rc::new(message), name == "Sender")));
+        }
+        if matches!(
+            name.as_str(),
+            "Option" | "Result" | "SpawnError" | "SendError"
+        ) {
             let count = if name == "Result" { 2 } else { 1 };
             if self.args.len() != count {
                 return Err(self
@@ -506,6 +522,8 @@ impl TypeRef {
                 crate::sum::option(args[0].clone())
             } else if name == "SpawnError" {
                 crate::sum::spawn_error(args[0].clone())
+            } else if name == "SendError" {
+                crate::sum::send_error(args[0].clone())
             } else {
                 crate::sum::result(args[0].clone(), args[1].clone())
             }));
@@ -1296,10 +1314,14 @@ impl Parser {
             Kind::Symbol(s) if s == "(" => self.parenthesized()?,
             Kind::Symbol(s) if s == "[" || s == "{" => self.collection_display(s)?,
             Kind::Word(s) if !reserved(s) && !s.starts_with("__plenty_") => {
-                if matches!(s.as_str(), "Option" | "Result" | "SpawnError") && self.peek().is("[") {
+                if matches!(
+                    s.as_str(),
+                    "Option" | "Result" | "SpawnError" | "SendError" | "Sender" | "Receiver"
+                ) && self.peek().is("[")
+                {
                     self.pos -= 1;
                     Expression::Type(self.ty()?)
-                } else if matches!(s.as_str(), "list" | "dict" | "set" | "range")
+                } else if matches!(s.as_str(), "list" | "dict" | "set" | "range" | "channel")
                     && self.peek().is("[")
                 {
                     self.pos -= 1;
@@ -1484,6 +1506,8 @@ fn named_type(name: &str) -> Type {
         "CStrError" => crate::sum::c_str_error(),
         "LoadError" => crate::sum::load_error(),
         "ThreadError" => crate::sum::thread_error(),
+        "ChannelError" => crate::sum::channel_error(),
+        "RecvError" => crate::sum::recv_error(),
         _ => return None,
     })
 }
@@ -1523,6 +1547,10 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "Option"
                 | "Result"
                 | "SpawnError"
+                | "channel"
+                | "Sender"
+                | "Receiver"
+                | "SendError"
                 | "Generator"
                 | "Callable"
                 | "Closure"
@@ -1941,6 +1969,9 @@ impl Lower<'_> {
                 self.generic_method(base, name, types, args, ops)?
             }
             Expression::Constructor(ty, args) => {
+                if ty.name.as_deref() == Some("channel") {
+                    return self.channel_new(ty, args, ops);
+                }
                 let ty = ty.resolve(self.aliases)?.unwrap();
                 Some(self.construct(ty, args, &e.at, ops)?)
             }
@@ -2086,6 +2117,11 @@ impl Lower<'_> {
                         .at
                         .error("values containing closures do not support membership equality"));
                 }
+                if element.facts().channel {
+                    return Err(e.at.error(
+                        "values containing channel endpoints do not support membership equality",
+                    ));
+                }
                 self.same(
                     Some(a),
                     Some(if b == Ty::Str { Ty::Str } else { element }),
@@ -2134,6 +2170,11 @@ impl Lower<'_> {
                     return Err(e
                         .at
                         .error("values containing closures do not support equality"));
+                }
+                if matches!(op.as_str(), "==" | "!=") && a.facts().channel {
+                    return Err(e
+                        .at
+                        .error("values containing channel endpoints do not support equality"));
                 }
                 if matches!(op.as_str(), "==" | "!=") && a.recursive_data() {
                     return Err(e.at.error("automatic equality is not supported for recursive data; compare fields explicitly"));

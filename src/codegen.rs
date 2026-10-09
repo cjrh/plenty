@@ -61,6 +61,7 @@ use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use crate::lexer;
+mod channels;
 mod closures;
 mod collections;
 mod enums;
@@ -377,6 +378,7 @@ struct Runtime {
     thread_adapters: std::cell::RefCell<HashMap<String, FuncId>>,
     type_data: std::cell::RefCell<HashMap<Ty, DataId>>,
     collection: FuncId,
+    channel: FuncId,
     retain: FuncId,
     release: FuncId,
     generator_init: FuncId,
@@ -448,6 +450,17 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        channel: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([
+                AbiParam::new(types::I64),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+            ]);
+            module.declare_function("plenty_channel", Linkage::Import, &sig)?
+        },
         thread_start: two_args_one_return(
             module,
             "plenty_thread_start",
@@ -941,6 +954,7 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::F64 => types::F64,
         Ty::Str
         | Ty::Task(_)
+        | Ty::Channel(..)
         | Ty::Callable(_)
         | Ty::Closure(_)
         | Ty::File
@@ -1134,6 +1148,7 @@ impl Lowerer<'_, '_> {
     fn lower(&mut self, op: &Op) -> Result<()> {
         match op {
             Op::Thread(operation) => self.lower_thread(operation)?,
+            Op::Channel(operation) => self.lower_channel(operation)?,
             Op::Try {
                 source,
                 target,

@@ -87,6 +87,34 @@ impl Lower<'_> {
                 )
             }
             Expression::Method(base, name, _) => {
+                if let Some(ty @ Ty::Channel(_, _)) = self.place_type(base) {
+                    if name == "share" {
+                        return Some(ty);
+                    }
+                    let Ty::Channel(message, sender) = ty else {
+                        unreachable!()
+                    };
+                    if sender && matches!(name.as_str(), "send" | "send_nowait") {
+                        return Some(
+                            crate::channel::ChannelOp::Send(
+                                (*message).clone(),
+                                name == "send_nowait",
+                            )
+                            .signature()
+                            .1,
+                        );
+                    }
+                    if !sender && matches!(name.as_str(), "recv" | "recv_nowait") {
+                        return Some(
+                            crate::channel::ChannelOp::Recv(
+                                (*message).clone(),
+                                name == "recv_nowait",
+                            )
+                            .signature()
+                            .1,
+                        );
+                    }
+                }
                 let field = Expr {
                     at: e.at.clone(),
                     kind: Expression::Member(base.clone(), name.clone()),

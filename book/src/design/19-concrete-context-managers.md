@@ -47,3 +47,8 @@ lookup requires no traits or user generics.
 
 The intrinsic [scoped-thread manager](32-scoped-native-threads.md) uses the same
 exit obligations to join workers before reclaiming their borrowed storage.
+
+[Channel endpoints](35-bounded-channels.md) are intrinsic owned managers too.
+Entry lends a shared endpoint reference, and exit drops the scoped handle. Put
+a receiver guard after its producer task manager to disconnect on early exit
+before joining a worker that may be waiting for queue space.

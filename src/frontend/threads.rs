@@ -54,7 +54,7 @@ impl Lower<'_> {
                     .map(|(_, t)| t.clone())
                     .collect();
                 if inputs.iter().any(Ty::affine) {
-                    return Err(call.at.error("spawn borrows mutable owners; pass & or &mut, or borrow a reusable closure, so a failed start preserves your job"));
+                    return Err(call.at.error("named workers borrow mutable owners; pass & or &mut, or capture the inputs in an owned closure for spawn(job), so a failed start preserves your job"));
                 }
                 let loans = ops[index..]
                     .iter()

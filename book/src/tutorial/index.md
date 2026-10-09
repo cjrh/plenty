@@ -37,3 +37,6 @@ For parallel work with checked borrows and automatic joining,
 [run scoped threads](79-run-scoped-threads.md).
 [Stored jobs](83-run-stored-jobs.md) compose that model with callback owners and
 show how workers return concrete environments without an extra allocation.
+Then [move jobs into workers](84-move-jobs-to-workers.md),
+[send values between threads](85-send-values-between-threads.md), and
+[handle backpressure and early shutdown](86-handle-channel-backpressure.md).

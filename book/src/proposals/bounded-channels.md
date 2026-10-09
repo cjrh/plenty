@@ -50,6 +50,12 @@ transfer their ownership pointers. Receive copies inline payload bytes into
 caller storage before freeing a ring slot. These are representation moves, with
 one logical owner throughout.
 
+Receiver ownership cycles are rejected by a finite compiler type-graph check:
+queued messages must not retain the receiver whose last-drop would drain them.
+Ordinary recursive data and sender-based reply paths remain valid. Endpoint
+context managers reuse lexical cleanup; placing the receiving guard after its
+producer task closes that handle before joining on early exit.
+
 The mutex serializes transfers and provides a straightforward publication point.
 There is no lock-free or strict fairness claim. Positive capacities cover the
 initial contract; zero-capacity rendezvous is a distinct handshake rather than

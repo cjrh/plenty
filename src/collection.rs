@@ -104,7 +104,11 @@ impl Ty {
         self.is_collection()
             || matches!(
                 self,
-                Self::Enum(_) | Self::Class(_) | Self::Generator(_) | Self::File
+                Self::Enum(_)
+                    | Self::Class(_)
+                    | Self::Generator(_)
+                    | Self::File
+                    | Self::Channel(..)
             )
     }
     pub fn is_collection(&self) -> bool {

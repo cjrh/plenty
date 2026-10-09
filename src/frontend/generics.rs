@@ -140,6 +140,10 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
                 .collect(),
         ),
         Ty::List(t) => (Some("list".into()), vec![t]),
+        Ty::Channel(t, sender) => (
+            Some(if *sender { "Sender" } else { "Receiver" }.into()),
+            vec![t],
+        ),
         Ty::Set(t) => (Some("set".into()), vec![t]),
         Ty::Dict(k, v) => (Some("dict".into()), vec![k, v]),
         Ty::Range(t) => (Some("range".into()), vec![t]),
@@ -254,12 +258,18 @@ fn infer(
             Some(vec![t])
         }
         (Some("Generator"), Ty::Generator(t)) => Some(vec![&t.element]),
+        (Some("Sender"), Ty::Channel(t, true)) | (Some("Receiver"), Ty::Channel(t, false)) => {
+            Some(vec![t])
+        }
         (Some("dict"), Ty::Dict(k, v)) => Some(vec![k, v]),
         (Some("&"), Ty::Ref(t, false)) | (Some("&mut"), Ty::Ref(t, true)) => Some(vec![t]),
         (Some("Option"), Ty::Enum(t)) if t.is_option() => {
             Some(vec![&t.local().variants[1].fields[0]])
         }
         (Some("SpawnError"), Ty::Enum(t)) if t.name.starts_with("SpawnError[") => {
+            Some(vec![&t.local().variants[0].fields[0]])
+        }
+        (Some("SendError"), Ty::Enum(t)) if t.name.starts_with("SendError[") => {
             Some(vec![&t.local().variants[0].fields[0]])
         }
         (Some("Result"), Ty::Enum(t)) if t.propagatable() && !t.is_option() => Some(vec![

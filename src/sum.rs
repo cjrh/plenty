@@ -33,6 +33,7 @@ impl crate::nominal::Nominal<EnumType> {
     pub fn inline(&self) -> bool {
         self.propagatable()
             || self.name.starts_with("SpawnError[")
+            || self.name.starts_with("SendError[")
             || matches!(
                 self.name.as_str(),
                 "AllocError"
@@ -43,6 +44,8 @@ impl crate::nominal::Nominal<EnumType> {
                     | "CStrError"
                     | "LoadError"
                     | "ThreadError"
+                    | "ChannelError"
+                    | "RecvError"
             )
     }
     pub fn propagatable(&self) -> bool {
@@ -127,6 +130,42 @@ pub fn spawn_error(job: Ty) -> Ty {
             fields: vec![job.clone()],
         })
         .collect();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn channel_error() -> Ty {
+    let Ty::Enum(template) = result(Ty::Unit, alloc_error()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = "ChannelError".into();
+    ty.variants[0] = Variant {
+        name: "InvalidCapacity".into(),
+        fields: vec![],
+    };
+    ty.variants[1].name = "Allocation".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn send_error(value: Ty) -> Ty {
+    let Ty::Enum(template) = spawn_error(value.clone()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = format!("SendError[{value}]");
+    ty.variants[0].name = "Full".into();
+    ty.variants[1].name = "Disconnected".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn recv_error() -> Ty {
+    let Ty::Enum(template) = alloc_error() else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = "RecvError".into();
+    ty.variants[0].name = "Empty".into();
+    ty.variants[1].name = "Disconnected".into();
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 
