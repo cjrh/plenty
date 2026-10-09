@@ -40,6 +40,57 @@ print(third.callback(4)).unwrap()
 }
 
 #[test]
+fn tuple_closures_preserve_distinct_layouts_and_transfer_on_unpack() {
+    run(
+        r#"
+def add(n: i64) -> Closure[[i64], i64]:
+    def [n](x: i64) -> i64:
+        n + x
+def subtract(n: i64) -> Closure[[i64], i64]:
+    span = range(n, n + 3)
+    def [span](x: i64) -> i64:
+        span[1] - x
+def pack[A, B](a: A, b: B) -> Result[tuple[A, B], AllocError]:
+    (a, b)
+pair = pack(add(10), subtract(30)).unwrap()
+print(pair[0](2)).unwrap()
+print(pair[1](3)).unwrap()
+first, second = pair
+print(first(4)).unwrap()
+print(second(5)).unwrap()
+"#,
+        "12\n28\n14\n26\n",
+    );
+}
+
+#[test]
+fn tuple_callback_loans_are_disjoint_and_do_not_allow_owner_invalidation() {
+    run(
+        r#"
+def counter(n: i64) -> Closure[[], i64]:
+    def [mut n]() -> i64:
+        n = n + 1
+        n
+mut pair = (counter(1), counter(10)).unwrap()
+first = &mut pair[0]
+second = &mut pair[1]
+print(first()).unwrap()
+print(second()).unwrap()
+print(pair[0]()).unwrap()
+"#,
+        "2\n11\n3\n",
+    );
+    for tail in [
+        "drop(pair)\nprint(callback()).unwrap()",
+        "print(pair[0]()).unwrap()\nprint(callback()).unwrap()",
+    ] {
+        let source = format!("def counter(n: i64) -> Closure[[], i64]:\n    def [mut n]() -> i64:\n        n = n + 1\n        n\nmut pair = (counter(1), counter(2)).unwrap()\ncallback = &mut pair[0]\n{tail}\n");
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("borrow"), "{error}");
+    }
+}
+
+#[test]
 fn generic_record_closure_resources_drop_on_replacement() {
     run(
         r#"

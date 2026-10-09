@@ -18,8 +18,14 @@ Failure during class construction releases transferred captures exactly once.
 a closure displays `<closure>` without traversing captures. Shared immutable
 strings inside captures retain their ordinary ownership semantics.
 
+Tuples can own environments in their separate typed slots. Different slots may
+have different producer types. A constant index borrows a callback for invocation;
+mutable callbacks require a mutable, affine tuple owner. Disjoint tuple slots can
+be borrowed separately. Unpacking transfers the environments into local owners.
+Tuple construction retains its ordinary fallible allocation contract.
+
 Borrowed captures, unresolved layouts, and generator-containing environments
-cannot enter heap storage. Consuming environments, tuples, collection elements,
+cannot enter heap storage. Consuming environments, collection elements,
 and user enum payloads retain their existing storage restrictions in this subset.
 These rules also apply through inline `Option` and `Result` wrappers.
 

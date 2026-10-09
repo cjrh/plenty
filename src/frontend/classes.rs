@@ -590,8 +590,17 @@ impl Lower<'_> {
     }
     pub(super) fn place_type(&self, e: &Expr) -> Option<Ty> {
         match &ungroup(e).kind {
-            Expression::Index(base, _) => match self.place_type(base)? {
+            Expression::Index(base, index) => match self.place_type(base)? {
                 Ty::List(element) | Ty::Dict(_, element) => Some((*element).clone()),
+                Ty::Enum(t) if t.tuple() => {
+                    let Expression::Number(n) = &ungroup(index).kind else {
+                        return None;
+                    };
+                    t.get().variants[0]
+                        .fields
+                        .get(n.parse::<usize>().ok()?)
+                        .cloned()
+                }
                 _ => None,
             },
             Expression::Name(n) => self.names.get(n).map(|l| match &l.ty {

@@ -175,7 +175,7 @@ impl Lower<'_> {
             if let Some(expected) = expected {
                 self.same(Some(actual.clone()), Some(expected), &value.at)?;
             }
-            if actual.restricted_storage() {
+            if !actual.heap_storable() {
                 return Err(value
                     .at
                     .error("references and generators cannot be stored in tuples"));

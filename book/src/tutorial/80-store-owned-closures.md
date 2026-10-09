@@ -37,3 +37,24 @@ still perform its own fallible work.
 Keep captured state owned when storing a callback. A closure borrowing a local
 cannot enter a record. Moving the record transfers ownership; dropping it cleans
 up captured resources. Closures do not support `copy` or equality.
+
+A tuple can hold callbacks with different concrete types. Indexing invokes a
+callback in place; unpacking transfers ownership to new local bindings.
+
+```plenty
+def add(offset: i64) -> Closure[[i64], i64]:
+    def [offset](n: i64) -> i64:
+        offset + n
+
+def main() -> Result[(), Failure]:
+    pair = (add(10), add(100))?
+    print(pair[0](2))?
+    first, second = pair
+    print(second(3))?
+    Ok(())
+```
+
+```output
+12
+103
+```

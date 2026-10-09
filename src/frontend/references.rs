@@ -221,6 +221,44 @@ impl Lower<'_> {
             let collection = self.place_type(base).ok_or_else(|| {
                 e.at.error("element borrowing requires a named collection or field")
             })?;
+            if let Ty::Enum(t) = &collection {
+                if t.tuple() {
+                    let Expression::Number(n) = &ungroup(index).kind else {
+                        return Err(index
+                            .at
+                            .error("tuple index must be a nonnegative integer literal"));
+                    };
+                    let index = n
+                        .parse::<usize>()
+                        .map_err(|_| index.at.error("invalid tuple index"))?;
+                    let field = t.get().variants[0]
+                        .fields
+                        .get(index)
+                        .cloned()
+                        .ok_or_else(|| e.at.error("tuple index out of bounds"))?;
+                    if mutable && !collection.affine() {
+                        return Err(e.at.error("copyable tuple storage is immutable"));
+                    }
+                    let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+                    if self.loans[loan].precise {
+                        self.loans[loan].fields.push(index);
+                        if let Some(Op::Loan(fact)) = ops
+                            .iter_mut()
+                            .rev()
+                            .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
+                        {
+                            *fact = self.loans[loan].clone();
+                        }
+                    }
+                    ops.push(Op::Enum(crate::sum::EnumOp::FieldRef(
+                        t.clone(),
+                        0,
+                        index,
+                        mutable,
+                    )));
+                    return Ok((Ty::Ref(Rc::new(field), mutable), loan));
+                }
+            }
             let key = match &collection {
                 Ty::List(_) => Ty::I64,
                 Ty::Dict(key, _) => (**key).clone(),

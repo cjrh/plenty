@@ -435,7 +435,7 @@ impl TypeRef {
                 .iter()
                 .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<Vec<_>>>()?;
-            if fields.iter().any(Ty::restricted_storage) {
+            if fields.iter().any(|t| !t.heap_storable()) {
                 return Err(self
                     .at
                     .error("references and generators cannot be stored in tuples"));
@@ -2077,6 +2077,11 @@ impl Lower<'_> {
                     .ok_or_else(|| e.at.error("membership requires an iterable"))?;
                 if element.recursive_data() {
                     return Err(e.at.error("automatic equality is not supported for recursive data; search using selected fields"));
+                }
+                if element.facts().closure {
+                    return Err(e
+                        .at
+                        .error("values containing closures do not support membership equality"));
                 }
                 self.same(
                     Some(a),

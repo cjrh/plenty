@@ -204,7 +204,7 @@ pub fn tuple(fields: Vec<Ty>) -> Ty {
                 .join(", ")
         ),
         facts: std::cell::OnceCell::new(),
-        restricted_storage: fields.iter().any(Ty::restricted_storage),
+        restricted_storage: fields.iter().any(|t| !t.heap_storable()),
         managed: true,
         inline_range: false,
         payload_bytes: std::cell::OnceCell::new(),
