@@ -75,12 +75,15 @@ crashes, wrong or misleading diagnostics, missing operations a lesson implies,
 performance concerns. The backlog stays the only list of planned work and
 priorities; when an issue is scheduled, cite `issue #N` in its backlog entry.
 
-Table `issues(number INTEGER PRIMARY KEY, title TEXT, details TEXT, status TEXT, severity TEXT)`.
+Table `issues(number INTEGER PRIMARY KEY, title TEXT, details TEXT, status TEXT, severity TEXT, resolution TEXT)`.
 `status` is `open` (the default) or `closed`. `severity` is `low`, `normal`
 (the default), or `high`; work through open issues by severity. CHECK
 constraints reject other values. `details` is markdown with `## Problem`, `## Reproduction` (when there
-is one), and `## Suggested fix` sections. `issues_fts` is an FTS5 index over title and
-details, kept in sync by triggers; never write to it directly. The database
+is one), and `## Suggested fix` sections. `resolution` is markdown explaining
+how a closed issue was addressed: the fixing commit, or why it will not be
+fixed. A CHECK constraint rejects closing an issue without one. `issues_fts` is
+an FTS5 index over title, details, and resolution, kept in sync by triggers;
+never write to it directly. The database
 uses WAL mode, so concurrent readers and writers are safe; set a busy timeout
 so writers wait instead of failing.
 
@@ -94,13 +97,12 @@ so writers wait instead of failing.
 Markdown with quotes is easier to insert through a parameterized query, for
 example Python's `sqlite3` module, than through shell-quoted SQL. Search before
 adding to avoid duplicates. Never delete an issue. To close one, set `status`
-to `closed` and append a `## Resolved` section explaining how: the fixing
-commit, or why it will not be fixed.
+to `closed` and `resolution` in the same statement; leave `details` as the
+record of the problem.
 
 ```sh
 sqlite3 -cmd ".timeout 5000" issues.db "UPDATE issues SET status = 'closed',
-  details = details || char(10) || '## Resolved' || char(10, 10) || 'Fixed in <commit>.'
-  WHERE number = 3"
+  resolution = 'Fixed in <commit>.' WHERE number = 3"
 ```
 
 ## Retrospective hygiene
