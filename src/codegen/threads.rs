@@ -59,7 +59,28 @@ pub(super) fn emit_adapters(
             lower.stack.push((value, ty.clone()));
         }
         if let Some(closure) = &task.closure {
+            if task.owned_job().is_some() && !closure.once {
+                lower.stack.pop();
+                let slot = lower
+                    .bcx
+                    .ins()
+                    .iadd_imm(storage, task.argument_offset(0) as i64);
+                let reference = lower.bcx.ins().uextend(types::I128, slot);
+                lower.stack.push((
+                    reference,
+                    Ty::Ref(Rc::new(Ty::Closure(closure.clone())), closure.mutable),
+                ));
+            }
             lower.lower_closure_call(closure)?;
+            if task.owned_job().is_some() && !closure.once {
+                let environment = lower.bcx.ins().load(
+                    PTR_TY,
+                    MemFlags::trusted(),
+                    storage,
+                    task.argument_offset(0) as i32,
+                );
+                lower.release(environment, &Ty::Closure(closure.clone()));
+            }
         } else {
             lower.lower_call(&task.worker)?;
         }
@@ -120,20 +141,35 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().brif(failed, fail, &[], done, &[]);
                 self.bcx.switch_to_block(fail);
                 self.bcx.seal_block(fail);
-                for (value, ty) in arguments.iter().rev() {
-                    self.release(*value, ty);
+                if task.owned_job().is_none() {
+                    for (value, ty) in arguments.iter().rev() {
+                        self.release(*value, ty);
+                    }
                 }
                 self.bcx.ins().jump(done, &[]);
                 self.bcx.switch_to_block(done);
                 self.bcx.seal_block(done);
-                let payload = self.bcx.ins().uextend(types::I128, status);
-                let tag = self.bcx.ins().uextend(types::I128, failed);
-                let tag = self.bcx.ins().ishl_imm(tag, 64);
-                let result = self.bcx.ins().bor(payload, tag);
-                self.stack.push((
-                    result,
-                    crate::sum::result(Ty::Unit, crate::sum::thread_error()),
-                ));
+                let result = if let Some(job) = task.owned_job() {
+                    // The source environment is inert after the move into task
+                    // storage. On failure it becomes the residual owner; on
+                    // success only the worker owns its relocated copy.
+                    let payload = self.pack(arguments[0].0, job);
+                    let denied = self.bcx.ins().icmp_imm(IntCC::Equal, status, 1); // EPERM
+                    let denied = self.bcx.ins().uextend(types::I128, denied);
+                    let denied = self.bcx.ins().ishl_imm(denied, 64);
+                    let error = self.wrap_sum(payload, 0);
+                    let error = self.bcx.ins().bor(error, denied);
+                    let error = self.wrap_sum(error, 1);
+                    let zero = self.bcx.ins().iconst(types::I64, 0);
+                    let zero = self.bcx.ins().uextend(types::I128, zero);
+                    self.bcx.ins().select(failed, error, zero)
+                } else {
+                    let payload = self.bcx.ins().uextend(types::I128, status);
+                    let tag = self.bcx.ins().uextend(types::I128, failed);
+                    let tag = self.bcx.ins().ishl_imm(tag, 64);
+                    self.bcx.ins().bor(payload, tag)
+                };
+                self.stack.push((result, task.start_result()));
             }
             ThreadOp::Join(task) => {
                 let (storage, _) = self.pop_typed(Ty::Task(task.clone()))?;

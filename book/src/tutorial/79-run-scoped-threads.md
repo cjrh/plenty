@@ -73,9 +73,10 @@ def main() -> Result[(), Failure]:
 [1, 2, 3]
 ```
 
-For immutable captures, `spawn(&job)` allows shared access. Owned mutable inputs
-must currently be borrowed or held in such a reusable job; `spawn` does not consume
-them. The worker can return owned data normally.
+For immutable captures, `spawn(&job)` allows shared access. To move owned inputs
+into the worker, use an owned closure with `spawn(job)`; the
+[consuming jobs lesson](84-move-jobs-to-workers.md) shows recovery after a failed
+start. The worker can return owned data normally.
 
 To preserve creation error details, put the scope in a helper returning
 `Result[T, ThreadError]` and match its result. `ThreadError.System(code)` contains

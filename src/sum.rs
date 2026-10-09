@@ -32,6 +32,7 @@ impl crate::nominal::Nominal<EnumType> {
     }
     pub fn inline(&self) -> bool {
         self.propagatable()
+            || self.name.starts_with("SpawnError[")
             || matches!(
                 self.name.as_str(),
                 "AllocError"
@@ -107,6 +108,25 @@ pub fn thread_error() -> Ty {
         name: "System".into(),
         fields: vec![Ty::I32],
     }];
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+/// A failed consuming start returns the complete job, without allocating an
+/// error object. The native default-attributes path distinguishes resource
+/// failure from permission denial; borrowed starts retain their raw OS code.
+pub fn spawn_error(job: Ty) -> Ty {
+    let Ty::Enum(template) = option(job.clone()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = format!("SpawnError[{job}]");
+    ty.variants = ["Unavailable", "PermissionDenied"]
+        .into_iter()
+        .map(|name| Variant {
+            name: name.into(),
+            fields: vec![job.clone()],
+        })
+        .collect();
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 

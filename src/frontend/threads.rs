@@ -95,9 +95,25 @@ impl Lower<'_> {
                 )
             }
             _ => {
-                return Err(worker.at.error(
-                    "spawn requires a named function or an explicitly borrowed reusable closure",
-                ))
+                if !args.is_empty() {
+                    return Err(call.at.error("an owned closure job takes no additional arguments; capture inputs explicitly"));
+                }
+                let ty = self.value(worker, ops)?;
+                let Ty::Closure(closure) = &ty else {
+                    return Err(worker
+                        .at
+                        .error("spawn requires a named function or a concrete closure"));
+                };
+                if !ty.heap_storable() || !closure.signature.inputs.is_empty() {
+                    return Err(worker.at.error("an owned worker must be a concrete zero-argument closure with wholly owned captures and no generator frames"));
+                }
+                (
+                    closure.name.clone(),
+                    Some(closure.clone()),
+                    vec![ty.clone()],
+                    closure.signature.output.clone().unwrap_or(Ty::Unit),
+                    vec![],
+                )
             }
         };
         if !output.heap_storable() {
@@ -123,7 +139,7 @@ impl Lower<'_> {
         }
         let slot = self.slot(Ty::Task(task.clone()), &call.at)?;
         ops.push(Op::Thread(ThreadOp::Start(task.clone(), slot)));
-        let Ty::Enum(source) = crate::sum::result(Ty::Unit, crate::sum::thread_error()) else {
+        let Ty::Enum(source) = task.start_result() else {
             unreachable!()
         };
         if propagate {
@@ -135,9 +151,10 @@ impl Lower<'_> {
                 || (!target.discards_error()
                     && target.get().variants[1].fields != source.get().variants[1].fields)
             {
-                return Err(call
-                    .at
-                    .error("spawn propagation requires Result with ThreadError or Failure"));
+                return Err(call.at.error(format!(
+                    "spawn propagation requires Result with {} or Failure",
+                    source.get().variants[1].fields[0]
+                )));
             }
             let mut cleanup = Vec::new();
             self.cleanup(0, &mut cleanup);

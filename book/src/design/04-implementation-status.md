@@ -81,7 +81,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Recoverable text operations | `str.concat(other)`, `str.join(parts)`, `str.slice(start, stop)`, and `str.replace(old, new)` return `Result[str, AllocError]`; `str.split(separator)` and `str.splitlines(keepends=False)` return `Result[list[str], AllocError]` |
 | Checked text lookup | `str.get(index)` returns `Result[Option[str], AllocError]`; missing indices allocate nothing |
 | Custom allocators and allocator provenance | Object allocations retain internal allocator identity; container buffers still use the global allocator. Public allocator selection and allocator lifetimes are not supported |
-| Scoped native threads | `with spawn(...)?`, checked shared/exclusive borrows, worker effect/destructor checks, one-use result joins, automatic joining on every normal exit, and recoverable ThreadError; [reference](32-scoped-native-threads.md) |
+| Scoped native threads | `with spawn(...)?`, checked shared/exclusive borrows, consuming owned jobs with recoverable SpawnError, worker effect/destructor checks, one-use result joins, automatic joining on every normal exit, and borrowed-start ThreadError; [reference](32-scoped-native-threads.md) |
 | Channels, executors, parallel loops, SIMD | Not implemented |
 | Tutorial sources | mdBook Markdown examples run directly in tests; standalone literate sources and generated lessons are not implemented |
 | Async/await | Out of scope |

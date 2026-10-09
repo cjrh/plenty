@@ -101,6 +101,14 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
             )?))
         }
         (Ty::Enum(a), Ty::Enum(b))
+            if a.name.starts_with("SpawnError[") && b.name.starts_with("SpawnError[") =>
+        {
+            Some(crate::sum::spawn_error(refine(
+                &a.get().variants[0].fields[0],
+                &b.get().variants[0].fields[0],
+            )?))
+        }
+        (Ty::Enum(a), Ty::Enum(b))
             if a.propagatable() && b.propagatable() && !a.is_option() && !b.is_option() =>
         {
             Some(crate::sum::result(

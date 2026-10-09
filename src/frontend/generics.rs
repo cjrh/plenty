@@ -259,6 +259,9 @@ fn infer(
         (Some("Option"), Ty::Enum(t)) if t.is_option() => {
             Some(vec![&t.local().variants[1].fields[0]])
         }
+        (Some("SpawnError"), Ty::Enum(t)) if t.name.starts_with("SpawnError[") => {
+            Some(vec![&t.local().variants[0].fields[0]])
+        }
         (Some("Result"), Ty::Enum(t)) if t.propagatable() && !t.is_option() => Some(vec![
             &t.local().variants[0].fields[0],
             &t.local().variants[1].fields[0],

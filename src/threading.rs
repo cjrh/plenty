@@ -13,6 +13,18 @@ pub struct Task {
 }
 
 impl Task {
+    pub fn owned_job(&self) -> Option<&Ty> {
+        self.inputs.first().filter(|t| matches!(t, Ty::Closure(_)))
+    }
+    pub fn start_result(&self) -> Ty {
+        crate::sum::result(
+            Ty::Unit,
+            self.owned_job()
+                .map_or_else(crate::sum::thread_error, |job| {
+                    crate::sum::spawn_error(job.clone())
+                }),
+        )
+    }
     // pthread_t occupies the first word. The result starts at an aligned slot;
     // copied inputs follow it. None of these addresses may escape their scope.
     pub fn argument_offset(&self, index: usize) -> usize {

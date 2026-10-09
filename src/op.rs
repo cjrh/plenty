@@ -1241,7 +1241,7 @@ fn step(
                         return Err("invalid scoped thread argument".into());
                     }
                 }
-                stack.push(crate::sum::result(Ty::Unit, crate::sum::thread_error()));
+                stack.push(task.start_result());
             }
             crate::threading::ThreadOp::Join(task) => {
                 if stack.pop() != Some(Ty::Task(task.clone())) {

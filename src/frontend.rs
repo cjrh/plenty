@@ -480,8 +480,8 @@ impl TypeRef {
             }
             return Ok(Some(crate::generator::ty(element, None)));
         }
-        if matches!(name.as_str(), "Option" | "Result") {
-            let count = if name == "Option" { 1 } else { 2 };
+        if matches!(name.as_str(), "Option" | "Result" | "SpawnError") {
+            let count = if name == "Result" { 2 } else { 1 };
             if self.args.len() != count {
                 return Err(self
                     .at
@@ -504,6 +504,8 @@ impl TypeRef {
             }
             return Ok(Some(if name == "Option" {
                 crate::sum::option(args[0].clone())
+            } else if name == "SpawnError" {
+                crate::sum::spawn_error(args[0].clone())
             } else {
                 crate::sum::result(args[0].clone(), args[1].clone())
             }));
@@ -1294,7 +1296,7 @@ impl Parser {
             Kind::Symbol(s) if s == "(" => self.parenthesized()?,
             Kind::Symbol(s) if s == "[" || s == "{" => self.collection_display(s)?,
             Kind::Word(s) if !reserved(s) && !s.starts_with("__plenty_") => {
-                if matches!(s.as_str(), "Option" | "Result") && self.peek().is("[") {
+                if matches!(s.as_str(), "Option" | "Result" | "SpawnError") && self.peek().is("[") {
                     self.pos -= 1;
                     Expression::Type(self.ty()?)
                 } else if matches!(s.as_str(), "list" | "dict" | "set" | "range")
@@ -1520,6 +1522,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "Nothing"
                 | "Option"
                 | "Result"
+                | "SpawnError"
                 | "Generator"
                 | "Callable"
                 | "Closure"

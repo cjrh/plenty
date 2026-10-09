@@ -131,6 +131,7 @@
 - [Name stored callbacks](tutorial/81-name-stored-callbacks.md)
 - [Store consuming jobs](tutorial/82-store-consuming-jobs.md)
 - [Run stored jobs](tutorial/83-run-stored-jobs.md)
+- [Move jobs to workers](tutorial/84-move-jobs-to-workers.md)
 
 # Reference
 
@@ -186,6 +187,7 @@
 - [Recursive data](design/30-recursive-data.md)
 - [Borrowed enum matching](design/31-borrowed-enum-matching.md)
 - [Scoped native threads](design/32-scoped-native-threads.md)
+- [Consuming thread jobs](design/34-consuming-thread-jobs.md)
 - [Native runtime](runtime.md)
 
 # Proposals

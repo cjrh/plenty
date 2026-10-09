@@ -24,10 +24,13 @@ fatal traps. A worker that never finishes prevents its scope from finishing.
 
 ## Ownership and eligibility
 
-Mutable owners enter through `&T` or `&mut T`, or through the captures of a borrowed
-closure. Copyable immutable arguments use ordinary assignment semantics. By-value
-affine arguments and consuming closure jobs are rejected: this preserves the
-caller's unique job on failed creation. Owned results, including collections and
+Mutable owners enter through `&T` or `&mut T`, or through closure captures.
+`spawn(job)` moves a wholly owned zero-argument closure, including a one-shot
+closure; failed starts return the job in `SpawnError[F]`. See
+[consuming submission](34-consuming-thread-jobs.md). Copyable immutable named
+arguments use ordinary assignment semantics. By-value affine named arguments
+still require an explicit owned closure so failure can return one complete job.
+Owned results, including collections and
 recursive records and owned concrete closures, can transfer back at join.
 Closure results use the parent's typed task storage; joining does not box the
 environment. Worker results cannot contain references, borrowed environments,
@@ -50,9 +53,8 @@ those counts do not permit concurrent mutation.
 Stored concrete callbacks retain their eligibility evidence. The checker follows
 their captures, bodies, and destructors through containers and generic records.
 `spawn(&mut callbacks[index])` borrows that collection until scope exit; separate
-tuple slots can be spawned with disjoint loans. Consuming callbacks must first be
-extracted by ordinary owned operations inside an eligible worker; passing a
-one-shot job by value to `spawn` remains unsupported.
+tuple slots can be spawned with disjoint loans. Consuming callbacks can be
+extracted by ordinary owned operations and moved into `spawn`.
 
 Files, foreign pointers/calls, indirect callable effects, and generator frames
 are conservatively excluded from worker code. A capture-free helper or a class
@@ -68,7 +70,7 @@ its result through that storage. The parent cannot read it before joining.
 Task bookkeeping and error construction require no Plenty heap allocation.
 Native thread stacks and OS bookkeeping still consume resources.
 
-Creation failure propagates an inline `ThreadError.System(code)`, retaining the
+Borrowed/named creation failure propagates an inline `ThreadError.System(code)`, retaining the
 native error code. The worker has not run and borrowed inputs remain unchanged by
 it; argument expressions already evaluated may have their own effects. Functions
 may propagate the error through `Result[..., ThreadError]` or erase it explicitly
