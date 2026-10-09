@@ -91,10 +91,7 @@ impl Lower<'_> {
                     at: e.at.clone(),
                     kind: Expression::Member(base.clone(), name.clone()),
                 };
-                let Ty::Callable(sig) = self.place_type(&field)? else {
-                    return None;
-                };
-                sig.output.clone()
+                output(&self.place_type(&field)?)
             }
             Expression::Member(..) | Expression::Index(..) => self.place_type(e),
             _ => None,

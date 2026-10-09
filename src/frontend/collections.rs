@@ -1044,7 +1044,10 @@ impl Lower<'_> {
             at: base.at.clone(),
             kind: Expression::Member(Box::new(base.clone()), name.into()),
         };
-        if matches!(self.place_type(&field), Some(Ty::Callable(_))) {
+        if matches!(
+            self.place_type(&field),
+            Some(Ty::Callable(_) | Ty::Closure(_))
+        ) {
             return self.call_value(&field, args, ops);
         }
         if name == "null" {

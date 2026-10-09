@@ -74,3 +74,6 @@ Closure values display as `<closure>` and cannot be compared. Environment nestin
 is limited to 64 levels and its storage must fit the native stack-layout limit.
 Environment identities are nominal; cached layout facts and visited-type traversal
 avoid repeatedly expanding shared capture/type graphs during compilation.
+
+Owned reusable environments can be embedded in generic class fields; see
+[stored closures](33-stored-closures.md) for layout and ownership rules.

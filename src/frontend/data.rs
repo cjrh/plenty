@@ -179,7 +179,7 @@ impl TypeAliases {
                 let ty = t
                     .resolve(self)?
                     .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))?;
-                if ty.restricted_storage() {
+                if !ty.heap_storable() {
                     return Err(t.at.error(
                         "generic data arguments cannot contain references, generators, or closures",
                     ));

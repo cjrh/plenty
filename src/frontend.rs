@@ -2122,6 +2122,11 @@ impl Lower<'_> {
                     return Err(e.at.error("generators do not support binary operators"));
                 }
                 self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
+                if matches!(op.as_str(), "==" | "!=") && a.facts().closure {
+                    return Err(e
+                        .at
+                        .error("values containing closures do not support equality"));
+                }
                 if matches!(op.as_str(), "==" | "!=") && a.recursive_data() {
                     return Err(e.at.error("automatic equality is not supported for recursive data; compare fields explicitly"));
                 }

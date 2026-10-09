@@ -78,7 +78,7 @@ The current B32 batch is split into ten reviewable tasks, followed in this order
 
 1. **Complete:** choose the owned concrete storage contract; compare erasure costs.
 2. **Complete:** generalize allocation-free collection extraction to type-sized inline payloads.
-3. Store reusable owned environments in generic class fields.
+3. **Complete:** store reusable owned environments in generic class fields.
 4. Support owned environments in tuple slots.
 5. Support homogeneous closure lists, including growth and extraction.
 6. Support closure dictionary values and replacement/removal cleanup.

@@ -24,6 +24,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Closure captures | Explicit owned/shared/exclusive captures, mutable state, transitive loans, concrete `Closure` / `OnceClosure` signatures, factories, nested environments, Option/Result storage, and temporary calls; complete lifecycle tested with allocation disabled |
 | Consuming closures | `def once [...]` transfers owned captures into the body; local borrowed captures, nested environments, and captured generator frames retain checked cleanup and allocation-free storage |
 | Higher-order APIs | `Callable` and `OnceCallable` generic constraints accept concrete callbacks with signature inference; borrowing consumers preserve capture loans, and consuming consumers retain move checking |
+| Stored closures | Concrete owned reusable environments in generic class fields, with checked invocation, replacement, and failure cleanup; see [stored closures](33-stored-closures.md) |
 | Cranelift AOT and compile-and-run file command | Implemented |
 | Native linker configuration | CLI `--linker` / `--link-arg` and Rust `CompileOptions`; cc-compatible driver interface, default `cc` |
 | Native object output | `--emit-object` / Rust APIs emit an application object without linking; `--emit-runtime` extracts the matching archive and native dependencies for external linking |

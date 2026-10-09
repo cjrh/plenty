@@ -13,6 +13,7 @@ pub struct Facts {
     pub complete: bool,
     pub depth: usize,
     pub reflexive: bool,
+    pub closure: bool,
 }
 
 impl Ty {
@@ -35,6 +36,7 @@ impl Ty {
                 destructor: resource,
                 complete: true,
                 reflexive: !self.is_float(),
+                closure: matches!(self, Self::Closure(_)),
                 ..Facts::default()
             };
         }
@@ -60,6 +62,7 @@ impl Ty {
         let mut weights = Vec::new();
         let mut i = 0;
         while i < nodes.len() {
+            facts.closure |= matches!(nodes[i], Self::Closure(_));
             facts.reflexive &= !nodes[i].is_float();
             let weight = match &nodes[i] {
                 Self::Enum(t) => t.try_get().map_or(0, |definition| {
