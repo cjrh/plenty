@@ -84,7 +84,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Scoped native threads | `with spawn(...)?`, checked shared/exclusive borrows, consuming owned jobs with recoverable SpawnError, worker effect/destructor checks, one-use result joins, automatic joining on every normal exit, and borrowed-start ThreadError; [reference](32-scoped-native-threads.md) |
 | Bounded channels | Positive-capacity MPMC queues, explicit endpoint sharing, blocking/nowait transfer, recoverable construction and unsent messages, allocation-free operations, and endpoint context managers for ordered shutdown; [reference](35-bounded-channels.md) |
 | Thread-pool executors | Bounded fixed worker pools, owned named/closure submission, recoverable jobs, affine futures, pending cancellation, eager ordered map over lists/ranges, and automatic drain/join; [reference](36-thread-pool-executors.md) |
-| Parallel loops and SIMD | Not implemented; executor mapping is explicit |
+| Explicit parallel operations | Ordered executor `map_result` with typed earliest-input errors and `reduce_tree` with fixed adjacent-pair grouping; bounded jobs, fallible allocation, and deterministic ownership cleanup; [reference](37-parallel-operations.md) |
+| Automatic parallel loops and SIMD | Not implemented; ordinary loops and comprehensions remain serial |
 | Tutorial sources | mdBook Markdown examples run directly in tests; standalone literate sources and generated lessons are not implemented |
 | Async/await | Out of scope |
 

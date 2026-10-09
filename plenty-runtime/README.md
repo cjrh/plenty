@@ -35,6 +35,12 @@ output list, and maintains a bounded window of cells. Failure drains submitted
 work and releases partial results and unsubmitted inputs. Generic inline enum
 payloads now use their descriptor's discriminant width, so multi-variant executor
 errors preserve nested error values and recovered environments.
+Fallible mapping observes results in input order, preserving the earliest worker
+error even if a later submission fails. Fixed-tree reduction combines adjacent
+pairs in rounds using a reusable typed scratch buffer and the same bounded job
+window. Pairs move directly into inline job environments; no tuple allocation is
+needed. Empty/singleton reductions allocate nothing, and every failure drains
+accepted jobs before destroying remaining values.
 
 - Exports use the host C calling convention, with fixed-width scalars and pointers.
   Rust collection and enum layouts do not cross this boundary.

@@ -138,8 +138,8 @@ impl Lower<'_> {
                 input,
             });
             ExecutorOp::Submit(job, name == "submit_nowait")
-        } else if matches!(name, "map" | "map_result") {
-            self.executor_map(args, &base.at, name == "map_result", ops)?
+        } else if matches!(name, "map" | "map_result" | "reduce_tree") {
+            self.executor_parallel(args, &base.at, name, ops)?
         } else if name == "shutdown" && args.len() <= 1 {
             if let Some(arg) = args.first() {
                 let actual = self.expr_expected(arg, Some(Ty::Bool), ops)?;
@@ -150,7 +150,7 @@ impl Lower<'_> {
             ExecutorOp::Shutdown
         } else {
             return Err(base.at.error(
-                "ThreadPoolExecutor supports submit, submit_nowait, map, map_result, and shutdown",
+                "ThreadPoolExecutor supports submit, submit_nowait, map, map_result, reduce_tree, and shutdown",
             ));
         };
         let output = op.signature().1;
@@ -204,60 +204,74 @@ impl Lower<'_> {
         Ok(Ty::Closure(closure))
     }
 
-    fn executor_map(
+    fn executor_parallel(
         &mut self,
         args: &[Expr],
         at: &Token,
-        fallible: bool,
+        method: &str,
         ops: &mut Vec<Op>,
     ) -> Result<ExecutorOp> {
         let [worker, source] = args else {
-            return Err(at.error("use pool.map(named_function, owned_list_or_range)"));
+            return Err(at.error(format!(
+                "use pool.{method}(named_function, owned_list_or_range)"
+            )));
         };
         let Expression::Name(function) = &ungroup(worker).kind else {
-            return Err(worker
-                .at
-                .error("map currently requires a statically named function"));
+            return Err(worker.at.error(format!(
+                "{method} currently requires a statically named function"
+            )));
         };
         if self.names.contains_key(function) {
-            return Err(worker.at.error("map currently requires a statically named function; submit owned closures individually"));
+            return Err(worker.at.error(format!("{method} currently requires a statically named function; submit owned closures individually")));
         }
         let input = self.value(source, ops)?;
         let (Ty::List(element) | Ty::Range(element)) = &input else {
-            return Err(source
-                .at
-                .error("map currently consumes an owned list or integer range"));
+            return Err(source.at.error(format!(
+                "{method} currently consumes an owned list or integer range"
+            )));
         };
         // Specialize and check the ordinary named call with a typed placeholder.
         // Its operations never execute; only the selected signature and body
         // enter the compiler's usual monomorphization/effect-checking pipeline.
-        let slot = self.slot((**element).clone(), at)?;
-        let name = format!("__executor_item_{slot}");
-        let saved = self.names.insert(
-            name.clone(),
-            Local {
-                slot,
-                ty: (**element).clone(),
-                mutable: false,
-            },
-        );
-        let argument = Expr {
-            at: at.clone(),
-            kind: Expression::Name(name.clone()),
-        };
+        let reduce = method == "reduce_tree";
+        let mut arguments = Vec::new();
+        let mut names = Vec::new();
+        for _ in 0..if reduce { 2 } else { 1 } {
+            let slot = self.slot((**element).clone(), at)?;
+            let name = format!("__plenty_executor_item_{slot}");
+            self.names.insert(
+                name.clone(),
+                Local {
+                    slot,
+                    ty: (**element).clone(),
+                    mutable: false,
+                },
+            );
+            arguments.push(Expr {
+                at: at.clone(),
+                kind: Expression::Name(name.clone()),
+            });
+            names.push(name);
+        }
         let mut probe = Vec::new();
-        let output = self.call_named(function, &[argument], &worker.at, &mut probe)?;
-        self.names.remove(&name);
-        if let Some(saved) = saved {
-            self.names.insert(name, saved);
+        let output = self.call_named(function, &arguments, &worker.at, &mut probe);
+        for name in names {
+            self.names.remove(&name);
         }
-        let output =
-            output.ok_or_else(|| worker.at.error("map worker must return a non-unit value"))?;
-        if !output.heap_storable() {
-            return Err(worker
+        let output = output?.ok_or_else(|| {
+            worker
                 .at
-                .error("map results require a concrete wholly owned type"));
+                .error(format!("{method} worker must return a non-unit value"))
+        })?;
+        if !output.heap_storable() {
+            return Err(worker.at.error(format!(
+                "{method} results require a concrete wholly owned type"
+            )));
         }
+        if reduce && output != **element {
+            return Err(worker.at.error("reduce_tree worker must take two values of the input element type and return that same type"));
+        }
+        let fallible = method == "map_result";
         if fallible
             && !matches!(&output, Ty::Enum(t)
             if t.propagatable() && !t.is_option() && t.get().variants[0].fields[0] != Ty::Unit)
@@ -273,20 +287,47 @@ impl Lower<'_> {
                 Op::Call(name) => Some(name.clone()),
                 _ => None,
             })
-            .ok_or_else(|| at.error("map requires a statically selected function"))?;
+            .ok_or_else(|| at.error(format!("{method} requires a statically selected function")))?;
         if self.sigs[&worker]
             .inputs
             .iter()
             .any(|(_, t)| !t.heap_storable())
         {
-            return Err(at.error("map workers take their input by value"));
+            return Err(at.error(format!("{method} workers take their input by value")));
+        }
+        let adapter = format!(
+            "__plenty_pool_{}_{}_{}",
+            self.function_name, at.line, at.column
+        );
+        if reduce {
+            let captures = self.sigs[&worker].inputs.clone();
+            let closure = Rc::new(
+                crate::closure::ClosureType::new(
+                    worker.clone(),
+                    crate::op::CallableSig {
+                        inputs: vec![],
+                        output: Some(output.clone()),
+                    },
+                    captures,
+                    vec![false; 2],
+                    true,
+                )
+                .map_err(|e| at.error(e))?,
+            );
+            return Ok(ExecutorOp::Reduce(
+                Rc::new(Job {
+                    adapter,
+                    worker,
+                    input: Ty::Closure(closure.clone()),
+                    output,
+                    closure: Some(closure),
+                }),
+                input,
+            ));
         }
         Ok(ExecutorOp::Map(
             Rc::new(Job {
-                adapter: format!(
-                    "__plenty_pool_{}_{}_{}",
-                    self.function_name, at.line, at.column
-                ),
+                adapter,
                 worker,
                 input: (**element).clone(),
                 output,

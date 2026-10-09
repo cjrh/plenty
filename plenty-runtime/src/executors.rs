@@ -236,6 +236,46 @@ pub(crate) unsafe fn submit(
     nowait: bool,
 ) -> Result<*mut Job, u64> {
     unsafe {
+        submit_initialized(pointer, input, output, entry, nowait, |slot| {
+            ranges::store(slot, value, input);
+        })
+    }
+}
+
+/// Initialize a binary worker's inline consuming environment directly in its
+/// job cell. On failure both values remain owned by the caller.
+pub(crate) unsafe fn submit_pair(
+    pointer: *mut Pool,
+    values: [u128; 2],
+    input: &'static Type,
+    output: &'static Type,
+    entry: Entry,
+) -> Result<*mut Job, u64> {
+    unsafe {
+        submit_initialized(pointer, input, output, entry, false, |slot| {
+            let environment = slot.add(1);
+            environment.write(input as *const Type as u128);
+            let mut capture = environment.add(1);
+            for (value, ty) in values.into_iter().zip(input.variants[0].fields) {
+                ranges::store(capture, value, ty);
+                capture = capture.add(ty.slot_words());
+            }
+            slot.write(environment as u128);
+        })
+    }
+}
+
+/// Initialization is infallible, transfers ownership only after allocation,
+/// and must neither call user code nor lock another runtime object.
+unsafe fn submit_initialized(
+    pointer: *mut Pool,
+    input: &'static Type,
+    output: &'static Type,
+    entry: Entry,
+    nowait: bool,
+    initialize: impl FnOnce(*mut u128),
+) -> Result<*mut Job, u64> {
+    unsafe {
         let pool = &*pointer;
         let mut queue = lock(&pool.queue);
         while queue.len == pool.capacity && !queue.closed {
@@ -262,7 +302,7 @@ pub(crate) unsafe fn submit(
             phase: Mutex::new(Phase::Pending),
             completed: Condvar::new(),
         });
-        ranges::store((*job).data, value, input);
+        initialize((*job).data);
         plenty_retain(job.cast()); // worker/queue + public future
         pool.ring
             .add((queue.head + queue.len) % pool.capacity)
@@ -409,6 +449,20 @@ pub(crate) unsafe extern "C" fn plenty_executor(
                     input,
                     entry,
                     worker_output,
+                    &*descriptor,
+                    out,
+                );
+            }
+            9 => {
+                let entry: Entry = std::mem::transmute(*args.add(2) as usize);
+                let input = &*(*args.add(3) as *const Type);
+                let job_input = &*(*args.add(4) as *const Type);
+                aggregates::executor_reduce::run(
+                    *args as *mut Pool,
+                    *args.add(1),
+                    input,
+                    entry,
+                    job_input,
                     &*descriptor,
                     out,
                 );

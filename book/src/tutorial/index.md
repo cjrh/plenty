@@ -43,3 +43,4 @@ Then [move jobs into workers](84-move-jobs-to-workers.md),
 For many owned jobs, [reuse a fixed worker pool](87-reuse-workers-with-an-executor.md)
 and [handle executor outcomes](88-handle-executor-outcomes.md).
 For workers that return errors, [map fallible work in parallel](89-map-fallible-work-in-parallel.md).
+To combine results, use an [explicit reduction tree](90-combine-values-in-parallel.md).

@@ -60,10 +60,13 @@ variants, support single-origin returns, and allocate nothing, including nested
 See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
 [implemented contract](design/31-borrowed-enum-matching.md).
 
-**Next: B22, explicit parallel operations**, building on the completed
+**Next: B22, finish the concurrency batch**, building on the completed
 [thread-pool executor](design/36-thread-pool-executors.md). Fixed workers,
 bounded owned submission, recoverable jobs, affine futures, pending cancellation,
 ordered list/range mapping, and context-managed drain/join are implemented.
+Explicit [fallible mapping and fixed-tree reduction](design/37-parallel-operations.md)
+are implemented too. Review the remaining B22 extensions below and select or
+explicitly defer them before the post-concurrency milestone.
 **Then: B34, cleanup and taking stock**, after the thread/parallel/concurrency
 batch is finished and before starting unrelated feature work. Finish or explicitly
 defer each remaining concurrency extension, including B24 research, before that
@@ -120,13 +123,14 @@ Python-style executor now supports bounded submission, result retrieval, eager
 ordered list/range mapping, pending cancellation, and context-managed shutdown.
 Fallible ordered mapping is implemented with deterministic earliest-input errors
 and partial-result cleanup; see [parallel operations](design/37-parallel-operations.md).
-Build explicit tree reduction next, specifying reassociation. Broader iterator/closure mapping,
+Fixed adjacent-pair tree reduction is also implemented, including allocation-free
+empty/singleton paths and fallible scratch storage. Broader iterator/closure mapping,
 streaming results, richer certified effects/types, cooperative cancellation tokens,
 zero-capacity rendezvous, timed waits, and channel selection remain extensions.
 Thread/task creation and queue allocation must report failures; specify bounded
 queues/backpressure, failed-send ownership, joining on every exit, cooperative
 cancellation, and partial-result cleanup. Executor result handles do not require
-async/await. Build explicit Rayon-style parallel operations on these foundations;
+async/await. The initial explicit parallel operations are complete;
 automatic parallelization remains B24. Prefer library APIs over new syntax, with
 compiler support for ownership checks and runtime support for native threading.
 Scoped generic tasks need not wait for heterogeneous closure storage in B32.
@@ -170,7 +174,7 @@ is still open.
 | B19 | Measured codegen and storage improvements | Benchmark dense-match dispatch before adding jump tables. Investigate compact tuple/aggregate layouts, packed numeric buffers, code size, and compilation/link latency. Do not carry over assumptions from the legacy stack frontend. |
 | B20 | Optional GCC backend | Evaluate the proposed backend with a small feasibility experiment before committing to another backend or common IR. Cranelift remains the current backend. [GCC proposal](proposals/codegen-gcc.md). |
 | B21 | Documentation authoring | Evaluate independently runnable literate lesson sources that generate mdBook pages if they improve authoring. Current Markdown lessons are already executable and tested; do not create another manually maintained copy. [Documentation design](proposals/entrypoints-modules-and-tutorials.md). |
-| B22 | Threads, channels, and parallel operations | Initial eligibility/effect checks, scoped native threads, consuming jobs, positive-capacity bounded channels, and the Python-style executor are complete. Next: explicit parallel operations. Richer effects, rendezvous, timed waits, and selection are separate extensions. Preserve fallible submission and deterministic shutdown. [Threads](design/32-scoped-native-threads.md); [channels](design/35-bounded-channels.md); [executor](design/36-thread-pool-executors.md); [concurrency design](proposals/native-concurrency.md). |
+| B22 | Threads, channels, and parallel operations | Initial eligibility/effect checks, scoped native threads, consuming jobs, bounded channels, the Python-style executor, and explicit fallible mapping/tree reduction are complete. Review remaining extensions before B34: broader mapping, richer effects, cancellation tokens, rendezvous, timed waits, and selection. Preserve fallible submission and deterministic shutdown. [Threads](design/32-scoped-native-threads.md); [channels](design/35-bounded-channels.md); [executor](design/36-thread-pool-executors.md); [parallel operations](design/37-parallel-operations.md); [concurrency design](proposals/native-concurrency.md). |
 | B23 | SIMD | Define vector values, contiguous numeric storage, supported operations, and scalar fallbacks. Ordinary generic lists are not automatically packed native arrays. [SIMD design](proposals/memory-parallelism-and-simd.md). |
 | B24 | Automatic parallelization | Research only after B22: require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |

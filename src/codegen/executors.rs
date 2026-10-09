@@ -117,7 +117,7 @@ impl Lowerer<'_, '_> {
                 (inputs.len() * 16) as i32,
             );
         }
-        if let ExecutorOp::Map(job, input, _) = operation {
+        if let ExecutorOp::Map(job, input, _) | ExecutorOp::Reduce(job, input) = operation {
             let id = metadata::declare(self.module, self.runtime, input)?;
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
             let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
@@ -125,7 +125,12 @@ impl Lowerer<'_, '_> {
             self.bcx
                 .ins()
                 .store(MemFlags::trusted(), descriptor, args, 48);
-            let id = metadata::declare(self.module, self.runtime, &job.output)?;
+            let job_type = if matches!(operation, ExecutorOp::Reduce(..)) {
+                &job.input
+            } else {
+                &job.output
+            };
+            let id = metadata::declare(self.module, self.runtime, job_type)?;
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
             let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
             let descriptor = self.bcx.ins().uextend(types::I128, descriptor);

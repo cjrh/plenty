@@ -34,3 +34,45 @@ submitted job still needs a fallible cell allocation. Lists are consumed on ever
 outcome; ranges retain their normal value semantics.
 
 See the [runnable lesson](../tutorial/89-map-fallible-work-in-parallel.md).
+
+## Fixed-tree reduction
+
+`pool.reduce_tree(function, inputs)` consumes a list or integer range. The named
+worker takes two elements by value and returns the same type: `(T, T) -> T`.
+Generic types are inferred, and ordinary executor eligibility rules apply.
+The result is `Result[Option[T], PoolMapError]`: `Nothing` for empty input,
+`Some(value)` otherwise. No identity value is inserted or copied.
+
+Each round combines adjacent pairs, preserving left/right order. An odd final
+element advances unchanged. The next round begins after the current one completes.
+For five inputs the grouping is `f(f(f(a, b), f(c, d)), e)`. Worker count, queue
+capacity, and completion order do not change this tree. A nonempty input of length
+`n` calls the worker exactly `n - 1` times on success.
+
+This is explicit reassociation, not a left fold. Floating-point sums can differ
+from a serial loop; pure workers produce the same result for the same input and
+target across pool sizes. Effect order is unspecified, and workers with channel
+communication must not depend on another pair being scheduled. Integer overflow
+and worker traps retain the ordinary language behavior.
+
+Empty and singleton inputs allocate nothing in the reduction. Larger inputs use
+one fallible buffer of type-sized slots and a bounded job window. Pair arguments
+move directly into each job cell's inline environment; no tuple allocation or
+implicit payload copy is needed. Each round compacts results into the same scratch
+buffer. Scratch storage is proportional to input length, even for a range.
+
+Infrastructure failure stops submission, drains accepted jobs, and destroys
+intermediate and unsubmitted values. The original list is consumed on every
+outcome. A closed pool returns `Shutdown`, including for empty input. Worker
+`Result` values, if `T` itself is a `Result`, are ordinary elements; this operation
+does not implicitly propagate them or claim a first application error.
+
+See the [reduction lesson](../tutorial/90-combine-values-in-parallel.md).
+
+## Design choice
+
+Rayon documents unspecified selection among parallel errors and unspecified
+reduction order. Plenty chooses input-order error selection and a fixed reduction
+tree to make outcomes easier to reproduce, at the cost of waiting for earlier
+jobs and round boundaries. This does not make external effects deterministic.
+[Rayon parallel iterator documentation](https://docs.rs/rayon/latest/rayon/iter/trait.ParallelIterator.html).

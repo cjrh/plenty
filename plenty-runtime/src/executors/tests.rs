@@ -204,6 +204,79 @@ fn ring_and_cells_synchronize_competing_workers() {
 }
 
 #[test]
+fn pair_jobs_relocate_both_inline_captures_and_result() {
+    static RANGE: Type = Type {
+        kind: b'R',
+        affine: false,
+        reflexive: true,
+        inline_range: true,
+        inline_bytes: 32,
+        key: Some(&NUMBER),
+        value: None,
+        name: "range",
+        variants: &[],
+    };
+    static PAIR: Type = Type {
+        kind: b'H',
+        affine: true,
+        reflexive: false,
+        inline_range: false,
+        inline_bytes: 112,
+        key: None,
+        value: None,
+        name: "pair",
+        variants: &[aggregates::Variant {
+            name: "captures",
+            fields: &[&RANGE, &RANGE],
+        }],
+    };
+    unsafe extern "C" fn combine(input: *const u128, out: *mut u128) {
+        unsafe {
+            let environment = *input as *const u128;
+            let mut left = *(*environment.add(1) as *const ranges::Range);
+            let right = *(*environment.add(4) as *const ranges::Range);
+            left.start += right.start;
+            ranges::store(out, &left as *const ranges::Range as u128, &RANGE);
+        }
+    }
+    let pool = allocate_pool(1, 1).unwrap();
+    unsafe {
+        (*pool).workers.write(Worker { thread: 0, pool });
+        let address = pool.expose_provenance();
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                let pool = std::ptr::with_exposed_provenance_mut::<Pool>(address);
+                run_worker((*pool).workers.cast());
+            });
+            let left = ranges::Range::new(3, 9, 1, true);
+            let right = ranges::Range::new(4, 10, 1, true);
+            let job = submit_pair(
+                pool,
+                [
+                    &left as *const ranges::Range as u128,
+                    &right as *const ranges::Range as u128,
+                ],
+                &PAIR,
+                &RANGE,
+                combine,
+            )
+            .unwrap();
+            let mut output = [0u128; 3];
+            result(job, output.as_mut_ptr());
+            plenty_release(job.cast());
+            assert_eq!(output[0], output.as_ptr().add(1) as u128);
+            assert_eq!((*(output[0] as *const ranges::Range)).start, 7);
+            assert_eq!(left.start, 3);
+            assert_eq!(right.start, 4);
+            lock(&(*pool).queue).closed = true;
+            (*pool).readable.notify_all();
+        });
+        (*pool).joined = true;
+        plenty_release(pool.cast());
+    }
+}
+
+#[test]
 #[cfg(not(miri))]
 fn cancel_shutdown_skips_queued_jobs_but_waits_for_running_work() {
     let gate = Gate {

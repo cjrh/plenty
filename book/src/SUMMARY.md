@@ -137,6 +137,7 @@
 - [Reuse workers with an executor](tutorial/87-reuse-workers-with-an-executor.md)
 - [Handle executor outcomes](tutorial/88-handle-executor-outcomes.md)
 - [Map fallible work in parallel](tutorial/89-map-fallible-work-in-parallel.md)
+- [Combine values in parallel](tutorial/90-combine-values-in-parallel.md)
 
 # Reference
 

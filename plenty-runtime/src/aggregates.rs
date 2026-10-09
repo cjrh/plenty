@@ -7,6 +7,7 @@ use crate::strings::{self, Text};
 use std::io::Write;
 
 pub(crate) mod executor_map;
+pub(crate) mod executor_reduce;
 
 #[repr(C)]
 pub(crate) struct Variant {

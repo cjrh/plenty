@@ -16,6 +16,7 @@ pub enum ExecutorOp {
     New,
     Submit(Rc<Job>, bool),
     Map(Rc<Job>, Ty, bool),
+    Reduce(Rc<Job>, Ty),
     Result(Ty),
     Done(Ty),
     Cancel(Ty),
@@ -53,6 +54,13 @@ impl ExecutorOp {
                     )
                 },
             ),
+            Self::Reduce(job, input) => (
+                vec![Ty::Executor, input.clone()],
+                crate::sum::result(
+                    crate::sum::option(job.output.clone()),
+                    crate::sum::pool_map_error(),
+                ),
+            ),
             Self::Result(t) => (
                 vec![Ty::Future(Rc::new(t.clone()))],
                 crate::sum::result(t.clone(), crate::sum::future_error()),
@@ -72,12 +80,13 @@ impl ExecutorOp {
             Self::Shutdown => 6,
             Self::Map(_, _, false) => 7,
             Self::Map(_, _, true) => 8,
+            Self::Reduce(..) => 9,
         }
     }
 
     pub fn job(&self) -> Option<&Rc<Job>> {
         match self {
-            Self::Submit(job, _) | Self::Map(job, ..) => Some(job),
+            Self::Submit(job, _) | Self::Map(job, ..) | Self::Reduce(job, _) => Some(job),
             _ => None,
         }
     }

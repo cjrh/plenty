@@ -20,6 +20,8 @@ already started. These names are explicit prelude builtins, like `spawn` and
 | `future.done()` | `bool` | Observe whether completed or cancelled |
 | `future.cancel()` | `bool` | Prevent a pending job from starting; cannot interrupt running work |
 | `pool.map(function, inputs)` | `Result[list[T], PoolMapError]` | Run a named function over an owned list or integer range, preserving input order |
+| `pool.map_result(function, inputs)` | `Result[list[T], ParallelError[E]]` | Collect successes or the earliest input's worker error |
+| `pool.reduce_tree(function, inputs)` | `Result[Option[T], PoolMapError]` | Combine adjacent pairs with fixed grouping |
 | `pool.shutdown()` | `()` | Stop accepting work, drain accepted jobs, join all workers |
 | `pool.shutdown(True)` | `()` | Cancel jobs still queued and join running workers |
 
