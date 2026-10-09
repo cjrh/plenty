@@ -65,8 +65,16 @@ See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
 bounded owned submission, recoverable jobs, affine futures, pending cancellation,
 ordered list/range mapping, and context-managed drain/join are implemented.
 Explicit [fallible mapping and fixed-tree reduction](design/37-parallel-operations.md)
-are implemented too. Review the remaining B22 extensions below and select or
-explicitly defer them before the post-concurrency milestone.
+are implemented too. Finish these three slices in order:
+
+1. Cooperative cancellation tokens for running tasks.
+2. Timed channel operations and non-consuming future waits.
+3. Allocation-free receive selection between two typed channels.
+
+Zero-capacity rendezvous, broader iterator/closure mapping, streaming results,
+richer certified effects/types, and automatic parallelization (B24) are explicitly
+deferred beyond this batch. Arbitrary-size and send-side selection are also
+deferred; the initial receive pair keeps heterogeneous messages statically typed.
 **Then: B34, cleanup and taking stock**, after the thread/parallel/concurrency
 batch is finished and before starting unrelated feature work. Finish or explicitly
 defer each remaining concurrency extension, including B24 research, before that
@@ -124,9 +132,10 @@ ordered list/range mapping, pending cancellation, and context-managed shutdown.
 Fallible ordered mapping is implemented with deterministic earliest-input errors
 and partial-result cleanup; see [parallel operations](design/37-parallel-operations.md).
 Fixed adjacent-pair tree reduction is also implemented, including allocation-free
-empty/singleton paths and fallible scratch storage. Broader iterator/closure mapping,
-streaming results, richer certified effects/types, cooperative cancellation tokens,
-zero-capacity rendezvous, timed waits, and channel selection remain extensions.
+empty/singleton paths and fallible scratch storage. The remaining committed batch
+is cooperative cancellation tokens, timed waits, and two-channel receive selection.
+Broader iterator/closure mapping, streaming results, richer certified effects/types,
+zero-capacity rendezvous, and broader selection are deferred beyond B34.
 Thread/task creation and queue allocation must report failures; specify bounded
 queues/backpressure, failed-send ownership, joining on every exit, cooperative
 cancellation, and partial-result cleanup. Executor result handles do not require
@@ -174,9 +183,9 @@ is still open.
 | B19 | Measured codegen and storage improvements | Benchmark dense-match dispatch before adding jump tables. Investigate compact tuple/aggregate layouts, packed numeric buffers, code size, and compilation/link latency. Do not carry over assumptions from the legacy stack frontend. |
 | B20 | Optional GCC backend | Evaluate the proposed backend with a small feasibility experiment before committing to another backend or common IR. Cranelift remains the current backend. [GCC proposal](proposals/codegen-gcc.md). |
 | B21 | Documentation authoring | Evaluate independently runnable literate lesson sources that generate mdBook pages if they improve authoring. Current Markdown lessons are already executable and tested; do not create another manually maintained copy. [Documentation design](proposals/entrypoints-modules-and-tutorials.md). |
-| B22 | Threads, channels, and parallel operations | Initial eligibility/effect checks, scoped native threads, consuming jobs, bounded channels, the Python-style executor, and explicit fallible mapping/tree reduction are complete. Review remaining extensions before B34: broader mapping, richer effects, cancellation tokens, rendezvous, timed waits, and selection. Preserve fallible submission and deterministic shutdown. [Threads](design/32-scoped-native-threads.md); [channels](design/35-bounded-channels.md); [executor](design/36-thread-pool-executors.md); [parallel operations](design/37-parallel-operations.md); [concurrency design](proposals/native-concurrency.md). |
+| B22 | Threads, channels, and parallel operations | Initial eligibility/effect checks, scoped native threads, consuming jobs, bounded channels, the Python-style executor, and explicit fallible mapping/tree reduction are complete. Finish cancellation tokens, timed waits, and receive-pair selection before B34. Broader mapping, richer effects, rendezvous, and broader selection are deferred. Preserve fallible submission and deterministic shutdown. [Threads](design/32-scoped-native-threads.md); [channels](design/35-bounded-channels.md); [executor](design/36-thread-pool-executors.md); [parallel operations](design/37-parallel-operations.md); [concurrency design](proposals/native-concurrency.md). |
 | B23 | SIMD | Define vector values, contiguous numeric storage, supported operations, and scalar fallbacks. Ordinary generic lists are not automatically packed native arrays. [SIMD design](proposals/memory-parallelism-and-simd.md). |
-| B24 | Automatic parallelization | Research only after B22: require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
+| B24 | Automatic parallelization | Explicitly deferred beyond B34. Require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |
 | B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/24-c-interfaces/06-runtime-loading.md). |
 | B29 | Further generic constraints | Callable bounds on data are implemented. Consider protocol bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Preserve explicit lookup and bounded specialization. See [generic data](design/28-generic-data-types.md) and [parameterized protocols](design/29-parameterized-protocols.md). |
