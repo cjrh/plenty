@@ -280,3 +280,24 @@ error code without consuming or running the job on failure. Joining is mandatory
 before reclaiming storage. There is no Rust closure box or language heap allocation
 for task bookkeeping; native thread stacks remain OS-managed resources.
 
+## Bounded channel boundary
+
+`plenty_channel` receives checked opcode/argument metadata and a caller-owned
+output slot large enough for the complete result, including inline environments.
+Construction allocates a pair record and one pinned core/ring allocation, reporting
+either failure. The core embeds independently counted sender/receiver headers.
+Sharing an endpoint retains its header; last-release callbacks disconnect that
+side. A separate two-end lifetime count keeps the core alive through both callbacks.
+
+The supported Linux runtime uses std's futex-backed Mutex/Condvar primitives.
+Every queue predicate and disconnect flag is checked under the same mutex; waits
+loop after wakeups. Ordinary transfers notify one peer; disconnect wakes all.
+Send and receive transfer typed slots without allocation. Receive relocates the
+payload into caller storage before releasing the lock or reusing its ring slot.
+
+Last-receiver cleanup removes queued values under the lock, then destroys them
+outside it. User destructors may reenter runtime code. The ring's raw buffer
+pointer preserves the allocation's writable provenance independently of shared
+references to the synchronization header. Miri tests cover wraparound, competing
+producers/consumers, disconnect races, and inline output relocation.
+

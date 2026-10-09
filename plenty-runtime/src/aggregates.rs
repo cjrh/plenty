@@ -36,7 +36,7 @@ impl Type {
         self.kind == b'B'
             || matches!(
                 self.kind,
-                b's' | b'L' | b'S' | b'D' | b'E' | b'C' | b'G' | b'F'
+                b's' | b'L' | b'S' | b'D' | b'E' | b'C' | b'G' | b'F' | b'X' | b'Y'
             )
     }
     fn key(&self) -> &Type {
@@ -208,6 +208,35 @@ fn try_record_new(ty: &'static Type, tag_or_hook: u64) -> Result<*mut Record, Al
         });
     }
     Ok(r)
+}
+
+/// Build the endpoint pair transactionally. The zeroed pair can be released
+/// before either endpoint is initialized if the bounded queue cannot allocate.
+pub(crate) unsafe fn channel_new(result: &'static Type, capacity: usize) -> u128 {
+    if capacity == 0 {
+        return wrap(wrap(0, 0), 1); // Err(ChannelError.InvalidCapacity)
+    }
+    unsafe {
+        let pair = result.variants[0].fields[0];
+        let build = || -> Result<u128, AllocError> {
+            let record = try_record_new(pair, 0)?;
+            match crate::channels::create(pair.variants[0].fields[0].key(), capacity) {
+                Ok((sender, receiver)) => {
+                    record_slot(record, 0).write(sender);
+                    record_slot(record, 1).write(receiver);
+                    Ok(record as u128)
+                }
+                Err(error) => {
+                    plenty_release(record.cast());
+                    Err(error)
+                }
+            }
+        };
+        match build() {
+            Ok(pair) => wrap(pair, 0),
+            Err(error) => wrap(wrap(wrap(0, error as u64), 1), 1),
+        }
+    }
 }
 unsafe extern "C" fn record_destroy(header: *mut Header) {
     // No Rust reference to the record survives a user callback. The callback
@@ -861,6 +890,8 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'v' => out.extend_from_slice(b"()"),
             b'c' => out.extend_from_slice(b"<function>"),
             b'H' => out.extend_from_slice(b"<closure>"),
+            b'X' => out.extend_from_slice(b"<sender>"),
+            b'Y' => out.extend_from_slice(b"<receiver>"),
             b'b' => out.extend_from_slice(if value == 0 { b"False" } else { b"True" }),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
