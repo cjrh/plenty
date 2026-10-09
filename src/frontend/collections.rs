@@ -1043,6 +1043,9 @@ impl Lower<'_> {
         if matches!(self.place_type(base), Some(Ty::Channel(..))) {
             return self.channel_method(base, name, args, ops);
         }
+        if matches!(self.place_type(base), Some(Ty::Executor | Ty::Future(_))) {
+            return self.executor_method(base, name, args, ops);
+        }
         let field = Expr {
             at: base.at.clone(),
             kind: Expression::Member(Box::new(base.clone()), name.into()),
@@ -1236,6 +1239,9 @@ impl Lower<'_> {
         }
         if matches!(ty, Ty::Class(_)) {
             return self.temporary_class_method(base, name, None, args, (ty, loans), ops);
+        }
+        if matches!(ty, Ty::Executor | Ty::Future(_)) {
+            return self.temporary_executor_method(base, name, args, (ty, loans), ops);
         }
         if name == "pop" {
             return Err(base

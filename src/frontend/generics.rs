@@ -140,6 +140,7 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
                 .collect(),
         ),
         Ty::List(t) => (Some("list".into()), vec![t]),
+        Ty::Future(t) => (Some("Future".into()), vec![t]),
         Ty::Channel(t, sender) => (
             Some(if *sender { "Sender" } else { "Receiver" }.into()),
             vec![t],
@@ -258,6 +259,7 @@ fn infer(
             Some(vec![t])
         }
         (Some("Generator"), Ty::Generator(t)) => Some(vec![&t.element]),
+        (Some("Future"), Ty::Future(t)) => Some(vec![t]),
         (Some("Sender"), Ty::Channel(t, true)) | (Some("Receiver"), Ty::Channel(t, false)) => {
             Some(vec![t])
         }
@@ -270,6 +272,9 @@ fn infer(
             Some(vec![&t.local().variants[0].fields[0]])
         }
         (Some("SendError"), Ty::Enum(t)) if t.name.starts_with("SendError[") => {
+            Some(vec![&t.local().variants[0].fields[0]])
+        }
+        (Some("SubmitError"), Ty::Enum(t)) if t.name.starts_with("SubmitError[") => {
             Some(vec![&t.local().variants[0].fields[0]])
         }
         (Some("Result"), Ty::Enum(t)) if t.propagatable() && !t.is_option() => Some(vec![

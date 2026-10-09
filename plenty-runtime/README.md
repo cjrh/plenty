@@ -30,6 +30,11 @@ pending work, and pool destruction drains and joins. Locks protect queue and job
 state; user callbacks and destruction run outside these locks. These helpers
 require compiler certification of owned jobs and exclude pool/future handles
 from worker code, preventing self-join and executor dependency deadlocks.
+Ordered map traverses owned lists or ranges in the runtime, reserves the complete
+output list, and maintains a bounded window of cells. Failure drains submitted
+work and releases partial results and unsubmitted inputs. Generic inline enum
+payloads now use their descriptor's discriminant width, so multi-variant executor
+errors preserve nested error values and recovered environments.
 
 - Exports use the host C calling convention, with fixed-width scalars and pointers.
   Rust collection and enum layouts do not cross this boundary.
@@ -59,8 +64,9 @@ from worker code, preventing self-join and executor dependency deadlocks.
 - Generated code supplies valid typed pointers, initialized fields, bounded type
   descriptors, and ownership transfers. Internal zero slots represent moved or
   uninitialized values; they are never source-level nullable references.
-- Every helper borrows its operands and returns owned managed results, except
-  explicit retain/release operations. Static string literals are immortal.
+- Helpers normally borrow operands and return owned managed results. Consuming
+  channel/executor operations explicitly transfer messages, jobs, or results;
+  retain/release calls adjust ownership directly. Static string literals are immortal.
 - Rust `Vec` owns collection buffers. Shared acyclic type metadata, names, and
   variant/field tables are emitted by the compiler as immutable program data;
   the runtime neither parses nor allocates metadata. Standard sum wrappers

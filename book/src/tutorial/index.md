@@ -40,3 +40,5 @@ show how workers return concrete environments without an extra allocation.
 Then [move jobs into workers](84-move-jobs-to-workers.md),
 [send values between threads](85-send-values-between-threads.md), and
 [handle backpressure and early shutdown](86-handle-channel-backpressure.md).
+For many owned jobs, [reuse a fixed worker pool](87-reuse-workers-with-an-executor.md)
+and [handle executor outcomes](88-handle-executor-outcomes.md).

@@ -79,21 +79,38 @@ pub(crate) fn create(count: usize, capacity: usize) -> Result<*mut Pool, u128> {
     if count == 0 || capacity == 0 {
         return Err(0);
     }
-    let allocate = || -> Result<(*mut Pool, usize), AllocError> {
-        let bytes = count
-            .checked_mul(size_of::<Worker>())
-            .and_then(|n| {
-                capacity
-                    .checked_mul(size_of::<*mut Job>())
-                    .and_then(|m| n.checked_add(m))
-            })
-            .and_then(|n| n.checked_add(15))
-            .ok_or(AllocError::CapacityOverflow)?;
-        let words = bytes / 16;
-        Ok((memory::try_allocate::<Pool, u128>(words)?, words))
-    };
-    let (pointer, words) =
-        allocate().map_err(|e| error_payload(1, aggregates::wrap(0, e as u64)))?;
+    let pointer = allocate_pool(count, capacity)
+        .map_err(|e| error_payload(1, aggregates::wrap(0, e as u64)))?;
+    unsafe {
+        for index in 0..count {
+            let worker = (*pointer).workers.add(index);
+            worker.write(Worker {
+                thread: 0,
+                pool: pointer,
+            });
+            let status = threads::plenty_thread_start(worker.cast(), run_worker);
+            if status != 0 {
+                stop(pointer, index, false);
+                plenty_release(pointer.cast());
+                return Err(error_payload(2, aggregates::wrap(status as u128, 0)));
+            }
+        }
+        Ok(pointer)
+    }
+}
+
+fn allocate_pool(count: usize, capacity: usize) -> Result<*mut Pool, AllocError> {
+    let bytes = count
+        .checked_mul(size_of::<Worker>())
+        .and_then(|n| {
+            capacity
+                .checked_mul(size_of::<*mut Job>())
+                .and_then(|m| n.checked_add(m))
+        })
+        .and_then(|n| n.checked_add(15))
+        .ok_or(AllocError::CapacityOverflow)?;
+    let words = bytes / 16;
+    let pointer = memory::try_allocate::<Pool, u128>(words)?;
     // SAFETY: all flexible-tail pointers derive from the allocation, never from
     // a shared Pool reference. Worker records stay pinned through every join.
     unsafe {
@@ -114,19 +131,6 @@ pub(crate) fn create(count: usize, capacity: usize) -> Result<*mut Pool, u128> {
             writable: Condvar::new(),
             joined: false,
         });
-        for index in 0..count {
-            let worker = workers.add(index);
-            worker.write(Worker {
-                thread: 0,
-                pool: pointer,
-            });
-            let status = threads::plenty_thread_start(worker.cast(), run_worker);
-            if status != 0 {
-                stop(pointer, index, false);
-                plenty_release(pointer.cast());
-                return Err(error_payload(2, aggregates::wrap(status as u128, 0)));
-            }
-        }
         Ok(pointer)
     }
 }
@@ -294,23 +298,44 @@ pub(crate) unsafe fn done(job: *mut Job) -> bool {
     }
 }
 
-/// Transfer the result into caller-owned storage. The affine public handle is
-/// consumed by the generated caller after this call. No allocation is required.
-pub(crate) unsafe fn result(job: *mut Job, out: *mut u128) {
+pub(crate) unsafe fn map_window(pool: *mut Pool) -> Result<usize, ()> {
+    unsafe {
+        if lock(&(*pool).queue).closed {
+            Err(())
+        } else {
+            Ok((*pool).count + (*pool).capacity)
+        }
+    }
+}
+
+/// The returned payload stays pinned until the caller releases its job count.
+pub(crate) unsafe fn take_result(job: *mut Job) -> Option<u128> {
     unsafe {
         let mut phase = lock(&(*job).phase);
         while matches!(*phase, Phase::Pending | Phase::Running) {
             phase = wait(&(*job).completed, phase);
         }
         match *phase {
-            Phase::Cancelled => out.write(aggregates::wrap(0, 1)),
+            Phase::Cancelled => None,
             Phase::Ready => {
-                let value = (*job).data.add((*job).input.slot_words()).read();
-                let value = ranges::copy_payload(value, (*job).output, out.add(1).cast());
-                out.write(aggregates::wrap(value, 0));
                 *phase = Phase::Taken;
+                Some((*job).data.add((*job).input.slot_words()).read())
             }
             _ => crate::fail("executor result consumed twice"),
+        }
+    }
+}
+
+/// Transfer the result into caller-owned storage. The affine public handle is
+/// consumed by the generated caller after this call. No allocation is required.
+pub(crate) unsafe fn result(job: *mut Job, out: *mut u128) {
+    unsafe {
+        match take_result(job) {
+            None => out.write(aggregates::wrap(0, 1)),
+            Some(value) => {
+                let value = ranges::copy_payload(value, (*job).output, out.add(1).cast());
+                out.write(aggregates::wrap(value, 0));
+            }
         }
     }
 }
@@ -373,6 +398,18 @@ pub(crate) unsafe extern "C" fn plenty_executor(
             6 => {
                 shutdown(*args as *mut Pool, *args.add(1) != 0);
                 out.write(0);
+            }
+            7 => {
+                let entry: Entry = std::mem::transmute(*args.add(2) as usize);
+                let input = &*(*args.add(3) as *const Type);
+                let output = (*descriptor).variants[0].fields[0];
+                out.write(aggregates::executor_map::run(
+                    *args as *mut Pool,
+                    *args.add(1),
+                    input,
+                    entry,
+                    output,
+                ));
             }
             _ => crate::fail("invalid executor operation"),
         }

@@ -52,3 +52,8 @@ exit obligations to join workers before reclaiming their borrowed storage.
 Entry lends a shared endpoint reference, and exit drops the scoped handle. Put
 a receiver guard after its producer task manager to disconnect on early exit
 before joining a worker that may be waiting for queue space.
+
+[Thread-pool executors](36-thread-pool-executors.md) are owned managers whose entry
+lends a shared executor reference. Dropping the scoped executor drains accepted
+jobs and joins all workers. Futures may escape because their jobs own their
+inputs and retain completed results independently of the executor.

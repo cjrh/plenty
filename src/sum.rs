@@ -27,6 +27,9 @@ impl Hash for EnumType {
     }
 }
 impl crate::nominal::Nominal<EnumType> {
+    pub fn tag_bits(&self) -> u32 {
+        self.get().variants.len().next_power_of_two().ilog2().max(1)
+    }
     pub fn tuple(&self) -> bool {
         self.name.starts_with("tuple[")
     }
@@ -34,6 +37,7 @@ impl crate::nominal::Nominal<EnumType> {
         self.propagatable()
             || self.name.starts_with("SpawnError[")
             || self.name.starts_with("SendError[")
+            || self.name.starts_with("SubmitError[")
             || matches!(
                 self.name.as_str(),
                 "AllocError"
@@ -46,6 +50,9 @@ impl crate::nominal::Nominal<EnumType> {
                     | "ThreadError"
                     | "ChannelError"
                     | "RecvError"
+                    | "PoolError"
+                    | "FutureError"
+                    | "PoolMapError"
             )
     }
     pub fn propagatable(&self) -> bool {
@@ -166,6 +173,69 @@ pub fn recv_error() -> Ty {
     ty.name = "RecvError".into();
     ty.variants[0].name = "Empty".into();
     ty.variants[1].name = "Disconnected".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn pool_error() -> Ty {
+    let Ty::Enum(template) = result(Ty::Unit, alloc_error()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = "PoolError".into();
+    ty.variants = vec![
+        Variant {
+            name: "InvalidSize".into(),
+            fields: vec![],
+        },
+        Variant {
+            name: "Allocation".into(),
+            fields: vec![alloc_error()],
+        },
+        Variant {
+            name: "Thread".into(),
+            fields: vec![thread_error()],
+        },
+    ];
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn submit_error(job: Ty) -> Ty {
+    let Ty::Enum(template) = spawn_error(job.clone()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = format!("SubmitError[{job}]");
+    ty.variants = ["Full", "Shutdown", "OutOfMemory", "CapacityOverflow"]
+        .into_iter()
+        .map(|name| Variant {
+            name: name.into(),
+            fields: vec![job.clone()],
+        })
+        .collect();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn future_error() -> Ty {
+    let Ty::Enum(template) = failure() else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = "FutureError".into();
+    ty.variants[0].name = "Cancelled".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+pub fn pool_map_error() -> Ty {
+    let Ty::Enum(template) = result(alloc_error(), Ty::Unit) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = "PoolMapError".into();
+    ty.variants[0].name = "Allocation".into();
+    ty.variants[1] = Variant {
+        name: "Shutdown".into(),
+        fields: vec![],
+    };
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 

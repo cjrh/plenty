@@ -17,6 +17,7 @@ mod collections;
 mod contexts;
 mod data;
 mod enums;
+mod executors;
 mod files;
 mod foreign;
 mod generators;
@@ -481,6 +482,18 @@ impl TypeRef {
             }
             return Ok(Some(crate::generator::ty(element, None)));
         }
+        if name == "Future" {
+            if self.args.len() != 1 {
+                return Err(self.at.error("Future requires one result type"));
+            }
+            let output = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
+            if !output.heap_storable() {
+                return Err(self
+                    .at
+                    .error("future results require a concrete wholly owned type"));
+            }
+            return Ok(Some(Ty::Future(Rc::new(output))));
+        }
         if matches!(name.as_str(), "Sender" | "Receiver") {
             if self.args.len() != 1 {
                 return Err(self.at.error(format!("{name} requires one message type")));
@@ -495,7 +508,7 @@ impl TypeRef {
         }
         if matches!(
             name.as_str(),
-            "Option" | "Result" | "SpawnError" | "SendError"
+            "Option" | "Result" | "SpawnError" | "SendError" | "SubmitError"
         ) {
             let count = if name == "Result" { 2 } else { 1 };
             if self.args.len() != count {
@@ -524,6 +537,8 @@ impl TypeRef {
                 crate::sum::spawn_error(args[0].clone())
             } else if name == "SendError" {
                 crate::sum::send_error(args[0].clone())
+            } else if name == "SubmitError" {
+                crate::sum::submit_error(args[0].clone())
             } else {
                 crate::sum::result(args[0].clone(), args[1].clone())
             }));
@@ -1316,7 +1331,14 @@ impl Parser {
             Kind::Word(s) if !reserved(s) && !s.starts_with("__plenty_") => {
                 if matches!(
                     s.as_str(),
-                    "Option" | "Result" | "SpawnError" | "SendError" | "Sender" | "Receiver"
+                    "Option"
+                        | "Result"
+                        | "SpawnError"
+                        | "SendError"
+                        | "SubmitError"
+                        | "Sender"
+                        | "Receiver"
+                        | "Future"
                 ) && self.peek().is("[")
                 {
                     self.pos -= 1;
@@ -1508,6 +1530,10 @@ fn named_type(name: &str) -> Type {
         "ThreadError" => crate::sum::thread_error(),
         "ChannelError" => crate::sum::channel_error(),
         "RecvError" => crate::sum::recv_error(),
+        "PoolError" => crate::sum::pool_error(),
+        "FutureError" => crate::sum::future_error(),
+        "PoolMapError" => crate::sum::pool_map_error(),
+        "ThreadPoolExecutor" => Ty::Executor,
         _ => return None,
     })
 }
@@ -1524,6 +1550,8 @@ pub(crate) fn builtin(name: &str) -> bool {
             name,
             "print"
                 | "spawn"
+                | "Future"
+                | "SubmitError"
                 | "open"
                 | "write_stdout"
                 | "write_stderr"
@@ -2117,9 +2145,9 @@ impl Lower<'_> {
                         .at
                         .error("values containing closures do not support membership equality"));
                 }
-                if element.facts().channel {
+                if element.facts().concurrent_handle {
                     return Err(e.at.error(
-                        "values containing channel endpoints do not support membership equality",
+                        "values containing channel endpoints, executors, or futures do not support membership equality",
                     ));
                 }
                 self.same(
@@ -2171,10 +2199,10 @@ impl Lower<'_> {
                         .at
                         .error("values containing closures do not support equality"));
                 }
-                if matches!(op.as_str(), "==" | "!=") && a.facts().channel {
+                if matches!(op.as_str(), "==" | "!=") && a.facts().concurrent_handle {
                     return Err(e
                         .at
-                        .error("values containing channel endpoints do not support equality"));
+                        .error("values containing channel endpoints, executors, or futures do not support equality"));
                 }
                 if matches!(op.as_str(), "==" | "!=") && a.recursive_data() {
                     return Err(e.at.error("automatic equality is not supported for recursive data; compare fields explicitly"));
@@ -2249,6 +2277,9 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if name == "ThreadPoolExecutor" {
+                    return self.executor_new(args, &e.at, ops);
+                }
                 if name == "spawn" {
                     return Err(e.at.error("spawn is a scoped operation; use with spawn(worker, arguments...)? as task:"));
                 }

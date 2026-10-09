@@ -134,6 +134,8 @@
 - [Move jobs to workers](tutorial/84-move-jobs-to-workers.md)
 - [Send values between threads](tutorial/85-send-values-between-threads.md)
 - [Handle channel backpressure](tutorial/86-handle-channel-backpressure.md)
+- [Reuse workers with an executor](tutorial/87-reuse-workers-with-an-executor.md)
+- [Handle executor outcomes](tutorial/88-handle-executor-outcomes.md)
 
 # Reference
 
@@ -191,6 +193,8 @@
 - [Scoped native threads](design/32-scoped-native-threads.md)
 - [Consuming thread jobs](design/34-consuming-thread-jobs.md)
 - [Bounded channels](design/35-bounded-channels.md)
+- [Thread-pool executors](design/36-thread-pool-executors.md)
+    - [Executor ownership, errors, and shutdown](design/36-thread-pool-executors/01-ownership-and-shutdown.md)
 - [Native runtime](runtime.md)
 
 # Proposals

@@ -60,11 +60,11 @@ variants, support single-origin returns, and allocate nothing, including nested
 See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
 [implemented contract](design/31-borrowed-enum-matching.md).
 
-**Next: B22, a Python-style thread-pool executor**, building on completed consuming
-job submission and positive-capacity bounded channels. Channels preserve failed
-messages, allocate only during construction, support explicit endpoint sharing,
-and use endpoint context guards for shutdown before joining workers. Broader
-stored-reference work remains under B11.
+**Next: B22, explicit parallel operations**, building on the completed
+[thread-pool executor](design/36-thread-pool-executors.md). Fixed workers,
+bounded owned submission, recoverable jobs, affine futures, pending cancellation,
+ordered list/range mapping, and context-managed drain/join are implemented.
+Broader stored-reference work remains under B11.
 Automatic deep recursive
 copy, equality, and formatting remain explicitly gated and are tracked by B33.
 
@@ -111,11 +111,13 @@ reachable worker/destructor effect checks, and atomic ownership are implemented.
 Jobs may borrow owners or consume a concrete owned closure; failed consuming
 starts return the unstarted job without allocation. Results transfer at join.
 Positive-capacity MPMC channels are implemented with recoverable construction,
-blocking/nowait transfer, failed-send ownership, and endpoint guards. The next
-slice is a Python-style thread-pool executor with submission, result retrieval,
-ordered mapping, and context-managed shutdown. Richer certified effects and
-eligible types, zero-capacity rendezvous, timed waits, and channel selection remain
-separate extensions.
+blocking/nowait transfer, failed-send ownership, and endpoint guards. The initial
+Python-style executor now supports bounded submission, result retrieval, eager
+ordered list/range mapping, pending cancellation, and context-managed shutdown.
+Build explicit Rayon-style parallel operations next: specify fallible mapping's
+error order and reduction reassociation. Broader iterator/closure mapping,
+streaming results, richer certified effects/types, cooperative cancellation tokens,
+zero-capacity rendezvous, timed waits, and channel selection remain extensions.
 Thread/task creation and queue allocation must report failures; specify bounded
 queues/backpressure, failed-send ownership, joining on every exit, cooperative
 cancellation, and partial-result cleanup. Executor result handles do not require

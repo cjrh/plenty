@@ -63,6 +63,9 @@ impl Lower<'_> {
                     .map(|sig| Ty::Callable(Rc::new(CallableSig::from_function(sig))))
             }),
             Expression::Call(name, _) => {
+                if name == "ThreadPoolExecutor" {
+                    return Some(crate::executor::ExecutorOp::New.signature().1);
+                }
                 if let Some(local) = self.names.get(name) {
                     output(&local.ty)
                 } else {
@@ -87,6 +90,17 @@ impl Lower<'_> {
                 )
             }
             Expression::Method(base, name, _) => {
+                if let Some(Ty::Future(t)) = self.place_type(base) {
+                    return match name.as_str() {
+                        "result" => Some(
+                            crate::executor::ExecutorOp::Result((*t).clone())
+                                .signature()
+                                .1,
+                        ),
+                        "done" | "cancel" => Some(Ty::Bool),
+                        _ => None,
+                    };
+                }
                 if let Some(ty @ Ty::Channel(_, _)) = self.place_type(base) {
                     if name == "share" {
                         return Some(ty);

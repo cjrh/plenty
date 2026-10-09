@@ -14,7 +14,7 @@ pub struct Facts {
     pub depth: usize,
     pub reflexive: bool,
     pub closure: bool,
-    pub channel: bool,
+    pub concurrent_handle: bool,
 }
 
 impl Ty {
@@ -34,6 +34,8 @@ impl Ty {
                     | Self::Closure(_)
                     | Self::Task(_)
                     | Self::Channel(..)
+                    | Self::Executor
+                    | Self::Future(_)
             );
             return Facts {
                 affine: resource,
@@ -42,7 +44,10 @@ impl Ty {
                 complete: true,
                 reflexive: !self.is_float(),
                 closure: matches!(self, Self::Closure(_)),
-                channel: matches!(self, Self::Channel(..)),
+                concurrent_handle: matches!(
+                    self,
+                    Self::Channel(..) | Self::Executor | Self::Future(_)
+                ),
                 ..Facts::default()
             };
         }
@@ -69,7 +74,10 @@ impl Ty {
         let mut i = 0;
         while i < nodes.len() {
             facts.closure |= matches!(nodes[i], Self::Closure(_));
-            facts.channel |= matches!(nodes[i], Self::Channel(..));
+            facts.concurrent_handle |= matches!(
+                nodes[i],
+                Self::Channel(..) | Self::Executor | Self::Future(_)
+            );
             facts.reflexive &= !nodes[i].is_float();
             let weight = match &nodes[i] {
                 Self::Enum(t) => t.try_get().map_or(0, |definition| {
@@ -118,7 +126,12 @@ impl Ty {
                     facts.affine = true;
                     vec![(**k).clone(), (**v).clone()]
                 }
-                Self::File | Self::Closure(_) | Self::Generator(_) | Self::Channel(..) => {
+                Self::File
+                | Self::Closure(_)
+                | Self::Generator(_)
+                | Self::Channel(..)
+                | Self::Executor
+                | Self::Future(_) => {
                     facts.affine = true;
                     facts.copyable = false;
                     facts.destructor = true;

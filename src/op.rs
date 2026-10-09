@@ -24,6 +24,8 @@ pub enum Ty {
     Task(Rc<crate::threading::Task>),
     /// Shared channel core, with affine sender (true) or receiver (false) handles.
     Channel(Rc<Ty>, bool),
+    Executor,
+    Future(Rc<Ty>),
     Closure(Rc<crate::closure::ClosureType>),
     Callable(Rc<CallableSig>),
     I8,
@@ -84,7 +86,9 @@ impl Ty {
                     .max()
                     .unwrap_or(0)
             }
-            Self::List(t) | Self::Set(t) | Self::Channel(t, _) => 1 + t.layout_depth(),
+            Self::List(t) | Self::Set(t) | Self::Channel(t, _) | Self::Future(t) => {
+                1 + t.layout_depth()
+            }
             Self::Generator(t) => 1 + t.element.layout_depth(),
             Self::Dict(k, v) => 1 + k.layout_depth().max(v.layout_depth()),
             Self::Enum(_) | Self::Class(_) => self.facts().depth,
@@ -97,6 +101,8 @@ impl Ty {
             Self::List(_)
                 | Self::Task(_)
                 | Self::Channel(..)
+                | Self::Executor
+                | Self::Future(_)
                 | Self::Closure(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
@@ -178,6 +184,8 @@ impl Ty {
                 | Self::Closure(_)
                 | Self::File
                 | Self::Channel(..)
+                | Self::Executor
+                | Self::Future(_)
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
@@ -218,6 +226,8 @@ impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Ty::Task(_) => "scoped task",
+            Ty::Executor => "ThreadPoolExecutor",
+            Ty::Future(t) => return write!(f, "Future[{t}]"),
             Ty::Channel(t, sender) => {
                 return write!(f, "{}[{t}]", if *sender { "Sender" } else { "Receiver" })
             }
@@ -349,6 +359,7 @@ impl fmt::Display for CallableSig {
 pub enum Op {
     Thread(crate::threading::ThreadOp),
     Channel(crate::channel::ChannelOp),
+    Executor(crate::executor::ExecutorOp),
     ClosureNew(Rc<crate::closure::ClosureType>),
     ClosureCall(Rc<crate::closure::ClosureType>),
     FunctionAddress(String, Rc<CallableSig>),
@@ -1239,6 +1250,15 @@ fn step(
     yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     match op {
+        Op::Executor(operation) => {
+            let (inputs, output) = operation.signature();
+            for ty in inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(ty) {
+                    return Err("invalid executor argument".into());
+                }
+            }
+            stack.push(output);
+        }
         Op::Channel(operation) => {
             let (inputs, output) = operation.signature();
             for ty in inputs.iter().rev() {

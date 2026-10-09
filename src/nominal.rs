@@ -198,6 +198,7 @@ impl Ty {
             Self::Enum(t) => Self::Enum(t.weaken()),
             Self::List(t) => Self::List(Rc::new(t.weaken())),
             Self::Channel(t, sender) => Self::Channel(Rc::new(t.weaken()), *sender),
+            Self::Future(t) => Self::Future(Rc::new(t.weaken())),
             Self::Set(t) => Self::Set(Rc::new(t.weaken())),
             Self::Dict(k, v) => Self::Dict(Rc::new(k.weaken()), Rc::new(v.weaken())),
             Self::Ref(t, m) => Self::Ref(Rc::new(t.weaken()), *m),
@@ -215,6 +216,7 @@ impl Clone for Ty {
         match self {
             Self::Task(t) => Self::Task(t.clone()),
             Self::Channel(t, sender) => Self::Channel(Rc::new((**t).clone()), *sender),
+            Self::Future(t) => Self::Future(Rc::new((**t).clone())),
             Self::Class(t) => Self::Class(t.clone()),
             Self::Enum(t) => Self::Enum(t.clone()),
             Self::List(t) => Self::List(Rc::new((**t).clone())),
@@ -240,6 +242,7 @@ impl Clone for Ty {
             Self::Str => Self::Str,
             Self::File => Self::File,
             Self::Bool => Self::Bool,
+            Self::Executor => Self::Executor,
         }
     }
 }

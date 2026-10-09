@@ -6,6 +6,8 @@ use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
 use std::io::Write;
 
+pub(crate) mod executor_map;
+
 #[repr(C)]
 pub(crate) struct Variant {
     pub(crate) name: &'static str,
@@ -52,7 +54,17 @@ impl Type {
     fn payload(&self, value: u128) -> Option<&Type> {
         self.variants[self.tag(value)].fields.first().copied()
     }
+    fn tag_bits(&self) -> u32 {
+        self.variants.len().next_power_of_two().ilog2().max(1)
+    }
+    pub(crate) fn unpack(&self, value: u128) -> u128 {
+        (value & u64::MAX as u128) | ((value >> (64 + self.tag_bits())) << 64)
+    }
+    fn pack(&self, value: u128, tag: usize) -> u128 {
+        (value & u64::MAX as u128) | ((((value >> 64) << self.tag_bits()) | tag as u128) << 64)
+    }
 }
+#[cfg(test)]
 pub(crate) fn payload(value: u128) -> u128 {
     (value & u64::MAX as u128) | ((value >> 65) << 64)
 }
@@ -93,7 +105,7 @@ pub(crate) unsafe fn retain(value: u128, ty: &Type) {
     } else if ty.kind == b'B' {
         if let Some(t) = ty.payload(value) {
             unsafe {
-                retain(payload(value), t);
+                retain(ty.unpack(value), t);
             }
         }
     } else if ty.managed() {
@@ -110,7 +122,7 @@ pub(crate) unsafe fn release(value: u128, ty: &Type) {
     } else if ty.kind == b'B' {
         if let Some(t) = ty.payload(value) {
             unsafe {
-                release(payload(value), t);
+                release(ty.unpack(value), t);
             }
         }
     } else if ty.kind == b'G' && ty.inline_bytes != 0 {
@@ -523,7 +535,7 @@ unsafe fn equal_inner(
                     return false;
                 }
                 ty.payload(a)
-                    .is_none_or(|t| equal_inner(payload(a), payload(b), t, seen, cursor))
+                    .is_none_or(|t| equal_inner(ty.unpack(a), ty.unpack(b), t, seen, cursor))
             }
             b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
             b'd' => f64::from_bits(a as u64) == f64::from_bits(b as u64),
@@ -803,10 +815,7 @@ unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
         }
         match ty.kind {
             b'B' => match ty.payload(value) {
-                Some(t) => Ok(wrap(
-                    try_copy(payload(value), t)?,
-                    ((value >> 64) & 1) as u64,
-                )),
+                Some(t) => Ok(ty.pack(try_copy(ty.unpack(value), t)?, ty.tag(value))),
                 None => Ok(value),
             },
             b'C' | b'E' => {
@@ -879,7 +888,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                 out.extend_from_slice(variant.name.as_bytes());
                 if let Some(t) = ty.payload(value) {
                     out.push(b'(');
-                    render(payload(value), t, out);
+                    render(ty.unpack(value), t, out);
                     out.push(b')');
                 }
             }

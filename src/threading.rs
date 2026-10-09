@@ -70,6 +70,16 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
             types.push(output);
             roots.push(("channel message".into(), vec![], types));
         }
+        if let Op::Executor(
+            crate::executor::ExecutorOp::Submit(job, _) | crate::executor::ExecutorOp::Map(job, _),
+        ) = op
+        {
+            roots.push((
+                format!("executor worker `{}`", job.worker),
+                vec![job.worker.clone()],
+                vec![job.input.clone(), job.output.clone()],
+            ));
+        }
     });
     let mut checked = HashSet::new();
     let mut checked_receivers = HashSet::new();
@@ -108,6 +118,9 @@ fn check_type(
     functions: &mut Vec<String>,
 ) -> Result<(), String> {
     match ty {
+        Ty::Executor | Ty::Future(_) => {
+            return Err("executor and future handles cannot enter worker threads; wait and submit on the owning thread".into())
+        }
         Ty::Channel(message, false)
             if checked_receivers.insert(ty.to_string()) && receiver_cycle(message, ty) =>
         {
@@ -214,6 +227,11 @@ fn inspect(
             types.push(output);
         }
         Op::Channel(op) => {
+            let (inputs, output) = op.signature();
+            types.extend(inputs);
+            types.push(output);
+        }
+        Op::Executor(op) => {
             let (inputs, output) = op.signature();
             types.extend(inputs);
             types.push(output);

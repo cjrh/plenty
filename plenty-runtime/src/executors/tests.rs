@@ -162,3 +162,87 @@ fn cell_moves_inline_result_before_releasing_storage() {
         assert_eq!(output[0], output.as_ptr().add(1) as u128);
     }
 }
+
+#[test]
+fn ring_and_cells_synchronize_competing_workers() {
+    // Rust-owned native test threads also work in Miri. They run the very same
+    // scheduler entry as pthread workers; only startup/join differ.
+    let pool = allocate_pool(2, 1).unwrap();
+    unsafe {
+        for i in 0..2 {
+            (*pool).workers.add(i).write(Worker { thread: 0, pool });
+        }
+        let address = pool.expose_provenance();
+        std::thread::scope(|scope| {
+            for i in 0..2 {
+                scope.spawn(move || {
+                    let pool = std::ptr::with_exposed_provenance_mut::<Pool>(address);
+                    run_worker((*pool).workers.add(i).cast());
+                });
+            }
+            let mut jobs = Vec::new();
+            for n in 0..24 {
+                let job = submit(pool, n, &NUMBER, &NUMBER, square, false).unwrap();
+                if n % 3 == 0 {
+                    plenty_release(job.cast());
+                } else {
+                    jobs.push((n, job));
+                }
+            }
+            for (n, job) in jobs {
+                let mut out = 0;
+                result(job, &mut out);
+                assert_eq!(out, n * n);
+                plenty_release(job.cast());
+            }
+            lock(&(*pool).queue).closed = true;
+            (*pool).readable.notify_all();
+        });
+        (*pool).joined = true;
+        plenty_release(pool.cast());
+    }
+}
+
+#[test]
+#[cfg(not(miri))]
+fn cancel_shutdown_skips_queued_jobs_but_waits_for_running_work() {
+    let gate = Gate {
+        started: AtomicBool::new(false),
+        open: AtomicBool::new(false),
+    };
+    unsafe {
+        let pool = create(1, 1).unwrap();
+        let first = submit(
+            pool,
+            &gate as *const Gate as u128,
+            &NUMBER,
+            &NUMBER,
+            gated,
+            false,
+        )
+        .unwrap();
+        while !gate.started.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        let queued = submit(pool, 7, &NUMBER, &NUMBER, square, false).unwrap();
+        let queue_address = std::ptr::addr_of!((*pool).queue).expose_provenance();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let queue = &*std::ptr::with_exposed_provenance::<Mutex<Queue>>(queue_address);
+                while !lock(queue).closed {
+                    std::thread::yield_now();
+                }
+                gate.open.store(true, Ordering::Release);
+            });
+            shutdown(pool, true);
+        });
+        let mut out = 0;
+        result(first, &mut out);
+        assert_eq!(out, 42);
+        result(queued, &mut out);
+        assert_eq!(out, aggregates::wrap(0, 1));
+        plenty_release(first.cast());
+        plenty_release(queued.cast());
+        plenty_release(pool.cast());
+    }
+}

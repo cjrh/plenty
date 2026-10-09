@@ -109,6 +109,8 @@ impl Ty {
                     | Self::Generator(_)
                     | Self::File
                     | Self::Channel(..)
+                    | Self::Executor
+                    | Self::Future(_)
             )
     }
     pub fn is_collection(&self) -> bool {

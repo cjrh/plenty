@@ -1,5 +1,5 @@
 //! Inline range payloads, including ranges nested in standard sum wrappers.
-use crate::aggregates::{payload, Type};
+use crate::aggregates::Type;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -82,7 +82,7 @@ impl Type {
             b'B' => self.variants[self.tag(value)]
                 .fields
                 .first()
-                .and_then(|t| t.active_payload(payload(value))),
+                .and_then(|t| t.active_payload(self.unpack(value))),
             _ => None,
         }
     }

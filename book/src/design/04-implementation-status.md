@@ -8,7 +8,7 @@ control flow, collections, classes, sum types, generators, ownership, and automa
 cleanup are implemented. It is still an early language implementation, with a
 small built-in library and important limits on borrowing. Basic console, argument,
 numeric text, and whole-file APIs now work. Important remaining gaps include
-channels and executors, broader borrowing, and public allocator control. An implemented row below describes the
+broader borrowing, richer worker effects, and public allocator control. An implemented row below describes the
 supported subset, not Python's full API or Rust's full ownership system.
 
 | Area | Status on this branch |
@@ -83,7 +83,8 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Custom allocators and allocator provenance | Object allocations retain internal allocator identity; container buffers still use the global allocator. Public allocator selection and allocator lifetimes are not supported |
 | Scoped native threads | `with spawn(...)?`, checked shared/exclusive borrows, consuming owned jobs with recoverable SpawnError, worker effect/destructor checks, one-use result joins, automatic joining on every normal exit, and borrowed-start ThreadError; [reference](32-scoped-native-threads.md) |
 | Bounded channels | Positive-capacity MPMC queues, explicit endpoint sharing, blocking/nowait transfer, recoverable construction and unsent messages, allocation-free operations, and endpoint context managers for ordered shutdown; [reference](35-bounded-channels.md) |
-| Channels, executors, parallel loops, SIMD | Not implemented |
+| Thread-pool executors | Bounded fixed worker pools, owned named/closure submission, recoverable jobs, affine futures, pending cancellation, eager ordered map over lists/ranges, and automatic drain/join; [reference](36-thread-pool-executors.md) |
+| Parallel loops and SIMD | Not implemented; executor mapping is explicit |
 | Tutorial sources | mdBook Markdown examples run directly in tests; standalone literate sources and generated lessons are not implemented |
 | Async/await | Out of scope |
 

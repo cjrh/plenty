@@ -39,7 +39,7 @@ impl Lower<'_> {
             Ty::Ref(inner, true) if loan.is_some() => (**inner).clone(),
             ty => ty.clone(),
         };
-        if matches!(ty, Ty::Channel(..)) {
+        if matches!(ty, Ty::Channel(..) | Ty::Executor) {
             // An owned endpoint guard drops its handle in lexical cleanup order.
             // Placing it after a task manager disconnects its peers before join.
             let slot = self.slot(ty.clone(), &manager.at)?;

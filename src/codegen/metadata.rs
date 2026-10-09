@@ -63,6 +63,8 @@ fn define_type(
         Ty::Callable(_) | Ty::Task(_) => b'c',
         Ty::Channel(_, true) => b'X',
         Ty::Channel(_, false) => b'Y',
+        Ty::Executor => b'P',
+        Ty::Future(_) => b'Z',
         Ty::Closure(_) => b'H',
         Ty::I16 => b'2',
         Ty::I32 => b'3',
@@ -98,7 +100,7 @@ fn define_type(
     bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());
     let mut links = Vec::new();
     match ty {
-        Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Channel(t, _) => {
+        Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Channel(t, _) | Ty::Future(t) => {
             links.push((8, reserve(module, runtime, t, pending)?))
         }
         Ty::Dict(k, v) => {

@@ -118,7 +118,7 @@ impl Lowerer<'_, '_> {
                 }
                 EnumOp::FieldRef(_, tag, field, _) => {
                     if t.inline() {
-                        let one = self.bcx.ins().iconst(types::I64, 1);
+                        let one = self.bcx.ins().iconst(types::I64, t.tag_bits() as i64);
                         let one = self.bcx.ins().uextend(types::I128, one);
                         let step = self.bcx.ins().ishl_imm(one, 64);
                         self.bcx.ins().iadd(reference, step)
@@ -172,7 +172,7 @@ impl Lowerer<'_, '_> {
                         let zero = self.bcx.ins().iconst(types::I64, 0);
                         self.bcx.ins().uextend(types::I128, zero)
                     };
-                    let value = self.wrap_sum(payload, *tag);
+                    let value = self.wrap_tagged(payload, *tag, t.tag_bits());
                     if matches!(op, EnumOp::TryNew(..)) {
                         self.wrap_sum(value, 0)
                     } else {
@@ -192,7 +192,7 @@ impl Lowerer<'_, '_> {
                     // Single-payload inline projection transfers this operand's
                     // ownership. Any remaining source binding owns its own retain.
                     let (value, _) = self.pop_typed(inputs[0].clone())?;
-                    self.sum_payload(value)
+                    self.tagged_payload(value, t.tag_bits())
                 }
                 EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
             };
@@ -322,9 +322,16 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().band_imm(tags, 1)
     }
     fn sum_payload(&mut self, value: cranelift_codegen::ir::Value) -> cranelift_codegen::ir::Value {
+        self.tagged_payload(value, 1)
+    }
+    fn tagged_payload(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+        bits: u32,
+    ) -> cranelift_codegen::ir::Value {
         let word = self.raw_word(value);
         let word = self.bcx.ins().uextend(types::I128, word);
-        let tags = self.bcx.ins().ushr_imm(value, 65);
+        let tags = self.bcx.ins().ushr_imm(value, 64 + bits as i64);
         let tags = self.bcx.ins().ishl_imm(tags, 64);
         self.bcx.ins().bor(word, tags)
     }
@@ -333,10 +340,18 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
         tag: usize,
     ) -> cranelift_codegen::ir::Value {
+        self.wrap_tagged(value, tag, 1)
+    }
+    fn wrap_tagged(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+        tag: usize,
+        bits: u32,
+    ) -> cranelift_codegen::ir::Value {
         let word = self.raw_word(value);
         let word = self.bcx.ins().uextend(types::I128, word);
         let tags = self.bcx.ins().ushr_imm(value, 64);
-        let tags = self.bcx.ins().ishl_imm(tags, 1);
+        let tags = self.bcx.ins().ishl_imm(tags, bits as i64);
         let tags = self.bcx.ins().bor_imm(tags, tag as i64);
         let tags = self.bcx.ins().ishl_imm(tags, 64);
         self.bcx.ins().bor(word, tags)

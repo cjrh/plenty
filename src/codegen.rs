@@ -65,6 +65,7 @@ mod channels;
 mod closures;
 mod collections;
 mod enums;
+mod executors;
 mod exports;
 mod foreign;
 mod generators;
@@ -304,6 +305,14 @@ fn emit_object(
         &runtime,
         &mut module,
     )?;
+    executors::emit_adapters(
+        ops,
+        &user_fns,
+        &str_data,
+        eof_empty_str,
+        &runtime,
+        &mut module,
+    )?;
 
     // Pass 2: emit each user function's body. Bodies can refer to each
     // other (forward references, mutual recursion) because every callee
@@ -379,6 +388,7 @@ struct Runtime {
     type_data: std::cell::RefCell<HashMap<Ty, DataId>>,
     collection: FuncId,
     channel: FuncId,
+    executor: FuncId,
     retain: FuncId,
     release: FuncId,
     generator_init: FuncId,
@@ -450,6 +460,17 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        executor: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([
+                AbiParam::new(types::I64),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+            ]);
+            module.declare_function("plenty_executor", Linkage::Import, &sig)?
+        },
         channel: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
@@ -955,6 +976,8 @@ fn clif_type(ty: Ty) -> types::Type {
         Ty::Str
         | Ty::Task(_)
         | Ty::Channel(..)
+        | Ty::Executor
+        | Ty::Future(_)
         | Ty::Callable(_)
         | Ty::Closure(_)
         | Ty::File
@@ -1149,6 +1172,7 @@ impl Lowerer<'_, '_> {
         match op {
             Op::Thread(operation) => self.lower_thread(operation)?,
             Op::Channel(operation) => self.lower_channel(operation)?,
+            Op::Executor(operation) => self.lower_executor(operation)?,
             Op::Try {
                 source,
                 target,

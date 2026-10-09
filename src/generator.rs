@@ -117,6 +117,14 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
             )?))
         }
         (Ty::Enum(a), Ty::Enum(b))
+            if a.name.starts_with("SubmitError[") && b.name.starts_with("SubmitError[") =>
+        {
+            Some(crate::sum::submit_error(refine(
+                &a.get().variants[0].fields[0],
+                &b.get().variants[0].fields[0],
+            )?))
+        }
+        (Ty::Enum(a), Ty::Enum(b))
             if a.propagatable() && b.propagatable() && !a.is_option() && !b.is_option() =>
         {
             Some(crate::sum::result(
@@ -257,6 +265,11 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 inputs
             }
             Op::Channel(op) => {
+                let (mut inputs, output) = op.signature();
+                inputs.push(output);
+                inputs
+            }
+            Op::Executor(op) => {
                 let (mut inputs, output) = op.signature();
                 inputs.push(output);
                 inputs
