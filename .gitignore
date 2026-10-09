@@ -24,3 +24,7 @@ Cargo.lock
 
 /target
 /book/book
+
+# SQLite WAL files for the issues register
+/issues.db-wal
+/issues.db-shm
