@@ -91,6 +91,88 @@ print(pair[0]()).unwrap()
 }
 
 #[test]
+fn closure_lists_relocate_nested_environments_during_growth_reverse_and_pop() {
+    run(
+        r#"
+def counter(n: i64) -> Closure[[], i64]:
+    span = range(n, n + 3)
+    inner = def [span]() -> i64:
+        span[1]
+    total = 0
+    def [inner, mut total]() -> i64:
+        total = total + 1
+        inner() + total
+mut callbacks = [counter(1)].unwrap()
+for n in range(2, 60):
+    callbacks.append(counter(n)).unwrap()
+callbacks.reverse()
+print(callbacks[0]()).unwrap()
+mut removed = callbacks.pop(0).unwrap()
+print(removed()).unwrap()
+print(callbacks[0]()).unwrap()
+for callback in &mut callbacks:
+    callback()
+print(callbacks[0]()).unwrap()
+more = [counter(100), counter(200)].unwrap()
+callbacks.extend(more).unwrap()
+print(callbacks[-1]()).unwrap()
+"#,
+        "61\n62\n60\n62\n202\n",
+    );
+}
+
+#[test]
+fn closure_comprehensions_and_consuming_iteration_transfer_environments() {
+    run(
+        r#"
+def make(n: i64) -> Closure[[], i64]:
+    def [n]() -> i64:
+        n
+def wrap[F](callback: F) -> Result[list[F], AllocError]:
+    [callback]
+callbacks = [make(n) for n in range(3)].unwrap()
+for callback in callbacks:
+    print(callback()).unwrap()
+owned = wrap(make(8)).unwrap()
+for callback in owned:
+    print(callback()).unwrap()
+"#,
+        "0\n1\n2\n8\n",
+    );
+    for tail in [
+        "callbacks.append(make(3)).unwrap()\nprint(borrowed()).unwrap()",
+        "callbacks.pop(0)\nprint(borrowed()).unwrap()",
+    ] {
+        let source = format!("def make(n: i64) -> Closure[[], i64]:\n    def [n]() -> i64:\n        n\nmut callbacks = [make(1)].unwrap()\nborrowed = &callbacks[0]\n{tail}\n");
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("borrow"), "{error}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn pop_append_and_call_of_inline_list_callbacks_reuse_capacity() {
+    run(r#"
+def make(n: i64) -> Closure[[], i64]:
+    span = range(n, n + 3)
+    def [span]() -> i64:
+        span[1]
+mut callbacks = [make(10), make(20)].unwrap()
+next_callback = make(30)
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+removed = callbacks.pop(0).unwrap()
+callbacks.append(next_callback).unwrap()
+result = removed() + callbacks[0]() + callbacks[1]()
+drop(callbacks)
+drop(removed)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(result).unwrap()
+"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n63\n");
+}
+
+#[test]
 fn generic_record_closure_resources_drop_on_replacement() {
     run(
         r#"

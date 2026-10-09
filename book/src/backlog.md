@@ -80,7 +80,7 @@ The current B32 batch is split into ten reviewable tasks, followed in this order
 2. **Complete:** generalize allocation-free collection extraction to type-sized inline payloads.
 3. **Complete:** store reusable owned environments in generic class fields.
 4. **Complete:** support owned environments in tuple slots and checked disjoint borrows.
-5. Support homogeneous closure lists, including growth and extraction.
+5. **Complete:** support homogeneous closure lists, including growth and extraction.
 6. Support closure dictionary values and replacement/removal cleanup.
 7. Support concrete closure payloads in user enums.
 8. Extend these storage paths to owned consuming closures.

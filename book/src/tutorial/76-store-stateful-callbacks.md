@@ -41,9 +41,9 @@ body retains its ordinary allocation contract.
 `State` can be a class containing owned resources, which drop normally with the
 handler. Different callbacks can coexist when their state and call signatures
 agree. For a finite set of different state shapes, use an enum and handle its
-variants in the named callback. Arbitrary captured closure environments still
-cannot be stored in these collections; this explicit-state pattern does not erase
-their distinct types.
+variants in the named callback. [Owned concrete closures](80-store-owned-closures.md)
+can also be stored when their producer types agree. This explicit-state pattern
+remains useful for selecting among different named callback bodies.
 
 The repository also contains `examples/callback_registry.plenty` as a standalone
 program demonstrating this pattern.

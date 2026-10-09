@@ -24,8 +24,15 @@ mutable callbacks require a mutable, affine tuple owner. Disjoint tuple slots ca
 be borrowed separately. Unpacking transfers the environments into local owners.
 Tuple construction retains its ordinary fallible allocation contract.
 
+Lists can store owned reusable environments from one concrete producer. Literals,
+comprehensions, inferred generic `list[F]` signatures, append/extend, reversal,
+borrowed iteration, consuming iteration, and `pop` preserve inline environments.
+Index calls borrow the collection; a live callback loan prevents resizing or
+removal. Extraction, invocation, and destruction allocate nothing. Appending may
+allocate when capacity is exhausted. Pop followed by append can reuse that slot.
+
 Borrowed captures, unresolved layouts, and generator-containing environments
-cannot enter heap storage. Consuming environments, collection elements,
+cannot enter heap storage. Consuming environments, dictionary values,
 and user enum payloads retain their existing storage restrictions in this subset.
 These rules also apply through inline `Option` and `Result` wrappers.
 

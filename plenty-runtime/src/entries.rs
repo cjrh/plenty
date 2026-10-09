@@ -88,6 +88,10 @@ impl Entries {
         }
     }
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), memory::AllocError> {
+        // Extraction scratch is dead at the next mutation. Discard it before
+        // computing capacity so pop followed by append can reuse the freed row.
+        self.data.truncate(self.len() * self.stride);
+        self.removed = false;
         let words = additional
             .checked_mul(self.stride)
             .ok_or(memory::AllocError::CapacityOverflow)?;
