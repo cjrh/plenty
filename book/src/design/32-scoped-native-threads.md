@@ -28,8 +28,10 @@ Mutable owners enter through `&T` or `&mut T`, or through the captures of a borr
 closure. Copyable immutable arguments use ordinary assignment semantics. By-value
 affine arguments and consuming closure jobs are rejected: this preserves the
 caller's unique job on failed creation. Owned results, including collections and
-recursive records, can transfer back at join. Worker results cannot contain
-references or inline generator/closure frames.
+recursive records and owned concrete closures, can transfer back at join.
+Closure results use the parent's typed task storage; joining does not box the
+environment. Worker results cannot contain references, borrowed environments,
+or generator frames.
 
 Argument loans and closure-capture dependencies last through the end of the
 `with` block, including after an explicit join. Shared readers may coexist;
@@ -44,6 +46,13 @@ graphs terminate through visited identities. Scalars, immutable strings, ranges,
 ordinary collections, classes, and enums are eligible when their contents and
 effects are eligible. Shared storage uses the runtime's atomic reference counts;
 those counts do not permit concurrent mutation.
+
+Stored concrete callbacks retain their eligibility evidence. The checker follows
+their captures, bodies, and destructors through containers and generic records.
+`spawn(&mut callbacks[index])` borrows that collection until scope exit; separate
+tuple slots can be spawned with disjoint loans. Consuming callbacks must first be
+extracted by ordinary owned operations inside an eligible worker; passing a
+one-shot job by value to `spawn` remains unsupported.
 
 Files, foreign pointers/calls, indirect callable effects, and generator frames
 are conservatively excluded from worker code. A capture-free helper or a class

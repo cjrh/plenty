@@ -52,6 +52,10 @@ Borrowed captures, unresolved layouts, and generator-containing environments
 cannot enter heap storage in this subset.
 These rules also apply through inline `Option` and `Result` wrappers.
 
+[Scoped workers](32-scoped-native-threads.md) can borrow stored callbacks and
+transfer owned concrete callback results at join. Eligibility inspects both the
+environment's captures and its body, including hidden destructor effects.
+
 See the [representation decision](../proposals/stored-closures.md) for the costs
 of heterogeneous boxing and bounded erasure, and the
 [runnable lesson](../tutorial/80-store-owned-closures.md) for a concrete record.

@@ -24,6 +24,9 @@ building a named-function registry or using a local closure.
 
 For a registry with per-callback state, [store explicit state beside a named
 function](76-store-stateful-callbacks.md) using an ordinary generic class.
+You can also [store owned closures](80-store-owned-closures.md) directly, build
+[named registries](81-name-stored-callbacks.md), and queue
+[consuming jobs](82-store-consuming-jobs.md).
 
 To inspect enums and recursive chains without consuming them,
 [match borrowed values](78-match-borrowed-values.md).
@@ -32,3 +35,5 @@ ordinary classes, enums, and ownership-driven cleanup.
 
 For parallel work with checked borrows and automatic joining,
 [run scoped threads](79-run-scoped-threads.md).
+[Stored jobs](83-run-stored-jobs.md) compose that model with callback owners and
+show how workers return concrete environments without an extra allocation.

@@ -41,9 +41,10 @@ handoff needs that distinction; an ordinary read-only callback does not.
 A registry of named callbacks needs only a collection of `Callable` values.
 A callback plus explicit state can already be a generic class with ordinary
 methods. Filtering, dispatching, and adapting these callbacks are library code;
-they need no new invocation syntax or builtin registry type. Captured environment
-storage still needs a representation and lifetime contract before library code
-can build a heterogeneous closure registry.
+they need no new invocation syntax or builtin registry type.
+[Concrete owned environments](../design/33-stored-closures.md) now use ordinary
+typed owner slots. Heterogeneous erasure still needs a separate representation and
+lifetime contract before library code can build an arbitrary closure registry.
 
 The teaching path is named function values, then ordinary inferred closures,
 then a reusable generic callback API. Factory annotations, borrowed captures,

@@ -126,7 +126,11 @@ fn inspect(
     let mut error = None;
     walk(&function.body, &mut |op| match op {
         Op::Call(name) | Op::TailCall(name) => calls.push(name.clone()),
-        Op::ClosureCall(t) => calls.push(t.name.clone()),
+        Op::ClosureNew(t) | Op::ClosureCall(t) => {
+            // Concrete environments remain inspectable even when constructed
+            // only as a temporary or returned inside a stored callback owner.
+            types.push(Ty::Closure(t.clone()));
+        }
         Op::ForeignCall { .. } => {
             error = Some("foreign calls have no worker-thread effect contract")
         }

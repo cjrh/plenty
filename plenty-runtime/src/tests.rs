@@ -1960,11 +1960,11 @@ fn extracted_closure_rows_relocate_large_payloads_without_allocating() {
         entries.try_reserve(4).unwrap();
         for i in 0..3 {
             let mut environment = [0u128; 5];
-            environment[0] = &ENV as *const Type as u128;
             let range = Range::new(i, i + 2, 1, false);
             // SAFETY: this buffer has the exact descriptor layout. push moves
             // the environment; the source is not subsequently used or dropped.
             unsafe {
+                environment.as_mut_ptr().cast::<*const Type>().write(&ENV);
                 ranges::store(
                     environment.as_mut_ptr().add(1),
                     &range as *const Range as u128,

@@ -59,22 +59,25 @@ variants, support single-origin returns, and allocate nothing, including nested
 See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
 [implemented contract](design/31-borrowed-enum-matching.md).
 
-**Next: B32, stored stateful callbacks**, following the completed initial B22
-eligibility/scoped-thread slice. Broader stored-reference work remains under B11.
+**Next: B22, ownership-preserving consuming job submission, then bounded channels**,
+following the completed B32 concrete callback storage batch. Broader stored-reference
+work remains under B11.
 Automatic deep recursive
 copy, equality, and formatting remain explicitly gated and are tracked by B33.
 
 Named function values already support basic callback registries: a
 `list[Callable[[i64], i64]]` can hold named functions, including inside a class,
 and `callbacks[index](value)` calls the selected function. These are indirect
-calls with a fixed signature; captured environments are the missing storage
-capability. B32 tracks that extension after B31, with lower urgency because this
-baseline works. See [function values](design/25-function-values.md).
+calls with a fixed signature. Concrete owned environments now also fit in classes,
+tuples, lists, dictionaries, and user enums; see
+[stored closures](design/33-stored-closures.md). Different arbitrary environments
+still cannot be erased behind one callable signature. See also
+[function values](design/25-function-values.md).
 Explicit state beside a named callback also supports stateful registries today;
 the [runnable lesson](tutorial/76-store-stateful-callbacks.md) and native tests
 cover generic state, allocation-free dispatch, and exactly-once resource cleanup.
 
-The current B32 batch is split into ten reviewable tasks, followed in this order:
+The completed B32 batch comprised these ten reviewable tasks:
 
 1. **Complete:** choose the owned concrete storage contract; compare erasure costs.
 2. **Complete:** generalize allocation-free collection extraction to type-sized inline payloads.
@@ -85,11 +88,12 @@ The current B32 batch is split into ten reviewable tasks, followed in this order
 7. **Complete:** support concrete closure payloads in user enums.
 8. **Complete:** extend these storage paths to owned consuming closures (excluding generator captures).
 9. **Complete:** check callable constraints on generic data declarations, including inferred signatures and public visibility (B29).
-10. Integrate stored environments with scoped-thread eligibility and borrowing.
+10. **Complete:** integrate stored environments with scoped-thread eligibility, borrowing, and allocation-free callback result transfer.
 
 The [storage decision](proposals/stored-closures.md) preserves concrete identities
 and ordinary fallible container construction. Heterogeneous erased callbacks and
-escaping borrowed environments remain separate B32/B11 work.
+escaping borrowed environments remain separate B32/B11 work. Generator-containing
+environments remain excluded from heap storage pending layout/lifecycle support.
 
 ### Scope of follow-on work
 
@@ -113,10 +117,10 @@ automatic parallelization remains B24. Prefer library APIs over new syntax, with
 compiler support for ownership checks and runtime support for native threading.
 Scoped generic tasks need not wait for heterogeneous closure storage in B32.
 
-**B32 — stored stateful callbacks.** Following B31's audit, compare storing one known concrete
-environment type in generic containers/classes/enums with storing different
-environments behind one callable signature. The former can use a known layout;
-the latter needs an explicit representation and dispatch contract. Evaluate
+**B32 — broader callback storage.** Owned concrete environments now work in heap
+owners; [the storage decision](proposals/stored-closures.md) records why this adds
+no erased callable type. Remaining heterogeneous environments behind one callable
+signature need an explicit representation and dispatch contract. Evaluate
 fallible owned boxing and bounded inline storage against actual registry/event
 handler needs before adding public types. Specify reusable/consuming invocation,
 move/drop behavior, allocation failure, and capture lifetimes. Begin with owned
@@ -148,7 +152,7 @@ is still open.
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |
 | B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/24-c-interfaces/06-runtime-loading.md). |
 | B29 | Further generic constraints | Callable bounds on data are implemented. Consider protocol bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Preserve explicit lookup and bounded specialization. See [generic data](design/28-generic-data-types.md) and [parameterized protocols](design/29-parameterized-protocols.md). |
-| B32 | Stored stateful callbacks | Named functions paired with explicit state already support registries. Following the completed B31 audit, design captured-environment storage, separating homogeneous concrete layouts from heterogeneous dispatch. Borrowed storage depends on B11; concurrency eligibility is B22. See scope above. |
+| B32 | Broader callback storage | Owned concrete reusable/consuming environments and their worker eligibility are implemented. Remaining: heterogeneous erased environments and generator-containing environments in heap owners. Escaping borrowed storage depends on B11. See scope above. |
 | B33 | Deep operations on recursive values | Recursive source storage is implemented under B10. Replace native recursive copy/format traversals with iterative fallible work storage before enabling them; select an explicit bounded-memory contract for structural equality and membership without adding hidden allocation failure. Preserve failure cleanup, shared-string ownership, and float/NaN semantics. [Design rationale](proposals/recursive-data.md). |
 
 ## Reconciled completed work

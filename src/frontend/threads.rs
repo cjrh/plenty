@@ -100,9 +100,9 @@ impl Lower<'_> {
                 ))
             }
         };
-        if output.restricted_storage() || matches!(output, Ty::Task(_)) {
+        if !output.heap_storable() {
             return Err(call.at.error(
-                "worker results cannot contain references, generators, closures, or scoped tasks",
+                "worker results cannot contain references, generators, borrowed/unresolved closures, or scoped tasks",
             ));
         }
         let task = Rc::new(Task {
