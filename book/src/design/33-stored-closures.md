@@ -37,9 +37,13 @@ callback, replacement drops the old environment, and `pop` transfers a value int
 typed rows. Keys remain restricted to the ordinary hashable scalar types; closures
 cannot be keys or set elements. Consuming item iteration transfers value owners.
 
-Borrowed captures, unresolved layouts, and generator-containing environments
-cannot enter heap storage. Consuming environments
-and user enum payloads retain their existing storage restrictions in this subset.
+Generic user enum payloads can hold these concrete environments too. Borrowed
+matching lends a callback in place; consuming matching transfers it to the arm.
+An ordinary enum can enumerate a finite family of different callback shapes,
+without erasing their types. Enum construction is fallible as usual.
+
+Borrowed captures, unresolved layouts, generator-containing environments, and
+consuming environments cannot enter heap storage in this subset.
 These rules also apply through inline `Option` and `Result` wrappers.
 
 See the [representation decision](../proposals/stored-closures.md) for the costs

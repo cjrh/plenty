@@ -180,6 +180,105 @@ for key, callback in small.items():
     );
 }
 
+#[test]
+fn enum_callback_payloads_support_borrowed_invocation_and_owned_extraction() {
+    run(
+        r#"
+enum Job[F]:
+    Run(F)
+    Empty
+def make(n: i64) -> Closure[[], i64]:
+    span = range(n, n + 3)
+    total = 0
+    def [span, mut total]() -> i64:
+        total = total + 1
+        span[1] + total
+def pack[F](callback: F) -> Result[Job[F], AllocError]:
+    Job[F].Run(callback)
+def invoke[F](job: &mut Job[F]) -> i64:
+    match &mut job:
+        case Job[F].Run(callback):
+            callback()
+        case Job[F].Empty:
+            0
+def consume[F](job: Job[F]) -> i64:
+    match job:
+        case Job[F].Run(callback):
+            mut owned = callback
+            owned()
+        case Job[F].Empty:
+            0
+mut job = pack(make(10)).unwrap()
+print(invoke(&mut job)).unwrap()
+print(consume(job)).unwrap()
+"#,
+        "12\n13\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn enum_environment_failure_drops_transferred_resources_once() {
+    run(
+        r#"
+enum Job[F]:
+    Run(F)
+class Guard:
+    id: i64
+    def __del__(self) -> ():
+        write_stdout("drop\n").unwrap()
+        pass
+def pack[F](callback: F) -> Result[Job[F], AllocError]:
+    Job[F].Run(callback)
+guard = Guard(1).unwrap()
+callback = def [guard]() -> i64:
+    guard.id
+print("__test_fail_allocations_after_0__").unwrap()
+match pack(callback):
+    case Ok(job):
+        drop(job)
+    case Err(_):
+        write_stdout("failed\n").unwrap()
+        pass
+print("__test_restore_allocations__").unwrap()
+"#,
+        "__test_fail_allocations_after_0__\ndrop\nfailed\n__test_restore_allocations__\n",
+    );
+}
+
+#[test]
+fn finite_enum_registry_keeps_different_callback_layouts() {
+    run(
+        r#"
+enum Choice[A, B]:
+    Left(A)
+    Right(B)
+def add(n: i64) -> Closure[[], i64]:
+    def [n]() -> i64:
+        n + 1
+def ranged(n: i64) -> Closure[[], i64]:
+    span = range(n, n + 3)
+    def [span]() -> i64:
+        span[2]
+def choose[A, B](a: A, b: B, left: bool) -> Result[Choice[A, B], AllocError]:
+    if left:
+        Choice[A, B].Left(a)
+    else:
+        Choice[A, B].Right(b)
+def invoke[A, B](job: &Choice[A, B]) -> i64:
+    match &job:
+        case Choice[A, B].Left(callback):
+            callback()
+        case Choice[A, B].Right(callback):
+            callback()
+jobs = [choose(add(10), ranged(20), True).unwrap(), choose(add(30), ranged(40), False).unwrap()].unwrap()
+for job in &jobs:
+    print(invoke(job)).unwrap()
+"#,
+        "11\n42\n",
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn dictionary_callback_failure_preserves_members_and_drops_pending_capture() {

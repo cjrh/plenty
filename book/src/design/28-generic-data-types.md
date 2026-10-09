@@ -44,7 +44,7 @@ checks the nominal declaration as well as its arguments; matching fields alone
 do not make unrelated classes interchangeable.
 
 Type arguments cannot be unit, references, or generators. Resolved owned reusable
-closures can be class arguments; see [stored closures](33-stored-closures.md).
+closures can be class or enum arguments; see [stored closures](33-stored-closures.md).
 [Recursive data](30-recursive-data.md)
 supports self and mutual references among finite concrete instances. Transparent
 alias cycles remain invalid; bounded diagnostics show their dependency paths.

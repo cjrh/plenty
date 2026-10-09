@@ -360,7 +360,7 @@ impl TypeAliases {
                     .iter()
                     .map(|t| Ok(t.resolve(self)?.unwrap_or(Ty::Unit)))
                     .collect::<Result<Vec<_>>>()?;
-                if fields.iter().any(Ty::restricted_storage) {
+                if fields.iter().any(|t| !t.heap_storable()) {
                     return Err(declaration.at.error(
                         "references, generators, and closures cannot be stored in enum payloads",
                     ));

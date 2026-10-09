@@ -62,7 +62,8 @@ Owned closures can capture other owned closures, ranges, and inline Option/Resul
 values. Nested addresses are repaired when the environment moves. Owned closures
 also fit in Option/Result without allocation. Reusable closures cannot capture
 generator frames; consuming closures can own and resume them.
-Closures cannot be placed in heap collections, classes, tuples, or user enums.
+Owned reusable environments can be embedded in heap owners; see
+[stored closures](33-stored-closures.md) for concrete layout and lifetime rules.
 
 Calls may target temporaries, such as `make(3)(4)` or `wrapped.unwrap()(4)`.
 The callee is evaluated once before its arguments and kept alive until the
@@ -75,5 +76,3 @@ is limited to 64 levels and its storage must fit the native stack-layout limit.
 Environment identities are nominal; cached layout facts and visited-type traversal
 avoid repeatedly expanding shared capture/type graphs during compilation.
 
-Owned reusable environments can be embedded in generic class fields; see
-[stored closures](33-stored-closures.md) for layout and ownership rules.
