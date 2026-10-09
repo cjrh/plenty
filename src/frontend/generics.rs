@@ -277,6 +277,9 @@ fn infer(
         (Some("SubmitError"), Ty::Enum(t)) if t.name.starts_with("SubmitError[") => {
             Some(vec![&t.local().variants[0].fields[0]])
         }
+        (Some("ParallelError"), Ty::Enum(t)) if t.name.starts_with("ParallelError[") => {
+            Some(vec![&t.local().variants[2].fields[0]])
+        }
         (Some("Result"), Ty::Enum(t)) if t.propagatable() && !t.is_option() => Some(vec![
             &t.local().variants[0].fields[0],
             &t.local().variants[1].fields[0],

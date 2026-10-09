@@ -15,7 +15,7 @@ pub struct Job {
 pub enum ExecutorOp {
     New,
     Submit(Rc<Job>, bool),
-    Map(Rc<Job>, Ty),
+    Map(Rc<Job>, Ty, bool),
     Result(Ty),
     Done(Ty),
     Cancel(Ty),
@@ -36,12 +36,22 @@ impl ExecutorOp {
                     crate::sum::submit_error(job.input.clone()),
                 ),
             ),
-            Self::Map(job, input) => (
+            Self::Map(job, input, fallible) => (
                 vec![Ty::Executor, input.clone()],
-                crate::sum::result(
-                    Ty::List(Rc::new(job.output.clone())),
-                    crate::sum::pool_map_error(),
-                ),
+                if *fallible {
+                    let Ty::Enum(result) = &job.output else {
+                        unreachable!()
+                    };
+                    crate::sum::result(
+                        Ty::List(Rc::new(result.get().variants[0].fields[0].clone())),
+                        crate::sum::parallel_error(result.get().variants[1].fields[0].clone()),
+                    )
+                } else {
+                    crate::sum::result(
+                        Ty::List(Rc::new(job.output.clone())),
+                        crate::sum::pool_map_error(),
+                    )
+                },
             ),
             Self::Result(t) => (
                 vec![Ty::Future(Rc::new(t.clone()))],
@@ -60,7 +70,15 @@ impl ExecutorOp {
             Self::Done(_) => 4,
             Self::Cancel(_) => 5,
             Self::Shutdown => 6,
-            Self::Map(..) => 7,
+            Self::Map(_, _, false) => 7,
+            Self::Map(_, _, true) => 8,
+        }
+    }
+
+    pub fn job(&self) -> Option<&Rc<Job>> {
+        match self {
+            Self::Submit(job, _) | Self::Map(job, ..) => Some(job),
+            _ => None,
         }
     }
 }

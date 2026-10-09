@@ -125,6 +125,14 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
             )?))
         }
         (Ty::Enum(a), Ty::Enum(b))
+            if a.name.starts_with("ParallelError[") && b.name.starts_with("ParallelError[") =>
+        {
+            Some(crate::sum::parallel_error(refine(
+                &a.get().variants[2].fields[0],
+                &b.get().variants[2].fields[0],
+            )?))
+        }
+        (Ty::Enum(a), Ty::Enum(b))
             if a.propagatable() && b.propagatable() && !a.is_option() && !b.is_option() =>
         {
             Some(crate::sum::result(

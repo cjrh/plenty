@@ -136,6 +136,7 @@
 - [Handle channel backpressure](tutorial/86-handle-channel-backpressure.md)
 - [Reuse workers with an executor](tutorial/87-reuse-workers-with-an-executor.md)
 - [Handle executor outcomes](tutorial/88-handle-executor-outcomes.md)
+- [Map fallible work in parallel](tutorial/89-map-fallible-work-in-parallel.md)
 
 # Reference
 
@@ -195,6 +196,7 @@
 - [Bounded channels](design/35-bounded-channels.md)
 - [Thread-pool executors](design/36-thread-pool-executors.md)
     - [Executor ownership, errors, and shutdown](design/36-thread-pool-executors/01-ownership-and-shutdown.md)
+- [Explicit parallel operations](design/37-parallel-operations.md)
 - [Native runtime](runtime.md)
 
 # Proposals

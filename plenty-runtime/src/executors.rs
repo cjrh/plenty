@@ -399,17 +399,19 @@ pub(crate) unsafe extern "C" fn plenty_executor(
                 shutdown(*args as *mut Pool, *args.add(1) != 0);
                 out.write(0);
             }
-            7 => {
+            7 | 8 => {
                 let entry: Entry = std::mem::transmute(*args.add(2) as usize);
                 let input = &*(*args.add(3) as *const Type);
-                let output = (*descriptor).variants[0].fields[0];
-                out.write(aggregates::executor_map::run(
+                let worker_output = &*(*args.add(4) as *const Type);
+                aggregates::executor_map::run(
                     *args as *mut Pool,
                     *args.add(1),
                     input,
                     entry,
-                    output,
-                ));
+                    worker_output,
+                    &*descriptor,
+                    out,
+                );
             }
             _ => crate::fail("invalid executor operation"),
         }

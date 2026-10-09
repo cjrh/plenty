@@ -38,6 +38,7 @@ impl crate::nominal::Nominal<EnumType> {
             || self.name.starts_with("SpawnError[")
             || self.name.starts_with("SendError[")
             || self.name.starts_with("SubmitError[")
+            || self.name.starts_with("ParallelError[")
             || matches!(
                 self.name.as_str(),
                 "AllocError"
@@ -236,6 +237,30 @@ pub fn pool_map_error() -> Ty {
         name: "Shutdown".into(),
         fields: vec![],
     };
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
+
+/// Preserve a worker's concrete error without allocating an error wrapper.
+pub fn parallel_error(error: Ty) -> Ty {
+    let Ty::Enum(template) = result(error.clone(), alloc_error()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = format!("ParallelError[{error}]");
+    ty.variants = vec![
+        Variant {
+            name: "Allocation".into(),
+            fields: vec![alloc_error()],
+        },
+        Variant {
+            name: "Shutdown".into(),
+            fields: vec![],
+        },
+        Variant {
+            name: "Worker".into(),
+            fields: vec![error],
+        },
+    ];
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 

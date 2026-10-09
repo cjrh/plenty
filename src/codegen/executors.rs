@@ -13,8 +13,10 @@ pub(super) fn emit_adapters(
 ) -> Result<()> {
     let mut jobs = std::collections::BTreeMap::new();
     crate::threading::walk(ops, &mut |op| {
-        if let Op::Executor(ExecutorOp::Submit(job, _) | ExecutorOp::Map(job, _)) = op {
-            jobs.insert(job.adapter.clone(), job.clone());
+        if let Op::Executor(operation) = op {
+            if let Some(job) = operation.job() {
+                jobs.insert(job.adapter.clone(), job.clone());
+            }
         }
     });
     for (name, job) in jobs {
@@ -97,13 +99,13 @@ impl Lowerer<'_, '_> {
             values.push(self.pack(value, input));
         }
         values.reverse();
-        let args = self.inline_storage((inputs.len() + 2) * 16);
+        let args = self.inline_storage((inputs.len() + 3) * 16);
         for (i, value) in values.iter().enumerate() {
             self.bcx
                 .ins()
                 .store(MemFlags::trusted(), *value, args, (i * 16) as i32);
         }
-        if let ExecutorOp::Submit(job, _) | ExecutorOp::Map(job, _) = operation {
+        if let Some(job) = operation.job() {
             let id = self.runtime.thread_adapters.borrow()[&job.adapter];
             let callback = self.module.declare_func_in_func(id, self.bcx.func);
             let callback = self.bcx.ins().func_addr(PTR_TY, callback);
@@ -115,7 +117,7 @@ impl Lowerer<'_, '_> {
                 (inputs.len() * 16) as i32,
             );
         }
-        if let ExecutorOp::Map(_, input) = operation {
+        if let ExecutorOp::Map(job, input, _) = operation {
             let id = metadata::declare(self.module, self.runtime, input)?;
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
             let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
@@ -123,6 +125,13 @@ impl Lowerer<'_, '_> {
             self.bcx
                 .ins()
                 .store(MemFlags::trusted(), descriptor, args, 48);
+            let id = metadata::declare(self.module, self.runtime, &job.output)?;
+            let gv = self.module.declare_data_in_func(id, self.bcx.func);
+            let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
+            let descriptor = self.bcx.ins().uextend(types::I128, descriptor);
+            self.bcx
+                .ins()
+                .store(MemFlags::trusted(), descriptor, args, 64);
         }
         let out = self.inline_storage(output.slot_bytes());
         let id = metadata::declare(self.module, self.runtime, &output)?;

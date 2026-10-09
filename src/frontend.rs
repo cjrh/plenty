@@ -508,7 +508,7 @@ impl TypeRef {
         }
         if matches!(
             name.as_str(),
-            "Option" | "Result" | "SpawnError" | "SendError" | "SubmitError"
+            "Option" | "Result" | "SpawnError" | "SendError" | "SubmitError" | "ParallelError"
         ) {
             let count = if name == "Result" { 2 } else { 1 };
             if self.args.len() != count {
@@ -539,6 +539,8 @@ impl TypeRef {
                 crate::sum::send_error(args[0].clone())
             } else if name == "SubmitError" {
                 crate::sum::submit_error(args[0].clone())
+            } else if name == "ParallelError" {
+                crate::sum::parallel_error(args[0].clone())
             } else {
                 crate::sum::result(args[0].clone(), args[1].clone())
             }));
@@ -1336,6 +1338,7 @@ impl Parser {
                         | "SpawnError"
                         | "SendError"
                         | "SubmitError"
+                        | "ParallelError"
                         | "Sender"
                         | "Receiver"
                         | "Future"
@@ -1552,6 +1555,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "spawn"
                 | "Future"
                 | "SubmitError"
+                | "ParallelError"
                 | "open"
                 | "write_stdout"
                 | "write_stderr"

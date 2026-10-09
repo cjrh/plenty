@@ -138,8 +138,8 @@ impl Lower<'_> {
                 input,
             });
             ExecutorOp::Submit(job, name == "submit_nowait")
-        } else if name == "map" {
-            self.executor_map(args, &base.at, ops)?
+        } else if matches!(name, "map" | "map_result") {
+            self.executor_map(args, &base.at, name == "map_result", ops)?
         } else if name == "shutdown" && args.len() <= 1 {
             if let Some(arg) = args.first() {
                 let actual = self.expr_expected(arg, Some(Ty::Bool), ops)?;
@@ -149,9 +149,9 @@ impl Lower<'_> {
             }
             ExecutorOp::Shutdown
         } else {
-            return Err(base
-                .at
-                .error("ThreadPoolExecutor supports submit, submit_nowait, map, and shutdown"));
+            return Err(base.at.error(
+                "ThreadPoolExecutor supports submit, submit_nowait, map, map_result, and shutdown",
+            ));
         };
         let output = op.signature().1;
         ops.push(Op::Executor(op));
@@ -204,7 +204,13 @@ impl Lower<'_> {
         Ok(Ty::Closure(closure))
     }
 
-    fn executor_map(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<ExecutorOp> {
+    fn executor_map(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        fallible: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<ExecutorOp> {
         let [worker, source] = args else {
             return Err(at.error("use pool.map(named_function, owned_list_or_range)"));
         };
@@ -252,6 +258,14 @@ impl Lower<'_> {
                 .at
                 .error("map results require a concrete wholly owned type"));
         }
+        if fallible
+            && !matches!(&output, Ty::Enum(t)
+            if t.propagatable() && !t.is_option() && t.get().variants[0].fields[0] != Ty::Unit)
+        {
+            return Err(worker
+                .at
+                .error("map_result worker must return Result[T, E] with a non-unit T"));
+        }
         let worker = probe
             .iter()
             .rev()
@@ -279,6 +293,7 @@ impl Lower<'_> {
                 closure: None,
             }),
             input,
+            fallible,
         ))
     }
 }

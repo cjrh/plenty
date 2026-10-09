@@ -118,8 +118,9 @@ Positive-capacity MPMC channels are implemented with recoverable construction,
 blocking/nowait transfer, failed-send ownership, and endpoint guards. The initial
 Python-style executor now supports bounded submission, result retrieval, eager
 ordered list/range mapping, pending cancellation, and context-managed shutdown.
-Build explicit Rayon-style parallel operations next: specify fallible mapping's
-error order and reduction reassociation. Broader iterator/closure mapping,
+Fallible ordered mapping is implemented with deterministic earliest-input errors
+and partial-result cleanup; see [parallel operations](design/37-parallel-operations.md).
+Build explicit tree reduction next, specifying reassociation. Broader iterator/closure mapping,
 streaming results, richer certified effects/types, cooperative cancellation tokens,
 zero-capacity rendezvous, timed waits, and channel selection remain extensions.
 Thread/task creation and queue allocation must report failures; specify bounded

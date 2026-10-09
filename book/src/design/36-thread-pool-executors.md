@@ -71,6 +71,9 @@ map does not erase it or select one error implicitly. Generator inputs, borrowed
 inputs, multiple iterables, closure mapping, and streaming output are not part of
 this initial API.
 
+Use [map_result](37-parallel-operations.md) to extract successful values or return
+the earliest input's concrete error with deterministic cleanup.
+
 See [ownership, errors, and shutdown](36-thread-pool-executors/01-ownership-and-shutdown.md)
 for precise failure and cleanup guarantees, and the
 [runnable lesson](../tutorial/87-reuse-workers-with-an-executor.md) for examples.

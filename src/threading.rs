@@ -70,15 +70,14 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
             types.push(output);
             roots.push(("channel message".into(), vec![], types));
         }
-        if let Op::Executor(
-            crate::executor::ExecutorOp::Submit(job, _) | crate::executor::ExecutorOp::Map(job, _),
-        ) = op
-        {
-            roots.push((
-                format!("executor worker `{}`", job.worker),
-                vec![job.worker.clone()],
-                vec![job.input.clone(), job.output.clone()],
-            ));
+        if let Op::Executor(operation) = op {
+            if let Some(job) = operation.job() {
+                roots.push((
+                    format!("executor worker `{}`", job.worker),
+                    vec![job.worker.clone()],
+                    vec![job.input.clone(), job.output.clone()],
+                ));
+            }
         }
     });
     let mut checked = HashSet::new();
