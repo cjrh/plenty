@@ -64,6 +64,10 @@ See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
 [thread-pool executor](design/36-thread-pool-executors.md). Fixed workers,
 bounded owned submission, recoverable jobs, affine futures, pending cancellation,
 ordered list/range mapping, and context-managed drain/join are implemented.
+**Then: B34, cleanup and taking stock**, after the thread/parallel/concurrency
+batch is finished and before starting unrelated feature work. Finish or explicitly
+defer each remaining concurrency extension, including B24 research, before that
+review; speculative extensions must not keep the cleanup milestone open-ended.
 Broader stored-reference work remains under B11.
 Automatic deep recursive
 copy, equality, and formatting remain explicitly gated and are tracked by B33.
@@ -136,6 +140,16 @@ move/drop behavior, allocation failure, and capture lifetimes. Begin with owned
 environments; escaping borrowed captures depend on B11. Keep Plenty callback
 storage distinct from C ABI callbacks and foreign-library lifetimes in B28.
 
+**B34 — post-concurrency cleanup and review.** Review the implementation and book
+together, take stock of supported behavior and limits, and simplify unnecessary
+complexity before the next feature batch. Search `issues.db` before recording
+defects or improvement opportunities; address open issues in severity order and
+link scheduled fixes here by issue number. Review documentation structure,
+navigation, duplication, and terminology; rewrite for concise, precise explanations
+and a sensible learning sequence. Keep runnable lessons, reference contracts, and
+implementation aligned, and validate the book and regression suite after cleanup.
+Record deliberate deferrals here rather than creating another work queue.
+
 ## Work items
 
 The order above selects the next slices. This table is the catalog of open items,
@@ -155,7 +169,7 @@ is still open.
 | B19 | Measured codegen and storage improvements | Benchmark dense-match dispatch before adding jump tables. Investigate compact tuple/aggregate layouts, packed numeric buffers, code size, and compilation/link latency. Do not carry over assumptions from the legacy stack frontend. |
 | B20 | Optional GCC backend | Evaluate the proposed backend with a small feasibility experiment before committing to another backend or common IR. Cranelift remains the current backend. [GCC proposal](proposals/codegen-gcc.md). |
 | B21 | Documentation authoring | Evaluate independently runnable literate lesson sources that generate mdBook pages if they improve authoring. Current Markdown lessons are already executable and tested; do not create another manually maintained copy. [Documentation design](proposals/entrypoints-modules-and-tutorials.md). |
-| B22 | Threads, channels, and parallel operations | Initial eligibility/effect checks, scoped native threads, consuming jobs, and positive-capacity bounded channels complete. Next: a Python-style executor, then explicit parallel operations. Richer effects, rendezvous, timed waits, and selection are separate extensions. Preserve fallible submission and deterministic shutdown. [Threads](design/32-scoped-native-threads.md); [channels](design/35-bounded-channels.md); [concurrency design](proposals/native-concurrency.md). |
+| B22 | Threads, channels, and parallel operations | Initial eligibility/effect checks, scoped native threads, consuming jobs, positive-capacity bounded channels, and the Python-style executor are complete. Next: explicit parallel operations. Richer effects, rendezvous, timed waits, and selection are separate extensions. Preserve fallible submission and deterministic shutdown. [Threads](design/32-scoped-native-threads.md); [channels](design/35-bounded-channels.md); [executor](design/36-thread-pool-executors.md); [concurrency design](proposals/native-concurrency.md). |
 | B23 | SIMD | Define vector values, contiguous numeric storage, supported operations, and scalar fallbacks. Ordinary generic lists are not automatically packed native arrays. [SIMD design](proposals/memory-parallelism-and-simd.md). |
 | B24 | Automatic parallelization | Research only after B22: require evidence that effects, cleanup, allocation failures, and result ordering remain correct. A runtime thread-count setting alone does not establish those guarantees. |
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError and generated consumer wrappers require one fallible allocation. See [owned exports](design/24-c-interfaces/03-owned-exports.md). |
@@ -163,6 +177,7 @@ is still open.
 | B29 | Further generic constraints | Callable bounds on data are implemented. Consider protocol bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Preserve explicit lookup and bounded specialization. See [generic data](design/28-generic-data-types.md) and [parameterized protocols](design/29-parameterized-protocols.md). |
 | B32 | Broader callback storage | Owned concrete reusable/consuming environments and their worker eligibility are implemented. Remaining: heterogeneous erased environments and generator-containing environments in heap owners. Escaping borrowed storage depends on B11. See scope above. |
 | B33 | Deep operations on recursive values | Recursive source storage is implemented under B10. Replace native recursive copy/format traversals with iterative fallible work storage before enabling them; select an explicit bounded-memory contract for structural equality and membership without adding hidden allocation failure. Preserve failure cleanup, shared-string ownership, and float/NaN semantics. [Design rationale](proposals/recursive-data.md). |
+| B34 | Post-concurrency cleanup and review | Required after the thread/parallel/concurrency batch and before unrelated feature work. Audit code and docs, track findings in `issues.db`, fix in severity order, simplify implementation, and improve book structure and concise, precise writing. See scope above. |
 
 ## Reconciled completed work
 
