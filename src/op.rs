@@ -109,12 +109,12 @@ impl Ty {
             _ => false,
         }
     }
-    /// Heap owners can embed a resolved, wholly owned reusable environment.
+    /// Heap owners can embed a resolved, wholly owned environment.
     /// Keep this separate from inline-layout facts used by Option and Result.
     pub fn heap_storable(&self) -> bool {
         match self {
             Self::Closure(t) => {
-                !t.name.is_empty() && !t.once && !t.borrowed && !self.contains_generator_frame()
+                !t.name.is_empty() && !t.borrowed && !self.contains_generator_frame()
             }
             Self::Enum(t) if t.inline() && t.get().restricted_storage => t
                 .get()

@@ -181,7 +181,7 @@ impl TypeAliases {
                     .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))?;
                 if !ty.heap_storable() {
                     return Err(t.at.error(
-                        "generic data arguments cannot contain references, generators, or closures",
+                        "generic data arguments cannot contain references, generators, or borrowed/unresolved closure environments",
                     ));
                 }
                 Ok(ty)
@@ -362,7 +362,7 @@ impl TypeAliases {
                     .collect::<Result<Vec<_>>>()?;
                 if fields.iter().any(|t| !t.heap_storable()) {
                     return Err(declaration.at.error(
-                        "references, generators, and closures cannot be stored in enum payloads",
+                        "references, generators, and borrowed/unresolved closures cannot be stored in enum payloads",
                     ));
                 }
                 Ok(crate::sum::Variant {

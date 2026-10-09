@@ -279,6 +279,89 @@ for job in &jobs:
     );
 }
 
+#[test]
+fn consuming_jobs_transfer_captured_owners_from_collections_tuples_and_enums() {
+    run(
+        r#"
+enum Job[F]:
+    Run(F)
+def package[F](callback: F) -> Result[Job[F], AllocError]:
+    Job[F].Run(callback)
+def consume[F](job: Job[F]) -> list[i64]:
+    match job:
+        case Job[F].Run(callback):
+            callback()
+def make(n: i64) -> Result[OnceClosure[[], list[i64]], AllocError]:
+    values = [n]?
+    job = def once [values]() -> list[i64]:
+        values
+    Ok(job)
+mut queue = [make(1).unwrap(), make(2).unwrap()].unwrap()
+first = queue.pop(0).unwrap()
+print(first()).unwrap()
+for callback in queue:
+    print(callback()).unwrap()
+mut named = {0: make(3).unwrap()}.unwrap()
+third = named.pop(0).unwrap()
+print(third()).unwrap()
+pair = (make(4).unwrap(), make(5).unwrap()).unwrap()
+fourth, fifth = pair
+print(fourth()).unwrap()
+print(fifth()).unwrap()
+print(consume(package(make(6).unwrap()).unwrap())).unwrap()
+"#,
+        "[1]\n[2]\n[3]\n[4]\n[5]\n[6]\n",
+    );
+}
+
+#[test]
+fn stored_consuming_callbacks_cannot_be_called_through_borrowed_places_or_twice() {
+    let prefix = "def make(n: i64) -> OnceClosure[[], i64]:\n    def once [n]() -> i64:\n        n\nmut jobs = [make(1)].unwrap()\n";
+    for tail in [
+        "jobs[0]()",
+        "for job in &mut jobs:\n    job()",
+        "job = jobs.pop(0).unwrap()\njob()\njob()",
+    ] {
+        let error = support::check_source(&format!("{prefix}{tail}\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("move") || error.contains("owned") || error.contains("moved"),
+            "{error}"
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn consuming_environment_extraction_call_and_abandoned_job_drop_allocate_nothing() {
+    run(r#"
+class Guard:
+    id: i64
+    def __del__(self) -> ():
+        write_stdout("drop\n").unwrap()
+        pass
+class Holder[F]:
+    job: F
+def make(n: i64) -> Result[OnceClosure[[], Guard], AllocError]:
+    guard = Guard(n)?
+    job = def once [guard]() -> Guard:
+        guard
+    Ok(job)
+mut jobs = [make(1).unwrap(), make(2).unwrap()].unwrap()
+abandoned = Holder(make(3).unwrap()).unwrap()
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+job = jobs.pop(0).unwrap()
+guard = job()
+drop(jobs)
+drop(abandoned)
+drop(guard)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\ndrop\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n");
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn dictionary_callback_failure_preserves_members_and_drops_pending_capture() {

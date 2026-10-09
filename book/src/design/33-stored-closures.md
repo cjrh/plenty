@@ -1,6 +1,6 @@
 # Stored concrete closures
 
-A generic class field can own a reusable closure with wholly owned captures.
+A generic class field can own a closure with wholly owned captures.
 Constructor inference preserves the producer identity: `Holder(make(1))` and
 `Holder(make(2))` have the same concrete type when `make` returns the same closure
 expression. Different closure expressions remain distinct types, even if their
@@ -24,7 +24,7 @@ mutable callbacks require a mutable, affine tuple owner. Disjoint tuple slots ca
 be borrowed separately. Unpacking transfers the environments into local owners.
 Tuple construction retains its ordinary fallible allocation contract.
 
-Lists can store owned reusable environments from one concrete producer. Literals,
+Lists can store owned environments from one concrete producer. Literals,
 comprehensions, inferred generic `list[F]` signatures, append/extend, reversal,
 borrowed iteration, consuming iteration, and `pop` preserve inline environments.
 Index calls borrow the collection; a live callback loan prevents resizing or
@@ -42,8 +42,14 @@ matching lends a callback in place; consuming matching transfers it to the arm.
 An ordinary enum can enumerate a finite family of different callback shapes,
 without erasing their types. Enum construction is fallible as usual.
 
-Borrowed captures, unresolved layouts, generator-containing environments, and
-consuming environments cannot enter heap storage in this subset.
+Consuming environments use the same storage. Invoke them only after extracting an
+owner with `pop`, consuming iteration/matching, or tuple unpacking. Calling a
+one-shot callback through an indexed or borrowed field is rejected. Abandoned jobs
+release captures; called jobs transfer captures into the body. A class field can
+own and drop a one-shot callback, but ordinary class fields cannot be moved out.
+
+Borrowed captures, unresolved layouts, and generator-containing environments
+cannot enter heap storage in this subset.
 These rules also apply through inline `Option` and `Result` wrappers.
 
 See the [representation decision](../proposals/stored-closures.md) for the costs

@@ -9,8 +9,12 @@ does not need `mut`; it is consumed, not borrowed.
 
 Calling twice, calling through a reference, or passing it to a reusable `Callable`
 constraint is rejected. A capture-free `def once (...)` is still affine. Captured
-names cannot be shadowed. Reference returns, yielding, and heap storage retain the limits of
+names cannot be shadowed. Reference returns and yielding retain the limits of
 [reusable environments](26-closures.md).
+
+Owned environments without generator captures can reside in
+[heap owners](33-stored-closures.md). Extract an owned callback before invoking
+it; a reference or indexed place cannot supply a consuming call.
 
 Uncalled environments drop their captures in reverse order. When called, the body
 owns cleanup: captures that are moved into the result remain alive, and all other

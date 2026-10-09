@@ -62,7 +62,7 @@ Owned closures can capture other owned closures, ranges, and inline Option/Resul
 values. Nested addresses are repaired when the environment moves. Owned closures
 also fit in Option/Result without allocation. Reusable closures cannot capture
 generator frames; consuming closures can own and resume them.
-Owned reusable environments can be embedded in heap owners; see
+Owned environments can be embedded in heap owners; see
 [stored closures](33-stored-closures.md) for concrete layout and lifetime rules.
 
 Calls may target temporaries, such as `make(3)(4)` or `wrapped.unwrap()(4)`.
@@ -75,4 +75,3 @@ Closure values display as `<closure>` and cannot be compared. Environment nestin
 is limited to 64 levels and its storage must fit the native stack-layout limit.
 Environment identities are nominal; cached layout facts and visited-type traversal
 avoid repeatedly expanding shared capture/type graphs during compilation.
-

@@ -83,7 +83,7 @@ The current B32 batch is split into ten reviewable tasks, followed in this order
 5. **Complete:** support homogeneous closure lists, including growth and extraction.
 6. **Complete:** support closure dictionary values and replacement/removal cleanup.
 7. **Complete:** support concrete closure payloads in user enums.
-8. Extend these storage paths to owned consuming closures.
+8. **Complete:** extend these storage paths to owned consuming closures (excluding generator captures).
 9. Check callable constraints on generic data declarations.
 10. Integrate stored environments with scoped-thread eligibility and borrowing.
 
