@@ -1939,6 +1939,75 @@ unsafe extern "C" fn never_resume(_: *mut Generator, _: *mut u128) -> u8 {
 }
 
 #[test]
+fn extracted_closure_rows_relocate_large_payloads_without_allocating() {
+    use crate::entries::{Entries, Entry};
+    use crate::ranges::{self, Range};
+    static ENV: Type = Type {
+        inline_bytes: 80,
+        affine: true,
+        variants: &[Variant {
+            name: "captures",
+            fields: &[&UNSIGNED_RANGE, &GUARD],
+        }],
+        ..scalar(b'H')
+    };
+    for dictionary in [false, true] {
+        let mut entries = if dictionary {
+            Entries::new(&INTEGER, Some(&ENV))
+        } else {
+            Entries::new(&ENV, None)
+        };
+        entries.try_reserve(4).unwrap();
+        for i in 0..3 {
+            let mut environment = [0u128; 5];
+            environment[0] = &ENV as *const Type as u128;
+            let range = Range::new(i, i + 2, 1, false);
+            // SAFETY: this buffer has the exact descriptor layout. push moves
+            // the environment; the source is not subsequently used or dropped.
+            unsafe {
+                ranges::store(
+                    environment.as_mut_ptr().add(1),
+                    &range as *const Range as u128,
+                    &UNSIGNED_RANGE,
+                );
+                environment[4] = guard(i as u128);
+                let pointer = environment.as_mut_ptr() as u128;
+                entries.push(if dictionary {
+                    Entry {
+                        key: i as u128,
+                        value: pointer,
+                    }
+                } else {
+                    Entry {
+                        key: pointer,
+                        value: 0,
+                    }
+                });
+            }
+        }
+        entries.try_reserve(128).unwrap();
+        entries.reverse();
+        TRACE.with(|trace| trace.borrow_mut().reserve(3));
+        #[cfg(feature = "allocation-checks")]
+        crate::accounting::fail_after(Some(0));
+        for expected in [2, 1, 0] {
+            unsafe {
+                let entry = entries.remove(0);
+                let pointer = if dictionary { entry.value } else { entry.key };
+                let range = *(pointer as *const u128).add(1) as *const Range;
+                assert_eq!((*range).start, expected);
+                crate::aggregates::release(pointer, &ENV);
+            }
+        }
+        assert!(entries.is_empty());
+        entries.clear();
+        #[cfg(feature = "allocation-checks")]
+        crate::accounting::fail_after(None);
+        assert_eq!(trace(), [2, 1, 0]);
+    }
+}
+
+#[test]
 fn inline_generator_moves_rebase_nested_frames_ranges_and_sum_payloads() {
     use crate::aggregates::{release, wrap};
     use crate::generators::{plenty_generator_init, plenty_generator_resume};

@@ -244,6 +244,12 @@ Native integration tests remain essential because Miri cannot execute
 Cranelift-generated machine code.
 ## Recoverable construction
 
+Collection extraction reuses the removed row at the end of its existing buffer.
+The row is excluded from membership, and its inline payload pointers are repaired
+after rotation. The native caller snapshots the extracted payload before the next
+mutation. This supports arbitrary concrete payload sizes without allocating a
+scratch buffer or retaining transferred owners during removal.
+
 Aggregate opcode 108 allocates a checked class/enum record and returns an inline
 Result. Opcode 109 activates a class destructor only after successful field
 initialization. Partial instances release fields without calling the class hook.

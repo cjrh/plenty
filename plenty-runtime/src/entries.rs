@@ -1,5 +1,5 @@
 //! Type-sized collection rows. Scalar rows retain their existing 32-byte size;
-//! range payloads live in the same buffer as their containing row.
+//! Inline payloads live in the same buffer as their containing row.
 use crate::aggregates::Type;
 use crate::{memory, ranges};
 
@@ -14,7 +14,9 @@ pub(crate) struct Entries {
     key: &'static Type,
     value: Option<&'static Type>,
     stride: usize,
-    scratch: [u128; 2],
+    /// A removed row stays initialized at the end until the next mutation.
+    /// Its owners have transferred to the caller; it is not a live member.
+    removed: bool,
 }
 
 impl Entries {
@@ -24,14 +26,14 @@ impl Entries {
             key,
             value,
             stride: key.slot_words() + value.map_or(1, Type::slot_words),
-            scratch: [0; 2],
+            removed: false,
         }
     }
     pub fn len(&self) -> usize {
-        self.data.len() / self.stride
+        self.data.len() / self.stride - usize::from(self.removed)
     }
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.len() == 0
     }
     pub fn capacity(&self) -> usize {
         self.data.capacity() / self.stride
@@ -73,11 +75,14 @@ impl Entries {
         }
     }
     fn relocate(&mut self) {
-        for i in 0..self.len() {
+        // Include an extracted row: its inline address must survive shifting
+        // without allocating scratch storage or retaining its transferred owners.
+        for i in 0..self.data.len() / self.stride {
             unsafe {
-                ranges::relocate(self.slot(i, false), self.key);
+                let slot = self.data.as_mut_ptr().add(i * self.stride);
+                ranges::relocate(slot, self.key);
                 if let Some(ty) = self.value {
-                    ranges::relocate(self.slot(i, true), ty);
+                    ranges::relocate(slot.add(self.key.slot_words()), ty);
                 }
             }
         }
@@ -97,6 +102,8 @@ impl Entries {
     pub unsafe fn push(&mut self, entry: Entry) {
         assert!(self.len() < self.capacity());
         let index = self.len();
+        self.data.truncate(index * self.stride);
+        self.removed = false;
         self.data.resize(self.data.len() + self.stride, 0);
         unsafe {
             self.set(index, false, entry.key);
@@ -105,6 +112,7 @@ impl Entries {
     }
     pub fn clear(&mut self) {
         self.data.clear();
+        self.removed = false;
     }
     pub fn drain(&mut self) -> impl Iterator<Item = Entry> + '_ {
         let count = self.len();
@@ -112,6 +120,7 @@ impl Entries {
         let stride = self.stride;
         let value_offset = self.key.slot_words();
         self.data.clear();
+        self.removed = false;
         // The reserved buffer stays live and its trivially copied words remain
         // initialized. The returned iterator borrows self, preventing reallocation.
         (0..count).map(move |i| unsafe {
@@ -129,31 +138,22 @@ impl Entries {
         }
         source.clear();
     }
-    /// The removed inline payload remains valid until the next removal or drop.
+    /// The removed inline payload remains valid until the next mutation or drop.
     /// Native callers snapshot it before releasing or mutating this collection.
     pub unsafe fn remove(&mut self, index: usize) -> Entry {
-        let mut entry = self.get(index);
-        unsafe {
-            if self.key.has_inline_range() {
-                entry.key =
-                    ranges::copy_payload(entry.key, self.key, self.scratch.as_mut_ptr().cast());
-            } else if let Some(ty) = self.value.filter(|t| t.has_inline_range()) {
-                entry.value =
-                    ranges::copy_payload(entry.value, ty, self.scratch.as_mut_ptr().cast());
-            }
-        }
+        assert!(index < self.len());
+        self.data.truncate(self.len() * self.stride);
         let start = index * self.stride;
-        self.data.copy_within(start + self.stride.., start);
-        self.data.truncate(self.data.len() - self.stride);
+        // Rotation leaves every surviving row in order, and moves the extracted
+        // row into existing storage at the end. This works for arbitrary layouts.
+        self.data[start..].rotate_left(self.stride);
+        self.removed = true;
         self.relocate();
-        // Methods taking &mut self above invalidate the earlier scratch borrow.
-        // Expose a fresh address only after the final whole-owner reborrow.
-        if self.key.active_range(entry.key) {
-            entry.key = (entry.key & !(u64::MAX as u128)) | self.scratch.as_mut_ptr() as u128;
-        } else if self.value.is_some_and(|ty| ty.active_range(entry.value)) {
-            entry.value = (entry.value & !(u64::MAX as u128)) | self.scratch.as_mut_ptr() as u128;
+        let extracted = self.len() * self.stride;
+        Entry {
+            key: self.data[extracted],
+            value: self.data[extracted + self.key.slot_words()],
         }
-        entry
     }
     pub fn reverse(&mut self) {
         for i in 0..self.len() / 2 {
@@ -178,6 +178,7 @@ impl Entries {
             }
         }
         self.data.truncate(target * self.stride);
+        self.removed = false;
         self.relocate();
     }
 }

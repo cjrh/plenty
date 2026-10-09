@@ -86,17 +86,6 @@ impl Type {
             _ => None,
         }
     }
-
-    pub(crate) fn active_range(&self, value: u128) -> bool {
-        match self.kind {
-            b'R' => value as u64 != 0,
-            b'B' => self.variants[self.tag(value)]
-                .fields
-                .first()
-                .is_some_and(|t| t.active_range(payload(value))),
-            _ => false,
-        }
-    }
 }
 
 /// Transfer an inline payload to owner-provided storage, preserving sum tags.
@@ -123,7 +112,7 @@ pub(crate) unsafe fn copy_payload(value: u128, ty: &Type, destination: *mut Rang
 }
 
 /// A typed storage slot starts with the ordinary scalar/sum bits, followed by
-/// range storage only when that type can contain a range.
+/// inline storage when that type contains an owner-local payload.
 pub(crate) unsafe fn store(slot: *mut u128, value: u128, ty: &Type) {
     unsafe {
         let value = if ty.payload_bytes() != 0 {
