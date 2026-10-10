@@ -1,8 +1,15 @@
 # Owned files and modes
 
-`open(path: str, mode: str = "r") -> Result[File, IoError]` creates an opaque,
-affine file owner. Literal modes are checked at compile time; computed invalid
-modes return `IoError.InvalidMode`.
+The builtin accepts two positional call forms:
+
+- `open(path: str) -> Result[File, IoError]`
+- `open(path: str, mode: str) -> Result[File, IoError]`
+
+Both create an opaque, affine file owner. `open(path)` opens an existing file
+for reading, equivalent to `open(path, "r")`. This builtin's optional mode does
+not imply support for default parameters or keyword arguments; Plenty supports
+neither. Pass an explicit mode positionally. Literal modes are checked at
+compile time; computed invalid modes return `IoError.InvalidMode`.
 
 | Mode | Capabilities | Opening behavior |
 | --- | --- | --- |
