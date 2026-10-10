@@ -32,8 +32,9 @@ or rewrite a branch under review without explicit instruction.
    worker's files, build outputs, ports, or temporary paths belong to this task.
 3. Implement and validate the change with its tests and reference/tutorial
    updates. For Rust changes, format and run the applicable workspace tests and
-   lint checks; use `cargo test --workspace` when checking the full suite, since
-   the runtime is a separate workspace member. Documentation-only changes need
+   lint checks; use `cargo test --workspace --all-features` when checking the
+   full suite, since the runtime is a separate workspace member and both crates
+   gate allocation tests behind features. Documentation-only changes need
    relevant document/link/example checks, not an unrelated full compiler build.
 4. Review and stage only the task's files, commit locally, and create/update its
    PR record using the issues-browser CLI below. Explain the problem and final
@@ -71,7 +72,8 @@ issue ownership, discussion, and PR review state live in the database.
 
 | Command | Use |
 |---|---|
-| `cargo test --workspace` | Run compiler and runtime tests |
+| `cargo test --workspace` | Run compiler and runtime tests, without the allocation-accounting tests |
+| `cargo test --workspace --all-features` | Full suite, as CI runs it: adds the `runtime-checks` and `allocation-checks` tests |
 | `cargo test --workspace 2>&1 \| grep "test result"` | Summary only; preserve the test exit status when scripting |
 | `cargo test --test test_tutorial` | Check the tutorial lessons |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lint compiler and runtime |
