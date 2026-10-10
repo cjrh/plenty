@@ -400,6 +400,21 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
             }
             Ok(())
         }
+        fn target(&self, target: &Expr, set: &mut HashSet<String>) -> Result<()> {
+            if let Expression::Member(base, field) = &target.kind {
+                if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") {
+                    if !self.ty.fields.iter().any(|(n, _)| n == field) {
+                        return Err(target.at.error(format!("unknown field `{field}`")));
+                    }
+                    set.insert(field.clone());
+                    return Ok(());
+                }
+            }
+            if let Expression::Name(name) = &target.kind {
+                return self.binding(name, &target.at);
+            }
+            self.expr(target, set)
+        }
         fn binding(&self, n: &str, at: &Token) -> Result<()> {
             if n == "self" {
                 Err(at.error("cannot rebind self in a constructor"))
@@ -431,18 +446,15 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                     }
                     Statement::SetIndex { target, value } => {
                         self.expr(value, &set)?;
-                        if let Expression::Member(base, field) = &target.kind {
-                            if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") {
-                                if !self.ty.fields.iter().any(|(n, _)| n == field) {
-                                    return Err(target
-                                        .at
-                                        .error(format!("unknown field `{field}`")));
-                                }
-                                set.insert(field.clone());
-                                continue;
-                            }
+                        // Several targets are assigned in order after the value,
+                        // so each one sees the fields its predecessors initialized.
+                        let targets = match &target.kind {
+                            Expression::Tuple(targets) => targets.as_slice(),
+                            _ => std::slice::from_ref(target),
+                        };
+                        for target in targets {
+                            self.target(target, &mut set)?;
                         }
-                        self.expr(target, &set)?;
                     }
                     Statement::Unpack { names, value, .. } => {
                         for name in names {

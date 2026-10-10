@@ -36,6 +36,30 @@ Aggregate searches, optional bounds, and throwing `index` are unsupported.
 without allocation, copying, retaining, or dropping them. Empty and singleton
 lists are unchanged; later destruction follows the new order.
 
+`items.swap(i: i64, j: i64) -> ()` exchanges two elements under the same
+contract: exclusive access, every element type, and no allocation, copy, retain,
+or drop. Negative indices count from the end, and a missing index traps. Both
+indices are evaluated before the list is borrowed, so they may read it. Equal
+indices leave the list unchanged. `swap` is the way to exchange owned elements,
+which cannot be moved out of indexed storage.
+
+`items.sort() -> ()` orders the elements ascending, in place, without allocating.
+It requires exclusive access and one of these element types:
+
+| Element type | Order |
+| --- | --- |
+| Integers | Numeric |
+| `f32`, `f64` | Numeric, with `-0.0` before `0.0` and every NaN after all numbers |
+| `str` | By code point; a prefix comes before the longer string |
+| Tuples of these types | By the first component, then the next where those are equal |
+
+Every other element type, including `bool`, classes, enums, and collections, is
+a compile-time error. Elements that compare equal are indistinguishable, so the
+result is fully determined. There is no key function, comparison function,
+descending order, or `sorted` expression; `reverse()` after `sort()` gives
+descending order, and a list of `(key, value)` tuples sorts by key. Sorting takes
+O(n log n) comparisons.
+
 `items.extend(other) -> Result[(), AllocError]` consumes a same-typed owned list
 on both outcomes. It reserves the entire additional count before transfer.
 Success moves elements in order without cloning; failure preserves destination

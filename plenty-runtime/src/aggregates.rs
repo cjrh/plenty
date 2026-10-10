@@ -4,6 +4,7 @@ use crate::generators::{plenty_generator_resume, Generator};
 use crate::memory::{self, plenty_release, plenty_retain, AllocError, Header};
 use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
+use std::cmp::Ordering;
 use std::io::Write;
 
 mod entry_error;
@@ -754,6 +755,48 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
                 true
             }
             _ => a == b,
+        }
+    }
+}
+/// The total order `sort` uses, defined for integers, floats, strings, and
+/// tuples of those. Values that compare equal are indistinguishable apart from
+/// NaN payloads, so an unstable sort has one observable result.
+unsafe fn compare(a: u128, b: u128, ty: &Type) -> Ordering {
+    // `<` leaves NaN unordered and equates the zeros. Sorting needs every value
+    // placed: zeros order by sign and every NaN follows the numbers.
+    fn float(a: f64, b: f64) -> Ordering {
+        match (a.is_nan(), b.is_nan()) {
+            (false, false) => a.total_cmp(&b),
+            (a, b) => a.cmp(&b),
+        }
+    }
+    unsafe {
+        match ty.kind {
+            b'1' => (a as i8).cmp(&(b as i8)),
+            b'2' => (a as i16).cmp(&(b as i16)),
+            b'3' => (a as i32).cmp(&(b as i32)),
+            b'4' => (a as i64).cmp(&(b as i64)),
+            b'5' => (a as u8).cmp(&(b as u8)),
+            b'6' => (a as u16).cmp(&(b as u16)),
+            b'7' => (a as u32).cmp(&(b as u32)),
+            b'8' => (a as u64).cmp(&(b as u64)),
+            b'f' => float(
+                f32::from_bits(a as u32).into(),
+                f32::from_bits(b as u32).into(),
+            ),
+            b'd' => float(f64::from_bits(a as u64), f64::from_bits(b as u64)),
+            // UTF-8 byte order is code point order.
+            b's' => strings::bytes(&(a as *const Text)).cmp(strings::bytes(&(b as *const Text))),
+            b'B' => match (ty.record(a), ty.record(b)) {
+                (Some(left), Some(right)) => (0..left.len())
+                    .map(|i| compare(left.slot(i).read(), right.slot(i).read(), left.ty(i)))
+                    .find(|order| order.is_ne())
+                    .unwrap_or(Ordering::Equal),
+                _ => ty.payload(a).map_or(Ordering::Equal, |field| {
+                    compare(ty.unpack(a), ty.unpack(b), field)
+                }),
+            },
+            _ => crate::fail("sort does not support this element type"),
         }
     }
 }
@@ -1572,6 +1615,21 @@ pub(crate) unsafe fn collection(
                         release(entry.value, value);
                     }
                 }
+                plenty_retain(a as *mut Header);
+                a
+            }
+            126 => {
+                let c = &mut *(a as *mut Collection);
+                let len = c.entries.len();
+                c.entries
+                    .swap(index(b as i64, len), index(value as i64, len));
+                plenty_retain(a as *mut Header);
+                a
+            }
+            127 => {
+                let c = &mut *(a as *mut Collection);
+                let element = (*c.ty).key();
+                c.entries.sort_unstable_by(|x, y| compare(x, y, element));
                 plenty_retain(a as *mut Header);
                 a
             }

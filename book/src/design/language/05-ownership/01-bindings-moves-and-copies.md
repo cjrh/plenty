@@ -30,4 +30,5 @@ Owned fields cannot be moved directly out of a class or indexed collection.
 Use an explicit copy, a collection removal operation, whole-tuple unpacking,
 or consuming enum matching as appropriate. A class field can also be exchanged
 with [`replace`](../04-expressions/assignment.md), transferring its old value
-while leaving the field initialized.
+while leaving the field initialized, and two list elements can be exchanged in
+place with [`swap`](../../facilities/01-builtins/lists.md).

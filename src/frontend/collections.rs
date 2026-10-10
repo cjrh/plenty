@@ -85,7 +85,16 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        let ty = self.value(value, ops)?;
+        Self::check_unpacked_arity(names.len(), value)?;
+        // Reassigned bindings already have types that literals should take.
+        let expected = names
+            .iter()
+            .map(|name| self.names.get(name).map(|local| local.ty.clone()))
+            .collect::<Option<Vec<_>>>()
+            .map(crate::sum::tuple);
+        let ty = self
+            .expr_expected(value, expected, ops)?
+            .ok_or_else(|| value.at.error("expected a value, got ()"))?;
         let Ty::Enum(t) = &ty else {
             return Err(value.at.error("unpacking requires a tuple"));
         };
@@ -151,6 +160,125 @@ impl Lower<'_> {
                 .map(|slot| slot.map_or(Op::Drop, Op::StoreLocal)),
         );
         ops.push(Op::DropLocal(source));
+        Ok(())
+    }
+    /// Report a literal of the wrong length as an unpacking error before a
+    /// type hint built from the targets can describe it as an annotation.
+    fn check_unpacked_arity(targets: usize, value: &Expr) -> Result<()> {
+        match &value.kind {
+            Expression::Tuple(values) if values.len() != targets => {
+                Err(value.at.error("unpacking arity does not match tuple"))
+            }
+            _ => Ok(()),
+        }
+    }
+    /// Assign each component of `value` to its target, left to right, exactly
+    /// as a single assignment to that target would. The right side is complete
+    /// before the first write, so targets may exchange their values.
+    pub(super) fn assign_targets(
+        &mut self,
+        targets: &[Expr],
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let mut seen = HashSet::new();
+        for target in targets {
+            match &target.kind {
+                Expression::Tuple(_) => {
+                    return Err(target
+                        .at
+                        .error("nested assignment targets are not supported"));
+                }
+                Expression::Name(name) if name != "_" && !seen.insert(name) => {
+                    return Err(target.at.error("duplicate unpacking binding"));
+                }
+                _ => {}
+            }
+        }
+        Self::check_unpacked_arity(targets.len(), value)?;
+        // Known target types let literals on the right take those types.
+        let expected = targets
+            .iter()
+            .map(|target| self.place_type(target))
+            .collect::<Option<Vec<_>>>()
+            .map(crate::sum::tuple);
+        let ty = self
+            .expr_expected(value, expected, ops)?
+            .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+        let Ty::Enum(t) = &ty else {
+            return Err(value.at.error("unpacking requires a tuple"));
+        };
+        if !t.tuple() {
+            return Err(value.at.error("unpacking requires a tuple"));
+        }
+        let fields = t.get().variants[0].fields.clone();
+        if fields.len() != targets.len() {
+            return Err(value.at.error("unpacking arity does not match tuple"));
+        }
+        let mut slots = Vec::new();
+        for (target, ty) in targets.iter().zip(&fields) {
+            slots.push(
+                if matches!(&target.kind, Expression::Name(name) if name == "_") {
+                    None
+                } else if *ty == Ty::Unit {
+                    return Err(target
+                        .at
+                        .error("unit bindings are not supported yet; use _"));
+                } else {
+                    Some(self.slot(ty.clone(), &value.at)?)
+                },
+            );
+        }
+        ops.push(Op::Split(t.clone(), 0));
+        ops.extend(
+            slots
+                .iter()
+                .rev()
+                .map(|slot| slot.map_or(Op::Drop, Op::StoreLocal)),
+        );
+        let values = match &value.kind {
+            Expression::Tuple(values) => Some(values),
+            _ => None,
+        };
+        for (i, (target, ty)) in targets.iter().zip(fields).enumerate() {
+            let Some(slot) = slots[i] else {
+                continue;
+            };
+            // No identifier contains `<`, so this cannot shadow a source name.
+            let component = format!("<component {slot}>");
+            self.names.insert(
+                component.clone(),
+                Local {
+                    slot,
+                    ty,
+                    mutable: false,
+                },
+            );
+            let source = Expr {
+                at: values.map_or(&value.at, |values| &values[i].at).clone(),
+                kind: Expression::Name(component.clone()),
+            };
+            let kind = match &target.kind {
+                Expression::Name(name) => Statement::Assign {
+                    name: name.clone(),
+                    mutable: false,
+                    annotation: None,
+                    value: source,
+                },
+                _ => Statement::SetIndex {
+                    target: target.clone(),
+                    value: source,
+                },
+            };
+            let assignment = Stmt {
+                at: target.at.clone(),
+                kind,
+            };
+            self.block_inner(std::slice::from_ref(&assignment), ops, false)?;
+            self.names.remove(&component);
+            // A copied component must not stay alive until the block ends.
+            ops.push(Op::DropLocal(slot));
+        }
         Ok(())
     }
     pub(super) fn tuple(
@@ -1276,6 +1404,12 @@ impl Lower<'_> {
         if name == "reverse" && matches!(collection, Some(Ty::List(_))) {
             return self.collection_unit_mutation(base, name, args, ops);
         }
+        if name == "sort" && matches!(collection, Some(Ty::List(_))) {
+            return self.collection_unit_mutation(base, name, args, ops);
+        }
+        if name == "swap" && matches!(collection, Some(Ty::List(_))) {
+            return self.list_swap(base, args, ops);
+        }
         if name == "extend" && matches!(collection, Some(Ty::List(_))) {
             return self.fallible_mutation(base, name, args, ops);
         }
@@ -1335,6 +1469,11 @@ impl Lower<'_> {
             return Err(base
                 .at
                 .error("reverse requires a mutable list binding or class field"));
+        }
+        if matches!(name, "sort" | "swap") && matches!(ty, Ty::List(_)) {
+            return Err(base.at.error(format!(
+                "{name} requires a mutable list binding or class field"
+            )));
         }
         if name == "extend" {
             return Err(base
@@ -1706,12 +1845,55 @@ impl Lower<'_> {
             return Err(base.at.error(format!("{name} takes no arguments")));
         }
         let ty = classes::unbox(self.place_type(base).expect("collection place"));
+        let operation = match (name, &ty) {
+            ("reverse", _) => CollectionOp::ListReverse(ty),
+            ("sort", Ty::List(element)) => {
+                if !Self::sortable(element) {
+                    return Err(base.at.error(format!(
+                        "sort does not order {element} elements; it orders integers, floats, \
+                         str, and tuples of those"
+                    )));
+                }
+                CollectionOp::ListSort(ty)
+            }
+            _ => CollectionOp::Clear(ty),
+        };
         let loan = self.mutation_place(base, ops)?;
-        ops.push(Op::Collection(if name == "reverse" {
-            CollectionOp::ListReverse(ty)
-        } else {
-            CollectionOp::Clear(ty)
-        }));
+        ops.push(Op::Collection(operation));
+        ops.push(Op::Drop);
+        ops.push(Op::UseLoan(loan));
+        Ok(None)
+    }
+
+    /// Whether the runtime's total order covers `ty`. Tuples order by their
+    /// components from left to right.
+    fn sortable(ty: &Ty) -> bool {
+        match ty {
+            Ty::Str => true,
+            Ty::Enum(t) if t.tuple() => t.get().variants[0].fields.iter().all(Self::sortable),
+            _ => ty.is_numeric(),
+        }
+    }
+
+    fn list_swap(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
+        if args.len() != 2 {
+            return Err(base.at.error("swap requires two i64 indices"));
+        }
+        let ty = classes::unbox(self.place_type(base).expect("collection place"));
+        // Observe both indices before borrowing the receiver exclusively, so
+        // an index may be computed from the same list.
+        let mut slots = Vec::new();
+        for argument in args {
+            let (actual, loans) = self.observe_expected(argument, Some(Ty::I64), ops)?;
+            self.same(Some(actual), Some(Ty::I64), &argument.at)?;
+            let slot = self.slot(Ty::I64, &argument.at)?;
+            ops.push(Op::StoreLocal(slot));
+            Self::end_reads(loans, ops);
+            slots.push(slot);
+        }
+        let loan = self.mutation_place(base, ops)?;
+        ops.extend(slots.into_iter().map(Op::MoveLocal));
+        ops.push(Op::Collection(CollectionOp::ListSwap(ty)));
         ops.push(Op::Drop);
         ops.push(Op::UseLoan(loan));
         Ok(None)

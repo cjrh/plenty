@@ -1061,6 +1061,80 @@ fn list_reverse_reorders_owned_slots_without_duplication() {
     }
 }
 
+#[test]
+fn list_swap_exchanges_owned_slots_and_counts_negative_indices_from_the_end() {
+    unsafe {
+        let source = collection(0, 0, 0, 0, &LIST_LIST);
+        let mut children = [0; 3];
+        for (i, child) in children.iter_mut().enumerate() {
+            *child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, source, *child, 0, ptr::null()) as *mut Header);
+        }
+        plenty_release(collection(126, source, 0, -1i64 as u128, ptr::null()) as *mut Header);
+        plenty_release(collection(126, source, 1, 1, ptr::null()) as *mut Header);
+        for (index, expected) in [2, 1, 0].into_iter().enumerate() {
+            let found = collection(4, source, index as u128, 0, ptr::null());
+            assert_eq!(found, children[expected]);
+            plenty_release(found as *mut Header);
+        }
+        plenty_release(source as *mut Header);
+    }
+}
+
+#[test]
+fn list_sort_orders_scalar_rows_by_their_signed_value() {
+    unsafe {
+        let source = collection(0, 0, 0, 0, &LIST_INT);
+        let values = [5i64, -3, 9, 0, -3, i64::MIN, i64::MAX];
+        for value in values {
+            plenty_release(collection(1, source, value as u128, 0, ptr::null()) as *mut Header);
+        }
+        plenty_release(collection(127, source, 0, 0, ptr::null()) as *mut Header);
+        let mut expected = values;
+        expected.sort();
+        for (index, expected) in expected.into_iter().enumerate() {
+            assert_eq!(
+                collection(4, source, index as u128, 0, ptr::null()) as i64,
+                expected
+            );
+        }
+        plenty_release(source as *mut Header);
+    }
+}
+
+#[test]
+fn inline_rows_swap_and_sort_with_addresses_that_follow_their_rows() {
+    use crate::entries::{Entries, Entry};
+    use crate::ranges::Range;
+    // Enough rows for every heap shape, in an order with repeated starts.
+    let starts: Vec<u64> = (0..64).map(|i| (i * 37 + 11) % 23).collect();
+    let mut entries = Entries::new(&UNSIGNED_RANGE, None);
+    entries.try_reserve(starts.len()).unwrap();
+    // SAFETY: each insertion copies the live source into reserved inline storage,
+    // and every read goes through the row's current address.
+    unsafe {
+        let start = |key: u128| (*(key as *const Range)).start;
+        for &value in &starts {
+            let source = Range::new(value, value + 2, 1, false);
+            entries.push(Entry {
+                key: &source as *const Range as u128,
+                value: 0,
+            });
+        }
+        entries.swap(0, 63);
+        assert_eq!(start(entries.get(0).key), starts[63]);
+        assert_eq!(start(entries.get(63).key), starts[0]);
+        entries.sort_unstable_by(|a, b| start(a).cmp(&start(b)));
+        let mut expected = starts.clone();
+        expected.sort();
+        for (index, expected) in expected.into_iter().enumerate() {
+            let range = &*(entries.get(index).key as *const Range);
+            assert_eq!((range.start, range.len), (expected, 2));
+        }
+    }
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn repeated_strings_fill_checked_storage_without_temporary_allocations() {

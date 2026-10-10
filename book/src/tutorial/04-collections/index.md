@@ -12,7 +12,8 @@ Store values in collections and choose when to transfer, copy, or borrow them.
 7. [Keep distinct values in a set](sets.md)
 8. [Remove values and take ownership](removing.md)
 9. [Group different types in tuples](tuples.md)
-10. [Clean up owned values](cleanup.md)
+10. [Sort and reorder a list](reordering.md)
+11. [Clean up owned values](cleanup.md)
 
 The [collection examples](../../design/examples/collections/index.md) provide
 additional operations.
