@@ -46,6 +46,7 @@ pub(super) fn emit_adapters(
             generator: None,
             local_frame: None,
             return_storage: None,
+            return_types: &[],
             collection_scratch: None,
         };
         for (i, ty) in task.inputs.iter().enumerate() {
