@@ -596,10 +596,21 @@ impl Lower<'_> {
                 self.field(e, ops)
             }
             Expression::Index(base, index) => {
+                if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
+                    let (reference, loan) = self.borrow(e, false, ops)?;
+                    let Ty::Ref(value, _) = reference else {
+                        unreachable!()
+                    };
+                    if *value == Ty::Unit {
+                        return Err(e.at.error("expected a value, got ()"));
+                    }
+                    ops.push(Op::ReadRef((*value).clone()));
+                    return Ok(((*value).clone(), vec![loan]));
+                }
                 if matches!(self.place_type(base), Some(Ty::List(element))
                     if element.is_numeric() || *element == Ty::Bool)
                 {
-                    return self.index(base, index, ops).map(|ty| (ty, vec![]));
+                    return self.index(e, ops).map(|ty| (ty, vec![]));
                 }
                 let (ty, loans) = self.observe(base, ops)?;
                 if let Ty::Enum(t) = &ty {

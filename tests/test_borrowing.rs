@@ -249,7 +249,7 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
 #[case::tuple_element(
     "",
     "    mut pair = (1, [2]?)\n    r = &mut pair[1]\n    print(pair[1])?\n    r.append(3)?\n",
-    "4:11: conflicting borrow: cannot read or borrow `pair` while `pair[1]` is exclusively borrowed
+    "4:11: conflicting borrow: cannot read or borrow `pair[1]` while it is exclusively borrowed
   3:14: note: the exclusive borrow of `pair[1]` starts here
   5:5: note: the borrow is used again here"
 )]
