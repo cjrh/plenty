@@ -211,11 +211,12 @@ impl Lower<'_> {
                 args.len()
             )));
         }
-        let loans = self.call_arguments(args, &sig.function().inputs, ops)?;
-        ops.push(Op::CallIndirect(sig.clone()));
+        let function = sig.function();
+        let loans = self.call_arguments(args, &function.inputs, ops)?;
+        self.push_call(Op::CallIndirect(sig.clone()), &function.inputs, &loans, ops);
         // A structural callable has no function-specific field projection summary.
         // Retain the full origin loan even when today's value happens to be named.
-        self.call_reference_result("", &sig.function(), &loans, ops);
+        self.call_reference_result("", &function, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.output.clone())
     }

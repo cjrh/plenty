@@ -48,8 +48,10 @@ def main() -> Result[(), Failure]:
 `match &mut value` binds mutable payload references. The recursive calls above
 borrow the next node, and ordinary field assignment updates it in place. The
 owner remains usable afterward and is dropped automatically at scope exit.
-These traversals allocate nothing; their recursive calls still use native stack
-space.
+These traversals allocate nothing. `increment` ends with its recursive call and
+passes on a reference borrowed from its own parameter, so that call is a tail
+call and the stack does not grow. `total` adds to the result after its call
+returns, so each of its calls still uses native stack space.
 
 A loop avoids that. Declare a reference binding with `mut` and assign it the
 next node. Such a binding may only be assigned a reference borrowed from itself,

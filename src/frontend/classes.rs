@@ -593,15 +593,27 @@ impl Lower<'_> {
     }
     /// Ends a statement in tail position. A tail call releases what its caller
     /// still owns before transferring, so the temporaries of a statement ending
-    /// in a call are dropped ahead of it. A call lending caller storage is
-    /// followed by its loan uses instead, and keeps its temporaries until it
-    /// returns.
+    /// in a call are dropped ahead of it.
+    ///
+    /// A call passing references is trailed by loan metadata. When the call
+    /// forwards them (`Op::ForwardsReferences`), that metadata moves ahead of
+    /// it and the call ends the statement. The loans stay live through
+    /// argument evaluation, and the move crosses only the call, which the loan
+    /// checker does not treat as an access, so every access is still checked
+    /// against the same live loans. Any other call lending caller storage
+    /// keeps its loan uses after it and its temporaries until it returns.
     pub(super) fn finish_tail_temporaries(&mut self, start: usize, ops: &mut Vec<Op>) {
-        let call = ops.len();
-        self.finish_temporaries(start, ops);
-        if matches!(ops[..call].last(), Some(Op::Call(_) | Op::CallIndirect(_))) {
-            ops[call - 1..].rotate_left(1);
+        if let Some(fact) = forwarding_call(ops) {
+            ops[fact..].rotate_left(2);
         }
+        let end = ops.len();
+        self.finish_temporaries(start, ops);
+        let call = match &ops[..end] {
+            [.., Op::ForwardsReferences, Op::Call(_) | Op::CallIndirect(_)] => 2,
+            [.., Op::Call(_) | Op::CallIndirect(_)] => 1,
+            _ => return,
+        };
+        ops[end - call..].rotate_left(call);
     }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
         if let Expression::Member(base, name) = &e.kind {
@@ -783,7 +795,7 @@ impl Lower<'_> {
         self.unbox_reference(reference, ops);
         let mut loans = vec![loan];
         loans.extend(self.call_arguments(args, &sig.inputs[1..], ops)?);
-        ops.push(Op::Call(callee.clone()));
+        self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())

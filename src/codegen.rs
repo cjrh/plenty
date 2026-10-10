@@ -1199,6 +1199,9 @@ impl Lowerer<'_, '_> {
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) => {}
+            // Consumed by `tail_abi::prepare`, which decides whether the call
+            // after it keeps this frame.
+            Op::ForwardsReferences => {}
             Op::BorrowLocal(i, mutable) => {
                 let (frame, offset) = if let Some(g) = &self.generator {
                     (g.frame, 64)

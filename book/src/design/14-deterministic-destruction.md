@@ -78,12 +78,24 @@ arguments and locals are dropped and the callee is never entered.
 
 Three kinds of call are not tail transfers and keep cleanup after the call:
 
-- A call passing a reference argument, including a method call through `self`.
-  The reference may point at a caller local, so every local outlives the call.
+- A call passing a reference into the caller's own storage: a local, an owned
+  parameter, or a temporary, including a method call on one. That storage must
+  outlive the call, so every local does. One such argument makes the whole call
+  ordinary.
 - A `return` inside a `with` block. The call returns, then the pending context
   exits and joins run, then the locals are dropped.
 - A call whose result is used further, for example wrapped in `Ok`, propagated
   with `?`, or combined by an operator.
+
+A reference argument does not prevent the transfer when it refers to storage
+the caller itself borrowed through a reference parameter, because that storage
+belongs to an older frame. This covers the parameter, a reborrow or local
+reference binding of it, a field or element reached through it, a payload bound
+by matching on it, an item of a borrowed iteration over it, and the reference
+result of a call that received it. The compiler decides this for each argument
+from the origin of its loan and records the result on the call; code generation
+does not infer it from types. A method call through a `self` reference and a
+closure body passing a borrowed capture qualify the same way.
 
 A call passing owned inline storage follows the three steps above but keeps the
 caller's frame to hold its staged argument storage. Exact-compatible inline

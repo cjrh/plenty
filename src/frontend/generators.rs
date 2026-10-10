@@ -139,7 +139,7 @@ impl Lower<'_> {
         }
         let symbol = self.specialize_frames(name, actual, at)?;
         let sig = self.sigs[&symbol].clone();
-        ops.push(Op::Call(symbol.clone()));
+        self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&symbol, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())

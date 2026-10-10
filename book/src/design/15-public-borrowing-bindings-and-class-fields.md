@@ -112,7 +112,7 @@ Each slot starts with 128-bit value bits; slots containing a range have an adjac
 taking addresses or storing inline ranges spill their locals; other functions retain SSA locals.
 Borrowed parameters already carry an address. Internal retained operands protect
 temporary storage lifetime, but the static checker establishes access permissions.
-Reference calls retain the caller frame, so native tail calls do not invalidate it.
+A call passing a reference into the caller's frame retains that frame, so native tail calls do not invalidate it.
 
 Partial moves and stored references remain rejected. Class field loans distinguish disjoint projections,
 and [borrowed matches](31-borrowed-enum-matching.md) extend this to enum payloads,

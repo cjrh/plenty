@@ -133,3 +133,5 @@ to the called function, which cleans it up instead. Tail recursion therefore
 keeps its constant stack use when each step owns a resource. A call that borrows
 one of the function's values, such as `inspect(&scratch)` or a method call on it,
 cannot release that value first: it runs as an ordinary call and cleanup follows.
+A reference the function received as a parameter refers to a value outside the
+function, so passing it on is still a tail call.

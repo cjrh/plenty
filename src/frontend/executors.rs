@@ -183,12 +183,8 @@ impl Lower<'_> {
     ) -> Result<Ty> {
         let begin = ops.len();
         let output = self.call_named(function, args, at, ops)?;
-        let index = (begin..ops.len())
-            .rfind(|&i| matches!(ops[i], Op::Call(_)))
+        let (_, worker) = take_call(ops, begin)
             .ok_or_else(|| at.error("submit requires a statically selected function"))?;
-        let Op::Call(worker) = ops.remove(index) else {
-            unreachable!()
-        };
         let captures = self.sigs[&worker].inputs.clone();
         if captures.iter().any(|(_, ty)| !ty.heap_storable()) {
             return Err(
