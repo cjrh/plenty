@@ -35,14 +35,22 @@ MIRIFLAGS=-Zmiri-permissive-provenance cargo +nightly miri test -p plenty-runtim
 omits the process entrypoint; embedded application builds enable it separately.
 
 `runtime-checks` enables allocation counting and failure injection in the
-compiler's archive. Allocation-free regions count every attempt, including
-temporary allocations already freed. Failure injection covers allocation,
+compiler's archive. Allocation-free regions count every attempt on the calling
+thread, including temporary allocations already freed and failed attempts.
+Each thread has its own region baseline, so workers can use overlapping regions.
+Failure injection is also local to the calling thread and covers allocation,
 zeroed allocation, and reallocation without allocating inside the instrumentation.
 Native tests check cleanup, retained source state, and retries after failure.
 Normal compiler builds omit these checkpoints. The runtime crate's
 `allocation-checks` feature enables its counting allocator and gated ABI unit
 tests. `--all-features` selects both; workspace `--features runtime-checks` alone
 does not enable the runtime crate's feature.
+
+The `__test_small_live_heap__` marker and final allocation-balance check count
+live bytes across the process, including storage transferred between threads.
+At a live-heap checkpoint, workers must be idle or joined and any worker-owned
+heap storage must fit within the 4096-byte allowance. Join all workers and drop
+their results before the final allocation-balance check.
 
 Miri checks layouts, metadata, ownership, relocation, and reentrant destruction.
 Packed pointer slots require exposed-provenance semantics; this does not establish

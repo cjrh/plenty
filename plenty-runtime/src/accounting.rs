@@ -6,14 +6,21 @@ use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 struct Accounting;
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static BASELINE: AtomicUsize = AtomicUsize::new(0);
-static ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
-static REGION_START: AtomicUsize = AtomicUsize::new(0);
 #[global_allocator]
 static ALLOCATOR: Accounting = Accounting;
 
-// Thread-local so runtime unit tests can run concurrently. The constant TLS
-// initializer does not allocate; failing realloc must preserve its old pointer.
-thread_local! { static FAIL_AFTER: Cell<Option<usize>> = const { Cell::new(None) }; }
+// Region baselines and failure budgets belong to the calling thread, so worker
+// markers cannot reset a parent's region or attribute worker attempts to it.
+// Constant TLS initializers do not allocate; live bytes remain process-wide
+// because heap owners can move between threads.
+thread_local! {
+    static ATTEMPTS: Cell<usize> = const { Cell::new(0) };
+    static REGION_START: Cell<usize> = const { Cell::new(0) };
+    static FAIL_AFTER: Cell<Option<usize>> = const { Cell::new(None) };
+}
+fn record_allocation_attempt() {
+    ATTEMPTS.with(|attempts| attempts.set(attempts.get().wrapping_add(1)));
+}
 pub(crate) fn fail_after(successes: Option<usize>) {
     FAIL_AFTER.with(|budget| budget.set(successes));
 }
@@ -32,7 +39,7 @@ fn injected_failure() -> bool {
 // allocate nor hold locks, and realloc changes accounting only on success.
 unsafe impl GlobalAlloc for Accounting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ATTEMPTS.fetch_add(1, Relaxed);
+        record_allocation_attempt();
         if injected_failure() {
             return std::ptr::null_mut();
         }
@@ -43,7 +50,7 @@ unsafe impl GlobalAlloc for Accounting {
         p
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        ATTEMPTS.fetch_add(1, Relaxed);
+        record_allocation_attempt();
         if injected_failure() {
             return std::ptr::null_mut();
         }
@@ -60,7 +67,7 @@ unsafe impl GlobalAlloc for Accounting {
         }
     }
     unsafe fn realloc(&self, p: *mut u8, old: Layout, size: usize) -> *mut u8 {
-        ATTEMPTS.fetch_add(1, Relaxed);
+        record_allocation_attempt();
         if injected_failure() {
             return std::ptr::null_mut();
         }
@@ -73,10 +80,10 @@ unsafe impl GlobalAlloc for Accounting {
     }
 }
 pub(crate) fn begin_no_allocations() {
-    REGION_START.store(ATTEMPTS.load(Relaxed), Relaxed);
+    REGION_START.with(|start| start.set(ATTEMPTS.with(Cell::get)));
 }
 pub(crate) fn end_no_allocations() {
-    if ATTEMPTS.load(Relaxed) != REGION_START.load(Relaxed) {
+    if ATTEMPTS.with(Cell::get) != REGION_START.with(Cell::get) {
         crate::fail("unexpected allocation in allocation-free region");
     }
 }
@@ -91,6 +98,7 @@ pub(crate) fn start() {
     BASELINE.store(LIVE.load(Relaxed), Relaxed);
 }
 pub(crate) fn checkpoint() {
+    // Workers must be idle or joined; their retained heap counts here too.
     let live = LIVE.load(Relaxed).saturating_sub(BASELINE.load(Relaxed));
     if live > 4096 {
         crate::fail(&format!("out-of-scope values retained: {live} bytes"));

@@ -44,6 +44,11 @@ remain the system's limits, and core-file policy follows the system.
 Native tests and compile-time layout assertions check public helper signatures
 and private layouts. Miri exercises runtime storage with exposed-provenance
 semantics for packed pointers; it cannot execute generated Cranelift code.
-`runtime-checks` enables allocation counting and failure injection. A relocated
+`runtime-checks` enables allocation counting and failure injection. Allocation-free
+markers count attempts on the calling thread and keep a separate baseline for
+each thread; failure injection is also thread-local. Live-heap checkpoints count
+bytes across the process, so workers must be idle or joined and any retained
+worker storage counts toward the checkpoint's allowance. All workers and their
+results must be cleaned up before the final allocation-balance check. A relocated
 compiler test rejects per-program C/Rust runtime compilation.
 The [runtime contributor guide](../../../runtime.md) lists validation commands.
