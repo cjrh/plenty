@@ -1,0 +1,5 @@
+# Traversal needs file types and an explicit policy for symbolic links.
+def main() -> Result[(), Failure]:
+    info = metadata(".")?
+    print(info)?
+    Ok(())

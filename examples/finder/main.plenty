@@ -1,0 +1,65 @@
+import matching
+
+def usage() -> Result[(), IoError]:
+    print("Usage: finder --paths [--glob] [--full-path] [--hidden] [--] [PATTERN]")?
+    print("Read relative UTF-8 paths from stdin, one per LF/CRLF line.")?
+    print("Default: case-sensitive literal substring in the basename.")?
+    print("--glob: whole-name match; * matches zero or more scalars, ? one scalar.")?
+    print("--full-path: match the entire supplied path; wildcards may cross /.")?
+    print("--hidden: include components beginning with a dot.")?
+    print("Directory traversal is unavailable in the current Plenty runtime.")?
+    Ok(())
+
+def search(pattern: &str, glob: bool, full_path: bool, hidden: bool) -> Result[i32, IoError]:
+    while True:
+        match input()?:
+            case Some(path):
+                if len(path) == 0:
+                    continue
+                if not hidden and matching.is_hidden(&path):
+                    continue
+                if matching.matches(pattern, &path, glob, full_path):
+                    print(path)?
+            case Nothing:
+                break
+    flush_stdout()?
+    Ok(0)
+
+def main() -> Result[i32, IoError]:
+    argv = args()?
+    mut paths = False
+    mut glob = False
+    mut full_path = False
+    mut hidden = False
+    mut options = True
+    mut pattern_index = -1
+    for index in range(1, len(argv)):
+        argument = argv[index]
+        if options and argument == "--":
+            options = False
+        elif options and (argument == "--help" or argument == "-h"):
+            usage()?
+            return Ok(0)
+        elif options and argument == "--paths":
+            paths = True
+        elif options and argument == "--glob":
+            glob = True
+        elif options and argument == "--full-path":
+            full_path = True
+        elif options and argument == "--hidden":
+            hidden = True
+        elif options and argument.startswith("-"):
+            write_stderr("finder: unknown option; see --help\n")?
+            return Ok(2)
+        elif pattern_index >= 0:
+            write_stderr("finder: expected one pattern; directory roots are not supported\n")?
+            return Ok(2)
+        else:
+            pattern_index = index
+    if not paths:
+        write_stderr("finder: directory enumeration and file metadata are missing in Plenty; use --paths with a supplied path list\n")?
+        return Ok(2)
+    if pattern_index < 0:
+        search("", False, full_path, hidden)
+    else:
+        search(&argv[pattern_index], glob, full_path, hidden)

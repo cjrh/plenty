@@ -1,0 +1,67 @@
+pub def basename_start(path: &str) -> i64:
+    match path.rfind("/"):
+        case Some(position):
+            position + 1
+        case Nothing:
+            0
+
+pub def is_hidden(path: &str) -> bool:
+    mut component_length = 0
+    mut begins_dot = False
+    mut dots_only = True
+    for character in path:
+        if character == "/":
+            if begins_dot and (component_length > 2 or not dots_only):
+                return True
+            component_length = 0
+            begins_dot = False
+            dots_only = True
+        else:
+            if component_length == 0:
+                begins_dot = character == "."
+            component_length = component_length + 1
+            dots_only = dots_only and character == "."
+    begins_dot and (component_length > 2 or not dots_only)
+
+# The last star remembers where to retry; no recursion or search tree is needed.
+# Bounds are Unicode scalar positions, just like Plenty's string indexing.
+pub def glob_matches(pattern: &str, path: &str, start: i64) -> bool:
+    mut p = 0
+    mut t = start
+    mut star = -1
+    mut retry = start
+    pattern_length = len(pattern)
+    text_length = len(path)
+    while t < text_length:
+        if p < pattern_length and pattern[p] == "*":
+            star = p
+            p = p + 1
+            retry = t
+        elif p < pattern_length and (pattern[p] == "?" or pattern[p] == path[t]):
+            p = p + 1
+            t = t + 1
+        elif star >= 0:
+            retry = retry + 1
+            t = retry
+            p = star + 1
+        else:
+            return False
+    while p < pattern_length and pattern[p] == "*":
+        p = p + 1
+    p == pattern_length
+
+pub def literal_matches(pattern: &str, path: &str, start: i64) -> bool:
+    # An occurrence is usable iff the last occurrence starts in the basename.
+    # This avoids allocating a basename substring for every input path.
+    match path.rfind(pattern):
+        case Some(position):
+            position >= start
+        case Nothing:
+            False
+
+pub def matches(pattern: &str, path: &str, glob: bool, full_path: bool) -> bool:
+    start = 0 if full_path else basename_start(path)
+    if glob:
+        glob_matches(pattern, path, start)
+    else:
+        literal_matches(pattern, path, start)

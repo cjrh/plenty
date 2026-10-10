@@ -1,0 +1,6 @@
+# A capability probe, intentionally rejected by the current compiler.
+def main() -> Result[(), Failure]:
+    entries = read_dir(".")?
+    for entry in entries:
+        print(entry)?
+    Ok(())
