@@ -29,3 +29,38 @@ cm
 A tuple stores its components inline, so `(a, b)` never allocates and has type
 `tuple[A, B]` directly. The list above still allocates, so its display keeps
 its `?`.
+
+Distinct tuple components can be borrowed and read independently. The borrow
+below protects component 1 while component 0 remains readable:
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut pair = (1, [2]?)
+    items = &mut pair[1]
+    first = pair[0]
+    print(first)?
+    print(pair[0])?
+    items.append(3)?
+    print(pair)?
+    Ok(())
+```
+```output
+1
+1
+(1, [2, 3])
+```
+
+Reading the borrowed component still conflicts, and the diagnostic names that
+component:
+
+```plenty-error
+def main() -> Result[(), Failure]:
+    mut pair = (1, [2]?)
+    items = &mut pair[1]
+    print(pair[1])?
+    items.append(3)?
+    Ok(())
+```
+```error
+conflicting borrow: cannot read or borrow `pair[1]` while it is exclusively borrowed
+```

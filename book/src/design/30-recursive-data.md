@@ -25,6 +25,16 @@ converts to `&T` the same way. Nested boxes convert through every level. A boxed
 class's fields and methods are reached directly, and matching a box matches its
 content: an owned box is consumed, a borrowed one lends its content.
 
+Builtin list, dictionary, set, and string methods also reach through nested
+boxes. Calling a method on a boxed binding, field, or element borrows its content
+and preserves the box. Mutation requires a mutable owner or an exclusive
+reference; a shared reference never permits mutation. Read-only methods also
+accept owned temporary boxes, which release the box and keep its content alive
+through the full expression. Mutation still requires a binding, field, or
+element rather than a temporary receiver. Boxed projections from temporary
+collections or class instances, and temporary references returned by calls,
+still require a named binding before calling these builtin methods.
+
 Where no type is required the box stays a box: `other = b` moves the box.
 Operators and conditions do not convert either. `*b` moves the content out
 explicitly in those places, and `&*b` and `&mut *b` borrow it. Boxes are affine.

@@ -144,15 +144,16 @@ impl Lower<'_> {
     /// later point anywhere inside its first target, so its loan and every
     /// loan derived from it cover that whole target instead of a field path.
     pub(super) fn bind_reference(&mut self, slot: u8, loan: usize, mutable: bool, ops: &mut [Op]) {
+        self.loans[loan].binding = Some(slot);
         if mutable {
             self.loans[loan].precise = false;
-            if let Some(Op::Loan(fact)) = ops
-                .iter_mut()
-                .rev()
-                .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
-            {
-                *fact = self.loans[loan].clone();
-            }
+        }
+        if let Some(Op::Loan(fact)) = ops
+            .iter_mut()
+            .rev()
+            .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
+        {
+            *fact = self.loans[loan].clone();
         }
         self.reference_locals.insert(slot, loan);
     }
@@ -294,6 +295,8 @@ impl Lower<'_> {
             precise: parent.is_none_or(|id| self.loans[id].precise),
             mutable,
             parent,
+            through: parent.and_then(|id| self.loans[id].binding.or(self.loans[id].through)),
+            binding: None,
         };
         self.loans.push(loan.clone());
         ops.push(Op::Loan(loan));
@@ -527,7 +530,38 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Vec<usize>)> {
-        let result = self.observe_inner(e, expected, ops)?;
+        self.observe_with_context(e, expected, false, ops)
+    }
+
+    pub(super) fn observe_method_receiver(
+        &mut self,
+        e: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, Vec<usize>)> {
+        self.observe_with_context(e, None, true, ops)
+    }
+
+    fn observe_with_context(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        unbox_owned: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, Vec<usize>)> {
+        let mut result = self.observe_inner(e, expected, ops)?;
+        if unbox_owned
+            && result.1.is_empty()
+            && matches!(result.0, Ty::Box(_))
+            && !matches!(
+                ungroup(e).kind,
+                Expression::Index(..) | Expression::Member(..)
+            )
+        {
+            // Take temporary box contents before recording their owner, so the
+            // full-expression temporary owns the content rather than a freed box.
+            let content = classes::unbox(result.0.clone());
+            result.0 = self.unbox_to(result.0, &content, ops);
+        }
         // A temporary owner survives all observations in the containing full
         // expression, including projections through a temporary collection.
         // An element read is a view of its collection, which is held already.
@@ -596,10 +630,21 @@ impl Lower<'_> {
                 self.field(e, ops)
             }
             Expression::Index(base, index) => {
+                if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
+                    let (reference, loan) = self.borrow(e, false, ops)?;
+                    let Ty::Ref(value, _) = reference else {
+                        unreachable!()
+                    };
+                    if *value == Ty::Unit {
+                        return Err(e.at.error("expected a value, got ()"));
+                    }
+                    ops.push(Op::ReadRef((*value).clone()));
+                    return Ok(((*value).clone(), vec![loan]));
+                }
                 if matches!(self.place_type(base), Some(Ty::List(element))
                     if element.is_numeric() || *element == Ty::Bool)
                 {
-                    return self.index(base, index, ops).map(|ty| (ty, vec![]));
+                    return self.index(e, ops).map(|ty| (ty, vec![]));
                 }
                 let (ty, loans) = self.observe(base, ops)?;
                 if let Ty::Enum(t) = &ty {

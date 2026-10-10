@@ -978,7 +978,24 @@ impl Lower<'_> {
         Ok(())
     }
 
-    pub(super) fn index(&mut self, base: &Expr, index: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+    pub(super) fn index(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+        let Expression::Index(base, index) = &e.kind else {
+            unreachable!()
+        };
+        if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
+            let (reference, loan) = self.borrow(e, false, ops)?;
+            let Ty::Ref(value, _) = reference else {
+                unreachable!()
+            };
+            if value.affine() {
+                return Err(index
+                    .at
+                    .error("cannot move out of a tuple index; unpack the tuple instead"));
+            }
+            ops.push(Op::ReadRef((*value).clone()));
+            Self::end_reads(vec![loan], ops);
+            return Ok((*value).clone());
+        }
         if let Some(ty @ Ty::List(_)) = self.place_type(base) {
             let value = ty.element().unwrap();
             if value.is_numeric() || value == Ty::Bool {
@@ -1044,6 +1061,7 @@ impl Lower<'_> {
 
     fn mutation_place(&mut self, base: &Expr, ops: &mut Vec<Op>) -> Result<usize> {
         let (reference, loan) = self.borrow(base, true, ops)?;
+        let reference = self.unbox_reference(reference, ops);
         let Ty::Ref(ty, _) = reference else {
             unreachable!()
         };
@@ -1251,35 +1269,40 @@ impl Lower<'_> {
         if matches!(name, "reserve" | "append" | "add" | "insert") {
             return self.fallible_mutation(base, name, args, ops);
         }
-        if name == "pop" && matches!(self.place_type(base), Some(Ty::Dict(..) | Ty::List(_))) {
+        let collection = self.place_type(base).map(classes::unbox);
+        if name == "pop" && matches!(collection, Some(Ty::Dict(..) | Ty::List(_))) {
             return self.collection_removal(base, args, ops);
         }
-        if name == "reverse" && matches!(self.place_type(base), Some(Ty::List(_))) {
+        if name == "reverse" && matches!(collection, Some(Ty::List(_))) {
             return self.collection_unit_mutation(base, name, args, ops);
         }
-        if name == "extend" && matches!(self.place_type(base), Some(Ty::List(_))) {
+        if name == "extend" && matches!(collection, Some(Ty::List(_))) {
             return self.fallible_mutation(base, name, args, ops);
         }
-        if name == "update" && matches!(self.place_type(base), Some(Ty::Dict(..) | Ty::Set(_))) {
+        if name == "update" && matches!(collection, Some(Ty::Dict(..) | Ty::Set(_))) {
             return self.fallible_mutation(base, name, args, ops);
         }
-        if name == "clear"
-            && matches!(
-                self.place_type(base),
-                Some(Ty::List(_) | Ty::Set(_) | Ty::Dict(..))
-            )
-        {
+        if name == "clear" && matches!(collection, Some(Ty::List(_) | Ty::Set(_) | Ty::Dict(..))) {
             return self.collection_unit_mutation(base, name, args, ops);
         }
-        if name == "discard" && matches!(self.place_type(base), Some(Ty::Set(_))) {
+        if name == "discard" && matches!(collection, Some(Ty::Set(_))) {
             return self.collection_removal(base, args, ops);
         }
         if matches!(name, "intersection_update" | "difference_update")
-            && matches!(self.place_type(base), Some(Ty::Set(_)))
+            && matches!(collection, Some(Ty::Set(_)))
         {
             return self.set_filter_mutation(base, name, args, ops);
         }
-        let (ty, loans) = self.observe(base, ops)?;
+        let (ty, loans) = if matches!(self.place_type(base), Some(Ty::Box(_))) {
+            let (reference, loan) = self.borrow(base, false, ops)?;
+            let Ty::Ref(content, _) = self.unbox_reference(reference, ops) else {
+                unreachable!()
+            };
+            ops.push(Op::ReadRef((*content).clone()));
+            ((*content).clone(), vec![loan])
+        } else {
+            self.observe_method_receiver(base, ops)?
+        };
         if name == "is_null" && matches!(ty, Ty::ForeignPtr(_)) {
             if !args.is_empty() {
                 return Err(base.at.error("is_null takes no arguments"));
@@ -1597,7 +1620,7 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        let ty = self.place_type(base).expect("collection place");
+        let ty = classes::unbox(self.place_type(base).expect("collection place"));
         let operation = match &ty {
             Ty::Dict(..) => {
                 if args.len() != 1 {
@@ -1651,7 +1674,7 @@ impl Lower<'_> {
         if args.len() != 1 {
             return Err(base.at.error(format!("{name} requires one set argument")));
         }
-        let ty = self.place_type(base).expect("set place");
+        let ty = classes::unbox(self.place_type(base).expect("set place"));
         let argument = &args[0];
         let (actual, reads) = self.observe_expected(argument, Some(ty.clone()), ops)?;
         self.same(Some(actual), Some(ty.clone()), &argument.at)?;
@@ -1682,7 +1705,7 @@ impl Lower<'_> {
         if !args.is_empty() {
             return Err(base.at.error(format!("{name} takes no arguments")));
         }
-        let ty = self.place_type(base).expect("collection place");
+        let ty = classes::unbox(self.place_type(base).expect("collection place"));
         let loan = self.mutation_place(base, ops)?;
         ops.push(Op::Collection(if name == "reverse" {
             CollectionOp::ListReverse(ty)
@@ -1748,7 +1771,7 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        let ty = self.place_type(base).ok_or_else(|| {
+        let ty = self.place_type(base).map(classes::unbox).ok_or_else(|| {
             base.at
                 .error("mutation requires a named binding or class field")
         })?;

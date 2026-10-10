@@ -42,7 +42,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
 | Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; a `mut` reference binding is reassigned only through itself; stored references deferred |
 | Inline values | Class instances, tuples, and enum values store their fields inline in their owner's storage; construction never allocates. Inline storage is limited to 64 KiB per type; [reference](12-classes-fixed-layout-records.md) |
-| `Box[T]` | One owned heap value; `Box(value)` returns `Result`, a box converts to its content wherever the content's type is required, and a boxed class's fields and methods are reached directly; [reference](30-recursive-data.md) |
+| `Box[T]` | One owned heap value; `Box(value)` returns `Result`, a box converts to its content wherever the content's type is required, and class fields, class methods, and builtin collection/string methods are reached directly; [reference](30-recursive-data.md) |
 | Borrowed enum matching | Shared matches preserve owners; mutable matches update every enum's payloads. Payload loans protect variants, support restricted returns, and allocate nothing; [reference](31-borrowed-enum-matching.md) |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |

@@ -130,6 +130,13 @@ owned fields can be observed or explicitly copied, but ownership extraction
 requires unpacking. References and generators cannot be stored in tuples yet.
 Empty `()` remains unit. Nested/starred unpacking is deferred.
 
+Reads and shared observations of a named tuple element borrow its projected
+place, including through reference bindings and nested class/tuple fields.
+Reading `pair[0]` therefore remains valid while `pair[1]` is exclusively borrowed;
+reading `pair[1]` or the whole tuple conflicts. Diagnostics identify the accessed
+tuple index. Projections through collection elements or a reassignable reference
+retain their conservative whole-target footprint.
+
 Shared iteration over a list of owned elements binds `&T`; mutable list iteration
 binds `&mut T`, including scalar elements. Shared iteration over copyable elements
 still binds values. The source remains borrowed throughout the loop, including

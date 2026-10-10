@@ -2129,8 +2129,8 @@ impl Lower<'_> {
             }
             Expression::Tuple(values) => Some(self.tuple(values, None, &e.at, ops)?),
             Expression::Collection { .. } => Some(self.fallible_display(e, None, ops)?),
-            Expression::Index(base, index) => {
-                let ty = self.index(base, index, ops)?;
+            Expression::Index(..) => {
+                let ty = self.index(e, ops)?;
                 if ty == Ty::Unit {
                     ops.push(Op::Drop);
                     None

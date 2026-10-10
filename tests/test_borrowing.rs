@@ -249,23 +249,37 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
 #[case::tuple_element(
     "",
     "    mut pair = (1, [2]?)\n    r = &mut pair[1]\n    print(pair[1])?\n    r.append(3)?\n",
-    "4:11: conflicting borrow: cannot read or borrow `pair` while `pair[1]` is exclusively borrowed
+    "4:11: conflicting borrow: cannot read or borrow `pair[1]` while it is exclusively borrowed
   3:14: note: the exclusive borrow of `pair[1]` starts here
   5:5: note: the borrow is used again here"
 )]
-// A reborrow is reported against the owner it reaches, with its own path.
+// A reborrow names both the owner it reaches and the reference written here.
 #[case::field_reborrow(
     POINT,
     "    mut p = Point(1, 2)\n    r = &mut p\n    s = &mut r.x\n    r.shift(1)\n    print(s)?\n",
-    "11:5: conflicting borrow: cannot modify or exclusively borrow `p` while `p.x` is exclusively borrowed
+    "11:5: conflicting borrow: cannot modify or exclusively borrow `p` (through `r`) while `p.x` is exclusively borrowed
   10:14: note: the exclusive borrow of `p.x` starts here
   12:11: note: the borrow is used again here"
 )]
 #[case::shared_reborrow(
     "",
     "    mut a = [1]?\n    r = &mut a\n    s = &r\n    r.append(2)?\n    print(s)?\n",
-    "5:5: conflicting borrow: cannot modify or exclusively borrow `a` while it is borrowed
+    "5:5: conflicting borrow: cannot modify or exclusively borrow `a` (through `r`) while it is borrowed
   4:10: note: the shared borrow of `a` starts here
+  6:11: note: the borrow is used again here"
+)]
+#[case::chained_reborrow(
+    POINT,
+    "    mut p = Point(1, 2)\n    r = &mut p\n    alias = &mut r\n    s = &mut alias.x\n    alias.shift(1)\n    print(s)?\n",
+    "12:5: conflicting borrow: cannot modify or exclusively borrow `p` (through `alias`) while `p.x` is exclusively borrowed
+  11:14: note: the exclusive borrow of `p.x` starts here
+  13:11: note: the borrow is used again here"
+)]
+#[case::scalar_reference_read(
+    "",
+    "    mut value = 1\n    r = &mut value\n    s = &mut r\n    print(r)?\n    print(s)?\n",
+    "5:11: conflicting borrow: cannot read `value` (through `r`) while it is exclusively borrowed
+  4:14: note: the exclusive borrow of `value` starts here
   6:11: note: the borrow is used again here"
 )]
 // The callee may return either field, so no field is named for the loan.

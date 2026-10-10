@@ -5,7 +5,8 @@ whose static descriptors refer back to themselves through `Option[Box[...]]`.
 The sole owner transfers to a worker with a 64 KiB stack; all hooks run exactly
 once with allocation disabled. Source-level tests also build boxed recursive
 class and enum chains of 100,000 nodes each and drop both on a 256 KiB native
-stack with allocation disabled. This does not provide a public thread API.
+stack with allocation disabled, including a heap child followed by an inline
+field with a destructor at every node. This does not provide a public thread API.
 
 Plenty uses ownership-driven destruction, without a tracing garbage collector.
 The compiler inserts cleanup on ordinary control-flow exits. This applies to memory
@@ -105,9 +106,12 @@ an older frame and is forwarded unchanged. See the [tail-call ABI](40-tail-call-
 Values stored inline, such as class instances, tuples, and enum payloads, drop
 immediately in declaration order; their nesting depth is bounded by their type.
 Boxes and collections join the destruction queue, which processes them in
-depth-first declaration order without recursive native stack growth. When a
-value being destroyed from the queue holds a box or collection, that heap child
-finishes after the value's later inline siblings. A hook runs through a native
+depth-first declaration order without recursive native stack growth. A dying
+box or collection keeps its storage alive as a queue continuation while each
+heap child finishes. Consumed inline slots are cleared, and cleanup resumes at
+the remaining fields or entries before the parent's storage is freed. This
+requires no allocation, including when a recursive heap child precedes an inline
+sibling. A hook runs through a native
 ABI adapter before its fields are released. Drops performed
 inside the hook drain synchronously, preserving their order relative to its other
 effects; temporarily suspending the outer queue prevents sibling cleanup from
