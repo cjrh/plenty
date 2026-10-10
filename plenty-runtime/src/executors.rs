@@ -17,7 +17,9 @@ pub(crate) type Entry = unsafe extern "C" fn(*const u128, *mut u128);
 
 #[repr(C)]
 struct Worker {
+    // The first two words belong to `threads::plenty_thread_start`.
     thread: usize,
+    entry: usize,
     pool: *mut Pool,
 }
 
@@ -87,6 +89,7 @@ pub(crate) fn create(count: usize, capacity: usize) -> Result<*mut Pool, u128> {
             let worker = (*pointer).workers.add(index);
             worker.write(Worker {
                 thread: 0,
+                entry: 0,
                 pool: pointer,
             });
             let status = threads::plenty_thread_start(worker.cast(), run_worker);

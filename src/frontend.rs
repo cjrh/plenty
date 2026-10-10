@@ -2111,7 +2111,17 @@ impl Lower<'_> {
                 } else {
                     let (ty, loans) = self.field(e, ops)?;
                     if ty.affine() {
-                        return Err(e.at.error("cannot move out of a field; use copy or borrow"));
+                        let copy = if ty.can_copy() && !ty.recursive_data() {
+                            "copy(value.field).unwrap(), "
+                        } else {
+                            ""
+                        };
+                        let borrow = if matches!(ty, Ty::Enum(_)) && ty.recursive_data() {
+                            "match &value.field (or &mut value.field)"
+                        } else {
+                            "&value.field (or &mut value.field)"
+                        };
+                        return Err(e.at.error(format!("cannot move out of a field; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner")));
                     }
                     Self::end_reads(loans, ops);
                     Some(ty)
@@ -2490,6 +2500,13 @@ impl Lower<'_> {
                 if matches!(name.as_str(), "copy" | "drop") {
                     return self.copy_or_drop(name, args, &e.at, ops);
                 }
+                if name == "replace"
+                    && !self.sigs.contains_key(name)
+                    && !self.generics.templates.contains_key(name)
+                    && !self.aliases.contains_key(name)
+                {
+                    return self.replace_field(args, &e.at, ops).map(Some);
+                }
                 if name == "Box" {
                     let [content] = args.as_slice() else {
                         return Err(e.at.error("Box takes one value"));
@@ -2614,7 +2631,7 @@ impl Lower<'_> {
         }
         let argument_loans = self.call_arguments(args, &sig.inputs, ops)?;
         self.record_direct_call(name, at, &argument_loans, ops);
-        ops.push(Op::Call(name.to_owned()));
+        self.push_call(Op::Call(name.to_owned()), &sig.inputs, &argument_loans, ops);
         self.call_reference_result(name, &sig, &argument_loans, ops);
         Self::end_reads(argument_loans, ops);
         Ok(sig.outputs.first().cloned())
@@ -2674,6 +2691,34 @@ impl Lower<'_> {
         }
 
         Ok(argument_loans)
+    }
+    /// Emits a call, preceded by its lifetime fact when every reference it
+    /// passes was borrowed through a reference parameter of this function.
+    /// `loans` holds the loan of each reference input. A loan inherits its
+    /// root from the loan it was derived from, so a reborrow, projection,
+    /// payload, or alias of a reference parameter is rooted at that
+    /// parameter's slot, while a borrow of a local, an owned parameter, or a
+    /// temporary is rooted at the borrowed slot.
+    fn push_call(&self, call: Op, inputs: &[(String, Ty)], loans: &[usize], ops: &mut Vec<Op>) {
+        let parameters = self
+            .sigs
+            .get(&self.function_name)
+            .map(|sig| &sig.inputs[..]);
+        let references = inputs.iter().filter(|(_, ty)| ty.contains_reference());
+        // A closure with borrowed captures carries references without a loan
+        // of its own here, so it never qualifies.
+        if !loans.is_empty()
+            && references.clone().count() == loans.len()
+            && references.clone().all(|(_, ty)| matches!(ty, Ty::Ref(..)))
+            && loans.iter().all(|&loan| {
+                let root = usize::from(self.loans[loan].root);
+                root < self.parameters
+                    && matches!(parameters.and_then(|p| p.get(root)), Some((_, Ty::Ref(..))))
+            })
+        {
+            ops.push(Op::ForwardsReferences);
+        }
+        ops.push(call);
     }
     fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: bool) -> Result<BlockResult> {
         let start = self.locals.len();
@@ -2766,7 +2811,13 @@ impl Lower<'_> {
                     } else {
                         None
                     };
-                    if self.contexts.is_empty() && returned_loan.is_none() {
+                    // A returned reference normally stays borrowed across this
+                    // frame's cleanup. A forwarding call returns it from storage
+                    // that cleanup cannot reach, so it may still be a tail call.
+                    if self.contexts.is_empty()
+                        && (returned_loan.is_none() || forwarding_call(&returned).is_some())
+                    {
+                        returned.extend(returned_loan.map(Op::UseLoan));
                         self.finish_tail_temporaries(temporary_start, &mut returned);
                         finish_return(&mut returned);
                     } else {
@@ -2867,45 +2918,17 @@ impl Lower<'_> {
                         self.finish_temporaries(temporary_start, ops);
                         continue;
                     }
-                    if self
-                        .names
-                        .get(name)
-                        .is_some_and(|l| matches!(l.ty, Ty::Ref(..)))
-                    {
-                        return Err(stmt.at.error(
-                            "reference bindings cannot be reassigned; create a new borrow",
-                        ));
-                    }
                     let context = if let Some(ann) = annotation {
                         ann.resolve(self.aliases)?
                     } else {
                         self.names.get(name).map(|l| l.ty.clone())
                     };
-                    let ty = self
-                        .expr_expected(value, context, ops)?
-                        .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+                    let (ty, origin) = self.binding_value(value, context, ops)?;
                     if let Some(expected) = annotation {
                         let expected = expected.resolve(self.aliases)?.ok_or_else(|| {
                             expected.at.error("unit bindings are not supported yet")
                         })?;
                         self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
-                    }
-                    let reference = matches!(ty, Ty::Ref(..));
-                    if reference
-                        && (*mutable
-                            || !matches!(&ungroup(value).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
-                                && !matches!(
-                                    &ungroup(value).kind,
-                                    Expression::Call(..)
-                                        | Expression::Invoke(..)
-                                        | Expression::GenericCall(..)
-                                        | Expression::Method(..)
-                                        | Expression::GenericMethod(..)
-                                ))
-                    {
-                        return Err(stmt.at.error(
-                            "reference bindings require a direct borrow or reference-returning call and cannot be mut",
-                        ));
                     }
                     let slot = if let Some(local) = self.names.get(name) {
                         if *mutable || annotation.is_some() {
@@ -2917,6 +2940,9 @@ impl Lower<'_> {
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
                         self.same(Some(ty.clone()), Some(local.ty.clone()), &stmt.at)?;
+                        if let Some(origin) = origin {
+                            self.check_retargeted_reference(name, local.slot, origin, &stmt.at)?;
+                        }
                         local.slot
                     } else {
                         let slot =
@@ -2933,15 +2959,14 @@ impl Lower<'_> {
                                 mutable: *mutable,
                             },
                         );
+                        if let Some(origin) = origin {
+                            self.check_stored_reference(origin, &value.at)?;
+                            self.bind_reference(slot, origin, *mutable, ops);
+                        }
                         slot
                     };
                     self.mark(&stmt.at, ops);
                     ops.push(Op::StoreLocal(slot));
-                    if reference {
-                        let origin = self.reference_origin(value, ops)?;
-                        self.check_stored_reference(origin, &value.at)?;
-                        self.reference_locals.insert(slot, origin);
-                    }
                     None
                 }
                 Statement::If { condition, yes, no } => {
@@ -3024,6 +3049,32 @@ fn branch(yes: Vec<Op>, no: Vec<Op>) -> Op {
         ]
         .into(),
     )
+}
+
+/// Position of the lifetime fact of a forwarding call that ends `ops` except
+/// for loan metadata: its argument loan uses and, for a reference result, the
+/// result's loan.
+fn forwarding_call(ops: &[Op]) -> Option<usize> {
+    let call = ops
+        .iter()
+        .rposition(|op| !matches!(op, Op::Loan(_) | Op::UseLoan(_)))?;
+    (matches!(ops[call], Op::Call(_) | Op::CallIndirect(_))
+        && matches!(ops[..call].last(), Some(Op::ForwardsReferences)))
+    .then(|| call - 1)
+}
+
+/// Removes the last direct call emitted at or after `begin`, with its lifetime
+/// fact, for a construct that runs the callee itself.
+fn take_call(ops: &mut Vec<Op>, begin: usize) -> Option<(usize, String)> {
+    let mut index = (begin..ops.len()).rfind(|&i| matches!(ops[i], Op::Call(_)))?;
+    let Op::Call(name) = ops.remove(index) else {
+        unreachable!()
+    };
+    if index > begin && matches!(ops[index - 1], Op::ForwardsReferences) {
+        index -= 1;
+        ops.remove(index);
+    }
+    Some((index, name))
 }
 
 /// Return expressions are tail positions even inside a guard branch. Make

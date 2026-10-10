@@ -25,8 +25,9 @@ impl Task {
                 }),
         )
     }
-    // pthread_t occupies the first word. The result starts at an aligned slot;
-    // copied inputs follow it. None of these addresses may escape their scope.
+    // pthread_t occupies the first word and the runtime's thread entry the
+    // second. The result starts at the next aligned slot; copied inputs follow
+    // it. None of these addresses may escape their scope.
     pub fn argument_offset(&self, index: usize) -> usize {
         16 + self.output.slot_bytes()
             + self.inputs[..index]
@@ -264,7 +265,7 @@ fn inspect(
             types.push(Ty::Enum(t.clone()));
             types.extend(t.get().variants[*tag].fields.iter().cloned());
         }
-        Op::ReadRef(ty) | Op::WriteRef(ty) => types.push(ty.clone()),
+        Op::ReadRef(ty) | Op::WriteRef(ty) | Op::ReplaceRef(ty) => types.push(ty.clone()),
         _ => {}
     });
     error.map_or(Ok(()), |message| Err(message.into()))

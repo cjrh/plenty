@@ -490,7 +490,7 @@ impl Lower<'_> {
         let callee = self.specialize_frames(&symbol, arguments, at)?;
         let sig = self.sigs[&callee].clone();
         self.record_direct_call(&callee, at, &loans, ops);
-        ops.push(Op::Call(callee.clone()));
+        self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())

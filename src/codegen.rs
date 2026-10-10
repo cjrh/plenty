@@ -378,6 +378,11 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     // Plenty TailCall panics inside Cranelift with "the current
     // implementation relies on [frame pointers] being present".
     flags.set("preserve_frame_pointers", "true")?;
+    // A frame larger than a page touches each page it spans, so it cannot
+    // step over a thread's one-page guard into the mapping below. The runtime
+    // reports the resulting fault as a stack overflow.
+    flags.set("enable_probestack", "true")?;
+    flags.set("probestack_strategy", "inline")?;
     let isa_builder = cranelift_native::builder().map_err(|e| -> Box<dyn Error> { e.into() })?;
     let isa = isa_builder.finish(settings::Flags::new(flags))?;
     if isa.triple().to_string() != crate::native_target() || isa.pointer_type() != PTR_TY {
@@ -1194,6 +1199,9 @@ impl Lowerer<'_, '_> {
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) => {}
+            // Consumed by `tail_abi::prepare`, which decides whether the call
+            // after it keeps this frame.
+            Op::ForwardsReferences => {}
             Op::BorrowLocal(i, mutable) => {
                 let (frame, offset) = if let Some(g) = &self.generator {
                     (g.frame, 64)
@@ -1232,6 +1240,17 @@ impl Lowerer<'_, '_> {
                 let old = self.read_reference(reference);
                 self.release(old, ty);
                 self.write_reference(reference, value, ty);
+            }
+            Op::ReplaceRef(ty) => {
+                let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
+                let (value, _) = self.pop_typed(ty.clone())?;
+                let old = self.read_reference(reference);
+                let old = self.unpack(old, ty);
+                // Inline field storage is overwritten below; relocate the old
+                // owner without retaining it or running its destructor.
+                let old = self.snapshot_inline(old, ty);
+                self.write_reference(reference, value, ty);
+                self.stack.push((old, ty.clone()));
             }
             Op::Collection(operation) => self.lower_collection(operation)?,
             Op::ClosureNew(t) => self.lower_closure_new(t)?,

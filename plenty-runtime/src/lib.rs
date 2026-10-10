@@ -27,6 +27,7 @@ mod numbers;
 mod open_modes;
 mod ranges;
 mod render_buffer;
+mod stack_overflow;
 mod strings;
 #[cfg(test)]
 mod tests;
@@ -61,8 +62,9 @@ pub unsafe extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
     }
     #[cfg(feature = "allocation-checks")]
     accounting::start();
+    stack_overflow::install();
     // SAFETY: the final executable supplies the generated zero-argument entry.
-    let status = unsafe { plenty_main() };
+    let status = stack_overflow::guarded(|| unsafe { plenty_main() });
     io::flush();
     #[cfg(feature = "allocation-checks")]
     accounting::finish();

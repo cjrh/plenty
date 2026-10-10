@@ -39,9 +39,14 @@ may cross `yield`. Wildcards do not consume or move borrowed payloads.
 Payload references can be returned under the existing
 [single reference-parameter origin rule](18-returned-references.md). Every
 return path must originate in that parameter. Borrowing a temporary, returning a
-reference into a local owner or an owned match binding, storing references in
-aggregates, and reassigning reference bindings remain rejected. A returned
-payload conservatively protects the caller's entire borrowed argument.
+reference into a local owner or an owned match binding, and storing references
+in aggregates remain rejected. A returned payload conservatively protects the
+caller's entire borrowed argument.
+
+A `mut` reference binding can be assigned a payload of a match on itself, so a
+loop follows a chain without recursive calls. Payload bindings themselves are
+immutable. See
+[reference bindings](15-public-borrowing-bindings-and-class-fields.md).
 
 Native tests cover recursive class and enum traversal, imported generic classes,
 shared/mutable returns, disjoint fields, nested inline replacement, ranges,

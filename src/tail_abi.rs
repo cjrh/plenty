@@ -164,14 +164,23 @@ pub(crate) fn prepare(ops: &[Op]) -> Vec<Op> {
                 _ => None,
             };
             if let (Some(caller), Some(callee)) = (caller, callee) {
-                let borrowed = callee.inputs.iter().any(|(_, ty)| ty.contains_reference());
-                // Source and synthesized calls do not yet carry an outgoing-
-                // lifetime proof. ABI compatibility alone cannot authorize
-                // removing a frame that an argument might borrow (issue #3).
+                // ABI compatibility alone cannot authorize removing a frame
+                // that an argument might borrow. Only the frontend's fact
+                // does: without it, a reference may point at a caller local.
+                let forwards = matches!(result.last(), Some(Op::ForwardsReferences));
+                let borrowed =
+                    !forwards && callee.inputs.iter().any(|(_, ty)| ty.contains_reference());
                 if classify(&caller.sig, &callee).is_err() || borrowed {
                     if !borrowed {
+                        // Keep the fact next to its call, after the cleanup.
+                        if forwards {
+                            result.pop();
+                        }
                         let count = caller.sig.inputs.len() + caller.locals.len();
                         result.extend((0..count).rev().map(|i| Op::DropLocal(i as u8)));
+                        if forwards {
+                            result.push(Op::ForwardsReferences);
+                        }
                     }
                     result.push(match op {
                         Op::TailCall(name) => Op::Call(name),
@@ -278,5 +287,60 @@ mod tests {
         assert!(
             matches!(function("result").body.last(), Some(Op::TailCall(name)) if name == "result")
         );
+    }
+
+    #[test]
+    fn a_reference_call_stays_a_transfer_only_with_the_frontend_fact() {
+        let source = "class Item:\n    value: i64\ndef read(item: &Item, n: i64) -> i64:\n    n\ndef keep(item: &Item, owned: Item) -> i64:\n    0\ndef forwards(item: &Item) -> i64:\n    read(item, 1)\ndef stages(item: &Item, owned: Item) -> i64:\n    keep(item, owned)\ndef main() -> ():\n    pass\n";
+        let mut heap = crate::value::Heap::default();
+        let program = crate::frontend::compile(source, &mut heap).unwrap();
+        crate::op::check(&program.ops).unwrap();
+        let body = |ops: &[Op], name: &str| {
+            ops.iter()
+                .find_map(|op| match op {
+                    Op::DefineFn(n, f) if n == name => Some(f.body.to_vec()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let prepared = prepare(&program.ops);
+        assert!(matches!(
+            body(&prepared, "forwards")[..],
+            [.., Op::ForwardsReferences, Op::TailCall(_)]
+        ));
+        // The owned inline argument keeps the frame. The fact still lets its
+        // locals go before the call, and stays next to that call.
+        assert!(matches!(
+            body(&prepared, "stages")[..],
+            [
+                ..,
+                Op::DropLocal(_),
+                Op::ForwardsReferences,
+                Op::Call(_),
+                Op::Return
+            ]
+        ));
+        // Without the fact the reference may point at a caller local, so the
+        // locals are dropped only by the return.
+        let unproven: Vec<Op> = program
+            .ops
+            .iter()
+            .map(|op| match op {
+                Op::DefineFn(name, f) => {
+                    let mut f = f.clone();
+                    f.body = f
+                        .body
+                        .iter()
+                        .filter(|op| !matches!(op, Op::ForwardsReferences))
+                        .cloned()
+                        .collect();
+                    Op::DefineFn(name.clone(), f)
+                }
+                op => op.clone(),
+            })
+            .collect();
+        let forwards = body(&prepare(&unproven), "forwards");
+        assert!(matches!(forwards[..], [.., Op::Call(_), Op::Return]));
+        assert!(!forwards.iter().any(|op| matches!(op, Op::DropLocal(_))));
     }
 }

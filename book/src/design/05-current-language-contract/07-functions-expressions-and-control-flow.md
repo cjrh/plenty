@@ -47,19 +47,22 @@ expressions (including early guard clauses) become tail-call operations.
 Cranelift emits `return_call` or `return_call_indirect` with the Tail calling
 convention. The arguments are evaluated first; the caller's remaining owned
 parameters and locals, including those with destructors, are then dropped in
-ordinary exit order before the transfer. A call passing a reference argument, or
-a `return` inside a `with` block, is an ordinary call followed by cleanup; see
+ordinary exit order before the transfer. A call passing a reference into the
+caller's own locals, owned parameters, or temporaries, or a `return` inside a
+`with` block, is an ordinary call followed by cleanup. References that originate
+in the caller's reference parameters are forwarded by a tail call; see
 [deterministic destruction](../14-deterministic-destruction.md).
 
 A source-tail direct call within its caller's direct recursion cycle must have
 an approved native tail-call plan. Otherwise compilation fails at that call,
 naming the callee and the lifetime, context-exit, or ABI restriction. This
-includes final expressions, explicit returns, conditional expressions, and
-tail `if`/`match` arms. Argument evaluation occurs before the transfer; `?`,
+includes final expressions, explicit returns, conditional expressions, tail
+`if`/`match` arms, and the result branches of short-circuit `and`/`or`.
+Argument evaluation occurs before the transfer; `?`,
 result conversion, and arithmetic after the call are subsequent computation,
 so those expressions are not source-tail calls. An explicit return within
-`with` is a source-tail candidate but is rejected when the context needs a
-post-call exit action. Ordinary nonrecursive fallbacks remain legal.
+`with` is a source-tail candidate but is rejected when it is recursive and the
+context needs a post-call exit action. Ordinary nonrecursive fallbacks remain legal.
 
 The compiler computes cycles after concrete generic specialization and includes
 both tail and non-tail direct edges. Different specializations are different
