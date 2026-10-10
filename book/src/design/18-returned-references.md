@@ -11,7 +11,13 @@ expressions are not supported yet. Reference-returning methods require a named
 receiver, class-field place, or indexed place in named storage; temporary
 receivers are rejected because their owner cannot outlive the returned loan.
 
-Callers may bind the result to an immutable reference binding and reborrow it.
+Callers may bind a result borrowed from named storage to an immutable reference
+binding and reborrow it. A shared temporary argument stays alive through the
+containing full expression, so `len(view("text"))` is valid when `view` returns
+its `&str` argument. Binding that result (`r = view("text")`) is rejected even
+if unused; temporary origins cannot escape through a return or scoped worker.
+Hidden owners count as caller-local storage when deciding whether a tail
+transfer is safe.
 The result extends the input loan until its last use. A function whose entire
 body directly returns a parameter or a fixed field projection has a cached field
 summary. Its returned loan protects only that projection, allowing subsequent

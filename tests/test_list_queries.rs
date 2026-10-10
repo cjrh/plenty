@@ -106,7 +106,10 @@ print(d).unwrap()
     "print([1].unwrap().rfind(1, 2)).unwrap()",
     "requires one element argument"
 )]
-#[case("print([1u8].unwrap().count(1)).unwrap()", "expected u8")]
+#[case(
+    "value = 1\nprint([1u8].unwrap().count(value)).unwrap()",
+    "expected u8"
+)]
 #[case(
     "print([[1].unwrap()].unwrap().find([1].unwrap())).unwrap()",
     "list search supports"

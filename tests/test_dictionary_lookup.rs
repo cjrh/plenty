@@ -188,7 +188,7 @@ print(len(values)).unwrap()
     "print({1: 2}.unwrap().get(1, 0)).unwrap()",
     "get requires one key argument"
 )]
-#[case("print({1u8: 2}.unwrap().get(1)).unwrap()", "expected u8")]
+#[case("key = 1\nprint({1u8: 2}.unwrap().get(key)).unwrap()", "expected u8")]
 #[case("print({1: 2}.unwrap().get(\"key\")).unwrap()", "expected i64")]
 #[case("print({1}.unwrap().get(0)).unwrap()", "unsupported method `get`")]
 #[case(

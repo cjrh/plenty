@@ -164,7 +164,7 @@ def describe(value: Selected[i64, str]) -> str:
             text
 left, first = channel[i64](2).unwrap()
 right, second = channel[str](1).unwrap()
-print(str.repr(select_recv_nowait(&first, &second)).unwrap()).unwrap()
+print(str.repr(select_recv_nowait(first, second)).unwrap()).unwrap()
 print(str.repr(select_recv_timeout(&first, &second, 0)).unwrap()).unwrap()
 left.send(7).unwrap()
 right.send("text").unwrap()

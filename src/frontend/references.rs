@@ -50,6 +50,44 @@ pub(super) fn returned_fields(function: &Function, sig: &FnSig) -> Option<Vec<us
 }
 
 impl Lower<'_> {
+    /// Signature-directed shared arguments lend places, forward references, or
+    /// materialize an owner until the end of the containing full expression.
+    pub(super) fn shared_argument(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, usize)> {
+        if self.place_type(e).is_some() {
+            return self.borrow(e, false, ops);
+        }
+        let ty = self
+            .expr_expected(e, expected, ops)?
+            .ok_or_else(|| e.at.error("expected a borrowed value, got ()"))?;
+        if let Ty::Ref(inner, _) = ty {
+            let parent = self.reference_origin(e, ops)?;
+            let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
+            let ty = Ty::Ref(inner, false);
+            ops.push(Op::Reborrow(ty.clone()));
+            return Ok((ty, loan));
+        }
+        let slot = self.slot(ty.clone(), &e.at)?;
+        ops.push(Op::StoreLocal(slot));
+        self.expression_temps.push(slot);
+        let loan = self.new_loan(slot, false, None, ops);
+        ops.push(Op::BorrowLocal(slot, false));
+        Ok((Ty::Ref(Rc::new(ty), false), loan))
+    }
+
+    pub(super) fn check_stored_reference(&self, loan: usize, at: &Token) -> Result<()> {
+        if self.expression_temps.contains(&self.loans[loan].root) {
+            return Err(
+                at.error("a reference to a temporary cannot be stored beyond its full expression")
+            );
+        }
+        Ok(())
+    }
+
     pub(super) fn reference_origin(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
         if let Expression::Name(name) = &ungroup(e).kind {
             if let Some(local) = self.names.get(name) {
@@ -130,8 +168,14 @@ impl Lower<'_> {
             self.names
                 .values()
                 .find(|local| local.slot == root)
-                .and_then(|local| {
-                    if let Ty::Closure(t) = &local.ty {
+                .map(|local| &local.ty)
+                .or_else(|| {
+                    (root as usize)
+                        .checked_sub(self.parameters)
+                        .and_then(|i| self.locals.get(i))
+                })
+                .and_then(|ty| {
+                    if let Ty::Closure(t) = ty {
                         self.closure_loans.get(&t.name).cloned()
                     } else {
                         None
@@ -374,7 +418,15 @@ impl Lower<'_> {
     }
     /// Load for observation, preserving ownership and extending loans through the consumer.
     pub(super) fn observe(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
-        let result = self.observe_inner(e, ops)?;
+        self.observe_expected(e, None, ops)
+    }
+    pub(super) fn observe_expected(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, Vec<usize>)> {
+        let result = self.observe_inner(e, expected, ops)?;
         // A temporary owner survives all observations in the containing full
         // expression, including projections through a temporary collection.
         // An element read is a view of its collection, which is held already.
@@ -389,9 +441,22 @@ impl Lower<'_> {
         }
         Ok(result)
     }
-    fn observe_inner(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
+    fn observe_inner(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, Vec<usize>)> {
         match &e.kind {
-            Expression::Group(inner) => self.observe(inner, ops),
+            Expression::Group(inner) => self.observe_inner(inner, expected, ops),
+            Expression::Unary(op, inner) if op == "&" => {
+                let (ty, loan) = self.shared_argument(inner, expected, ops)?;
+                let Ty::Ref(inner, _) = ty else {
+                    unreachable!()
+                };
+                ops.push(Op::ReadRef((*inner).clone()));
+                Ok(((*inner).clone(), vec![loan]))
+            }
             Expression::Name(name) => {
                 if !self.names.contains_key(name)
                     && (enums::prelude_variant(name)
@@ -471,7 +536,9 @@ impl Lower<'_> {
                 Ok((value, loans))
             }
             _ => {
-                let ty = self.value(e, ops)?;
+                let ty = self
+                    .expr_expected(e, expected, ops)?
+                    .ok_or_else(|| e.at.error("expected a value, got ()"))?;
                 if let Ty::Ref(inner, _) = ty {
                     let id = self.reference_origin(e, ops)?;
                     ops.push(Op::ReadRef((*inner).clone()));

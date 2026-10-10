@@ -786,7 +786,7 @@ print(str.repr(work()).unwrap()).unwrap()
         "shared reference as mutable",
     );
     reject(
-        "def bad(file: &mut File) -> Result[(), IoError]:\n    file.seek(1)",
+        "def bad(file: &mut File) -> Result[(), IoError]:\n    offset = 1\n    file.seek(offset)",
         "expected u64",
     );
 }

@@ -51,7 +51,9 @@ def main() -> Result[(), Failure]:
 [0, 1, 2]
 ```
 
-For one value at a time, name a mutable generator and call `next`.
+For one value at a time, name a mutable generator and call `next(&mut messages)`.
+The `&mut` lends exclusive access without consuming the generator; the shorthand
+`next(messages)` also works.
 It returns `Some(value)` or `Nothing`; exhaustion stays exhausted:
 
 ```plenty
@@ -60,9 +62,9 @@ def once() -> Generator[str]:
 
 def main() -> Result[(), Failure]:
     mut messages = once()
-    print(next(messages))?
-    print(next(messages))?
-    print(next(messages))?
+    print(next(&mut messages))?
+    print(next(&mut messages))?
+    print(next(&mut messages))?
     Ok(())
 ```
 

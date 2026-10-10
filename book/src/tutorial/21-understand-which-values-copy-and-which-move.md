@@ -47,9 +47,10 @@ use of moved binding `first`
 The diagnostic starts with the file, line, and column of the use. A note
 below it points at the move: `` `first` is moved here``.
 
-Arguments, returns, and `for` iteration also move generators. `next` is the
-exception: it temporarily uses a named mutable generator without consuming the
-owner. A mutable binding can be reinitialized after moving its previous value.
+Owned arguments, returns, and `for` iteration also move generators.
+`next(&mut it)` borrows a mutable generator without consuming its owner;
+`next(it)` remains a shorthand. A mutable binding can be reinitialized after
+moving its previous value.
 
 The compiler checks all possible continuing paths. A move on just one branch
 makes later reuse unsafe, reported as `use of possibly moved binding`. Within a loop, an outer generator must be reinitialized

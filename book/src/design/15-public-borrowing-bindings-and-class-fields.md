@@ -21,6 +21,27 @@ or exclusive access, with conflicting parent access prohibited while the child i
 live. Calls automatically reborrow reference arguments, using declared signatures
 only. Shared references cannot be upgraded to exclusive ones.
 
+Ordinary calls implicitly borrow an argument when its parameter is `&T`;
+`inspect(value)` and `inspect(&value)` both lend the same owner. An `&mut T`
+parameter requires `&mut value` unless forwarding an existing exclusive
+reference. Owned parameters still copy or move according to their declared type.
+These rules also apply to generic calls and callbacks. Method receivers keep
+their existing implicit shared/exclusive borrowing syntax.
+
+A shared call argument may be a literal or owned temporary, including explicit
+`&` syntax. The compiler evaluates it once, in argument order, into a hidden
+local and creates a real loan. The owner survives later arguments and the full
+containing expression, with cleanup on error propagation. Borrowing adds no heap
+allocation; constructing the argument can still allocate. Returned references
+into that temporary can be used within the expression, but cannot be stored or
+returned. Scoped workers cannot retain these temporary loans. Mutable temporary
+arguments and general lifetime extension remain unsupported.
+
+Builtins preserve their operand ownership modes while supplying expected types:
+for example `file.seek(0)` receives `u64` context, while an `i64` binding still
+requires conversion. Observation does not move an affine binding. Numeric range
+checks and loans across later arguments are unchanged.
+
 The frontend records loan origins and reads/writes of whole binding places.
 The independent checker computes backward loan liveness over explicit control-flow
 edges to a fixed point, including backedges and early exits. A conflicting write,

@@ -2,6 +2,7 @@
 
 `select_recv` waits for a message from either of two channels. Their message
 types may differ; match the returned `Selected` value to find which one arrived.
+Both receivers are borrowed implicitly; explicit `&` arguments also work.
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -9,7 +10,7 @@ def main() -> Result[(), Failure]:
     numbers, data = channel[i64](1)?
     commands.send("stop")?
     numbers.send(42)?
-    match select_recv(&control, &data)?:
+    match select_recv(control, data)?:
         case Selected[str, i64].First(command):
             print(command)?
         case Selected[str, i64].Second(number):

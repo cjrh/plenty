@@ -2,6 +2,22 @@ mod support;
 use std::process::Command;
 
 #[test]
+fn temporary_argument_references_cannot_escape_the_full_expression() {
+    reject(
+        "def view(s: &str) -> &str:\n    s\nr = view(\"temporary\")\nprint(r).unwrap()\n",
+        "temporary cannot be stored",
+    );
+    reject(
+        "def view(s: &str) -> &str:\n    s\ndef bad(s: &str) -> &str:\n    view(\"temporary\")\n",
+        "must originate",
+    );
+    reject(
+        "def worker(s: &str) -> i64:\n    len(s)\nwith spawn(worker, \"temporary\").unwrap() as task:\n    print(task.join().unwrap()).unwrap()\n",
+        "temporary cannot be stored",
+    );
+}
+
+#[test]
 fn direct_returned_fields_allow_disjoint_access_without_losing_conflicts() {
     run(
         r#"

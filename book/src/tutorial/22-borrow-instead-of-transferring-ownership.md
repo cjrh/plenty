@@ -17,7 +17,7 @@ def add(values: &mut list[i64], value: i64) -> Result[(), AllocError]:
 
 def main() -> Result[(), Failure]:
     mut numbers = [1, 2]?
-    print(total(&numbers))?
+    print(total(numbers))?
     add(&mut numbers, 3)?
     print(numbers)?
     Ok(())
@@ -32,6 +32,12 @@ References can also be local bindings. They are immutable bindings themselves;
 `&mut` grants access to the target. Use `*reference` to read a scalar or replace
 the target. Collection operations such as `append`, indexing, and `len` work
 through references directly.
+
+The parameter determines borrowing: `total(numbers)` implicitly lends `numbers`
+because `total` expects `&list[i64]`. Writing `total(&numbers)` also works.
+Use explicit `&mut` for mutable arguments, as in `add(&mut numbers, 3)`.
+An owned parameter still takes ownership. Existing reference arguments are
+reborrowed without needing another marker.
 
 ```plenty
 def main() -> Result[(), IoError]:
@@ -78,8 +84,8 @@ This subset borrows named bindings and their class fields. Reference bindings mu
 be initialized with `&name`, `&mut name` (including field paths), or a call
 returning a reference, and cannot be reassigned. References cannot
 be stored in collections, captured by generators, or
-remain live across `yield`. Element references such as `&items[0]` are not yet
-supported. Use `next` through an exclusive generator reference when borrowing
+remain live across `yield`. Element references such as `&items[0]` borrow named
+collection storage. Use `next(&mut it)` through an exclusive generator reference when borrowing
 a generator; generator iteration still consumes its owner.
 
 Functions can return references when exactly one parameter is a reference. The
@@ -109,3 +115,9 @@ remain available after the call. More complex getters conservatively protect the
 whole argument. A mutable returned reference requires a mutable reference parameter.
 Use a named receiver, class field, or element of named storage; temporary receivers
 cannot supply a reference that outlives their owner.
+
+Shared arguments can also be temporary values, such as `size("ada")` or
+`size(&"ada")` for a `size(s: &str)` function. The temporary is evaluated once
+and kept alive through the entire expression. A result borrowing that temporary
+may be used immediately, but cannot be saved in a binding or returned. Mutable
+temporaries are not supported.

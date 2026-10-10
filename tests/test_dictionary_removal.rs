@@ -167,7 +167,7 @@ print(values).unwrap()
     "pop requires one key argument"
 )]
 #[case(
-    "mut data = {1u8: 2}.unwrap()\nprint(data.pop(1)).unwrap()",
+    "mut data = {1u8: 2}.unwrap()\nkey = 1\nprint(data.pop(key)).unwrap()",
     "expected u8"
 )]
 #[case(

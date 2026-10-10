@@ -216,7 +216,7 @@ impl Lower<'_> {
         }
         let mut loans = Vec::new();
         for (arg, expected) in args.iter().zip(inputs) {
-            let (actual, reads) = self.observe(arg, ops)?;
+            let (actual, reads) = self.observe_expected(arg, Some(expected.clone()), ops)?;
             self.same(Some(actual), Some(expected), &arg.at)?;
             loans.extend(reads);
         }
@@ -275,7 +275,9 @@ impl Lower<'_> {
                 self.range(args, (*t).clone(), &e.at, ops).map(Some)
             }
             Expression::Number(n)
-                if expected.as_ref().is_some_and(Ty::is_numeric) && !numeric_suffix(n) =>
+                if expected.as_ref().is_some_and(|ty| {
+                    ty.is_numeric() && (ty.is_float() || !n.contains(['.', 'e', 'E']))
+                }) && !numeric_suffix(n) =>
             {
                 self.number(&format!("{n}{}", expected.unwrap()), false, &e.at, ops)
                     .map(Some)
@@ -283,7 +285,9 @@ impl Lower<'_> {
             Expression::Unary(op, inner)
                 if op == "-"
                     && expected.as_ref().is_some_and(Ty::is_numeric)
-                    && matches!(&ungroup(inner).kind, Expression::Number(n) if !numeric_suffix(n)) =>
+                    && matches!(&ungroup(inner).kind, Expression::Number(n)
+                        if !numeric_suffix(n) && (expected.as_ref().is_some_and(Ty::is_float)
+                            || !n.contains(['.', 'e', 'E']))) =>
             {
                 let Expression::Number(n) = &ungroup(inner).kind else {
                     unreachable!()
@@ -1395,7 +1399,7 @@ impl Lower<'_> {
             };
             let mut argument_loans = vec![];
             for argument in args {
-                let (actual, reads) = self.observe(argument, ops)?;
+                let (actual, reads) = self.observe_expected(argument, Some(Ty::I64), ops)?;
                 self.same(Some(actual), Some(Ty::I64), &argument.at)?;
                 argument_loans.extend(reads);
             }
@@ -1420,7 +1424,8 @@ impl Lower<'_> {
                         .at
                         .error(format!("{name} requires one element argument")));
                 }
-                let (actual, reads) = self.observe(&args[0], ops)?;
+                let (actual, reads) =
+                    self.observe_expected(&args[0], Some((**element).clone()), ops)?;
                 self.same(Some(actual), Some((**element).clone()), &args[0].at)?;
                 let operation = match name {
                     "count" => CollectionOp::ListCount(ty),
@@ -1478,14 +1483,10 @@ impl Lower<'_> {
             };
             let mut argument_loans = vec![];
             for argument in args {
-                if contextual_display(argument) {
-                    let actual = self.expr_expected(argument, Some(expected.clone()), ops)?;
-                    self.same(actual, Some(expected.clone()), &argument.at)?;
-                } else {
-                    let (actual, loans) = self.observe(argument, ops)?;
-                    self.same(Some(actual), Some(expected.clone()), &argument.at)?;
-                    argument_loans.extend(loans);
-                }
+                let (actual, loans) =
+                    self.observe_expected(argument, Some(expected.clone()), ops)?;
+                self.same(Some(actual), Some(expected.clone()), &argument.at)?;
+                argument_loans.extend(loans);
             }
             let (_, result) = operation.signature();
             ops.push(Op::Collection(operation));
@@ -1510,15 +1511,8 @@ impl Lower<'_> {
                 return Err(base.at.error(format!("{name} requires one set argument")));
             }
             let argument = &args[0];
-            let reads = if contextual_display(argument) {
-                let actual = self.expr_expected(argument, Some(ty.clone()), ops)?;
-                self.same(actual, Some(ty.clone()), &argument.at)?;
-                vec![]
-            } else {
-                let (actual, reads) = self.observe(argument, ops)?;
-                self.same(Some(actual), Some(ty.clone()), &argument.at)?;
-                reads
-            };
+            let (actual, reads) = self.observe_expected(argument, Some(ty.clone()), ops)?;
+            self.same(Some(actual), Some(ty.clone()), &argument.at)?;
             let operation = match name {
                 "issubset" => CollectionOp::SetIsSubset(ty),
                 "issuperset" => CollectionOp::SetIsSuperset(ty),
@@ -1562,7 +1556,7 @@ impl Lower<'_> {
                     "get cannot return owned {collection} values; use pop to remove and take ownership"
                 )));
             }
-            let (key, key_loans) = self.observe(&args[0], ops)?;
+            let (key, key_loans) = self.observe_expected(&args[0], Some(expected.clone()), ops)?;
             self.same(Some(key), Some(expected), &args[0].at)?;
             let result = crate::sum::option(element);
             ops.push(Op::Collection(operation));
@@ -1630,7 +1624,7 @@ impl Lower<'_> {
         // Observe the key/index before borrowing the receiver exclusively. Its
         // retained value remains valid even if derived from the same collection.
         let loans = if let Some(argument) = args.first() {
-            let (actual, loans) = self.observe(argument, ops)?;
+            let (actual, loans) = self.observe_expected(argument, Some(key.clone()), ops)?;
             self.same(Some(actual), Some(key.clone()), &argument.at)?;
             loans
         } else {
@@ -1659,15 +1653,8 @@ impl Lower<'_> {
         }
         let ty = self.place_type(base).expect("set place");
         let argument = &args[0];
-        let reads = if contextual_display(argument) {
-            let actual = self.expr_expected(argument, Some(ty.clone()), ops)?;
-            self.same(actual, Some(ty.clone()), &argument.at)?;
-            vec![]
-        } else {
-            let (actual, reads) = self.observe(argument, ops)?;
-            self.same(Some(actual), Some(ty.clone()), &argument.at)?;
-            reads
-        };
+        let (actual, reads) = self.observe_expected(argument, Some(ty.clone()), ops)?;
+        self.same(Some(actual), Some(ty.clone()), &argument.at)?;
         let slot = self.slot(ty.clone(), &argument.at)?;
         ops.push(Op::StoreLocal(slot));
         let loan = self.mutation_place(base, ops)?;
@@ -2105,16 +2092,4 @@ fn increment(index: u8, ops: &mut Vec<Op>) {
         Op::Add,
         Op::StoreLocal(index),
     ]);
-}
-
-/// Context still reaches a literal after the caller explicitly handles its Result.
-pub(super) fn contextual_display(e: &Expr) -> bool {
-    match &ungroup(e).kind {
-        Expression::Collection { .. } | Expression::Tuple(..) => true,
-        Expression::Try(inner) => contextual_display(inner),
-        Expression::Method(inner, name, args) if name == "unwrap" && args.is_empty() => {
-            contextual_display(inner)
-        }
-        _ => false,
-    }
 }
