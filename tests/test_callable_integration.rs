@@ -96,7 +96,7 @@ def work() -> Result[i64, AllocError]:
     callback = consume
     Ok(callback(Guard(), fail()?))
 def main() -> Result[(), Failure]:
-    print(work())?
+    print(str.repr(work()).unwrap())?
     Ok(())
 "#,
         "drop\nResult[i64, AllocError].Err(AllocError.OutOfMemory)\n",

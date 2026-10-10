@@ -5,10 +5,10 @@ fn appending_creates_or_extends_and_preserves_exact_bytes() {
     for initial in [None, Some(&b"first\r\n"[..])] {
         let out = run_file(
             r#"
-print(append_text("sample.txt", "é\n")).unwrap()
-print(append_text("sample.txt", "")).unwrap()
-print(append_text("sample.txt", "last")).unwrap()
-print(read_text("sample.txt")).unwrap()
+print(str.repr(append_text("sample.txt", "é\n")).unwrap()).unwrap()
+print(str.repr(append_text("sample.txt", "")).unwrap()).unwrap()
+print(str.repr(append_text("sample.txt", "last")).unwrap()).unwrap()
+print(str.repr(read_text("sample.txt")).unwrap()).unwrap()
 "#,
             initial,
         );
@@ -22,7 +22,7 @@ print(read_text("sample.txt")).unwrap()
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("program");
     support::compile_source_to_executable(
-        "append_text(\"sample.txt\", \"é\\0\\r\\n\")",
+        "append_text(\"sample.txt\", \"é\\0\\r\\n\").unwrap()",
         &executable,
     )
     .unwrap();
@@ -48,8 +48,8 @@ def path() -> str:
 def contents() -> str:
     print("contents").unwrap()
     "new"
-print(append_text(path(), contents())).unwrap()
-print(read_text("sample.txt")).unwrap()
+print(str.repr(append_text(path(), contents())).unwrap()).unwrap()
+print(str.repr(read_text("sample.txt")).unwrap()).unwrap()
 "#,
         Some(b"old"),
     );
@@ -70,8 +70,8 @@ fn append_path_failure_leaves_existing_contents_intact() {
 print("__test_fail_allocations_after_{budget}__").unwrap()
 value = append_text("sample.txt", "new")
 print("__test_restore_allocations__").unwrap()
-print(value).unwrap()
-print(read_text("sample.txt")).unwrap()
+print(str.repr(value).unwrap()).unwrap()
+print(str.repr(read_text("sample.txt")).unwrap()).unwrap()
 "#
             ),
             Some(b"old"),
@@ -101,7 +101,7 @@ def save(path: &str, text: &str) -> Result[i64, IoError]:
     Ok(write_text(path, text)?)
 path = "sample.txt"
 text = "é🙂\0\r\n"
-print(save(&path, &text)).unwrap()
+print(str.repr(save(&path, &text)).unwrap()).unwrap()
 print(len(text)).unwrap()
 "#,
         &executable,
@@ -127,13 +127,13 @@ print(len(text)).unwrap()
 #[test]
 fn writes_report_os_errors_and_empty_writes_truncate() {
     let output = run_file(
-        "print(write_text(\"missing/child\", \"data\")).unwrap()",
+        "print(str.repr(write_text(\"missing/child\", \"data\")).unwrap()).unwrap()",
         None,
     );
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("IoError.System("));
     let output = run_file(
-        "print(write_text(\"sample.txt\", \"\")).unwrap()\nprint(read_text(\"sample.txt\")).unwrap()",
+        "print(str.repr(write_text(\"sample.txt\", \"\")).unwrap()).unwrap()\nprint(str.repr(read_text(\"sample.txt\")).unwrap()).unwrap()",
         Some(b"old"),
     );
     assert!(output.status.success());
@@ -146,7 +146,10 @@ fn writes_report_os_errors_and_empty_writes_truncate() {
 #[cfg(target_os = "linux")]
 #[test]
 fn write_failure_is_a_result() {
-    let out = run_file("print(write_text(\"/dev/full\", \"data\")).unwrap()", None);
+    let out = run_file(
+        "print(str.repr(write_text(\"/dev/full\", \"data\")).unwrap()).unwrap()",
+        None,
+    );
     assert!(out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("IoError.System("));
 }
@@ -161,8 +164,8 @@ fn path_allocation_fails_before_truncation() {
 print("__test_fail_allocations_after_{budget}__").unwrap()
 value = write_text("sample.txt", "new")
 print("__test_restore_allocations__").unwrap()
-print(value).unwrap()
-print(read_text("sample.txt")).unwrap()
+print(str.repr(value).unwrap()).unwrap()
+print(str.repr(read_text("sample.txt")).unwrap()).unwrap()
 "#
             ),
             Some(b"old"),
@@ -203,7 +206,10 @@ fn reads_utf8_and_universal_newlines() {
         (&b""[..], ""),
         ("é\0\r\nx\ry\n".as_bytes(), "é\\0\\nx\\ny\\n"),
     ] {
-        let out = run_file("print(read_text(\"sample.txt\")).unwrap()", Some(bytes));
+        let out = run_file(
+            "print(str.repr(read_text(\"sample.txt\")).unwrap()).unwrap()",
+            Some(bytes),
+        );
         assert!(
             out.status.success(),
             "{}",
@@ -222,12 +228,15 @@ fn file_errors_do_not_abort() {
         (None, "IoError.System("),
         (Some(&b"\xff"[..]), "DataError.InvalidUtf8"),
     ] {
-        let out = run_file("print(read_text(\"sample.txt\")).unwrap()", bytes);
+        let out = run_file(
+            "print(str.repr(read_text(\"sample.txt\")).unwrap()).unwrap()",
+            bytes,
+        );
         assert!(out.status.success());
         assert!(String::from_utf8_lossy(&out.stdout).contains(expected));
     }
     let out = run_file(
-        "print(read_text(\"sample.txt\\0suffix\")).unwrap()",
+        "print(str.repr(read_text(\"sample.txt\\0suffix\")).unwrap()).unwrap()",
         Some(b"secret"),
     );
     assert!(out.status.success());
@@ -245,8 +254,8 @@ fn reading_recovers_from_each_allocation_failure() {
 print("__test_fail_allocations_after_{budget}__").unwrap()
 value = read_text("sample.txt")
 print("__test_restore_allocations__").unwrap()
-print(value).unwrap()
-print(read_text("sample.txt")).unwrap()
+print(str.repr(value).unwrap()).unwrap()
+print(str.repr(read_text("sample.txt")).unwrap()).unwrap()
 "#
             ),
             Some(b"hello, world"),

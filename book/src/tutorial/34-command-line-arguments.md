@@ -11,10 +11,10 @@ def count_arguments() -> Result[bool, IoError]:
     values = args()?
     Ok(len(values) >= 1)
 
-def main() -> Result[(), IoError]:
-    print(count_arguments())?
+def main() -> Result[(), Failure]:
+    print(count_arguments()?)?
     Ok(())
 ```
 ```output
-Result[bool, IoError].Ok(True)
+True
 ```

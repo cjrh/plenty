@@ -81,8 +81,8 @@ def main() -> Result[(), Failure]:
         count = count + step
         values.append(count)?
         Ok(len(values) + count)
-    print(next(2))?
-    print(next(3))?
+    print(str.repr(next(2)).unwrap())?
+    print(str.repr(next(3)).unwrap())?
     print(count)?
     Ok(())
 "#);

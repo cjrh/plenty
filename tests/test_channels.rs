@@ -24,7 +24,7 @@ fn runs(source: &str, expected: &str) {
 fn bounded_queue_preserves_fifo_errors_and_failed_message_ownership() {
     runs(r#"
 sender, receiver = channel[list[i64]](1).unwrap()
-print(receiver.recv_nowait()).unwrap()
+print(str.repr(receiver.recv_nowait()).unwrap()).unwrap()
 sender.send([1, 2].unwrap()).unwrap()
 match sender.send_nowait([3].unwrap()):
     case Ok(_):
@@ -39,11 +39,11 @@ print(receiver.recv().unwrap()).unwrap()
 sender.send([4].unwrap()).unwrap()
 drop(sender)
 print(receiver.recv().unwrap()).unwrap()
-print(receiver.recv()).unwrap()
+print(str.repr(receiver.recv()).unwrap()).unwrap()
 other, destination = channel[i64](1).unwrap()
 drop(destination)
-print(other.send(42)).unwrap()
-print(other.send_nowait(43)).unwrap()
+print(str.repr(other.send(42)).unwrap()).unwrap()
+print(str.repr(other.send_nowait(43)).unwrap()).unwrap()
 "#, "Result[list[i64], RecvError].Err(RecvError.Empty)\n[3]\n[1, 2]\n[4]\nResult[list[i64], RecvError].Err(RecvError.Disconnected)\nResult[(), SendError[i64]].Err(SendError[i64].Disconnected(42))\nResult[(), SendError[i64]].Err(SendError[i64].Disconnected(43))\n");
 }
 
@@ -92,13 +92,13 @@ job = def once [sender]() -> Result[(), SendError[i64]]:
     sender.send(2)
 with spawn(job).unwrap() as task:
     drop(receiver)
-    print(task.join()).unwrap()
+    print(str.repr(task.join()).unwrap()).unwrap()
 other, destination = channel[i64](1).unwrap()
 waiting = def once [destination]() -> Result[i64, RecvError]:
     destination.recv()
 with spawn(waiting).unwrap() as task:
     drop(other)
-    print(task.join()).unwrap()
+    print(str.repr(task.join()).unwrap()).unwrap()
 "#, "Result[(), SendError[i64]].Err(SendError[i64].Disconnected(2))\nResult[i64, RecvError].Err(RecvError.Disconnected)\n");
 }
 
@@ -115,9 +115,9 @@ other = mailbox.sender.share()
 deliver(&other, "hello").unwrap()
 drop(other)
 print(receiver.recv().unwrap()).unwrap()
-print(receiver.recv_nowait()).unwrap()
+print(str.repr(receiver.recv_nowait()).unwrap()).unwrap()
 drop(mailbox)
-print(receiver.recv()).unwrap()
+print(str.repr(receiver.recv()).unwrap()).unwrap()
 "#, "hello\nResult[str, RecvError].Err(RecvError.Empty)\nResult[str, RecvError].Err(RecvError.Disconnected)\n");
 }
 
@@ -140,17 +140,17 @@ fn channel_messages_reject_uncertified_effects_and_endpoint_copy_or_equality() {
 #[test]
 fn construction_failure_is_recoverable_and_queue_operations_do_not_allocate() {
     runs(r#"
-print(channel[i64](0)).unwrap()
-print(channel[i64](18446744073709551615u64)).unwrap()
+print(str.repr(channel[i64](0)).unwrap()).unwrap()
+print(str.repr(channel[i64](18446744073709551615u64)).unwrap()).unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 first = channel[i64](2)
 print("__test_restore_allocations__").unwrap()
-print(first).unwrap()
+print(str.repr(first).unwrap()).unwrap()
 # The endpoint pair is inline; only the shared queue allocates.
 print("__test_fail_allocations_after_1__").unwrap()
 second = channel[i64](2)
 print("__test_restore_allocations__").unwrap()
-print(second).unwrap()
+print(str.repr(second).unwrap()).unwrap()
 sender, receiver = channel[range[i64]](1).unwrap()
 span = range(10, 15)
 print("__test_begin_no_allocations__").unwrap()
@@ -165,7 +165,7 @@ drop(receiver)
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(answer).unwrap()
-print(closed).unwrap()
+print(str.repr(closed).unwrap()).unwrap()
 "#, "Result[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.InvalidCapacity)\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.CapacityOverflow))\n__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.OutOfMemory))\n__test_fail_allocations_after_1__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Ok((<sender>, <receiver>))\n__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n13\nResult[range, RecvError].Err(RecvError.Disconnected)\n");
 }
 
@@ -192,7 +192,7 @@ drop(sender)
 drop(feedback)
 print(report.recv().unwrap()).unwrap()
 print(report.recv().unwrap()).unwrap()
-print(report.recv()).unwrap()
+print(str.repr(report.recv()).unwrap()).unwrap()
 "#,
         "2\n1\nResult[i64, RecvError].Err(RecvError.Disconnected)\n",
     );
@@ -278,7 +278,7 @@ producer = def once [sender]() -> ():
     sender.send(42).unwrap()
     pass
 print("__test_one_thread_start__").unwrap()
-print(start(producer, receiver)).unwrap()
+print(str.repr(start(producer, receiver)).unwrap()).unwrap()
 print("__test_restore_thread_starts__").unwrap()
 "#, "__test_one_thread_start__\nResult[(), Failure].Err(Failure.Unspecified)\n__test_restore_thread_starts__\n");
 }
@@ -388,13 +388,13 @@ def propagate() -> Result[(), Failure]:
         inbox.recv()?
         failed()?
     Ok(())
-print(stop()).unwrap()
-print(propagate()).unwrap()
+print(str.repr(stop()).unwrap()).unwrap()
+print(str.repr(propagate()).unwrap()).unwrap()
 sender, receiver = channel[i64](1).unwrap()
 with sender as outbox:
     outbox.send(42).unwrap()
 print(receiver.recv().unwrap()).unwrap()
-print(receiver.recv()).unwrap()
+print(str.repr(receiver.recv()).unwrap()).unwrap()
 "#, "Result[(), Failure].Err(Failure.Unspecified)\nResult[(), Failure].Err(Failure.Unspecified)\n42\nResult[i64, RecvError].Err(RecvError.Disconnected)\n");
 }
 
@@ -416,7 +416,7 @@ def attempt() -> Result[(), Failure]:
         pass
     Ok(())
 print("__test_one_thread_start__").unwrap()
-print(attempt()).unwrap()
+print(str.repr(attempt()).unwrap()).unwrap()
 print("__test_restore_thread_starts__").unwrap()
 "#, "__test_one_thread_start__\nResult[(), Failure].Err(Failure.Unspecified)\n__test_restore_thread_starts__\n");
 }

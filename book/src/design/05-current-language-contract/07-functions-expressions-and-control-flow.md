@@ -10,9 +10,14 @@ and mutual recursion. All declarations and statements are checked before any
 native code is emitted or executed.
 
 A suite's last expression is its value. Continuing branches of a value-producing
-`if`/`elif`/`else` must agree. A non-final expression is evaluated and discarded;
-a non-final conditional discards its branches' results. An `if` without an
-`else` can only have unit result. The inline conditional uses Python order:
+`if`/`elif`/`else` must agree. A non-final expression is evaluated and discarded,
+except that implicitly discarding a `Result` is a compile error. Handle it with
+`?`, matching, or another function; use `drop(result)` for deliberate discard.
+This also applies inside non-final conditionals, matches, loops, context blocks,
+and generator bodies. A final function expression or explicit return can still
+return a `Result`. The check uses the resolved type, including aliases; it does
+not reject unused bindings, `Option`, or aggregates containing Results.
+An `if` without an `else` can only have unit result. The inline conditional uses Python order:
 `value_if_true if condition else value_if_false`.
 
 Conditions and Boolean operators accept only `bool`; there is no truthiness.

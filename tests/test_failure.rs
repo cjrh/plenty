@@ -46,8 +46,8 @@ def work() -> Result[(), Failure]:
     print("unreachable")?
     Ok(())
 def main() -> Result[(), Failure]:
-    print(parse("256"))?
-    print(work())?
+    print(str.repr(parse("256")).unwrap())?
+    print(str.repr(work()).unwrap())?
     marker = Failure.Unspecified
     print(marker == copy(marker)?)?
     match marker:
@@ -84,7 +84,7 @@ def work() -> Result[i64, Failure]:
         second = Guard("second")
         return Ok(consume(Guard("argument"), fail()?, later()))
 def main() -> Result[(), IoError]:
-    print(work())?
+    print(str.repr(work()).unwrap())?
     Ok(())
 "#,
         "error\nargument\nsecond\nexit\nfirst\nResult[i64, Failure].Err(Failure.Unspecified)\n",
@@ -112,7 +112,7 @@ def main() -> Result[(), Failure]:
     expected: Result[(), Failure] = Err(Failure.Unspecified)
     same = bad == expected
     print("__test_end_no_allocations__")?
-    print(good)?
+    print(str.repr(good).unwrap())?
     print(same)?
     Ok(())
 "#, "__test_begin_no_allocations__\ndropped\n__test_end_no_allocations__\nResult[(), Failure].Ok(())\nTrue\n");
@@ -151,7 +151,7 @@ def main() -> Result[(), IoError]:
     print("__test_fail_allocations_after_0__")?
     failed = work()
     print("__test_restore_allocations__")?
-    print(failed)?
+    print(str.repr(failed).unwrap())?
     Ok(())
 "#, "__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[(), Failure].Err(Failure.Unspecified)\n");
 }

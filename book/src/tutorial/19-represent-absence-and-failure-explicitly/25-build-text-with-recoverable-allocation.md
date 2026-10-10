@@ -10,16 +10,15 @@ def greeting(names: &list[str]) -> Result[str, AllocError]:
 
 def main() -> Result[(), Failure]:
     names = ["Ada", "Bea"]?
-    print(greeting(&names))?
+    print(greeting(&names)?)?
     print(names)?
-    print("-".join([]?))?
+    print("-".join([]?)?)?
     Ok(())
 ```
-
 ```output
-Result[str, AllocError].Ok("Hello, Ada, Bea!")
+Hello, Ada, Bea!
 ["Ada", "Bea"]
-Result[str, AllocError].Ok("")
+
 ```
 
 The methods observe their inputs, so `names` is still available afterward.

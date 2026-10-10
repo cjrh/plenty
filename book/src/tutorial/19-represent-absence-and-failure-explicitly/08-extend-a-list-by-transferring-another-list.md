@@ -10,13 +10,12 @@ def combined() -> Result[list[i64], AllocError]:
     items.extend(more)?
     Ok(items)
 
-def main() -> Result[(), IoError]:
-    print(combined())?
+def main() -> Result[(), Failure]:
+    print(combined()?)?
     Ok(())
 ```
-
 ```output
-Result[list[i64], AllocError].Ok([10, 20, 30])
+[10, 20, 30]
 ```
 
 The source is consumed even when reservation fails; its elements are then cleaned

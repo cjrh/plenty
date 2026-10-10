@@ -12,22 +12,18 @@ def show_character(text: &str, index: i64) -> Result[(), Failure]:
             print("missing")?
     Ok(())
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), Failure]:
     text = "café🙂"
-    print(show_character(&text, -1))?
-    print(show_character(&text, 3))?
-    print(show_character(&text, 5))?
+    show_character(&text, -1)?
+    show_character(&text, 3)?
+    show_character(&text, 5)?
     print(text)?
     Ok(())
 ```
-
 ```output
 🙂
-Result[(), Failure].Ok(())
 é
-Result[(), Failure].Ok(())
 missing
-Result[(), Failure].Ok(())
 café🙂
 ```
 

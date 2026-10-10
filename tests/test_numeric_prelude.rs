@@ -5,7 +5,7 @@ use std::process::Command;
 
 #[test]
 fn decimal_forms_unit_payloads_and_prelude_shadowing() {
-    native("print(1.).unwrap()\nprint(.5).unwrap()\nprint(1.e2).unwrap()\nprint(1.f32).unwrap()\ndef unit(x: Option[()]) -> ():\n    match x:\n        case Some(u):\n            u\n        case Nothing:\n            pass\nunit(Some(()))\nx: Result[(), ()] = Err(())\nprint(x).unwrap()\nSome = 42\nprint(Some).unwrap()",
+    native("print(1.).unwrap()\nprint(.5).unwrap()\nprint(1.e2).unwrap()\nprint(1.f32).unwrap()\ndef unit(x: Option[()]) -> ():\n    match x:\n        case Some(u):\n            u\n        case Nothing:\n            pass\nunit(Some(()))\nx: Result[(), ()] = Err(())\nprint(str.repr(x).unwrap()).unwrap()\nSome = 42\nprint(Some).unwrap()",
         "1.0\n0.5\n100.0\n1.0\nResult[(), ()].Err(())\n42\n");
 }
 
@@ -24,8 +24,8 @@ fn decimal_forms_unit_payloads_and_prelude_shadowing() {
 #[case("def values(x: f32) -> Generator[f32]:\n    mut y = x\n    yield y\n    y = y + 0.5f32\n    yield y\nfor x in values(1.5f32):\n    print(x).unwrap()", "1.5\n2.0\n")]
 #[case("n = 0.0 / 0.0\nx = Some(n)\nprint(x == x).unwrap()\na = [n].unwrap()\nprint(a == a).unwrap()\nprint(n in a).unwrap()\nprint({'x': n}.unwrap() == {'x': n}.unwrap()).unwrap()", "False\nFalse\nFalse\nFalse\n")]
 #[case("def divide(a: f64, b: f64) -> Result[f64, str]:\n    if b == 0.0:\n        return Err('zero')\n    Ok(a / b)\nfor r in [divide(5.0, 2.0), divide(5.0, 0.0)].unwrap():\n    match r:\n        case Ok(value):\n            print(value).unwrap()\n        case Err(message):\n            print(message).unwrap()", "2.5\nzero\n")]
-#[case("type R = Result[(), str]\ndef done() -> ():\n    print('effect').unwrap()\ndef check(ok: bool) -> R:\n    Ok(done()) if ok else Err('bad')\nmatch check(True):\n    case Ok(u):\n        u\n    case Err(_):\n        pass\nprint(check(False)).unwrap()\nprint(Option[()].Some(())).unwrap()\nprint(Some(())).unwrap()", "effect\nResult[(), str].Err(\"bad\")\nOption[()].Some(())\nOption[()].Some(())\n")]
-#[case("def show(x: Option[Result[f32, str]]) -> ():\n    match x:\n        case Nothing:\n            print('empty').unwrap()\n        case Some(r):\n            print(r).unwrap()\nshow(Some(Ok(2f32)))\nshow(Some(Err('bad')))\nshow(Nothing)\nx: list[Option[i64]] = [Nothing, Some(42)].unwrap()\nprint(x).unwrap()", "Result[f32, str].Ok(2.0)\nResult[f32, str].Err(\"bad\")\nempty\n[Option[i64].Nothing, Option[i64].Some(42)]\n")]
+#[case("type R = Result[(), str]\ndef done() -> ():\n    print('effect').unwrap()\ndef check(ok: bool) -> R:\n    Ok(done()) if ok else Err('bad')\nmatch check(True):\n    case Ok(u):\n        u\n    case Err(_):\n        pass\nprint(str.repr(check(False)).unwrap()).unwrap()\nprint(Option[()].Some(())).unwrap()\nprint(Some(())).unwrap()", "effect\nResult[(), str].Err(\"bad\")\nOption[()].Some(())\nOption[()].Some(())\n")]
+#[case("def show(x: Option[Result[f32, str]]) -> ():\n    match x:\n        case Nothing:\n            print('empty').unwrap()\n        case Some(r):\n            print(str.repr(r).unwrap()).unwrap()\nshow(Some(Ok(2f32)))\nshow(Some(Err('bad')))\nshow(Nothing)\nx: list[Option[i64]] = [Nothing, Some(42)].unwrap()\nprint(x).unwrap()", "Result[f32, str].Ok(2.0)\nResult[f32, str].Err(\"bad\")\nempty\n[Option[i64].Nothing, Option[i64].Some(42)]\n")]
 #[case("def make() -> Result[list[f64], str]:\n    Ok([1.5, 2.5].unwrap())\nmatch make():\n    case Ok(items):\n        print(items).unwrap()\n    case Err(_):\n        pass\nenum Done:\n    Value(())\nprint(Done.Value(())).unwrap()", "[1.5, 2.5]\nDone.Value(())\n")]
 fn native(#[case] source: &str, #[case] expected: &str) {
     let workspace = tempfile::tempdir().unwrap();

@@ -10,11 +10,10 @@ def demo() -> Result[(), IoError]:
         print(file.writable()?)?
     Ok(())
 def main() -> Result[(), IoError]:
-    print(demo())?
+    demo()?
     Ok(())
 ```
 ```output
 False
 True
-Result[(), IoError].Ok(())
 ```

@@ -35,8 +35,8 @@ print(list(saved).unwrap()).unwrap()
 print(list(forward(original)).unwrap()).unwrap()
 print(maybe(3)).unwrap()
 print(maybe(-1)).unwrap()
-print(propagate(-1)).unwrap()
-print(propagate(7)).unwrap()
+print(str.repr(propagate(-1)).unwrap()).unwrap()
+print(str.repr(propagate(7)).unwrap()).unwrap()
 "#, "[2, 3, 4, 5]\n[20, 21, 22, 23]\nOption[range].Some(range(3, 7, 1))\nOption[range].Nothing\nResult[range, range].Err(range(10, 14, 1))\nResult[range, range].Ok(range(7, 11, 1))\n");
 }
 

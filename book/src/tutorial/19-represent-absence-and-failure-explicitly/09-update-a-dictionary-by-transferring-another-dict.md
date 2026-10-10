@@ -11,13 +11,11 @@ def merge(destination: &mut dict[str, i64], source: dict[str, i64]) -> Result[()
 def main() -> Result[(), Failure]:
     mut scores = {"Ada": 10, "Bea": 20}?
     changes = {"Bea": 25, "Cam": 30, "Ada": 15}?
-    print(merge(&mut scores, changes))?
+    merge(&mut scores, changes)?
     print(scores)?
     Ok(())
 ```
-
 ```output
-Result[(), AllocError].Ok(())
 {"Ada": 15, "Bea": 25, "Cam": 30}
 ```
 

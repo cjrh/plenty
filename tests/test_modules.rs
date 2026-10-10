@@ -285,8 +285,8 @@ def build() -> Result[data.Numbers, AllocError]:
     values.append(42)?
     Ok(values)
 def main() -> ():
-    print(data.Numbers.new()).unwrap()
-    print(build()).unwrap()
+    print(str.repr(data.Numbers.new()).unwrap()).unwrap()
+    print(str.repr(build()).unwrap()).unwrap()
 "#,
             ),
         ],
@@ -321,7 +321,7 @@ def collect() -> Result[list[i64], AllocError]:
 def main() -> ():
     print(N.new(3)).unwrap()
     print(data.Message.Value.new(4)).unwrap()
-    print(collect()).unwrap()
+    print(str.repr(collect()).unwrap()).unwrap()
 "#,
             ),
         ],

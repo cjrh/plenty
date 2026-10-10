@@ -12,9 +12,10 @@ def report() -> Result[(), IoError]:
     Ok(())
 
 def main() -> Result[(), IoError]:
-    print(report())?
+    report()?
+    print("")?
     Ok(())
 ```
 ```output
-readyResult[(), IoError].Ok(())
+ready
 ```

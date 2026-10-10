@@ -36,7 +36,7 @@ def show() -> Result[(), AllocError]:
     print("".join(["a", "b"].unwrap())?).unwrap()
     print("".concat("")?).unwrap()
     Ok(())
-print(show()).unwrap()
+print(str.repr(show()).unwrap()).unwrap()
 "#,
         "3\nTrue\n5\nTrue\n3\n\none\nab\n\nResult[(), AllocError].Ok(())",
     );
@@ -54,7 +54,7 @@ def format(prefix: &str, parts: &list[str]) -> Result[str, AllocError]:
 def show(data: &Texts) -> Result[str, AllocError]:
     format(&data.prefix, &data.parts)
 data = Texts("Hello ", ["Ada", "Bea"].unwrap())
-print(show(&data)).unwrap()
+print(str.repr(show(&data)).unwrap()).unwrap()
 print(data.prefix).unwrap()
 print(data.parts).unwrap()
 "#,
@@ -75,7 +75,7 @@ def parts() -> list[str]:
 class Custom:
     def join(self, text: str) -> str:
         text
-print(separator().join(parts())).unwrap()
+print(str.repr(separator().join(parts())).unwrap()).unwrap()
 print(Custom().join("class method")).unwrap()
 "#,
         "separator\nparts\nResult[str, AllocError].Ok(\"a-b\")\nclass method",
@@ -97,7 +97,7 @@ def check() -> Result[(), AllocError]:
     print("a界b界".split("界")?).unwrap()
     print("a\0b\0".split("\0")?).unwrap()
     Ok(())
-print(check()).unwrap()
+print(str.repr(check()).unwrap()).unwrap()
 "#,
         "[\"\", \"é\\0\", \"🙂\", \"\", \"\"]\n2\nTrue\n[\"\"]\n[\"abc\"]\n[\"\", \"\", \"a\"]\n[\"a\", \"b\", \"\"]\n[\"a\", \"b\", \"\"]\nResult[(), AllocError].Ok(())",
     );
@@ -122,9 +122,9 @@ class Custom:
         text
 text = Text("a:b")
 sep = ":"
-print(split(&text.contents, &sep)).unwrap()
+print(str.repr(split(&text.contents, &sep)).unwrap()).unwrap()
 print(text.contents).unwrap()
-print(source().split(separator())).unwrap()
+print(str.repr(source().split(separator())).unwrap()).unwrap()
 print(Custom().split("custom")).unwrap()
 "#,
         "Result[list[str], AllocError].Ok([\"a\", \"b\"])\na:b\nsource\nseparator\nResult[list[str], AllocError].Ok([\"left\", \"right\"])\ncustom",
@@ -143,10 +143,10 @@ separator = ("" + ":").unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = source.split(separator)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(source).unwrap()
 print(separator).unwrap()
-print(source.split(separator)).unwrap()
+print(str.repr(source.split(separator)).unwrap()).unwrap()
 "#),
             &format!("Result[list[str], AllocError].{}\nalphabet:betagamma:deltaepsilon\n:\nResult[list[str], AllocError].Ok([\"alphabet\", \"betagamma\", \"deltaepsilon\"])",
                 if budget < 5 { "Err(AllocError.OutOfMemory)" } else { "Ok([\"alphabet\", \"betagamma\", \"deltaepsilon\"])" }),
@@ -189,7 +189,9 @@ print("__test_end_no_allocations__").unwrap()
 
 #[test]
 fn split_rejects_empty_separator_at_runtime() {
-    let output = support::run("separator = \"\"\nprint(\"abc\".split(separator)).unwrap()");
+    let output = support::run(
+        "separator = \"\"\nprint(str.repr(\"abc\".split(separator)).unwrap()).unwrap()",
+    );
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr)
         .contains("string split requires a nonempty separator"));
@@ -204,9 +206,9 @@ def show(text: &str, index: i64) -> Result[(), AllocError]:
     Ok(())
 text = "é🙂\0"
 for index in [-4, -3, -2, -1, 0, 1, 2, 3, -9223372036854775808, 9223372036854775807].unwrap():
-    show(&text, index)
+    drop(show(&text, index))
 empty = ""
-show(&empty, 0)
+drop(show(&empty, 0))
 print(text == "é🙂\0").unwrap()
 "#,
         "Option[str].Nothing\nOption[str].Some(\"é\")\nOption[str].Some(\"🙂\")\nOption[str].Some(\"\\0\")\nOption[str].Some(\"é\")\nOption[str].Some(\"🙂\")\nOption[str].Some(\"\\0\")\nOption[str].Nothing\nOption[str].Nothing\nOption[str].Nothing\nOption[str].Nothing\nTrue",
@@ -268,7 +270,7 @@ def missing_index() -> Result[i64, AllocError]:
     Err(AllocError.CapacityOverflow)
 def lookup() -> Result[Option[str], AllocError]:
     Ok((("a" + "b").unwrap()).get(missing_index()?))
-print(lookup()).unwrap()
+print(str.repr(lookup()).unwrap()).unwrap()
 "#,
         "index\nResult[Option[str], AllocError].Err(AllocError.CapacityOverflow)",
     );
@@ -292,8 +294,8 @@ empty = list[str]().unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = {expression}
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
-print({expression}).unwrap()
+print(str.repr(result).unwrap()).unwrap()
+print(str.repr({expression}).unwrap()).unwrap()
 print(left).unwrap()
 print(right).unwrap()
 print(parts).unwrap()

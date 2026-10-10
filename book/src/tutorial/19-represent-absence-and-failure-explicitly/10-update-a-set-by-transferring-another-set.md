@@ -7,14 +7,12 @@ present are kept, and missing members transfer from the source:
 def main() -> Result[(), Failure]:
     mut names = {"Ada", "Bea"}?
     more = {"Bea", "Cam"}?
-    print(names.update(more))?
+    names.update(more)?
     print(len(names))?
     print("Ada" in names and "Bea" in names and "Cam" in names)?
     Ok(())
 ```
-
 ```output
-Result[(), AllocError].Ok(())
 3
 True
 ```

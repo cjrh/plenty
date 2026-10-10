@@ -29,12 +29,12 @@ class Buffer:
         self.values = list[i64].with_capacity(size)?
         Ok(())
 
-def main() -> Result[(), IoError]:
-    print(Buffer.new(8))?
+def main() -> Result[(), Failure]:
+    print(Buffer.new(8)?)?
     Ok(())
 ```
 ```output
-Result[Buffer, AllocError].Ok(Buffer(values=[]))
+Buffer(values=[])
 ```
 
 If initialization fails, the fields already initialized are dropped, but the

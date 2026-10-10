@@ -192,9 +192,9 @@ print("__test_end_no_allocations__").unwrap()
 print(items).unwrap()
 print(entries).unwrap()
 print(len(members)).unwrap()
-print(a).unwrap()
-print(b).unwrap()
-print(c).unwrap()
+print(str.repr(a).unwrap()).unwrap()
+print(str.repr(b).unwrap()).unwrap()
+print(str.repr(c).unwrap()).unwrap()
 "#, "[\"Ada\"]\n{\"c\": \"Ada\"}\n1\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())");
 }
 

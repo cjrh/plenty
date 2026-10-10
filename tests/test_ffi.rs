@@ -247,11 +247,11 @@ def main() -> Result[(), Failure]:
     print(native.bytes(&character))?
     short = text.slice(0, 3)?
     print(native.bytes(&short))?
-    print(native.strings(&character, &empty))?
+    print(str.repr(native.strings(&character, &empty)).unwrap())?
     good = "é"
-    print(native.strings(&good, &empty))?
-    print(native.strings(&good, &text))?
-    print(native.strings(&text, &good))?
+    print(str.repr(native.strings(&good, &empty)).unwrap())?
+    print(str.repr(native.strings(&good, &text)).unwrap())?
+    print(str.repr(native.strings(&text, &good)).unwrap())?
     native.string_void(&good)?
     print(native.text_calls())?
     print(native.string_float(&good)?)?
@@ -321,7 +321,7 @@ def main() -> Result[(), Failure]:
     print("__test_fail_allocations_after_{budget}__")?
     result = native.strings(&a, &b)
     print("__test_restore_allocations__")?
-    print(result)?
+    print(str.repr(result).unwrap())?
     print(native.text_calls())?
     print("__test_fail_allocations_after_0__")?
     owner = native.create(0)
@@ -337,7 +337,7 @@ def main() -> Result[(), Failure]:
     print("__test_fail_allocations_after_0__")?
     converted = native.convert_owned(owned, &a)
     print("__test_restore_allocations__")?
-    print(converted)?
+    print(str.repr(converted).unwrap())?
     print(native.live())?
     Ok(())
 "#

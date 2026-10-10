@@ -35,11 +35,11 @@ def change_dictionary(source: &dict[str, list[i64]]) -> Result[dict[str, list[i6
     Ok(result)
 point = Point(1, [2, 3].unwrap())
 mapping = {"key": [1].unwrap()}.unwrap()
-print(changed(&point)).unwrap()
+print(str.repr(changed(&point)).unwrap()).unwrap()
 print(point).unwrap()
-print(change_dictionary(&mapping)).unwrap()
+print(str.repr(change_dictionary(&mapping)).unwrap()).unwrap()
 print(mapping).unwrap()
-print(copy({1, 2}.unwrap())).unwrap()
+print(str.repr(copy({1, 2}.unwrap())).unwrap()).unwrap()
 "#, "Result[Point, AllocError].Ok(Point(x=99, values=[2, 3, 42]))\nPoint(x=1, values=[2, 3])\nResult[dict[str, list[i64]], AllocError].Ok({\"key\": [99]})\n{\"key\": [1]}\nResult[set[i64], AllocError].Ok({1, 2})");
 }
 
@@ -72,7 +72,7 @@ match result:
         print(error).unwrap()
 print(source.name).unwrap()
 print(source.left).unwrap()
-print(source.right).unwrap()
+print(str.repr(source.right).unwrap()).unwrap()
 match duplicate(&source):
     case Ok(value):
         print(value == source).unwrap()
@@ -145,13 +145,13 @@ f = copy(-0.0f32)
 g = copy(AllocError.OutOfMemory)
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
-print(a).unwrap()
-print(b).unwrap()
-print(c).unwrap()
-print(d).unwrap()
-print(e).unwrap()
-print(f).unwrap()
-print(g).unwrap()
+print(str.repr(a).unwrap()).unwrap()
+print(str.repr(b).unwrap()).unwrap()
+print(str.repr(c).unwrap()).unwrap()
+print(str.repr(d).unwrap()).unwrap()
+print(str.repr(e).unwrap()).unwrap()
+print(str.repr(f).unwrap()).unwrap()
+print(str.repr(g).unwrap()).unwrap()
 "#, "Result[str, AllocError].Ok(\"hello\")\nResult[Label, AllocError].Ok(Label.Text(\"hello\"))\nResult[Option[list[i64]], AllocError].Ok(Option[list[i64]].Nothing)\nResult[Result[list[i64], str], AllocError].Ok(Result[list[i64], str].Err(\"hello\"))\nResult[u64, AllocError].Ok(18446744073709551615)\nResult[f32, AllocError].Ok(-0.0)\nResult[AllocError, AllocError].Ok(AllocError.OutOfMemory)");
 }
 
@@ -172,7 +172,7 @@ guard = Guard()
 print("__test_fail_allocations_after_0__").unwrap()
 result = duplicate(&source, guard)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(source).unwrap()
 "#,
         "dropped\nResult[list[i64], AllocError].Err(AllocError.OutOfMemory)\n[1, 2]",

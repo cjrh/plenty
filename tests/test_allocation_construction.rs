@@ -35,11 +35,11 @@ def dictionary() -> Result[dict[str, list[i64]], AllocError]:
     mut values = dict[str, list[i64]].with_capacity(1)?
     values.insert("answer", numbers()?)?
     Ok(values)
-print(numbers()).unwrap()
-print(nested()).unwrap()
-print(dictionary()).unwrap()
-print(set[str].new()).unwrap()
-print(list[f32].new()).unwrap()
+print(str.repr(numbers()).unwrap()).unwrap()
+print(str.repr(nested()).unwrap()).unwrap()
+print(str.repr(dictionary()).unwrap()).unwrap()
+print(str.repr(set[str].new()).unwrap()).unwrap()
+print(str.repr(list[f32].new()).unwrap()).unwrap()
 "#, "Result[list[i64], AllocError].Ok([21, 42])\nResult[list[list[i64]], AllocError].Ok([[21, 42]])\nResult[dict[str, list[i64]], AllocError].Ok({\"answer\": [21, 42]})\nResult[set[str], AllocError].Ok(set())\nResult[list[f32], AllocError].Ok([])");
 }
 
@@ -112,9 +112,9 @@ b = set[i64].with_capacity(9223372036854775807)
 c = dict[str, i64].with_capacity(9223372036854775807)
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
-print(a).unwrap()
-print(b).unwrap()
-print(c).unwrap()
+print(str.repr(a).unwrap()).unwrap()
+print(str.repr(b).unwrap()).unwrap()
+print(str.repr(c).unwrap()).unwrap()
 "#, "Result[list[i64], AllocError].Err(AllocError.CapacityOverflow)\nResult[set[i64], AllocError].Err(AllocError.CapacityOverflow)\nResult[dict[str, i64], AllocError].Err(AllocError.CapacityOverflow)");
 }
 
@@ -156,8 +156,8 @@ def capacity(ok: bool) -> Result[i64, AllocError]:
     Ok(2) if ok else Err(AllocError.CapacityOverflow)
 def build(ok: bool) -> Result[list[i64], AllocError]:
     list[i64].with_capacity(capacity(ok)?)
-print(build(True)).unwrap()
-print(build(False)).unwrap()
+print(str.repr(build(True)).unwrap()).unwrap()
+print(str.repr(build(False)).unwrap()).unwrap()
 "#, "capacity\nResult[list[i64], AllocError].Ok([])\ncapacity\nResult[list[i64], AllocError].Err(AllocError.CapacityOverflow)");
 }
 

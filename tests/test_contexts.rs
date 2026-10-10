@@ -250,7 +250,7 @@ def work() -> Result[i64, i64]:
         with Manager("inner") as b:
             value = fail()?
     Ok(1)
-print(work()).unwrap()
+print(str.repr(work()).unwrap()).unwrap()
 "#), "outer\ninner\nentry dropped\nexit\nmanager dropped\nentry dropped\nexit\nmanager dropped\nResult[i64, i64].Err(9)\n");
 }
 

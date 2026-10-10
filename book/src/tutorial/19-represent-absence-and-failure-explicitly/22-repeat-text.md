@@ -4,14 +4,13 @@
 Zero and negative counts produce an empty string:
 
 ```plenty
-def main() -> Result[(), IoError]:
-    print("é🙂".repeat(3))?
-    print("x".repeat(0))?
-    print("x".repeat(-2))?
-    print("x".repeat(9223372036854775807))?
+def main() -> Result[(), Failure]:
+    print(str.repr("é🙂".repeat(3))?)?
+    print(str.repr("x".repeat(0))?)?
+    print(str.repr("x".repeat(-2))?)?
+    print(str.repr("x".repeat(9223372036854775807))?)?
     Ok(())
 ```
-
 ```output
 Result[str, AllocError].Ok("é🙂é🙂é🙂")
 Result[str, AllocError].Ok("")

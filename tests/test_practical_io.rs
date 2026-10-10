@@ -29,12 +29,12 @@ fn with_input(source: &str, input: &[u8]) -> std::process::Output {
 #[test]
 fn input_distinguishes_empty_lines_eof_and_invalid_utf8() {
     let output = with_input(
-        "print(input()).unwrap()\nprint(input()).unwrap()\nprint(input()).unwrap()\nprint(input()).unwrap()",
+        "print(str.repr(input()).unwrap()).unwrap()\nprint(str.repr(input()).unwrap()).unwrap()\nprint(str.repr(input()).unwrap()).unwrap()\nprint(str.repr(input()).unwrap()).unwrap()",
         "é\0\r\n\nlast".as_bytes(),
     );
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "Result[Option[str], IoError].Ok(Option[str].Some(\"é\\0\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"\"))\nResult[Option[str], IoError].Ok(Option[str].Some(\"last\"))\nResult[Option[str], IoError].Ok(Option[str].Nothing)\n");
-    let output = with_input("print(input()).unwrap()", b"\xff\n");
+    let output = with_input("print(str.repr(input()).unwrap()).unwrap()", b"\xff\n");
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -53,7 +53,7 @@ fn input_allocation_failure_is_recoverable() {
 print("__test_fail_allocations_after_{budget}__").unwrap()
 a = input()
 print("__test_restore_allocations__").unwrap()
-print(a).unwrap()
+print(str.repr(a).unwrap()).unwrap()
 "#
             ),
             b"abcdefgh\n",
@@ -83,9 +83,9 @@ def send(text: &str) -> Result[i64, IoError]:
     Ok(write_stdout(text)?)
 text = "hé🙂\0"
 result = send(&text)
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(text).unwrap()
-print(write_stdout("")).unwrap()
+print(str.repr(write_stdout("")).unwrap()).unwrap()
 "#,
         "hé🙂\0Result[i64, IoError].Ok(4)\nhé🙂\0\nResult[i64, IoError].Ok(0)\n",
     );
@@ -96,7 +96,7 @@ fn io_errors_are_constructible_and_matchable() {
     native(r#"
 def error() -> Result[i64, IoError]:
     Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))
-print(error()).unwrap()
+print(str.repr(error()).unwrap()).unwrap()
 print(IoError.System(5i32)).unwrap()
 print(IoError.Data(DataError.InvalidUtf8)).unwrap()
 "#, "Result[i64, IoError].Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory)))\nIoError.System(5)\nIoError.Data(DataError.InvalidUtf8)\n");
@@ -130,7 +130,7 @@ def inspect() -> Result[(), IoError]:
     print(second[3]).unwrap()
     Ok(())
 def main() -> ():
-    print(inspect()).unwrap()
+    print(str.repr(inspect()).unwrap()).unwrap()
 "#,
         &executable,
     )
@@ -152,7 +152,8 @@ fn arguments_reject_invalid_utf8() {
     use std::os::unix::ffi::OsStrExt;
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("program");
-    support::compile_source_to_executable("print(args()).unwrap()", &executable).unwrap();
+    support::compile_source_to_executable("print(str.repr(args()).unwrap()).unwrap()", &executable)
+        .unwrap();
     let output = std::process::Command::new(executable)
         .arg(std::ffi::OsStr::from_bytes(b"\xff"))
         .output()
@@ -198,9 +199,9 @@ match a:
 fn stderr_is_separate_and_flush_returns_unit_result() {
     let output = support::run(
         r#"
-print(write_stderr("diagnostic é\n")).unwrap()
-print(flush_stderr()).unwrap()
-print(flush_stdout()).unwrap()
+print(str.repr(write_stderr("diagnostic é\n")).unwrap()).unwrap()
+print(str.repr(flush_stderr()).unwrap()).unwrap()
+print(str.repr(flush_stdout()).unwrap()).unwrap()
 "#,
     );
     assert!(output.status.success());
@@ -221,7 +222,7 @@ fn buffered_failure_is_reported_by_flush() {
     support::compile_source_to_executable(
         r#"
 def main() -> i32:
-    write_stdout("buffered")
+    drop(write_stdout("buffered"))
     match flush_stdout():
         case Ok(unit):
             1i32
@@ -281,7 +282,7 @@ print("__test_fail_allocations_after_0__").unwrap()
 a = write_stdout("hello\n")
 b = IoError.Data(DataError.Allocation(AllocError.OutOfMemory))
 print("__test_restore_allocations__").unwrap()
-print(a).unwrap()
+print(str.repr(a).unwrap()).unwrap()
 print(b).unwrap()
 "#,
     );

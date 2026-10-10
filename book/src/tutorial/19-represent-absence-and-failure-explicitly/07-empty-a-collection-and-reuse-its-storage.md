@@ -8,7 +8,7 @@ def main() -> Result[(), Failure]:
     mut items = [10, 20]?
     items.clear()
     print(items)?
-    print(items.append(30))?
+    items.append(30)?
     print(items)?
     mut scores = {"Ada": 10}?
     scores.clear()
@@ -18,7 +18,6 @@ def main() -> Result[(), Failure]:
 
 ```output
 []
-Result[(), AllocError].Ok(())
 [30]
 {}
 ```

@@ -13,8 +13,8 @@ def save_and_read() -> Result[str, IoError]:
     write_text("plenty-example.txt", "Hello, é!\n")?
     read_text("plenty-example.txt")
 
-def main() -> Result[(), IoError]:
-    print(save_and_read())?
+def main() -> Result[(), Failure]:
+    print(str.repr(save_and_read())?)?
     Ok(())
 ```
 ```output

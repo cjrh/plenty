@@ -39,14 +39,24 @@ impl crate::nominal::Nominal<EnumType> {
         self.name.starts_with("tuple[")
     }
     pub fn propagatable(&self) -> bool {
-        self.name.starts_with("Option[") || self.name.starts_with("Result[")
+        self.is_option() || self.is_result()
     }
     pub fn is_option(&self) -> bool {
         self.name.starts_with("Option[")
     }
-    pub fn discards_error(&self) -> bool {
+    pub fn is_result(&self) -> bool {
         self.name.starts_with("Result[")
+    }
+    pub fn discards_error(&self) -> bool {
+        self.is_result()
             && matches!(self.local().variants[1].fields.as_slice(), [Ty::Enum(t)] if t.name == "Failure")
+    }
+    /// Whether this Result can receive the source's error through `?`.
+    pub fn accepts_result_error(&self, source: &Self) -> bool {
+        self.is_result()
+            && source.is_result()
+            && (self.discards_error()
+                || self.get().variants[1].fields == source.get().variants[1].fields)
     }
 }
 
