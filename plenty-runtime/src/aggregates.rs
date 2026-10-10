@@ -1683,15 +1683,15 @@ pub(crate) unsafe fn collection(
                     None => wrap(0, 0),
                 }
             }
-            122 => (*(a as *const Collection))
+            123 => (*(a as *const Collection))
                 .entries
                 .first()
                 .map_or(0, |i| i as u128 + 1),
-            123 => (*(a as *const Collection))
+            124 => (*(a as *const Collection))
                 .entries
                 .next(b as usize - 1)
                 .map_or(0, |i| i as u128 + 1),
-            124 => {
+            125 => {
                 let c = &*(a as *const Collection);
                 let key = c.entries.get(b as usize - 1).key;
                 retain(key, c.ty().key());
