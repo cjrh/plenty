@@ -31,7 +31,9 @@ cancels the job nor consumes the result. Call `result()` later to retrieve it.
 
 `Selected[A, B]` is an inline sum with `First(A)` and `Second(B)` variants.
 Selection borrows both receivers and transfers exactly one message into this
-result. The unselected queue keeps its messages. It also accepts two handles
+result. The shared `&` markers are optional, as in ordinary shared arguments:
+`select_recv(first, second)` also borrows both. The unselected queue keeps its
+messages. It also accepts two handles
 sharing one queue. Message types must satisfy the ordinary channel contract.
 
 `SelectError.Empty` means neither receiver had a message during a nonblocking

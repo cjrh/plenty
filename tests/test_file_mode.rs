@@ -11,6 +11,46 @@ fn plenty_bin() -> &'static str {
     env!("CARGO_BIN_EXE_plenty")
 }
 
+#[test]
+fn builtin_file_operands_get_numeric_context_without_coercing_variables() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data.txt");
+    let source = format!(
+        r#"
+def offset(n: u64) -> u64:
+    n
+def main() -> ():
+    mut file = open("{}", "w+").unwrap()
+    file.write("abc").unwrap()
+    file.seek(0).unwrap()
+    print(file.tell().unwrap()).unwrap()
+    print(file.read(1).unwrap()).unwrap()
+    file.truncate(2).unwrap()
+    print(offset(0)).unwrap()
+    file.close().unwrap()
+"#,
+        data.display()
+    );
+    let path = write_tempfile(&source, "numeric-context");
+    let out = Command::new(plenty_bin()).arg(&path).output().unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.stdout, b"0\na\n0\n");
+    for (argument, expected) in [
+        ("n", "expected u64, got i64"),
+        ("-1", "out of range"),
+        ("18446744073709551616", "out of range"),
+    ] {
+        let source = format!("def main() -> ():\n    mut f = open(\"unused\").unwrap()\n    n = 0\n    f.seek({argument}).unwrap()\n    pass\n");
+        let error = plenty::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{argument}: {error}");
+    }
+}
+
 /// Write `source` to a uniquely-named tempfile and return the path. The
 /// caller is responsible for deleting it.
 ///

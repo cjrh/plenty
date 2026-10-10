@@ -4,6 +4,38 @@ use rstest::rstest;
 use std::process::Command;
 
 const COUNT: &str = "def count(n: i64) -> Generator[i64]:\n    mut i = 0\n    while i < n:\n        yield i\n        i = i + 1\n";
+
+#[test]
+fn explicit_next_reborrows_a_mutable_generator_without_consuming_it() {
+    let source = format!("{COUNT}\ndef advance(it: &mut Generator[i64]) -> ():\n    print(next(&mut it)).unwrap()\nmut it = count(3)\nprint(next(&mut it)).unwrap()\nadvance(&mut it)\nprint(next(it)).unwrap()\nprint(next(&mut it)).unwrap()\n");
+    let output = run(&source);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        output.stdout,
+        b"Option[i64].Some(0)\nOption[i64].Some(1)\nOption[i64].Some(2)\nOption[i64].Nothing\n"
+    );
+    for (body, expected) in [
+        ("it = count(1)\nnext(&mut it)\n", "immutable binding"),
+        (
+            "mut it = count(1)\nr = &it\nnext(&mut r)\n",
+            "shared reference as mutable",
+        ),
+        (
+            "mut it = count(1)\nr = &mut it\nnext(&mut it)\nnext(&mut r)\n",
+            "conflicting borrow",
+        ),
+        ("next(&mut count(1))\n", "named binding"),
+    ] {
+        let error = support::check_source(&format!("{COUNT}{body}"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{body}\n{error}");
+    }
+}
 fn run(source: &str) -> std::process::Output {
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("program");

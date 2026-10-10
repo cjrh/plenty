@@ -120,8 +120,8 @@ impl Lower<'_> {
         let mut actual = Vec::new();
         let mut loans = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(&signature.inputs) {
-            let ty = if let Ty::Ref(_, mutable) = expected {
-                let (ty, loan) = self.call_borrow(arg, *mutable, ops)?;
+            let ty = if let Ty::Ref(inner, mutable) = expected {
+                let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
                 loans.push(loan);
                 ty
             } else {
@@ -164,6 +164,24 @@ impl Lower<'_> {
         }
     }
     pub(super) fn next(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<Type> {
+        if let [arg] = args {
+            if let Expression::Unary(op, base) = &ungroup(arg).kind {
+                if op == "&mut" {
+                    let (ty, loan) = self.borrow(base, true, ops)?;
+                    let Ty::Ref(inner, _) = ty else {
+                        unreachable!()
+                    };
+                    let Ty::Generator(element) = &*inner else {
+                        return Err(at.error("next requires a generator"));
+                    };
+                    let output = crate::sum::option(element.element.clone());
+                    ops.push(Op::ReadRef((*inner).clone()));
+                    ops.push(Op::Collection(CollectionOp::Next((*inner).clone())));
+                    ops.push(Op::UseLoan(loan));
+                    return Ok(Some(output));
+                }
+            }
+        }
         let [Expr {
             kind: Expression::Name(name),
             ..

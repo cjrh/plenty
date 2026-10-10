@@ -6,17 +6,24 @@ Encoding is always strict UTF-8. The initial file backend requires Linux.
 Paths are relative to the process working directory; the helper owns and closes
 its temporary handle even when reading or allocating fails.
 
-This function can read your own configuration file. The tutorial checks its
-types without depending on a file on your machine.
+This example creates a small configuration file, then reads it using both a
+literal and a binding. The `&str` parameter borrows either argument implicitly;
+`configuration(&path)` is also valid.
 
 ```plenty
 def configuration(path: &str) -> Result[str, IoError]:
     read_text(path)
 
 def main() -> Result[(), IoError]:
-    print("configuration reader is ready")?
+    write_text("configuration.txt", "mode=fast\n")?
+    print(configuration("configuration.txt")?)?
+    path = "configuration.txt"
+    print(configuration(path)?)?
     Ok(())
 ```
 ```output
-configuration reader is ready
+mode=fast
+
+mode=fast
+
 ```

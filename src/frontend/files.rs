@@ -75,14 +75,9 @@ impl Lower<'_> {
         let mut reads = Vec::new();
         if let Some(arg) = args.first() {
             let expected = inputs[1].clone();
-            if collections::contextual_display(arg) {
-                let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
-                self.same(ty, Some(expected), &arg.at)?;
-            } else {
-                let (ty, loans) = self.observe(arg, ops)?;
-                self.same(Some(ty), Some(expected), &arg.at)?;
-                reads = loans;
-            }
+            let (ty, loans) = self.observe_expected(arg, Some(expected.clone()), ops)?;
+            self.same(Some(ty), Some(expected), &arg.at)?;
+            reads = loans;
         }
         let (_, loan) = self.borrow(base, !matches!(name, "readable" | "writable"), ops)?;
         ops.push(Op::ReadRef(Ty::File));

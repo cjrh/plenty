@@ -35,8 +35,10 @@ Nested generator yield types, reference yields, and unit are
 rejected. Generator functions cannot return a value. An ordinary factory without
 `yield` may return another generator by moving it.
 
-`next(g)` requires a named mutable generator binding or an exclusive reference
-to a generator, and returns `Option[T]`.
+`next(&mut g)` borrows a mutable generator binding or reborrows an exclusive
+generator reference, and returns `Option[T]`. The shorthand `next(g)` remains
+supported for named bindings and exclusive references. Shared references and
+immutable owners cannot be advanced; mutable temporaries are rejected.
 This compiler-known operation borrows the owner only for the call. Exhaustion
 is stable. `for`, comprehensions, and iterable collection constructors consume
 generators; `break` destroys their hidden iterator owner without executing later

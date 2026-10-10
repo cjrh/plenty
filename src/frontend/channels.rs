@@ -97,13 +97,8 @@ impl Lower<'_> {
         let mut messages = Vec::new();
         let mut loans = Vec::new();
         for arg in &args[..2] {
-            // Public functions borrow explicitly; observing an existing
-            // reference creates a child loan and retains its endpoint handle.
-            let reference = matches!(&ungroup(arg).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
-                || matches!(self.expression_type_hint(arg), Some(Ty::Ref(..)));
-            if !reference {
-                return Err(arg.at.error("selection borrows receivers; pass &receiver"));
-            }
+            // Observation borrows an owner or reborrows an existing reference,
+            // retaining the endpoint and its loan through selection.
             let (ty, reads) = self.observe(arg, ops)?;
             let Ty::Channel(message, false) = ty else {
                 return Err(arg.at.error("selection requires a borrowed Receiver"));

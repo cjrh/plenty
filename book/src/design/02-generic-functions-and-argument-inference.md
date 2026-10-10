@@ -9,8 +9,11 @@ infers `T = Message`, and `&dict[K, V]` with `&dict[str, u8]` infers both parame
 Lists, sets, ranges, generators, tuples, Option, Result, Callable signatures,
 and nominal generic class/enum arguments participate too.
 Repeated occurrences of a parameter must agree after alias resolution. No
-numeric widening, implicit borrowing, protocol implementation search, or runtime
-dispatch is introduced. Protocol and callable constraints are checked after inference.
+numeric widening, protocol implementation search, or runtime dispatch is introduced.
+A shared reference pattern supplies ordinary implicit borrowing: `inspect(value)`
+for `value: &T` infers `T` from the borrowed value. Mutable arguments still require
+`&mut` or an existing exclusive reference. Protocol and callable constraints are
+checked after inference.
 
 Inference is local to the call and uses the ordinary expression checker. Arguments
 are evaluated once in source order. A generic parameter position supplies no

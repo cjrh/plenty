@@ -56,13 +56,16 @@ impl Lower<'_> {
                 if inputs.iter().any(Ty::affine) {
                     return Err(call.at.error("named workers borrow mutable owners; pass & or &mut, or capture the inputs in an owned closure for spawn(job), so a failed start preserves your job"));
                 }
-                let loans = ops[index..]
+                let loans: Vec<_> = ops[index..]
                     .iter()
                     .filter_map(|op| match op {
                         Op::UseLoan(id) => Some(*id),
                         _ => None,
                     })
                     .collect();
+                for &loan in &loans {
+                    self.check_stored_reference(loan, &call.at)?;
+                }
                 (symbol, None, inputs, output, loans)
             }
             Expression::Unary(op, value) if op == "&" || op == "&mut" => {

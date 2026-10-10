@@ -34,13 +34,14 @@ def main() -> Result[(), Failure]:
     value = 7
     read = def [&value]() -> i64:
         value
-    print(invoke(&read))?
+    print(invoke(read))?
     Ok(())
 ```
 ```output
 7
 ```
 
+The `&Closure` parameter borrows `read` implicitly; `invoke(&read)` is also valid.
 The capture remains borrowed throughout `invoke`, including while its other
 arguments are being evaluated. A closure can also explicitly borrow another
 closure; the same rule protects all of their captured owners.

@@ -462,7 +462,7 @@ impl Lower<'_> {
                 expected
             } else if matches!(pattern.name.as_deref(), Some("&" | "&mut")) {
                 let (ty, loan) =
-                    self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), ops)?;
+                    self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), None, ops)?;
                 loans.push(loan);
                 ty
             } else {

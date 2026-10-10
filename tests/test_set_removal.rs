@@ -162,7 +162,10 @@ print(1 in values).unwrap()
     "mut values = {1}.unwrap()\nvalues.discard(1, 2)",
     "discard requires one value argument"
 )]
-#[case("mut values = {1u8}.unwrap()\nvalues.discard(1)", "expected u8")]
+#[case(
+    "mut values = {1u8}.unwrap()\nvalue = 1\nvalues.discard(value)",
+    "expected u8"
+)]
 #[case("mut values = {1}.unwrap()\nvalues.discard(\"one\")", "expected i64")]
 #[case("{1}.unwrap().discard(1)", "discard requires a mutable set")]
 #[case(

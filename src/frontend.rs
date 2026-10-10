@@ -2556,11 +2556,14 @@ impl Lower<'_> {
                     if args.len() != 2 {
                         return Err(e.at.error("contains takes two strings"));
                     }
+                    let mut loans = Vec::new();
                     for arg in args {
-                        let ty = self.expr(arg, ops)?;
-                        self.same(ty, Some(Ty::Str), &arg.at)?;
+                        let (ty, reads) = self.observe_expected(arg, Some(Ty::Str), ops)?;
+                        self.same(Some(ty), Some(Ty::Str), &arg.at)?;
+                        loans.extend(reads);
                     }
                     ops.push(Op::Contains);
+                    Self::end_reads(loans, ops);
                     Some(Ty::Bool)
                 } else {
                     self.call_named(name, args, &e.at, ops)?
@@ -2612,7 +2615,13 @@ impl Lower<'_> {
         Self::end_reads(argument_loans, ops);
         Ok(sig.outputs.first().cloned())
     }
-    fn call_borrow(&mut self, arg: &Expr, mutable: bool, ops: &mut Vec<Op>) -> Result<(Ty, usize)> {
+    fn call_borrow(
+        &mut self,
+        arg: &Expr,
+        mutable: bool,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, usize)> {
         let base = match &ungroup(arg).kind {
             Expression::Unary(op, base) if op == if mutable { "&mut" } else { "&" } => &**base,
             Expression::Name(name)
@@ -2623,13 +2632,18 @@ impl Lower<'_> {
             {
                 arg
             }
+            _ if !mutable => arg,
             _ => {
                 return Err(arg
                     .at
-                    .error("reference arguments require explicit & or &mut borrowing"))
+                    .error("mutable reference arguments require explicit &mut borrowing or an existing exclusive reference"))
             }
         };
-        self.borrow(base, mutable, ops)
+        if mutable {
+            self.borrow(base, true, ops)
+        } else {
+            self.shared_argument(base, expected, ops)
+        }
     }
     fn call_arguments(
         &mut self,
@@ -2639,8 +2653,8 @@ impl Lower<'_> {
     ) -> Result<Vec<usize>> {
         let mut argument_loans = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(inputs) {
-            if let Ty::Ref(_, mutable) = expected {
-                let (ty, loan) = self.call_borrow(arg, *mutable, ops)?;
+            if let Ty::Ref(inner, mutable) = expected {
+                let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
                 // A borrowed box also lends its content.
                 let ty = if ty == *expected {
                     ty
@@ -2914,6 +2928,7 @@ impl Lower<'_> {
                     ops.push(Op::StoreLocal(slot));
                     if reference {
                         let origin = self.reference_origin(value, ops)?;
+                        self.check_stored_reference(origin, &value.at)?;
                         self.reference_locals.insert(slot, origin);
                     }
                     None
