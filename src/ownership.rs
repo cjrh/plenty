@@ -37,6 +37,7 @@ pub enum Kind {
     MovedInLoop,
     Conflict {
         action: &'static str,
+        through: Option<String>,
         /// The borrowed place when it differs from the accessed one.
         borrowed: Option<String>,
         exclusive: bool,
@@ -91,11 +92,16 @@ impl fmt::Display for Error {
             )?,
             Kind::Conflict {
                 action,
+                through,
                 borrowed,
                 exclusive,
             } => write!(
                 f,
-                "conflicting borrow: cannot {action} {place} while {} is {}borrowed",
+                "conflicting borrow: cannot {action} {place}{} while {} is {}borrowed",
+                through
+                    .as_ref()
+                    .map(|name| format!(" (through `{name}`)"))
+                    .unwrap_or_default(),
                 match borrowed {
                     Some(borrowed) => format!("`{borrowed}`"),
                     None => "it".into(),
@@ -141,6 +147,10 @@ pub struct Loan {
     pub precise: bool,
     pub mutable: bool,
     pub parent: Option<usize>,
+    /// Diagnostic-only source reference used for this reborrow.
+    pub through: Option<u8>,
+    /// Diagnostic-only named reference holding this loan, if any.
+    pub binding: Option<u8>,
     /// Borrowing an environment keeps all references stored inside it live.
     pub dependencies: Vec<usize>,
 }
@@ -626,6 +636,16 @@ impl Checker<'_> {
                         let borrowed = self.place(loan.root, &loan.fields, loan.precise);
                         let kind = Kind::Conflict {
                             action,
+                            through: accessed
+                                .and_then(|l| {
+                                    if defining.is_some() {
+                                        l.through
+                                    } else {
+                                        l.binding.or(l.through)
+                                    }
+                                })
+                                .filter(|slot| *slot != root)
+                                .and_then(|slot| self.place(slot, &[], false)),
                             borrowed: borrowed.clone().filter(|b| Some(b) != place.as_ref()),
                             exclusive: loan.mutable,
                         };

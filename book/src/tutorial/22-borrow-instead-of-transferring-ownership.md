@@ -80,6 +80,22 @@ or exclusive access, but its conflicting access is suspended while that child
 borrow is live. Reference arguments automatically reborrow an existing reference;
 they do not transfer the referenced owner.
 
+When a conflict goes through a reference, the diagnostic names both the owner
+and the reference written at the failing use:
+
+```plenty-error
+def main() -> ():
+    mut numbers = [1, 2].unwrap()
+    reference = &mut numbers
+    view = &reference
+    reference.append(3).unwrap()
+    print(view).unwrap()
+```
+
+```error
+conflicting borrow: cannot modify or exclusively borrow `numbers` (through `reference`) while it is borrowed
+```
+
 This subset borrows named bindings and their class fields. Reference bindings must
 be initialized with `&name`, `&mut name` (including field paths), another
 reference, or a call returning a reference.
