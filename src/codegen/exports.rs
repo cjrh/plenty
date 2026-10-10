@@ -6,9 +6,10 @@ pub(super) fn emit(
     interface: Option<&crate::exports::Interface>,
     functions: &HashMap<String, UserFn>,
     runtime: &Runtime,
-    module: &mut ObjectModule,
+    out: &mut Output,
 ) -> Result<()> {
     for export in exports {
+        let module = &mut out.module;
         let result = export
             .signature
             .outputs
@@ -34,10 +35,8 @@ pub(super) fn emit(
                 .extend(export.signature.outputs.iter().map(foreign::parameter));
         }
         let id = module.declare_function(&export.symbol, Linkage::Export, &signature)?;
-        let mut ctx = Context::new();
-        ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
-        let mut fc = FunctionBuilderContext::new();
-        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fc);
+        let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+        let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
         let block = b.create_block();
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
@@ -260,14 +259,14 @@ pub(super) fn emit(
             b.ins().return_(&results);
         }
         b.finalize();
-        module.define_function(id, &mut ctx)?;
+        out.define(id, func)?;
     }
     if let Some(interface) = interface {
-        emit_guard(&interface.contract_guard, module)?;
+        emit_guard(&interface.contract_guard, out)?;
         for handle in &interface.handles {
-            emit_destroy(handle, runtime, module)?;
+            emit_destroy(handle, runtime, out)?;
         }
-        emit_interface(interface, module)?;
+        emit_interface(interface, out)?;
     }
     Ok(())
 }
@@ -327,34 +326,32 @@ fn collection(
     ))
 }
 
-fn emit_guard(symbol: &str, module: &mut ObjectModule) -> Result<()> {
+fn emit_guard(symbol: &str, out: &mut Output) -> Result<()> {
+    let module = &mut out.module;
     let signature = module.make_signature();
     let id = module.declare_function(symbol, Linkage::Export, &signature)?;
-    let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
-    let mut fc = FunctionBuilderContext::new();
-    let mut b = FunctionBuilder::new(&mut ctx.func, &mut fc);
+    let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+    let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
     let block = b.create_block();
     b.switch_to_block(block);
     b.seal_block(block);
     b.ins().return_(&[]);
     b.finalize();
-    module.define_function(id, &mut ctx)?;
+    out.define(id, func)?;
     Ok(())
 }
 
 fn emit_destroy(
     handle: &crate::exports::Handle,
     runtime: &Runtime,
-    module: &mut ObjectModule,
+    out: &mut Output,
 ) -> Result<()> {
+    let module = &mut out.module;
     let mut signature = module.make_signature();
     signature.params.push(AbiParam::new(PTR_TY));
     let id = module.declare_function(&handle.destroy, Linkage::Export, &signature)?;
-    let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
-    let mut fc = FunctionBuilderContext::new();
-    let mut b = FunctionBuilder::new(&mut ctx.func, &mut fc);
+    let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+    let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
     let block = b.create_block();
     b.append_block_params_for_function_params(block);
     b.switch_to_block(block);
@@ -364,11 +361,12 @@ fn emit_destroy(
     b.ins().call(release, &[owner]);
     b.ins().return_(&[]);
     b.finalize();
-    module.define_function(id, &mut ctx)?;
+    out.define(id, func)?;
     Ok(())
 }
 
-fn emit_interface(interface: &crate::exports::Interface, module: &mut ObjectModule) -> Result<()> {
+fn emit_interface(interface: &crate::exports::Interface, out: &mut Output) -> Result<()> {
+    let module = &mut out.module;
     let data = module.declare_data(
         &format!("{}_plenty_contract", interface.name),
         Linkage::Local,
@@ -384,10 +382,8 @@ fn emit_interface(interface: &crate::exports::Interface, module: &mut ObjectModu
     signature.params.push(AbiParam::new(PTR_TY));
     signature.returns.push(AbiParam::new(PTR_TY));
     let id = module.declare_function(&interface.discovery, Linkage::Export, &signature)?;
-    let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
-    let mut fc = FunctionBuilderContext::new();
-    let mut b = FunctionBuilder::new(&mut ctx.func, &mut fc);
+    let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+    let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
     let block = b.create_block();
     b.append_block_params_for_function_params(block);
     b.switch_to_block(block);
@@ -400,6 +396,6 @@ fn emit_interface(interface: &crate::exports::Interface, module: &mut ObjectModu
     let pointer = b.ins().global_value(PTR_TY, global);
     b.ins().return_(&[pointer]);
     b.finalize();
-    module.define_function(id, &mut ctx)?;
+    out.define(id, func)?;
     Ok(())
 }

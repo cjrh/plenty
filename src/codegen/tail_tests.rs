@@ -8,7 +8,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         inputs: vec![("external".into(), Ty::Ref(Rc::new(range.clone()), false))],
         outputs: vec![range],
     });
-    let builder = ObjectBuilder::new(
+    let builder = cranelift_object::ObjectBuilder::new(
         host_isa().unwrap(),
         "tail-test",
         cranelift_module::default_libcall_names(),
@@ -37,7 +37,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         .unwrap();
     let mut function =
         Function::with_name_signature(UserFuncName::user(0, 0), user_fn_signature(&module, &sig));
-    let mut context = FunctionBuilderContext::new();
+    let mut context = cranelift_frontend::FunctionBuilderContext::new();
     let mut bcx = FunctionBuilder::new(&mut function, &mut context);
     let entry = bcx.create_block();
     bcx.append_block_params_for_function_params(entry);

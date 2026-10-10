@@ -9,7 +9,7 @@ pub(super) fn emit_adapters(
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
     runtime: &Runtime,
-    module: &mut ObjectModule,
+    out: &mut Output,
 ) -> Result<()> {
     let mut tasks = std::collections::BTreeMap::new();
     crate::threading::walk(ops, &mut |op| {
@@ -18,15 +18,14 @@ pub(super) fn emit_adapters(
         }
     });
     for (name, task) in tasks {
+        let module = &mut out.module;
         let mut signature = module.make_signature();
         signature.params.push(AbiParam::new(PTR_TY));
         signature.returns.push(AbiParam::new(PTR_TY));
         let id = module.declare_function(&name, Linkage::Local, &signature)?;
         runtime.thread_adapters.borrow_mut().insert(name, id);
-        let mut ctx = Context::new();
-        ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
-        let mut fc = FunctionBuilderContext::new();
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut fc);
+        let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+        let mut bcx = FunctionBuilder::new(&mut func, &mut out.builder);
         let entry = bcx.create_block();
         bcx.append_block_params_for_function_params(entry);
         bcx.switch_to_block(entry);
@@ -95,9 +94,7 @@ pub(super) fn emit_adapters(
         let zero = lower.bcx.ins().iconst(PTR_TY, 0);
         lower.bcx.ins().return_(&[zero]);
         bcx.finalize();
-        module
-            .define_function(id, &mut ctx)
-            .map_err(|e| format!("thread adapter: {e:?}"))?;
+        out.define(id, func)?;
     }
     Ok(())
 }
