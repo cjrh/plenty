@@ -591,6 +591,18 @@ impl Lower<'_> {
             ops.push(Op::DropLocal(slot));
         }
     }
+    /// Ends a statement in tail position. A tail call releases what its caller
+    /// still owns before transferring, so the temporaries of a statement ending
+    /// in a call are dropped ahead of it. A call lending caller storage is
+    /// followed by its loan uses instead, and keeps its temporaries until it
+    /// returns.
+    pub(super) fn finish_tail_temporaries(&mut self, start: usize, ops: &mut Vec<Op>) {
+        let call = ops.len();
+        self.finish_temporaries(start, ops);
+        if matches!(ops[..call].last(), Some(Op::Call(_) | Op::CallIndirect(_))) {
+            ops[call - 1..].rotate_left(1);
+        }
+    }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
         if let Expression::Member(base, name) = &e.kind {
             if self.place_type(base) == Some(Ty::File) {
@@ -829,46 +841,4 @@ pub(super) fn field_index(
         .iter()
         .position(|(n, _)| n == name)
         .ok_or_else(|| at.error(format!("unknown field `{name}` on {}", class.name)))
-}
-
-/// Observable cleanup belongs after the callee returns. A normal call preserves
-/// that order; numeric functions without resource locals retain tail calls.
-pub(super) fn preserve_drop_order(body: &mut Vec<Op>) {
-    let mut out = Vec::with_capacity(body.len());
-    for op in body.drain(..) {
-        match op {
-            Op::TailCall(name) => {
-                out.push(Op::Call(name));
-                out.push(Op::Return);
-            }
-            Op::TailCallIndirect(signature) => {
-                out.push(Op::CallIndirect(signature));
-                out.push(Op::Return);
-            }
-            Op::Match(arms) => {
-                let arms = arms
-                    .iter()
-                    .map(|arm| {
-                        let mut body = arm.body.to_vec();
-                        preserve_drop_order(&mut body);
-                        MatchArm {
-                            pattern: arm.pattern,
-                            body: body.into(),
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                out.push(Op::Match(arms.into()));
-            }
-            Op::Loop { condition, body } => {
-                let mut body = body.to_vec();
-                preserve_drop_order(&mut body);
-                out.push(Op::Loop {
-                    condition,
-                    body: body.into(),
-                });
-            }
-            op => out.push(op),
-        }
-    }
-    *body = out;
 }

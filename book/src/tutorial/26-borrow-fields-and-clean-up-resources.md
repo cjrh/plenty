@@ -98,6 +98,38 @@ duplicating ownership of a resource accidentally. A destructor cannot yield or
 return a recoverable error; an explicit closing method could return `Result`
 when reporting failure matters. Fatal traps do not run cleanup.
 
-Functions holding values with observable cleanup currently use ordinary calls
-in return position so that cleanup still happens after the called function.
-Numeric tail-recursive functions from the earlier lesson keep their tail calls.
+A function that ends with a call makes a tail call, as in lesson 11. Plenty
+evaluates the arguments, cleans up the function's remaining values, and only then
+enters the called function:
+
+```plenty
+class Resource:
+    name: str
+
+    def __del__(self) -> ():
+        print(("release " + self.name).unwrap()).unwrap()
+
+def finish(total: i64) -> i64:
+    print("finish").unwrap()
+    total
+
+def step(total: i64) -> i64:
+    scratch = Resource("scratch")
+    finish(total + 1)
+
+def main() -> Result[(), Failure]:
+    print(step(41))?
+    Ok(())
+```
+
+```output
+release scratch
+finish
+42
+```
+
+`scratch` is released before `finish` runs. A value passed as an argument moves
+to the called function, which cleans it up instead. Tail recursion therefore
+keeps its constant stack use when each step owns a resource. A call that borrows
+one of the function's values, such as `inspect(&scratch)` or a method call on it,
+cannot release that value first: it runs as an ordinary call and cleanup follows.

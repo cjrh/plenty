@@ -57,6 +57,6 @@ def main() -> Result[(), Failure]:
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "call\ndrop\n42\n0\n1\n2\n"
+        "drop\ncall\n42\n0\n1\n2\n"
     );
 }

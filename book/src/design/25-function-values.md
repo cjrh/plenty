@@ -70,6 +70,7 @@ functions with explicit captures, see [closure environments](26-closures.md).
 For one generic API that accepts both representations, use a `Callable` constraint
 as described in [generic functions](02-generic-functions-and-argument-inference.md).
 
-Indirect calls in tail position use native tail calls under the same cleanup and
-borrowing restrictions as direct calls. Calls involving inline argument/result
-storage retain their frame; observable destructors run after the callee returns.
+Indirect calls in tail position use native tail calls with the same cleanup order
+and borrowing restrictions as direct calls: the caller's locals are dropped
+before the transfer. Calls involving inline argument/result storage retain their
+frame but drop its locals first.
