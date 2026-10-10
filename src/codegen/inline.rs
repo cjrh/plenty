@@ -104,12 +104,6 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().return_(&returned);
     }
 
-    /// Return from a frame whose locals were released before its final call.
-    pub(super) fn return_released(&mut self, values: Vec<StackEntry>) {
-        let returned = self.stage_results(values);
-        self.bcx.ins().return_(&returned);
-    }
-
     fn stage_results(&mut self, values: Vec<StackEntry>) -> Vec<NativeValue> {
         let mut offset = 0;
         let mut returned = Vec::new();

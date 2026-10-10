@@ -60,6 +60,23 @@ equality compares the nominal type and field values; printing produces
 `Point(x=3, y=4)`. Automatic equality and formatting reject recursive data.
 These operations do not invoke user-defined magic methods.
 
+`replace(owner.field, replacement)` transfers the field's previous value to the
+caller and installs a value of the same type. It needs a mutable named owner or
+an exclusive reference, and obeys the same field visibility and overlapping-loan
+rules as assignment. Nested fields, boxed owners, and fields reached through
+list/dictionary elements are supported. The operation neither copies nor drops
+the old value and allocates nothing; the caller owns its eventual cleanup. The
+field remains initialized, including when its class has `__del__`.
+
+Unlike an ordinary call, `replace` follows assignment evaluation order: evaluate
+the replacement first, then destination indices once from outermost to innermost,
+then resolve the address and exchange the values. User code can resize collections
+during those evaluations without invalidating a saved address. If evaluation
+propagates an error, pending values are dropped and no exchange occurs. Replacement
+expressions keep their own allocation/error behavior. `replace` accepts a field,
+not a whole binding, element, or temporary receiver; ordinary user declarations
+named `replace` continue to resolve to those declarations.
+
 `&point.x` and `&mut point.x` borrow stable field slots, including nested
 class fields. Loans record field-index paths from the root: different sibling
 fields can be borrowed or mutated independently. Whole-root and ancestor-path

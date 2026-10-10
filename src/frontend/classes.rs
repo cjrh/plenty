@@ -662,6 +662,38 @@ impl Lower<'_> {
         ops.push(Op::UseLoan(loan));
         Ok(())
     }
+    pub(super) fn replace_field(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let [target, value] = args else {
+            return Err(at.error("replace takes a mutable class field and its replacement"));
+        };
+        if !matches!(ungroup(target).kind, Expression::Member(..)) {
+            return Err(target.at.error("replace requires a mutable class field"));
+        }
+        let ty = self.place_type(target).ok_or_else(|| {
+            target
+                .at
+                .error("replace requires a mutable class field of a named owner")
+        })?;
+        // As for assignment, finish user code before resolving an address.
+        // The replacement remains owned locally if an index propagates failure.
+        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
+        self.same(actual, Some(ty.clone()), &value.at)?;
+        let temp = self.slot(ty.clone(), &value.at)?;
+        ops.push(Op::StoreLocal(temp));
+        let mut indices = Vec::new();
+        self.assignment_indices(target, &mut indices, ops)?;
+        let (_, loan) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
+        ops.push(Op::MoveLocal(temp));
+        ops.push(Op::Swap);
+        ops.push(Op::ReplaceRef(ty.clone()));
+        ops.push(Op::UseLoan(loan));
+        Ok(ty)
+    }
     pub(super) fn place_type(&self, e: &Expr) -> Option<Ty> {
         match &ungroup(e).kind {
             Expression::Index(base, index) => match self.place_type(base)? {
