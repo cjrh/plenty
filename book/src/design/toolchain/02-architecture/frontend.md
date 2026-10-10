@@ -1,7 +1,7 @@
 # Frontend and checking
 
 `frontend.rs` handles syntax, name resolution, local inference, mutability, and
-lowering to typed operations. Modern source is never translated into legacy syntax.
+lowering to typed operations.
 Type references retain source positions. Aliases resolve through an iterative,
 cached dependency walk before signatures are collected; alias-only cycles are
 rejected without recursive traversal of long chains.
@@ -41,8 +41,6 @@ move or loan rules.
 
 ## Embedding APIs
 
-Source-string checking and compilation use modern syntax and reject imports.
+Source-string checking and compilation accept Plenty source and reject imports.
 File APIs (`check_file`, `check_module_file`, and file compilation) resolve imports
 from an explicit optional root. Checking performs no execution or native emission.
-Explicit legacy APIs and `--legacy` retain backend regression coverage; there is
-no automatic syntax detection.

@@ -90,5 +90,4 @@ for keeping implementation, reference, and lessons aligned, and
 for performance evidence. `AGENTS.md` and `CLAUDE.md` describe local issue claims,
 worktrees, and review records.
 
-Plenty has no interpreter, REPL, or JIT. Historical stack syntax remains behind
-`--legacy` for backend regression coverage; it does not define the current language.
+Plenty has no interpreter, REPL, or JIT.

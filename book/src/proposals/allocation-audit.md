@@ -56,7 +56,6 @@ access. Destructors used in allocation-failure tests either avoid allocation or
 restore the test budget before explicitly allocating output.
 
 Explicit unwrapping, invalid operations such as out-of-bounds indexing, and fatal
-runtime invariants can still terminate without unwinding. Legacy backend test
-entrypoints retain their historical contracts and are not modern language APIs.
+runtime invariants can still terminate without unwinding.
 Public allocator selection, lifetimes, and routing of container buffers remain
 future work.

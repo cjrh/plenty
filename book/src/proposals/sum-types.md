@@ -168,9 +168,9 @@ tail-call marking for calls that are final expressions or explicit returns insid
 case arms.
 
 The backend already has `Op::Match`, scalar patterns, an independent match
-checker, and Cranelift dispatch/join lowering used by the legacy syntax. Reuse
+checker, and Cranelift dispatch/join lowering. Reuse
 them rather than synthesizing nested source `if`s. Scalar patterns may be exposed
-in the new frontend at the same time: booleans require both values or `_`, whereas
+in the frontend at the same time: booleans require both values or `_`, whereas
 integers and strings require `_`, matching the existing checker. Do not expand
 scalar coverage algorithms as part of enum support.
 

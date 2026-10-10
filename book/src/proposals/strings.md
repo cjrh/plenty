@@ -96,7 +96,6 @@ helpers do not unexpectedly consume their inputs.
 | `plenty_str_eq(a, b) -> i8` | Compare byte lengths, then `memcmp`; pointer equality is a fast path |
 | `plenty_contains(haystack, needle) -> i8` | Bounded byte-substring search; empty needle is always present |
 | `plenty_println(s)` | `fwrite(data, 1, byte_len, stdout)` then newline |
-| `plenty_print_str(s)` | Existing quoted legacy representation, bounded by length; escape NUL rather than dropping it |
 | internal string length helper | Return cached scalar count |
 | internal scalar index helper | Normalize signed index without overflowing; scan UTF-8 boundaries; return a fresh one-scalar string |
 | internal string hash helper | Hash exactly `byte_len` bytes, including NUL, using existing hash algorithm |
@@ -113,16 +112,6 @@ owned frame field, and yielded strings obtain an independent owned reference.
 String equality and hashing must be changed together. Otherwise embedded NUL
 would corrupt dictionary/set key equivalence. Keep descriptor C strings as
 compiler-internal NUL-terminated metadata: those are not Plenty string values.
-
-`plenty_readline` is currently a legacy ABI returning a nullable pointer which
-the compiler converts to `(str, bool)`. Keep that internal convention during
-this migration: EOF may return null to the helper caller, but never creates a
-null language string. Use `getline`'s explicit byte count, remove the optional
-LF and preceding CR by adjusting that count, validate UTF-8, then construct the
-length-bearing string and free the temporary C buffer. Preserve embedded NUL.
-Invalid UTF-8 produces an explicit input diagnostic, rather than constructing
-an invalid string or silently replacing bytes. Later modern input APIs should
-use `Option`/`Result`; that API change is separate from storage migration.
 
 Strict validation rejects overlong encodings, truncated sequences, stray
 continuations, UTF-16 surrogates, and values above U+10FFFF. Compiler literals
@@ -184,15 +173,15 @@ staging choice, never a reason to retain NUL-terminated storage.
    inserts retain/drop at local loads, overwrites, temporaries, calls, returns,
    and control-flow exits.
    Do not ship partial retain/drop insertion that can prematurely free strings
-   still reachable through a collection, enum, frame, or legacy operand stack.
-7. Update `DESIGN.md` to remove owning/view-type and C-string statements; teach
-   one immutable `str`, scalar indexing, and embedded NUL in `TUTORIAL.md` with
+   still reachable through a collection, enum, frame, or local binding.
+7. Update the language reference to describe the string representation; teach
+   one immutable `str`, scalar indexing, and embedded NUL in the tutorial with
    runnable examples. Update existing NUL-rejection diagnostic tests.
 
 ## Validation gates
 
 - Static, empty, concatenated, returned, mutually tail-called, and nested
-  collection strings behave identically across normal and legacy AOT paths.
+  collection strings preserve their contents through native compilation.
 - `len("a\0b") == 3`; indexing `1` returns `"\0"`; raw printing preserves
   the NUL byte; substring search can find text after or spanning it.
 - `"a\0b" != "a\0c"`; dictionary/set keys distinguish those values and
