@@ -125,10 +125,10 @@ pub(super) fn emit_generator(
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
-            forwards_references: false,
             loop_targets: Vec::new(),
             local_frame: None,
             return_storage: None,
+            return_types: &[],
             collection_scratch: None,
             generator: Some(GeneratorContext {
                 frame,

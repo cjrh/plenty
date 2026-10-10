@@ -187,7 +187,7 @@ match caller({stop}):
 }
 
 #[test]
-fn inline_results_keep_the_frame_but_not_its_locals() {
+fn inline_results_forward_storage_after_dropping_locals() {
     trace(
         r#"
 def span(n: u8) -> range[u8]:

@@ -32,6 +32,9 @@ def read(g: &Guard, n: i64) -> i64:
 def both(a: &Guard, b: &Guard) -> i64:
     print("both").unwrap()
     0
+def keep(g: &Guard, item: Guard) -> i64:
+    print("keep").unwrap()
+    0
 "#;
 
 fn trace(source: &str, expected: &str) {
@@ -57,6 +60,9 @@ fn trace(source: &str, expected: &str) {
 #[case("operation = read\n    operation(g, 1)", "local\nowned\nread\n1\n")]
 #[case("g.length()", "local\nowned\nlength\n5\n")]
 #[case("both(g, g)", "local\nowned\nboth\n0\n")]
+#[case("mut cursor = g\n    read(cursor, 1)", "local\nowned\nread\n1\n")]
+// The owned inline argument keeps the frame, but not its locals.
+#[case("keep(g, owned)", "local\nkeep\nowned\n0\n")]
 #[case(
     "read(g, make('temp').length())",
     "length\ntemp\nlocal\nowned\nread\n4\n"
@@ -163,6 +169,8 @@ print(caller()).unwrap()
     "both\nlocal\nowned\n0\n"
 )]
 #[case("local.length()", "length\nlocal\nowned\n5\n")]
+#[case("mut cursor = &local\n    read(cursor, 1)", "read\nlocal\nowned\n1\n")]
+#[case("keep(&local, owned)", "keep\nowned\nlocal\n0\n")]
 fn references_into_the_caller_keep_its_frame_until_the_callee_returns(
     #[case] tail: &str,
     #[case] expected: &str,
@@ -501,5 +509,97 @@ def main() -> Result[(), Failure]:
     Ok(())
 "#,
         "100001\n1\n",
+    );
+}
+
+/// A `mut` reference binding keeps the loan it was declared with and is only
+/// reassigned to references borrowed through it, so its origin never changes.
+#[test]
+fn a_reassigned_reference_cursor_keeps_its_origin() {
+    trace(
+        r#"
+class Link:
+    name: str
+    next: Option[Box[Link]]
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+def show(link: &Link) -> i64:
+    print("show").unwrap()
+    len(link.name)
+def through_parameter(head: &Link) -> i64:
+    local = Guard("local")
+    mut cursor = head
+    match &cursor.next:
+        case Some(next):
+            cursor = next
+        case Nothing:
+            pass
+    show(cursor)
+def through_local() -> i64:
+    local = Link("first", Some(Box(Link("second", Nothing)).unwrap()))
+    mut cursor = &local
+    match &cursor.next:
+        case Some(next):
+            cursor = next
+        case Nothing:
+            pass
+    show(cursor)
+chain = Link("a", Some(Box(Link("bb", Nothing)).unwrap()))
+print(through_parameter(&chain)).unwrap()
+print(through_local()).unwrap()
+drop(chain)
+"#,
+        "local\nshow\n2\nshow\nfirst\nsecond\n6\na\nbb\n",
+    );
+}
+
+/// The cursor advances along the chain before each call. `build` returns
+/// inline storage through the result area its own caller supplied.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_reference_cursor_and_an_inline_result_recurse_on_a_small_stack() {
+    deep(
+        r#"
+class Node:
+    value: i64
+    next: Option[Box[Node]]
+class Sum:
+    total: i64
+    last: i64
+def walk(node: &Node, n: i64) -> i64:
+    mut cursor = node
+    match &cursor.next:
+        case Some(next):
+            cursor = next
+        case Nothing:
+            pass
+    if n == 0:
+        return cursor.value
+    walk(cursor, n - 1)
+def scan(node: &Node, n: i64) -> i64:
+    mut cursor = node
+    while True:
+        match &cursor.next:
+            case Some(next):
+                cursor = next
+            case Nothing:
+                break
+    if n == 0:
+        return cursor.value
+    scan(node, n - 1)
+def build(node: &Node, n: i64, total: i64) -> Sum:
+    if n == 0:
+        return Sum(total, node.value)
+    build(node, n - 1, total + node.value)
+def main() -> Result[(), Failure]:
+    head = Node(3, Some(Box(Node(2, Some(Box(Node(1, Nothing)).unwrap()))).unwrap()))
+    print(walk(&head, 1000000))?
+    print(scan(&head, 1000000))?
+    sum = build(&head, 1000000, 0)
+    print(sum.total)?
+    print(sum.last)?
+    Ok(())
+"#,
+        "1\n1\n3000000\n3\n",
     );
 }

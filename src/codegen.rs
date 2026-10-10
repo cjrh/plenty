@@ -73,6 +73,8 @@ mod generators;
 mod inline;
 mod metadata;
 mod references;
+#[cfg(test)]
+mod tail_tests;
 mod threads;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
@@ -276,6 +278,8 @@ fn emit_object(
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
 ) -> Result<()> {
+    let prepared = crate::tail_abi::prepare(ops);
+    let ops = prepared.as_slice();
     let isa = host_isa()?;
     let builder = ObjectBuilder::new(isa, "plenty", cranelift_module::default_libcall_names())?;
     let mut module = ObjectModule::new(builder);
@@ -374,6 +378,11 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     // Plenty TailCall panics inside Cranelift with "the current
     // implementation relies on [frame pointers] being present".
     flags.set("preserve_frame_pointers", "true")?;
+    // A frame larger than a page touches each page it spans, so it cannot
+    // step over a thread's one-page guard into the mapping below. The runtime
+    // reports the resulting fault as a stack overflow.
+    flags.set("enable_probestack", "true")?;
+    flags.set("probestack_strategy", "inline")?;
     let isa_builder = cranelift_native::builder().map_err(|e| -> Box<dyn Error> { e.into() })?;
     let isa = isa_builder.finish(settings::Flags::new(flags))?;
     if isa.triple().to_string() != crate::native_target() || isa.pointer_type() != PTR_TY {
@@ -675,15 +684,11 @@ struct UserFn {
 fn user_fn_signature(module: &ObjectModule, sig: &FnSig) -> Signature {
     let mut cl = module.make_signature();
     cl.call_conv = CallConv::Tail;
-    for (_, ty) in &sig.inputs {
-        cl.params.push(AbiParam::new(clif_type(ty.clone())));
-    }
-    for ty in &sig.outputs {
-        cl.returns.push(AbiParam::new(clif_type(ty.clone())));
-    }
-    if sig.outputs.iter().any(Ty::has_inline_storage) {
-        cl.params.push(AbiParam::new(PTR_TY));
-    }
+    let layout = crate::tail_abi::layout(sig);
+    cl.params
+        .extend(layout.inputs.into_iter().map(AbiParam::new));
+    cl.returns
+        .extend(layout.outputs.into_iter().map(AbiParam::new));
     cl
 }
 
@@ -870,11 +875,11 @@ fn emit_user_function(
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
-            forwards_references: false,
             loop_targets: Vec::new(),
             generator: None,
             local_frame,
             return_storage,
+            return_types: &decl.sig.outputs,
             collection_scratch: None,
         };
         // Argument addresses belong to the caller. Snapshot inline values into
@@ -971,11 +976,11 @@ fn emit_main(
             locals: &[],
             stack: Vec::new(),
             terminated: false,
-            forwards_references: false,
             loop_targets: Vec::new(),
             generator: None,
             local_frame: None,
             return_storage: None,
+            return_types: &[],
             collection_scratch: None,
         };
         for op in ops {
@@ -1003,36 +1008,7 @@ fn emit_main(
 /// interpretation. `Str` is a host pointer (`PTR_TY`), the address of
 /// a counted immutable object in read-only data or the managed runtime heap.
 fn clif_type(ty: Ty) -> types::Type {
-    if ty.wide() {
-        return types::I128;
-    }
-    match ty {
-        Ty::I8 | Ty::U8 | Ty::Bool => types::I8,
-        Ty::I16 | Ty::U16 => types::I16,
-        Ty::I32 | Ty::U32 => types::I32,
-        Ty::I64 | Ty::U64 | Ty::Unit => types::I64,
-        Ty::F32 => types::F32,
-        Ty::F64 => types::F64,
-        Ty::Str
-        | Ty::Task(_)
-        | Ty::Channel(..)
-        | Ty::CancellationToken
-        | Ty::Executor
-        | Ty::Future(_)
-        | Ty::Callable(_)
-        | Ty::Closure(_)
-        | Ty::File
-        | Ty::ForeignPtr(_)
-        | Ty::List(_)
-        | Ty::Set(_)
-        | Ty::Dict(_, _)
-        | Ty::Box(_)
-        | Ty::Range(_)
-        | Ty::Class(_)
-        | Ty::Enum(_)
-        | Ty::Generator(_) => PTR_TY,
-        Ty::Ref(..) => types::I128,
-    }
+    crate::tail_abi::native_type(&ty)
 }
 
 /// Reinterpret an integer `Value` as the signed host integer Cranelift's
@@ -1112,14 +1088,12 @@ struct Lowerer<'a, 'b> {
     /// Once set, the outer loop in
     /// [`emit_user_function`] stops feeding ops to this lowerer.
     terminated: bool,
-    /// The frontend's lifetime fact for the op being lowered: set by
-    /// `Op::ForwardsReferences` and consumed by the next op.
-    forwards_references: bool,
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
     generator: Option<GeneratorContext>,
     local_frame: Option<cranelift_codegen::ir::Value>,
     return_storage: Option<cranelift_codegen::ir::Value>,
+    return_types: &'a [Ty],
     /// Reused across non-overlapping runtime calls; callbacks have their own frame.
     collection_scratch: Option<cranelift_codegen::ir::StackSlot>,
 }
@@ -1214,8 +1188,6 @@ impl Lowerer<'_, '_> {
         }
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
-        // The fact describes only the op after its marker.
-        let forwards_references = std::mem::take(&mut self.forwards_references);
         match op {
             Op::Thread(operation) => self.lower_thread(operation)?,
             Op::Channel(operation) => self.lower_channel(operation)?,
@@ -1227,7 +1199,9 @@ impl Lowerer<'_, '_> {
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) => {}
-            Op::ForwardsReferences => self.forwards_references = true,
+            // Consumed by `tail_abi::prepare`, which decides whether the call
+            // after it keeps this frame.
+            Op::ForwardsReferences => {}
             Op::BorrowLocal(i, mutable) => {
                 let (frame, offset) = if let Some(g) = &self.generator {
                     (g.frame, 64)
@@ -1266,6 +1240,17 @@ impl Lowerer<'_, '_> {
                 let old = self.read_reference(reference);
                 self.release(old, ty);
                 self.write_reference(reference, value, ty);
+            }
+            Op::ReplaceRef(ty) => {
+                let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
+                let (value, _) = self.pop_typed(ty.clone())?;
+                let old = self.read_reference(reference);
+                let old = self.unpack(old, ty);
+                // Inline field storage is overwritten below; relocate the old
+                // owner without retaining it or running its destructor.
+                let old = self.snapshot_inline(old, ty);
+                self.write_reference(reference, value, ty);
+                self.stack.push((old, ty.clone()));
             }
             Op::Collection(operation) => self.lower_collection(operation)?,
             Op::ClosureNew(t) => self.lower_closure_new(t)?,
@@ -1401,16 +1386,14 @@ impl Lowerer<'_, '_> {
                 let value = self.bcx.ins().func_addr(PTR_TY, reference);
                 self.stack.push((value, Ty::Callable(signature.clone())));
             }
-            Op::CallIndirect(signature) => self.lower_indirect_call(signature, None)?,
-            Op::TailCallIndirect(signature) => {
-                self.lower_indirect_call(signature, Some(forwards_references))?
-            }
+            Op::CallIndirect(signature) => self.lower_indirect_call(signature, false)?,
+            Op::TailCallIndirect(signature) => self.lower_indirect_call(signature, true)?,
             Op::ForeignCall { declaration, sig } => self.lower_foreign_call(declaration, sig)?,
             Op::ForeignNull(ty) => {
                 let value = self.bcx.ins().iconst(PTR_TY, 0);
                 self.stack.push((value, ty.clone()));
             }
-            Op::TailCall(name) => self.lower_tail_call(name, forwards_references)?,
+            Op::TailCall(name) => self.lower_tail_call(name)?,
             Op::Break | Op::Continue => {
                 let &(header, exit) = self
                     .loop_targets
@@ -2013,13 +1996,6 @@ impl Lowerer<'_, '_> {
     /// Lower `Op::Call`: emit a regular call and push each return value
     /// onto the compile-time stack with its declared `Ty`.
     fn lower_call(&mut self, name: &str) -> Result<()> {
-        self.call(name, false)
-    }
-
-    /// `transfer` marks a tail call that keeps its frame for inline storage.
-    /// Its arguments are staged in storage of their own, so the caller's locals
-    /// are released first, in the order of a native tail call.
-    fn call(&mut self, name: &str, transfer: bool) -> Result<()> {
         let (decl, mut args) = self.pop_call_args(name)?;
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
@@ -2028,9 +2004,6 @@ impl Lowerer<'_, '_> {
             args.push(self.inline_storage(bytes));
         }
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
-        if transfer {
-            self.release_locals();
-        }
         let inst = self.bcx.ins().call(funcref, &args);
         let results: Vec<cranelift_codegen::ir::Value> = self.bcx.inst_results(inst).to_vec();
         debug_assert_eq!(results.len(), outputs.len());
@@ -2040,12 +2013,10 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// `tail` is `None` for an ordinary call. In tail position it holds the
-    /// frontend's fact that every reference argument outlives this frame.
     fn lower_indirect_call(
         &mut self,
         signature: &crate::op::CallableSig,
-        tail: Option<bool>,
+        tail: bool,
     ) -> Result<()> {
         let split = self
             .stack
@@ -2055,43 +2026,27 @@ impl Lowerer<'_, '_> {
         let mut args: Vec<_> = self.stack.drain(split..).map(|(v, _)| v).collect();
         let (callee, _) = self.stack.pop().ok_or("missing indirect callee")?;
         let sig = signature.function();
+        if tail {
+            self.tail_arguments(&sig, &mut args)?;
+            let native = user_fn_signature(self.module, &sig);
+            let reference = self.bcx.import_signature(native);
+            self.release_locals();
+            self.bcx
+                .ins()
+                .return_call_indirect(reference, callee, &args);
+            self.terminated = true;
+            return Ok(());
+        }
         let bytes = sig.outputs.iter().map(Ty::inline_bytes).sum();
         if bytes != 0 {
             args.push(self.inline_storage(bytes));
         }
         let native = user_fn_signature(self.module, &sig);
         let reference = self.bcx.import_signature(native);
-        // A reference argument may point into this frame, whose locals then
-        // outlive the call, unless the frontend proved otherwise.
-        let transfer = tail.is_some_and(|forwards_references| {
-            forwards_references || !signature.inputs.iter().any(Ty::contains_reference)
-        });
-        let tail = tail.is_some();
-        if transfer {
-            self.release_locals();
-            if !signature
-                .inputs
-                .iter()
-                .chain(signature.output.iter())
-                .any(Ty::has_inline_storage)
-            {
-                self.bcx
-                    .ins()
-                    .return_call_indirect(reference, callee, &args);
-                self.terminated = true;
-                return Ok(());
-            }
-        }
         let call = self.bcx.ins().call_indirect(reference, callee, &args);
         for (value, ty) in self.bcx.inst_results(call).iter().copied().zip(sig.outputs) {
             self.stack.push((value, ty));
         }
-        if transfer {
-            self.return_released(self.stack.clone());
-        } else if tail {
-            self.return_values(self.stack.clone());
-        }
-        self.terminated |= tail;
         Ok(())
     }
 
@@ -2101,37 +2056,63 @@ impl Lowerer<'_, '_> {
     /// instruction is a block terminator, so we set `self.terminated`
     /// and the outer loop stops feeding ops to this lowerer.
     ///
-    /// The caller's locals are released before control leaves, as at any
-    /// other exit; the arguments are already owned by the call. Two cases
-    /// keep the frame and use an ordinary call. Inline arguments and results
-    /// live in this frame, but its locals are still released first. A
-    /// reference argument may point at one of those locals, so they are
-    /// released only after the callee returns, unless `forwards_references`
-    /// carries the frontend's proof that every reference argument refers to
-    /// storage borrowed through a reference parameter. Such a reference holds
-    /// an address outside this frame.
-    fn lower_tail_call(&mut self, name: &str, forwards_references: bool) -> Result<()> {
-        let signature = &self.user_fns[name].sig;
-        if !forwards_references && signature.inputs.iter().any(|(_, t)| t.contains_reference()) {
-            self.lower_call(name)?;
-            self.return_values(self.stack.clone());
-            self.terminated = true;
-            return Ok(());
-        }
-        if signature.inputs.iter().any(|(_, t)| t.has_inline_storage())
-            || signature.outputs.iter().any(Ty::has_inline_storage)
-        {
-            self.call(name, true)?;
-            self.return_released(self.stack.clone());
-            self.terminated = true;
-            return Ok(());
-        }
-        let (decl, args) = self.pop_call_args(name)?;
+    /// Eligibility was checked before lowering. A rejected plan here is an
+    /// internal invariant violation, never an ordinary-call substitution.
+    fn lower_tail_call(&mut self, name: &str) -> Result<()> {
+        let (decl, mut args) = self.pop_call_args(name)?;
         let func_id = decl.id;
+        let sig = decl.sig.clone();
+        self.tail_arguments(&sig, &mut args)?;
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
         self.release_locals();
         self.bcx.ins().return_call(funcref, &args);
         self.terminated = true;
+        Ok(())
+    }
+
+    fn tail_arguments(
+        &mut self,
+        callee: &FnSig,
+        args: &mut Vec<cranelift_codegen::ir::Value>,
+    ) -> Result<()> {
+        let caller = FnSig {
+            inputs: Vec::new(),
+            outputs: self.return_types.to_vec(),
+        };
+        let plan = crate::tail_abi::classify(&caller, callee)
+            .map_err(|reason| format!("internal tail-call ABI invariant: {reason}"))?;
+        if self.bcx.func.signature.call_conv != CallConv::Tail {
+            return Err(
+                "internal tail-call ABI invariant: caller does not use Tail convention".into(),
+            );
+        }
+        if self
+            .bcx
+            .func
+            .signature
+            .returns
+            .iter()
+            .map(|param| param.value_type)
+            .ne(plan.layout.outputs.iter().copied())
+        {
+            return Err("internal tail-call ABI invariant: native result layout mismatch".into());
+        }
+        if plan.layout.result_area.is_some() {
+            // This address belongs to an older frame. It cannot alias outgoing
+            // borrows: source code has no access to its hidden result area.
+            args.push(
+                self.return_storage
+                    .ok_or("internal tail-call ABI invariant: missing caller result area")?,
+            );
+        }
+        if args.len() != plan.layout.inputs.len()
+            || args
+                .iter()
+                .zip(&plan.layout.inputs)
+                .any(|(value, ty)| self.bcx.func.dfg.value_type(*value) != *ty)
+        {
+            return Err("internal tail-call ABI invariant: native argument layout mismatch".into());
+        }
         Ok(())
     }
 

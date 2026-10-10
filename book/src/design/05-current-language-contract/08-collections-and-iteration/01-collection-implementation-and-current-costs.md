@@ -39,8 +39,10 @@ sums) keep their data in the owning local, record, generator frame, or collectio
 buffer. Typed storage slots are 16 bytes normally and 48 bytes when they contain
 a range. Buffer relocation repairs those private addresses. Range temporaries
 and returned ranges never point into expired storage or allocate a separate owner.
-Calls passing or returning inline range values currently use ordinary calls
-rather than native tail calls, so the caller's temporary storage stays live.
+Tail calls returning an exact-compatible inline range result forward their
+incoming result storage. Passing an owned range argument still uses an ordinary
+call, so the caller's argument storage stays live; see the
+[tail-call ABI](../../40-tail-call-abi.md).
 
 The Rust runtime uses `Vec` storage and hash tables with ordered entries for
 dictionaries and sets. Private builders append in place; literal and comprehension

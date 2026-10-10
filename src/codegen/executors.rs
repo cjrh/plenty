@@ -46,11 +46,11 @@ pub(super) fn emit_adapters(
             locals: &[],
             stack: vec![],
             terminated: false,
-            forwards_references: false,
             loop_targets: vec![],
             generator: None,
             local_frame: None,
             return_storage: None,
+            return_types: &[],
             collection_scratch: None,
         };
         let packed = lower

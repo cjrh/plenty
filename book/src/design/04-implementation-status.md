@@ -31,6 +31,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Native target validation | `x86_64-unknown-linux-gnu` only; requested target, packaged runtime, and Cranelift ISA must agree before emission. `--print-target` reports the packaged target |
 | Explicit binary `main` entry point | Implemented: parameterless `main` returns `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`; a returned `Err` is reported on standard error with status one; module scope contains declarations and imports |
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
+| Stack overflow report | Executables print `error: stack overflow` and end with `SIGABRT` on the main thread, scoped workers, and executor workers; other faults keep their default action. See [runtime packaging](09-rust-runtime-packaging.md#stack-overflow) |
 | Direct and mutual tail calls | Implemented; caller cleanup, including destructors, runs before the transfer. References originating in the caller's reference parameters are forwarded; a reference into the caller's own storage keeps ordinary post-call cleanup |
 | Early returns and return-aware branch checking | Implemented in AOT |
 | Concrete enums, tagged payloads, exhaustive matching | Implemented, including fallible `Enum.Variant(...)` |
@@ -39,7 +40,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
 | Unit values | Expressions, function returns, enum and tuple payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
-| Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; stored references deferred |
+| Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; a `mut` reference binding is reassigned only through itself; stored references deferred |
 | Inline values | Class instances, tuples, and enum values store their fields inline in their owner's storage; construction never allocates. Inline storage is limited to 64 KiB per type; [reference](12-classes-fixed-layout-records.md) |
 | `Box[T]` | One owned heap value; `Box(value)` returns `Result`, a box converts to its content wherever the content's type is required, and a boxed class's fields and methods are reached directly; [reference](30-recursive-data.md) |
 | Borrowed enum matching | Shared matches preserve owners; mutable matches update every enum's payloads. Payload loans protect variants, support restricted returns, and allocate nothing; [reference](31-borrowed-enum-matching.md) |

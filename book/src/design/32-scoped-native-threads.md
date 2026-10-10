@@ -83,7 +83,8 @@ thread's resources. See the Linux manual pages for
 [creation](https://man7.org/linux/man-pages/man3/pthread_create.3.html) and
 [joining](https://man7.org/linux/man-pages/man3/pthread_join.3.html).
 An unexpected native join failure terminates the process: continuing could
-reclaim storage still used by a worker.
+reclaim storage still used by a worker. A worker that exhausts its stack ends
+the whole process with a [stack overflow report](09-rust-runtime-packaging.md#stack-overflow).
 
 `tests/test_threads.rs` covers source loans, result transfer, nested workers,
 generic and recursive types, effect rejection, all normal exits, failed starts,

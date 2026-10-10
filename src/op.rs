@@ -405,6 +405,8 @@ pub enum Op {
     ReadRef(Ty),
     Reborrow(Ty),
     WriteRef(Ty),
+    /// Exchange initialized storage with a new owner, returning its old owner.
+    ReplaceRef(Ty),
     Loan(crate::ownership::Loan),
     UseLoan(usize),
     Access(u8, bool, Option<usize>),
@@ -1397,11 +1399,14 @@ fn step(
             }
             stack.push(target.clone());
         }
-        Op::WriteRef(ty) => {
+        Op::WriteRef(ty) | Op::ReplaceRef(ty) => {
             if stack.pop() != Some(Ty::Ref(Rc::new(ty.clone()), true))
                 || stack.pop().as_ref() != Some(ty)
             {
                 return Err("invalid reference write".into());
+            }
+            if matches!(op, Op::ReplaceRef(_)) {
+                stack.push(ty.clone());
             }
         }
         Op::Collection(operation) => {

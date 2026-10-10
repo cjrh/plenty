@@ -36,7 +36,12 @@ argument passing. Mutable fields retain ordinary explicit borrowing rules.
 `match` consumes recursive enums and transfers bound payloads; an iterative
 `while`/`match` loop can dismantle a chain without recursive function calls.
 Matching a [shared or mutable reference](31-borrowed-enum-matching.md) instead
-borrows the payloads and preserves the owner. Partial moves from classes, stored
+borrows the payloads and preserves the owner; a `mut` reference binding advanced
+in a loop walks a chain of any length without recursive calls. For classes,
+`replace(node.next, Nothing)` transfers an optional child out while leaving its
+field initialized. Installing another owned tail instead supports iterative
+relinking without cloning or allocating. The node must be mutable or exclusively
+borrowed. Partial moves from classes, stored
 references, shared mutable graphs, and source ownership cycles remain unsupported. A terminating variant,
 `Nothing`, or an empty collection supplies the usual construction base case.
 
@@ -54,6 +59,7 @@ ordinary scope exit, replacement, early return, and failed construction retain
 their cleanup rules. Native tests build boxed class and enum chains of 100,000
 nodes each, then drop both with allocation disabled on a 256 KiB stack.
 Explicit recursion in user methods or destructor hooks still uses the native stack.
+Exhausting it ends the program with a [stack overflow report](09-rust-runtime-packaging.md#stack-overflow).
 
 Imports preserve the nominal identity and member visibility of recursive types.
 Recursive classes can also remain behind existing opaque C export handles. Static

@@ -97,9 +97,10 @@ from the origin of its loan and records the result on the call; code generation
 does not infer it from types. A method call through a `self` reference and a
 closure body passing a borrowed capture qualify the same way.
 
-A call passing or returning inline storage follows the three steps above but
-keeps the caller's frame to hold that storage, so it still uses native stack for
-each call.
+A call passing owned inline storage follows the three steps above but keeps the
+caller's frame to hold its staged argument storage. Exact-compatible inline
+results can use a native tail transfer: the incoming result pointer belongs to
+an older frame and is forwarded unchanged. See the [tail-call ABI](40-tail-call-abi.md).
 
 Values stored inline, such as class instances, tuples, and enum payloads, drop
 immediately in declaration order; their nesting depth is bounded by their type.
