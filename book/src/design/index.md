@@ -1,10 +1,24 @@
-# Plenty — language and compiler design
+# Reference
 
-This part of the book is the current language contract. The
-[implementation status](04-implementation-status.md) describes supported features
-and their limits. Future work and priorities belong in the [backlog](../backlog.md).
+The reference describes implemented behavior and current restrictions. Start with
+the [language overview](language/01-overview/index.md) for the connecting ideas,
+or use the [support index](toolchain/02-architecture/support.md) to find a contract.
 
-[Learn Plenty](../tutorial/index.md) is the learner-facing companion. Build it alongside
-the implementation: teaching a feature and addressing awkward examples is part
-of designing that feature. The tutorial teaches implemented behavior; this
-reference records current behavior, limitations, and architectural decisions.
+- **Language contract:** [source and modules](language/02-source/index.md),
+  [types](language/03-types/index.md), [expressions](language/04-expressions/index.md),
+  [ownership](language/05-ownership/index.md), [functions](language/06-functions/index.md),
+  [generics](language/07-generics/index.md), [errors and resource scopes](language/08-errors/index.md),
+  and [iteration](language/09-iteration/index.md) define what programs mean.
+- **Built-in facilities and interoperability:**
+  [built-in operations](facilities/01-builtins/index.md), [I/O](facilities/02-io/index.md),
+  [concurrency](facilities/03-concurrency/index.md), and
+  [C interfaces](facilities/04-interop/index.md) specify available operations,
+  ownership transfer, allocation, and failure behavior.
+- **Toolchain and implementation:** [building programs](toolchain/01-building/index.md)
+  explains commands and artifacts; [architecture](toolchain/02-architecture/index.md)
+  explains checking, native compilation, and runtime mechanisms.
+
+[Learn Plenty](../tutorial/index.md) teaches the language through executable
+examples. [Supplementary examples](examples/index.md) cover additional operations.
+Design alternatives live in [Proposals](../proposals/index.md); future work lives
+in the [backlog](../backlog.md).

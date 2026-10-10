@@ -2,7 +2,7 @@
 
 > Active tasks and priorities live in the [backlog](../backlog.md). Staging below
 > records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/04-implementation-status.md)
+> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
 > and [reference](../design/index.md) for current behavior.
 
 Status: implementation proposal. This document specifies the first generator

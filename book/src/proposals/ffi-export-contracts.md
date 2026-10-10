@@ -3,9 +3,9 @@
 Status: accepted design direction, 2026-10-07; numeric/Result exports, owned and
 borrowed handles, generated contract headers, embedded interfaces, extraction,
 compatibility fingerprints, and typed resident loading are implemented in the
-[initial subset](../design/24-c-interfaces/02-library-exports.md). The image API
+[initial subset](../design/facilities/04-interop/exports.md). The image API
 examples below remain illustrative design sketches. Tasks and priorities live only in the
-[backlog](../backlog.md). See [C interfaces](../design/24-c-interfaces.md) for
+[backlog](../backlog.md). See [C interfaces](../design/facilities/04-interop/trusted-declarations.md) for
 implemented imports and [C interop](ffi-and-dynamic-libraries.md) for the wider
 boundary design.
 

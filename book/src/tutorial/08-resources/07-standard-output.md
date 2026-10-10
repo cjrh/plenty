@@ -17,5 +17,5 @@ Hello!
 
 `IoError.System(code)` carries a native OS error code. Decoding, allocation, and
 stream-state errors have separate variants; the
-[text I/O reference](../../design/05-current-language-contract/01-practical-text-i-o.md)
+[text I/O reference](../../design/facilities/02-io/index.md)
 lists them all.

@@ -7,8 +7,8 @@ This book provides:
 
 - **[Learn Plenty](tutorial/index.md)** teaches the language with runnable
   examples. Start here.
-- **[Reference](design/index.md)** is the language contract and the compiler
-  design.
+- **[Reference](design/index.md)** defines language rules, built-in facilities,
+  and compiler/runtime architecture in separate areas.
 - **[Proposals](proposals/index.md)** record the reasons for past and future
   design decisions. They are not the current contract.
 - **[Backlog](backlog.md)** is the single maintained list of future work and

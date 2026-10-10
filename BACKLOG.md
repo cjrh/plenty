@@ -5,4 +5,4 @@ The maintained backlog and proposed work order are in
 
 This file is a navigation link only. Add or update tasks in that page so there is
 one planning list. For what works today, see the
-[implementation status](book/src/design/04-implementation-status.md).
+[implementation status](book/src/design/toolchain/02-architecture/support.md).

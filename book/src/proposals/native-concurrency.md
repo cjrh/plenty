@@ -1,7 +1,7 @@
 # Native concurrency contract
 
 This proposal records the broader concurrency contract and its rationale.
-[Scoped native threads](../design/32-scoped-native-threads.md) now implement the
+[Scoped native threads](../design/facilities/03-concurrency/threads.md) now implement the
 initial checked worker boundary. The reference describes its precise limits;
 future work and priorities live only in the [backlog](../backlog.md).
 

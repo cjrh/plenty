@@ -1,6 +1,6 @@
 # Recursive owned data
 
-The initial source contract is implemented; see the [recursive-data reference](../design/30-recursive-data.md)
+The initial source contract is implemented; see the [recursive-data reference](../design/language/03-types/recursive-data.md)
 for its current limits. This design record explains the ownership, fallible
 construction, and allocation-free `Option`/`Result` choices. It does not add
 shared mutable graphs or a garbage collector.

@@ -42,7 +42,7 @@ A registry of named callbacks needs only a collection of `Callable` values.
 A callback plus explicit state can already be a generic class with ordinary
 methods. Filtering, dispatching, and adapting these callbacks are library code;
 they need no new invocation syntax or builtin registry type.
-[Concrete owned environments](../design/33-stored-closures.md) now use ordinary
+[Concrete owned environments](../design/language/06-functions/04-consuming-and-stored-closures.md) now use ordinary
 typed owner slots. Heterogeneous erasure still needs a separate representation and
 lifetime contract before library code can build an arbitrary closure registry.
 

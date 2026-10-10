@@ -1,7 +1,7 @@
 # Text and file examples
 
 Use these examples to look up text methods and advanced file operations.
-The [text I/O reference](../../05-current-language-contract/01-practical-text-i-o.md)
+The [text I/O reference](../../facilities/02-io/index.md)
 lists signatures and platform limits.
 
 Text methods borrow their inputs. Queries that return scalars or `Option`

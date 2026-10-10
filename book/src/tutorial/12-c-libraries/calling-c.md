@@ -38,4 +38,4 @@ The interface author must check the C header and document pointer lifetimes,
 ownership, and errors. Plenty does not verify the native implementation;
 application code should use typed wrappers.
 `pub` exposes a name to Plenty imports; it does not export a C symbol. See the
-[C interface reference](../../design/24-c-interfaces.md) for the supported ABI.
+[C interface reference](../../design/facilities/04-interop/trusted-declarations.md) for the supported ABI.

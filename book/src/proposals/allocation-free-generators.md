@@ -3,7 +3,7 @@
 > Implemented design record. Concrete inline frames, direct construction, and
 > specialization of generator parameters are now implemented. The original
 > alternatives below explain the decision; the
-> [generator reference](../design/16-native-generators.md) owns the current ABI,
+> [generator reference](../design/language/09-iteration/03-generators.md) owns the current ABI,
 > source contract, and limits. Active work lives in the [backlog](../backlog.md).
 
 ## Objective and boundary

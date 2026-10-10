@@ -2,7 +2,7 @@
 
 > Active tasks and priorities live in the [backlog](../backlog.md). Staging below
 > records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/04-implementation-status.md)
+> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
 > and [reference](../design/index.md) for current behavior.
 
 Status: historical proposal for the first value-runtime implementation. Its
@@ -87,7 +87,7 @@ Retain/release of internal null handles are no-ops. Null is only the compiler's
 empty ownership-slot marker; it is never a language value or an absent option.
 Check retain overflow rather than wrapping into zero or the immortal sentinel.
 The implemented counts are now atomic; see the
-[ownership reference](../design/13-ownership-and-reclamation.md) for final-release
+[ownership reference](../design/language/05-ownership/index.md) for final-release
 ordering. This alone does not expose concurrent execution.
 Release invokes the destructor at zero; the destructor frees children and the
 object itself. Do not invoke a destructor twice or free the object again after

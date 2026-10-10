@@ -29,4 +29,4 @@ Call `close()?` to report a close error; automatic cleanup cannot report it.
 Exiting the block can then close the already closed file harmlessly.
 
 For flushing, disk synchronization, and other detailed contracts, see the
-[text I/O reference](../../design/05-current-language-contract/01-practical-text-i-o.md).
+[text I/O reference](../../design/facilities/02-io/index.md).

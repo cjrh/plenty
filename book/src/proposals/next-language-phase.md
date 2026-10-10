@@ -2,7 +2,7 @@
 
 > Active tasks and priorities live in the [backlog](../backlog.md). Staging below
 > records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/04-implementation-status.md)
+> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
 > and [reference](../design/index.md) for current behavior.
 
 This is a design review, not an implementation announcement. It consolidates the
@@ -12,7 +12,7 @@ reference for what programs can use today. Syntax and sequencing below are
 recommendations for review.
 
 Several directions in this review have since been implemented or revised. Check
-the [implementation status](../design/04-implementation-status.md) rather than
+the [implementation status](../design/toolchain/02-architecture/support.md) rather than
 treating the sketches below as either current syntax or outstanding tasks.
 
 The proposed direction fits Plenty: explicit names, structural interfaces, native
@@ -279,6 +279,6 @@ references are in the [tutorial workflow proposal](entrypoints-modules-and-tutor
 
 The original cross-feature implementation sequence has been retired. The
 [backlog](../backlog.md) is the single maintained list of remaining work and
-proposed order; the [implementation status](../design/04-implementation-status.md)
+proposed order; the [implementation status](../design/toolchain/02-architecture/support.md)
 records the result. The sections above preserve the design reasoning and open
 questions from this review, not a current task queue.
