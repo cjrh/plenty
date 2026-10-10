@@ -1,12 +1,20 @@
 # One immutable `str` with explicit lengths
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: design proposal for this implementation batch. The implementation and
-`DESIGN.md` remain the authority for currently supported behavior.
+> **Status: Implemented.** One immutable `str` with byte and scalar lengths
+> shipped. [Text](../design/facilities/01-builtins/text.md) owns the source
+> contract and [value representation](../design/toolchain/02-architecture/values.md)
+> the layout.
+>
+> **Shipped differently:** a string of at most seven bytes is stored inline in
+> its value word, so a `str` is not always a pointer. `+` returns
+> `Result[str, AllocError]`. Indexing and iteration allocate nothing. Counts are
+> atomic. The runtime is Rust (`plenty-runtime/src/strings.rs`), so the C files
+> and helper signatures below are historical. Line input is
+> `input() -> Result[Option[str], IoError]`. Slicing, `replace`, `strip`,
+> `join`, and `str.repr` were added later.
+>
+> **Remaining:** C text returned as `str` and exported buffers (B27); bytes and
+> binary buffers (B12).
 
 ## Language contract
 
@@ -203,12 +211,15 @@ staging choice, never a reason to retain NUL-terminated storage.
   executable tutorial examples pass. ASan/UBSan cover bounded operations using
   payloads deliberately lacking any accessible terminating byte.
 
-## Future foreign interfaces
+## Foreign interfaces
 
 FFI must explicitly distinguish `(pointer, byte_length)` APIs from APIs requiring
 terminated C strings. Exporting to the latter creates a temporary terminated
 buffer and rejects embedded NUL, with lifetime tied to the call unless ownership
 is explicitly transferred. Importing C text validates UTF-8 and copies into the
-normal representation. DLL loading and FFI declarations are future work; they
-must not dictate the default language string layout or add another ordinary
-string type.
+normal representation. FFI declarations and library loading must not dictate
+the default language string layout or add another ordinary string type.
+
+[Foreign text borrows](../design/facilities/04-interop/borrowing-text.md) shipped
+the exporting half as `&str as utf8` and `&str as c_string`. Importing C text
+is B27.

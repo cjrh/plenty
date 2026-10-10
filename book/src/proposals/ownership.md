@@ -1,14 +1,22 @@
 # Ownership and reclamation proposal
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: historical proposal for the first value-runtime implementation. Its
-implicit-copy collection semantics have been superseded by
-[references and explicit copying](references-and-copying.md). See `DESIGN.md`
-for the implemented move semantics, local borrow checker, and cleanup rules.
+> **Status: Superseded.** This proposed the first value runtime.
+> [References and explicit copying](references-and-copying.md) replaced its
+> collection semantics, and the text below is not maintained. The
+> [ownership reference](../design/language/05-ownership/index.md) and
+> [memory architecture](../design/toolchain/02-architecture/memory.md) own the
+> current contract.
+>
+> **Still current:** counted sharing of immutable storage,
+> [deterministic destruction](../design/language/05-ownership/06-destruction.md)
+> through an allocation-free queue, affine generator frames, and cleanup before
+> [tail calls](../design/language/06-functions/05-tail-calls.md).
+>
+> **No longer true:** collections move; they are not copied on update, and
+> iteration takes no snapshot. `copy()` and `drop()` are source operations.
+> Every class instance is affine. `Option` and `Result` may own generators.
+> Ranges are inline values. The runtime is the Rust crate `plenty-runtime/`, not
+> the C files named below, and the checker is `src/ownership.rs`.
 
 ## Decisions
 

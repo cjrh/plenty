@@ -1,22 +1,33 @@
 # Generics, structural protocols, context managers, and error propagation
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: design proposal, 2026-10-05. Nothing in this document changes the
-implemented language. Syntax below is illustrative. `DESIGN.md` remains the
-implementation status reference.
+> **Status: Implemented.** Proposed 2026-10-05; all four parts shipped.
+> [Generics](../design/language/07-generics/index.md),
+> [protocols](../design/language/07-generics/protocols.md),
+> [resource scopes](../design/language/08-errors/03-resource-scopes.md), and
+> [sums and propagation](../design/language/08-errors/01-sums-and-propagation.md)
+> own the contract.
+>
+> **Shipped differently:** a protocol requirement ends in `:` with a `pass`
+> body, and the protocol's own name stands for the implementer; there is no
+> `Self`. Generic bodies are checked for each concrete instance, not
+> symbolically against their bounds. `?` may erase an error to `Failure`.
+> `File` is a builtin context manager. `with &mut existing`, returned
+> references, and a `Result`-returning `main` shipped.
+>
+> **Remaining:** combined bounds, protocol composition, and bounds on data
+> (B29); typed error composition (B14); stored references (B11). Erased `dyn`
+> protocol values, fallible `__exit__`, `yield` inside `with`, and `?` in
+> generators are unscheduled.
 
 ## Starting point
 
-Plenty already has concrete classes and inherent methods, `Option[T]` and
-`Result[T, E]`, checked local/field borrowing, and deterministic cleanup.
-`__del__` cannot fail recoverably. Cleanup already runs on `return`, `break`, and
-`continue`. There are no user-defined generics, protocols, returned references,
-stored references, context managers, or `?` yet. Built-in parameterized types
-are compiler-known special cases, not evidence of a general generic system.
+At proposal time Plenty had concrete classes and inherent methods, `Option[T]`
+and `Result[T, E]`, checked local/field borrowing, and deterministic cleanup.
+`__del__` could not fail recoverably. Cleanup already ran on `return`, `break`,
+and `continue`. There were no user-defined generics, protocols, returned
+references, stored references, context managers, or `?`. Built-in parameterized
+types were compiler-known special cases, not evidence of a general generic
+system.
 
 The recommendations are:
 
@@ -285,7 +296,6 @@ leaving a block normally is sufficient evidence for a successful transaction.
    examples require them. Keep erased interfaces and fallible context exits as
    explicit later decisions.
 
-Open decisions include protocol signature punctuation, an explicit conformance
-assertion for library authors, exact returned-reference syntax, whether initial
-contexts allow owned entry results to escape, and the eventual fallible-exit
-syntax. None requires an import-sensitive trait lookup system.
+Protocol signature punctuation, returned-reference syntax, and escaping owned
+entry results are settled. Open decisions are an explicit conformance assertion
+for library authors and the eventual fallible-exit syntax. None requires an import-sensitive trait lookup system.

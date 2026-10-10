@@ -1,15 +1,23 @@
 # Explicit applications, modules, and executable lessons
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: the explicit binary entrypoint is implemented: parameterless `main`
-returns `()` or `i32`. Absolute imports, aliases, `pub` visibility, and library
-checking are also implemented. Module scope contains declarations and imports.
-Multi-file Markdown examples are executable; generated lessons remain proposed.
-See [DESIGN.md](../design/index.md) for the implemented contract.
+> **Status: Partly implemented.** The baseline below is `b690afe`, when the
+> tutorial was one file, `TUTORIAL.md`.
+>
+> - **Entry point: implemented.** A parameterless `main` returns `()`, `i32`,
+>   `Result[(), E]`, or `Result[i32, E]`; see
+>   [entry point](../design/language/02-source/entrypoint.md) and
+>   [entry reports](../design/toolchain/01-building/entry-report.md).
+> - **Modules: implemented.** Absolute imports, aliases, `pub` visibility, and
+>   library checking; see [modules](../design/language/02-source/modules.md) and
+>   [visibility](../design/language/02-source/visibility.md). The source root
+>   flag is `--module-root DIR`.
+> - **Executable lessons: partly implemented.** `tests/test_tutorial.rs` runs
+>   the Markdown fences under `book/src/tutorial/`, including multi-file
+>   examples. Literate `.plenty` sources, a manifest, and generated Markdown are
+>   B21.
+>
+> **Remaining:** re-exports, cycle policy, packages, and cached module objects
+> (B17); literate lesson sources (B21).
 
 ## Current behavior and the proposed entry point
 
@@ -34,7 +42,8 @@ must not produce a missing-main error; checking/building a binary must.
 Once error propagation and allocation-free error reporting are ready, consider
 `main() -> Result[(), E]`. Do not silently add an implicit formatting/protocol
 requirement on arbitrary `E` now. Applications can initially use a small `i32`
-main that explicitly matches a fallible application function's result.
+main that explicitly matches a fallible application function's result. (`main`
+now accepts both `Result` forms.)
 
 Allow only declarations and imports at module scope initially. Defer module-level
 constants until their permitted constant expressions are specified. Reject
@@ -167,8 +176,8 @@ must run before both ordinary and generic calls are emitted.
 
 ## The tutorial is already executable, but its source can improve
 
-At this snapshot, `TUTORIAL.md` contains 43 successful programs and 11 expected
-compile errors. `tests/test_tutorial.rs` extracts them directly. It invokes both
+At this snapshot, `TUTORIAL.md` contained 43 successful programs and 11 expected
+compile errors; the lessons are now the pages under `book/src/tutorial/`. `tests/test_tutorial.rs` extracts them directly. It invokes both
 compile-and-run and explicit AOT compilation; successful binaries must produce
 the documented output, and invalid programs must produce the expected diagnostic
 without effects. Prose is not semantically checked. The Markdown is currently the
@@ -208,7 +217,7 @@ Proposed build flow:
 2. Compile/run each complete source with isolated temporary outputs. Validate
    expected stdout, exit status, and stderr/diagnostics. Use bounded execution
    time and deterministic fixtures so an accidental loop cannot hang CI.
-3. Render validated actual outputs and code regions into `TUTORIAL.md`. Preserve
+3. Render validated actual outputs and code regions into the tutorial pages. Preserve
    source locations in failure reports and links to complete examples.
 4. A `--check` mode renders to memory and fails on differences from the checked-in
    tutorial. A generation command writes it deliberately. CI never updates it.
@@ -217,7 +226,7 @@ Keep reviewed expectations, not only whatever output happened to be generated.
 Otherwise a compiler regression would rewrite the book and appear successful.
 Snapshot acceptance must be an explicit author action. Preserve the existing
 two-command validation when moving it into a shared harness. Once migrated,
-edit prose/code in the source lessons and treat `TUTORIAL.md` as generated; do
+edit prose/code in the source lessons and treat the tutorial pages as generated; do
 not maintain duplicate editable examples in both places.
 
 TinyTemplate can handle ordering and presentation, but it does not execute or
@@ -239,7 +248,7 @@ and [formatter configuration](https://docs.rs/tinytemplate/latest/tinytemplate/s
 4. Move lessons to runnable literate files with output snapshots and generated
    Markdown. This can happen alongside step 2 if the migration is easier once.
 
-Decisions to confirm before implementation: module-private versus class-private
-members; whether initial `main` accepts both `()` and `i32`; source-root CLI
-spelling; and whether lesson output expectations are comment blocks or sidecar
-files. These choices do not block recording the architecture above.
+Steps 1-3 are complete, except that builtins stay in a prelude that needs no
+import. Step 4 is B21. Declarations are private to their module, `main` accepts `()` and `i32`, and the source root flag is
+`--module-root`. Whether lesson output expectations are comment blocks or
+sidecar files remains open with B21.

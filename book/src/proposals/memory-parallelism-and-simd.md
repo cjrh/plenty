@@ -1,14 +1,27 @@
 # Fallible memory, parallel execution, and SIMD
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: **research and proposed direction, not implemented language behavior**.
-Reviewed against Plenty after `b690afe`, with Cranelift `0.131.1`, on 2026-10-05.
-All API names and syntax below are sketches. The tutorial continues to describe
-the implemented language.
+> **Status: Partly implemented.** Researched after `b690afe` on 2026-10-05,
+> against Cranelift `0.131.1` (the tree now pins `0.131.3`). API names and
+> syntax below are sketches from that date.
+>
+> - **Fallible memory: partly implemented.** Allocating operations return
+>   `Result[T, AllocError]` and `?` propagates; see
+>   [allocation and traps](../design/language/08-errors/02-allocation-and-traps.md).
+>   Public allocators, budgets, and bounded containers are B13.
+> - **Parallel execution: implemented.** See
+>   [concurrency](../design/facilities/03-concurrency/index.md). Automatic
+>   parallelization is B24.
+> - **SIMD: not implemented** (B23).
+>
+> This page is the only design record for B13 and B23.
+>
+> **Shipped differently:** `AllocError` has two variants, `OutOfMemory` and
+> `CapacityOverflow`. Class, tuple, enum, generator, and range values are inline
+> and their construction cannot fail. `.unwrap()` exists; `.expect(...)` does
+> not. Only object headers record an allocator; container buffers use the global
+> one. Threads start through a scoped `with` manager, and a pool is
+> `ThreadPoolExecutor(max_workers, queue_capacity)` with `map`, `map_result`,
+> and `reduce_tree`.
 
 ## Recommendation
 
@@ -97,7 +110,8 @@ the use site, including `([f(x) for x in source])?`. This makes allocation visib
 but changes many familiar expressions and needs learner examples before adoption.
 An alternative is a narrowly specified allocation effect with an explicit
 handler boundary; it adds more language machinery and should not be quietly
-introduced as implicit `?` insertion. No choice is finalized here.
+introduced as implicit `?` insertion. The `Result` with explicit `?` form was
+chosen.
 
 The required behavior is clearer than the syntax: a program must be able to
 handle every language-runtime allocation failure without an unadvertised abort.
@@ -382,10 +396,13 @@ global loop dependence analysis and speculative vectorization are not required.
    allocator specialization, and runtime CPU multiversioning remain optional later
    work rather than prerequisites for useful programs.
 
-Important open decisions are allocating-expression syntax, a coherent private
-sum-value lowering contract, allocator handle lifetime representation, whether failure recovers
-owned insertion arguments, task error ordering, and which SIMD operations have a
-portable scalar contract. None should be hidden behind a promise that the current
+Steps 1-3 and 6 are complete. Steps 4 and 5 are B13, with B12 and B19 for
+buffers. Step 7 is B23.
+
+Allocating-expression syntax, the private sum-value lowering contract, and task
+error ordering are settled. Open decisions are allocator handle lifetime
+representation, whether failure recovers owned insertion arguments, and which
+SIMD operations have a portable scalar contract. None should be hidden behind a promise that the current
 runtime already supplies these capabilities.
 
 The private lowering contract is not a frozen ABI or a public C representation;

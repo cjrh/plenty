@@ -1,9 +1,24 @@
 # Native concurrency contract
 
-This proposal records the broader concurrency contract and its rationale.
-[Scoped native threads](../design/facilities/03-concurrency/threads.md) now implement the
-initial checked worker boundary. The reference describes its precise limits;
-future work and priorities live only in the [backlog](../backlog.md).
+> **Status: Implemented** (B22). Scoped threads, bounded channels, executors,
+> futures, parallel map and reduction, cancellation, and timed selection
+> shipped. The [concurrency reference](../design/facilities/03-concurrency/index.md)
+> owns the source contract and
+> [concurrency architecture](../design/toolchain/02-architecture/concurrency.md)
+> the runtime.
+>
+> **Shipped differently:** generator frames, foreign calls, files, and executor
+> or future handles cannot enter workers; there is no trusted foreign thread
+> contract. A failed fallible map returns the earliest failed input's error as
+> `ParallelError[E].Worker(E)`, not an index. Start failure returns
+> `ThreadError.System(code)`, or a `SpawnError[F]` that carries the unstarted
+> job. Executors, map, and reduction are compiler built-ins over a Rust runtime,
+> not a Plenty library.
+>
+> **Remaining:** transfer of custom-allocator values (B13); automatic
+> parallelization (B24); callbacks on foreign threads (B28). B22's deferred
+> extensions are richer effects, rendezvous channels, streaming and broader
+> mapping, and broader selection.
 
 ## Runtime audit
 
@@ -77,7 +92,7 @@ own pool makes progress. Thread count and queue capacity are explicit settings.
 Result handles here are blocking task handles, not language async futures.
 
 Parallel map returns results in input order; a deterministic fallible variant
-reports the lowest failed input index after earlier work finishes. Cancellation
+returns the error of the earliest failed input after earlier work finishes. Cancellation
 is cooperative. Dropping partial outputs and joining tasks cannot undo external
 effects. Parallel reduction needs an explicit reassociation policy, especially
 for floating point. Ordinary loops and comprehensions retain serial semantics.

@@ -1,14 +1,14 @@
 # Foundation batch history
 
-This is a historical completion record for the ten items proposed after
-`47888d0`. It is not an active queue. All remaining work and priorities now live
-in the [backlog](../backlog.md); current contracts and limits live in the
-[implementation status](../design/toolchain/02-architecture/support.md) and reference.
-
-The table describes the original commits, including syntax later replaced.
-In particular, `try` and `try_` APIs are obsolete, allocation-capable APIs now
-return Result by default, and generic calls can infer type arguments. Validation
-counts and timings below belong to that historical batch, not the current tree.
+> **Status: Historical record.** The ten items proposed after `47888d0` all
+> shipped. This is not an active queue; the [backlog](../backlog.md) is the only
+> one.
+>
+> The table describes the original commits, including syntax later replaced.
+> `try` displays and `try_` APIs are gone: allocating operations return `Result`
+> and `?` propagates it. Tuple construction no longer allocates. Generic calls
+> can infer type arguments. Validation counts and timings below belong to that
+> batch, not the current tree.
 
 | Item | Implemented | Commits |
 | --- | --- | --- |

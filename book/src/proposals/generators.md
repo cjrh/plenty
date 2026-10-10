@@ -1,13 +1,22 @@
 # Native owned generators
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: implementation proposal. This document specifies the first generator
-slice; it does not claim generators are implemented. Reconcile accepted behavior
-into `DESIGN.md` and runnable examples into `TUTORIAL.md` when it lands.
+> **Status: Implemented.** [Generators](../design/language/09-iteration/03-generators.md)
+> own the source contract and
+> [environments](../design/toolchain/02-architecture/environments.md) the frame
+> and resume ABI.
+>
+> **Shipped differently:** frames live inline in their owner's storage and
+> nothing is heap allocated; see
+> [allocation-free generator frames](allocation-free-generators.md). Each
+> producer has its own frame type, and `Generator[T]` names only the yield
+> contract. `yield` moves its operand. `Option` and `Result` may own frames.
+> There is no separate generator control-flow graph; continuation blocks are
+> built during lowering. `next(&mut g)` was added. A generator body cannot use
+> `?`, take reference parameters, or `yield` inside `with`. The first example's
+> module-scope loop is no longer accepted.
+>
+> **Remaining (unscheduled):** frames in collections, class fields, tuples, and
+> user enums; `yield from`; generator expressions.
 
 ## Source contract
 
@@ -257,7 +266,7 @@ or mutual tail calls merely because generators exist in the same module.
    and supported collection constructors through it. Preserve existing snapshot
    iteration, string behavior, and loop control tests.
 6. Add runnable tutorial lessons and mark only delivered behavior implemented in
-   DESIGN. Record lazy effects, affine consumption, stable exhaustion, and the
+   the reference. Record lazy effects, affine consumption, stable exhaustion, and the
    deliberately unsupported features explicitly.
 
 ## Acceptance tests

@@ -1,19 +1,28 @@
 # Plenty's next language phase
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
+> **Status: Partly implemented.** This design review consolidated the
+> entry-point and module investigation and three research proposals against
+> baseline `b690afe`. Nine of its eleven recommendations shipped at least in
+> part, several differently. The text below the outcome table describes that
+> baseline and its recommendations, not the current language.
 
-This is a design review, not an implementation announcement. It consolidates the
-entrypoint/module investigation and three concurrent research proposals. The
-implementation baseline is `b690afe`; the [reference](../design/index.md) remains the
-reference for what programs can use today. Syntax and sequencing below are
-recommendations for review.
+## Outcome
 
-Several directions in this review have since been implemented or revised. Check
-the [implementation status](../design/toolchain/02-architecture/support.md) rather than
-treating the sketches below as either current syntax or outstanding tasks.
+| Topic | Outcome | Reference or backlog |
+| --- | --- | --- |
+| Entry point | Implemented; `main` also returns `Result[(), E]` or `Result[i32, E]` | [Entry point](../design/language/02-source/entrypoint.md) |
+| Modules and visibility | Implemented | [Modules](../design/language/02-source/modules.md), [visibility](../design/language/02-source/visibility.md); B17 |
+| C interoperation | Implemented: `.plentyi` interfaces, adapters, exports, runtime loading | [Interop](../design/facilities/04-interop/index.md); B27, B28 |
+| Context managers | Implemented, with `with &mut existing` | [Resource scopes](../design/language/08-errors/03-resource-scopes.md) |
+| Generics | Implemented; bodies are checked per instance, not against bounds | [Generics](../design/language/07-generics/index.md); B29 |
+| Allocation | Implemented: allocating operations return `Result`. Class, tuple, enum, generator, and range values are inline and cannot fail | [Allocation and traps](../design/language/08-errors/02-allocation-and-traps.md) |
+| Allocators | Not implemented; objects only record an internal allocator | B13 |
+| Error propagation | Implemented, with `Failure` erasure | [Sums and propagation](../design/language/08-errors/01-sums-and-propagation.md); B14 |
+| Parallelism | Implemented | [Concurrency](../design/facilities/03-concurrency/index.md); B24 |
+| SIMD | Not implemented | B23 |
+| Runnable lessons | Partly: Markdown fences are executed; standalone lesson sources are not | B21 |
+
+## Recommendations at the baseline
 
 The proposed direction fits Plenty: explicit names, structural interfaces, native
 ownership and cleanup, and predictable ahead-of-time compilation. The biggest

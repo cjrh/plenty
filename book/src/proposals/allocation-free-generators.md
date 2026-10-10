@@ -1,10 +1,19 @@
 # Allocation-free generator frames and ranges
 
-> Implemented design record. Concrete inline frames, direct construction, and
-> specialization of generator parameters are now implemented. The original
-> alternatives below explain the decision; the
-> [generator reference](../design/language/09-iteration/03-generators.md) owns the current ABI,
-> source contract, and limits. Active work lives in the [backlog](../backlog.md).
+> **Status: Implemented** (B25, B26).
+> [Generators](../design/language/09-iteration/03-generators.md) and
+> [ranges](../design/facilities/01-builtins/ranges.md) own the contract, and
+> [environments](../design/toolchain/02-architecture/environments.md) the frame
+> ABI.
+>
+> **Settled since:** the "original design questions" below are answered. A
+> generator parameter or annotation carries a hidden concrete producer type. A
+> factory must resolve to one producer; no sum or boxed form joins different
+> ones. Limits are 64 nesting levels, 256 consumer specializations, and 32-bit
+> frame offsets.
+>
+> **Remaining:** generators in collections or class fields (unscheduled); a
+> public iterator protocol (B12).
 
 ## Objective and boundary
 

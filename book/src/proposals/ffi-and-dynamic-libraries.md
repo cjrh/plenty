@@ -1,15 +1,22 @@
 # C interop and dynamic libraries
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: researched proposal, 2026-10-05. Scalar/opaque-pointer C imports and
-explicit static/shared linking, C exports, and typed resident runtime loading are
-now implemented; see the [C interface reference](../design/facilities/04-interop/trusted-declarations.md)
-and [runtime loading](../design/facilities/04-interop/loading.md). The code blocks below
-remain historical sketches, not runnable Plenty syntax.
+> **Status: Partly implemented.** Researched 2026-10-05. C imports through
+> trusted interface files, static and shared linking, C exports, and typed
+> resident runtime loading are implemented. The
+> [interop reference](../design/facilities/04-interop/index.md) and
+> [linking](../design/toolchain/01-building/linking.md) own the contract; the
+> [C libraries lessons](../tutorial/12-c-libraries/index.md) teach it.
+>
+> **Shipped differently:** the `foreign library`, `symbol`, `bind`, and
+> `ptr[const c_char]` sketches below are not Plenty syntax. A `.plentyi` file
+> declares `opaque Name` and `extern def f(...) -> T = "symbol"`. Pointers are
+> `&T` and `&mut T`, and text crosses as `&str as utf8` or `&str as c_string`.
+> There are no built-in `c_int` aliases. Linking is configured on the command
+> line (`--link-arg`, `--linker`), not in source.
+>
+> **Remaining:** unloading, callbacks, C records, and header-assisted bindings
+> (B28); text and byte buffers, views, and broader error types (B27); more
+> targets (B18).
 
 Plenty should support ordinary C libraries without making every application
 author become an FFI expert. A binding author supplies an explicit, trusted
@@ -75,12 +82,12 @@ The accepted [generated export contract design](ffi-export-contracts.md) adds
 versioned Plenty metadata alongside the ordinary C ABI. Adapters, metadata, and
 C headers with precise ownership, borrowing, cleanup, and error comments come
 from one checked export representation. The [initial export subset](../design/facilities/04-interop/exports.md)
-now implements numeric APIs; richer ownership and loading remain future work.
+implements numeric and `Result` APIs, owned and borrowed handles, and typed
+loading.
 
-The initial interface file can use a dedicated suffix such as `.plentyi`, imported
-through the same absolute module namespace as Plenty source. The suffix and exact
-grammar remain open; distinguish interface files explicitly in the compiler rather
-than deciding how to interpret a file from its contents.
+Interface files use the `.plentyi` suffix and are imported through the same
+absolute module namespace as Plenty source. The compiler distinguishes them by
+suffix; it does not decide how to interpret a file from its contents.
 
 ## Two layers of declarations
 
@@ -261,8 +268,7 @@ embedded-NUL rejection, library lifetime, and reentrant callbacks. Validate each
 supported ABI with actual C callers/callees; metadata parsing tests alone are
 insufficient.
 
-Open decisions before implementation: first supported host ABIs; naming and file
-format for interfaces; exact trusted-boundary syntax; whether the first useful
-release includes shared-library exports as well as imports; and which borrowed
-buffer types the language exposes. None requires adopting Python object layouts,
+Interface naming and format, trusted-boundary syntax, and shared-library
+exports are settled. Further host ABIs (B18) and borrowed buffer types (B27)
+remain open. None requires adopting Python object layouts,
 a garbage collector, Rust trait lookup, or a public Plenty native ABI.
