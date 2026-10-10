@@ -36,7 +36,8 @@ argument passing. Mutable fields retain ordinary explicit borrowing rules.
 `match` consumes recursive enums and transfers bound payloads; an iterative
 `while`/`match` loop can dismantle a chain without recursive function calls.
 Matching a [shared or mutable reference](31-borrowed-enum-matching.md) instead
-borrows the payloads and preserves the owner. For classes,
+borrows the payloads and preserves the owner; a `mut` reference binding advanced
+in a loop walks a chain of any length without recursive calls. For classes,
 `replace(node.next, Nothing)` transfers an optional child out while leaving its
 field initialized. Installing another owned tail instead supports iterative
 relinking without cloning or allocating. The node must be mutable or exclusively

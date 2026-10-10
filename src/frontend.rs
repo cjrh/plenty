@@ -2874,45 +2874,17 @@ impl Lower<'_> {
                         self.finish_temporaries(temporary_start, ops);
                         continue;
                     }
-                    if self
-                        .names
-                        .get(name)
-                        .is_some_and(|l| matches!(l.ty, Ty::Ref(..)))
-                    {
-                        return Err(stmt.at.error(
-                            "reference bindings cannot be reassigned; create a new borrow",
-                        ));
-                    }
                     let context = if let Some(ann) = annotation {
                         ann.resolve(self.aliases)?
                     } else {
                         self.names.get(name).map(|l| l.ty.clone())
                     };
-                    let ty = self
-                        .expr_expected(value, context, ops)?
-                        .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+                    let (ty, origin) = self.binding_value(value, context, ops)?;
                     if let Some(expected) = annotation {
                         let expected = expected.resolve(self.aliases)?.ok_or_else(|| {
                             expected.at.error("unit bindings are not supported yet")
                         })?;
                         self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
-                    }
-                    let reference = matches!(ty, Ty::Ref(..));
-                    if reference
-                        && (*mutable
-                            || !matches!(&ungroup(value).kind, Expression::Unary(op, _) if op == "&" || op == "&mut")
-                                && !matches!(
-                                    &ungroup(value).kind,
-                                    Expression::Call(..)
-                                        | Expression::Invoke(..)
-                                        | Expression::GenericCall(..)
-                                        | Expression::Method(..)
-                                        | Expression::GenericMethod(..)
-                                ))
-                    {
-                        return Err(stmt.at.error(
-                            "reference bindings require a direct borrow or reference-returning call and cannot be mut",
-                        ));
                     }
                     let slot = if let Some(local) = self.names.get(name) {
                         if *mutable || annotation.is_some() {
@@ -2924,6 +2896,9 @@ impl Lower<'_> {
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
                         self.same(Some(ty.clone()), Some(local.ty.clone()), &stmt.at)?;
+                        if let Some(origin) = origin {
+                            self.check_retargeted_reference(name, local.slot, origin, &stmt.at)?;
+                        }
                         local.slot
                     } else {
                         let slot =
@@ -2940,15 +2915,14 @@ impl Lower<'_> {
                                 mutable: *mutable,
                             },
                         );
+                        if let Some(origin) = origin {
+                            self.check_stored_reference(origin, &value.at)?;
+                            self.bind_reference(slot, origin, *mutable, ops);
+                        }
                         slot
                     };
                     self.mark(&stmt.at, ops);
                     ops.push(Op::StoreLocal(slot));
-                    if reference {
-                        let origin = self.reference_origin(value, ops)?;
-                        self.check_stored_reference(origin, &value.at)?;
-                        self.reference_locals.insert(slot, origin);
-                    }
                     None
                 }
                 Statement::If { condition, yes, no } => {

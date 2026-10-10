@@ -28,8 +28,8 @@ def main() -> Result[(), Failure]:
 [1, 2, 3]
 ```
 
-References can also be local bindings. They are immutable bindings themselves;
-`&mut` grants access to the target. Use `*reference` to read a scalar or replace
+References can also be local bindings. `&mut` grants access to the target; it
+does not make the binding itself reassignable. Use `*reference` to read a scalar or replace
 the target. Collection operations such as `append`, indexing, and `len` work
 through references directly.
 
@@ -81,8 +81,56 @@ borrow is live. Reference arguments automatically reborrow an existing reference
 they do not transfer the referenced owner.
 
 This subset borrows named bindings and their class fields. Reference bindings must
-be initialized with `&name`, `&mut name` (including field paths), or a call
-returning a reference, and cannot be reassigned. References cannot
+be initialized with `&name`, `&mut name` (including field paths), another
+reference, or a call returning a reference.
+
+A reference binding declared with `mut` can be assigned again, under one rule:
+the new reference must be borrowed from the binding itself. It can move further
+into the value it already borrows, and nowhere else:
+
+```plenty
+class Folder:
+    name: str
+    inside: list[Folder]
+
+def innermost(top: &Folder) -> str:
+    mut folder = top
+    while len(folder.inside) > 0:
+        folder = &folder.inside[0]
+    folder.name
+
+def main() -> Result[(), Failure]:
+    notes = Folder("notes", []?)
+    work = Folder("work", [notes]?)
+    home = Folder("home", [work]?)
+    print(innermost(&home))?
+    Ok(())
+```
+
+```output
+notes
+```
+
+`folder` starts at `top`. Each `&folder.inside[0]` is borrowed from `folder`, so
+the assignment is allowed. `home` stays borrowed until `folder`'s last use.
+
+Pointing it at a different value is rejected, even one of the same type:
+
+```plenty-error
+def main() -> ():
+    first = [1, 2].unwrap()
+    second = [3].unwrap()
+    mut view = &first
+    view = &second
+    print(view).unwrap()
+```
+
+```error
+reference binding `view` can be reassigned only to a reference borrowed from `view` itself
+```
+
+[Match borrowed values](78-match-borrowed-values.md) uses this rule to walk a
+chain in a loop. References cannot
 be stored in collections, captured by generators, or
 remain live across `yield`. Element references such as `&items[0]` borrow named
 collection storage. Use `next(&mut it)` through an exclusive generator reference when borrowing
