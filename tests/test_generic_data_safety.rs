@@ -61,7 +61,7 @@ def main() -> ():
 
 #[test]
 fn return_only_instances_register_their_drop_methods() {
-    let output = run("class Resource[T]:\n    value: T\n    def __del__(self) -> ():\n        write_stdout(\"drop\\n\").unwrap()\n        pass\ndef missing[T](value: T) -> Result[Resource[T], AllocError]:\n    Err(AllocError.OutOfMemory)\ndef main() -> ():\n    print(missing(1u8)).unwrap()\n");
+    let output = run("class Resource[T]:\n    value: T\n    def __del__(self) -> ():\n        write_stdout(\"drop\\n\").unwrap()\n        pass\ndef missing[T](value: T) -> Result[Resource[T], AllocError]:\n    Err(AllocError.OutOfMemory)\ndef main() -> ():\n    print(str.repr(missing(1u8)).unwrap()).unwrap()\n");
     assert!(
         output.status.success(),
         "{}",
@@ -95,7 +95,7 @@ class Pair[T]:
         pass
 def main() -> Result[(), Failure]:
     result = Pair(Resource(1), Resource(2))
-    print(result)?
+    print(str.repr(result).unwrap())?
     Ok(())
 "#);
     assert!(

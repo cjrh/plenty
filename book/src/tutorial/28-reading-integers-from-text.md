@@ -6,10 +6,10 @@ are accepted, with surrounding Unicode whitespace ignored. Numeric prefixes,
 underscores, and non-ASCII digits are not accepted.
 
 ```plenty
-def main() -> Result[(), IoError]:
-    print(u8.parse(" 255 "))?
-    print(u8.parse("256"))?
-    print(i64.parse("hello"))?
+def main() -> Result[(), Failure]:
+    print(str.repr(u8.parse(" 255 "))?)?
+    print(str.repr(u8.parse("256"))?)?
+    print(str.repr(i64.parse("hello"))?)?
     Ok(())
 ```
 ```output

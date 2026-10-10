@@ -76,7 +76,7 @@ def main() -> Result[(), Failure]:
     print(identity({1u8, 2u8}?))?
     print(pair((3u32, "cm")))?
     r: Result[u64, str] = Ok(18446744073709551615u64)
-    print(success(r))?
+    print(str.repr(success(r)).unwrap())?
     print(optional(Some(1u8)))?
     print(count(range[u8](4)))?
     print(identity(2.5))?

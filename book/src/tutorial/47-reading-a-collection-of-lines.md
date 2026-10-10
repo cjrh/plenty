@@ -10,12 +10,12 @@ def demo() -> Result[list[str], IoError]:
     write_text("collection.txt", "first\r\n\nlast")?
     with open("collection.txt")? as file:
         return file.readlines()
-def main() -> Result[(), IoError]:
-    print(demo())?
+def main() -> Result[(), Failure]:
+    print(demo()?)?
     Ok(())
 ```
 ```output
-Result[list[str], IoError].Ok(["first\n", "\n", "last"])
+["first\n", "\n", "last"]
 ```
 
 `writelines(lines)` writes a `list[str]` without consuming it. It inserts no
@@ -31,12 +31,11 @@ def demo() -> Result[(), Failure]:
     with open("written.txt")? as file:
         print(file.readlines()?)?
     Ok(())
-def main() -> Result[(), IoError]:
-    print(demo())?
+def main() -> Result[(), Failure]:
+    demo()?
     Ok(())
 ```
 ```output
 2
 ["one\n", "two\n"]
-Result[(), Failure].Ok(())
 ```

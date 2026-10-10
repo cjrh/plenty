@@ -18,12 +18,12 @@ def count_lines() -> Result[i64, IoError]:
             count = count + 1
     Ok(count)
 
-def main() -> Result[(), IoError]:
-    print(count_lines())?
+def main() -> Result[(), Failure]:
+    print(count_lines()?)?
     Ok(())
 ```
 ```output
-Result[i64, IoError].Ok(3)
+3
 ```
 
 Each call reports decoding, I/O, or allocation failure through its Result. You

@@ -10,17 +10,16 @@ def middle(items: &list[i64]) -> Result[list[i64], AllocError]:
 
 def main() -> Result[(), Failure]:
     items = [10, 20, 30, 40]?
-    print(middle(&items))?
-    print(items.slice(-100, 100))?
-    print(items.slice(3, 1))?
+    print(middle(&items)?)?
+    print(items.slice(-100, 100)?)?
+    print(items.slice(3, 1)?)?
     print(items)?
     Ok(())
 ```
-
 ```output
-Result[list[i64], AllocError].Ok([20, 30])
-Result[list[i64], AllocError].Ok([10, 20, 30, 40])
-Result[list[i64], AllocError].Ok([])
+[20, 30]
+[10, 20, 30, 40]
+[]
 [10, 20, 30, 40]
 ```
 

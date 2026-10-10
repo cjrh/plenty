@@ -23,14 +23,14 @@ fn snapshots_preserve_order_types_and_empty_lists() {
     native(r#"
 mut data = {3u8: 2.5f32, 1u8: -1.5f32, 2u8: 0f32}.unwrap()
 data[1u8] = 4.5f32
-print(data.keys()).unwrap()
-print(data.values()).unwrap()
+print(str.repr(data.keys()).unwrap()).unwrap()
+print(str.repr(data.values()).unwrap()).unwrap()
 print(data).unwrap()
-print(dict[str, i64]().unwrap().keys()).unwrap()
-print(dict[str, i64]().unwrap().values()).unwrap()
+print(str.repr(dict[str, i64]().unwrap().keys()).unwrap()).unwrap()
+print(str.repr(dict[str, i64]().unwrap().values()).unwrap()).unwrap()
 flags = {False: True, True: False}.unwrap()
-print(flags.keys()).unwrap()
-print(flags.values()).unwrap()
+print(str.repr(flags.keys()).unwrap()).unwrap()
+print(str.repr(flags.values()).unwrap()).unwrap()
 "#, "Result[list[u8], AllocError].Ok([3, 1, 2])\nResult[list[f32], AllocError].Ok([2.5, 4.5, 0.0])\n{3: 2.5, 1: 4.5, 2: 0.0}\nResult[list[str], AllocError].Ok([])\nResult[list[i64], AllocError].Ok([])\nResult[list[bool], AllocError].Ok([False, True])\nResult[list[bool], AllocError].Ok([True, False])");
 }
 
@@ -44,13 +44,13 @@ keys = data.keys()
 values = data.values()
 data["name"] = "changed"
 drop(data)
-print(keys).unwrap()
-print(values).unwrap()
-print({0: Label.Text(("A" + "da").unwrap())}.unwrap().values()).unwrap()
+print(str.repr(keys).unwrap()).unwrap()
+print(str.repr(values).unwrap()).unwrap()
+print(str.repr({0: Label.Text(("A" + "da").unwrap())}.unwrap().values()).unwrap()).unwrap()
 options: dict[i64, Option[str]] = {0: Nothing, 1: Some(("B" + "ea").unwrap())}.unwrap()
 result = options.values()
 drop(options)
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 "#, "Result[list[str], AllocError].Ok([\"name\"])\nResult[list[str], AllocError].Ok([\"é🙂\"])\nResult[list[Label], AllocError].Ok([Label.Text(\"Ada\")])\nResult[list[Option[str]], AllocError].Ok([Option[str].Nothing, Option[str].Some(\"Bea\")])");
 }
 
@@ -65,9 +65,9 @@ def values(data: &dict[str, i64]) -> Result[list[i64], AllocError]:
 def keys(data: &mut dict[str, i64]) -> Result[list[str], AllocError]:
     data.keys()
 mut data = Data({"a": 1, "b": 2}.unwrap())
-print(values(&data.entries)).unwrap()
-print(keys(&mut data.entries)).unwrap()
-print(data.entries.values()).unwrap()
+print(str.repr(values(&data.entries)).unwrap()).unwrap()
+print(str.repr(keys(&mut data.entries)).unwrap()).unwrap()
+print(str.repr(data.entries.values()).unwrap()).unwrap()
 data.entries["a"] = 3
 print(data.entries).unwrap()
 "#, "Result[list[i64], AllocError].Ok([1, 2])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[i64], AllocError].Ok([1, 2])\n{\"a\": 3, \"b\": 2}");
@@ -87,9 +87,9 @@ def snapshot(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]
             pass
     Ok(items)
 data = {"a": [1, 2].unwrap()}.unwrap()
-print(snapshot(&data)).unwrap()
+print(str.repr(snapshot(&data)).unwrap()).unwrap()
 print(data).unwrap()
-print(data.keys()).unwrap()
+print(str.repr(data.keys()).unwrap()).unwrap()
 "#, "Result[list[list[i64]], AllocError].Ok([[1, 2, 3]])\n{\"a\": [1, 2]}\nResult[list[str], AllocError].Ok([\"a\"])");
 }
 
@@ -124,8 +124,8 @@ class Custom:
         n
     def values(self) -> bool:
         True
-print(make().keys()).unwrap()
-print(make().values()).unwrap()
+print(str.repr(make().keys()).unwrap()).unwrap()
+print(str.repr(make().values()).unwrap()).unwrap()
 print(Custom().keys(42)).unwrap()
 custom = Custom()
 print(custom.values()).unwrap()
@@ -147,9 +147,9 @@ data = {{("k" + "ey").unwrap(): ("val" + "ue").unwrap()}}.unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = data.{method}()
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(data).unwrap()
-print(data.{method}()).unwrap()
+print(str.repr(data.{method}()).unwrap()).unwrap()
 "#), &format!("Result[list[{element}], AllocError].{}\n{{\"key\": \"value\"}}\nResult[list[{element}], AllocError].Ok({expected})", if budget < 2 { "Err(AllocError.OutOfMemory)".to_owned() } else { format!("Ok({expected})") }));
     }
 }
@@ -166,7 +166,7 @@ data = dict[i64, i64]().unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = data.{method}()
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(data).unwrap()
 "#
                 ),
@@ -238,7 +238,7 @@ drop(result)
     "values with owned payloads requires an owned temporary"
 )]
 #[case(
-    "mut data = {1: 2}.unwrap()\nloan = &mut data\nprint(data.keys()).unwrap()\nloan[1] = 3",
+    "mut data = {1: 2}.unwrap()\nloan = &mut data\nprint(str.repr(data.keys()).unwrap()).unwrap()\nloan[1] = 3",
     "borrow"
 )]
 fn rejects_invalid_snapshots(#[case] source: &str, #[case] expected: &str) {

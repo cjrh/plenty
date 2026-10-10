@@ -31,8 +31,8 @@ def optional(ok: bool) -> Option[i64]:
 def changed(ok: bool) -> Option[str]:
     print(optional(ok)?).unwrap()
     Some("done")
-print(doubled(True)).unwrap()
-print(doubled(False)).unwrap()
+print(str.repr(doubled(True)).unwrap()).unwrap()
+print(str.repr(doubled(False)).unwrap()).unwrap()
 print(changed(True)).unwrap()
 print(changed(False)).unwrap()
 "#, "42\nResult[str, str].Ok(\"done\")\nResult[str, str].Err(\"failed\")\n21\nOption[str].Some(\"done\")\nOption[str].Nothing\n");
@@ -58,10 +58,10 @@ def collect(n: i64) -> Result[list[i64], str]:
 def field() -> Option[i64]:
     Some(Some(Point(7))?.x)
 print(unwrap()).unwrap()
-print(unit(True)).unwrap()
-print(unit(False)).unwrap()
-print(collect(3)).unwrap()
-print(collect(5)).unwrap()
+print(str.repr(unit(True)).unwrap()).unwrap()
+print(str.repr(unit(False)).unwrap()).unwrap()
+print(str.repr(collect(3)).unwrap()).unwrap()
+print(str.repr(collect(5)).unwrap()).unwrap()
 print(field()).unwrap()
 "#, "Option[i64].Some(5)\nResult[i64, str].Ok(9)\nResult[i64, str].Err(\"stop\")\nResult[list[i64], str].Ok([0, 1, 4])\nResult[list[i64], str].Err(\"large\")\nOption[i64].Some(7)\n");
 }
@@ -111,9 +111,9 @@ replace(&mut h.value)
 print(h).unwrap()
 mut items: list[Result[Option[u64], str]] = [Ok(Some(18446744073709551615u64)), Err("bad")].unwrap()
 print(copy(items).unwrap()).unwrap()
-print(items[0]).unwrap()
+print(str.repr(items[0]).unwrap()).unwrap()
 for value in values(Ok(Some(-0.0))):
-    print(value).unwrap()
+    print(str.repr(value).unwrap()).unwrap()
 mut it = values(Ok(Nothing))
 print(next(it)).unwrap()
 drop(it)
@@ -134,9 +134,9 @@ def looping() -> Result[(), ()]:
     Ok(())
 def filter_items() -> Result[list[i64], ()]:
     Ok([n for n in range(3) if flag()?].unwrap())
-print(short()).unwrap()
-print(looping()).unwrap()
-print(filter_items()).unwrap()
+print(str.repr(short()).unwrap()).unwrap()
+print(str.repr(looping()).unwrap()).unwrap()
+print(str.repr(filter_items()).unwrap()).unwrap()
 "#, "Result[bool, ()].Ok(False)\nflag\nResult[(), ()].Err(())\nflag\nResult[list[i64], ()].Err(())\n");
 }
 
@@ -231,8 +231,8 @@ match good:
     case Err(_):
         pass
 print("__test_end_no_allocations__").unwrap()
-print(good).unwrap()
-print(bad).unwrap()
+print(str.repr(good).unwrap()).unwrap()
+print(str.repr(bad).unwrap()).unwrap()
 print(missing).unwrap()
 print(same).unwrap()
 "#, "__test_begin_no_allocations__\n__test_end_no_allocations__\nResult[Option[u64], i64].Ok(Option[u64].Some(18446744073709551615))\nResult[Option[u64], i64].Err(-42)\nOption[u64].Nothing\nTrue\n");
@@ -294,7 +294,7 @@ fn allocation_instrumentation_detects_a_temporary_allocation() {
     "def f() -> Generator[i64]:\n    yield Some(1)?",
     "not supported in generators"
 )]
-#[case("def f() -> Result[i64, str]:\n    x: Result[list[i64], str] = Ok([1].unwrap())\n    values = x?\n    print(x).unwrap()\n    Ok(1)", "moved")]
+#[case("def f() -> Result[i64, str]:\n    x: Result[list[i64], str] = Ok([1].unwrap())\n    values = x?\n    print(str.repr(x).unwrap()).unwrap()\n    Ok(1)", "moved")]
 fn rejects_invalid_propagation(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

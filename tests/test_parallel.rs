@@ -48,7 +48,7 @@ def main() -> Result[(), Failure]:
             case Ok(values):
                 print(values)?
         pool.shutdown()
-        print(pool.map_result(square, range(0)))?
+        print(str.repr(pool.map_result(square, range(0))).unwrap())?
     Ok(())
 "#, "[0, 1, 4, 9, 16]\n[]\nrange(2, 4, 1)\nResult[list[i64], ParallelError[str]].Err(ParallelError[str].Shutdown)\n");
 }
@@ -139,7 +139,7 @@ def main() -> Result[(), Failure]:
         print(pool.reduce_tree(subtract, range(0))?)?
         print(pool.reduce_tree(subtract, range(9, 10))?)?
         pool.shutdown()
-        print(pool.reduce_tree(subtract, range(0)))?
+        print(str.repr(pool.reduce_tree(subtract, range(0))).unwrap())?
     Ok(())
 "#, &format!("{}Option[i64].Nothing\nOption[i64].Some(9)\nResult[Option[i64], PoolMapError].Err(PoolMapError.Shutdown)\n",
     "Option[i64].Some(-5)\nOption[i32].Some(0)\nOption[f64].Some(0.0)\n".repeat(4)));
@@ -210,8 +210,8 @@ fn parallel_operations_reject_uncertified_workers_and_wrong_signatures() {
         ("def work(n: i64) -> i64:\n    n\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.map_result(work, range(3))\n", "map_result worker must return Result"),
         ("def work(n: i64) -> Result[(), str]:\n    Ok(())\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.map_result(work, range(3))\n", "non-unit T"),
         ("def work(a: i64, b: i64) -> str:\n    return \"wrong\"\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.reduce_tree(work, range(3))\n", "return that same type"),
-        ("def work(a: i64, b: i64) -> i64:\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    a + b\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.reduce_tree(work, range(3))\n", "executor"),
-        ("def work(n: i64) -> Result[i64, Future[i64]]:\n    Ok(n)\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.map_result(work, range(3))\n", "future handles cannot enter worker threads"),
+        ("def work(a: i64, b: i64) -> i64:\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    a + b\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.reduce_tree(work, range(3)))\n", "executor"),
+        ("def work(n: i64) -> Result[i64, Future[i64]]:\n    Ok(n)\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.map_result(work, range(3)))\n", "future handles cannot enter worker threads"),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "expected {diagnostic}: {error}");
@@ -228,6 +228,6 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
     print("__test_fail_allocations_after_4__").unwrap()
     result = pool.map_result(reject, range(8))
     print("__test_restore_allocations__").unwrap()
-    print(result).unwrap()
+    print(str.repr(result).unwrap()).unwrap()
 "#, "__test_fail_allocations_after_4__\n__test_restore_allocations__\nResult[list[i64], ParallelError[i64]].Err(ParallelError[i64].Worker(0))\n");
 }

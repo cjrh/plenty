@@ -32,8 +32,8 @@ match str.repr("é\n\0"):
         print(text).unwrap()
     case Err(error):
         print(error).unwrap()
-print(print(values)).unwrap()
-print(print("plain")).unwrap()
+print(str.repr(print(values)).unwrap()).unwrap()
+print(str.repr(print("plain")).unwrap()).unwrap()
 print(values).unwrap()
 "#, "[1, 2]\n\"é\\n\\0\"\n[1, 2]\nResult[(), IoError].Ok(())\nplain\nResult[(), IoError].Ok(())\n[1, 2]");
 }
@@ -49,7 +49,7 @@ values = [1, 2].unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 result = {operation}
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(values).unwrap()
 "#
             ),

@@ -7,14 +7,14 @@ also recognizes Unicode line/paragraph separators and the other Python-style
 text line boundaries.
 
 ```plenty
-def main() -> Result[(), IoError]:
-    print("first\r\n\nlast\n".splitlines())?
-    print("first\r\nlast".splitlines(True))?
-    print("".splitlines())?
+def main() -> Result[(), Failure]:
+    print("first\r\n\nlast\n".splitlines()?)?
+    print("first\r\nlast".splitlines(True)?)?
+    print("".splitlines()?)?
     Ok(())
 ```
 ```output
-Result[list[str], AllocError].Ok(["first", "", "last"])
-Result[list[str], AllocError].Ok(["first\r\n", "last"])
-Result[list[str], AllocError].Ok([])
+["first", "", "last"]
+["first\r\n", "last"]
+[]
 ```

@@ -163,6 +163,9 @@ and a sensible learning sequence. Keep runnable lessons, reference contracts, an
 implementation aligned, and validate the book and regression suite after cleanup.
 Record deliberate deferrals here rather than creating another work queue.
 
+Current cleanup slice: **issue #15**, reject implicitly discarded Results and
+direct Result arguments to `print`, with propagation advice and updated examples.
+
 ## Work items
 
 The order above selects the next slices. This table is the catalog of open items,

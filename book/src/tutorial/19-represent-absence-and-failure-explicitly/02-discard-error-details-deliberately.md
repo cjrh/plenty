@@ -10,9 +10,9 @@ def work(text: str) -> Result[list[u8], Failure]:
     print("built values")?          # IoError
     Ok(values)
 
-def main() -> Result[(), IoError]:
-    print(work("41"))?
-    print(work("invalid"))?
+def main() -> Result[(), Failure]:
+    print(str.repr(work("41"))?)?
+    print(str.repr(work("invalid"))?)?
     Ok(())
 ```
 

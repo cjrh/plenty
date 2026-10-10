@@ -16,13 +16,12 @@ def demo() -> Result[(), IoError]:
         print(file.read()?)?
     Ok(())
 def main() -> Result[(), IoError]:
-    print(demo())?
+    demo()?
     Ok(())
 ```
 ```output
 two
 two
-Result[(), IoError].Ok(())
 ```
 
 `truncate(size)` resizes a writable file in **bytes** and returns its new length.
@@ -39,11 +38,10 @@ def demo() -> Result[(), IoError]:
     print(read_text("short.txt")?)?
     Ok(())
 def main() -> Result[(), IoError]:
-    print(demo())?
+    demo()?
     Ok(())
 ```
 ```output
 4
 keep
-Result[(), IoError].Ok(())
 ```

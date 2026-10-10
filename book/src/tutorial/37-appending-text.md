@@ -13,8 +13,8 @@ def log_example() -> Result[str, IoError]:
     append_text("plenty-log.txt", "finished\n")?
     read_text("plenty-log.txt")
 
-def main() -> Result[(), IoError]:
-    print(log_example())?
+def main() -> Result[(), Failure]:
+    print(str.repr(log_example())?)?
     Ok(())
 ```
 ```output

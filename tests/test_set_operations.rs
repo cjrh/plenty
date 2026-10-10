@@ -285,8 +285,8 @@ b = {2}.unwrap()
 print("__test_fail_allocations_after_1__").unwrap()
 result = a.intersection(b)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
-print(a.intersection(set[i64]().unwrap())).unwrap()
+print(str.repr(result).unwrap()).unwrap()
+print(str.repr(a.intersection(set[i64]().unwrap())).unwrap()).unwrap()
 "#,
         "Result[set[i64], AllocError].Ok(set())\nResult[set[i64], AllocError].Ok(set())",
     );

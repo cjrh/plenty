@@ -6,12 +6,12 @@ Comprehensions support the same explicit allocation boundary:
 def squares() -> Result[list[i64], AllocError]:
     [n * n for n in range(6) if n % 2 == 0]
 
-def main() -> Result[(), IoError]:
-    print(squares())?
+def main() -> Result[(), Failure]:
+    print(squares()?)?
     Ok(())
 ```
 ```output
-Result[list[i64], AllocError].Ok([0, 4, 16])
+[0, 4, 16]
 ```
 
 Output allocation failure stops iteration and drops the partial result. It does
@@ -28,12 +28,12 @@ def collect() -> Result[list[i64], AllocError]:
     source = numbers()
     list[i64].from(source)
 
-def main() -> Result[(), IoError]:
-    print(collect())?
+def main() -> Result[(), Failure]:
+    print(collect()?)?
     Ok(())
 ```
 ```output
-Result[list[i64], AllocError].Ok([3, 6])
+[3, 6]
 ```
 
 `from` consumes the source. If output allocation fails, it drops the partial
@@ -44,11 +44,11 @@ Sets provide the same constructor, removing duplicates in first-seen order:
 
 ```plenty
 def main() -> Result[(), Failure]:
-    print(set[i64].from([3, 1, 3, 2]?))?
+    print(set[i64].from([3, 1, 3, 2]?)?)?
     Ok(())
 ```
 ```output
-Result[set[i64], AllocError].Ok({3, 1, 2})
+{3, 1, 2}
 ```
 
 The example propagates input construction failure with `[3, 1, 3, 2]?`.

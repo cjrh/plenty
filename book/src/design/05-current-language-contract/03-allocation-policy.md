@@ -16,6 +16,12 @@ allocation; other formatting uses checked buffer growth. Formatting allocation
 failure emits no bytes; an I/O error can leave partial output. Neither invokes
 user-defined formatting methods. There is no separate aborting print API.
 
+Builtin `print` rejects a direct `Result` argument: handle its error before
+printing the payload, or use `str.repr(result)` for intentional wrapper
+inspection. `Option` and printable aggregates containing Results remain allowed.
+Both formatting and printing return Results that must be handled or explicitly
+dropped; they cannot be discarded as expression statements.
+
 New practical I/O APIs must return explicit errors, including allocation failure
 in their own buffers and result construction. They must not hide infallible
 `String` growth behind a fallible public signature. Input consumption and partial

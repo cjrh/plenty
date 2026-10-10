@@ -109,7 +109,7 @@ with ThreadPoolExecutor(1, 1).unwrap() as pool:
     print(full(pool, fallback)).unwrap()
     print(pending.cancel()).unwrap()
     print(pending.done()).unwrap()
-    print(pending.result()).unwrap()
+    print(str.repr(pending.result()).unwrap()).unwrap()
     signal.send(7).unwrap()
     print(running.result().unwrap()).unwrap()
 "#,
@@ -190,7 +190,7 @@ def main() -> Result[(), Failure]:
         future = pool.submit(nothing)?
         future.result()?
         pool.shutdown()
-        print(pool.map(identity, [1, 2]?))?
+        print(str.repr(pool.map(identity, [1, 2]?)).unwrap())?
     Ok(())
 "#,
         "Result[list[i64], PoolMapError].Err(PoolMapError.Shutdown)\n",
@@ -254,17 +254,17 @@ with ThreadPoolExecutor(1, 1).unwrap() as pool:
 #[test]
 fn creation_failures_are_inline_and_partial_native_startup_is_reclaimed() {
     runs(r#"
-print(ThreadPoolExecutor(0, 1)).unwrap()
-print(ThreadPoolExecutor(1, 0)).unwrap()
-print(ThreadPoolExecutor(1, 18446744073709551615u64)).unwrap()
+print(str.repr(ThreadPoolExecutor(0, 1)).unwrap()).unwrap()
+print(str.repr(ThreadPoolExecutor(1, 0)).unwrap()).unwrap()
+print(str.repr(ThreadPoolExecutor(1, 18446744073709551615u64)).unwrap()).unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 failed = ThreadPoolExecutor(2, 2)
 print("__test_restore_allocations__").unwrap()
-print(failed).unwrap()
+print(str.repr(failed).unwrap()).unwrap()
 print("__test_one_thread_start__").unwrap()
 partial = ThreadPoolExecutor(3, 2)
 print("__test_restore_thread_starts__").unwrap()
-print(partial).unwrap()
+print(str.repr(partial).unwrap()).unwrap()
 "#, "Result[ThreadPoolExecutor, PoolError].Err(PoolError.InvalidSize)\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.InvalidSize)\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Allocation(AllocError.CapacityOverflow))\n__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Allocation(AllocError.OutOfMemory))\n__test_one_thread_start__\n__test_restore_thread_starts__\nResult[ThreadPoolExecutor, PoolError].Err(PoolError.Thread(ThreadError.System(11)))\n");
 }
 
@@ -284,7 +284,7 @@ with ThreadPoolExecutor(2, 2).unwrap() as pool:
     for n in range(3):
         futures.append(pool.submit(make, n).unwrap()).unwrap()
     for future in futures:
-        print(future.result().unwrap()).unwrap()
+        print(str.repr(future.result().unwrap()).unwrap()).unwrap()
     print(pool.map(make, range(3)).unwrap()).unwrap()
 "#, "Result[list[i64], i64].Ok([0])\nResult[list[i64], i64].Err(1)\nResult[list[i64], i64].Ok([2])\n[Result[list[i64], i64].Ok([0]), Result[list[i64], i64].Err(1), Result[list[i64], i64].Ok([2])]\n");
 }

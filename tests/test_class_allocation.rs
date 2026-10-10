@@ -84,8 +84,8 @@ class Number:
             return Err(AllocError.CapacityOverflow)
         self.value = n
         Ok(())
-print(Number.new(-1)).unwrap()
-print(Number.new(4)).unwrap()
+print(str.repr(Number.new(-1)).unwrap()).unwrap()
+print(str.repr(Number.new(4)).unwrap()).unwrap()
 "#, "Result[Number, AllocError].Err(AllocError.CapacityOverflow)\nResult[Number, AllocError].Ok(Number(value=4))");
 }
 

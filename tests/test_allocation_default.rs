@@ -37,12 +37,12 @@ def main() -> Result[(), AllocError]:
     mut values = list[i64]()?
     values.append(42)?
     values.reserve(4)?
-    print(copy(values)).unwrap()
+    print(str.repr(copy(values)).unwrap()).unwrap()
     print(Item(7)).unwrap()
     print(Choice.Value(9)).unwrap()
-    print(str.from(42)).unwrap()
-    print("a" + "b").unwrap()
-    print({"answer": 42}).unwrap()
+    print(str.repr(str.from(42)).unwrap()).unwrap()
+    print(str.repr("a" + "b").unwrap()).unwrap()
+    print(str.repr({"answer": 42}).unwrap()).unwrap()
     Ok(())
 "#,
     );

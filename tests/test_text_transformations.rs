@@ -9,14 +9,14 @@ def lines(text: &str) -> Result[list[str], AllocError]:
     text.splitlines()
 mut text = ("é\r\n\n🦀\rlast" + "").unwrap()
 result = lines(&text)
-print(text.splitlines(True)).unwrap()
+print(str.repr(text.splitlines(True)).unwrap()).unwrap()
 text = "changed"
 drop(text)
-print(result).unwrap()
-print("".splitlines()).unwrap()
-print("\n".splitlines()).unwrap()
-print("a\nb\n".splitlines()).unwrap()
-print("a\0b".splitlines()).unwrap()
+print(str.repr(result).unwrap()).unwrap()
+print(str.repr("".splitlines()).unwrap()).unwrap()
+print(str.repr("\n".splitlines()).unwrap()).unwrap()
+print(str.repr("a\nb\n".splitlines()).unwrap()).unwrap()
+print(str.repr("a\0b".splitlines()).unwrap()).unwrap()
 "#, "Result[list[str], AllocError].Ok([\"é\\r\\n\", \"\\n\", \"🦀\\r\", \"last\"])\nResult[list[str], AllocError].Ok([\"é\", \"\", \"🦀\", \"last\"])\nResult[list[str], AllocError].Ok([])\nResult[list[str], AllocError].Ok([\"\"])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[str], AllocError].Ok([\"a\\0b\"])");
     for source in [
         "print(\"x\".splitlines(1)).unwrap()",
@@ -38,7 +38,7 @@ source = ("firstline\nsecondline\nthirdline" + "").unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = source.splitlines()
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(len(source)).unwrap()
 "#
             ),
@@ -74,7 +74,7 @@ fn affix_removal_is_literal(
     #[case] expected: &str,
 ) {
     native(
-        &format!("print({source:?}.{method}({pattern:?})).unwrap()"),
+        &format!("print(str.repr({source:?}.{method}({pattern:?})).unwrap()).unwrap()"),
         &format!("Result[str, AllocError].Ok({expected:?})"),
     );
 }
@@ -90,14 +90,14 @@ def pattern() -> str:
     "pre-"
 def trim(text: &str, prefix: &str) -> Result[str, AllocError]:
     text.removeprefix(prefix)?.removesuffix("-end")
-print(source().removeprefix(pattern())).unwrap()
+print(str.repr(source().removeprefix(pattern())).unwrap()).unwrap()
 mut text = ("pre-é" + "-end").unwrap()
 prefix = ("pre" + "-").unwrap()
 result = trim(&text, &prefix)
 text = "changed"
 drop(text)
 drop(prefix)
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 class Custom:
     def removeprefix(self) -> i64:
         42
@@ -124,7 +124,7 @@ pattern = ("" + {pattern:?}).unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = source.{method}(pattern)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(source).unwrap()
 "#
         ),
@@ -176,7 +176,7 @@ fn native(source: &str, expected: &str) {
 #[case("strip", " \0 ", "\0")]
 fn strip_keeps_inner_text(#[case] method: &str, #[case] text: &str, #[case] expected: &str) {
     native(
-        &format!("print({text:?}.{method}()).unwrap()"),
+        &format!("print(str.repr({text:?}.{method}()).unwrap()).unwrap()"),
         &format!("Result[str, AllocError].Ok({expected:?})"),
     );
 }
@@ -188,12 +188,12 @@ def strip(text: &str) -> Result[str, AllocError]:
     result = text.strip()?
     Ok(result)
 text = "　 é🙂 　"
-print(strip(&text)).unwrap()
-print(text.lstrip()).unwrap()
-print(text.rstrip()).unwrap()
+print(str.repr(strip(&text)).unwrap()).unwrap()
+print(str.repr(text.lstrip()).unwrap()).unwrap()
+print(str.repr(text.rstrip()).unwrap()).unwrap()
 print(len(text)).unwrap()
 print(len("ZERO_WIDTH_SPACE")).unwrap()
-print("ZERO_WIDTH_SPACE".strip()).unwrap()
+print(str.repr("ZERO_WIDTH_SPACE".strip()).unwrap()).unwrap()
 class Custom:
     def strip(self, value: i64) -> i64:
         value
@@ -212,8 +212,8 @@ mut text = (" é" + "🙂 ").unwrap()
 saved = text.strip()
 text = "changed"
 drop(text)
-print(saved).unwrap()
-print(source().strip()).unwrap()
+print(str.repr(saved).unwrap()).unwrap()
+print(str.repr(source().strip()).unwrap()).unwrap()
 "#,
         "Result[str, AllocError].Ok(\"é🙂\")\nreceiver\nResult[str, AllocError].Ok(\"x\")",
     );
@@ -236,8 +236,8 @@ text = {text:?}
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = text.strip()
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
-print(text.strip()).unwrap()
+print(str.repr(result).unwrap()).unwrap()
+print(str.repr(text.strip()).unwrap()).unwrap()
 "#
                 ),
                 &format!(
@@ -258,7 +258,7 @@ print(text.strip()).unwrap()
 #[case("print(\"x\".lstrip(1)).unwrap()", "lstrip takes no arguments")]
 #[case("print([1].unwrap().rstrip()).unwrap()", "expected str")]
 #[case(
-    "mut text = \"a\"\nloan = &mut text\nprint(text.strip()).unwrap()\n*loan = \"b\"",
+    "mut text = \"a\"\nloan = &mut text\nprint(str.repr(text.strip()).unwrap()).unwrap()\n*loan = \"b\"",
     "borrow"
 )]
 fn invalid_strip(#[case] source: &str, #[case] expected: &str) {
@@ -280,7 +280,7 @@ fn repeat_handles_counts_and_exact_utf8(
     #[case] expected: &str,
 ) {
     native(
-        &format!("print({text:?}.repeat({count})).unwrap()"),
+        &format!("print(str.repr({text:?}.repeat({count})).unwrap()).unwrap()"),
         &format!("Result[str, AllocError].Ok({expected:?})"),
     );
 }
@@ -296,7 +296,7 @@ count = 3
 saved = repeat(&text, &count)
 text = "changed"
 drop(text)
-print(saved).unwrap()
+print(str.repr(saved).unwrap()).unwrap()
 class Custom:
     def repeat(self) -> i64:
         42
@@ -307,7 +307,7 @@ def source() -> str:
 def copies() -> i64:
     print("count").unwrap()
     2
-print(source().repeat(copies())).unwrap()
+print(str.repr(source().repeat(copies())).unwrap()).unwrap()
 "#, "Result[str, AllocError].Ok(\"é🙂é🙂é🙂\")\n42\nreceiver\ncount\nResult[str, AllocError].Ok(\"xx\")");
 }
 
@@ -323,9 +323,9 @@ text = ("é" + "🙂").unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = text.repeat({count})
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(text).unwrap()
-print(text.repeat({count})).unwrap()
+print(str.repr(text.repeat({count})).unwrap()).unwrap()
 "#
                 ),
                 &format!(
@@ -346,8 +346,8 @@ a = "x".repeat(9223372036854775807)
 b = "é🙂".repeat(9223372036854775807)
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
-print(a).unwrap()
-print(b).unwrap()
+print(str.repr(a).unwrap()).unwrap()
+print(str.repr(b).unwrap()).unwrap()
 "#, "Result[str, AllocError].Err(AllocError.CapacityOverflow)\nResult[str, AllocError].Err(AllocError.CapacityOverflow)");
 }
 

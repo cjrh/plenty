@@ -12,13 +12,13 @@ def extended(source: &list[i64]) -> Result[list[i64], AllocError]:
 
 def main() -> Result[(), Failure]:
     original = [10, 20]?
-    print(extended(&original))?
+    print(extended(&original)?)?
     print(original)?
     Ok(())
 ```
 
 ```output
-Result[list[i64], AllocError].Ok([10, 20, 30])
+[10, 20, 30]
 [10, 20]
 ```
 

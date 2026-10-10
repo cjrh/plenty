@@ -19,10 +19,9 @@ def main() -> Result[(), Failure]:
                     print(message)?
     print(receiver.recv()?)?
     drop(sender)
-    print(receiver.recv())?
+    print(str.repr(receiver.recv())?)?
     Ok(())
 ```
-
 ```output
 [10]
 [20, 30]
