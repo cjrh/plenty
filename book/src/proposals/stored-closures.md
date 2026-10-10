@@ -1,15 +1,25 @@
 # Stored closure environments
 
-This records B32's storage decision. Current delivery status and priorities belong
-in the [backlog](../backlog.md); the reference describes the implemented subset.
+> **Status: Implemented.** This records B32's storage decision.
+> [Consuming and stored closures](../design/language/06-functions/04-consuming-and-stored-closures.md)
+> owns the contract and
+> [environments](../design/toolchain/02-architecture/environments.md) the
+> layout.
+>
+> **Shipped differently:** classes, tuples, and enums are inline, so only a
+> collection owner allocates. Environments that contain generators cannot enter
+> heap storage.
+>
+> **Remaining:** heterogeneous erased environments and generator-containing
+> environments in heap owners (B32); escaping borrowed captures (B11).
 
 A registry needs an owner for callback state, a call signature, and a cleanup
 contract. The existing generic class mechanism can express that owner when each
 instance has one known environment type. Closure bodies already have concrete
 identities and layouts. Preserve those identities when inferring a generic field
 or collection element, and place the environment directly in that owner's slot.
-There is no separate environment allocation and no dynamic dispatch. Constructing
-or growing the containing heap object retains its ordinary fallible contract.
+There is no separate environment allocation and no dynamic dispatch. Growing a
+containing collection retains its ordinary fallible contract.
 
 Two calls to the same closure factory produce compatible environments. Different
 closure expressions remain different types, even with identical signatures. A
@@ -32,9 +42,10 @@ container relocates inline environment addresses without cloning captured owners
 Extraction and destruction must work with allocation disabled. Copy, equality, and
 hashing remain unavailable for environments, including through containing values.
 
-The native implementation needs type-sized extraction storage: the historical
-range-sized scratch area cannot hold arbitrary environments. Reuse a removed row
-in the collection's existing buffer instead of allocating during `pop` or remove.
+The native implementation uses type-sized extraction storage, because the
+historical range-sized scratch area could not hold arbitrary environments. It
+reuses a removed row in the collection's existing buffer instead of allocating
+during `pop` or remove.
 Nested environments must relocate after buffer growth, shifting, reversal, and
 transfer. Worker eligibility must inspect captures and callable bodies through
 stored environments, including their destructors; storage does not certify thread

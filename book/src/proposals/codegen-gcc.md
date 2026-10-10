@@ -1,14 +1,18 @@
 # GCC backend (`plenty_codegen_gcc`)
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: planning proposal, 2026-10-07. Nothing in this document is implemented.
-API facts were checked against the `gccjit` 7.1.0 crate source and the
-libgccjit 17 documentation on 2026-10-07. Line numbers refer to the tree on
-that date.
+> **Status: Not implemented** (B20). The compiler has no `--backend` option.
+> This page is the only record of the GCC backend design. API facts were checked
+> against the `gccjit` 7.1.0 crate source and the libgccjit 17 documentation on
+> 2026-10-07.
+>
+> **Out of date since then:** line numbers, file sizes, and test counts refer to
+> the tree on 2026-10-07. The Cranelift backend has grown from about 2,840 lines
+> in five files to about 4,900 in `src/codegen.rs` and fifteen submodules, plus
+> `src/tail_abi.rs`. A revised plan must cover what was added: parallel function
+> emission (`src/codegen/output.rs`), which libgccjit's global lock constrains;
+> closures, threads, channels, executors, exports, and foreign calls; and inline
+> aggregate values. Native emission supports only `x86_64-unknown-linux-gnu`
+> (B18).
 
 ## Goal
 
@@ -270,8 +274,8 @@ Goal: prove the toolchain works before you change the design.
 2. In a scratch crate with `gccjit = { version = "7.1", features = ["dlopen"] }`:
    - write an object file with one exported `plenty_main`,
    - call one runtime helper (for example `plenty_print_str`),
-   - link it with `libplenty_runtime.a` through `cc`. Copy the archive from
-     `target/debug/build/plenty-*/out/`.
+   - link it with `libplenty_runtime.a` through `cc`. Extract the archive with
+     `plenty --emit-runtime DIR`.
 3. Test mandatory tail calls, at `-O0` and `-O2`:
    - self tail call, mutual tail call,
    - a callee with **more** arguments than the caller (more than 6 integer
@@ -356,8 +360,8 @@ crate later only if you need it.
 - Run the GCC suite at `-O0` and `-O2`. Undefined behaviour bugs show only at
   `-O2`.
 - CI: add one job that installs libgccjit and runs the command above.
-- Docs: update `CLAUDE.md` (pipeline diagram, build table) and the AOT sections
-  of `DESIGN.md`.
+- Docs: update the build table in `CLAUDE.md` and the
+  [toolchain reference](../design/toolchain/index.md).
 
 ### Phase 5: options (optional)
 

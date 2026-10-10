@@ -1,14 +1,21 @@
 # Typed ranges, generic calls, and expression-local inference
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: recommended design, 2026-10-06; not implemented. This responds to the
-typed-range discussion after module support (`8ee5c64`). The current compiler
-accepts numeric suffixes, but ranges still produce `i64` and numeric literals
-do not yet take their types from context.
+> **Status: Partly implemented.** Recommended 2026-10-06. Typed ranges,
+> contextual numeric literals, `IntType`, explicit type arguments, and anonymous
+> `def` shipped; see [ranges](../design/facilities/01-builtins/ranges.md),
+> [numbers](../design/language/03-types/numbers.md),
+> [generic inference](../design/language/07-generics/inference.md), and
+> [function values](../design/language/06-functions/02-function-values.md).
+>
+> **Shipped differently:** the compiler passes expected types down as hints; it
+> has no inference variables or deferred defaulting. A generic parameter
+> position gives a literal no context. An integer literal is accepted in a float
+> context. Generic bodies are checked per instance.
+>
+> **Remaining:** expected-result inference, partial explicit type arguments, and
+> literals across generic arguments (B16); an iterator protocol (B12);
+> heterogeneous callbacks (B32). Inclusive ranges and indented anonymous bodies
+> inside delimiters are unscheduled.
 
 ## Recommendation
 
@@ -17,18 +24,18 @@ Square brackets should be the ordinary explicit type-argument syntax for
 generic functions, including qualified calls such as `numbers.range[u8](8)`.
 No extra separator is needed before the brackets.
 
-The three examples below should all produce `list[u8]`:
+The proposal was that all three examples below produce `list[u8]`:
 
 ```text
-squares = [n * n for n in range[u8](8) if n % 2 == 0]
-squares: list[u8] = [n * n for n in range(8) if n % 2 == 0]
-squares = [n * n for n in range(8) if n % 2u8 == 0]
+squares = [n * n for n in range[u8](8) if n % 2 == 0]?
+squares: list[u8] = [n * n for n in range(8) if n % 2 == 0]?
+squares = [n * n for n in range(8) if n % 2u8 == 0]?    # rejected
 ```
 
 The first states the range's type directly; the second states the desired
-collection type. Those are the clearest forms to teach. The third follows from
-the same inference rules, although placing the type choice in a filter makes
-it less obvious to a reader.
+collection type. Those are the clearest forms to teach, and both shipped. The
+third needs the constraint solving proposed below and is rejected: a filter
+operand does not select the range type.
 
 Numeric suffixes such as `2u8`, `42i32`, `3.5f32`, and `1e-3f64` **already work**.
 Keep them as exact type constraints. The new convenience is contextual typing
@@ -36,9 +43,9 @@ of unsuffixed literals, not implicit numeric conversions.
 
 ## Infer before defaulting or generating operations
 
-The current compiler lowers a comprehension's iterable before its result
-expression and assigns concrete numeric literal types immediately. It cannot
-make the second and third examples work just by accepting a new call spelling.
+At proposal time the compiler lowered a comprehension's iterable before its
+result expression and assigned concrete numeric literal types immediately. It
+could not make the second and third examples work just by accepting a new call spelling.
 Introduce a typed-expression inference step before lowering to operations:
 
 1. Instantiate a generic signature with fresh inference variables, or substitute

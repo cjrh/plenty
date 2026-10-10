@@ -1,12 +1,23 @@
 # Sum types and enums
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: implementation proposal, not a statement of implemented syntax. This
-proposal was prepared against the AOT compiler after loop-control support.
+> **Status: Implemented.** [Enums](../design/language/03-types/enums.md),
+> [matching](../design/language/04-expressions/matching.md), and
+> [sums and propagation](../design/language/08-errors/01-sums-and-propagation.md)
+> own the contract.
+>
+> **Shipped differently:** enums are inline values and construction allocates
+> nothing; this page proposed heap tagged records. Bare `Some`, `Nothing`, `Ok`,
+> and `Err` take their type from context, and `?` exists. Unit payloads such as
+> `Result[(), E]` are accepted. Recursive enums are accepted through `Box[T]` or
+> a collection. An owned `match` moves an affine scrutinee, and
+> [borrowed matching](../design/language/05-ownership/05-borrowed-matching.md)
+> exists. Scalar patterns are not exposed. Generic enums and `Variant.new(...)`
+> were added. The examples' module-scope statements are no longer accepted.
+>
+> **Remaining:** qualifier shorthand in patterns (B15); jump-table dispatch
+> (B19); deep operations on recursive enums (B33). Guards, OR patterns, nested
+> patterns, enum methods, enums as dictionary keys or set elements, and `match`
+> as an expression are unscheduled.
 
 ## Contract
 
@@ -268,7 +279,7 @@ an enum language value and does not need to use this allocated record layout.
    options/results, aliases, explicit type argument errors and empty variant values.
 5. Connect collection descriptors and managed-object ownership hooks. Add nested
    enum/collection tests before advertising those combinations.
-6. Update DESIGN.md's implemented/proposed boundary and TUTORIAL.md with runnable
+6. Update the reference's implemented/proposed boundary and the tutorial with runnable
    enum, Option and Result lessons. Its existing executable-guide test checks them.
 
 Required regression cases include multiple fields with different integer widths;

@@ -1,5 +1,11 @@
 # Keyword arguments, defaults, and static unpacking
 
+> **Status: Not implemented** (B36). The compiler rejects every form on this
+> page.
+> [Signatures and calls](../design/language/06-functions/01-signatures-and-calls.md)
+> states the current rule: no default or keyword arguments. The present tense
+> below describes the proposed design.
+
 Python's keyword arguments, defaults, and `*`/`**` unpacking make calls and
 literals easier to read and write. Plenty adopts them only where the compiler
 can resolve them completely. This is not a compatibility goal: a Python form
@@ -18,7 +24,7 @@ and `a ** b` keep their arithmetic meaning.
   time. No form can fail at run time because a sequence has the wrong length or
   a mapping lacks a key.
 - **No hidden allocation.** A form that allocates already has a `Result` type
-  at that site (a collection or tuple display). A call never allocates to pass
+  at that site (a collection display). A call never allocates to pass
   its arguments.
 - **One rule, no exceptions.** Each form has one meaning, and the conditions for
   accepting it can be stated in a sentence.
@@ -51,11 +57,11 @@ and this proposal does not add them. A call through a function value accepts
 positional arguments only. A keyword call needs a statically known declaration.
 
 **Generated constructors** take field names as keywords:
-`Point(x=3, y=4)?`. This needs no new mechanism, since the generated
+`Point(x=3, y=4)`. This needs no new mechanism, since the generated
 constructor's parameters are the fields.
 
-**Builtins** follow the same rules. Existing special cases, such as
-`splitlines(keepends=...)`, become ordinary signatures with a keyword and a
+**Builtins** follow the same rules. Builtins with optional arguments, such as
+`splitlines` and `open`, become ordinary signatures with a keyword and a
 default.
 
 **Protocol requirements.** The reference says implementation parameter names
@@ -103,7 +109,7 @@ can land with this work or later.
 **`*tuple`** expands a tuple value into positional arguments:
 
 ```text
-point = (3, 4)?
+point = (3, 4)
 distance(*point)
 ```
 
@@ -176,8 +182,7 @@ a dictionary on each call. Plenty does not add it.
 Its main uses already have static alternatives:
 
 - **Option bags:** use keyword-only parameters with defaults, or take an
-  explicit options class with field defaults: `render(page, opts=Options(dense=True)?)`.
-  The allocation stays visible.
+  explicit options class with field defaults: `render(page, opts=Options(dense=True))`.
 - **Forwarding:** a wrapper takes `opts: Options` and passes `**opts` to the
   inner call.
 
@@ -187,14 +192,14 @@ forwarding need shows that the alternatives above are insufficient.
 
 ## Unpacking in displays
 
-Collection and tuple displays already return `Result`, so spreading into them
-adds no new failure path:
+Collection displays already return `Result`, so spreading into them adds no new
+failure path. A tuple display is inline and allocates nothing:
 
 ```text
 both = [*first, *second]?
 members = {*left, *right}?
 merged = {**defaults, **overrides}?
-extended = (*pair, 3)?
+extended = (*pair, 3)
 ```
 
 - In a list or set display, `*source` accepts the owned sources that
@@ -216,10 +221,10 @@ extended = (*pair, 3)?
 `first, *_ = triple` ignores the remaining tuple components and drops their
 owners. It is static and allocation-free, so it is accepted.
 
-`first, *rest = triple` with a named `rest` is **rejected for now**. Tuples
-currently use heap records, so `rest` would be a new allocated tuple inside a
-binding statement that has no place for `?`. If tuples later get an inline
-representation, this becomes allocation-free and can be reconsidered.
+`first, *rest = triple` with a named `rest` was **rejected** while tuples were
+heap records: `rest` would have been a new allocation inside a binding statement
+that has no place for `?`. Tuples are now inline, so the form is allocation-free
+and the rejection needs revisiting.
 
 `head, *tail = items` on a list is rejected permanently as a binding: the list's
 length is not in its type. The checked form is a sequence pattern, where a length
@@ -262,7 +267,7 @@ with `**rest` are rejected.
 5. Sequence patterns with `*rest`, after views and sequence `match`.
 
 Each stage updates the function reference, the tutorial lessons that teach
-calls, and its backlog entry.
+calls, and its backlog entry (B36).
 
 ## Open questions
 

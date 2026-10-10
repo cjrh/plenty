@@ -1,5 +1,13 @@
 # Callable surface review
 
+> **Status: Implemented** (B31).
+> [Function values](../design/language/06-functions/02-function-values.md),
+> [closures](../design/language/06-functions/03-closures.md), and
+> [consuming and stored closures](../design/language/06-functions/04-consuming-and-stored-closures.md)
+> own the contract.
+>
+> **Remaining:** a heterogeneous erased callback registry (B32).
+
 Plenty needs callable values for callbacks, small local functions, and owned
 resource handoff. This review separates representation from ownership and avoids
 making every capability a prerequisite for writing an ordinary closure.
@@ -49,7 +57,7 @@ lifetime contract before library code can build an arbitrary closure registry.
 The teaching path is named function values, then ordinary inferred closures,
 then a reusable generic callback API. Factory annotations, borrowed captures,
 and consuming callbacks are optional extensions for concrete use cases. The
-[learning guide](../tutorial/index.md) links that shorter path. Existing advanced
+[functions chapter](../tutorial/10-functions/index.md) marks that shorter path. Existing advanced
 lessons remain referenceable, so simplifying the entry path loses no examples.
 
 This review does not claim that the current names must be permanent. It records

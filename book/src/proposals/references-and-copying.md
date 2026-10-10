@@ -1,15 +1,21 @@
 # References, ownership, and explicit copying
 
-> Active tasks and priorities live in the [backlog](../backlog.md). Staging below
-> records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
-> and [reference](../design/index.md) for current behavior.
-
-Status: model A accepted: transfer mutable collections, borrow explicitly, and
-require explicit copying. Collection moves, explicit copy/drop, and the initial
-local/parameter reference subset are implemented. This supersedes
-the independent collection values selected in the original ownership proposal.
-Model B remains below as the alternative considered, not the selected direction.
+> **Status: Implemented.** Model A was accepted and shipped: mutable values
+> move, borrows are checked, and copying is explicit. The
+> [ownership reference](../design/language/05-ownership/index.md) owns the
+> contract. This superseded the original ownership proposal, which copied
+> collections on update; that page was removed. Model B below is the rejected
+> alternative.
+>
+> **Shipped beyond this text:** [returned references](../design/language/05-ownership/04-returned-references.md),
+> field and element projections, [reference rebinding](../design/language/05-ownership/03-reference-rebinding.md),
+> [borrowed matching](../design/language/05-ownership/05-borrowed-matching.md),
+> user destructors (`__del__`), and `Box[T]` as a public owner type. An `&T`
+> parameter borrows an owned argument implicitly. Allocating operations,
+> including `copy`, return `Result`.
+>
+> **Remaining:** stored references, relationships among several reference
+> parameters, and disjoint-index loans (B11).
 
 ## Motivation and current costs
 
@@ -45,19 +51,21 @@ that binding without making the string object mutable.
   strings may share storage. This differs from Python's shallow `copy`.
 - Resource types such as generators have no general copy operation.
 
-Implemented examples:
+For example:
 
 ```plenty
-mut original = [1, 2]
-mut changed = copy(original)
-changed.append(3)                 # original remains [1, 2]
+def append_three(values: &mut list[i64]) -> Result[(), AllocError]:
+    values.append(3)?
+    return Ok(())
 
-def append_three(values: &mut list[i64]) -> ():
-    values.append(3)
-
-append_three(&mut original)       # changes original without copying it
-mut destination = original       # transfers ownership
-# print(original)                # error: moved binding
+def main() -> Result[(), AllocError]:
+    mut original = [1, 2]?
+    mut changed = copy(original)?
+    changed.append(3)?                # original remains [1, 2]
+    append_three(&mut original)?      # changes original without copying it
+    mut destination = original        # transfers ownership
+    # print(original)                 # error: moved binding
+    return Ok(())
 ```
 
 The copy builtin above takes a temporary shared borrow. Ordinary functions expose
@@ -69,7 +77,8 @@ are different places and must be checked accordingly.
 
 This is the accepted direction for static checking and explicit costs. Its
 main usability cost is that collection assignment does not preserve both names.
-It needs no public smart-pointer family or lifetime syntax for the first subset.
+It needs no lifetime syntax. `Box[T]` later became the one public owning pointer,
+for recursive data.
 
 ### B. Shared mutable objects, like Python
 
@@ -120,14 +129,14 @@ reference counting alone would not reclaim them.
 6. Keep public references out of stored fields, returned values, and suspended
    generators in the first implementation. Add each only with an explicit lifetime
    contract; reject local references that escape or cross an unsupported yield.
+   (Returned references have since shipped under a single-reference-parameter
+   rule.)
 7. Test conflicting alias access, collection resizing with live element borrows,
    reference reassignment, reborrows, branch-dependent moves, early exits, and
    cleanup. A source check must run independently of Cranelift verification.
 
-Migrate the runtime and source semantics together,
-replace affected tutorial examples, and benchmark repeated append and compilation.
-The current operation-level availability checker is useful infrastructure but
-does not establish a general borrow checker.
+These requirements are met: the borrow checker runs on a source control-flow
+graph with last-use loans, before native lowering.
 
 ## Sources
 
@@ -135,7 +144,4 @@ does not establish a general borrow checker.
 - [Rust compile-time and runtime borrowing](https://doc.rust-lang.org/book/ch15-05-interior-mutability.html)
 
 The selected model borrows specific ideas rather than adopting either language's
-complete ownership model. Deterministic destruction is specified in DESIGN.md;
-local borrowing and explicit copy/drop are implemented. Projected/stored/returned
-references and user-defined destructors remain future work. DESIGN.md records the
-current subset and its restrictions.
+complete ownership model.

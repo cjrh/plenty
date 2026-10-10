@@ -1,5 +1,18 @@
 # Bounded channel implementation decision
 
+> **Status: Implemented.** [Channels](../design/facilities/03-concurrency/channels.md)
+> own the source contract and
+> [concurrency architecture](../design/toolchain/02-architecture/concurrency.md)
+> the runtime.
+>
+> **Shipped differently:** construction makes one allocation, and the endpoint
+> pair is an inline tuple.
+> [Timed selection](../design/facilities/03-concurrency/timed-selection.md)
+> later added waiter nodes to the core.
+>
+> **Remaining:** zero-capacity rendezvous, and send-side or larger selection
+> (deferred B22 extensions).
+
 Plenty channels use a fixed-capacity MPMC ring, explicit endpoint sharing, and
 fallible construction. Both blocking and nonblocking operations preserve unsent
 ownership. This decision builds on established contracts while preserving Plenty's
@@ -38,7 +51,8 @@ property to revalidate when porting, not a cross-platform std API guarantee.
 
 ## Ownership and costs
 
-The pair record and one core/ring allocation are obtained during construction.
+Construction makes one allocation, for the core and ring. The endpoint pair is
+an inline tuple.
 Both endpoint headers live inside the pinned core. Sharing increments the
 appropriate atomic count without allocating another endpoint object. Last-drop
 disconnects that family; a separate lifetime count keeps the core alive through

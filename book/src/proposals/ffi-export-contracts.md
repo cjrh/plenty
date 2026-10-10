@@ -1,13 +1,24 @@
 # Generated library contracts and C headers
 
-Status: accepted design direction, 2026-10-07; numeric/Result exports, owned and
-borrowed handles, generated contract headers, embedded interfaces, extraction,
-compatibility fingerprints, and typed resident loading are implemented in the
-[initial subset](../design/facilities/04-interop/exports.md). The image API
-examples below remain illustrative design sketches. Tasks and priorities live only in the
-[backlog](../backlog.md). See [C interfaces](../design/facilities/04-interop/trusted-declarations.md) for
-implemented imports and [C interop](ffi-and-dynamic-libraries.md) for the wider
-boundary design.
+> **Status: Partly implemented.** Accepted 2026-10-07. Numeric and `Result`
+> exports, owned and borrowed handles, generated headers, embedded interfaces,
+> extraction, compatibility fingerprints, and typed resident loading are
+> implemented. [Exports](../design/facilities/04-interop/exports.md),
+> [owned exports](../design/facilities/04-interop/owned-exports.md), and
+> [contracts](../design/facilities/04-interop/contracts.md) own the shipped
+> contract. [C interop](ffi-and-dynamic-libraries.md) records the wider boundary
+> design.
+>
+> **Shipped differently:** there is no standalone manifest. The contract is a
+> generated `.plentyi` interface, embedded in the binary and written beside
+> `NAME.h` and `NAME.link-args.txt`. The image API below is an illustrative
+> sketch: generated headers differ in naming and in how `Result` exports report
+> status. Exported error types are limited to numeric values, `AllocError`,
+> `ParseError`, and `Failure`.
+>
+> **Remaining:** text and byte buffers, returned views, and broader error types
+> (B27); callbacks, unloading, and loaders generated from extracted contracts
+> (B28).
 
 ## One contract, several consumers
 
