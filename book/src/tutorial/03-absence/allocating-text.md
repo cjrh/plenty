@@ -16,15 +16,14 @@ Hello, Plenty!
 True
 ```
 
-There are two fallible operations: building text and printing it. This example
-uses `Failure` to propagate either cause when detailed recovery is unnecessary.
+Building the string can fail with `AllocError`; printing can fail with
+`IoError`. `Failure` lets this function propagate either cause.
 
 Use `str.from(value)` to convert a scalar to text, or `str.repr(value)`
 for a representation such as quoted text or a displayed result wrapper.
-Both return allocation results; the [text conversion lessons](../08-resources/index.md)
-show how to use them in a useful program.
+Both return allocation results; see the [text conversion lessons](../08-resources/index.md).
 
-A helper can compose these operations:
+A helper can combine construction and printing behind one result:
 
 ```plenty
 def greet(name: str) -> Result[(), Failure]:
@@ -46,6 +45,5 @@ def main() -> Result[(), Failure]:
 Hello, Ada
 ```
 
-Allocating operations expose failures even when particular small values fit
-inline. Collection displays, collection constructors, copying, and collecting an iterator
-follow this same result pattern.
+String-building operations return allocation results even when a particular
+short string fits inline.

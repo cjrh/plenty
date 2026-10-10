@@ -28,7 +28,7 @@ The loop evaluates the range once. Each iteration binds `n` to the next
 integer. Names declared in the body stay there; updates to an enclosing
 `mut` binding persist. A loop completes with unit.
 
-A range is an inline value, so creating and iterating it do not allocate a list.
+Creating and iterating a range do not allocate a list.
 Ranges default to `i64`. Write `range[u8](8)` to choose another integer type.
 Start and stop must fit that type, even though stop is excluded.
 The step stays signed `i64`, so an unsigned range can count down.

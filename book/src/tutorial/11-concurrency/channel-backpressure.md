@@ -55,4 +55,4 @@ def main() -> Result[(), Failure]:
 
 Returning drops the receiver first. The producer's next send reports
 disconnection; its `?` ends the worker. The task scope then joins it and discards
-its unclaimed result. No worker detaches or survives this function.
+its unclaimed result.

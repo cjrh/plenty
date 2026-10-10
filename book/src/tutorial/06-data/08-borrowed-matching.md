@@ -29,12 +29,11 @@ def main() -> Result[(), Failure]:
 9
 ```
 
-`*selected` reads the scalar through its reference. `print` can also observe a
-reference directly. Replacing `outcome` is allowed after `selected`'s last use;
-doing it before that use is rejected. References cannot outlive a local owner.
+Replacing `outcome` is allowed after `selected`'s last use; doing it before that
+use is rejected. References cannot outlive their owner.
 
-For mutable scalar payloads, assignment through the reference changes the original
-slot. Nested standard sums preserve their enclosing variants:
+Assign through a mutable payload reference to change the original slot, keeping
+its enclosing variants:
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -56,7 +55,5 @@ def main() -> Result[(), Failure]:
 Option[Result[i64, str]].Some(Result[i64, str].Ok(5))
 ```
 
-Mutable matching works for every enum, including recursive ones. `_` ignores a
-payload without moving it.
-Borrowed matching uses the same exhaustiveness checks and qualified user-variant
-names as owned matching.
+`_` ignores a payload without moving it. Borrowed matching uses the same
+exhaustiveness checks and qualified variant names as owned matching.

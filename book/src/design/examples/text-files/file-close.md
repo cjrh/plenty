@@ -23,6 +23,5 @@ False
 True
 ```
 
-Closing twice succeeds. A closed file remains a valid value; it no longer owns
-a handle. Automatic close cannot report errors or promise durable writes.
-The initial implementation supports Linux and reports unsupported I/O elsewhere.
+Closing twice succeeds. Automatic close cannot report errors or promise durable
+writes.

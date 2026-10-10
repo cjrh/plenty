@@ -1,10 +1,8 @@
 # Call C libraries
 
-Put trusted C declarations in a `.plentyi` interface, and import it like any
-other module. This example calls the C standard library's integer absolute-value
-function. Its C `int` parameters/results are `i32` on Plenty's supported target.
-We wrap the raw operation so the minimum integer, which C cannot negate, is
-reported as `Nothing`.
+Declare C functions in a `.plentyi` interface and import it as a module. C's
+`abs` uses `int`, which is `i32` on Plenty's supported target. The wrapper rejects
+the minimum integer, which C cannot negate.
 
 Save this as `c_math.plentyi`:
 
@@ -36,8 +34,8 @@ or driver options explicitly, for example `--link-arg /path/to/libexample.a` or
 `--link-arg -L/path/to/libs --link-arg -lexample`. A shared library also needs to
 be discoverable by the system loader when the application runs.
 
-An interface is a trust boundary. Its author checks the C header and documents
-pointer lifetimes, ownership, and errors; application code should use its typed
-wrappers. Plenty does not translate headers or verify the native implementation.
+The interface author must check the C header and document pointer lifetimes,
+ownership, and errors. Plenty does not verify the native implementation;
+application code should use typed wrappers.
 `pub` exposes a name to Plenty imports; it does not export a C symbol. See the
 [C interface reference](../../design/24-c-interfaces.md) for the supported ABI.

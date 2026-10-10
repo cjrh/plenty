@@ -18,6 +18,6 @@ def main() -> Result[(), IoError]:
 80
 ```
 
-Here, `price` is still available after the branch; `discount` is not. Declare a
-mutable binding before the branch when subsequent code needs to read it.
-Alternatively, put the choice in a small function or a conditional expression.
+Declare a mutable binding before the branch when subsequent code needs the
+updated value. Use a conditional expression if only the selected value needs
+to survive the branch.

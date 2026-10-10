@@ -1,7 +1,6 @@
 # Passing and returning generators
 
-Use `Generator[T]` for a parameter or return annotation. The compiler keeps track
-of the concrete producer and its suspended state:
+Use `Generator[T]` to accept or return a generator:
 
 ```plenty
 def once(n: i64) -> Generator[i64]:
@@ -30,13 +29,11 @@ def main() -> Result[(), IoError]:
 30
 ```
 
-`total` accepts either producer. The compiler specializes it for each concrete
-frame type without boxing the generator. Passing a generator transfers ownership;
-use `&mut Generator[T]` when a helper should advance an existing owner with `next`.
-Aliases and `Option`/`Result` wrappers preserve the concrete frame type too.
+`total` accepts either producer. Passing a generator transfers ownership; use
+`&mut Generator[T]` when a helper should advance an existing owner with `next`.
 
-A factory must return the same concrete producer on all paths in one
-specialization. Matching yielded types alone is insufficient:
+A factory must return the same producer on every path. Two generators yielding
+the same type are not interchangeable return values:
 
 ```plenty-error
 def one() -> Generator[i64]:
@@ -58,8 +55,6 @@ def main() -> ():
 expected Generator[i64] from `one`, got Generator[i64] from `two`
 ```
 
-For this case, put the branch inside one generator body and yield the desired
-values there. A generator may contain another generator, but recursive inline
-frames are rejected because their storage would have no finite size. Generator
-frames allocate nothing; allocations performed by their arguments and bodies
-still use the normal fallible APIs.
+Put such a branch inside one generator body instead. A generator may contain
+another generator, but recursive generator state is rejected: its inline storage
+would have no finite size.

@@ -27,11 +27,9 @@ def main() -> Result[(), Failure]:
 [20]
 ```
 
-The job body transfers its list without copying or allocating. Queue construction
-allocates, but extraction and invocation do not. Calling `jobs[0]()` directly
-would try to consume a borrowed entry and is rejected. `pop`, consuming iteration,
-consuming enum matching, and tuple unpacking all produce owned callbacks.
+Calling `jobs[0]()` would try to consume a borrowed entry and is rejected.
+Extract an owned callback with `pop`, consuming iteration, consuming enum matching,
+or tuple unpacking.
 
-Calling an extracted job twice is rejected. Dropping a queue with uncalled jobs
-cleans up their captured resources. Borrowed captures and generator-containing
-environments cannot be stored in these heap owners.
+Dropping uncalled jobs cleans up their captures. Borrowed captures and
+generator-containing environments cannot be stored in these heap owners.

@@ -1,7 +1,7 @@
 # Keep distinct values in a set
 
 A `set[T]` stores each distinct value once. Its elements can be integers,
-booleans, or strings. Use membership tests rather than relying on an order:
+booleans, or strings:
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -27,11 +27,10 @@ False
 
 `add` needs mutable access and returns an allocation result.
 `discard` removes a member without allocating and returns whether it was
-present. Removing a missing value is harmless.
+present.
 
 Use `set[str]()?` for a typed empty set, or provide an annotation as above.
 A display such as `{"Ada", "Grace"}?` builds a set directly. `{}` is an
 empty dictionary. Sets have no promised iteration order.
 
-Collection equality compares contents. Dictionary and set equality do not
-depend on insertion or iteration order.
+Dictionary and set equality compare contents independently of order.

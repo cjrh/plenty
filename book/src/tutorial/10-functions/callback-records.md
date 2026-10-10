@@ -29,12 +29,8 @@ def main() -> Result[(), Failure]:
 15
 ```
 
-The `Callable` constraint checks the callback's signature when constructing the
-record. It does not erase the concrete environment or allocate storage for it.
-The records own independent environments. Each environment is stored directly
-inside its record, and constructing a record allocates nothing. Invoking these
-counters does not allocate. A callback may
-still perform its own fallible work.
+The `Callable` constraint checks the signature without erasing the concrete
+environment type. Each record stores its environment inline.
 
 Keep captured state owned when storing a callback. A closure borrowing a local
 cannot enter a record. Moving the record transfers ownership; dropping it cleans

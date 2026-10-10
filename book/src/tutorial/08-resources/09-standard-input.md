@@ -6,8 +6,8 @@ and allocation failures return `Err`. A failure can consume input, so retrying
 does not promise to repeat the same line. Input currently requires a Unix host.
 For a prompt, call `write_stdout` and `flush_stdout` before `input()`.
 
-This reusable function is ready for a caller to connect to stdin; the example
-does not invoke it, so running the tutorial never waits for keyboard input.
+Call `echo_line()?` repeatedly until it returns `False` to process stdin. This
+example's `main` does not read input.
 
 ```plenty
 def echo_line() -> Result[bool, IoError]:

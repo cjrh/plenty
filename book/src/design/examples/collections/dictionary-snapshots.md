@@ -1,8 +1,7 @@
 # Take dictionary snapshots with recoverable allocation
 
 `keys()` and `values()` build new lists in dictionary insertion order,
-returning `Result[list[T], AllocError]`. They take no arguments. Use `?` to
-propagate allocation failure:
+returning `Result[list[T], AllocError]`:
 
 ```plenty
 def names(scores: &dict[str, i64]) -> Result[list[str], AllocError]:
@@ -58,4 +57,3 @@ borrowed dictionaries regardless of their value type.
 
 Both operations reserve all list storage before retaining or transferring any
 elements. They report `OutOfMemory` or `CapacityOverflow` through `AllocError`.
-There are no separate aborting snapshot methods.

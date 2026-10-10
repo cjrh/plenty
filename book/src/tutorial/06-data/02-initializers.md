@@ -1,8 +1,7 @@
 # Control construction with __init__
 
-Define `__init__` when construction needs calculations or checks. It replaces the
-generated field constructor. Its bare `self` is an exclusive reference, and it
-returns `()` in this first example:
+Define `__init__` to calculate or check fields during construction. It replaces
+the generated constructor; bare `self` is an exclusive reference:
 
 ```plenty
 class Span:
@@ -48,6 +47,3 @@ def main() -> ():
 ```error
 fields not initialized: second
 ```
-
-An initializer can also return `Result[(), E]` when construction itself needs
-to report failure. The next lesson shows that form.

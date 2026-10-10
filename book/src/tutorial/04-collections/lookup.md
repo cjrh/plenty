@@ -25,22 +25,16 @@ Option[i64].Nothing
 12
 ```
 
-A stored zero, `False`, empty string, or `Nothing` still counts as a present
-value. For example, looking up a stored `Nothing` returns `Some(Nothing)`.
-There is no optional default argument; use a match to choose a fallback.
-[Absence and failure](../03-absence/index.md) explains the same `Option`
-pattern independently of collections.
+A stored zero, `False`, empty string, or `Nothing` counts as present; looking
+up a stored `Nothing` returns `Some(Nothing)`. Use the
+[option match](../03-absence/index.md) to choose a fallback; `get` has no
+default argument.
 
-`get` observes the dictionary and key, leaving both available. The lookup itself
-does not allocate, so it needs no allocation-error result. String
-and immutable enum results retain their existing storage and remain valid even
-if the dictionary is subsequently updated or dropped.
-
-`get` supports values such as numbers, booleans, strings, and immutable enums.
-It rejects mutable collections, classes, and enums containing them. Use `pop`
-to remove those values and take ownership, or use `&dictionary[key]` to borrow
-an existing value. Optional borrowed lookup is deferred. No mutable value is
-silently copied by `get`.
+`get` leaves the dictionary and key available and does not allocate. It
+supports numbers, booleans, strings, and immutable enums. It cannot return
+mutable collections or classes: use `pop` to take ownership or
+`&dictionary[key]` to borrow an existing value. Optional borrowed lookup is not
+implemented.
 
 ## Read a list element that might be missing
 
@@ -66,12 +60,11 @@ no name at that position
 ["Ada", "Bea"]
 ```
 
-This is a constant-time read that leaves the list unchanged and allocates nothing.
-Numbers and booleans are copied; strings and immutable enum values share their
-existing storage. A returned string remains valid after the original list is
-updated or dropped. There is no default argument; choose a fallback with `match`.
+List `get` has the same element restrictions as dictionary `get`. For owned
+elements, use `pop` to transfer ownership, `copy(items[index])?` to duplicate
+one, or `&items[index]` to borrow it. Ordinary indexing still traps when the
+index is out of range.
 
-Like dictionary `get`, this supports scalar and immutable elements. For lists
-containing mutable collections or classes, use `pop` to transfer ownership, or
-explicitly copy through ordinary indexing. Use `&items[index]` to borrow an existing element. Optional borrowed
-lookup is not implemented. Ordinary `items[index]` still traps for an out-of-range index.
+Both forms of `get` leave their source unchanged. Numbers and booleans copy;
+strings and immutable enums share storage. The returned value remains valid
+if the source is updated or dropped.

@@ -16,7 +16,6 @@ def main() -> Result[(), Failure]:
 [2, 3, 5]
 ```
 
-`take()` consumes the callback. A second call would be a use-after-move error.
-The list moves from `values` into the callback, then into `result`; none of those
-moves duplicates or reallocates its contents. If `take` leaves scope without being
-called, it drops the captured list automatically.
+`take()` consumes the callback and transfers its captured list to the result.
+A second call is a use-after-move error. If `take` is never called, dropping it
+cleans up the list.

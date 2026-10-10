@@ -1,9 +1,8 @@
 # Pass text to C
 
-Plenty still has one ordinary string type, `str`. A binding selects the bytes
-that a particular C function expects. `as utf8` lends a pointer and byte length
-without allocating. `as c_string` creates a temporary terminated copy and
-rejects embedded NULs, returning a recoverable `CStrError`.
+Choose the text adapter to match C's signature. `as utf8` lends a pointer and
+byte length without allocating. `as c_string` makes a terminated copy and reports
+embedded NULs or allocation failure through `CStrError`.
 
 Save this interface as `c_text.plentyi`:
 

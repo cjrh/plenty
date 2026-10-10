@@ -1,4 +1,4 @@
-# Lists, moves, and explicit copies
+# Build and update a list
 
 A list contains values of one type. Use `list[T]` in signatures and annotations.
 An empty list needs an annotation or a typed constructor such as `list[i64]()`.
@@ -23,19 +23,15 @@ def main() -> Result[(), Failure]:
 3
 ```
 
-The explicit `copy(original)` creates independent contents. Without `copy`,
-assignment transfers ownership and the old binding cannot be used. Updates happen
-in place and require a `mut` owner or an exclusive reference.
-Owned function parameters are immutable bindings; reference parameters can grant
-permission to change the caller's value.
-Negative indices count from the end. Invalid indices stop the program with a
-runtime error.
+`copy(original)?` makes an independent list. Updates happen in place and
+require a `mut` owner. `append` grows the list; indexed assignment replaces
+an existing element. Negative indices count from the end, and an invalid index
+is a runtime error.
 
-`copy(original)` returns a `Result`, as do all allocating operations. The
-examples propagate failures with `?`, as taught in [Absence and failure](../03-absence/index.md).
+List construction, copying, and growth return allocation
+[results](../03-absence/index.md), handled here with `?`.
 
-Collections can nest. Write directly through the indices to update an inner list;
-this neither copies nor allocates any containing list.
+Collections can nest. Update an inner list directly through its indices:
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -49,13 +45,8 @@ def main() -> Result[(), Failure]:
 [[1, 9], [3]]
 ```
 
-Assignment evaluates its right-hand value first, then its destination indices
-once each from left to right. It saves those index values before resolving the
-destination, so `rows[0][len(rows[0]) - 1] = 9` works too. Bounds and key checks
-use the collection's contents after all these expressions finish.
-
-An index is any expression, including an element of another list. Here `order`
-chooses which element of `values` to read and to replace.
+Nested assignment does not copy or allocate the containing lists.
+Indices can be expressions, including elements of another list:
 
 ```plenty
 def main() -> Result[(), Failure]:

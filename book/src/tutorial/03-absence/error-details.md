@@ -1,13 +1,10 @@
 # Choose which error details to keep
 
-An error type describes information the caller can use. `IoError` keeps an
-input/output cause, `AllocError` distinguishes memory and capacity failures,
-and `Result[i64, str]` can carry a textual explanation.
+Keep a concrete error type when the caller needs the cause. For example,
+`IoError` preserves an input/output cause, while `str` can carry a message.
 
-Prefer a concrete error type when callers need the cause. A function that
-returns `Result[T, Failure]` deliberately chooses to discard it: each `?`
-may accept a different error type, drop that error, and return
-`Failure.Unspecified`. This marker needs no allocation.
+`Result[T, Failure]` deliberately discards the cause: each `?` may accept a
+different error type, drop it, and return `Failure.Unspecified`.
 
 ```plenty
 def validate(name: str) -> Result[(), str]:
@@ -33,8 +30,7 @@ def main() -> Result[(), IoError]:
 Failure.Unspecified
 ```
 
-The original message is gone. Use `match` to convert or report errors when
-you want to keep their meaning.
+Use `match` to convert or report errors when you need their details.
 
 This conversion applies to `?`. Returning a `Result[T, IoError]` directly
 from a function declared `Result[T, Failure]` is still a type error.
@@ -59,5 +55,4 @@ def main() -> Result[(), IoError]:
 42
 ```
 
-Use `?` for propagation and `match` for recovery. Choose `.unwrap()` only
-when termination is your intended policy.
+Choose `.unwrap()` only when termination is your intended policy.

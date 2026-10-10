@@ -1,7 +1,7 @@
 # Transform a cell with a generic method
 
-A method may declare its own parameters in addition to those of its class.
-The arguments determine their concrete types, just as for a generic function.
+Give a method its own type parameters to let a callback transform `Cell[T]`
+into `Cell[U]`:
 
 ```plenty
 class Cell[T]:
@@ -26,6 +26,5 @@ def main() -> Result[(), Failure]:
 7
 ```
 
-`map` borrows the original cell. Here its u8 field is copyable. The result is a
-new `Cell[u16]`, built without allocating. Method parameters cannot shadow
-class parameters. Constructors and destructors use only the class parameters.
+`map` borrows the original cell, so passing its field to the callback requires
+a copyable `T`. Here, `double` determines the result type `U = u16`.

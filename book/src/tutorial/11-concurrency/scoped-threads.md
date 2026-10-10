@@ -1,8 +1,7 @@
 # Run scoped threads
 
-Use `with spawn(...)` to run a function on a native thread while the current
-thread continues. `join()` waits and returns the answer. Here both calculations
-can run concurrently, and the parent prints their results in a fixed order:
+Use `with spawn(...)` to run a function on a native thread. The current thread
+continues until `join()` waits for the result:
 
 ```plenty
 def squares(n: i64) -> Result[list[i64], AllocError]:
@@ -29,8 +28,5 @@ Every started thread finishes before its `with` block exits. This includes
 the unused result, including any application error. Join when the result matters.
 A task cannot escape its block or be stored for later.
 
-
-A scope waits for every worker to return; it cannot forcibly cancel one. Keep
-worker computations finite, or give them a shutdown protocol. The channel and
-cancellation lessons below show how waiting workers can finish normally.
-Fatal traps terminate the process rather than unwinding scopes.
+Scopes cannot forcibly cancel workers. Keep their computations finite or give
+them a shutdown protocol. Fatal traps terminate the process without unwinding.

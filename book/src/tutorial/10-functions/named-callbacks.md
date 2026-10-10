@@ -1,9 +1,7 @@
 # Pass functions as values
 
-When a caller chooses an operation, pass a function instead of hard-coding
-the operation in the receiving function. Use a function's name without
-parentheses to pass the function itself. A
-`Callable` annotation lists its parameter types and its return type:
+Use a function's name without parentheses to pass it as a value. A `Callable`
+annotation specifies its parameter types and return type:
 
 ```plenty
 def double(value: i64) -> i64:
@@ -41,8 +39,6 @@ def main() -> Result[(), Failure]:
 ```output
 42
 ```
-
-Here the list allocates; the function value and the call do not.
 
 A callable can also borrow an argument and return unit:
 

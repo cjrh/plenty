@@ -3,7 +3,8 @@
 Owned generators can travel through `Option` and `Result`, including `?` and
 pattern matching. These wrappers remain affine and non-copyable; dropping one
 releases its frame and captures without resuming it. Wrapping does not permit
-generators in collection/class storage, printing, comparison, or nested yields.
+generators in collections, class fields, user-defined enum payloads, printing,
+comparison, or nested yields.
 References remain prohibited in standard sum payloads.
 
 Use ordinary call syntax to construct a generator: `generator_function(arguments)`

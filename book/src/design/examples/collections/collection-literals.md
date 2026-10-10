@@ -18,6 +18,6 @@ def main() -> Result[(), Failure]:
 
 Construction stops at its first allocation failure, drops the partial collection,
 and skips later entries. The nested `?` operations extract each inner list and
-propagate its failure to `build`. There is no prefix `try` keyword.
+propagate its failure to `build`.
 Empty displays need context: `values: Result[list[i64], AllocError] = []`, or
 `values: list[i64] = []?` inside a function returning `Result[..., AllocError]`.

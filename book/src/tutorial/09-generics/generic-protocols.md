@@ -25,8 +25,7 @@ def main() -> Result[(), Failure]:
 7
 ```
 
-The compiler checks that `Cell[u8].read` returns u8 and borrows its receiver as
-the protocol requires. The call is statically resolved and does not allocate.
-The argument determines R, and R's `read` signature determines T. Explicit
-`read[u8, Cell[u8]](&cell)` is also valid. Conflicting evidence is an error;
-the compiler does not guess a common type or widen integers.
+The argument determines `R = Cell[u8]`; that class's `read` signature determines
+`T = u8`. Its return type and receiver borrowing must match the protocol.
+Explicit `read[u8, Cell[u8]](&cell)` also works. Conflicting type evidence is
+an error, rather than a reason to widen integers.

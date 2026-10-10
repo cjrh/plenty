@@ -1,8 +1,7 @@
 # Export owned objects
 
-A library factory can return a class without exposing its fields to C. C sees
-an opaque handle: a box that the library allocates for the instance. Its
-generated header names the matching destroy function and its ownership rules.
+C receives an exported class as an opaque handle. The generated header names
+its destroy function and ownership rules.
 
 ```plenty-file counter.plenty
 pub class Counter:
@@ -48,14 +47,11 @@ the function, so a failure has no other effects. Release the output exactly once
 with `counter_Counter_destroy`.
 
 `counter_read` borrows a `const counter_Counter *`; `counter_increment` borrows a
-`counter_Counter *` exclusively. Neither transfers ownership. Plenty consumers
-use `&owner` and `&mut owner` as in the example, with ordinary borrow checking.
+`counter_Counter *` exclusively. Neither transfers ownership.
 
 `counter_finish` consumes its handle. A C caller must not use or destroy that
 handle again; a Plenty caller gets a moved-value error if it tries to reuse
 `owner`. A consuming function keeps this rule even if it returns an error.
 
-A separate Plenty consumer imports the generated `counter.plentyi` and links
-the binary. Its owning wrapper cleans up automatically, just like the source
-example, and needs no allocation of its own. Keep the originating library
-loaded for the lifetime of every owner.
+Plenty consumers get automatic cleanup through the generated `counter.plentyi`.
+Keep the originating library loaded for every owner's lifetime.

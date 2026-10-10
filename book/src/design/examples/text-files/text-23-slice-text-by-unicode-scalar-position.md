@@ -23,6 +23,5 @@ Aé🙂Z
 The result owns its UTF-8 bytes and outlives the source. The operation creates
 only the final string, including for an empty or whole-string slice, so even
 these cases can return `Err(AllocError.OutOfMemory)`. Source strings are never
-modified. Finding byte boundaries scans the text without a temporary character
-list. Combining marks count separately; positions are not grapheme clusters or
-byte offsets.
+modified. Combining marks count separately; positions are not grapheme clusters
+or byte offsets.

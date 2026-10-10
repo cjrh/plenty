@@ -20,11 +20,9 @@ def main() -> Result[(), IoError]:
 42
 ```
 
-The success payload of `print(value)` is unit; printing can still fail, so its
-full return type is `Result[(), IoError]`. A successful call followed by `?`
-therefore completes without supplying data.
+`Result[(), IoError]` combines unit success with a possible output error.
+`print(value)?` therefore completes without supplying data.
 
 In a function declared `-> ()`, a bare `return` returns unit. Use `pass`
 for an intentionally empty block. Unit parameters and standalone unit bindings
-are not supported. There is no `None` value; the next part introduces `Option`
-for absence.
+are not supported. Use `Option` for absence; there is no `None` value.

@@ -20,5 +20,4 @@ Result[str, AllocError].Err(AllocError.CapacityOverflow)
 
 The source stays usable. The runtime checks the complete size before allocating
 one independent output string; even empty and single-copy outputs can fail to
-allocate. Empty input with a large count is handled directly. String multiplication
-syntax is not supported yet.
+allocate. String multiplication syntax is not supported yet.

@@ -1,11 +1,10 @@
 # Choose a public API
 
-Public classes do not automatically expose their fields or methods. Mark each
-part of the public API explicitly. Without `__init__`, the generated field
-constructor is public only when the class and every field are public. To keep
+Mark each public field and method explicitly. Without `__init__`, the generated
+field constructor is public only when the class and every field are public. To keep
 fields private while allowing construction, declare `pub def __init__`:
 
-Save this example's companion file as `counter.plenty`:
+Save this module as `counter.plenty`:
 
 ```plenty-file counter.plenty
 pub class Counter:
@@ -42,9 +41,8 @@ counter closed
 ```
 
 The private destructor still runs automatically. Private fields and methods are
-accessible throughout their defining module, including from helper functions,
-but not from another module. Direct reads, writes, and borrows all enforce this.
-Here is a rejected example with its own companion file, `secret.plenty`:
+accessible throughout their module, but not from another module. Reads, writes,
+and borrows all enforce this. Save the next module as `secret.plenty`:
 
 ```plenty-file secret.plenty
 pub class Secret:
@@ -72,6 +70,4 @@ even through aliases or containers. Ordinary imports are private bindings;
 importing a name does not re-export it. Relative imports, wildcards, circular
 imports, and `pub import` are not supported yet.
 
-Privacy controls direct access, not secrecy: automatic printing and equality
-still inspect a class's complete structural value, including private fields.
-`pub` does not export a C symbol or change the native calling convention.
+Private fields are still included in automatic printing and equality.

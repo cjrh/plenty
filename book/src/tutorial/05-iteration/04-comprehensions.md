@@ -39,15 +39,13 @@ def main() -> ():
 expected list[i64]
 ```
 
-Both comprehensions and repeated `append` calls use growing storage in place.
-Assignment does not copy collections, and mutation does not secretly copy their
-contents. Use `copy` when duplication is intended. Storage is reclaimed as owners
-are replaced or leave scope; no `free` calls or reference-count management are needed.
+Comprehensions grow their output collection in place. The `?` handles allocation
+failure.
 
 ## Collect a snapshot with unpacking
 
-The dictionary view from the unpacking lesson can feed a comprehension directly.
-The comprehension explicitly allocates a list of tuples:
+Unpacking works in comprehensions too. This one collects dictionary items into
+a list of tuples:
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -63,11 +61,10 @@ def main() -> Result[(), Failure]:
 [3, 7]
 ```
 
-For dictionaries containing owned values, use `copy(value)?` when a snapshot
-needs independent owned values. Iterating the view itself does not allocate
-a snapshot or consume the dictionary.
+For dictionaries containing owned values, use `copy(value)?` when the snapshot
+needs independent owners.
 
-Text iteration uses the same syntax, yielding one Unicode scalar at a time:
+Text comprehensions collect Unicode scalars:
 
 ```plenty
 def main() -> Result[(), Failure]:

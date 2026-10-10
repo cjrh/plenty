@@ -21,13 +21,12 @@ Hello, Ada, Bea!
 
 ```
 
-The methods observe their inputs, so `names` is still available afterward.
+The methods borrow their inputs.
 Joining first calculates the final size and then allocates one output buffer;
 it does not build a succession of intermediate strings. An empty list gives an
 empty string, and a one-element list adds no separator. Empty pieces still count:
 joining `["a", "", "b"]` with `"-"` gives `"a--b"`.
 
-UTF-8 characters and embedded `\0` are preserved, just as with ordinary strings.
-These methods currently require strings and a `list[str]`; joining a generator
-or another kind of iterable is not supported yet. Input construction, string `+`,
-and printing also return results when they can fail.
+UTF-8 characters and embedded `\0` are preserved. These methods require strings
+and a `list[str]`; joining a generator or another kind of iterable is not
+supported yet.

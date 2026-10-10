@@ -24,10 +24,8 @@ functions.
 
 Printing can fail. The `?` after each call continues when printing succeeds and
 returns an output error when it fails. `Ok(())` reports that the program
-finished successfully. For now, keep this pattern around your own printing
-experiments. [Absence and failure](../03-absence/index.md) explains each piece.
+finished successfully. Keep this pattern for printing;
+[Absence and failure](../03-absence/index.md) explains how to handle errors.
 
-Every example in this guide is a separate complete program. Copy an example
-into a new file to run it; earlier examples do not supply hidden definitions.
-Examples with labelled companion modules need those files too, on the same
-page as the program.
+Each example is a complete program. Run it in a new file, along with any
+labelled companion modules shown on its page.

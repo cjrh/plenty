@@ -31,16 +31,15 @@ def main() -> Result[(), Failure]:
 30
 ```
 
-The producer owns the sender. When it finishes, that sender drops. The receiver
-drains the remaining messages, then reports disconnection, ending the loop.
-`task.join()?` also checks whether the producer returned an application error.
+Dropping the producer's sender lets the receiver drain the queue and report
+disconnection. `task.join()?` checks the producer's application result separately.
 
 The receiver is a context manager **after** the task manager. If the body exits
 early, its receiving handle drops before Plenty joins the producer. The producer
 can observe disconnection instead of waiting forever for queue space.
 
 Create additional handles explicitly with `sender.share()` or `receiver.share()`.
-They refer to the same queue and need no allocation. Multiple receivers compete:
+Multiple receivers compete for messages on the same queue:
 each message is delivered to one of them. Disconnection occurs only after the
 last handle on that side drops, so remember to drop unused handles too.
 

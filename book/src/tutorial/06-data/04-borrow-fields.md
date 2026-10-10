@@ -1,6 +1,6 @@
 # Borrow distinct fields
 
-Fields can be borrowed directly, including fields inside nested classes:
+Borrow a field directly with `&` or `&mut`:
 
 ```plenty
 class Basket:
@@ -21,8 +21,8 @@ def main() -> Result[(), Failure]:
 Basket(count=2, items=["apple", "pear"])
 ```
 
-The borrow ends after `count`'s last use. Distinct fields can be borrowed or
-changed independently. Borrowing a whole record still overlaps all its fields.
+Distinct fields can be borrowed or changed independently. Borrowing a whole
+record overlaps all its fields.
 Collection element references such as `&basket.items[0]` protect the collection
 against changes that could invalidate the element's address.
 You can replace a class-valued field by assignment, but cannot replace a whole

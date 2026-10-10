@@ -25,16 +25,17 @@ def main() -> Result[(), Failure]:
 [1, 2, 3]
 ```
 
-References can also be local bindings. `&mut` grants access to the target; it
-does not make the binding itself reassignable. Use `*reference` to read a scalar or replace
-the target. Collection operations such as `append`, indexing, and `len` work
-through references directly.
+Collection operations such as `append`, indexing, and `len` work directly
+through references.
 
 The parameter determines borrowing: `first(numbers)` implicitly lends `numbers`
 because `first` expects `&list[i64]`. Writing `first(&numbers)` also works.
 Use explicit `&mut` for mutable arguments, as in `add(&mut numbers, 3)`.
-An owned parameter still takes ownership. Existing reference arguments are
-reborrowed without needing another marker.
+An owned parameter still takes ownership.
+
+References can also be local bindings. `&mut` permits changing the target,
+not reassigning the reference binding. Use `*reference` to read or replace a
+scalar target:
 
 ```plenty
 def main() -> Result[(), IoError]:
@@ -68,14 +69,13 @@ def main() -> ():
 conflicting borrow: cannot modify or exclusively borrow `numbers` while it is borrowed
 ```
 
-The diagnostic points at `numbers.append(3)`. Its notes point at `&numbers`,
-where the shared borrow starts, and at `print(view)`, the later use that keeps
-the borrow live.
+The diagnostic notes identify the borrow's creation and the later use that
+keeps it live.
 
-A reference can be reborrowed temporarily. An exclusive reference may lend shared
-or exclusive access, but its conflicting access is suspended while that child
-borrow is live. Reference arguments automatically reborrow an existing reference;
-they do not transfer the referenced owner.
+An exclusive reference can temporarily lend shared or exclusive access.
+Conflicting access through it is suspended until the child borrow's last use.
+Passing an existing reference to a reference parameter reborrows it; the owner
+is not transferred.
 
 When a conflict goes through a reference, the diagnostic names both the owner
 and the reference written at the failing use:
@@ -92,8 +92,3 @@ def main() -> ():
 ```error
 conflicting borrow: cannot modify or exclusively borrow `numbers` (through `reference`) while it is borrowed
 ```
-
-
-A shared loan permits simultaneous observation. An exclusive loan prevents
-conflicting access until its last use. Collection operations work directly
-through references; `*reference` reads or replaces a scalar target.

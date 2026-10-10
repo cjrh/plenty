@@ -1,9 +1,8 @@
 # Appending text
 
 `append_text(path, text)` adds exact UTF-8 bytes to the end of a file, creating
-it if necessary. It returns the number of characters appended. Like writing,
-it can leave partial output after an OS error; one call is not guaranteed to be
-an atomic record when several processes write concurrently.
+it if necessary. It returns the number of characters appended. Errors can leave
+partial output; concurrent appends are not guaranteed to be atomic records.
 
 Run this in a scratch directory: it replaces `plenty-log.txt` before appending.
 
@@ -20,6 +19,3 @@ def main() -> Result[(), Failure]:
 ```output
 Result[str, IoError].Ok("started\nfinished\n")
 ```
-
-These helpers cover whole files. Automatic cleanup closes their private handles
-on both success and failure.

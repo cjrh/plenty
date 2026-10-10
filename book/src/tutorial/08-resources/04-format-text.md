@@ -1,8 +1,8 @@
 # Convert and format values
 
-`str.from` converts numbers or booleans with one recoverable string
-allocation. It returns `Result[str, AllocError]`, so it combines with `?` and
-the existing fallible string operations. Floats use shortest round-trip text.
+`str.from` converts numbers or booleans to text, returning
+`Result[str, AllocError]`. Floats use the shortest text that parses back to the
+same value.
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -37,9 +37,8 @@ def main() -> Result[(), Failure]:
 Formatting failure writes nothing. An output error can leave a partial write.
 The source remains usable; neither call copies a mutable collection.
 
-Both calls can fail. The inner `?` handles formatting; the outer `?` handles
-printing. Forgetting either is a compile error. To inspect a Result wrapper
-deliberately, pass it to `str.repr`:
+The inner `?` handles formatting; the outer `?` handles printing. To inspect a
+`Result` wrapper itself, pass it to `str.repr`:
 
 ```plenty
 def main() -> Result[(), Failure]:

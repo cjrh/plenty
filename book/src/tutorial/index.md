@@ -1,12 +1,9 @@
 # Learning Plenty
 
 Plenty combines Python-shaped syntax with explicit types, ownership, and native
-compilation. This guide teaches the language that works today. Each program is
-self-contained, and its output or expected diagnostic is checked by
-`cargo test --test test_tutorial`.
+compilation. The examples are self-contained and teach implemented features.
 
-Start with the eight core parts in order. They introduce concepts when a program
-first needs them, from printing a value to building a small command-line tool.
+Follow the eight core parts to build a small command-line tool:
 
 1. [Your first program](01-first-program/index.md): compile, run, and check.
 2. [Values, functions, and control flow](02-values/index.md): name values,
@@ -24,8 +21,7 @@ first needs them, from printing a value to building a small command-line tool.
 8. [Useful programs and resources](08-resources/index.md): use command-line
    arguments, text, standard streams, and files in a complete application.
 
-After the core, you can write useful sequential programs. Choose an optional
-path when your own program needs it:
+Then choose an optional path when your program needs it:
 
 - [Generic code and protocols](09-generics/index.md) reuse algorithms across
   different types.
@@ -38,6 +34,5 @@ path when your own program needs it:
   concurrency.
 
 The [Reference](../design/index.md) describes detailed contracts and limits.
-Supplementary reference examples cover method catalogues and advanced file
-operations, so you can look them up without interrupting the core path.
-The final [next steps](next-steps.md) page points toward further exploration.
+Use the [supplementary examples](../design/examples/index.md) to look up
+collection methods, text operations, and advanced file usage.

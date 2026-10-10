@@ -26,7 +26,5 @@ pear
 7
 ```
 
-Both loops unpack a two-position tuple into two names. The dictionary cannot
-grow or shrink while an item loop is using it. An `items()` view cannot yet be
-stored in a variable. The comprehension lesson uses the same unpacking syntax
-to collect a snapshot.
+The dictionary cannot grow or shrink during an item loop. An `items()` view
+cannot yet be stored in a variable.

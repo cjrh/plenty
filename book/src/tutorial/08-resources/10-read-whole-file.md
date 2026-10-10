@@ -1,13 +1,11 @@
 # Reading a UTF-8 file
 
 `read_text(path)` opens, reads, and closes a file, returning
-`Result[str, IoError]`. Like Python text reading, CRLF and bare CR become LF.
-Encoding is always strict UTF-8. The initial file backend requires Linux.
-Paths are relative to the process working directory; the helper owns and closes
-its temporary handle even when reading or allocating fails.
+`Result[str, IoError]`. It requires Linux and strict UTF-8, translating CRLF and
+bare CR to LF. Paths are relative to the process working directory. The handle
+closes even when reading or allocating fails.
 
-This example creates a small configuration file, then reads it using both a
-literal and a binding. The `&str` parameter borrows either argument implicitly;
+The `&str` parameter borrows literals and bindings implicitly;
 `configuration(&path)` is also valid.
 
 ```plenty

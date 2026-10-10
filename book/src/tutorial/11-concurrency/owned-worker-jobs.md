@@ -17,10 +17,8 @@ def main() -> Result[(), Failure]:
 [3, 4]
 ```
 
-`values` moves into `job`, then `job` moves into the worker. Neither binding can
-be used afterward. Creation failure retains the complete job in its error. This
-generic helper lets callers recover it; here a failed start falls back to running
-the same job on the current thread.
+If thread creation fails, its error retains the complete job. Recover it to
+retry or run it locally, as this helper does:
 
 ```plenty
 def attempt[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F]]:
@@ -50,7 +48,6 @@ def main() -> Result[(), Failure]:
 42
 ```
 
-The error wrapper and closure environment need no allocation. Using `?` in a
-function returning `Failure` intentionally discards that error and drops the
-unstarted job. A reusable closure can also be moved into `spawn`; its captures
+Using `?` in a function returning `Failure` discards the creation error and drops
+the unstarted job. A reusable closure can also be moved into `spawn`; its captures
 are dropped after the worker's single invocation.

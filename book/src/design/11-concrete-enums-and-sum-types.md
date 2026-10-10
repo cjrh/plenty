@@ -39,8 +39,10 @@ parsing or allocation.
 
 `Option[T]` and `Result[T, E]` are compiler-known concrete enum constructors,
 without user generics or traits. Payloads may be integers, floats, bool, str,
-collections, classes, other enums, generators, or unit. References
-cannot be payloads. Enums without generator payloads can be list elements and dictionary values, but are
+collections, classes, other enums, generators, or unit. Generators are allowed
+only in standard `Option`/`Result` payloads, including nested wrappers, not in
+user-defined enums. References cannot be payloads. Enums without generator
+payloads can be list elements and dictionary values, but are
 not dictionary keys or set elements in the initial closed hashable-type set.
 
 `Some`, `Nothing`, `Ok`, and `Err` are compiler-known prelude names. Constructors

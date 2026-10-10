@@ -21,11 +21,10 @@ def main() -> Result[(), Failure]:
 [4, 5]
 ```
 
-The list remains owned by `values`. Its shared borrow follows the closure through
-the move into `moved`, and ends after the last call. Changing the list before a
-later call would be rejected. Borrowing closures cannot be returned from the
-function that creates them or stored in collections or sum types. Other functions
-can use them through reference parameters:
+The borrow follows the closure into `moved` and ends after its last call.
+Changing the list before a later call would conflict with that borrow. Borrowing
+closures cannot be returned from their creating function or stored in collections
+or sum types. Pass them to other functions through reference parameters:
 
 ```plenty
 def invoke(f: &Closure[[], i64]) -> i64:

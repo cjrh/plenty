@@ -1,12 +1,7 @@
 # Walk recursive data with a reference
 
-Borrow named bindings and their class fields. Reference bindings must
-be initialized with `&name`, `&mut name` (including field paths), another
-reference, or a call returning a reference.
-
-A reference binding declared with `mut` can be assigned again, under one rule:
-the new reference must be borrowed from the binding itself. It can move further
-into the value it already borrows, and nowhere else:
+A reference binding declared with `mut` can advance through a recursive
+structure. Each new reference must be borrowed from the binding itself:
 
 ```plenty
 class Folder:
@@ -49,9 +44,5 @@ def main() -> ():
 reference binding `view` can be reassigned only to a reference borrowed from `view` itself
 ```
 
-[Match borrowed values](../06-data/08-borrowed-matching.md) uses this rule to walk a
-chain in a loop. References cannot
-be stored in collections, captured by generators, or
-remain live across `yield`. Element references such as `&items[0]` borrow named
-collection storage. Use `next(&mut it)` through an exclusive generator reference when borrowing
-a generator; generator iteration still consumes its owner.
+[Matching borrowed values](../06-data/08-borrowed-matching.md) also leaves the
+owner in place while inspecting its contents.

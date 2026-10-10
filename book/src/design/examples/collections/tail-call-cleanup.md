@@ -1,4 +1,4 @@
-# Optional: cleanup before a tail call
+# Cleanup before a tail call
 
 A function that ends with a call makes a tail call. Plenty
 evaluates the arguments, cleans up the function's remaining values, and only then

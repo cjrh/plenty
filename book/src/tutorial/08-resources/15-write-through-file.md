@@ -25,11 +25,8 @@ goodbye
 
 ```
 
-Explicit `close()?` lets the function report a close error. The block's automatic
-exit can then close the already closed owner harmlessly. Automatic cleanup
-cannot return a close error. A failed write can leave a prefix; retrying the whole
-string may duplicate output. Appends are not guaranteed to be atomic records
-across processes.
+Call `close()?` to report a close error; automatic cleanup cannot report it.
+Exiting the block can then close the already closed file harmlessly.
 
 For flushing, disk synchronization, and other detailed contracts, see the
 [text I/O reference](../../design/05-current-language-contract/01-practical-text-i-o.md).

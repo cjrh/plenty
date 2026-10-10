@@ -1,8 +1,7 @@
 # Store stateful callbacks
 
-A callback registry can pair explicit state with a named function. An ordinary
-generic class expresses that pair; no new callable type or implicit environment
-allocation is needed.
+Pair explicit state with a named function when a registry needs different
+callback bodies with the same state type and call signature:
 
 ```plenty
 class Handler[State]:
@@ -33,18 +32,11 @@ def main() -> Result[(), Failure]:
 15
 ```
 
-Each record owns independent state. `call` borrows that state exclusively for the
-callback and preserves it for later calls. Constructing the records allocates
-nothing; only the list can fail to allocate. Selecting and invoking a callback
-does not allocate. The callback's
-body retains its ordinary allocation contract.
+Each record owns its state; `call` borrows it exclusively. Constructing the
+records needs no allocation, but storing them in a list does.
 
-`State` can be a class containing owned resources, which drop normally with the
-handler. Different callbacks can coexist when their state and call signatures
-agree. For a finite set of different state shapes, use an enum and handle its
-variants in the named callback. [Owned concrete closures](callback-records.md)
-can also be stored when their producer types agree. This explicit-state pattern
-remains useful for selecting among different named callback bodies.
+For different state shapes, use an enum and handle its variants in the callback.
+[Owned concrete closures](callback-records.md) can also be stored when their
+producer types agree.
 
-The repository also contains `examples/callback_registry.plenty` as a standalone
-program demonstrating this pattern.
+See `examples/callback_registry.plenty` for a registry example.

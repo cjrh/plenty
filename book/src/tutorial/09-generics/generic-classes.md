@@ -32,6 +32,5 @@ hello
 This `get` method works for integers and immutable strings, which can be read
 from a shared field. An owned list needs an explicit copy or a reference; using
 `Cell[list[i64]].get` is rejected because it would move out of a borrowed field.
-The call to `read` infers T from the argument; no `read[u8]` is required.
-Constructors infer their parameters too. `Cell(7u8)` and `Cell[u8](7)` have the
-same type. With `Cell(7)`, the unsuffixed integer defaults to i64.
+Constructors infer their parameters: `Cell(7u8)` and `Cell[u8](7)` have the
+same type. With `Cell(7)`, the unsuffixed integer defaults to `i64`.

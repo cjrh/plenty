@@ -1,9 +1,8 @@
 # Accept functions and closures through one API
 
-A library helper may need to accept both a named function and a closure with
-captured data. Constrain a type parameter by its call signature, and borrow the
-callback when the caller should keep it. The compiler infers the concrete
-environment and argument types without boxing or allocating an environment.
+Constrain a type parameter by its call signature to accept named functions and
+captured closures through one parameter. Borrow the callback when its caller
+should keep it:
 
 ```plenty
 def apply[T, F: Callable[[T], T]](f: &F, value: T) -> T:
@@ -22,12 +21,10 @@ def main() -> Result[(), Failure]:
 5
 ```
 
-Here `T` is inferred as `u8` from both arguments, and `F` is the closure's concrete
-type. Conflicting evidence is an error. This consumer also accepts a named
-function with the same signature; it does not need a separate closure-only API.
-Use `&mut F` for a callback that needs to change its captured state.
-Such consumers can also borrow closures with shared or exclusive captures; those
-captures remain protected throughout the call.
+`F` preserves the callback's concrete environment type. Both arguments must
+agree on `T`; conflicting type evidence is an error. Use `&mut F` for a callback
+that changes its captured state. Borrowed captures stay protected throughout
+the call.
 
 ## Let the callback determine a separate result type
 
@@ -57,6 +54,3 @@ def main() -> Result[(), Failure]:
 20
 17
 ```
-
-Both calls infer all three type arguments. Captures remain in the closure's
-inline storage; sharing the API does not add a dynamic interface.

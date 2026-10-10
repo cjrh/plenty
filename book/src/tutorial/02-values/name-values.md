@@ -17,16 +17,13 @@ def main() -> Result[(), IoError]:
 60
 ```
 
-Bindings are immutable by default. Assignment is not a way to silently change
-an existing value or its type:
+Bindings are immutable by default:
 
 ```plenty-error
 def main() -> ():
     score = 10
     score = 11
 ```
-
-The diagnostic includes:
 
 ```error
 `score` is immutable; declare it with `mut`
@@ -46,6 +43,5 @@ def main() -> Result[(), IoError]:
 15
 ```
 
-A mutable binding still keeps its original type. It cannot start as an integer
-and later become a string. `score: i64` explicitly names the type; leaving out
-the annotation would infer the same type here.
+A mutable binding keeps its original type. `score: i64` states the type
+explicitly; without the annotation, this integer literal also infers `i64`.

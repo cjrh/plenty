@@ -1,8 +1,7 @@
 # Group fields and methods in a class
 
-A Plenty class is a record with a fixed set of typed fields. Use the familiar
-Python layout, without a decorator. If you omit `__init__`, the compiler generates
-a constructor taking the fields in their declaration order:
+A class is a record with typed fields. Without `__init__`, its constructor takes
+the fields in declaration order:
 
 ```plenty
 class Point:
@@ -35,18 +34,16 @@ Point(x=20, y=5)
 
 Ordinary methods borrow `self` read-only by default: `self` is shorthand for
 `self: &Point` here. A method that changes fields declares `self: &mut Point`.
-Calling it requires a `mut` binding or an exclusive reference. Every other
-parameter and every return has an explicit type.
+Calling it requires a `mut` binding or an exclusive reference.
 
-An instance stores its fields inline, so `Point(3, 4)` allocates nothing and
-needs no `?`. `copy` can still fail, because a copied list or string field
-allocates.
+Instances store their fields inline: `Point(3, 4)` needs no allocation or `?`.
+Copying list fields can still fail to allocate.
 
 Class instances move even when their fields are all integers. `other = point`
-transfers ownership; `copy(point)` requests independent fields. Reading an
-integer or string field is fine, but an owned field such as a list or another
-class must be borrowed, observed, or explicitly copied. Classes have structural
-equality and a generated printed representation.
+transfers ownership; `copy(point)` requests an independent instance. Integer
+and string fields can be read directly. Owned fields such as lists or other
+classes must be borrowed, observed, or explicitly copied. Equality compares
+fields; printing shows the class name and fields.
 
 There is no inheritance, dynamic attribute creation, or class-variable syntax.
 Fields currently have no default values, and calls use positional arguments.

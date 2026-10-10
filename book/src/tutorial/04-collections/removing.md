@@ -2,7 +2,7 @@
 
 `pop(key)` removes a dictionary entry and returns `Some(value)`, or `Nothing`
 when the key is absent. It requires a mutable dictionary and transfers ownership
-of the stored value, so it works with lists and classes too:
+of the stored value, including nested collections:
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -25,15 +25,11 @@ def main() -> Result[(), Failure]:
 Option[list[i64]].Nothing
 ```
 
-There is no hidden copy. The returned value remains valid if the dictionary is
-dropped, and its new owner cleans it up normally. Discarding the result of `pop`
-also cleans up the removed value, including any custom `__del__` method.
+The returned owner remains valid if the dictionary is dropped. Discarding a
+successful `pop` result also cleans up its removed value.
 
-The operation preserves the order of remaining entries and reuses existing
-storage without allocating. Reinserting a removed key puts it at the end.
-Removal has expected constant cost for well-distributed keys, apart from hashing
-and cleanup; heavy hash collisions can still slow it down. It accepts exactly one key;
-there is no default argument. Sets use `discard`, described below.
+Removal preserves the order of remaining entries without allocating. Reinserting
+a removed key puts it at the end. `pop` takes one key and has no default argument.
 
 ## Remove list elements
 
@@ -65,9 +61,7 @@ Option[list[i64]].Some([1])
 Option[list[i64]].Nothing
 ```
 
-As with dictionaries, `pop` transfers ownership and needs a mutable list or an
-exclusive reference. Empty lists and out-of-range indices return `Nothing`.
-Remaining elements stay in order, capacity is retained, and removal does not
-allocate. Removing the last element is constant time; removing an earlier element
-shifts the elements after it. The returned owner handles cleanup, so discarding
-a successful result also drops its element.
+List `pop` needs mutable access. Empty lists and out-of-range indices return
+`Nothing`. Removal retains capacity, preserves element order, and does not
+allocate. Removing the last element is constant time; removing an earlier one
+shifts subsequent elements.

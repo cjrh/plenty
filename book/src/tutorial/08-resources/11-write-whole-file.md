@@ -2,9 +2,8 @@
 
 `write_text(path, text)` creates or replaces a file and returns the number of
 Unicode characters written. It writes exact UTF-8 bytes without translating
-newlines. Its temporary file handle is closed before it returns. Allocation of
-the path happens before truncating an existing file, but OS failures can leave
-truncated or partially written contents. This is not an atomic-save operation.
+newlines and closes the handle before returning. OS failures can leave truncated
+or partially written contents; this is not an atomic save.
 
 Run this in a scratch directory: it replaces `plenty-example.txt`.
 
@@ -20,6 +19,3 @@ def main() -> Result[(), Failure]:
 ```output
 Result[str, IoError].Ok("Hello, é!\n")
 ```
-
-The tutorial tests execute file examples in temporary directories, independently
-for compile-and-run and compiled-binary execution.

@@ -23,7 +23,7 @@ def main() -> Result[(), IoError]:
 ```
 
 Both continuing branches need the same type. Use `elif` for additional cases.
-For a short choice, Python's conditional expression is also supported:
+For a short choice, use a conditional expression:
 
 ```plenty
 def main() -> Result[(), IoError]:

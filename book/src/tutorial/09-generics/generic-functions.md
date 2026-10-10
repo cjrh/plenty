@@ -20,14 +20,8 @@ def main() -> Result[(), Failure]:
 9
 ```
 
-A type parameter lets one declaration express that relationship: the result
-has the same concrete type as the argument. The compiler checks each concrete
-specialization; this does not introduce a runtime type conversion.
-
-Declare type parameters after the function name. Calls infer them from the
-argument types, or you can supply them explicitly before the call.
-Ownership still follows the concrete type: `identity(values)` transfers the
-list, while a function taking `&T` borrows its argument.
+A type parameter lets one declaration accept either width while keeping the
+argument and result types the same.
 
 ```plenty
 def identity[T](value: T) -> T:
@@ -55,8 +49,11 @@ def main() -> Result[(), Failure]:
 [3, 4]
 ```
 
+Declare type parameters after the function name. Calls infer them from the
+argument types, or you can supply them explicitly before the call.
+Ownership still follows the concrete type: `identity(values)` transfers the
+list, while a function taking `&T` borrows its argument.
+
 `IntType` restricts a parameter to integer types. Unconstrained `T` is useful
 when the body only moves, borrows, or uses operations supported by the chosen
-concrete type. Each specialization is checked and compiled once, whether the call
-uses explicit or inferred type arguments. The following lessons apply the same idea to class fields, enum payloads,
-and methods.
+concrete type. Each specialization is checked against those operations.

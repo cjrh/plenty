@@ -67,8 +67,6 @@ True
 3
 ```
 
-The receiver determines which members can appear in the result. Both inputs remain usable.
-
 `symmetric_difference` keeps members found in exactly one of the two inputs:
 
 ```plenty

@@ -22,6 +22,6 @@ def main() -> Result[(), Failure]:
 Pair(x=9, y=7)
 ```
 
-More complex getters, including ones that choose between fields, conservatively
-borrow the whole argument. Indexed references also retain the collection's whole
-borrow. The getter call itself still needs the access its receiver type requests.
+Getters that choose between fields borrow the whole argument. Indexed references
+also borrow the whole collection. The call still requires the access declared by
+the receiver type.

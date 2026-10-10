@@ -39,7 +39,7 @@ expected f32, got f64
 Write `1.5f32` or `f32(1.5)` instead. Floats follow IEEE arithmetic: division by
 zero can produce infinity or NaN, and arithmetic overflow can produce infinity.
 NaN is unequal to everything, including itself; ordered comparisons with it are
-false. The same comparison rules apply inside collections and enum payloads.
+false.
 
 ```plenty
 def main() -> Result[(), IoError]:
@@ -58,6 +58,4 @@ True
 ```
 
 Floats support `+`, `-`, `*`, `/`, unary signs, and comparisons.
-`//` and `%` currently require integers. Floats can be list elements, dictionary
-values, class fields, and enum payloads, but cannot be dictionary keys or set
-elements. Float literals that overflow their declared width are compile errors.
+`//` and `%` currently require integers. Floats cannot be dictionary keys or set elements. Float literals that overflow their declared width are compile errors.

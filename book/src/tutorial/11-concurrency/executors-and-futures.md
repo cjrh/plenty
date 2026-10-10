@@ -1,7 +1,7 @@
 # Reuse workers with an executor
 
-A thread pool reuses a fixed number of workers for many jobs. Give it both a
-worker count and a queue capacity; these limits make resource use explicit.
+A thread pool reuses workers for many jobs. Set its worker count and queue
+capacity at construction:
 
 ```plenty
 def square(value: i64) -> i64:
@@ -23,16 +23,14 @@ def main() -> Result[(), Failure]:
 [0, 1, 4, 9, 16, 25]
 ```
 
-`submit` returns a `Future[i64]`: an owned handle for one eventual result.
-`result()` waits and consumes that handle. Both submissions happen before the
-first wait, so the jobs can overlap. Their completion order does not affect this
-example's print order. Leaving `with` waits for accepted jobs and joins every
-worker, even on an early `return` or propagated error.
+`submit` returns an owned `Future[i64]`; `result()` waits and consumes it.
+Submit jobs before waiting for their results to let them overlap. Leaving `with`
+waits for accepted jobs and joins every worker, including on early return or
+propagated error.
 
 `map` returns a list in input order. It accepts an owned list or an integer range
-and a named function, with generic types inferred normally. It keeps only a
-bounded window of jobs outstanding. The result list and each job cell can fail
-to allocate, so the operation returns a `Result`.
+and a named function, keeping a bounded window of jobs outstanding. Job and
+result storage can fail to allocate.
 
 You can submit a closure to move several values into a job explicitly:
 
@@ -51,9 +49,8 @@ def main() -> Result[(), Failure]:
 [3, 6, 9]
 ```
 
-The list moves into the job and back through its result. No implicit list copy
-occurs. Pool jobs own their inputs; use `spawn` when a worker needs to borrow
-local data. A worker may use channels, but cannot hold an executor or future.
+Pool jobs own their inputs; use `spawn` when a worker needs to borrow local data.
+A worker may use channels, but cannot hold an executor or future.
 Keep submission and future waits on the owning thread to avoid pool dependency
 deadlocks. Files and foreign effects have the same restrictions as scoped workers.
 

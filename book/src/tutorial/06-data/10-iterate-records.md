@@ -1,10 +1,7 @@
 # Borrow records in a collection
 
-Use `&items` to inspect owned list elements without moving or copying them.
-Each loop variable is a shared reference. Use `&mut items` to get mutable
-references, including for scalar elements. The list itself cannot grow, shrink,
-or be moved during either loop. Shared loops over copyable elements still yield
-values, as they did before.
+For a list of records, `&items` yields shared references and `&mut items` yields
+mutable references. The list cannot grow, shrink, or move during either loop:
 
 ```plenty
 class Score:

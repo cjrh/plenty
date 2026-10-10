@@ -1,14 +1,8 @@
 # Concurrent and parallel programs
 
-Follow this optional path when independent work should overlap or several
-workers should process a workload. Start with scoped threads and joining, then
-channels with bounded queues, then executors and futures. Shutdown, backpressure,
-cancellation, and timed waits are part of using those operations safely.
-
-Named worker functions use the core language. Jobs that capture or store data
-use the [functions-as-values lessons](../10-functions/index.md); generic recovery
-helpers also use [type parameters](../09-generics/index.md). The final lessons
-add explicit parallel operations and coordination between channels.
+Use scoped threads for work that borrows local data, or an executor for many
+owned jobs. Captured jobs use the [functions-as-values lessons](../10-functions/index.md);
+generic recovery helpers also use [type parameters](../09-generics/index.md).
 
 - [Run scoped threads](scoped-threads.md)
 - [Borrow local data for a worker](borrowed-workers.md)

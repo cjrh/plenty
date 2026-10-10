@@ -1,6 +1,7 @@
 # Collect results into owned collections
 
-Comprehensions support the same explicit allocation boundary:
+Return a comprehension's `Result` directly when the caller should handle
+allocation failure:
 
 ```plenty
 def squares() -> Result[list[i64], AllocError]:
@@ -13,9 +14,6 @@ def main() -> Result[(), Failure]:
 ```output
 [0, 4, 16]
 ```
-
-Output allocation failure stops iteration and drops the partial result. It does
-not undo earlier effects or catch failures in ordinary calls inside the expression.
 
 Collect an owned iterator with recoverable list growth:
 
@@ -36,9 +34,9 @@ def main() -> Result[(), Failure]:
 [3, 6]
 ```
 
-`from` consumes the source. If output allocation fails, it drops the partial
-list and remaining iterator. Earlier iterator side effects are not undone, and
-allocations inside the generator body still follow that body's chosen APIs.
+`from` consumes the source. If allocation fails, it drops the partial list and
+remaining iterator. Neither `from` nor comprehensions undo earlier effects or
+handle failures inside the producer's body.
 
 Sets provide the same constructor, removing duplicates in first-seen order:
 
@@ -51,6 +49,5 @@ def main() -> Result[(), Failure]:
 {3, 1, 2}
 ```
 
-The example propagates input construction failure with `[3, 1, 3, 2]?`.
-Dictionary sources iterate
-over keys; borrowed sources and string iteration are not supported by `from`.
+Dictionary sources iterate over keys. `from` does not support borrowed sources
+or string iteration.

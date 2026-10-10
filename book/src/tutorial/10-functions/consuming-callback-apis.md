@@ -1,8 +1,7 @@
 # Consume a callback
 
-A reusable library function can accept any callback that it owns and calls once.
-Use the `OnceCallable` constraint. It accepts named functions, reusable closures,
-and one-shot closures. The signature tells the compiler the result type.
+Use `OnceCallable` for a function that owns and calls its callback once. It accepts
+named functions, reusable closures, and one-shot closures.
 
 ```plenty-file callbacks.plenty
 pub def run[T, F: OnceCallable[[], T]](callback: F) -> T:

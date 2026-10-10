@@ -1,8 +1,7 @@
 # Multiline anonymous functions
 
-Use `def` without a name to create a function value. Its indented body can have
-local bindings, loops, conditionals, early returns, and `?`, just like a named
-function. Every parameter and the return value still need explicit types.
+Use `def` without a name to create a function value. Its body follows the same
+rules as a named function; parameters and the return value need explicit types.
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -20,12 +19,8 @@ def main() -> Result[(), Failure]:
 10
 ```
 
-This function has type `Callable[[i64], i64]`. Creating it does not allocate.
-You can return it from another function, store it, and pass it to a typed callback
-parameter. In a generic function, its annotations can use the enclosing type
-parameters.
+This function has type `Callable[[i64], i64]` and can be stored, returned, or
+passed to a callback parameter.
 
-
-Named module functions and imported symbols remain
-available normally. Bind the anonymous function before passing it to another
-call: indented anonymous bodies inside parentheses are not supported.
+Bind the anonymous function before passing it to another call: indented bodies
+inside parentheses are not supported.

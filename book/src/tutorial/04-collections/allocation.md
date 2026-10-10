@@ -1,8 +1,7 @@
 # Handle allocation failures
 
-A collection needs storage for its mutable contents. Construction returns
-`Result[collection, AllocError]`, letting the caller recover when storage
-cannot be obtained. Use the same `match` and `?` rules as for other results.
+Collection construction returns `Result[collection, AllocError]`. Use `?` to
+propagate a failure, or `match` to recover:
 
 ```plenty
 def answers() -> Result[list[i64], AllocError]:
@@ -38,10 +37,8 @@ its arguments, cleaning up any owned argument rather than returning it.
 
 `AllocError` has two payload-free variants. `OutOfMemory` means the
 allocator rejected a request. `CapacityOverflow` means its size cannot be
-represented. The error itself needs no allocation.
+represented. Neither variant needs allocation.
 
-[Capacity and reservation examples](../../design/examples/collections/capacity.md)
-show how to reserve storage before inserting or deliberately recover from a
-capacity error. Allocating literals, collection constructors, comprehensions,
-string-building operations, and `copy` all expose results. An empty display
-such as `[]` also needs an element type from context and result handling.
+Use [capacity and reservation](../../design/examples/collections/capacity.md)
+to obtain storage before inserting values you want to keep if reservation
+fails.

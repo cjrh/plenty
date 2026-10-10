@@ -1,9 +1,8 @@
 # Own a foreign handle
 
-Use a class with a private opaque pointer and `__del__` to own a C resource.
-Application code gets ordinary Plenty moves, borrowing, and automatic cleanup.
-This interface owns a temporary C file; its public factory reports acquisition
-failure and keeps its raw declarations private.
+Own a C resource with a private opaque pointer and a destructor. This interface
+wraps a temporary C file, keeping raw operations private and reporting acquisition
+failure through its public factory.
 
 Save this as `c_scratch.plentyi`:
 
@@ -59,14 +58,11 @@ def main() -> Result[(), Failure]:
 4
 ```
 
-`Scratch()` creates the Plenty owner, without allocating, before acquiring a C
-resource. Its null field is fully initialized, so cleanup is active even if later
-work fails. Once
-the factory returns, the resource moves into `file`. Leaving scope, including
-through `?`, closes it exactly once. The library that creates the file also
-destroys it. A class with a destructor cannot be copied.
+Initialize the owner to null before acquiring the resource, so cleanup is valid
+even if acquisition fails. After success, the destructor closes the file through
+its originating library, including on early exit. The owner cannot be copied.
 
-This small example discards close errors in `__del__`; a production binding can
-also offer an explicit fallible `close` method when callers need to handle them.
+The destructor discards close errors. Offer an explicit fallible `close` method
+when callers need to handle them.
 Native ownership transfer needs its own wrapper: clear the field when C consumes
 the handle, and retain or return the owner when C leaves ownership with the caller.

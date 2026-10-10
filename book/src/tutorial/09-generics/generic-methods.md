@@ -4,7 +4,6 @@ A method may declare type parameters of its own, in addition to those on its
 class. Arguments determine them just as they do for generic functions. A
 parameter that appears only in the result must be chosen explicitly:
 
-
 ```plenty
 class Number:
     value: i64
@@ -23,5 +22,5 @@ def main() -> Result[(), Failure]:
 ```
 
 Method parameters cannot shadow class parameters. Constructors and destructors
-use only the class parameters. The [functions-as-values path](../10-functions/index.md)
-later uses a generic method to transform a cell with a callback.
+use only the class parameters. See the [functions-as-values path](../10-functions/index.md)
+for a generic method that accepts a callback.

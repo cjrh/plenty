@@ -54,9 +54,8 @@ Exit is infallible and cannot suppress errors. Check fallible writes or flushes
 explicitly. Fatal traps do not run exits, and `yield` inside `with` is not yet
 supported.
 
-Most resource managers will return a reference to themselves. This gives the
-body access to their methods and fields while `with` retains ownership and
-arranges cleanup. The reference cannot escape the block.
+`__enter__` can return a reference to the manager, giving the body access to its
+methods and fields while `with` keeps ownership. The reference cannot escape.
 
 ```plenty
 class Counter:

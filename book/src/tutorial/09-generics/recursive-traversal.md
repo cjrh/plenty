@@ -1,10 +1,8 @@
 # Optional: traverse recursive data
 
-Use `match &value` to inspect an enum while keeping its owner. Its payload
-bindings are references: `Some(next)` below binds `next` as
-`&Box[links.Node[i64]]`. A reference to a box can be passed where a reference
-to its content is expected, so `total(next)` borrows the next node. This lets
-us traverse a chain without taking it apart or allocating copies.
+Traverse a chain without consuming it by matching a borrow. `Some(next)` below
+binds `next` as `&Box[links.Node[i64]]`, which can be passed where a reference to
+the node is expected.
 
 ```plenty-file links.plenty
 pub class Node[T]:
@@ -45,13 +43,12 @@ def main() -> Result[(), Failure]:
 4
 ```
 
-`match &mut value` binds mutable payload references. The recursive calls above
-borrow the next node, and ordinary field assignment updates it in place. The
-owner remains usable afterward and is dropped automatically at scope exit.
-These traversals allocate nothing. `increment` ends with its recursive call and
-passes on a reference borrowed from its own parameter, so that call is a tail
-call and the stack does not grow. `total` adds to the result after its call
-returns, so each of its calls still uses native stack space.
+`match &mut value` binds mutable payload references, allowing `increment` to
+update each node while its caller keeps the chain.
+
+`increment` ends with a tail call through a reference borrowed from its parameter,
+so its stack does not grow. `total` adds after its recursive call returns, so it
+uses native stack space for every node.
 
 A loop avoids that. Declare a reference binding with `mut` and assign it the
 next node. Such a binding may only be assigned a reference borrowed from itself,
@@ -95,6 +92,5 @@ def main() -> Result[(), Failure]:
 11
 ```
 
-`node` starts at `head` and only moves deeper into the chain `head` borrows, so
-the chain stays borrowed for as long as `node` is used. The loop uses the same
-stack space for a chain of any length.
+The chain stays borrowed while `node` is used. The loop's stack usage is
+independent of chain length.

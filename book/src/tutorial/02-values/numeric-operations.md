@@ -27,11 +27,11 @@ def main() -> Result[(), IoError]:
 8
 ```
 
-Arithmetic overflow is a runtime error, rather than wrapping silently. Explicit
-integer casts have different semantics: narrowing discards high bits. For
-example, `u8(257)` produces `1`. Widening preserves signedness appropriately;
-a same-width cast between signed and unsigned types reinterprets the bits.
-Use casts deliberately; they are not range-validation functions.
+Integer arithmetic overflow is a runtime error. A cast can still discard data:
+narrowing discards high bits, so `u8(257)` produces `1`. Widening sign-extends
+signed inputs and zero-extends unsigned inputs; same-width signed/unsigned casts
+reinterpret the bits.
+Casts do not validate a value's range.
 
 `+`, `-`, and `*` have their usual arithmetic precedence. `//` divides integers
 and rounds down, including for negative values:

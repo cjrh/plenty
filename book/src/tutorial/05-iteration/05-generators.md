@@ -26,12 +26,13 @@ starting
 1
 ```
 
-Construction returns the generator directly, with no heap allocation or `?`.
-Calling the function evaluates its arguments immediately, but its body starts
-only when iteration requests the first value. Each yield pauses the body and
-keeps its locals for the next request. A bare return or the end of the body
-finishes the generator. It cannot return a value. Allocating expressions in its
-arguments or body still require their usual error handling.
+Calling a generator evaluates its arguments immediately but starts its body
+only when iteration requests a value. Each `yield` pauses the body, retaining
+its locals until the next request. A bare `return` or the end of the body
+finishes it; a generator cannot return a value.
+
+Creating the generator needs no allocation or `?`. Allocating arguments and
+operations in its body still need their usual error handling.
 
 Comprehensions and collection constructors also consume generators:
 
@@ -51,10 +52,9 @@ def main() -> Result[(), Failure]:
 [0, 1, 2]
 ```
 
-For one value at a time, name a mutable generator and call `next(&mut messages)`.
-The `&mut` lends exclusive access without consuming the generator; the shorthand
-`next(messages)` also works.
-It returns `Some(value)` or `Nothing`; exhaustion stays exhausted:
+Call `next(&mut messages)` to advance a mutable generator without consuming it.
+The shorthand `next(messages)` also works. It returns `Some(value)` or `Nothing`;
+an exhausted generator keeps returning `Nothing`:
 
 ```plenty
 def once() -> Generator[str]:
@@ -74,9 +74,9 @@ Option[str].Nothing
 Option[str].Nothing
 ```
 
-Breaking out of consuming iteration drops the suspended generator without
-executing the statements after its last yield. There are no generator expressions,
-`yield from`, `send`, or async operations. Yielded owned values transfer ownership; use `yield copy(value)` to retain an
-independent mutable value in the generator (handle the copy's `Result` first).
-A generator may yield strings,
-collections, classes, and enums, but not another generator.
+Breaking out of consuming iteration drops the generator without resuming its
+body. Yielding an owned value transfers ownership; to keep it, handle
+`copy(value)`'s result and yield the copy.
+
+Generators cannot yield other generators. Generator expressions, `yield from`,
+`send`, and async operations are unsupported.

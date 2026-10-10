@@ -1,11 +1,8 @@
 # Initialize fallible fields
 
-A record stores its fields inline. Calling its constructor does not allocate
-storage for the instance. Its initializer may still need fallible operations:
-here the list field reserves capacity during construction.
-
-An initializer returning `Result[(), AllocError]` makes `Class(...)` return
-`Result[Class, AllocError]`:
+An initializer can return `Result[(), E]` when setting up its fields may fail.
+The constructor then returns `Result[Class, E]`. Here, reserving list capacity
+can fail to allocate:
 
 ```plenty
 class Buffer:

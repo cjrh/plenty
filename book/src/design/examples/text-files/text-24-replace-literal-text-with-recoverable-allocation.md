@@ -33,5 +33,4 @@ The result owns its bytes and survives destruction of every input.
 The runtime checks the complete output size and allocates only the final string.
 Even a call with no matches, or an empty result, makes that allocation and can
 return `OutOfMemory`; unrepresentable sizes return `CapacityOverflow`. Failure
-leaves all inputs unchanged. Constructing the arguments follows their own
-allocation policies.
+leaves all inputs unchanged.

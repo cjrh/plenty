@@ -24,12 +24,10 @@ def main() -> Result[(), Failure]:
 12
 ```
 
-The main thread prints in a defined order by joining each result in that order.
-The two worker bodies may run concurrently. A failed start leaves its stored
-callback owned by the caller, and any earlier successful start is joined.
+A failed start leaves its borrowed callback owned by the caller. Any earlier
+successful start is joined.
 
-Workers can also build an owned callback and transfer it back through `join()`.
-This does not allocate an extra environment object.
+Workers can also return an owned callback through `join()`:
 
 ```plenty
 def make(offset: i64) -> Closure[[i64], i64]:
@@ -49,6 +47,5 @@ def main() -> Result[(), Failure]:
 
 List and dictionary entries can also supply a borrowed job, but their loans
 protect the whole collection. Even after `join()`, wait until the `with` block
-ends before resizing or replacing that collection. The compiler checks captures,
-callback bodies, and destructors for thread eligibility; putting a callback in a
-container does not bypass those checks.
+ends before resizing or replacing that collection. Stored callbacks have the
+same thread-eligibility restrictions as local ones.

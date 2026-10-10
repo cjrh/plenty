@@ -1,7 +1,7 @@
 # Associate keys with values
 
-Dictionaries map a single key type to a single value type. Keys and set elements
-may be integers, booleans, or strings. Dictionary values can include collections.
+A `dict[K, V]` maps keys of one type to values of another. Keys may be integers,
+booleans, or strings; values can include collections.
 
 ```plenty
 def main() -> Result[(), Failure]:
@@ -39,8 +39,8 @@ def main() -> Result[(), Failure]:
 {"first": [11, 20]}
 ```
 
-The assignment itself allocates nothing. Either a missing key or an invalid
-list index is a runtime error.
+Indexed assignment allocates nothing. A missing key or an invalid list index
+is a runtime error.
 
 `keys()` and `values()` return new lists in insertion order. When dictionary
 values contain mutable collections, use `copy(groups)?.values()?` to request

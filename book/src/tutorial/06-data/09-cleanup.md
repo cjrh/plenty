@@ -39,13 +39,11 @@ release second
 done
 ```
 
-Locals clean up in reverse declaration order. A class's `__del__` runs before
-automatic field cleanup; fields then clean up in declaration order. You do not
-need to destroy the fields yourself. Moving an instance transfers its cleanup
-responsibility and does not run the destructor.
+Locals clean up in reverse declaration order. A class's `__del__` runs first;
+its fields then clean up automatically in declaration order. Moving an instance
+transfers cleanup responsibility without running the destructor.
 
-A field's children also finish cleanup before the next field begins, including
-when the fields mix collections, boxes, and inline instances:
+Each field finishes cleaning up its children before the next field begins:
 
 ```plenty
 class Leaf:
@@ -66,7 +64,6 @@ b
 ```
 
 Lifecycle methods are not called directly. A class with custom cleanup, or one
-containing a value with custom cleanup, cannot be copied yet. That avoids
-duplicating ownership of a resource accidentally. A destructor cannot yield or
-return a recoverable error; an explicit closing method could return `Result`
-when reporting failure matters. Fatal traps do not run cleanup.
+containing a value with custom cleanup, cannot be copied yet. A destructor cannot
+yield or report a recoverable error; use an explicit closing method returning
+`Result` when failures matter. Fatal traps do not run cleanup.

@@ -21,4 +21,4 @@ True
 ```
 
 Both operands must have the same set type. Empty sets are subsets of every set
-and disjoint from every set; neither operand is consumed.
+and disjoint from every set.

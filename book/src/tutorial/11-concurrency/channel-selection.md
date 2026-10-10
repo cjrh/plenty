@@ -34,5 +34,4 @@ to that budget and may return `SelectError.TimedOut`.
 
 Selection skips a drained channel whose senders have all gone away. It reports
 `SelectError.Disconnected` only when both channels are drained and disconnected.
-The receivers remain yours after every outcome. The operation and its inline
-`Selected` wrapper allocate nothing.
+The receivers remain yours after every outcome.

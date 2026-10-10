@@ -26,8 +26,7 @@ def main() -> Result[(), Failure]:
 3
 ```
 
-Each call reports decoding, I/O, or allocation failure through its Result. You
-can mix `readline()` and `read()` on the same file; both share newline state.
-Failures may consume input, so retrying is not a rollback. Direct `for line in
-file` iteration is not yet implemented. For size-limited reads and saved positions, see the
+`readline()` and `read()` share newline state. Their errors may consume input;
+retrying is not a rollback. Direct `for line in file` iteration is unsupported.
+For size-limited reads and saved positions, see the
 [text I/O reference](../../design/05-current-language-contract/01-practical-text-i-o.md).

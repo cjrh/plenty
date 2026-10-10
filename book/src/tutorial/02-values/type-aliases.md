@@ -18,13 +18,12 @@ def main() -> Result[(), IoError]:
 42
 ```
 
-`type int = i32` declares a type alias. `int(41)` is exactly the integer cast
-`i32(41)`. Another program can choose `type int = i64` instead. Aliases do not
-change unconstrained literal defaults, but `answer: int = 41` uses the annotation
-to choose the literal's width. `41i32` and `int(41)` are also explicit choices. Aliases are not literal
-suffixes, so `41int` is not valid syntax.
+`type int = i32` makes `int` another name for `i32`, including in casts.
+Aliases do not change unconstrained literal defaults, but an annotation such
+as `answer: int = 41` selects the literal's width. Aliases are not literal
+suffixes: write `41i32`, not `41int`.
 
-Names that describe your data can make interfaces easier to read:
+Aliases can describe a value's purpose and refer to other aliases:
 
 ```plenty
 type Count = u32
@@ -42,12 +41,9 @@ def main() -> Result[(), IoError]:
 42
 ```
 
-An alias is another name for the same type. `Count`, `ItemCount`, and `u32`
-are interchangeable here; an alias does not create a distinct type, enforce
-units of measurement, or add runtime overhead.
+`Count`, `ItemCount`, and `u32` are interchangeable. An alias does not create
+a distinct type or enforce units of measurement.
 
-Aliases can name integers, booleans, strings, collections, unit, or other aliases.
-Numeric aliases support casts; collection aliases support collection constructors. Declare aliases at module scope; they are
-visible throughout that file, including before their declaration. Alias chains
-must eventually reach a concrete type; cycles and unknown targets are errors.
+Declare aliases at module scope; they are visible throughout the file. Alias
+chains must reach a concrete type: cycles and unknown targets are errors.
 An alias cannot redefine a built-in name, another alias, or a function name.

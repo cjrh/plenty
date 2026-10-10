@@ -47,6 +47,5 @@ def main() -> Result[(), Failure]:
 3
 ```
 
-`pop` returns `Option`: this example knows index zero exists. It transfers the
-callback out of the list without allocating. A borrowed callback keeps the list
-protected from resizing or removal until that borrow ends.
+`pop` transfers the callback out of the list. A borrowed callback prevents
+resizing or removing entries until its borrow ends.

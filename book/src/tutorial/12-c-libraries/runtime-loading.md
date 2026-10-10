@@ -56,16 +56,13 @@ released
 LoadError.OpenFailed
 ```
 
-`load` returns a `Result`, so `?` propagates loading failures. It checks the
-library's exact interface metadata and resolves every required function before
-returning. A changed contract produces `LoadError.IncompatibleContract`; a
-missing export produces `LoadError.MissingSymbol`. Imports alone load nothing.
+Loading checks the library's exact interface contract and every required export.
+A changed contract reports `LoadError.IncompatibleContract`; a missing export
+reports `LoadError.MissingSymbol`. Imports alone load nothing.
 
-The `Library` caches function addresses. Its methods preserve the signatures,
-borrows, and errors of the exports. The `counter` owns its native resource and
-remembers the matching destructor, even after `library` is dropped. Both drops
-above are optional early cleanup; scope exit does the same automatically.
-Native code remains resident until process exit.
+The loaded methods preserve the exports' signatures, borrows, and errors.
+Dropping `library` does not invalidate its objects: `counter` still uses the
+matching destructor, and native code stays loaded until process exit.
 
 Keep objects with the library instance that created them. Passing an object to
 a different loaded instance stops with a diagnostic before making the native

@@ -1,7 +1,7 @@
 # Handle collection allocation failures
 
-Start with `list[T]()` when you need to handle failure while creating an
-empty list. It returns `Result[list[T], AllocError]`. Sets and dictionaries work
+`list[T]()` creates an empty list and returns `Result[list[T], AllocError]`.
+Sets and dictionaries work
 the same way: `set[T]()` and `dict[K, V]()`.
 
 If you know how many entries you need, use `with_capacity(n)`. The collection
@@ -32,13 +32,12 @@ def main() -> Result[(), IoError]:
 [21, 42]
 ```
 
-The `?` unwraps the newly owned collection on success. On failure, construction
-reclaims any memory it already obtained and returns the error. The error itself
-needs no allocation. Type aliases work too: after `type Numbers = list[i64]`,
+On failure, construction reclaims any memory it already obtained.
+Type aliases work too: after `type Numbers = list[i64]`,
 you can write `Numbers()`.
 
-Use `append` for a list, `add` for a set, and `insert` for a dictionary
-when you need to handle allocation failure. Each returns `Result[(), AllocError]`.
+`append` for a list, `add` for a set, and `insert` for a dictionary
+each return `Result[(), AllocError]`.
 `reserve(n)` reserves space for at least `n` additional entries; it is available
 on all three collection types and returns the same result type.
 
@@ -67,7 +66,7 @@ def main() -> Result[(), Failure]:
 [21, 42]
 ```
 
-`AllocError` is always available. Its two variants need no payload or allocation.
+`AllocError` has two variants, neither of which allocates.
 `OutOfMemory` means the allocator rejected a request. `CapacityOverflow` means
 the requested size cannot be represented; a negative reservation is also a
 capacity error. You can handle a failure without terminating the program:
@@ -95,12 +94,9 @@ returned to you. Reserve first if you want to keep an item until storage is read
 Successful reservation covers collection storage, including a dictionary or
 set's hash table; constructing the elements themselves may still allocate.
 
-These methods require a mutable receiver, just like `append` and `add`. Dictionary
+These methods require a mutable receiver. Dictionary
 `insert(key, value)` replaces an existing value or adds a new entry. Adding an
 existing set element or replacing a dictionary entry needs no storage growth.
 
-Allocating literals, comprehensions, collection constructors, string operations, and `copy`
-all return results. Handle each allocating argument too: `copy([1, 2]?)?`
-checks both construction and copying. A plain `[]` produces a result; it never
-silently aborts on allocation failure. Explicit `.unwrap()` chooses to terminate
-if that result is an error. User destructors must handle their own errors.
+Handle allocating arguments too: `copy([1, 2]?)?` checks both construction and
+copying. Explicit `.unwrap()` chooses to terminate if a result is an error.

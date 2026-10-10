@@ -3,7 +3,6 @@
 When an operation needs more than its call arguments, let its function value
 own that extra data. Use an explicit list to capture surrounding bindings:
 
-
 ```plenty
 def main() -> Result[(), Failure]:
     offset = 4
@@ -19,12 +18,11 @@ def main() -> Result[(), Failure]:
 24
 ```
 
-`values` moves into the closure; `offset` is a scalar and copies normally.
-The closure owns its captures and drops them when it leaves scope. Calling it
-borrows that environment, so both calls work without copying the list. Creating
-the closure itself does not allocate. Its concrete environment type differs from
-the code-only `Callable` type. Captures cannot be moved out of the body; borrow
-them or explicitly `copy` when an independent owner is needed.
+`values` moves into the closure; the scalar `offset` copies. Each call borrows
+the captures, so the list remains available for subsequent calls and drops with
+the closure. Its environment is stored inline and has a different type from the
+code-only `Callable`. A reusable closure cannot move captures out; borrow or
+explicitly `copy` them when an independent owner is needed.
 
 Use `mut` in the capture list for private state. A stateful closure also needs
 a mutable binding to call:
@@ -46,5 +44,4 @@ def main() -> Result[(), Failure]:
 0
 ```
 
-The captured scalar is independent of the original scalar. An owned collection
-instead moves into the environment, just as it does on ordinary assignment.
+The captured scalar changes independently of the original `count`.

@@ -1,8 +1,7 @@
 # Check the application processing module
 
-The following self-contained check exercises the processing module with a
-temporary example file, without requiring command-line arguments. Save its
-companion as `report_demo.plenty`:
+Test the processing module without command-line arguments. Save its companion
+as `report_demo.plenty`:
 
 ```plenty-file report_demo.plenty
 pub def summarize(path: &str) -> Result[str, Failure]:

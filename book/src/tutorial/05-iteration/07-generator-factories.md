@@ -1,7 +1,6 @@
 # Creating generators
 
-Generator construction needs no heap allocation and returns a generator directly.
-An ordinary factory can return it with the same annotation:
+An ordinary function can create and return a generator:
 
 ```plenty
 def numbers() -> Generator[i64]:
@@ -26,13 +25,7 @@ def main() -> Result[(), IoError]:
 30
 ```
 
-Call a generator function like any other function: `numbers()` creates its
-suspended state without executing its body. Arguments evaluate immediately and
-move into that state. Allocating arguments and operations inside the body still
-use their normal `Result` APIs; collecting values into a list also allocates.
-
-A factory that can fail for another reason can still return
+A factory that can fail can return
 `Result[Generator[T], E]`. Write `Ok(numbers())` for success and use `?` at the
-factory's call site. These wrappers add no heap allocation for the frame.
-Dropping a generator, including one inside `Some` or `Ok`, releases its captures
-without resuming its body.
+factory's call site. Wrapping a generator adds no allocation; dropping the
+wrapper releases its captures without resuming the body.

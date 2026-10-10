@@ -1,13 +1,8 @@
 # Functions as values
 
-Follow this optional path when code should accept an operation chosen by its
-caller, or keep an operation for later. Begin with named functions, then use
-anonymous functions and captures for ordinary local work. Borrowed and stored
-environments appear when their ownership needs arise; consuming jobs come last.
-
-The first lessons need only the core path. Lessons about generic signatures and
-records also use [type parameters and constraints](../09-generics/index.md).
-You can return to those API-design lessons after writing local callbacks.
+Pass a function when its caller should choose an operation, or store one for
+later. The first lessons need only the core path; generic signatures and records
+also use [type parameters and constraints](../09-generics/index.md).
 
 - [Pass functions as values](named-callbacks.md)
 - [Multiline anonymous functions](anonymous-functions.md)

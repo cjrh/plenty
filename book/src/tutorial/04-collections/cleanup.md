@@ -23,7 +23,5 @@ The old contents are released and the consumed binding is unavailable until
 reinitialized. Borrow checking prevents dropping an owner while a reference
 still needs it. A borrow ending at its last use does not destroy the owner.
 
-Strings may share immutable storage: dropping one does not invalidate another.
-There is no tracing garbage collector. Fatal runtime traps terminate without
-unwinding scopes. Later lessons explain how classes add custom cleanup and how
-generators release their captured values.
+Dropping a string does not invalidate other strings sharing its immutable
+storage. Fatal runtime traps terminate without running scope cleanup.

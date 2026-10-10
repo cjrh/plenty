@@ -1,7 +1,6 @@
 # Collections, ownership, and borrowing
 
-Use collections to store several values, then learn how to share access to them
-without accidental copies or unclear cleanup responsibilities.
+Store values in collections and choose when to transfer, copy, or borrow them.
 
 1. [Build and update a list](lists.md)
 2. [Transfer or copy ownership](moves-and-copies.md)
@@ -16,5 +15,4 @@ without accidental copies or unclear cleanup responsibilities.
 10. [Clean up owned values](cleanup.md)
 
 The [collection examples](../../design/examples/collections/index.md) provide
-additional operations when you need them. The next part teaches iteration and
-transformation.
+additional operations.

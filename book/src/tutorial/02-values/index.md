@@ -1,9 +1,6 @@
 # Values, functions, and control flow
 
-Build small calculations from named values, then put them in typed functions.
-A function can choose a result with branches or repeat work with loops.
-
-Read these lessons in order:
+Name values, write typed functions, and choose or repeat work:
 
 1. [Name values](name-values.md)
 2. [Choose numeric types](numeric-types.md)
@@ -19,5 +16,4 @@ Read these lessons in order:
 11. [Repeat while a condition holds](while-loops.md)
 12. [Give types descriptive names](type-aliases.md)
 
-[Absence and failure](../03-absence/index.md) comes next, before operations
-that allocate collections or build new text.
+Next: [Absence and failure](../03-absence/index.md).

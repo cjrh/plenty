@@ -1,8 +1,8 @@
 # Split a program into modules
 
-An import names a source file. It does not execute that file. A library module
-contains declarations and imports; only the application's `main` starts the
-program. Names are private to their defining module unless marked `pub`.
+An import names a source file without executing it. Modules contain declarations
+and imports; execution starts at the application's `main`. Names are private to
+their module unless marked `pub`.
 
 Save this companion file as `geometry.plenty`:
 
@@ -38,9 +38,9 @@ def main() -> Result[(), Failure]:
 
 `import geometry` makes declarations reachable through `geometry.Name`.
 `from geometry import Point as Position` binds just that type under a local name.
-You can also write `import geometry as geo`, then use `geo.Point`. These aliases
-refer to the same declarations, not copies or new types. Two separate modules
-may each define `Point`; those are distinct types.
+You can also write `import geometry as geo`, then use `geo.Point`. Aliases refer
+to the same declaration. Two modules may each define `Point`; those are distinct
+types.
 
 Imports are absolute. `import tools.geometry` reads `tools/geometry.plenty`
 under the source root. Directories provide namespaces and need no `__init__`
@@ -54,5 +54,4 @@ plenty --module-root src --check-module src/tools/geometry.plenty
 ```
 
 `--check` checks a complete application and requires `main`. `--check-module`
-checks a library and its imports without that requirement. An imported function
-named `main` is an ordinary function; importing it does not call it.
+checks a library and its imports without that requirement.

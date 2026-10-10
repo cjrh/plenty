@@ -26,10 +26,8 @@ not found
 42
 ```
 
-`match` handles the alternatives explicitly. In the first branch, `value`
-names the payload and belongs to that branch. The second branch handles absence.
-Cover both variants; handling only the successful case leaves a possible path
-unaccounted for.
+In `case Some(value)`, the pattern binds the payload to `value` within that
+branch. A `match` must cover both `Some` and `Nothing`.
 
 `Some` and `Nothing` are built in and need no type prefix. `Nothing`
 belongs to one concrete option type rather than acting as a universal null.

@@ -1,10 +1,8 @@
 # Give constructors enough type information
 
-Constructors get missing type
-information from a binding annotation, function parameter, or return signature.
-`Some(42)` already contains enough information to infer `Option[i64]`.
-`Nothing` has no payload to infer from; `Ok` and `Err` each need the other
-variant's type from context:
+A binding annotation, parameter, or return signature supplies missing type
+information. `Some(42)` infers `Option[i64]` from its payload. `Nothing` needs
+an option type from context; `Ok` and `Err` each need the other variant's type:
 
 ```plenty
 def main() -> Result[(), IoError]:
@@ -28,9 +26,8 @@ True
 not ready
 ```
 
-Qualified forms remain available when you want to state all types at the
-construction site. A type alias works as well. Without sufficient context, the
-compiler asks for a type instead of guessing:
+Qualify a constructor, such as `Option[i64].Nothing`, to supply its type
+explicitly. Otherwise, insufficient context is an error:
 
 ```plenty-error
 def main() -> ():

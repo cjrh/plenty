@@ -8,11 +8,10 @@ The built-in integer names specify their sizes:
 | `u8`, `u16`, `u32`, `u64` | Unsigned integers of those widths |
 
 For example, `i8` can hold -128 through 127, and `u8` can hold 0 through 255.
-Floating-point numbers use `f32` or `f64`; other primitive value types include
-`bool` and `str`.
 
 A whole-number literal without a suffix, such as `42`, defaults to `i64` when
-there is no annotation, parameter, return type, or typed arithmetic context.
+its type is unconstrained. An annotation, parameter, return type, or arithmetic
+operand can supply the type instead.
 Append a built-in integer type to choose another width:
 
 ```plenty

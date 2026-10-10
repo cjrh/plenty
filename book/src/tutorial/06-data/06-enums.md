@@ -1,7 +1,7 @@
 # Describe alternatives with enums
 
-An enum says which alternatives a value can have. Each variant may carry typed
-data. Match every possibility to extract that data:
+An enum defines alternatives, each of which may carry typed data. Match its
+variants to extract that data:
 
 ```plenty
 enum Reading:
@@ -31,11 +31,11 @@ positive
 sensor offline
 ```
 
-Constructing an enum value never allocates: the payload is stored inline, so
-`Reading.Value(42)` needs no `?`. Variants without data omit parentheses.
-Payloads may have several positions, such as `Pair(i64, str)`. Bindings in a case are immutable and stay inside
-that case. Use `_` for an unused payload position, or a final whole-value
-`case _:` for the remaining variants. Duplicate or missing cases are errors:
+Enum payloads are stored inline: `Reading.Value(42)` needs no allocation or `?`.
+Variants without data omit parentheses. Payloads may have several positions,
+such as `Pair(i64, str)`. Case bindings are immutable and local to that case.
+Use `_` to ignore a payload position or a final `case _:` to cover remaining
+variants. Duplicate or missing cases are errors:
 
 ```plenty-error
 enum Switch:
@@ -52,9 +52,10 @@ def main() -> ():
 non-exhaustive match; missing Switch.Off
 ```
 
-A final match produces a function's result, like a final `if`. Cases may also
-return early or break/continue an enclosing loop. Enum declarations can refer to
-other nonrecursive types and aliases. Enums with identical variants but different
-names remain different types. Payloads can contain strings, collections, and
-other enums. Matching consumes enums containing mutable payloads and transfers
-the bound payloads; use `match copy(value)` to preserve such an owner.
+A final match produces the function's result; cases can also return early or
+break/continue a loop. Separately declared enums remain distinct types, even
+with identical variants.
+
+Payloads can contain strings, collections, and other enums. Matching an enum
+with mutable payloads consumes it and transfers those payloads; use
+`match copy(value)?` to preserve the owner.

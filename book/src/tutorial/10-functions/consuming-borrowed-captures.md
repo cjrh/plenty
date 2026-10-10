@@ -19,5 +19,5 @@ def main() -> Result[(), Failure]:
 [8]
 ```
 
-The borrow ends after the call. Borrowing environments cannot yet move across
-function boundaries, so this second callback cannot be passed to `callbacks.run`.
+The borrow ends after the call. This callback cannot be passed to `callbacks.run`
+because a borrowing environment cannot move across function boundaries.

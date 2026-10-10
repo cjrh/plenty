@@ -1,7 +1,6 @@
 # Borrowing and unpacking while iterating
 
-A borrowed collection lets a loop observe its elements without taking its owner.
-Use that in a helper that computes a total:
+Borrow a list when a helper needs to inspect or mutate it without taking ownership:
 
 ```plenty
 def total(values: &list[i64]) -> i64:
@@ -29,8 +28,6 @@ def main() -> Result[(), Failure]:
 
 
 ## Unpack a tuple in a loop
-
-Each tuple in the list supplies one number and one word:
 
 ```plenty
 def measurement() -> (i64, str):

@@ -1,10 +1,8 @@
 # Generic code and protocols
 
-Follow this optional path when several types need the same algorithm or data
-shape. It builds on the core lessons about functions, borrowing, classes, and
-enums. Start with repeated concrete functions, then make their shared contract
-explicit. Recursive data is an optional extension at the end; the other advanced
-paths do not require it.
+Use type parameters when several types need the same algorithm or data shape.
+These lessons build on core functions, borrowing, classes, and enums. Recursive
+data is an optional extension at the end.
 
 - [Replace duplicated functions with a type parameter](generic-functions.md)
 - [Infer or choose a specialization](inference-and-specialization.md)

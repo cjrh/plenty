@@ -28,8 +28,8 @@ def main() -> Result[(), IoError]:
 division by zero
 ```
 
-Here the caller recovers by printing the explanation and continuing. A result
-does not implicitly unwrap itself or raise an exception.
+The caller can recover and continue, as `show` does here. A result does not
+implicitly unwrap itself or raise an exception.
 
 When success has no data, use unit as the success type:
 
@@ -58,8 +58,5 @@ valid
 name is empty
 ```
 
-The pattern `_` ignores a payload you do not need. Unit is a real success
-payload, distinct from `Nothing`. `Option[()]` also works.
-
-The wrappers themselves do not allocate. Their payloads retain their usual
-behavior: a list inside `Some` still needs its own allocation.
+The pattern `_` ignores a payload you do not need. `Ok(())` represents success
+without data; `Nothing` represents absence.

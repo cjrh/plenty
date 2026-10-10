@@ -39,8 +39,8 @@ plenty --shared-library calc.plenty --library-name calc -o build/libcalc.so
 The output includes `calc.h`, with a `calc_add` declaration and generated contract
 comments, and `calc.plentyi`, which Plenty consumers can import. Copy that generated
 interface into the consuming project's source root and link `libcalc.so` using
-`--link-arg`; it replaces the source module there. The same metadata is embedded
-inside the library. Ordinary C consumers include `calc.h` and link the library.
+`--link-arg`; it replaces the source module there. C consumers include `calc.h`
+and link the library.
 
 If you only have the binary, recover its Plenty interface without loading it:
 
@@ -52,15 +52,13 @@ plenty --verify-interface build/libcalc.so calc.plentyi
 For a static archive, use `--static-library` instead. Pass the native arguments
 listed in `calc.link-args.txt` after the archive when linking a C program.
 
-For C callers, `increment` takes an `int32_t *`. The generated comments explain
-that it must point to an initialized value and be borrowed exclusively for the
-call; the final value is written back before returning. Plenty callers get the
-same borrowing rules automatically from the generated interface.
+For C callers, `increment` takes an `int32_t *` to an initialized value, borrowed
+exclusively for the call. Plenty callers get this borrowing contract from the
+generated interface.
 
 Exports support numeric scalars, borrows, unit, supported `Result` values, and
 [owned class handles](export-owned-objects.md). Read the generated
 header's requirements even for simple APIs: runtime traps can terminate the
 process, and current libraries require serialized calls on one caller thread.
-Other managed types need further adapters. See the
-[library reference](../../design/24-c-interfaces/02-library-exports.md) for packaging,
-metadata discovery, and exact limits.
+See the [library reference](../../design/24-c-interfaces/02-library-exports.md)
+for supported export types and packaging details.

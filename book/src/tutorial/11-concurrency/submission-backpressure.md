@@ -36,6 +36,5 @@ def main() -> Result[(), Failure]:
 42
 ```
 
-Here the executor is already shut down, so the helper takes the fallback path.
-The recovered job needs no allocation. The ordinary `?` alternative deliberately
-drops that job when propagating its error into `Failure`.
+Propagating a submission error into `Failure` with `?` instead drops the
+unstarted job.

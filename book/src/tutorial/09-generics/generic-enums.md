@@ -21,6 +21,3 @@ def main() -> Result[(), Failure]:
 ```output
 7
 ```
-
-Like other enums, constructing a value does not allocate, so it needs no `?`.
-The payload keeps its normal move and copy rules.

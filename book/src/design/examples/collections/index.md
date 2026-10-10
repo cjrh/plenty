@@ -2,8 +2,7 @@
 
 Use these examples when a program needs a particular collection operation.
 Start with [Collections, ownership, and borrowing](../../../tutorial/04-collections/index.md)
-for the concepts behind them. These pages are supplementary, rather than
-prerequisites for the remaining tutorial.
+for ownership and borrowing.
 
 - [Construct collection literals](collection-literals.md)
 - [Reserve collection capacity](capacity.md)

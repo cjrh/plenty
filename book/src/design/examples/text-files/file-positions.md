@@ -1,7 +1,6 @@
 # Saving and restoring text positions
 
-`tell()` currently returns a plain `u64` used as a position cookie. Treat
-its contents as opaque; this is a usage rule, not a distinct compiler-enforced type. Pass it back to `seek()` on the same
+`tell()` returns a `u64` position cookie. Pass it back to `seek()` on the same
 file to resume reading there, or use `seek(0u64)` to rewind. Do not calculate with
 these values: they include newline state and are not byte or character counts.
 Saved positions are only meaningful while the file contents remain unchanged.

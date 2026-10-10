@@ -29,8 +29,8 @@ grouping. An odd final element advances unchanged.
 
 Choose an operation whose grouping is suitable for your task. Subtraction and
 floating-point addition can give different answers from a serial left-to-right
-loop. Keep a serial loop when that exact order matters. The fixed tree stabilizes
-pure computations; it does not order worker side effects.
+loop. Keep a serial loop when that exact order matters. Worker side effects
+need not follow the tree order.
 
 For larger inputs, reduction allocates scratch storage proportional to the input
 length and only a bounded window of jobs. Empty and singleton reductions allocate

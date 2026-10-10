@@ -1,10 +1,8 @@
 # Keep exploring
 
-This guide deliberately uses implemented features. For future work and proposed
-priorities, see the [backlog](../backlog.md), the project's single planning list.
-Use the [implementation status](../design/04-implementation-status.md) to check
-what works today and the [reference](../design/index.md) for its exact contract.
+Choose a small program of your own: a report, a file converter, or a command-line
+checker. Start with the core features and add an optional path when you need it.
 
-When a lesson feels awkward, that is useful feedback for the language design.
-The tutorial and its executable examples should change alongside new features,
-so teaching the language remains part of building it.
+Use the [reference](../design/index.md) for exact contracts and the
+[implementation status](../design/04-implementation-status.md) to check feature
+support. The [backlog](../backlog.md) records planned work.

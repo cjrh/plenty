@@ -9,6 +9,3 @@ those possibilities part of its type, and let the caller choose what to do.
 4. [Propagate with `?`](propagation.md)
 5. [Choose which error details to keep](error-details.md)
 6. [Build text with recoverable allocation](allocating-text.md)
-
-These tools explain why collection construction and copying in the next part
-return results.

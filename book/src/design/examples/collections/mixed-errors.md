@@ -54,6 +54,5 @@ def main() -> Result[(), IoError]:
 42
 ```
 
-Use `?` for propagation and `match` for recovery; reserve `.unwrap()` for places
-where termination is the intended policy, including the destructor and generator
-examples below whose signatures cannot propagate errors.
+Use `?` for propagation, `match` for recovery, and `.unwrap()` only when
+termination is the intended policy.

@@ -22,8 +22,8 @@ cm
 (3, "three")
 ```
 
-A tuple stores its components inline, so `(a, b)` never allocates and has type
-`tuple[A, B]` directly. A list of tuples still allocates, so its display needs `?`.
+Creating `(a, b)` does not allocate a tuple, so it needs no `?`. Operations that
+produce its components, such as the list construction below, can still fail.
 
 Distinct tuple components can be borrowed and read independently. The borrow
 below protects component 1 while component 0 remains readable:
@@ -45,8 +45,7 @@ def main() -> Result[(), Failure]:
 (1, [2, 3])
 ```
 
-Reading the borrowed component still conflicts, and the diagnostic names that
-component:
+Reading an exclusively borrowed component is rejected:
 
 ```plenty-error
 def main() -> Result[(), Failure]:

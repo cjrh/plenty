@@ -62,14 +62,12 @@ def main() -> Result[(), Failure]:
 3
 ```
 
-Both statements affect only the innermost loop. Use `return` to leave a
-function from inside any depth of loops. New bindings in a loop body stay
-inside that body, while updates to enclosing `mut` bindings persist. Loops
-have unit result; `break` cannot carry a value. Python's loop `else` clauses
-are not supported.
+`break` and `continue` affect only the innermost loop. Use `return` to leave
+the function. `break` cannot carry a value, and loop `else` clauses are not
+supported.
 
-The compiler conservatively assumes every loop can finish, even `while True`.
-A function returning a value therefore still needs a result after the loop.
+Even after `while True`, a function returning data still needs a result after
+the loop.
 Statements directly after an unconditional exit are rejected:
 
 ```plenty-error

@@ -1,8 +1,7 @@
 # Store recursive children in a list
 
-Classes can own recursive children too. A list of children already keeps them
-on the heap, so it needs no box. This companion module declares a generic tree
-node with public fields:
+A list of children provides the indirection a recursive class needs; each
+child needs no additional box. Save this module as `forest.plenty`:
 
 ```plenty-file forest.plenty
 pub class Node[T]:
@@ -26,7 +25,5 @@ def main() -> Result[(), Failure]:
 9
 ```
 
-The nested assignment updates the existing child without copying or allocating
-another node. An empty children list terminates this tree. For a single optional
-child, a field such as `next: Option[Box[Node]]` can terminate with `Nothing`.
-Classes and enums may also refer to one another through aliases.
+An empty children list terminates the tree. For a single optional child, use a
+field such as `next: Option[Box[Node]]` and terminate it with `Nothing`.

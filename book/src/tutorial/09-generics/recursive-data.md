@@ -1,9 +1,8 @@
 # Build recursive data
 
-A class or enum can contain more values of its own type. This is useful for
-chains, trees, and syntax nodes. Ordinary values are stored inline, so a type
-that contained itself directly would have no finite size. Store the recursive
-part in a `Box`, which owns one value on the heap, or in a list, set, or dict.
+Chains and trees contain values of their own type. A directly embedded value
+would have no finite size, so put the recursive field in a `Box` or collection.
+A box owns one value on the heap.
 
 This chain ends with `Empty`. Each `Link` owns a value and a box holding the
 rest of the chain:
@@ -37,25 +36,20 @@ def main() -> Result[(), Failure]:
 6
 ```
 
-`Box(value)` moves the value onto the heap. That allocation can fail, so it
-returns a `Result` and uses the ordinary `?` propagation. Constructing the
-`Link` itself allocates nothing.
+`Box(value)` moves the value onto the heap and returns an allocation result.
+Constructing the `Link` itself allocates nothing.
 
-Taking a value back out of a box allocates nothing and cannot fail, so it needs
-no syntax. `rest` is a `Box[Chain[i64]]` and `remaining` is a `Chain[i64]`, so
-`remaining = rest` moves the content out and frees the box. The same conversion
-happens wherever the content's type is required: an argument, a return value,
-an annotated binding, an assignment, a constructor field, or a collection
-element. `total` consumes the chain: each match transfers the tail into `rest`,
-then the loop puts its content back into `remaining`. The caller cannot use
-`chain` after that call.
+When a value of type `T` is required, a `Box[T]` moves its content out and frees
+the box, without allocating. Here, `remaining = rest` expects `Chain[i64]`, so
+it unboxes `rest`. The conversion also works for arguments, returns, annotated
+bindings, constructor fields, and collection elements. `total` consumes its chain;
+the caller cannot use it afterward.
 
 A boxed class's fields and methods are reached as `b.field` and `b.method()`,
 and where a function expects `&T`, you can pass a `&Box[T]`. Where no type is
 required, a box stays a box: `other = b` moves the box itself. Operators and
 conditions do not convert either. Write `*b` there to move the content out, or
 `&*b` and `&mut *b` to borrow it.
-
 
 Without the box, the compiler rejects the declaration:
 

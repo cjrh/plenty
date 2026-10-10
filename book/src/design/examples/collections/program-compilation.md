@@ -1,12 +1,16 @@
 # Program entrypoints and native compilation
 
-Plenty always compiles ahead of time with Cranelift. Running a file compiles a
+## Running and linking
+
+Plenty compiles ahead of time. Running a file compiles a
 temporary native executable, runs it, and removes it afterward. Both running
 and compiling require a `cc`-compatible linker driver. The default is `cc` on
 PATH; add `--linker clang` or `--linker /path/to/driver` to select another.
 Repeat `--link-arg ARG` for extra native link arguments. Checking needs no linker.
-The Rust runtime is already packaged with Plenty; you do not need `cargo` or
-`rustc` to compile Plenty programs.
+The Rust runtime is packaged with Plenty; compiling Plenty programs needs
+neither `cargo` nor `rustc`.
+
+## Entrypoints and exit status
 
 Execution starts by calling `main` once. Every binary application must declare
 `main` with no parameters. It can return `()`, `i32`, `Result[(), E]`, or
@@ -16,19 +20,18 @@ exits with status one. For example, a `main` that returns the error from reading
 a missing file prints
 `error: main returned IoError.System(2): No such file or directory`.
 The error is printed once, when `main` returns it, not at each `?` on the way.
-Returning a Result lets `main` use `?` too. The `()` form
+The `()` form
 finishes successfully with exit status zero. The `i32` form returns a process
 exit status: zero means success, and nonzero means failure. Use an `i32` literal
 such as `0i32` or `1i32`; return annotations also guide unsuffixed literals.
 
 Keep executable statements inside functions. Module scope contains `def`,
 `class`, `enum`, and `type` declarations, plus imports. Bindings inside `main`
-are local to it, so other functions receive values through typed parameters.
+are local to it.
 The [modules part](../../../tutorial/07-modules/index.md) explains imports and `pub` visibility.
 
-Like other functions, `main` may return early, use a final expression, or call
-functions declared later in the file. Its owned locals are dropped before the
-program exits, including when it returns a nonzero status. Operating systems
+Owned locals are dropped before the program exits, including when `main` returns
+a nonzero status. Operating systems
 limit the range of observable exit statuses; use small nonnegative codes for
 portable command-line programs.
 
@@ -56,6 +59,8 @@ main()
 ```error
 executable statements are not allowed at module scope
 ```
+
+## Keeping an executable or linking externally
 
 Use `--compile` when you want to keep the executable and run it repeatedly
 without compiling again. The executable does not need Plenty installed.
