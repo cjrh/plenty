@@ -56,7 +56,10 @@ dictionary insertion order and set order do not. There are no identity tests.
 `len`, `in`, and `not in` work with collections, strings, and ranges.
 Generators support consuming iteration, not length or membership. Lists, strings, and
 ranges support i64 indexing, including negative indices. Dictionaries index by
-their key type. Out-of-bounds indices and absent keys report a runtime error and
+their key type. An index is one expression of any form, including another index:
+`values[order[i]]` reads and `values[order[i]] = x` writes, evaluating each
+index once. Brackets on a local binding always index it; two comma-separated
+indices or a type in the brackets is a compile-time error. Out-of-bounds indices and absent keys report a runtime error and
 exit with status 1. `dictionary.get(key)` returns `Option[V]`: `Some(value)`
 for a present key and `Nothing` for a missing key. It takes exactly one key,
 with no default argument. The receiver and key are observed, may be references,

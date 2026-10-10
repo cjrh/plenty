@@ -18,7 +18,9 @@ satisfy a protocol's monomorphic method requirement.
 Explicit calls use `receiver.method[Types](arguments)`, including class fields
 and temporary owned receivers. Supply every method parameter when using explicit
 arguments; class parameters are not repeated. Returned references require a named
-receiver or class field and retain their ordinary root loans.
+receiver or class field and retain their ordinary root loans. Bracket contents
+that start at a local binding index a field instead, as in
+`table.callbacks[index](argument)`.
 
 An enum can declare type parameters: `enum Choice[T]:` with a variant `Value(T)`.
 Use `Choice[u8].Value(7)` and `case Choice[u8].Value(value):` to select a concrete

@@ -53,3 +53,21 @@ Assignment evaluates its right-hand value first, then its destination indices
 once each from left to right. It saves those index values before resolving the
 destination, so `rows[0][len(rows[0]) - 1] = 9` works too. Bounds and key checks
 use the collection's contents after all these expressions finish.
+
+An index is any expression, including an element of another list. Here `order`
+chooses which element of `values` to read and to replace.
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut values = [30, 10, 20]?
+    order = [1, 2, 0]?
+    print(values[order[0]])?
+    values[order[2]] = 31
+    print(values)?
+    Ok(())
+```
+
+```output
+10
+[31, 10, 20]
+```

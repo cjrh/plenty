@@ -704,6 +704,15 @@ enum Expression {
     Index(Box<Expr>, Box<Expr>),
     Method(Box<Expr>, String, Vec<Expr>),
     GenericMethod(Box<Expr>, String, Vec<TypeRef>, Vec<Expr>),
+    /// `base[...]` whose brackets parse both as type arguments and as an index.
+    /// `generic` is the Generic* reading, with any call arguments; `index` is
+    /// `Index(base, ...)` without them. The parser cannot tell a local from a
+    /// declaration, so module name resolution keeps one reading and no later
+    /// pass sees this variant.
+    Ambiguous {
+        generic: Box<Expr>,
+        index: Box<Expr>,
+    },
     Constructor(TypeRef, Vec<Expr>),
     Unit,
     Group(Box<Expr>),
@@ -868,6 +877,21 @@ impl Parser {
             }
         }
         Ok(args)
+    }
+    /// Reparses brackets already accepted as type arguments as `base[index]`.
+    /// `start` is the opening bracket and the parser sits just past the closing
+    /// one, where it stays. Returns None when the contents are not one expression.
+    fn index_reading(&mut self, start: usize, base: &Expr) -> Option<Expr> {
+        let end = std::mem::replace(&mut self.pos, start + 1);
+        let index = self
+            .expr(0)
+            .ok()
+            .filter(|_| self.eat("]") && self.pos == end);
+        self.pos = end;
+        Some(Expr {
+            at: base.at.clone(),
+            kind: Expression::Index(Box::new(base.clone()), Box::new(index?)),
+        })
     }
     fn type_parameters(&mut self) -> Result<Vec<(String, Option<TypeRef>)>> {
         let mut params = Vec::new();
@@ -1416,13 +1440,16 @@ impl Parser {
                 continue;
             }
             if self.peek().is("[") {
+                let saved = self.pos;
                 if let Expression::Member(base, name) = &left.kind {
-                    let saved = self.pos;
                     if let Ok(types) = self.type_arguments() {
-                        if self.eat("(") {
+                        if self.peek().is("(") {
+                            let index = self.index_reading(saved, &left);
+                            self.take();
                             let args = self.arguments()?;
-                            left.kind =
+                            let generic =
                                 Expression::GenericMethod(base.clone(), name.clone(), types, args);
+                            left.kind = bracketed(&left.at, generic, index);
                             continue;
                         }
                     }
@@ -1436,14 +1463,14 @@ impl Parser {
                     }
                 }
                 if let Some(name) = path(&left) {
-                    let saved = self.pos;
                     if let Ok(types) = self.type_arguments() {
-                        if self.eat("(") {
-                            let args = self.arguments()?;
-                            left.kind = Expression::GenericCall(name, types, args);
-                            continue;
-                        }
-                        left.kind = Expression::GenericValue(name, types);
+                        let index = self.index_reading(saved, &left);
+                        let generic = if self.eat("(") {
+                            Expression::GenericCall(name, types, self.arguments()?)
+                        } else {
+                            Expression::GenericValue(name, types)
+                        };
+                        left.kind = bracketed(&left.at, generic, index);
                         continue;
                     }
                     self.pos = saved;
@@ -1635,6 +1662,19 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "drop"
                 | "Box"
         )
+}
+/// Keeps the index reading beside the generic one when the brackets have both.
+fn bracketed(at: &Token, generic: Expression, index: Option<Expr>) -> Expression {
+    match index {
+        Some(index) => Expression::Ambiguous {
+            generic: Box::new(Expr {
+                at: at.clone(),
+                kind: generic,
+            }),
+            index: Box::new(index),
+        },
+        None => generic,
+    }
 }
 pub(crate) fn reserved(name: &str) -> bool {
     matches!(
@@ -2106,6 +2146,7 @@ impl Lower<'_> {
                 Some(Ty::Bool)
             }
             Expression::Unit => None,
+            Expression::Ambiguous { .. } => unreachable!("resolved with module names"),
             Expression::Group(inner) => self.expr(inner, ops)?,
             Expression::Name(name) => {
                 if self.captures.contains(name) {

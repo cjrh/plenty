@@ -570,6 +570,42 @@ impl Scope {
                 _ => None,
             }
         }
+        /// The name an index expression starts from.
+        fn leading(e: &Expr) -> Option<&str> {
+            match &e.kind {
+                Expression::Index(base, _)
+                | Expression::Group(base)
+                | Expression::Unary(_, base) => leading(base),
+                Expression::Ambiguous { index, .. } => leading(index),
+                _ => root(e),
+            }
+        }
+        if matches!(e.kind, Expression::Ambiguous { .. }) {
+            let Expression::Ambiguous { generic, index } =
+                std::mem::replace(&mut e.kind, Expression::Unit)
+            else {
+                unreachable!()
+            };
+            let local = |name: &str| locals.contains(name.split('.').next().unwrap());
+            let indexes = match &generic.kind {
+                // Whether `name` is a field or a generic method depends on the
+                // receiver's type, which is not known here. Nothing but a local
+                // can be an index, so the bracket contents decide. A receiver
+                // path that does not start at a local names a declaration.
+                Expression::GenericMethod(base, ..) => {
+                    path(base).is_none_or(|p| local(&p))
+                        && matches!(&index.kind, Expression::Index(_, i) if leading(i).is_some_and(local))
+                }
+                _ => root(&generic).is_some_and(local),
+            };
+            e.kind = match generic.kind {
+                _ if !indexes => generic.kind,
+                Expression::GenericCall(_, _, args) | Expression::GenericMethod(_, _, _, args) => {
+                    Expression::Invoke(index, args)
+                }
+                _ => index.kind,
+            };
+        }
         if let Some(name) = root(e).filter(|n| !locals.contains(*n) && self.uncaptured.contains(*n))
         {
             return Err(e.at.error(format!(
@@ -583,68 +619,18 @@ impl Scope {
                     .error("a type parameter name cannot also name a value binding"));
             }
         }
-        if let Expression::GenericCall(name, _, _) | Expression::GenericValue(name, _) = &e.kind {
-            if locals.contains(name.split('.').next().unwrap()) {
-                let (name, types, args) = match &mut e.kind {
-                    Expression::GenericCall(name, types, args) => {
-                        (name, types, Some(std::mem::take(args)))
-                    }
-                    Expression::GenericValue(name, types) => (name, types, None),
-                    _ => unreachable!(),
-                };
-                let [index] = types.as_slice() else {
-                    return Err(e.at.error("indexing takes one expression"));
-                };
-                let Some(index_name) = index.name.as_ref().filter(|_| index.args.is_empty()) else {
-                    return Err(e.at.error("a local binding shadows this generic function"));
-                };
-                fn name_path(name: &str, at: &Token) -> Expr {
-                    let mut parts = name.split('.');
-                    let mut e = Expr {
-                        at: at.clone(),
-                        kind: Expression::Name(parts.next().unwrap().into()),
-                    };
-                    for part in parts {
-                        e = Expr {
-                            at: at.clone(),
-                            kind: Expression::Member(Box::new(e), part.into()),
-                        };
-                    }
-                    e
-                }
-                let callee = Expr {
-                    at: e.at.clone(),
-                    kind: Expression::Index(
-                        Box::new(name_path(name, &e.at)),
-                        Box::new(name_path(index_name, &index.at)),
-                    ),
-                };
-                e.kind = if let Some(args) = args {
-                    Expression::Invoke(Box::new(callee), args)
-                } else {
-                    callee.kind
-                };
-            }
-        }
-        if let Expression::GenericMethod(base, name, types, args) = &mut e.kind {
-            if let [index] = types.as_slice() {
-                if index.args.is_empty() && index.name.as_ref().is_some_and(|n| locals.contains(n))
-                {
-                    let indexed = Expr {
-                        at: e.at.clone(),
-                        kind: Expression::Index(
-                            Box::new(Expr {
-                                at: e.at.clone(),
-                                kind: Expression::Member(base.clone(), name.clone()),
-                            }),
-                            Box::new(Expr {
-                                at: index.at.clone(),
-                                kind: Expression::Name(index.name.clone().unwrap()),
-                            }),
-                        ),
-                    };
-                    e.kind = Expression::Invoke(Box::new(indexed), std::mem::take(args));
-                }
+        // Brackets on a local always index it. These had no index reading.
+        if let Expression::GenericCall(name, types, _) | Expression::GenericValue(name, types) =
+            &e.kind
+        {
+            let base = name.split('.').next().unwrap();
+            if locals.contains(base) {
+                return Err(match types.as_slice() {
+                    [_, extra, ..] => extra.at.error("indexing takes one expression"),
+                    _ => types.first().map_or(&e.at, |t| &t.at).error(format!(
+                        "`{base}` is a local binding, so these brackets index it; expected an index expression, not a type"
+                    )),
+                });
             }
         }
         fn path(e: &Expr) -> Option<String> {
@@ -792,6 +778,7 @@ impl Scope {
                     }
                 }
             }
+            Expression::Ambiguous { .. } => unreachable!("resolved on entry"),
             Expression::ClassNew(..)
             | Expression::ClassReady(..)
             | Expression::Number(_)

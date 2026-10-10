@@ -29,9 +29,13 @@ Native regression tests disable heap allocation across callable creation,
 selection, copies, calls, and nested inline Result/Option/range returns.
 
 The called function can be selected by an arbitrary expression: `choose()(n)`, `(f)(n)`,
-`handlers[index](n)`, and `record.callback(n)` all work. A bracketed name rooted
-in a local value is indexing, while one rooted in a generic function is a type
-argument list.
+`handlers[index](n)`, and `record.callback(n)` all work. Brackets after a name
+or dotted path that starts at a local binding index it, even when the binding
+shares its name with a generic function; brackets after a declaration or module
+path are a type argument list. The index is any single expression, so
+`handlers[order[i]](n)` works. After a field or method name on a value, as in
+`record.callbacks[order[i]](n)`, the brackets index when their contents start at
+a local binding and are method type arguments otherwise.
 Evaluation proceeds once, left to right: the callee expression first, then its
 arguments. Propagation from a later argument releases pending owned arguments.
 Known callable result types also contextualize surrounding numeric literals.

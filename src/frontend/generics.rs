@@ -866,6 +866,7 @@ fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
         | Expression::Bool(_)
         | Expression::Unit
         | Expression::ClassNew(..) => {}
+        Expression::Ambiguous { .. } => unreachable!("resolved with module names"),
     }
     Ok(())
 }
