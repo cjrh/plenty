@@ -1,6 +1,6 @@
 # Recursive data
 
-See the [runnable lesson](../tutorial/77-build-recursive-data.md) for a consuming
+See the [runnable lesson](../tutorial/09-generics/recursive-data.md) for a consuming
 chain traversal and a tree declared in an imported module.
 
 Classes and user enums can refer to themselves or one another, including through

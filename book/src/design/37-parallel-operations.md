@@ -33,7 +33,7 @@ Output capacity and the job window are reserved before starting work. Each
 submitted job still needs a fallible cell allocation. Lists are consumed on every
 outcome; ranges retain their normal value semantics.
 
-See the [runnable lesson](../tutorial/89-map-fallible-work-in-parallel.md).
+See the [runnable lesson](../tutorial/11-concurrency/parallel-fallible-map.md).
 
 ## Fixed-tree reduction
 
@@ -67,7 +67,7 @@ outcome. A closed pool returns `Shutdown`, including for empty input. Worker
 `Result` values, if `T` itself is a `Result`, are ordinary elements; this operation
 does not implicitly propagate them or claim a first application error.
 
-See the [reduction lesson](../tutorial/90-combine-values-in-parallel.md).
+See the [reduction lesson](../tutorial/11-concurrency/parallel-reduction.md).
 
 ## Design choice
 

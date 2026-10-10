@@ -15,7 +15,7 @@ The Rust API offers `emit_runtime_interface` with the same publication rules.
 This generated loader is distinct from the linked `calc.plentyi` contract;
 `--extract-interface` and `--verify-interface` still work with that linked
 contract. Runtime generation currently requires the original export source.
-The [runtime-loading lesson](../../tutorial/62-load-a-library-at-runtime.md)
+The [runtime-loading lesson](../../tutorial/12-c-libraries/runtime-loading.md)
 builds and runs a complete owned-object example during tutorial validation.
 
 `runtime_interface_source(path, root, library_name)` in the compiler's Rust API

@@ -58,4 +58,4 @@ environment's captures and its body, including hidden destructor effects.
 
 See the [representation decision](../proposals/stored-closures.md) for the costs
 of heterogeneous boxing and bounded erasure, and the
-[runnable lesson](../tutorial/80-store-owned-closures.md) for a concrete record.
+[runnable lesson](../tutorial/10-functions/callback-records.md) for a concrete record.

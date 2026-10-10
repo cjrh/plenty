@@ -62,5 +62,5 @@ distinguishes completed selection from readiness observation. Plenty receives
 directly and uses explicit first-argument priority; it does not use randomized
 selection or expose a separate operation that the caller must complete.
 
-See the lessons on [bounded waits](../tutorial/92-bound-your-waits.md) and
-[receiving from two channels](../tutorial/93-receive-from-either-channel.md).
+See the lessons on [bounded waits](../tutorial/11-concurrency/channel-timeouts.md) and
+[receiving from two channels](../tutorial/11-concurrency/channel-selection.md).

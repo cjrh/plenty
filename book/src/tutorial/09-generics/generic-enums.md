@@ -1,0 +1,23 @@
+# Parameterize an enum
+
+Use a type parameter when the same alternatives should carry different kinds of
+values. Choose the concrete payload type in brackets. Here, `T: IntType` accepts
+any supported sized integer. Omit the constraint to allow other stored types.
+
+```plenty
+enum Choice[T: IntType]:
+    Empty
+    Value(T)
+
+def main() -> Result[(), Failure]:
+    selected = Choice[u8].Value(7)
+    match selected:
+        case Choice[u8].Empty:
+            print("empty")?
+        case Choice[u8].Value(value):
+            print(value)?
+    Ok(())
+```
+```output
+7
+```

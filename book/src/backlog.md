@@ -43,21 +43,21 @@ checks and scoped native threads are also complete: borrowed/owned jobs,
 recoverable failed starts, transferred results, and automatic joining on every
 normal exit. Bounded channels and endpoint guards now compose with those scopes. See the
 [reference](design/32-scoped-native-threads.md) and
-[runnable lesson](tutorial/79-run-scoped-threads.md).
+[runnable lesson](tutorial/11-concurrency/scoped-threads.md).
 
 B10 is complete for the initial source subset: classes, enums, aliases, and finite
 generic instances support recursive ownership through `Box` and collections.
 Native tests cover construction, consuming matches, borrowing/moves, allocation
 failure, allocation-free replacement, and deep drop. Imports preserve visibility; static and shared libraries preserve
 opaque C handles and generated ownership wrappers. The
-[runnable lesson](tutorial/77-build-recursive-data.md) teaches chains and trees.
+[runnable lesson](tutorial/09-generics/recursive-data.md) teaches chains and trees.
 See the [implemented contract](design/30-recursive-data.md) for precise limits.
 
 B11's borrowed enum matching slice is complete. Shared matches preserve owners;
 mutable matches support inline sums and affine enum payloads. Payload loans protect
 variants, support single-origin returns, and allocate nothing, including nested
 `Option`/`Result` projections. Copyable heap enum storage remains immutable.
-See the [runnable lesson](tutorial/78-match-borrowed-values.md) and
+See the [runnable lesson](tutorial/06-data/08-borrowed-matching.md) and
 [implemented contract](design/31-borrowed-enum-matching.md).
 
 **B22's committed concurrency batch is complete**, building on the
@@ -91,7 +91,7 @@ tuples, lists, dictionaries, and user enums; see
 still cannot be erased behind one callable signature. See also
 [function values](design/25-function-values.md).
 Explicit state beside a named callback also supports stateful registries today;
-the [runnable lesson](tutorial/76-store-stateful-callbacks.md) and native tests
+the [runnable lesson](tutorial/10-functions/explicit-state-callbacks.md) and native tests
 cover generic state, allocation-free dispatch, and exactly-once resource cleanup.
 
 The completed B32 batch comprised these ten reviewable tasks:
@@ -227,7 +227,7 @@ active list.
 | Foundation batch | Main/imports/visibility, fallible allocation APIs, borrowing, tuples/items, typed ranges, generic functions, and structural protocols have implemented paths. See the [historical foundation record](proposals/next-work-queue.md) and [current status](design/04-implementation-status.md). |
 | Allocation syntax and error convenience | Allocating operations return Result by default; `?`, explicit success values, and `Failure` replace the old `try`/`try_` alternatives and repetitive unwraps. |
 | Generic argument inference | Calls infer concrete type parameters from arguments; explicit arguments remain available. See [generic functions](design/02-generic-functions-and-argument-inference.md). |
-| Catch-all matching | `case _:` already handles remaining enum variants. See the [enum lesson](tutorial/18-describe-alternatives-with-enums.md). |
+| Catch-all matching | `case _:` already handles remaining enum variants. See the [enum lesson](tutorial/06-data/06-enums.md). |
 | mdBook migration | Reference and tutorial pages live under `book/src/`, are listed in `SUMMARY.md`, and tutorial examples run in tests. Literate-source generation is the separate B21 candidate. |
 
 ## Keeping this list useful
