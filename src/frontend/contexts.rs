@@ -7,6 +7,8 @@ pub(super) struct Context {
     pub exit: Vec<Op>,
     pub loan: Option<usize>,
     pub thread: bool,
+    /// The `with` statement, reported when its exit keeps a borrow live.
+    pub at: crate::ownership::Site,
 }
 
 impl Lower<'_> {
@@ -54,7 +56,7 @@ impl Lower<'_> {
                 let target = self.slot(reference.clone(), &manager.at)?;
                 ops.push(Op::StoreLocal(target));
                 self.reference_locals.insert(target, loan);
-                self.names.insert(
+                self.bind(
                     name.into(),
                     Local {
                         slot: target,
@@ -122,6 +124,7 @@ impl Lower<'_> {
             exit,
             loan,
             thread: false,
+            at: site(&manager.at, true),
         };
         let entry_loan = self.new_loan(
             loan.map(|id| self.loans[id].root).unwrap_or(slot),
@@ -158,7 +161,7 @@ impl Lower<'_> {
             if let Some(loan) = result_loan {
                 self.reference_locals.insert(target, loan);
             }
-            self.names.insert(
+            self.bind(
                 name.into(),
                 Local {
                     slot: target,

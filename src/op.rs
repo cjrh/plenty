@@ -408,9 +408,11 @@ pub enum Op {
     Loan(crate::ownership::Loan),
     UseLoan(usize),
     Access(u8, bool, Option<usize>),
+    /// Source position of the operations that follow; diagnostics only.
+    Site(crate::ownership::Site),
     Yield(Ty),
-    Next(u8, String),
-    MoveLocal(u8, String),
+    Next(u8),
+    MoveLocal(u8),
     DropLocal(u8),
     Enum(crate::sum::EnumOp),
     Box(crate::boxed::BoxOp),
@@ -570,6 +572,8 @@ pub enum Pattern {
 pub struct CompiledFn {
     /// Source location for diagnostics from the independent IR/ownership checker.
     pub location: Option<Rc<str>>,
+    /// Source file and binding names for ownership diagnostics.
+    pub origins: Rc<crate::ownership::Origins>,
     pub generator: Option<Ty>,
     pub sig: Rc<FnSig>,
     pub doc: Rc<str>,
@@ -725,6 +729,7 @@ impl Compiler<'_, '_> {
             name,
             CompiledFn {
                 location: None,
+                origins: Rc::default(),
                 sig,
                 doc,
                 generator: None,
@@ -1361,7 +1366,7 @@ fn step(
             }
             stack.push(source.get().variants[usize::from(source.is_option())].fields[0].clone());
         }
-        Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
+        Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;
             stack.push(Ty::Ref(Rc::new(ty.clone()), *mutable));
@@ -1444,7 +1449,7 @@ fn step(
                 );
             }
         }
-        Op::Next(slot, _) => {
+        Op::Next(slot) => {
             let Some(Ty::Generator(element)) = locals.get(*slot as usize) else {
                 return Err("next requires a generator local".into());
             };
@@ -1590,7 +1595,7 @@ fn step(
         }
         Op::Display => {}
         Op::Clear => stack.clear(),
-        Op::LoadLocal(i) | Op::MoveLocal(i, _) => {
+        Op::LoadLocal(i) | Op::MoveLocal(i) => {
             let ty = locals.get(*i as usize).cloned().ok_or_else(|| {
                 format!("LoadLocal({i}) has no matching input in the enclosing function")
             })?;
@@ -1603,14 +1608,17 @@ fn step(
             }
         }
         Op::DefineFn(name, f) => {
-            check_body(name, &f.sig, &f.body, &f.locals, sigs, f.generator.as_ref()).map_err(
-                |e| -> Box<dyn std::error::Error> {
-                    match &f.location {
-                        Some(at) => format!("{at}: {e}").into(),
-                        None => e,
-                    }
-                },
-            )?
+            check_body(name, f, sigs).map_err(|e| -> Box<dyn std::error::Error> {
+                // An ownership error that knows its own position already names
+                // the file; the header is only a fallback.
+                let located = e
+                    .downcast_ref::<crate::ownership::Error>()
+                    .is_some_and(|e| e.primary.is_some());
+                match &f.location {
+                    Some(at) if !located => format!("{at}: {e}").into(),
+                    _ => e,
+                }
+            })?
         }
         Op::Call(name) => check_call(name, stack, sigs)?,
         Op::ClosureNew(t) => {
@@ -1938,19 +1946,13 @@ fn check_match(
 /// inputs become the body's `locals` for `LoadLocal` to resolve against.
 /// At end of body the abstract stack must equal the declared outputs
 /// exactly; anything else is a type error.
-fn check_body(
-    fn_name: &str,
-    sig: &FnSig,
-    body: &[Op],
-    extra_locals: &[Ty],
-    sigs: &HashMap<String, Rc<FnSig>>,
-    yield_ty: Option<&Ty>,
-) -> Result<()> {
+fn check_body(fn_name: &str, f: &CompiledFn, sigs: &HashMap<String, Rc<FnSig>>) -> Result<()> {
+    let (sig, body, yield_ty) = (&*f.sig, &*f.body, f.generator.as_ref());
     let locals: Vec<Ty> = sig
         .inputs
         .iter()
         .map(|(_, t)| t.clone())
-        .chain(extra_locals.iter().cloned())
+        .chain(f.locals.iter().cloned())
         .collect();
     let mut stack: Vec<Ty> = Vec::new();
     let returns = if yield_ty.is_some() {
@@ -1958,7 +1960,8 @@ fn check_body(
     } else {
         &sig.outputs
     };
-    crate::ownership::check(body, &locals, sig.inputs.len())?;
+    crate::ownership::check(body, &locals, sig.inputs.len(), &f.origins)
+        .map_err(|e| -> Box<dyn std::error::Error> { e })?;
     let flow = check_sequence(
         body,
         &mut stack,

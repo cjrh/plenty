@@ -1751,8 +1751,41 @@ struct Lower<'a> {
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
     returned_fields: &'a mut HashMap<String, Vec<usize>>,
+    /// Source name of each slot, kept after the binding leaves scope so an
+    /// ownership diagnostic can still name it.
+    slot_names: Vec<Option<Rc<str>>>,
+    /// Position of the last source marker, restored after scope cleanup.
+    site: std::cell::Cell<Option<crate::ownership::Site>>,
 }
+
+fn site(at: &Token, scope_end: bool) -> crate::ownership::Site {
+    crate::ownership::Site {
+        line: at.line as u32,
+        column: at.column as u32,
+        scope_end,
+    }
+}
+
 impl Lower<'_> {
+    fn bind(&mut self, name: String, local: Local) -> Option<Local> {
+        let slot = local.slot as usize;
+        if self.slot_names.len() <= slot {
+            self.slot_names.resize(slot + 1, None);
+        }
+        self.slot_names[slot] = Some(name.as_str().into());
+        self.names.insert(name, local)
+    }
+    /// Attribute the operations that follow to `at` in ownership diagnostics.
+    /// Markers go before an expression's operations, never after them: several
+    /// passes inspect the last operation of a sequence.
+    fn mark(&self, at: &Token, ops: &mut Vec<Op>) {
+        let site = site(at, false);
+        self.site.set(Some(site));
+        match ops.last_mut() {
+            Some(Op::Site(last)) => *last = site,
+            _ => ops.push(Op::Site(site)),
+        }
+    }
     fn numeric_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
             Expression::Constructor(ty, _) => ty
@@ -2085,6 +2118,7 @@ impl Lower<'_> {
                 if matches!(local.ty, Ty::Task(_)) {
                     return Err(e.at.error("scoped tasks cannot escape or be copied; use task.join() inside its with block"));
                 }
+                self.mark(&e.at, ops);
                 if let Some(loan) = self.reference_locals.get(&local.slot) {
                     ops.push(Op::UseLoan(*loan));
                 }
@@ -2094,10 +2128,7 @@ impl Lower<'_> {
                     }
                 }
                 if local.ty.affine() {
-                    ops.push(Op::MoveLocal(
-                        local.slot,
-                        format!("{}:{}: `{name}`", e.at.line, e.at.column),
-                    ));
+                    ops.push(Op::MoveLocal(local.slot));
                 } else {
                     if !matches!(local.ty, Ty::Ref(..)) {
                         ops.push(Op::Access(local.slot, false, None));
@@ -2565,6 +2596,9 @@ impl Lower<'_> {
         for (i, stmt) in body.iter().enumerate() {
             let temporary_start = self.expression_temps.len();
             let last = tail && i + 1 == body.len();
+            if !matches!(stmt.kind, Statement::Pass) {
+                self.mark(&stmt.at, ops);
+            }
             result = match &stmt.kind {
                 Statement::With {
                     manager,
@@ -2792,7 +2826,7 @@ impl Lower<'_> {
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
                         self.locals.push(ty.clone());
-                        self.names.insert(
+                        self.bind(
                             name.clone(),
                             Local {
                                 slot,
@@ -2802,6 +2836,7 @@ impl Lower<'_> {
                         );
                         slot
                     };
+                    self.mark(&stmt.at, ops);
                     ops.push(Op::StoreLocal(slot));
                     if reference {
                         let origin = self.reference_origin(value, ops)?;
@@ -3062,6 +3097,7 @@ fn lower_function(
             f.name,
             CompiledFn {
                 location: None,
+                origins: Rc::default(),
                 generator: None,
                 sig,
                 doc: "".into(),
@@ -3119,9 +3155,11 @@ fn lower_function(
         } else {
             None
         },
+        slot_names: Vec::new(),
+        site: Default::default(),
     };
     for (i, (name, ty)) in sig.inputs.iter().enumerate() {
-        lower.names.insert(
+        lower.bind(
             name.clone(),
             Local {
                 slot: i as u8,
@@ -3131,6 +3169,8 @@ fn lower_function(
         );
     }
     let mut body = Vec::new();
+    // Parameter loans start at the function header.
+    lower.mark(&f.at, &mut body);
     for (i, (_, ty)) in sig.inputs.iter().enumerate() {
         if let Ty::Ref(_, mutable) = ty {
             if yield_type.is_some() {
@@ -3187,6 +3227,10 @@ fn lower_function(
             .source
             .as_ref()
             .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
+        origins: Rc::new(crate::ownership::Origins {
+            source: f.at.source.clone(),
+            names: lower.slot_names,
+        }),
         generator: yield_type,
         sig,
         doc: f.doc.into(),

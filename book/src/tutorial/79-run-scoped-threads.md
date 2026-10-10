@@ -51,7 +51,8 @@ def main() -> Result[(), Failure]:
 ```
 
 Reading or modifying `count` inside the block would be a conflicting borrow.
-The borrow currently lasts until the block ends even if you explicitly join
+The diagnostic points at that use and notes that the borrow is held until the
+end of the `with` block. The borrow currently lasts until the block ends even if you explicitly join
 earlier. Use a shorter block when you need access back sooner.
 
 Reusable closures work too. Borrow the closure itself so that a failed start

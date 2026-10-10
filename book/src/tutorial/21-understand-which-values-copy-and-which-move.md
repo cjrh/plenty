@@ -41,15 +41,18 @@ def main() -> ():
 ```
 
 ```error
-use of moved or possibly moved binding
+use of moved binding `first`
 ```
+
+The diagnostic starts with the file, line, and column of the use. A note
+below it points at the move: `` `first` is moved here``.
 
 Arguments, returns, and `for` iteration also move generators. `next` is the
 exception: it temporarily uses a named mutable generator without consuming the
 owner. A mutable binding can be reinitialized after moving its previous value.
 
 The compiler checks all possible continuing paths. A move on just one branch
-makes later reuse unsafe. Within a loop, an outer generator must be reinitialized
+makes later reuse unsafe, reported as `use of possibly moved binding`. Within a loop, an outer generator must be reinitialized
 before any path repeats the loop. These rules are intentionally conservative.
 Generators cannot be stored in collections or enum payloads yet.
 

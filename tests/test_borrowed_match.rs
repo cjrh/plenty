@@ -89,6 +89,29 @@ print(pair).unwrap()
 }
 
 #[test]
+fn payload_loan_diagnostics_point_at_the_scrutinee_and_the_payload_use() {
+    for (body, expected) in [
+        (
+            "    mut value = Some(1)\n    match &value:\n        case Some(number):\n            value = Nothing\n            print(*number)?\n        case Nothing:\n            pass\n",
+            "5:13: conflicting borrow: cannot assign to `value` while it is borrowed\n  3:12: note: the shared borrow of `value` starts here\n  6:20: note: the borrow is used again here",
+        ),
+        (
+            "    mut value = Some(1)\n    match &mut value:\n        case Some(number):\n            print(value)?\n            *number = 2\n        case Nothing:\n            pass\n",
+            "5:19: conflicting borrow: cannot read `value` while it is exclusively borrowed\n  3:16: note: the exclusive borrow of `value` starts here\n  6:13: note: the borrow is used again here",
+        ),
+    ] {
+        let source = format!("def main() -> Result[(), Failure]:\n{body}    Ok(())\n");
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert_eq!(error, expected, "{source}");
+    }
+    // The payload loan ends at its last use, inside the arm.
+    let source = "def main() -> Result[(), Failure]:\n    mut value = Some(1)\n    match &mut value:\n        case Some(number):\n            *number = 2\n            print(value)?\n        case Nothing:\n            pass\n    value = Nothing\n    print(value)?\n    Ok(())\n";
+    if let Err(error) = support::check_source(source) {
+        panic!("{source}\n{error}");
+    }
+}
+
+#[test]
 fn payload_loans_reject_invalidation_and_escaping_storage() {
     for (source, expected) in [
         ("mut value = Some(1)\nmatch &value:\n    case Some(number):\n        value = Nothing\n        print(*number).unwrap()\n    case Nothing:\n        pass", "conflicting borrow"),

@@ -77,30 +77,30 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
     "def g() -> Generator[Generator[i64]]:\n    yield count(1)",
     "cannot yield generators"
 )]
-#[case("a = count(2)\nb = a\nlist(a).unwrap()", "moved or possibly moved")]
+#[case("a = count(2)\nb = a\nlist(a).unwrap()", "use of moved binding `a`")]
 #[case(
     "def eat(g: Generator[i64]) -> ():\n    pass\na = count(2)\neat(a)\nlist(a).unwrap()",
-    "moved or possibly moved"
+    "use of moved binding `a`"
 )]
 #[case(
     "a = count(2)\nfor n in a:\n    break\nlist(a).unwrap()",
-    "moved or possibly moved"
+    "use of moved binding `a`"
 )]
 #[case(
     "a = count(2)\nif True:\n    list(a).unwrap()\nlist(a).unwrap()",
-    "moved or possibly moved"
+    "use of possibly moved binding `a`"
 )]
 #[case(
     "a = count(2)\nfor n in range(2):\n    list(a).unwrap()",
-    "loop backedge"
+    "`a` is moved in a loop"
 )]
 #[case(
     "a = count(2)\nwhile True:\n    list(a).unwrap()\n    continue",
-    "loop backedge"
+    "`a` is moved in a loop"
 )]
 #[case(
     "a = count(2)\nwhile True:\n    list(a).unwrap()\n    break\nlist(a).unwrap()",
-    "moved or possibly moved"
+    "moved binding `a`"
 )]
 #[case("a = count(2)\nnext(a)", "mutable generator binding")]
 #[case("next(count(2))", "named mutable generator")]
@@ -122,9 +122,9 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
 )]
 #[case(
     "a = count(2)\n[x for n in range(2) for x in a].unwrap()",
-    "loop backedge"
+    "`a` is moved in a loop"
 )]
-#[case("def condition(g: Generator[i64]) -> bool:\n    True\na = count(2)\nwhile condition(a):\n    pass", "loop backedge")]
+#[case("def condition(g: Generator[i64]) -> bool:\n    True\na = count(2)\nwhile condition(a):\n    pass", "`a` is moved in a loop")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(&format!("{COUNT}{source}"))
         .unwrap_err()

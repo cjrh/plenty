@@ -20,7 +20,7 @@ impl Lower<'_> {
         ops.push(Op::StoreLocal(slot));
         self.expression_temps.push(slot);
         let name = format!("__plenty_executor_{slot}");
-        self.names.insert(
+        self.bind(
             name.clone(),
             Local {
                 slot,
@@ -247,7 +247,7 @@ impl Lower<'_> {
         for _ in 0..if reduce { 2 } else { 1 } {
             let slot = self.slot((**element).clone(), at)?;
             let name = format!("__plenty_executor_item_{slot}");
-            self.names.insert(
+            self.bind(
                 name.clone(),
                 Local {
                     slot,

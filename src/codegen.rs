@@ -1202,7 +1202,7 @@ impl Lowerer<'_, '_> {
                 target,
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
-            Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
+            Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) => {}
             Op::BorrowLocal(i, mutable) => {
                 let (frame, offset) = if let Some(g) = &self.generator {
                     (g.frame, 64)
@@ -1250,9 +1250,9 @@ impl Lowerer<'_, '_> {
             Op::Split(t, tag) => self.lower_split(t, *tag)?,
             Op::Box(operation) => self.lower_box(operation)?,
             Op::Yield(ty) => self.lower_yield(ty)?,
-            Op::Next(i, _) => self.lower_next(*i)?,
+            Op::Next(i) => self.lower_next(*i)?,
             Op::DropLocal(i) => self.drop_local(*i),
-            Op::MoveLocal(i, _) => {
+            Op::MoveLocal(i) => {
                 let value = self.read_local(*i);
                 let ty = self.locals[*i as usize].1.clone();
                 let value = self.snapshot_inline(value, &ty);

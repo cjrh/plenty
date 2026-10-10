@@ -99,7 +99,10 @@ owner early. Immutable strings may share storage; tuples and enums copy their in
 updates operate in place. Named local and parameter references use `&T` / `&mut T`,
 with last-use loan checking over an access CFG. Class fields, list elements, and
 dictionary values and enum payloads can also be borrowed; stored references are deferred. Returned
-references must originate from a function's single reference parameter.
+references must originate from a function's single reference parameter. Move and
+borrow diagnostics point at the offending use, name the binding or field path,
+and add notes for the move or the borrow's start and later use; see
+[ownership and reclamation](13-ownership-and-reclamation.md).
 
 The original four feature proposals are in [Proposals](../proposals/index.md).
 They record the reasoning and suggested staging; this document describes the

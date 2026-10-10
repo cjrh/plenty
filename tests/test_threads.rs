@@ -70,6 +70,35 @@ def main() -> Result[(), Failure]:
 }
 
 #[test]
+fn race_diagnostics_point_at_the_use_and_the_spawn_scope() {
+    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), Failure]:\n    mut value = 1\n";
+    // The thread holds its borrow until the scoped join, even after an
+    // explicit join, so every note names the `with` block and not the join.
+    let scoped = "\n  6:29: note: the exclusive borrow of `value` starts here\n  6:10: note: the borrow is held until the end of this `with` block";
+    for (body, primary) in [
+        ("with spawn(worker, &mut value)? as task:\n        print(value)?", "7:15: conflicting borrow: cannot read `value` while it is exclusively borrowed"),
+        ("with spawn(worker, &mut value)? as task:\n        value = 3", "7:9: conflicting borrow: cannot assign to `value` while it is exclusively borrowed"),
+        ("with spawn(worker, &mut value)? as task:\n        print(task.join())?\n        print(value)?", "8:15: conflicting borrow: cannot read `value` while it is exclusively borrowed"),
+        ("with spawn(worker, &mut value)? as task:\n        with spawn(worker, &mut value)? as other:\n            pass", "7:33: conflicting borrow: cannot modify or exclusively borrow `value` while it is exclusively borrowed"),
+    ] {
+        let source = format!("{header}    {body}\n    Ok(())\n");
+        let error = plenty::check_source(&source).unwrap_err().to_string();
+        assert_eq!(error, format!("{primary}{scoped}"), "{source}");
+    }
+    let source = format!("{header}    with spawn(worker, &mut value)? as task:\n        print(task.join())?\n        print(task.join())?\n    Ok(())\n");
+    let error = plenty::check_source(&source).unwrap_err().to_string();
+    assert_eq!(
+        error,
+        "8:15: use of moved binding `task`\n  7:15: note: `task` is moved here"
+    );
+    // The borrow ends with the block, not with the enclosing function.
+    let source = format!("{header}    with spawn(worker, &mut value)? as task:\n        pass\n    value = 3\n    print(value)?\n    Ok(())\n");
+    if let Err(error) = plenty::check_source(&source) {
+        panic!("{source}\n{error}");
+    }
+}
+
+#[test]
 fn rejects_races_escaping_handles_and_double_joins() {
     let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), Failure]:\n    mut value = 1\n";
     for (body, expected) in [

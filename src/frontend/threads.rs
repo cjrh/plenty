@@ -174,12 +174,13 @@ impl Lower<'_> {
             exit,
             loan: None,
             thread: true,
+            at: site(&call.at, true),
         });
         if let Some(name) = name {
             if self.names.contains_key(name) {
                 return Err(call.at.error(format!("duplicate binding `{name}`")));
             }
-            self.names.insert(
+            self.bind(
                 name.into(),
                 Local {
                     slot,
@@ -214,10 +215,8 @@ impl Lower<'_> {
         let Ty::Task(task) = &local.ty else {
             unreachable!()
         };
-        ops.push(Op::MoveLocal(
-            local.slot,
-            format!("{}:{}: task `{name}`", base.at.line, base.at.column),
-        ));
+        self.mark(&base.at, ops);
+        ops.push(Op::MoveLocal(local.slot));
         ops.push(Op::Thread(ThreadOp::Join(task.clone())));
         Ok((task.output != Ty::Unit).then(|| task.output.clone()))
     }

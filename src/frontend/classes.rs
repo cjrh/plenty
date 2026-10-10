@@ -644,7 +644,7 @@ impl Lower<'_> {
         self.assignment_indices(target, &mut indices, ops)?;
         // Resolve addresses only once all user code has finished evaluating.
         let (_, loan) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
-        ops.push(Op::MoveLocal(temp, "assignment value".into()));
+        ops.push(Op::MoveLocal(temp));
         ops.push(Op::Swap);
         ops.push(Op::WriteRef(ty));
         ops.push(Op::UseLoan(loan));
@@ -793,7 +793,7 @@ impl Lower<'_> {
             slot
         };
         let receiver = format!("__plenty_receiver_{slot}");
-        self.names.insert(
+        self.bind(
             receiver.clone(),
             Local {
                 slot,

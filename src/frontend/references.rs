@@ -282,7 +282,7 @@ impl Lower<'_> {
             }
             if let Some(indices) = indices {
                 let slot = *indices.next().expect("prepared assignment index");
-                ops.push(Op::MoveLocal(slot, "assignment index".into()));
+                ops.push(Op::MoveLocal(slot));
             } else {
                 let actual = self.expr_expected(index, Some(key.clone()), ops)?;
                 self.same(actual, Some(key), &index.at)?;
@@ -345,6 +345,7 @@ impl Lower<'_> {
             return Ok((result, loan));
         }
         let local = self.named_place(e)?;
+        self.mark(&e.at, ops);
         let (ty, root, parent) = if let Ty::Ref(ty, writable) = &local.ty {
             if mutable && !writable {
                 return Err(e.at.error("cannot borrow shared reference as mutable"));
@@ -400,6 +401,7 @@ impl Lower<'_> {
                     return self.value(e, ops).map(|ty| (ty, vec![]));
                 }
                 let local = self.named_place(e)?;
+                self.mark(&e.at, ops);
                 if let Ty::Ref(ty, _) = &local.ty {
                     let parent = self.reference_locals[&local.slot];
                     if !ty.affine() {
@@ -492,10 +494,8 @@ impl Lower<'_> {
                 if matches!(local.ty, Ty::Ref(..)) {
                     return Err(at.error("drop requires an owned value, not a reference"));
                 }
-                ops.push(Op::MoveLocal(
-                    local.slot,
-                    format!("{}:{}", at.line, at.column),
-                ));
+                self.mark(&arg.at, ops);
+                ops.push(Op::MoveLocal(local.slot));
             } else {
                 if matches!(self.value(arg, ops)?, Ty::Ref(..)) {
                     return Err(at.error("drop requires an owned value, not a reference"));

@@ -146,13 +146,19 @@ impl Lower<'_> {
     }
 
     pub(super) fn cleanup(&self, start: usize, ops: &mut Vec<Op>) {
+        // A scope-end marker must not claim the cleanup that follows it, and no
+        // marker may end the sequence, so the source position is restored lazily.
+        let mut restore = None;
         for i in (start..self.locals.len()).rev() {
             let slot = (self.parameters + i) as u8;
             if let Some(context) = self.contexts.iter().find(|context| context.slot == slot) {
+                ops.push(Op::Site(context.at));
+                restore = self.site.get();
                 self.context_receiver(context, ops);
                 ops.extend(context.exit.iter().cloned());
             }
             if self.locals[i].managed() {
+                ops.extend(restore.take().map(Op::Site));
                 ops.push(Op::DropLocal(slot));
             }
         }
@@ -188,10 +194,8 @@ impl Lower<'_> {
                 at.error("next requires a mutable generator binding; declare it with `mut`")
             );
         }
-        ops.push(Op::Next(
-            local.slot,
-            format!("{}:{}: `{name}`", at.line, at.column),
-        ));
+        self.mark(at, ops);
+        ops.push(Op::Next(local.slot));
         Ok(Some(crate::sum::option(element.element.clone())))
     }
 }

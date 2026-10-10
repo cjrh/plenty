@@ -482,7 +482,7 @@ impl Lower<'_> {
                         ty.clone()
                     };
                     let slot = self.slot(binding_ty.clone(), &case.at)?;
-                    self.names.insert(
+                    self.bind(
                         name.clone(),
                         Local {
                             slot,
@@ -515,10 +515,7 @@ impl Lower<'_> {
                         split_slots[field] = Some(slot);
                     } else {
                         body.extend([
-                            Op::MoveLocal(
-                                source,
-                                format!("{}:{}: matched payload", case.at.line, case.at.column),
-                            ),
+                            Op::MoveLocal(source),
                             Op::Enum(if ty.affine() {
                                 EnumOp::Take(t.clone(), tag, field)
                             } else {
@@ -529,13 +526,7 @@ impl Lower<'_> {
                     }
                 }
                 if split {
-                    body.extend([
-                        Op::MoveLocal(
-                            source,
-                            format!("{}:{}: matched payload", case.at.line, case.at.column),
-                        ),
-                        Op::Split(t.clone(), tag),
-                    ]);
+                    body.extend([Op::MoveLocal(source), Op::Split(t.clone(), tag)]);
                     body.extend(
                         split_slots
                             .iter()

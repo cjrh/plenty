@@ -121,7 +121,7 @@ impl Lower<'_> {
                 local.slot
             } else {
                 let slot = self.slot(ty.clone(), &value.at)?;
-                self.names.insert(
+                self.bind(
                     name.clone(),
                     Local {
                         slot,
@@ -134,7 +134,7 @@ impl Lower<'_> {
             targets.push(Some(slot));
         }
         // Move every element out at once; `_` positions are dropped here.
-        ops.push(Op::MoveLocal(source, "unpacked tuple".into()));
+        ops.push(Op::MoveLocal(source));
         if let [ty] = fields.as_slice() {
             ops.push(Op::Enum(if ty.affine() {
                 crate::sum::EnumOp::Take(t.clone(), 0, 0)
@@ -433,7 +433,7 @@ impl Lower<'_> {
         success.push(branch(
             vec![],
             vec![
-                Op::MoveLocal(pending, "display allocation failure".into()),
+                Op::MoveLocal(pending),
                 Op::Enum(EnumOp::Take(mutation, 1, 0)),
                 Op::Enum(EnumOp::New(result_type.clone(), 1)),
                 Op::StoreLocal(result),
@@ -624,7 +624,7 @@ impl Lower<'_> {
             (&names[1], value_slot, value_ty.clone()),
         ] {
             if name != "_" {
-                self.names.insert(
+                self.bind(
                     name.clone(),
                     Local {
                         slot,
@@ -753,7 +753,7 @@ impl Lower<'_> {
         plan.condition
             .extend(loans.iter().copied().map(Op::UseLoan));
         plan.body.extend(loans.into_iter().map(Op::UseLoan));
-        self.names.insert(
+        self.bind(
             name.clone(),
             Local {
                 slot: plan.target,
@@ -832,7 +832,7 @@ impl Lower<'_> {
             let item = self.slot(option.clone(), at)?;
             return Ok(Iteration {
                 condition: vec![
-                    Op::Next(source, format!("{}:{}: iterator", at.line, at.column)),
+                    Op::Next(source),
                     Op::StoreLocal(item),
                     Op::LoadLocal(item),
                     Op::Enum(crate::sum::EnumOp::Tag(enum_type.clone())),
@@ -840,7 +840,7 @@ impl Lower<'_> {
                     Op::Eq,
                 ],
                 body: vec![
-                    Op::MoveLocal(item, format!("{}:{}: yielded payload", at.line, at.column)),
+                    Op::MoveLocal(item),
                     Op::Enum(if element.affine() {
                         crate::sum::EnumOp::Take(enum_type.clone(), 1, 0)
                     } else {
@@ -1590,7 +1590,7 @@ impl Lower<'_> {
         ops.push(Op::StoreLocal(slot));
         Self::end_reads(loans, ops);
         let loan = self.mutation_place(base, ops)?;
-        ops.push(Op::MoveLocal(slot, "collection removal argument".into()));
+        ops.push(Op::MoveLocal(slot));
         ops.push(Op::Collection(operation));
         ops.push(Op::UseLoan(loan));
         Ok(Some(result))
@@ -1620,7 +1620,7 @@ impl Lower<'_> {
         let slot = self.slot(ty.clone(), &argument.at)?;
         ops.push(Op::StoreLocal(slot));
         let loan = self.mutation_place(base, ops)?;
-        ops.push(Op::MoveLocal(slot, "set filter argument".into()));
+        ops.push(Op::MoveLocal(slot));
         ops.push(Op::Collection(if name == "intersection_update" {
             CollectionOp::SetIntersectionUpdate(ty)
         } else {
@@ -1743,7 +1743,7 @@ impl Lower<'_> {
         }
         let loan = self.mutation_place(base, ops)?;
         for slot in slots {
-            ops.push(Op::MoveLocal(slot, "fallible mutation argument".into()));
+            ops.push(Op::MoveLocal(slot));
         }
         ops.push(Op::Collection(if name == "reserve" {
             CollectionOp::TryReserve(ty)
@@ -1944,7 +1944,7 @@ impl Lower<'_> {
             Op::Eq,
             branch(
                 vec![
-                    Op::MoveLocal(pending, "collection allocation error".into()),
+                    Op::MoveLocal(pending),
                     Op::Enum(EnumOp::Take(mutation_type.clone(), 1, 0)),
                     Op::Enum(EnumOp::New(result_type.clone(), 1)),
                     Op::StoreLocal(result),

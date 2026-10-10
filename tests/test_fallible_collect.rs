@@ -37,7 +37,7 @@ fn collection_conversion_checks_types_and_consumes_its_source() {
         ("list[u8].from(range(2))", "expected u8"),
         (
             "values = [1].unwrap()\nlist[i64].from(values)\nprint(values).unwrap()",
-            "moved or possibly moved",
+            "use of moved binding `values`",
         ),
         (
             "values = [1].unwrap()\nlist[i64].from(&values)",

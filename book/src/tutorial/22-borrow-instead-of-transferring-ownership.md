@@ -62,8 +62,12 @@ def main() -> ():
 ```
 
 ```error
-conflicting borrow
+conflicting borrow: cannot modify or exclusively borrow `numbers` while it is borrowed
 ```
+
+The diagnostic points at `numbers.append(3)`. Its notes point at `&numbers`,
+where the shared borrow starts, and at `print(view)`, the later use that keeps
+the borrow live.
 
 A reference can be reborrowed temporarily. An exclusive reference may lend shared
 or exclusive access, but its conflicting access is suspended while that child

@@ -37,6 +37,19 @@ unless reinitialized; exiting branches are excluded. Each loop backedge,
 including `continue`, must preserve availability of outer owners available at
 entry. A move followed by mutable reinitialization is accepted; a move reaching
 a backedge is conservatively rejected. Break paths join the zero-iteration path.
+
+Ownership diagnostics are located at the offending use, not at the function
+header: `file:line:column: message`, followed by indented `note:` lines with
+their own positions. A use after a move reads ``use of moved binding `name` ``
+when every continuing path moved it and ``use of possibly moved binding `name` ``
+when only some did; the note points at one move. A borrow conflict names the
+accessed place and, when it differs, the borrowed place; its notes point at
+where the borrow starts and at what keeps it live: a later use, a use on the
+next loop iteration, or the end of the `with` block that holds it. Places use
+real field names and tuple indices where the loan's projection is precise, and
+only the binding where it is not, as for a reference returned from a call that
+may select either field. Positions are carried by marker operations that the
+checker's move, liveness, and alias rules ignore.
 A generator cannot be copied or stored in collections, classes, or user enums;
 standard `Option`/`Result` wrappers can own it. Collection/enum payloads
 can be owned mutable values: construction transfers ownership, and consuming
