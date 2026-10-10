@@ -139,6 +139,7 @@ impl Lower<'_> {
         }
         let symbol = self.specialize_frames(name, actual, at)?;
         let sig = self.sigs[&symbol].clone();
+        self.record_direct_call(&symbol, at, &loans, ops);
         ops.push(Op::Call(symbol.clone()));
         self.call_reference_result(&symbol, &sig, &loans, ops);
         Self::end_reads(loans, ops);

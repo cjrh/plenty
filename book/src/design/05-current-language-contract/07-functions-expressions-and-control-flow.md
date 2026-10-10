@@ -50,3 +50,23 @@ parameters and locals, including those with destructors, are then dropped in
 ordinary exit order before the transfer. A call passing a reference argument, or
 a `return` inside a `with` block, is an ordinary call followed by cleanup; see
 [deterministic destruction](../14-deterministic-destruction.md).
+
+A source-tail direct call within its caller's direct recursion cycle must have
+an approved native tail-call plan. Otherwise compilation fails at that call,
+naming the callee and the lifetime, context-exit, or ABI restriction. This
+includes final expressions, explicit returns, conditional expressions, and
+tail `if`/`match` arms. Argument evaluation occurs before the transfer; `?`,
+result conversion, and arithmetic after the call are subsequent computation,
+so those expressions are not source-tail calls. An explicit return within
+`with` is a source-tail candidate but is rejected when the context needs a
+post-call exit action. Ordinary nonrecursive fallbacks remain legal.
+
+The compiler computes cycles after concrete generic specialization and includes
+both tail and non-tail direct edges. Different specializations are different
+nodes. This rule does not promise constant stack for a cycle that also has
+non-tail edges. Calls through `Callable` values and concrete closure invocation
+are outside this graph, as are worker starts and closure construction. Generated
+adapter bodies contribute any explicit direct-call edges they contain, but an
+indirect call into an adapter does not create a direct edge. Generator frame
+construction and generator bodies are excluded; ordinary recursive calls while
+resuming a generator can still consume native stack.

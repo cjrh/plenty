@@ -42,5 +42,32 @@ range(2, 5, 1)
 ```
 
 Passing an owned range, record, or generator as an argument still needs an
-ordinary call and consumes native stack space. Returning one alone does not
-impose that limit.
+ordinary call and consumes native stack space. A direct recursive tail call
+with such an argument is rejected as described below. Returning one alone does
+not impose that limit.
+
+A direct recursive call in tail position must use a native tail transfer.
+This also applies to mutual recursion: `first` calls `second`, which calls
+back into `first`. Plenty reports an error when it cannot remove the caller's
+frame safely. For example, the following call borrows a local that needs that
+frame to stay alive:
+
+```plenty-error
+def walk(value: &i64, remaining: i64) -> i64:
+    if remaining == 0:
+        return *value
+    child = remaining - 1
+    walk(child, remaining - 1)
+
+def main() -> ():
+    pass
+```
+
+```error
+recursive call to `walk` is in tail position but cannot be a tail call: the reference argument borrows local `child`
+```
+
+Pass a reference borrowed from the caller, carry owned scalar state, or use a
+loop when the next step needs local storage. Non-tail recursion still uses the
+native stack. Calls through function values are outside this direct-recursion
+diagnostic; using a callback does not promise bounded stack use.
