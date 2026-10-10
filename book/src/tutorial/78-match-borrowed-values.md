@@ -49,7 +49,53 @@ def main() -> Result[(), Failure]:
 borrow the next node, and ordinary field assignment updates it in place. The
 owner remains usable afterward and is dropped automatically at scope exit.
 These traversals allocate nothing; their recursive calls still use native stack
-space. The previous lesson's consuming loop remains useful for very deep chains.
+space.
+
+A loop avoids that. Declare a reference binding with `mut` and assign it the
+next node. Such a binding may only be assigned a reference borrowed from itself,
+which `next` is: it comes from `match &node.next`.
+
+```plenty
+class Node:
+    value: i64
+    next: Option[Box[Node]]
+
+def total(head: &Node) -> i64:
+    mut sum = 0
+    mut node = head
+    while True:
+        sum = sum + node.value
+        match &node.next:
+            case Some(next):
+                node = next
+            case Nothing:
+                break
+    sum
+
+def increment(head: &mut Node) -> ():
+    mut node = head
+    while True:
+        node.value = node.value + 1
+        match &mut node.next:
+            case Some(next):
+                node = next
+            case Nothing:
+                break
+
+def main() -> Result[(), Failure]:
+    mut chain = Node(3, Some(Box(Node(6, Nothing))?))
+    increment(&mut chain)
+    print(total(&chain))?
+    Ok(())
+```
+
+```output
+11
+```
+
+`node` starts at `head` and only moves deeper into the chain `head` borrows, so
+the chain stays borrowed for as long as `node` is used. The loop uses the same
+stack space for a chain of any length.
 
 An existing enum reference can be matched directly. A function can also return
 a payload reference when it comes from the function's single reference parameter:

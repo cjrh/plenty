@@ -39,7 +39,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | `Option[T]`, `Result[T, E]` | Implemented with allocation-free inline wrappers, unit payloads, and unqualified `Some`, `Nothing`, `Ok`, `Err` |
 | Unit values | Expressions, function returns, enum and tuple payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
-| Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; stored references deferred |
+| Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; a `mut` reference binding is reassigned only through itself; stored references deferred |
 | Inline values | Class instances, tuples, and enum values store their fields inline in their owner's storage; construction never allocates. Inline storage is limited to 64 KiB per type; [reference](12-classes-fixed-layout-records.md) |
 | `Box[T]` | One owned heap value; `Box(value)` returns `Result`, a box converts to its content wherever the content's type is required, and a boxed class's fields and methods are reached directly; [reference](30-recursive-data.md) |
 | Borrowed enum matching | Shared matches preserve owners; mutable matches update every enum's payloads. Payload loans protect variants, support restricted returns, and allocate nothing; [reference](31-borrowed-enum-matching.md) |

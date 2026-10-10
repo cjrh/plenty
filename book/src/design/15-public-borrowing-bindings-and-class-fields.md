@@ -14,8 +14,57 @@ the accepted ownership decision. References to named bindings and borrowed funct
 parameters and their class fields are implemented as `&T` and `&mut T`. `str` remains the sole string
 value type; `&mut str` permits replacement of a string binding, not byte mutation.
 
-Reference bindings are immutable and initialized by a direct `&name` or
-`&mut name`, including field paths; reassignment and implicit reference aliases are rejected initially.
+A reference binding is initialized by `&place`, `&mut place`, a named reference,
+or a reference-returning call. Naming a reference reborrows it, as passing it to
+a call does; the new binding has its own loan.
+
+A `mut` reference binding may be assigned only a reference borrowed from the
+binding itself: a field, element, or box content reached through it, a payload
+of a [borrowed match](31-borrowed-enum-matching.md) on it, or the result of a
+reference-returning call that received it. The value must have the binding's
+type, so a shared binding stays shared and an exclusive one stays exclusive.
+Every other assignment is rejected, including a borrow of the same owner that
+does not go through the binding:
+
+```text
+reference binding `cur` can be reassigned only to a reference borrowed from `cur` itself
+```
+
+The binding therefore never leaves the place it first borrowed, and that place
+stays borrowed until the binding's last use. A loop can walk owned data this
+way in constant stack space and without allocation:
+
+```plenty
+class Node:
+    value: i64
+    next: Option[Box[Node]]
+
+def total(head: &Node) -> i64:
+    mut sum = 0
+    mut cur = head
+    while True:
+        sum = sum + cur.value
+        match &cur.next:
+            case Some(next):
+                cur = next
+            case Nothing:
+                break
+    sum
+
+def main() -> Result[(), Failure]:
+    chain = Node(1, Some(Box(Node(2, Nothing))?))
+    print(total(&chain))?
+    Ok(())
+```
+
+The binding keeps the loan it was declared with; assignment checks that the
+value's loan descends from it. Because the binding may point anywhere inside its
+first target, that loan and every loan borrowed through the binding cover the
+whole target. Two borrows through a `mut` reference binding are never treated as
+disjoint fields, and an exclusive binding cannot be used while a reference
+assigned to it is still live. Immutable reference bindings keep precise field
+loans.
+
 Reborrowing an existing reference is supported. An exclusive parent may lend shared
 or exclusive access, with conflicting parent access prohibited while the child is
 live. Calls automatically reborrow reference arguments, using declared signatures

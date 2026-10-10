@@ -88,6 +88,107 @@ impl Lower<'_> {
         Ok(())
     }
 
+    /// Lowers the value of a binding, returning the loan it holds when it is a
+    /// reference. A named reference is reborrowed, as a call argument is, so
+    /// each reference binding has a loan of its own.
+    pub(super) fn binding_value(
+        &mut self,
+        value: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, Option<usize>)> {
+        let place = match &ungroup(value).kind {
+            Expression::Unary(op, place) if op == "&" || op == "&mut" => {
+                Some((&**place, op == "&mut"))
+            }
+            Expression::Name(name) if !self.captures.contains(name) => match self.names.get(name) {
+                Some(Local {
+                    ty: Ty::Ref(_, mutable),
+                    ..
+                }) => Some((value, *mutable)),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((place, mutable)) = place {
+            let (ty, loan) = self.borrow(place, mutable, ops)?;
+            let ty = match &expected {
+                Some(expected) => self.unbox_to(ty, expected, ops),
+                None => ty,
+            };
+            return Ok((ty, Some(loan)));
+        }
+        let ty = self
+            .expr_expected(value, expected, ops)?
+            .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+        if !matches!(ty, Ty::Ref(..)) {
+            return Ok((ty, None));
+        }
+        if !matches!(
+            &ungroup(value).kind,
+            Expression::Call(..)
+                | Expression::Invoke(..)
+                | Expression::GenericCall(..)
+                | Expression::Method(..)
+                | Expression::GenericMethod(..)
+        ) {
+            return Err(value.at.error(
+                "reference bindings require a named reference, a direct borrow, or a reference-returning call",
+            ));
+        }
+        let loan = self.reference_origin(value, ops)?;
+        Ok((ty, Some(loan)))
+    }
+
+    /// Records the loan a new reference binding holds. A `mut` binding can
+    /// later point anywhere inside its first target, so its loan and every
+    /// loan derived from it cover that whole target instead of a field path.
+    pub(super) fn bind_reference(&mut self, slot: u8, loan: usize, mutable: bool, ops: &mut [Op]) {
+        if mutable {
+            self.loans[loan].precise = false;
+            if let Some(Op::Loan(fact)) = ops
+                .iter_mut()
+                .rev()
+                .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
+            {
+                *fact = self.loans[loan].clone();
+            }
+        }
+        self.reference_locals.insert(slot, loan);
+    }
+
+    /// A reassigned reference binding keeps the loan it was declared with, so
+    /// the new reference must be borrowed through that loan: it then stays
+    /// inside the target the loan already protects.
+    pub(super) fn check_retargeted_reference(
+        &self,
+        name: &str,
+        slot: u8,
+        mut loan: usize,
+        at: &Token,
+    ) -> Result<()> {
+        let held = self.reference_locals[&slot];
+        // Only a loan widened by `bind_reference` protects every later target.
+        if self.loans[held].precise {
+            return Err(at.error(format!(
+                "reference `{name}` was not declared as a `mut` reference binding and cannot be reassigned"
+            )));
+        }
+        loop {
+            if loan == held {
+                return Ok(());
+            }
+            match self.loans[loan].parent {
+                Some(parent) => loan = parent,
+                None => {
+                    return Err(at.error(format!(
+                        "reference binding `{name}` can be reassigned only to a reference borrowed from `{name}` itself"
+                    )))
+                }
+            }
+        }
+    }
+
     pub(super) fn reference_origin(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
         if let Expression::Name(name) = &ungroup(e).kind {
             if let Some(local) = self.names.get(name) {
