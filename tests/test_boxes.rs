@@ -182,6 +182,130 @@ print("end").unwrap()
 }
 
 #[test]
+fn boxed_collections_reach_shared_and_mutating_methods() {
+    runs(
+        r#"
+def append(items: &mut Box[Box[list[i64]]]) -> ():
+    items.append(3).unwrap()
+def read(items: &Box[Box[list[i64]]]) -> i64:
+    items.get(0).unwrap()
+mut items = Box(Box([1, 2].unwrap()).unwrap()).unwrap()
+append(&mut items)
+print(read(&items)).unwrap()
+items.reserve(8).unwrap()
+items.extend([4, 5].unwrap()).unwrap()
+items.reverse()
+print(items.pop().unwrap()).unwrap()
+print(items.count(3)).unwrap()
+print(items.slice(0, 2).unwrap()).unwrap()
+items.clear()
+print(items).unwrap()
+mut entries = Box({1: 10}.unwrap()).unwrap()
+entries.insert(2, 20).unwrap()
+entries.update({3: 30}.unwrap()).unwrap()
+print(entries.get(2).unwrap()).unwrap()
+print(entries.pop(1).unwrap()).unwrap()
+print(entries.keys().unwrap().count(3)).unwrap()
+print(entries.values().unwrap().count(30)).unwrap()
+entries.clear()
+print(entries).unwrap()
+mut values = Box({1, 2}.unwrap()).unwrap()
+values.add(3).unwrap()
+values.update({4}.unwrap()).unwrap()
+print(values.issuperset({1, 2}.unwrap())).unwrap()
+values.intersection_update({2, 3, 4}.unwrap())
+values.difference_update({4}.unwrap())
+print(values.discard(2)).unwrap()
+values.clear()
+print(values).unwrap()
+text = Box(Box("  hello  ").unwrap()).unwrap()
+print(text.strip().unwrap()).unwrap()
+print(text.startswith("  ")).unwrap()
+print(text.get(2).unwrap()).unwrap()
+print(text).unwrap()
+"#,
+        "1\n1\n1\n[5, 4]\nBox(Box([]))\n20\n10\n1\n1\nBox({})\nTrue\nTrue\nBox(set())\nhello\nTrue\nh\nBox(Box(\"  hello  \"))\n",
+    );
+}
+
+#[test]
+fn temporary_boxed_receivers_hold_contents_until_the_call_finishes() {
+    runs(
+        r#"
+class Resource:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+print(Box(Box("hello").unwrap()).unwrap().startswith("he")).unwrap()
+Box("hello").unwrap().strip().unwrap()
+print(Box([1, 2].unwrap()).unwrap().get(1).unwrap()).unwrap()
+items = Box([Resource("held")].unwrap()).unwrap().slice(0, 1).unwrap()
+print("alive").unwrap()
+drop(items)
+"#,
+        "True\n2\nalive\nheld\n",
+    );
+}
+
+#[test]
+fn boxed_method_receivers_preserve_places_and_owned_payloads() {
+    runs(
+        r#"
+class Resource:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+class Holder:
+    items: Box[list[Resource]]
+mut holder = Holder(Box([Resource("first")].unwrap()).unwrap())
+holder.items.append(Resource("second")).unwrap()
+item = holder.items.pop().unwrap()
+print(item.name).unwrap()
+holder.items.clear()
+drop(item)
+mut boxes = [Box([1].unwrap()).unwrap()].unwrap()
+boxes[0].append(2).unwrap()
+print(boxes[0].get(1).unwrap()).unwrap()
+print(boxes).unwrap()
+"#,
+        "second\nfirst\nsecond\n2\n[Box([1, 2])]\n",
+    );
+}
+
+#[test]
+fn boxed_method_borrows_reject_immutable_shared_and_aliasing_mutation() {
+    for (source, expected) in [
+        (
+            "items = Box([1].unwrap()).unwrap()\nitems.append(2).unwrap()",
+            "mutable borrowing requires a mut binding",
+        ),
+        (
+            "mut items = Box(Box([1].unwrap()).unwrap()).unwrap()\nshared = &items\nshared.clear()",
+            "cannot borrow shared reference as mutable",
+        ),
+        (
+            "mut items = Box([1].unwrap()).unwrap()\nshared = &items\nitems.append(2).unwrap()\nprint(shared.get(0)).unwrap()",
+            "borrow",
+        ),
+        (
+            "mut values = Box({1, 2}.unwrap()).unwrap()\nshared = &*values\nvalues.intersection_update(shared)",
+            "borrow",
+        ),
+        (
+            "items = Box([1].unwrap()).unwrap()\nmoved = items\nprint(items.get(0)).unwrap()",
+            "moved",
+        ),
+        (
+            "class Resource:\n    value: i64\nitems = Box([Resource(1)].unwrap()).unwrap()\nitems.slice(0, 1).unwrap()",
+            "slice with owned elements requires an owned temporary",
+        ),
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}
+
+#[test]
 fn box_contents_and_dereferences_are_checked() {
     for (source, expected) in [
         ("x = 1\nb = Box(&x)", "cannot be stored in a box"),

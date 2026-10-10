@@ -527,7 +527,38 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Vec<usize>)> {
-        let result = self.observe_inner(e, expected, ops)?;
+        self.observe_with_context(e, expected, false, ops)
+    }
+
+    pub(super) fn observe_method_receiver(
+        &mut self,
+        e: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, Vec<usize>)> {
+        self.observe_with_context(e, None, true, ops)
+    }
+
+    fn observe_with_context(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        unbox_owned: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, Vec<usize>)> {
+        let mut result = self.observe_inner(e, expected, ops)?;
+        if unbox_owned
+            && result.1.is_empty()
+            && matches!(result.0, Ty::Box(_))
+            && !matches!(
+                ungroup(e).kind,
+                Expression::Index(..) | Expression::Member(..)
+            )
+        {
+            // Take temporary box contents before recording their owner, so the
+            // full-expression temporary owns the content rather than a freed box.
+            let content = classes::unbox(result.0.clone());
+            result.0 = self.unbox_to(result.0, &content, ops);
+        }
         // A temporary owner survives all observations in the containing full
         // expression, including projections through a temporary collection.
         // An element read is a view of its collection, which is held already.

@@ -56,6 +56,31 @@ required, a box stays a box: `other = b` moves the box itself. Operators and
 conditions do not convert either. Write `*b` there to move the content out, or
 `&*b` and `&mut *b` to borrow it.
 
+Collection and string methods also reach through boxes, including nested boxes.
+The call borrows the content, so the box remains usable. Mutating a collection
+requires a `mut` binding or an exclusive reference:
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut items = Box(Box([1, 2]?)?)?
+    items.append(3)?
+    print(items.get(2).unwrap())?
+    text = Box("  hello  ")?
+    print(text.strip()?)?
+    print(text.startswith("  "))?
+    Ok(())
+```
+
+```output
+3
+hello
+True
+```
+
+A shared reference can call reading methods such as `get` and `strip`, but
+cannot call mutations such as `append` or `clear`. Read-only methods also work
+on temporary boxes; bind a box with `mut` before calling a mutating method.
+
 Without the box, the compiler rejects the declaration:
 
 ```plenty-error
