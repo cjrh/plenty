@@ -3477,12 +3477,15 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     }
     exports.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     let returns_status = if require_main {
+        const MAIN_RETURN_TYPES: &str = "(), i32, Result[(), E], or Result[i32, E]";
         let entry = generics
             .pending
             .iter()
             .find(|f| f.name == "main")
             .ok_or_else(|| {
-                at.error("binary application requires `def main() -> ()` or `def main() -> i32`")
+                at.error(format!(
+                    "binary application requires a module-level main taking no parameters and returning {MAIN_RETURN_TYPES}"
+                ))
             })?;
         let entry_sig = &sigs["main"];
         if !entry_sig.inputs.is_empty()
@@ -3490,9 +3493,9 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                 && !matches!(entry_sig.outputs.as_slice(), [Ty::Enum(t)] if t.propagatable() && !t.is_option() && matches!(t.get().variants[0].fields.as_slice(), [Ty::Unit | Ty::I32]))
             || generators::yields(&entry.body)
         {
-            return Err(entry.at.error(
-                "main must take no parameters and return (), i32, Result[(), E], or Result[i32, E]; it cannot be a generator",
-            ));
+            return Err(entry.at.error(format!(
+                "main must take no parameters and return {MAIN_RETURN_TYPES}; it cannot be a generator"
+            )));
         }
         !entry_sig.outputs.is_empty()
     } else {

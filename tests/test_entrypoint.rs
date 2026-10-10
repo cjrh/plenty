@@ -92,38 +92,44 @@ fn main_drops_resources_before_the_native_wrapper_returns() {
 
 #[test]
 fn invalid_entrypoints_are_rejected_before_execution_or_artifact_creation() {
+    const MISSING_MAIN: &str = "binary application requires a module-level main taking no parameters and returning (), i32, Result[(), E], or Result[i32, E]";
+    const INVALID_MAIN: &str = "main must take no parameters and return (), i32, Result[(), E], or Result[i32, E]; it cannot be a generator";
     for (source, diagnostic) in [
-        ("", "binary application requires"),
-        ("# no program\n", "binary application requires"),
+        ("", MISSING_MAIN),
+        ("# no program\n", MISSING_MAIN),
         (
             "def helper() -> ():\n    pass\n",
-            "binary application requires",
+            MISSING_MAIN,
+        ),
+        (
+            "def helper() -> i64:\n    return 1\n",
+            MISSING_MAIN,
         ),
         (
             "class App:\n    def main(self) -> ():\n        pass\n",
-            "binary application requires",
+            MISSING_MAIN,
         ),
-        ("type main = i32\n", "binary application requires"),
+        ("type main = i32\n", MISSING_MAIN),
         ("print('must not run').unwrap()\n", "module scope"),
         ("def main() -> ():\n    pass\nmain()\n", "module scope"),
         ("def main() -> ():\n    pass\nx = 1\n", "module scope"),
         (
             "def main(x: i64) -> ():\n    pass\n",
-            "main must take no parameters",
+            INVALID_MAIN,
         ),
         (
             "def main() -> i64:\n    0\n",
-            "main must take no parameters",
+            INVALID_MAIN,
         ),
         (
             "def main() -> Result[i64, str]:\n    Ok(0)\n",
-            "main must take no parameters",
+            INVALID_MAIN,
         ),
         (
             "def main() -> Generator[i64]:\n    yield 1\n",
-            "cannot be a generator",
+            INVALID_MAIN,
         ),
-        ("def main() -> ():\n    yield 1\n", "cannot be a generator"),
+        ("def main() -> ():\n    yield 1\n", INVALID_MAIN),
         ("def main() -> i32:\n    0i64\n", "expected i32, got i64"),
         ("def main() -> ():\n    42\n", "expected (), got i64"),
         (
