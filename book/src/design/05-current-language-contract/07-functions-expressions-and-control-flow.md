@@ -45,5 +45,8 @@ def clamp_low(value: i64, minimum: i64) -> i64:
 Tail calls in final expressions, final branches, and explicit return
 expressions (including early guard clauses) become tail-call operations.
 Cranelift emits `return_call` or `return_call_indirect` with the Tail calling
-convention. Functions with resource-bearing parameters or locals retain ordinary
-calls so observable cleanup happens after the callee returns.
+convention. The arguments are evaluated first; the caller's remaining owned
+parameters and locals, including those with destructors, are then dropped in
+ordinary exit order before the transfer. A call passing a reference argument, or
+a `return` inside a `with` block, is an ordinary call followed by cleanup; see
+[deterministic destruction](../14-deterministic-destruction.md).

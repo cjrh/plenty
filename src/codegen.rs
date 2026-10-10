@@ -2003,6 +2003,13 @@ impl Lowerer<'_, '_> {
     /// Lower `Op::Call`: emit a regular call and push each return value
     /// onto the compile-time stack with its declared `Ty`.
     fn lower_call(&mut self, name: &str) -> Result<()> {
+        self.call(name, false)
+    }
+
+    /// `transfer` marks a tail call that keeps its frame for inline storage.
+    /// Its arguments are staged in storage of their own, so the caller's locals
+    /// are released first, in the order of a native tail call.
+    fn call(&mut self, name: &str, transfer: bool) -> Result<()> {
         let (decl, mut args) = self.pop_call_args(name)?;
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
@@ -2011,6 +2018,9 @@ impl Lowerer<'_, '_> {
             args.push(self.inline_storage(bytes));
         }
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
+        if transfer {
+            self.release_locals();
+        }
         let inst = self.bcx.ins().call(funcref, &args);
         let results: Vec<cranelift_codegen::ir::Value> = self.bcx.inst_results(inst).to_vec();
         debug_assert_eq!(results.len(), outputs.len());
@@ -2039,31 +2049,34 @@ impl Lowerer<'_, '_> {
         }
         let native = user_fn_signature(self.module, &sig);
         let reference = self.bcx.import_signature(native);
-        if tail
-            && !signature
+        // A reference argument may point into this frame, whose locals then
+        // outlive the call.
+        let transfer = tail && !signature.inputs.iter().any(Ty::contains_reference);
+        if transfer {
+            self.release_locals();
+            if !signature
                 .inputs
                 .iter()
                 .chain(signature.output.iter())
-                .any(|ty| {
-                    ty.has_inline_storage()
-                        || matches!(ty, Ty::Ref(inner, _) if inner.has_inline_storage())
-                })
-        {
-            self.release_locals();
-            self.bcx
-                .ins()
-                .return_call_indirect(reference, callee, &args);
-            self.terminated = true;
-            return Ok(());
+                .any(Ty::has_inline_storage)
+            {
+                self.bcx
+                    .ins()
+                    .return_call_indirect(reference, callee, &args);
+                self.terminated = true;
+                return Ok(());
+            }
         }
         let call = self.bcx.ins().call_indirect(reference, callee, &args);
         for (value, ty) in self.bcx.inst_results(call).iter().copied().zip(sig.outputs) {
             self.stack.push((value, ty));
         }
-        if tail {
+        if transfer {
+            self.return_released(self.stack.clone());
+        } else if tail {
             self.return_values(self.stack.clone());
-            self.terminated = true;
         }
+        self.terminated |= tail;
         Ok(())
     }
 
@@ -2072,14 +2085,26 @@ impl Lowerer<'_, '_> {
     /// primitive for Plenty's recursive control flow (§11.8). The
     /// instruction is a block terminator, so we set `self.terminated`
     /// and the outer loop stops feeding ops to this lowerer.
+    ///
+    /// The caller's locals are released before control leaves, as at any
+    /// other exit; the arguments are already owned by the call. Two cases
+    /// keep the frame and use an ordinary call. Inline arguments and results
+    /// live in this frame, but its locals are still released first. A
+    /// reference argument may point at one of those locals, so they are
+    /// released only after the callee returns.
     fn lower_tail_call(&mut self, name: &str) -> Result<()> {
         let signature = &self.user_fns[name].sig;
-        if signature.inputs.iter().any(|(_, t)| {
-            t.has_inline_storage() || matches!(t, Ty::Ref(inner, _) if inner.has_inline_storage())
-        }) || signature.outputs.iter().any(Ty::has_inline_storage)
-        {
+        if signature.inputs.iter().any(|(_, t)| t.contains_reference()) {
             self.lower_call(name)?;
             self.return_values(self.stack.clone());
+            self.terminated = true;
+            return Ok(());
+        }
+        if signature.inputs.iter().any(|(_, t)| t.has_inline_storage())
+            || signature.outputs.iter().any(Ty::has_inline_storage)
+        {
+            self.call(name, true)?;
+            self.return_released(self.stack.clone());
             self.terminated = true;
             return Ok(());
         }

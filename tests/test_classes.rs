@@ -176,7 +176,7 @@ drop({{1: Resource("c"), 2: Resource("d")}})
 }
 
 #[test]
-fn resource_cleanup_happens_after_tail_callee() {
+fn resource_cleanup_happens_before_tail_callee() {
     run(
         &format!(
             r#"{RESOURCE}
@@ -189,7 +189,7 @@ def caller() -> i64:
 print(caller()).unwrap()
 "#
         ),
-        "callee\ndrop\n42\n",
+        "drop\ncallee\n42\n",
     );
 }
 

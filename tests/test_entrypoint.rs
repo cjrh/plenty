@@ -80,7 +80,7 @@ fn main_drops_resources_before_the_native_wrapper_returns() {
         run_both(
             &format!("{declarations}def main() -> i32:\n    a = Resource('first')\n    b = Resource('second')\n    {tail}\n"),
             7,
-            "status\nsecond\nfirst\n",
+            "second\nfirst\nstatus\n",
         );
     }
     run_both(

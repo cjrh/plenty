@@ -62,15 +62,32 @@ or destruction. Destroying its frame cleans those values without resuming the bo
 code following a `yield` is not a cleanup hook. Observable cleanup must follow the
 same scope and field rules, including captures in a never-started frame.
 
-Drop order also constrains tail-call optimization. A normal call in tail position
-must retain caller-owned resources through the call when their specified destruction
-occurs afterward. Do not move an observable destructor before a call merely to emit
-a native tail call. Initially disable that optimization when such cleanup remains,
-or when a callee borrows caller-local storage. The current conservative check
-uses parameter/local types, so it also disables tail calls after explicit early
-drops in a function with resource-bearing slots. More precise cleanup analysis
-could recover those tail calls later. Generators count as resource-bearing because
-their frames may capture classes regardless of their yield type.
+A call in tail position transfers control the way Rust's `become` does:
+
+1. Its arguments are evaluated left to right. A value moved into an argument
+   belongs to the callee; the caller does not drop it.
+2. The statement's temporaries, then the caller's remaining owned parameters and
+   locals, are dropped in the order of an ordinary function exit.
+3. Control transfers to the callee.
+
+The caller's destructors therefore run before the callee's body, and a
+destructor-bearing parameter or local does not prevent a native tail call. Values
+already moved or explicitly dropped are not dropped again, on any path. An
+argument that propagates with `?` takes the ordinary error exit: evaluated
+arguments and locals are dropped and the callee is never entered.
+
+Three kinds of call are not tail transfers and keep cleanup after the call:
+
+- A call passing a reference argument, including a method call through `self`.
+  The reference may point at a caller local, so every local outlives the call.
+- A `return` inside a `with` block. The call returns, then the pending context
+  exits and joins run, then the locals are dropped.
+- A call whose result is used further, for example wrapped in `Ok`, propagated
+  with `?`, or combined by an operator.
+
+A call passing or returning inline storage follows the three steps above but
+keeps the caller's frame to hold that storage, so it still uses native stack for
+each call.
 
 Values stored inline, such as class instances, tuples, and enum payloads, drop
 immediately in declaration order; their nesting depth is bounded by their type.

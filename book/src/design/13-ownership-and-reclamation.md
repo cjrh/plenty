@@ -13,8 +13,9 @@ its strings. Inserting an affine value into a collection moves it there. Moving
 an owned value clears the source ownership slot. Stores evaluate the RHS, release the
 old owner, then transfer the new one. Scope exits, loop exits, and function exits
 release locals; compiler-private temporaries are bounded by local slots.
-Tail-call arguments are owned before caller cleanup. Observable resource cleanup
-prevents tail-call rewriting in functions with resource-bearing slots. Traps terminate the process without unwinding language scopes.
+Tail-call arguments are owned before caller cleanup, and that cleanup runs before
+the transfer; see [deterministic destruction](14-deterministic-destruction.md).
+Traps terminate the process without unwinding language scopes.
 
 Runtime objects share `{atomic u64 refs, destroy_callback}`. Heap objects start with one
 reference; literal strings use an immortal count. Helpers borrow arguments and

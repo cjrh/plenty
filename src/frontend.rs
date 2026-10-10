@@ -2742,10 +2742,11 @@ impl Lower<'_> {
                     } else {
                         None
                     };
-                    self.finish_temporaries(temporary_start, &mut returned);
                     if self.contexts.is_empty() && returned_loan.is_none() {
+                        self.finish_tail_temporaries(temporary_start, &mut returned);
                         finish_return(&mut returned);
                     } else {
+                        self.finish_temporaries(temporary_start, &mut returned);
                         self.cleanup(0, &mut returned);
                         if let Some(loan) = returned_loan {
                             returned.push(Op::UseLoan(loan));
@@ -2959,7 +2960,11 @@ impl Lower<'_> {
                 }
                 result = None;
             }
-            self.finish_temporaries(temporary_start, ops);
+            if last && matches!(stmt.kind, Statement::Expr(_)) {
+                self.finish_tail_temporaries(temporary_start, ops);
+            } else {
+                self.finish_temporaries(temporary_start, ops);
+            }
         }
         Ok(BlockResult::Continues(result))
     }
@@ -3300,11 +3305,6 @@ fn lower_function(
     }
     if yield_type.is_none() {
         mark_tail_calls(&mut body);
-    }
-    if sig.inputs.iter().any(|(_, t)| t.has_destructor())
-        || lower.locals.iter().any(Ty::has_destructor)
-    {
-        classes::preserve_drop_order(&mut body);
     }
     let compiled = CompiledFn {
         location: f
