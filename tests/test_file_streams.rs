@@ -102,7 +102,7 @@ print(str.repr(work()).unwrap()).unwrap()
 "#,
         Some(b"hello"),
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "True\nFalse\nResult[bool, IoError].Err(IoError.System(0))\nFalse\nTrue\nResult[str, IoError].Err(IoError.System(0))\nResult[(), IoError].Ok(())\n");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "True\nFalse\nResult[bool, IoError].Err(IoError.Closed)\nFalse\nTrue\nResult[str, IoError].Err(IoError.NotReadable)\nResult[(), IoError].Ok(())\n");
 }
 
 #[test]
@@ -155,7 +155,7 @@ print(str.repr(work()).unwrap()).unwrap()
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("DataError.InvalidUtf8"), "{text}");
     assert!(text.contains(".Ok(\"ok\\n\")"), "{text}");
-    assert!(text.contains("IoError.System(0)"), "{text}");
+    assert!(text.contains("IoError.Closed"), "{text}");
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -269,7 +269,7 @@ print(str.repr(work()).unwrap()).unwrap()
         );
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(
-            text.contains("\nTrue\nResult[str, IoError].Err(IoError.System(0))"),
+            text.contains("\nTrue\nResult[str, IoError].Err(IoError.Closed)"),
             "{text}"
         );
         if input == b"\xff" {
@@ -447,11 +447,62 @@ fn open_modes_create_truncate_or_preserve_and_errors_are_recoverable() {
         assert_eq!(std::fs::read(dir.path().join("sample.txt")).unwrap(), b"");
     }
     let (out, _) = run(
-        "print(str.repr(open(\"missing.txt\")).unwrap()).unwrap()\nprint(str.repr(open(\"x\", \"bad\")).unwrap()).unwrap()\nprint(str.repr(open(\"x\\0y\")).unwrap()).unwrap()\n",
+        "print(str.repr(open(\"missing.txt\")).unwrap()).unwrap()\nprint(str.repr(open(\"x\\0y\")).unwrap()).unwrap()\n",
         None,
     );
-    let text = String::from_utf8_lossy(&out.stdout);
-    assert_eq!(text.matches(".Err(").count(), 3, "{text}");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "Result[File, IoError].Err(IoError.System(2))\nResult[File, IoError].Err(IoError.InvalidInput)\n"
+    );
+}
+
+#[test]
+fn rejected_modes_and_wrong_direction_access_name_the_failure() {
+    for mode in ["bad", "", "rb", "R", "r "] {
+        reject(
+            &format!("value = open(\"sample.txt\", \"{mode}\")\n"),
+            &format!("unknown open mode `{mode}`; use one of r, w, a, x, r+, w+, a+, x+"),
+        );
+        reject(
+            &format!("value = open(\"sample.txt\", (\"{mode}\"))\n"),
+            "unknown open mode",
+        );
+    }
+    // A mode computed at run time cannot be checked by the compiler.
+    let (out, dir) = run(
+        r#"
+def attempt(mode: str) -> Result[(), IoError]:
+    file = open("created.txt", mode)?
+    Ok(())
+def work() -> Result[(), IoError]:
+    print(str.repr(attempt("bad")).unwrap()).unwrap()
+    print(str.repr(attempt("")).unwrap()).unwrap()
+    with open("sample.txt")? as source:
+        print(str.repr(source.write("x")).unwrap()).unwrap()
+        print(str.repr(source.truncate()).unwrap()).unwrap()
+    with open("sample.txt", "a")? as sink:
+        print(str.repr(sink.readline()).unwrap()).unwrap()
+        print(str.repr(sink.readlines()).unwrap()).unwrap()
+    Ok(())
+print(str.repr(work()).unwrap()).unwrap()
+"#,
+        Some(b"kept"),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "Result[(), IoError].Err(IoError.InvalidMode)\n\
+         Result[(), IoError].Err(IoError.InvalidMode)\n\
+         Result[i64, IoError].Err(IoError.NotWritable)\n\
+         Result[i64, IoError].Err(IoError.NotWritable)\n\
+         Result[str, IoError].Err(IoError.NotReadable)\n\
+         Result[list[str], IoError].Err(IoError.NotReadable)\n\
+         Result[(), IoError].Ok(())\n"
+    );
+    assert!(!dir.path().join("created.txt").exists());
+    assert_eq!(
+        std::fs::read(dir.path().join("sample.txt")).unwrap(),
+        b"kept"
+    );
 }
 
 #[test]
@@ -634,7 +685,7 @@ print(str.repr(work()).unwrap()).unwrap()
         text.starts_with("2\nTrue\n4\nResult[str, IoError].Ok(\"\\0\\0\")\n"),
         "{text}"
     );
-    assert!(text.contains("IoError.System(0)"), "{text}");
+    assert!(text.contains("IoError.InvalidInput"), "{text}");
     assert!(text.contains("DataError.InvalidUtf8"), "{text}");
     assert_eq!(
         std::fs::read(dir.path().join("sample.txt")).unwrap(),
@@ -706,7 +757,7 @@ print(str.repr(work()).unwrap()).unwrap()
 "#,
             Some(input.as_bytes()),
         );
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "🦀\n🦀end\né\nResult[u64, IoError].Err(IoError.System(0))\nResult[(), IoError].Err(IoError.System(0))\nResult[(), IoError].Ok(())\n");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "🦀\n🦀end\né\nResult[u64, IoError].Err(IoError.Closed)\nResult[(), IoError].Err(IoError.Closed)\nResult[(), IoError].Ok(())\n");
     }
 }
 

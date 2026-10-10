@@ -6,6 +6,7 @@ use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
 use std::io::Write;
 
+mod entry_error;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
 
@@ -1187,7 +1188,7 @@ pub(crate) unsafe fn collection(
                 Err(error) => wrap(wrap(0, error as u64), 1),
             };
         }
-        if !descriptor.is_null() && (*descriptor).kind == b's' && !matches!(op, 110 | 111) {
+        if !descriptor.is_null() && (*descriptor).kind == b's' && !matches!(op, 110 | 111 | 122) {
             let text = a as *const Text;
             return match op {
                 5 => strings::scalar_len(text) as u128,
@@ -1746,6 +1747,11 @@ pub(crate) unsafe fn collection(
                 Ok(boxed) => wrap(boxed as u128, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },
+            // The value is the process status of a `main` that returned `Err`.
+            122 => {
+                entry_error::report(a, descriptor);
+                1
+            }
             24 => {
                 let mut item = 0;
                 let ready = plenty_generator_resume(a as *mut Generator, &mut item);

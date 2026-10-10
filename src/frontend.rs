@@ -3433,7 +3433,8 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     if require_main {
         ops.push(Op::Call("main".into()));
         if let [Ty::Enum(t)] = sigs["main"].outputs.as_slice() {
-            // Entry failures map to exit status 1 without allocating a diagnostic.
+            // An entry failure is reported on stderr, then its payload is
+            // dropped like any other value, and the process exits with 1.
             ops.extend([
                 Op::Dup,
                 Op::Enum(crate::sum::EnumOp::Tag(t.clone())),
@@ -3445,7 +3446,12 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
                     } else {
                         vec![Op::Drop, Op::PushInt(Value::I32(0))]
                     },
-                    vec![Op::Drop, Op::PushInt(Value::I32(1))],
+                    vec![
+                        Op::Enum(crate::sum::EnumOp::Take(t.clone(), 1, 0)),
+                        Op::Collection(CollectionOp::ReportEntryError(
+                            t.get().variants[1].fields[0].clone(),
+                        )),
+                    ],
                 ),
             ]);
         }

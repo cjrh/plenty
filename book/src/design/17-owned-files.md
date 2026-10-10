@@ -2,7 +2,11 @@
 
 `open(path: str, mode: str = "r") -> Result[File, IoError]` creates an opaque,
 affine file owner. Supported modes are `r` (existing read-only), `w` (create or
-truncate), `a` (create or append), and `x` (exclusive creation). Invalid modes or NUL paths return errors.
+truncate), `a` (create or append), and `x` (exclusive creation). A mode written
+as a string literal is checked by the compiler, which rejects any other spelling
+and lists the accepted ones. A mode computed at run time is checked by `open`,
+which returns `IoError.InvalidMode`; both checks use one list. A path containing
+NUL returns `IoError.InvalidInput`.
 Exclusive creation uses the OS atomic create-new operation and fails if the path
 already exists, including a symlink; it never truncates an existing destination.
 The initial backend is Linux, with the same flags, permissions, path rules, and
@@ -32,8 +36,12 @@ ABI layout or descriptor escape hatch.
 `file.read() -> Result[str, IoError]` exclusively borrows a live file and reads
 from its current position to EOF. It returns independent UTF-8 text with CRLF
 and bare CR normalized to LF, preserving NUL. EOF returns an empty string.
-Closed handles and rejected access modes return `IoError.System(0)`; native OS
-errors retain their codes. Read or allocation errors may advance the position, and invalid
+Operations on a closed handle return `IoError.Closed`. Reading a file opened
+without read access returns `IoError.NotReadable`, and writing or truncating one
+opened without write access returns `IoError.NotWritable`; a closed handle is
+reported as closed whatever its mode was. A negative size or an unrepresentable
+position returns `IoError.InvalidInput`. Native OS errors retain their codes in
+`IoError.System`. Read or allocation errors may advance the position, and invalid
 UTF-8 is reported after consuming input. No rollback or concurrent-file snapshot
 is promised. Output and temporary buffers allocate fallibly.
 

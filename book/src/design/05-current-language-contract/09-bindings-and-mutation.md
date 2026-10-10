@@ -30,9 +30,26 @@ Binary applications require exactly one module-level `main` function with no
 parameters and a return type of `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`
 (transparent aliases are accepted). The native wrapper calls it once: unit or
 `Ok(())` maps to zero, an `i32` or `Ok(i32)` supplies the status, and `Err` maps to
-one. Errors are dropped normally; status conversion allocates no diagnostic.
-Use explicit error handling to print an error message before returning. The operating system may truncate that status; small
-nonnegative values are portable. `main` follows ordinary function return typing,
+one. The operating system may truncate that status; small nonnegative values are
+portable.
+
+An `Err` returned by `main` is reported once by the native wrapper, identically
+for a compiled executable and for `plenty FILE`. The wrapper flushes standard
+output, writes one line to standard error, drops the error payload exactly once
+with its ordinary destructor, and returns status one. The line is
+`error: main returned ` followed by the payload as `str.repr` renders it. The
+standard errors whose rendering does not explain the failure get a description
+after a colon: `IoError.System(code)` gets the operating system's text for the
+code, each payload-free `IoError` variant gets a fixed sentence, and `Failure`
+gets a statement that it keeps no details of the original error. Nothing is
+printed at an intermediate `?`.
+
+Reporting is best effort and cannot change the outcome. If the line cannot be
+allocated, or the error type has no rendering (it contains a generator or
+recursive data), the wrapper writes the fixed line `error: main returned Err`,
+which needs no allocation. A failed write to standard error, including a closed
+descriptor or a pipe without a reader, is ignored. In every case the payload is
+still dropped and the status is still one. `main` follows ordinary function return typing,
 borrow checking, and deterministic cleanup, including early/nonzero returns.
 It cannot be a generator. Other functions, including forward declarations, are
 ordinary callable functions and have no startup effects just by being declared.

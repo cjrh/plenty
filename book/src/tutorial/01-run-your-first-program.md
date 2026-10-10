@@ -50,9 +50,13 @@ marker. Use a specific type such as `IoError` when the caller needs those detail
 
 Execution starts by calling `main` once. Every binary application must declare
 `main` with no parameters. It can return `()`, `i32`, `Result[(), E]`, or
-`Result[i32, E]`. An `Err` produces exit status one after dropping its payload;
-`Ok(())` produces zero and `Ok(status)` uses that status. Errors are not printed
-automatically. Returning a Result lets `main` use `?` too. The `()` form
+`Result[i32, E]`. `Ok(())` produces exit status zero and `Ok(status)` uses that
+status. An `Err` is reported on standard error, then dropped, and the program
+exits with status one. For example, a `main` that returns the error from reading
+a missing file prints
+`error: main returned IoError.System(2): No such file or directory`.
+The error is printed once, when `main` returns it, not at each `?` on the way.
+Returning a Result lets `main` use `?` too. The `()` form
 finishes successfully with exit status zero. The `i32` form returns a process
 exit status: zero means success, and nonzero means failure. Use an `i32` literal
 such as `0i32` or `1i32`; return annotations also guide unsuffixed literals.

@@ -1,6 +1,10 @@
 //! Intrinsic methods for the opaque, affine file owner.
 use super::*;
 
+// One list of modes serves this check and the runtime's `open`.
+#[path = "../../plenty-runtime/src/open_modes.rs"]
+mod open_modes;
+
 impl Lower<'_> {
     pub(super) fn open_file(
         &mut self,
@@ -10,6 +14,14 @@ impl Lower<'_> {
     ) -> Result<Type> {
         if !(1..=2).contains(&args.len()) {
             return Err(at.error("open takes a path and optional mode string"));
+        }
+        if let Some(Expression::Text(mode)) = args.get(1).map(|mode| &ungroup(mode).kind) {
+            if open_modes::OpenMode::parse(mode).is_none() {
+                return Err(args[1].at.error(format!(
+                    "unknown open mode `{mode}`; use one of {}",
+                    open_modes::NAMES
+                )));
+            }
         }
         let mut loans = Vec::new();
         for arg in args {

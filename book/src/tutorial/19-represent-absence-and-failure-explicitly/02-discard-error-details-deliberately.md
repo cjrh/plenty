@@ -26,7 +26,12 @@ Result[list[u8], Failure].Err(Failure.Unspecified)
 original error and propagates this marker, with normal scope cleanup. The
 conversion and marker do not allocate; custom cleanup can still perform its
 own operations. This works in helpers as well as `main`. A `main` that returns
-`Err` exits with status one and does not automatically print the error.
+`Err` exits with status one after reporting the error on standard error. For
+`Failure` that report can only say that the details were discarded:
+
+```text
+error: main returned Failure.Unspecified: Failure keeps no details of the original error
+```
 
 This choice discards details, so use a concrete error type when a caller needs
 to inspect or report the cause. It only changes `?`: returning an existing

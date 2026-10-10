@@ -2,10 +2,23 @@
 
 `write_stdout(text) -> Result[i64, IoError]` borrows UTF-8 text, writes it without
 adding a newline, and returns its Unicode-scalar count. `IoError.System(i32)`
-preserves a native OS error code (zero means a failure without an OS code).
-`IoError.Data(DataError.InvalidUtf8)` reports invalid encoding, and
+preserves a native OS error code and is produced only when the operating system
+supplied one. `IoError.Data(DataError.InvalidUtf8)` reports invalid encoding, and
 `IoError.Data(DataError.Allocation(AllocError))` reports recoverable allocation
-failure. These error values and their Result wrappers all have inline layouts.
+failure. Failures detected without an OS code are payload-free variants:
+
+| Variant | Meaning |
+|---|---|
+| `InvalidMode` | The mode passed to `open` is not one of its modes |
+| `Closed` | The file was already closed |
+| `NotReadable` | The file was not opened for reading |
+| `NotWritable` | The file was not opened for writing |
+| `InvalidInput` | An argument is outside the accepted range, such as a path containing NUL or a negative size |
+| `Unsupported` | The host does not support the operation |
+| `Other` | Another failure for which the operating system supplied no code |
+
+These error values and their Result wrappers all have inline layouts, and
+constructing one allocates nothing.
 Writes may have visible partial effects before returning an error. Successful
 writes may still be buffered; neither writing nor ordinary flushing implies
 durable disk storage. `print` also returns `Result[(), IoError]`.

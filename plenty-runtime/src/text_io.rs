@@ -1,4 +1,5 @@
 //! Fallible text I/O. No infallible growing buffers or allocated diagnostics.
+pub(crate) use crate::open_modes::OpenMode;
 use crate::{aggregates::wrap, memory::AllocError, strings};
 use std::io::{Read, Seek, Write};
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
@@ -27,11 +28,31 @@ pub(crate) unsafe fn arguments(ty: &'static crate::aggregates::Type) -> Result<u
     }
 }
 
+/// Failures the runtime detects itself, so no OS error code exists for them.
+/// Each discriminant is the tag of the `IoError` variant with the same name,
+/// as declared by the compiler's `sum::io_error`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Kind {
+    InvalidMode = 2,
+    Closed = 3,
+    NotReadable = 4,
+    NotWritable = 5,
+    InvalidInput = 6,
+    Unsupported = 7,
+    Other = 8,
+}
+
 #[derive(Debug)]
 pub(crate) enum Error {
     System(std::io::Error),
+    Kind(Kind),
     Allocation(AllocError),
     InvalidUtf8,
+}
+impl From<Kind> for Error {
+    fn from(kind: Kind) -> Self {
+        Self::Kind(kind)
+    }
 }
 impl From<AllocError> for Error {
     fn from(error: AllocError) -> Self {
@@ -48,10 +69,12 @@ pub(crate) fn result(value: Result<u128, Error>) -> u128 {
     match value {
         Ok(value) => wrap(value, 0),
         Err(error) => {
+            use crate::io::io_error;
             let error = match error {
                 Error::System(error) => crate::io::system_error(error),
-                Error::InvalidUtf8 => wrap(wrap(0, 0), 1),
-                Error::Allocation(error) => wrap(wrap(wrap(0, error as u64), 1), 1),
+                Error::Kind(kind) => io_error(0, kind as u64),
+                Error::InvalidUtf8 => io_error(wrap(0, 0), 1),
+                Error::Allocation(error) => io_error(wrap(wrap(0, error as u64), 1), 1),
             };
             wrap(error, 1)
         }
@@ -67,20 +90,9 @@ fn push(bytes: &mut Vec<u8>, byte: u8) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) enum OpenMode {
-    Read,
-    Replace,
-    Append,
-    CreateNew,
-    ReadWrite,
-    ReplaceRead,
-    AppendRead,
-    CreateNewRead,
-}
-
 pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Error> {
     if path.as_bytes().contains(&0) {
-        return Err(std::io::ErrorKind::InvalidInput.into());
+        return Err(Kind::InvalidInput.into());
     }
     #[cfg(target_os = "linux")]
     {
@@ -125,13 +137,7 @@ pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Err
     #[cfg(not(target_os = "linux"))]
     {
         let _ = mode;
-        Err(std::io::ErrorKind::Unsupported.into())
-    }
-}
-
-impl From<std::io::ErrorKind> for Error {
-    fn from(kind: std::io::ErrorKind) -> Self {
-        Self::System(kind.into())
+        Err(Kind::Unsupported.into())
     }
 }
 

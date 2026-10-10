@@ -74,6 +74,11 @@ impl Lowerer<'_, '_> {
             | CollectionOp::FormatScalar(ty)
             | CollectionOp::FormatValue(ty)
             | CollectionOp::TryPrint(ty) => Some(ty),
+            // The types `print` rejects have no rendering; without metadata
+            // the runtime writes its fixed message.
+            CollectionOp::ReportEntryError(ty) => {
+                (!ty.prints_generator_frame() && !ty.recursive_data()).then_some(ty)
+            }
             CollectionOp::Next(_) => Some(&output),
             CollectionOp::Range(_) => Some(&output),
             CollectionOp::Len(t)

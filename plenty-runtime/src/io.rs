@@ -1,8 +1,28 @@
 use crate::strings::{self, Text};
 use std::io::Write;
 
+/// `IoError` has nine variants, so its tag is wider than the one bit `wrap`
+/// writes. Must match the variant count in the compiler's `sum::io_error`.
+const IO_ERROR_TAG_BITS: u32 = 4;
+
+pub(crate) fn io_error(payload: u128, tag: u64) -> u128 {
+    (payload & u64::MAX as u128) | ((((payload >> 64) << IO_ERROR_TAG_BITS) | tag as u128) << 64)
+}
+
 pub(crate) fn system_error(error: std::io::Error) -> u128 {
-    crate::aggregates::wrap(error.raw_os_error().unwrap_or(0) as u32 as u128, 0)
+    use crate::text_io::Kind;
+    match error.raw_os_error() {
+        Some(code) => io_error(code as u32 as u128, 0),
+        // std reports a few conditions, such as a short write, without a code.
+        None => {
+            let kind = match error.kind() {
+                std::io::ErrorKind::InvalidInput => Kind::InvalidInput,
+                std::io::ErrorKind::Unsupported => Kind::Unsupported,
+                _ => Kind::Other,
+            };
+            io_error(0, kind as u64)
+        }
+    }
 }
 
 pub(crate) fn io_result(result: std::io::Result<u128>) -> u128 {
@@ -152,4 +172,29 @@ pub(crate) extern "C" fn plenty_trap_overflow() -> ! {
 #[no_mangle]
 pub(crate) extern "C" fn plenty_trap_div_zero() -> ! {
     crate::fail("division by zero")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::ErrorKind;
+
+    #[test]
+    fn os_codes_are_kept_and_codeless_errors_keep_their_kind() {
+        let tag = |error: u128| (error >> 64) & ((1 << IO_ERROR_TAG_BITS) - 1);
+        let coded = system_error(std::io::Error::from_raw_os_error(2));
+        assert_eq!((tag(coded), coded as u64), (0, 2));
+        for (kind, expected) in [
+            (ErrorKind::InvalidInput, 6),
+            (ErrorKind::Unsupported, 7),
+            (ErrorKind::WriteZero, 8),
+            (ErrorKind::UnexpectedEof, 8),
+        ] {
+            let error = system_error(kind.into());
+            assert_eq!((tag(error), error as u64), (expected, 0), "{kind:?}");
+        }
+        // The nested `DataError` tags sit above the `IoError` tag.
+        let data = io_error(crate::aggregates::wrap(0, 1), 1);
+        assert_eq!((tag(data), data >> (64 + IO_ERROR_TAG_BITS)), (1, 1));
+    }
 }
