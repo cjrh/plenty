@@ -31,6 +31,6 @@ also cleans up the removed value, including any custom `__del__` method.
 
 The operation preserves the order of remaining entries and reuses existing
 storage without allocating. Reinserting a removed key puts it at the end.
-Removal currently shifts entries and rebuilds the hash index, so its cost grows
-with the dictionary's size and reserved capacity. It accepts exactly one key;
+Removal has expected constant cost for well-distributed keys, apart from hashing
+and cleanup; heavy hash collisions can still slow it down. It accepts exactly one key;
 there is no default argument. Sets use `discard`, described below.

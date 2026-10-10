@@ -215,3 +215,125 @@ fn invalid_clear(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[test]
+fn sparse_dictionary_traversal_snapshots_copy_and_update_preserve_order() {
+    native(r#"
+mut data = {"a": 1, "b": 2, "c": 3, "d": 4}.unwrap()
+drop(data.pop("a"))
+drop(data.pop("c"))
+data.insert("b", 20).unwrap()
+data.insert("a", 10).unwrap()
+print(data).unwrap()
+print(data.keys().unwrap()).unwrap()
+print(data.values().unwrap()).unwrap()
+print(copy(data).unwrap() == data).unwrap()
+print([k for k in &data].unwrap()).unwrap()
+for key, value in data.items():
+    print(key).unwrap()
+    print(value).unwrap()
+mut total = 0
+for key in &data:
+    for inner in &data:
+        if inner == "d":
+            continue
+        total = total + data[key]
+print(total).unwrap()
+mut source = {"a": 100, "discard": 0, "z": 26}.unwrap()
+drop(source.pop("discard"))
+data.update(source).unwrap()
+print(data).unwrap()
+data.clear()
+print(len(data)).unwrap()
+data.insert("fresh", 7).unwrap()
+print(data).unwrap()
+"#, "{\"b\": 20, \"d\": 4, \"a\": 10}\n[\"b\", \"d\", \"a\"]\n[20, 4, 10]\nTrue\n[\"b\", \"d\", \"a\"]\nb\n20\nd\n4\na\n10\n68\n{\"b\": 20, \"d\": 4, \"a\": 100, \"z\": 26}\n0\n{\"fresh\": 7}");
+}
+
+#[test]
+fn sparse_sets_support_iteration_bulk_operations_and_equality() {
+    native(
+        r#"
+mut values = {0, 1, 2, 3, 4, 5}.unwrap()
+values.discard(0)
+values.discard(2)
+values.discard(4)
+values.add(0).unwrap()
+mut total = 0
+for value in &values:
+    total = total + value
+print(total).unwrap()
+print(values == {0, 1, 3, 5}.unwrap()).unwrap()
+print(copy(values).unwrap() == values).unwrap()
+values.intersection_update({0, 1, 5}.unwrap())
+print(values == {0, 1, 5}.unwrap()).unwrap()
+values.difference_update({1}.unwrap())
+values.update({7, 0}.unwrap()).unwrap()
+print(values == {0, 5, 7}.unwrap()).unwrap()
+print(len(values.union({7, 8}.unwrap()).unwrap())).unwrap()
+values.clear()
+print(len(values)).unwrap()
+values.add(0).unwrap()
+print(0 in values).unwrap()
+"#,
+        "9\nTrue\nTrue\nTrue\nTrue\n4\n0\nTrue",
+    );
+}
+
+#[test]
+fn sparse_inline_values_survive_slot_reuse_growth_and_owned_snapshots() {
+    native(
+        r#"
+class Guard:
+    id: i64
+    data: range[i64]
+    def __del__(self) -> ():
+        print(self.id).unwrap()
+def take(data: dict[i64, Guard]) -> dict[i64, Guard]:
+    data
+mut data = {0: Guard(0, range(10, 13)), 1: Guard(1, range(20, 24)), 2: Guard(2, range(30, 35))}.unwrap()
+saved = data.pop(1).unwrap()
+data.insert(3, Guard(3, range(40, 46))).unwrap()
+data.reserve(100).unwrap()
+print(len(saved.data)).unwrap()
+print(len(data[3].data)).unwrap()
+drop(saved)
+drop(data.pop(0))
+data.reserve(300).unwrap()
+print("snapshot").unwrap()
+items = take(data).values().unwrap()
+drop(items)
+print("clear").unwrap()
+mut other = {4: Guard(4, range(4)), 5: Guard(5, range(5))}.unwrap()
+drop(other.pop(4))
+other.clear()
+print("done").unwrap()
+"#,
+        "4\n6\n1\n0\nsnapshot\n2\n3\nclear\n4\n5\ndone",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn hash_removal_and_reinsertion_allocate_nothing_and_keep_string_owners() {
+    native(
+        r#"
+mut data = {"a": range(10, 13), "b": range(20, 24), "c": range(30, 35)}.unwrap()
+mut names = {"a", "b", "c"}.unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+saved = data.pop("b").unwrap()
+names.discard("b")
+names.discard("missing")
+names.add("d").unwrap()
+data.insert("d", range(40, 46)).unwrap()
+data.insert("a", range(50, 57)).unwrap()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(len(saved)).unwrap()
+print(data.keys().unwrap()).unwrap()
+print("d" in names).unwrap()
+"#,
+        "4\n[\"a\", \"c\", \"d\"]\nTrue",
+    );
+}

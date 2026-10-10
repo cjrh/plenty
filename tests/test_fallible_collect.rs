@@ -62,7 +62,8 @@ print(str.repr(list[str].from({"a": 1, "b": 2}.unwrap())).unwrap()).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn set_conversion_recovers_from_entry_and_hash_table_growth_failure() {
-    for budget in 0..=6 {
+    // Header, bucket growth at 4/16 entries, and row/link growth at 4/8/16.
+    for budget in 0..=9 {
         native(
             &format!(
                 r#"
@@ -73,7 +74,7 @@ print("__test_restore_allocations__").unwrap()
 print(str.repr(result).unwrap()).unwrap()
 "#
             ),
-            if budget == 6 {
+            if budget == 9 {
                 "Result[set[i64], AllocError].Ok({0, 1, 2, 3, 4, 5, 6, 7, 8})"
             } else {
                 "Result[set[i64], AllocError].Err(AllocError.OutOfMemory)"

@@ -23,6 +23,27 @@ construction is amortized linear under ordinary hash distribution. Public update
 also mutate in place; repeated `append` no longer copies existing contents.
 Only explicit `copy` duplicates owned contents. Compiler-emitted type metadata caches
 whether a type owns mutable contents.
+
+Dictionary/set hash buckets refer to stable row slots. Two machine words per
+reserved slot (16 bytes on the native 64-bit target), in a separate fallibly
+allocated buffer, link live rows in insertion order; dead rows use those words
+as a free list. Occupancy never depends on key/value bits. Removal unlinks a row
+and repairs its linear-probe cluster with backward shifts, without allocating,
+moving payloads, or scanning the whole table. Newly inserted keys reuse free
+slots at the tail of the logical order; replacement keeps its position.
+No compaction threshold or periodic dead-slot scan is needed. Capacity follows
+peak live occupancy and explicit reservation, and is retained until destruction.
+
+Native hash iteration carries a private slot cursor, so traversals, snapshots,
+copying, formatting, and destruction visit only live rows in order, even after
+heavy deletion. Lists remain dense, with constant-time indexing. Reservation
+obtains bucket, link, and row capacity before publishing any new indices or
+transferring owners. On failure, contents and order remain unchanged, though
+capacity may have grown. Row relocation repairs live inline payload addresses;
+dead rows never participate in relocation or cleanup. A popped inline payload
+remains readable until the next mutation or receiver release; codegen snapshots
+it before either occurs.
+
 Class instances, tuples, and enum values are stored inline in the buffer's rows,
 so a `list[Point]` keeps its points contiguous and building it allocates only for
 buffer growth. Inserting an affine element moves it into the buffer.

@@ -29,8 +29,9 @@ True
 The argument is observed, so `name` remains usable. Missing values are harmless,
 and discarding a stored zero, `False`, or empty string still returns `True`.
 Removal allocates nothing and preserves capacity for reuse. Like dictionary
-removal, it currently rebuilds the hash index after a hit; its cost grows with
-the set's size and reserved capacity. Sets still promise no iteration order.
+removal, it has expected constant cost for well-distributed keys, apart from
+hashing and cleanup; heavy hash collisions can still slow it down.
+Sets still promise no iteration order.
 Use an exclusive reference when removing members through a function parameter.
 
 Collection equality compares contents; dictionary and set order do not matter.

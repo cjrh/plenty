@@ -169,6 +169,51 @@ fn inline_range_sum_slots_copy_and_relocate_only_the_active_payload() {
 }
 
 #[test]
+fn ordered_inline_rows_skip_dead_slots_during_relocation_and_drain() {
+    use crate::entries::{Entries, Entry};
+    use crate::ranges::Range;
+    let mut rows = Entries::ordered(&INTEGER, Some(&UNSIGNED_RANGE));
+    rows.try_reserve(4).unwrap();
+    // SAFETY: sources are copied into reserved inline rows; extracted payloads
+    // are read before mutation, and iterators keep the backing buffers alive.
+    unsafe {
+        for key in 0..4 {
+            let range = Range::new(key as u64, 10, 1, false);
+            rows.push(Entry {
+                key,
+                value: &range as *const Range as u128,
+            });
+        }
+        let removed = rows.remove(1);
+        assert_eq!((*(removed.value as *const Range)).start, 1);
+        rows.remove(0);
+        rows.try_reserve(1000).unwrap();
+        let range = Range::new(20, 30, 1, false);
+        rows.push(Entry {
+            key: 20,
+            value: &range as *const Range as u128,
+        });
+        assert_eq!(rows.iter().map(|e| e.key).collect::<Vec<_>>(), [2, 3, 20]);
+        assert_eq!(
+            rows.iter().rev().map(|e| e.key).collect::<Vec<_>>(),
+            [20, 3, 2]
+        );
+        let capacity = rows.capacity();
+        for entry in rows.drain() {
+            assert_eq!((*(entry.value as *const Range)).start, entry.key as u64);
+        }
+        assert_eq!(rows.len(), 0);
+        assert_eq!(rows.capacity(), capacity);
+        rows.push(Entry {
+            key: 20,
+            value: &range as *const Range as u128,
+        });
+        assert_eq!(rows.first(), Some(0));
+        assert_eq!(rows.next(0), None);
+    }
+}
+
+#[test]
 fn inline_range_dictionary_removal_and_record_copy_keep_valid_payloads() {
     use crate::aggregates::payload;
     use crate::ranges::{self, Range};
@@ -658,7 +703,7 @@ fn set_algebra_cleans_partial_storage_and_retains_result_members() {
         }
     }
     for (op, length) in [(65, 3), (66, 1), (67, 1), (68, 2)] {
-        for budget in 0..=3 {
+        for budget in 0..=4 {
             unsafe {
                 let a = collection(0, 0, 0, 0, &SET);
                 let b = collection(0, 0, 0, 0, &SET);
@@ -679,7 +724,7 @@ fn set_algebra_cleans_partial_storage_and_retains_result_members() {
                 assert_eq!(collection(5, b, 0, 0, ptr::null()), 2);
                 plenty_release(a as *mut Header);
                 plenty_release(b as *mut Header);
-                if budget < 3 {
+                if budget < 4 {
                     assert_eq!(result, 1u128 << 64);
                 } else {
                     let result = crate::aggregates::payload(result);
@@ -836,7 +881,7 @@ fn set_update_preserves_string_owners_across_duplicate_and_failure_paths() {
             crate::accounting::fail_after(None);
         }
     }
-    for budget in 0..=2 {
+    for budget in 0..=3 {
         unsafe {
             let target = collection(0, 0, 0, 0, &SET_TEXT);
             let stored = strings::new(b"key0");
@@ -855,14 +900,14 @@ fn set_update_preserves_string_owners_across_duplicate_and_failure_paths() {
                 crate::accounting::fail_after(Some(budget));
                 collection(61, target, source, 0, ptr::null())
             };
-            assert_eq!(result, if budget < 2 { 1u128 << 64 } else { 0 });
+            assert_eq!(result, if budget < 3 { 1u128 << 64 } else { 0 });
             assert_eq!(
                 collection(5, target, 0, 0, ptr::null()),
-                if budget < 2 { 1 } else { 10 }
+                if budget < 3 { 1 } else { 10 }
             );
             assert_eq!(
                 collection(5, source, 0, 0, ptr::null()),
-                if budget < 2 { 10 } else { 0 }
+                if budget < 3 { 10 } else { 0 }
             );
             assert_eq!(collection(7, query as u128, target, 0, ptr::null()), 1);
             plenty_release(source as *mut Header);
@@ -882,7 +927,7 @@ fn dictionary_update_reserves_all_storage_before_transferring_owned_values() {
             crate::accounting::fail_after(None);
         }
     }
-    for budget in 0..=2 {
+    for budget in 0..=3 {
         unsafe {
             let target = collection(0, 0, 0, 0, &DICT);
             let old = collection(0, 0, 0, 0, &LIST_INT);
@@ -899,21 +944,21 @@ fn dictionary_update_reserves_all_storage_before_transferring_owned_values() {
                 crate::accounting::fail_after(Some(budget));
                 collection(60, target, source, 0, ptr::null())
             };
-            assert_eq!(result, if budget < 2 { 1u128 << 64 } else { 0 });
+            assert_eq!(result, if budget < 3 { 1u128 << 64 } else { 0 });
             assert_eq!(
                 collection(5, target, 0, 0, ptr::null()),
-                if budget < 2 { 1 } else { 10 }
+                if budget < 3 { 1 } else { 10 }
             );
             assert_eq!(
                 collection(5, source, 0, 0, ptr::null()),
-                if budget < 2 { 10 } else { 0 }
+                if budget < 3 { 10 } else { 0 }
             );
             plenty_release(source as *mut Header);
-            for n in 0..if budget < 2 { 1 } else { 10 } {
+            for n in 0..if budget < 3 { 1 } else { 10 } {
                 let child = collection(4, target, n, 0, ptr::null());
                 assert_eq!(
                     collection(4, child, 0, 0, ptr::null()),
-                    if budget < 2 { 99 } else { n }
+                    if budget < 3 { 99 } else { n }
                 );
                 plenty_release(child as *mut Header);
             }
@@ -1625,7 +1670,7 @@ fn partial_constructor_buffers_are_freed_on_each_allocation_failure() {
             crate::accounting::fail_after(None);
         }
     }
-    for (ty, allocations) in [(&LIST_INT, 2), (&MAP, 3)] {
+    for (ty, allocations) in [(&LIST_INT, 2), (&MAP, 4)] {
         for budget in 0..=allocations {
             unsafe {
                 let result = {
@@ -1694,7 +1739,7 @@ fn actual_allocator_failures_preserve_empty_and_populated_hash_tables() {
         }
     }
     for len in [0, 8] {
-        for budget in 0..=2 {
+        for budget in 0..=3 {
             unsafe {
                 let c = collection(0, 0, 0, 0, &MAP);
                 for n in 0..len {
@@ -1705,10 +1750,10 @@ fn actual_allocator_failures_preserve_empty_and_populated_hash_tables() {
                     crate::accounting::fail_after(Some(budget));
                     collection(29, c, 42, 42, ptr::null())
                 };
-                assert_eq!(result, if budget == 2 { 0 } else { 1u128 << 64 });
+                assert_eq!(result, if budget == 3 { 0 } else { 1u128 << 64 });
                 assert_eq!(
                     collection(5, c, 0, 0, ptr::null()),
-                    len + u128::from(budget == 2)
+                    len + u128::from(budget == 3)
                 );
                 for n in 0..len {
                     assert_eq!(collection(4, c, n, 0, ptr::null()), n);

@@ -8,6 +8,8 @@ use std::io::Write;
 
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
+#[cfg(test)]
+mod removal_tests;
 
 #[repr(C)]
 pub(crate) struct Variant {
@@ -293,7 +295,11 @@ fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collect
     let mut collection = Collection {
         header: Header::new(collection_destroy),
         ty,
-        entries: Entries::new(ty.key(), ty.value),
+        entries: if ty.kind == b'L' {
+            Entries::new(ty.key(), ty.value)
+        } else {
+            Entries::ordered(ty.key(), ty.value)
+        },
         table: Vec::new(),
     };
     // Validate and reserve before publishing an owner. Until the header is
@@ -427,7 +433,7 @@ impl Collection {
             unsafe { self.table[self.bucket(key)].checked_sub(1) }
         }
     }
-    /// Reserve both buffers before publishing a new hash index. On error,
+    /// Reserve all buffers before publishing a new hash index. On error,
     /// logical contents and the old index remain intact; capacity may change.
     unsafe fn try_reserve(&mut self, additional: usize) -> Result<(), AllocError> {
         let needed = self
@@ -456,7 +462,8 @@ impl Collection {
         if table_size != 0 {
             // Hashing legal keys (integers, bool, str) never allocates or calls
             // user code. Build from hashes alone: all existing keys are unique.
-            for (i, entry) in self.entries.iter().enumerate() {
+            for i in self.entries.indices() {
+                let entry = self.entries.get(i);
                 let mut bucket =
                     unsafe { hash(entry.key, self.ty().key()) } as usize & (table_size - 1);
                 while table[bucket] != 0 {
@@ -487,7 +494,7 @@ impl Collection {
     }
 
     /// Count missing keys before reserving. No logical update or payload cleanup
-    /// occurs until both entry and bucket capacity are available.
+    /// occurs until entry, order, and bucket capacity are available.
     unsafe fn try_update(&mut self, source: &mut Collection) -> Result<(), AllocError> {
         unsafe {
             let additional = source
@@ -509,7 +516,7 @@ impl Collection {
                     release(entry.key, ty.key());
                 } else {
                     let bucket = self.bucket(entry.key);
-                    self.table[bucket] = self.entries.len() + 1;
+                    self.table[bucket] = self.entries.vacant() + 1;
                     self.entries.push(entry);
                 }
             }
@@ -572,27 +579,37 @@ impl Collection {
             self.try_reserve(additional)?;
             if self.ty().kind != b'L' {
                 let bucket = self.bucket(key);
-                self.table[bucket] = self.entries.len() + 1;
+                self.table[bucket] = self.entries.vacant() + 1;
             }
             self.entries.push(Entry { key, value });
             Ok(())
         }
     }
-    /// Preserve insertion order and rebuild bucket indices in existing storage.
+    /// Unlink the stable entry slot and repair only its linear-probe cluster.
     /// Dictionary payload owners are transferred, never retained or released.
     /// Sets have a zero payload; Some(0) still distinguishes removal from a miss.
     unsafe fn remove(&mut self, key: u128) -> Option<u128> {
         unsafe {
-            let index = self.find(key)?;
-            let entry = self.entries.remove(index);
-            self.table.fill(0);
-            for (i, entry) in self.entries.iter().enumerate() {
-                let mut bucket = hash(entry.key, self.ty().key()) as usize & (self.table.len() - 1);
-                while self.table[bucket] != 0 {
-                    bucket = (bucket + 1) & (self.table.len() - 1);
-                }
-                self.table[bucket] = i + 1;
+            if self.table.is_empty() {
+                return None;
             }
+            let mut hole = self.bucket(key);
+            let index = self.table[hole].checked_sub(1)?;
+            let entry = self.entries.remove(index);
+            let mask = self.table.len() - 1;
+            let mut probe = (hole + 1) & mask;
+            while self.table[probe] != 0 {
+                let slot = self.table[probe] - 1;
+                let home = hash(self.entries.get(slot).key, self.ty().key()) as usize & mask;
+                // Move only references whose circular probe path crosses the
+                // hole. An empty bucket terminates even across wraparound.
+                if (hole.wrapping_sub(home) & mask) < (probe.wrapping_sub(home) & mask) {
+                    self.table[hole] = self.table[probe];
+                    hole = probe;
+                }
+                probe = (probe + 1) & mask;
+            }
+            self.table[hole] = 0;
             release(entry.key, self.ty().key());
             Some(entry.value)
         }
@@ -600,7 +617,12 @@ impl Collection {
 
     unsafe fn at(&self, index: usize) -> u128 {
         unsafe {
-            let value = self.entries.get(index).key;
+            let slot = if self.ty().kind == b'L' {
+                index
+            } else {
+                self.entries.indices().nth(index).expect("entry index")
+            };
+            let value = self.entries.get(slot).key;
             retain(value, self.ty().key());
             value
         }
@@ -839,7 +861,9 @@ unsafe fn try_dictionary_snapshot(
     unsafe {
         let result = try_collection_new(ty, source.entries.len())?;
         let element = ty.key();
-        for index in 0..source.entries.len() {
+        let mut cursor = source.entries.first();
+        while let Some(index) = cursor {
+            cursor = source.entries.next(index);
             let entry = source.entries.get(index);
             let value = if values && element.affine {
                 source.entries.set(index, true, 0);
@@ -1385,7 +1409,8 @@ pub(crate) unsafe fn collection(
                     }
                 });
                 target.table.fill(0);
-                for (index, entry) in target.entries.iter().enumerate() {
+                for index in target.entries.indices() {
+                    let entry = target.entries.get(index);
                     let bucket = target.bucket(entry.key);
                     target.table[bucket] = index + 1;
                 }
@@ -1656,6 +1681,20 @@ pub(crate) unsafe fn collection(
                     }
                     None => wrap(0, 0),
                 }
+            }
+            122 => (*(a as *const Collection))
+                .entries
+                .first()
+                .map_or(0, |i| i as u128 + 1),
+            123 => (*(a as *const Collection))
+                .entries
+                .next(b as usize - 1)
+                .map_or(0, |i| i as u128 + 1),
+            124 => {
+                let c = &*(a as *const Collection);
+                let key = c.entries.get(b as usize - 1).key;
+                retain(key, c.ty().key());
+                key
             }
             4 | 6 => {
                 let c = &*(a as *const Collection);

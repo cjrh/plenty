@@ -187,7 +187,7 @@ print(source).unwrap()
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn dictionary_update_reserves_both_buffers_before_replacing_any_owner() {
+fn dictionary_update_reserves_all_buffers_before_replacing_any_owner() {
     let entries = (1..=10)
         .map(|n| format!("{n}: Guard({})", 100 + n))
         .collect::<Vec<_>>()
@@ -196,7 +196,7 @@ fn dictionary_update_reserves_both_buffers_before_replacing_any_owner() {
         .map(|n| n.to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    for budget in 0..=2 {
+    for budget in 0..=3 {
         native(
             &format!(
                 r#"
@@ -216,7 +216,7 @@ print("drop destination").unwrap()
 drop(data)
 "#
             ),
-            &if budget < 2 {
+            &if budget < 3 {
                 format!("{incoming_drops}\nResult[(), AllocError].Err(AllocError.OutOfMemory)\n1\ndrop destination\n1")
             } else {
                 format!("1\nResult[(), AllocError].Ok(())\n10\ndrop destination\n{incoming_drops}")
@@ -345,7 +345,7 @@ print("Bea" in source).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn set_update_failure_preserves_contents_and_the_hash_index() {
-    for budget in 0..=2 {
+    for budget in 0..=3 {
         native(
             &format!(
                 r#"
@@ -362,7 +362,7 @@ data.add(42).unwrap()
 print(42 in data).unwrap()
 "#
             ),
-            if budget < 2 {
+            if budget < 3 {
                 "Result[(), AllocError].Err(AllocError.OutOfMemory)\n1\nTrue\nFalse\nTrue"
             } else {
                 "Result[(), AllocError].Ok(())\n11\nTrue\nTrue\nTrue"

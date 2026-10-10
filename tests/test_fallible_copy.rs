@@ -95,8 +95,8 @@ match duplicate(&source):
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_dictionary_value_copy_releases_the_pending_key_and_prior_entries() {
-    // Dictionary buffers and header (3), then each value's buffer/header (2).
-    for budget in 0..=7 {
+    // Dictionary buffers and header (4), then each value's buffer/header (2).
+    for budget in 0..=8 {
         native(
             &format!(
                 r#"
@@ -114,7 +114,7 @@ print(source).unwrap()
             ),
             &format!(
                 "{}\n{{\"first\": [1], \"second\": [2]}}",
-                if budget == 7 {
+                if budget == 8 {
                     "True"
                 } else {
                     "AllocError.OutOfMemory"

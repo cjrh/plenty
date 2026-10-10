@@ -111,10 +111,10 @@ fn failure_at_each_literal_allocation_is_recoverable() {
             4,
             "Result[list[i64], AllocError].Ok([1, 2, 3, 4, 5, 6, 7, 8, 9])",
         ),
-        ("{1, 2}", 3, "Result[set[i64], AllocError].Ok({1, 2})"),
+        ("{1, 2}", 4, "Result[set[i64], AllocError].Ok({1, 2})"),
         (
             "{1: 2, 3: 4}",
-            3,
+            4,
             "Result[dict[i64, i64], AllocError].Ok({1: 2, 3: 4})",
         ),
     ] {

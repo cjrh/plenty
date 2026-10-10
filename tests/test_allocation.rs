@@ -73,12 +73,12 @@ match error:
 #[cfg(feature = "runtime-checks")]
 #[rstest]
 #[case("list", "[n for n in range(8)].unwrap()", "values.append(99)", 1)]
-#[case("set", "{n for n in range(8)}.unwrap()", "values.add(99)", 2)]
+#[case("set", "{n for n in range(8)}.unwrap()", "values.add(99)", 3)]
 #[case(
     "dict",
     "{n: n for n in range(8)}.unwrap()",
     "values.insert(99, 99)",
-    2
+    3
 )]
 fn every_growth_allocation_can_fail_and_then_be_retried(
     #[case] kind: &str,
@@ -116,8 +116,8 @@ print(len(values)).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[rstest]
 #[case("[n for n in range(8)].unwrap()", 1)]
-#[case("{n for n in range(8)}.unwrap()", 2)]
-#[case("{n: n for n in range(8)}.unwrap()", 2)]
+#[case("{n for n in range(8)}.unwrap()", 3)]
+#[case("{n: n for n in range(8)}.unwrap()", 3)]
 fn reservation_failure_keeps_existing_contents(#[case] initial: &str, #[case] allocations: usize) {
     for budget in 0..=allocations {
         native(

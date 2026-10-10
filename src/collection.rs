@@ -67,6 +67,10 @@ pub enum CollectionOp {
     Clear(Ty),       // exclusive list/dict/set -> retained internal alias
     Len(Ty),
     IterGet(Ty),
+    // Hash cursors are stable slot IDs plus one; zero terminates traversal.
+    HashIterFirst(Ty),
+    HashIterNext(Ty),
+    HashIterGet(Ty),
     IterTake(Ty),
     Contains(Ty),
     Range(Ty),
@@ -352,8 +356,11 @@ impl CollectionOp {
                 (vec![t.clone(), t.clone()], t.clone())
             }
             ListReverse(t) | Clear(t) => (vec![t.clone()], t.clone()),
-            Len(t) => (vec![t.clone()], Ty::I64),
-            IterGet(t) | IterTake(t) => (vec![t.clone(), Ty::I64], t.element().unwrap()),
+            Len(t) | HashIterFirst(t) => (vec![t.clone()], Ty::I64),
+            HashIterNext(t) => (vec![t.clone(), Ty::I64], Ty::I64),
+            IterGet(t) | IterTake(t) | HashIterGet(t) => {
+                (vec![t.clone(), Ty::I64], t.element().unwrap())
+            }
             Contains(t) => (
                 vec![
                     if *t == Ty::Str {
@@ -448,6 +455,9 @@ impl CollectionOp {
             Self::Clear(_) => 58,
             Self::Len(_) => 5,
             Self::IterGet(_) => 6,
+            Self::HashIterFirst(_) => 122,
+            Self::HashIterNext(_) => 123,
+            Self::HashIterGet(_) => 124,
             Self::IterTake(_) => 15,
             Self::Contains(_) => 7,
             Self::Range(_) => 10,

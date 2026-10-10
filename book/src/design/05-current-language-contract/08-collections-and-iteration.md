@@ -100,12 +100,14 @@ mutations. Key references are accepted, and an immutable key derived from the sa
 dictionary can be used. Active conflicting loans still prevent mutation. Temporary
 dictionary receivers and set `pop` are not supported; sets use `discard`.
 
-Removal itself does not allocate, and both buffers retain their capacity. Remaining
+Removal itself does not allocate, and all buffers retain their capacity. Remaining
 entries keep their insertion order; reinserting a removed key appends it at the end.
-The initial implementation shifts entries and rebuilds buckets in existing storage:
-successful removal scans the reserved table and rehashes the remaining keys,
-while a missing key uses the normal hash lookup. Key evaluation and subsequent user cleanup retain
-their own allocation policies. This is not a promise of constant-time removal.
+Stable entry slots are unlinked without moving surviving payloads. Backward-shift
+deletion repairs only the affected probe cluster; a missing key uses normal lookup.
+Expected removal cost is constant with well-distributed keys at the maintained
+load factor, plus key hashing/comparison and cleanup costs. Adversarial collisions
+can still make a removal linear. Key evaluation and subsequent user cleanup retain
+their own allocation policies.
 
 `items.pop()` removes a list's last element; `items.pop(index)` selects an `i64`
 index, including negative indices counted from the end. Both return `Option[T]`
@@ -131,9 +133,9 @@ receiver's exclusive loan and remains available afterward. Active conflicting
 loans prevent removal; temporary receivers are not supported. User-defined class
 methods named `discard` continue to use ordinary method dispatch.
 
-Set removal releases the stored member's owner, reuses both buffers, and allocates
-nothing. It shares dictionary hash-index rebuilding: a hit scans the reserved table
-and rehashes remaining keys; a miss uses normal lookup. Reinsertion can reuse the
+Set removal releases the stored member's owner, retains buffer capacities, and
+allocates nothing. It uses the same stable slots and probe-cluster repair as
+dictionary removal, with the same expected costs. Reinsertion reuses the
 vacated capacity. Set iteration order remains unspecified. The Boolean result
 distinguishes removal from absence, including for zero, `False`, and empty strings;
 there is no exception or allocation-error result. Argument construction retains its
@@ -237,7 +239,8 @@ types invokes no user code or allocation.
 and returns their unique members in an independent set. Inputs can be references
 or the same set. All output storage is reserved before retaining member owners;
 allocation failure leaves both inputs unchanged. Immutable strings may share
-storage. Nonempty results use three allocations (buckets, entries, owner header),
+storage. Nonempty results use four allocations (buckets, entry-order links, rows,
+owner header),
 empty results only the header. Iteration order is unspecified.
 
 `set.intersection(other)` has the same result and borrowing contract as

@@ -186,6 +186,7 @@ match set[u8]().unwrap().union(set[u8]().unwrap()):
 #[case(1)]
 #[case(2)]
 #[case(3)]
+#[case(4)]
 fn algebra_recovers_from_each_storage_failure(
     #[case] budget: usize,
     #[values(("union", 3), ("intersection", 1), ("difference", 1), ("symmetric_difference", 2))]
@@ -211,7 +212,7 @@ print("left" in a and "right" in b).unwrap()
     );
     native(
         &source,
-        &format!("{}\n2\n2\nTrue", if budget == 3 { length } else { -1 }),
+        &format!("{}\n2\n2\nTrue", if budget == 4 { length } else { -1 }),
     );
 }
 

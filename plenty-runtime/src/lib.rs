@@ -16,6 +16,7 @@ mod closures;
 mod control;
 mod deadline;
 mod entries;
+mod entry_order;
 mod executors;
 mod files;
 mod generators;

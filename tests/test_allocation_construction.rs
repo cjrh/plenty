@@ -46,8 +46,8 @@ print(str.repr(list[f32].new()).unwrap()).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[rstest]
 #[case("list[i64]", "values.append(n)", 2)]
-#[case("set[i64]", "values.add(n)", 3)]
-#[case("dict[i64, i64]", "values.insert(n, n)", 3)]
+#[case("set[i64]", "values.add(n)", 4)]
+#[case("dict[i64, i64]", "values.insert(n, n)", 4)]
 fn every_constructor_allocation_can_fail_without_leaking(
     #[case] ty: &str,
     #[case] insert: &str,

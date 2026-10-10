@@ -592,13 +592,14 @@ impl Lower<'_> {
         let value_slot = self.slot(value_ty.clone(), &base.at)?;
         ops.extend([
             Op::StoreLocal(source),
-            Op::PushInt(Value::I64(0)),
+            Op::LoadLocal(source),
+            Op::Collection(CollectionOp::HashIterFirst(ty.clone())),
             Op::StoreLocal(index),
         ]);
         let mut body = vec![
             Op::LoadLocal(source),
             Op::LoadLocal(index),
-            Op::Collection(CollectionOp::IterGet(ty.clone())),
+            Op::Collection(CollectionOp::HashIterGet(ty.clone())),
             Op::StoreLocal(key_slot),
         ];
         body.push(if by_ref {
@@ -634,16 +635,19 @@ impl Lower<'_> {
                 );
             }
         }
-        let mut step = Vec::new();
-        increment(index, &mut step);
+        let mut step = vec![
+            Op::LoadLocal(source),
+            Op::LoadLocal(index),
+            Op::Collection(CollectionOp::HashIterNext(ty)),
+            Op::StoreLocal(index),
+        ];
         step.push(Op::DropLocal(key_slot));
         step.push(Op::DropLocal(value_slot));
         Ok(Iteration {
             condition: vec![
                 Op::LoadLocal(index),
-                Op::LoadLocal(source),
-                Op::Collection(CollectionOp::Len(ty)),
-                Op::Lt,
+                Op::PushInt(Value::I64(0)),
+                Op::Ne,
                 Op::UseLoan(loan),
             ],
             body,
@@ -854,34 +858,56 @@ impl Lower<'_> {
             });
         }
         let index = self.slot(Ty::I64, at)?;
-        ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
+        let hashed = matches!(ty, Ty::Set(_) | Ty::Dict(..));
+        if hashed {
+            ops.extend([
+                Op::LoadLocal(source),
+                Op::Collection(CollectionOp::HashIterFirst(ty.clone())),
+                Op::StoreLocal(index),
+            ]);
+        } else {
+            ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
+        }
         let text = ty == Ty::Str;
-        let condition = vec![
-            Op::LoadLocal(index),
-            Op::LoadLocal(source),
-            Op::Collection(if text {
-                CollectionOp::TextByteLen
-            } else {
-                CollectionOp::Len(ty.clone())
-            }),
-            Op::Lt,
-        ];
+        let condition = if hashed {
+            vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne]
+        } else {
+            vec![
+                Op::LoadLocal(index),
+                Op::LoadLocal(source),
+                Op::Collection(if text {
+                    CollectionOp::TextByteLen
+                } else {
+                    CollectionOp::Len(ty.clone())
+                }),
+                Op::Lt,
+            ]
+        };
         let body = vec![
             Op::LoadLocal(source),
             Op::LoadLocal(index),
             Op::Collection(if text {
                 CollectionOp::TextAtByte
+            } else if hashed {
+                CollectionOp::HashIterGet(ty.clone())
             } else {
                 if element.affine() {
-                    CollectionOp::IterTake(ty)
+                    CollectionOp::IterTake(ty.clone())
                 } else {
-                    CollectionOp::IterGet(ty)
+                    CollectionOp::IterGet(ty.clone())
                 }
             }),
             Op::StoreLocal(target),
         ];
         let mut step = Vec::new();
-        if text {
+        if hashed {
+            step.extend([
+                Op::LoadLocal(source),
+                Op::LoadLocal(index),
+                Op::Collection(CollectionOp::HashIterNext(ty)),
+                Op::StoreLocal(index),
+            ]);
+        } else if text {
             step.extend([
                 Op::LoadLocal(source),
                 Op::LoadLocal(index),
