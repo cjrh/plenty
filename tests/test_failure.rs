@@ -134,7 +134,10 @@ def main() -> Result[(), Failure]:
     );
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(output.stdout, b"cleaned\n");
-    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "error: main returned Failure.Unspecified: Failure keeps no details of the original error\n"
+    );
     let output = support::run("def main() -> Result[i32, Failure]:\n    Ok(7)");
     assert_eq!(output.status.code(), Some(7));
 }

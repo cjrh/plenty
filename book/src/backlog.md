@@ -165,6 +165,9 @@ Record deliberate deferrals here rather than creating another work queue.
 
 Current cleanup slice: **issue #15**, reject implicitly discarded Results and
 direct Result arguments to `print`, with propagation advice and updated examples.
+Completed: **issue #16**, report an `Err` returned by `main` on standard
+error, and give `IoError` distinct variants for failures without an OS code.
+`Failure` still keeps no details; storing a cause in it belongs to B14.
 
 ## Work items
 

@@ -240,7 +240,7 @@ fn file_errors_do_not_abort() {
         Some(b"secret"),
     );
     assert!(out.status.success());
-    assert!(String::from_utf8_lossy(&out.stdout).contains("IoError.System(0)"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("IoError.InvalidInput"));
     assert!(support::check_source("read_text(1)").is_err());
 }
 

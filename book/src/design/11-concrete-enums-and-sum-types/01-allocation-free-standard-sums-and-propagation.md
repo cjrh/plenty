@@ -66,8 +66,10 @@ Erasure happens only at `?`: assignment, argument passing, direct returns, and
 `Err(Failure.Unspecified)`. Success remains explicit (`Ok(())` for unit success).
 An allocating literal can use the expected success type through `?`, but its
 own Result still carries `AllocError`. `main` keeps its existing exit-status
-rules: `Ok(())` is zero, `Ok(i32)` supplies the status, and `Err` is one without
-printing a diagnostic. Typed error unions and general conversions remain deferred.
+rules: `Ok(())` is zero, `Ok(i32)` supplies the status, and `Err` is one. The
+[entry report](../05-current-language-contract/09-bindings-and-mutation.md) for
+an erased error names `Failure.Unspecified` and states that it keeps no details;
+choose a concrete error type when the report should name the cause. Typed error unions and general conversions remain deferred.
 
 Propagation is an expression and can appear in calls, conditions, loops, and
 comprehensions. It binds with other postfix operations, so `values?[0]` indexes

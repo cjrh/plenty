@@ -24,6 +24,7 @@ mod io;
 mod libraries;
 mod memory;
 mod numbers;
+mod open_modes;
 mod ranges;
 mod render_buffer;
 mod strings;

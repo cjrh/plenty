@@ -360,6 +360,10 @@ pub fn c_str_error() -> Ty {
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 
+/// `System` carries the operating system's code. The payload-free variants
+/// are failures the runtime detects itself, for which no code exists. The
+/// runtime builds these values by tag: keep the order in step with its
+/// `text_io::Kind` and the count with `io::IO_ERROR_TAG_BITS`.
 pub fn io_error() -> Ty {
     let Ty::Enum(template) = result(Ty::I32, data_error()) else {
         unreachable!()
@@ -369,6 +373,21 @@ pub fn io_error() -> Ty {
     ty.name = "IoError".into();
     ty.variants[0].name = "System".into();
     ty.variants[1].name = "Data".into();
+    ty.variants.extend(
+        [
+            "InvalidMode",
+            "Closed",
+            "NotReadable",
+            "NotWritable",
+            "InvalidInput",
+            "Unsupported",
+            "Other",
+        ]
+        .map(|name| Variant {
+            name: name.into(),
+            fields: vec![],
+        }),
+    );
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 

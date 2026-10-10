@@ -35,6 +35,9 @@ pub enum CollectionOp {
     FormatScalar(Ty),
     FormatValue(Ty),
     TryPrint(Ty),
+    /// Reports the error `main` returned on stderr, consumes it, and yields
+    /// the process status.
+    ReportEntryError(Ty),
     ElementRef(Ty, bool),
     TryCopy(Ty),
     Next(Ty),
@@ -234,6 +237,7 @@ impl CollectionOp {
                 vec![t.clone()],
                 crate::sum::result(Ty::Unit, crate::sum::io_error()),
             ),
+            ReportEntryError(t) => (vec![t.clone()], Ty::I32),
             FormatScalar(t) | FormatValue(t) => (
                 vec![t.clone()],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
@@ -422,6 +426,7 @@ impl CollectionOp {
             Self::FormatScalar(_) => 79,
             Self::FormatValue(_) => 110,
             Self::TryPrint(_) => 111,
+            Self::ReportEntryError(_) => 122,
             Self::ElementRef(..) => 112,
             Self::ParseNumber(_) => 78,
             Self::TryCopy(_) => 33,
