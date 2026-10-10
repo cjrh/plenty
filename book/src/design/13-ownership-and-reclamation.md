@@ -44,7 +44,10 @@ header: `file:line:column: message`, followed by indented `note:` lines with
 their own positions. A use after a move reads ``use of moved binding `name` ``
 when every continuing path moved it and ``use of possibly moved binding `name` ``
 when only some did; the note points at one move. A borrow conflict names the
-accessed place and, when it differs, the borrowed place; its notes point at
+accessed place and, when it differs, the borrowed place. An access through a
+named reference also identifies that binding, such as `` `p` (through `r`) ``;
+this source provenance does not change the resolved owner or alias rules. Its
+notes point at
 where the borrow starts and at what keeps it live: a later use, a use on the
 next loop iteration, or the end of the `with` block that holds it. Places use
 real field names and tuple indices where the loan's projection is precise, and

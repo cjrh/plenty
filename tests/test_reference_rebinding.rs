@@ -484,7 +484,7 @@ def walk(head: &mut Node) -> ():
         case Nothing:
             pass
 "#,
-        "cannot modify or exclusively borrow `head` while it is exclusively borrowed",
+        "cannot modify or exclusively borrow `head` (through `cur`) while it is exclusively borrowed",
     );
 }
 
@@ -507,7 +507,7 @@ def cut(head: &mut Node) -> ():
     *rest = Nothing
     *value = 1
 "#,
-        "cannot modify or exclusively borrow `head` while it is exclusively borrowed",
+        "cannot modify or exclusively borrow `head` (through `cur`) while it is exclusively borrowed",
     );
     rejects(
         r#"
@@ -518,7 +518,7 @@ def split(head: &mut Node) -> ():
     *value = 5
     *next = Nothing
 "#,
-        "cannot modify or exclusively borrow `head` while it is exclusively borrowed",
+        "cannot modify or exclusively borrow `head` (through `cur`) while it is exclusively borrowed",
     );
 }
 
@@ -534,7 +534,7 @@ def main() -> Result[(), Failure]:
     first.value = 8
     Ok(())
 "#,
-        "cannot modify or exclusively borrow `head` while it is exclusively borrowed",
+        "cannot modify or exclusively borrow `head` (through `cur`) while it is exclusively borrowed",
     );
 }
 

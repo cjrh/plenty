@@ -144,15 +144,16 @@ impl Lower<'_> {
     /// later point anywhere inside its first target, so its loan and every
     /// loan derived from it cover that whole target instead of a field path.
     pub(super) fn bind_reference(&mut self, slot: u8, loan: usize, mutable: bool, ops: &mut [Op]) {
+        self.loans[loan].binding = Some(slot);
         if mutable {
             self.loans[loan].precise = false;
-            if let Some(Op::Loan(fact)) = ops
-                .iter_mut()
-                .rev()
-                .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
-            {
-                *fact = self.loans[loan].clone();
-            }
+        }
+        if let Some(Op::Loan(fact)) = ops
+            .iter_mut()
+            .rev()
+            .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
+        {
+            *fact = self.loans[loan].clone();
         }
         self.reference_locals.insert(slot, loan);
     }
@@ -294,6 +295,8 @@ impl Lower<'_> {
             precise: parent.is_none_or(|id| self.loans[id].precise),
             mutable,
             parent,
+            through: parent.and_then(|id| self.loans[id].binding.or(self.loans[id].through)),
+            binding: None,
         };
         self.loans.push(loan.clone());
         ops.push(Op::Loan(loan));
