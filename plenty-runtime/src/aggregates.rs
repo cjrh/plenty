@@ -119,6 +119,8 @@ struct Collection {
     ty: *const Type,
     entries: Entries,
     table: Vec<usize>,
+    /// The live row to resume after a heap child finishes destruction.
+    drop_entry: Option<usize>,
 }
 const _: () = assert!(std::mem::offset_of!(Collection, ty) == 16);
 
@@ -171,6 +173,28 @@ impl Record<'_> {
     fn state(&self) -> Option<*mut u64> {
         self.state.then_some(self.base.cast())
     }
+    /// Return whether this owner must release the fields. Observers only consume
+    /// their count; a live owner's hook is disarmed before calling user code.
+    unsafe fn begin_release(&self, value: u128, ty: &Type) -> bool {
+        unsafe {
+            if let Some(state) = self.state() {
+                if *state >= 2 {
+                    *state -= 2;
+                    return false;
+                }
+                if *state & 1 != 0 {
+                    *state = 0;
+                    let mut owner = value;
+                    let hook = ty.drop.expect("class destructor");
+                    memory::with_nested_drops(|| hook(&mut owner));
+                    if owner != value {
+                        crate::fail("destructor replaced its receiver");
+                    }
+                }
+            }
+            true
+        }
+    }
     /// Release the owned fields in declaration order. Inline fields finish
     /// immediately; heap fields join the destruction queue.
     unsafe fn release(&self) {
@@ -210,7 +234,10 @@ unsafe extern "C" fn box_destroy(header: *mut Header) {
         let boxed = header.cast::<Boxed>();
         let content = (*(*boxed).ty).key();
         let slot = std::ptr::addr_of_mut!((*boxed).slot).cast::<u128>();
-        release(slot.read(), content);
+        if let Some(child) = release_next(slot, content) {
+            memory::continue_after(header, child);
+            return;
+        }
         memory::free::<Boxed, u128>(boxed, content.slot_words());
     }
 }
@@ -259,24 +286,9 @@ pub(crate) unsafe fn release(value: u128, ty: &Type) {
         if ty.kind == b'H' {
             crate::closures::release(value as *mut u128);
         } else if let Some(record) = ty.record(value) {
-            if let Some(state) = record.state() {
-                if *state >= 2 {
-                    *state -= 2;
-                    return;
-                }
-                if *state & 1 != 0 {
-                    // The hook borrows the instance through its own slot. It
-                    // may mutate fields but cannot replace the receiver.
-                    *state = 0;
-                    let mut owner = value;
-                    let hook = ty.drop.expect("class destructor");
-                    memory::with_nested_drops(|| hook(&mut owner));
-                    if owner != value {
-                        crate::fail("destructor replaced its receiver");
-                    }
-                }
+            if record.begin_release(value, ty) {
+                record.release();
             }
-            record.release();
         } else if ty.kind == b'B' {
             if let Some(t) = ty.payload(value) {
                 release(ty.unpack(value), t);
@@ -286,6 +298,59 @@ pub(crate) unsafe fn release(value: u128, ty: &Type) {
         } else if ty.managed() {
             plenty_release(value as *mut Header);
         }
+    }
+}
+
+/// Consume inline storage up to its next heap owner, leaving the remaining
+/// fields live for the enclosing heap object's next destruction callback.
+/// Cleared slots and the class initializer bit remember completed work without
+/// allocating a traversal stack. Recursion follows only finite inline layouts;
+/// every heap edge returns to the intrusive queue before descending further.
+unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
+    unsafe {
+        let value = slot.read();
+        if value == 0 {
+            return None;
+        }
+        if ty.kind == b'H' {
+            let environment = value as *mut u128;
+            let descriptor = &**environment.cast::<*const Type>();
+            let fields = descriptor.variants[0].fields;
+            let mut capture =
+                environment.add(1 + fields.iter().map(|t| t.slot_words()).sum::<usize>());
+            for field in fields.iter().rev() {
+                capture = capture.sub(field.slot_words());
+                if let Some(child) = release_next(capture, field) {
+                    return Some(child);
+                }
+            }
+        } else if let Some(record) = ty.record(value) {
+            if !record.begin_release(value, ty) {
+                slot.write(0);
+                return None;
+            }
+            for i in 0..record.len() {
+                if let Some(child) = release_next(record.slot(i), record.ty(i)) {
+                    return Some(child);
+                }
+            }
+        } else if ty.kind == b'B' {
+            if let Some(payload_type) = ty.payload(value) {
+                let mut payload = ty.unpack(value);
+                let child = release_next(&mut payload, payload_type);
+                slot.write(ty.pack(payload, ty.tag(value)));
+                if child.is_some() {
+                    return child;
+                }
+            }
+        } else if ty.kind == b'G' && ty.inline_bytes != 0 {
+            crate::generators::release_inline(value as *mut Generator);
+        } else if ty.managed() {
+            slot.write(0);
+            return Some(value as *mut Header);
+        }
+        slot.write(0);
+        None
     }
 }
 
@@ -302,6 +367,7 @@ fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collect
             Entries::ordered(ty.key(), ty.value)
         },
         table: Vec::new(),
+        drop_entry: None,
     };
     // Validate and reserve before publishing an owner. Until the header is
     // allocated, ordinary Rust drops reclaim these empty buffers on any error.
@@ -319,25 +385,24 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
     unsafe {
         let c = header.cast::<Collection>();
         let ty = &*(*c).ty;
-        // Heap children join a LIFO queue, so queue them in reverse to
-        // finish in index order. Inline children drop immediately, in order.
-        let inline = ty.key().payload_bytes() != 0
-            || ty.value.is_some_and(|value| value.payload_bytes() != 0);
-        let release_entry = |entry: Entry| {
-            release(entry.key, ty.key());
-            if let Some(value) = &ty.value {
-                release(entry.value, value);
+        let mut entry = (*c).drop_entry.or_else(|| (*c).entries.indices().next());
+        while let Some(index) = entry {
+            (*c).drop_entry = Some(index);
+            if let Some(child) = release_next((*c).entries.slot(index, false), ty.key()) {
+                memory::continue_after(header, child);
+                return;
             }
-        };
-        if inline {
-            (*c).entries.iter().for_each(release_entry);
-        } else {
-            (*c).entries.iter().rev().for_each(|entry| {
-                if let Some(value) = &ty.value {
-                    release(entry.value, value);
+            if let Some(value) = ty.value {
+                if let Some(child) = release_next((*c).entries.slot(index, true), value) {
+                    memory::continue_after(header, child);
+                    return;
                 }
-                release(entry.key, ty.key());
-            });
+            }
+            entry = if ty.kind == b'L' {
+                (index + 1 < (*c).entries.len()).then_some(index + 1)
+            } else {
+                (*c).entries.next(index)
+            };
         }
         std::ptr::drop_in_place(c);
         memory::free::<Collection, u8>(c, 0);

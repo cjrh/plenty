@@ -203,14 +203,19 @@ fn deep_source_values_drop_on_a_small_native_stack_without_allocating() {
     let source = r#"
 enum Chain:
     End
-    Link(Box[Chain])
+    Link(Box[Chain], Tail)
+class Tail:
+    value: i64
+    def __del__(self) -> ():
+        pass
 class Node:
     next: Option[Box[Node]]
+    tail: Tail
 mut chain = Chain.End
 mut nodes: Option[Box[Node]] = Nothing
 for n in range(100000):
-    chain = Chain.Link(Box(chain).unwrap())
-    nodes = Some(Box(Node(nodes)).unwrap())
+    chain = Chain.Link(Box(chain).unwrap(), Tail(n))
+    nodes = Some(Box(Node(nodes, Tail(n))).unwrap())
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 drop(chain)

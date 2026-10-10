@@ -92,6 +92,27 @@ automatic field cleanup; fields then clean up in declaration order. You do not
 need to destroy the fields yourself. Moving an instance transfers its cleanup
 responsibility and does not run the destructor.
 
+A field's children also finish cleanup before the next field begins, including
+when the fields mix collections, boxes, and inline instances:
+
+```plenty
+class Leaf:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+class Pair:
+    first: list[Leaf]
+    second: Leaf
+def main() -> ():
+    pairs = [Pair([Leaf("a")].unwrap(), Leaf("b"))].unwrap()
+    drop(pairs)
+```
+
+```output
+a
+b
+```
+
 Lifecycle methods are not called directly. A class with custom cleanup, or one
 containing a value with custom cleanup, cannot be copied yet. That avoids
 duplicating ownership of a resource accidentally. A destructor cannot yield or

@@ -87,6 +87,23 @@ pub(crate) fn with_nested_drops(f: impl FnOnce()) {
     f();
 }
 
+/// Resume a dying parent's callback after this child's complete destruction.
+/// The parent remains allocated and has already been popped from the queue.
+pub(crate) unsafe fn continue_after(parent: *mut Header, child: *mut Header) {
+    unsafe {
+        QUEUE.with(|q| {
+            let mut state = q.get();
+            debug_assert!(state.dropping);
+            (*parent)
+                .refs
+                .store(state.pending as u64, Ordering::Relaxed);
+            state.pending = parent;
+            q.set(state);
+        });
+        plenty_release(child);
+    }
+}
+
 /// The null moved-slot sentinel and inline strings (low bit set) own nothing.
 fn inert(object: *mut Header) -> bool {
     object.is_null() || object as usize & 1 != 0

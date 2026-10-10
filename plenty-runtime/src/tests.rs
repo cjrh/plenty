@@ -1900,6 +1900,31 @@ fn destruction_queue_preserves_children_and_nested_drops() {
 }
 
 #[test]
+fn dictionary_heap_keys_finish_before_inline_values() {
+    static DICTIONARY: Type = Type {
+        key: Some(&GUARD),
+        value: Some(&GUARD_CLASS),
+        ..DICT
+    };
+    unsafe {
+        let dictionary = collection(0, 0, 0, 0, &DICTIONARY);
+        for id in [11, 21] {
+            let mut value = [INITIALIZED, id + 1];
+            let retained = collection(
+                1,
+                dictionary,
+                guard(id),
+                value.as_mut_ptr() as u128,
+                ptr::null(),
+            );
+            plenty_release(retained as *mut Header);
+        }
+        plenty_release(dictionary as *mut Header);
+        assert_eq!(trace(), [11, 12, 21, 22]);
+    }
+}
+
+#[test]
 fn owned_iteration_removes_the_source_owner() {
     unsafe {
         let list = collection(0, 0, 0, 0, &LIST_GUARD);
@@ -1948,7 +1973,7 @@ fn dictionaries_preserve_order_and_copy_owned_contents() {
         let list = collection(0, 0, 0, 0, &LIST_INT);
         plenty_release(collection(1, list, 42, 0, ptr::null()) as *mut Header);
         plenty_release(collection(1, dict, 1, list, ptr::null()) as *mut Header);
-        plenty_release(list as *mut Header);
+        // The affine list moved into the dictionary; only the dictionary owns it.
         let independent = crate::aggregates::payload(collection(33, dict, 0, 0, &DICT));
         assert_eq!(collection(8, dict, independent, 0, ptr::null()), 1);
         let values = collection(11, dict, 0, 0, &LIST_LIST);
@@ -2336,6 +2361,92 @@ fn recursive_boxes_drop_on_a_small_worker_stack_without_allocating() {
             #[cfg(feature = "allocation-checks")]
             crate::accounting::fail_after(None);
             assert_eq!(RECURSIVE_DROPS.with(std::cell::Cell::get), DEPTH);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+thread_local! {
+    static MIXED_TAIL_DROPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+unsafe extern "C" fn mixed_tail_drop(owner: *mut u128) {
+    unsafe {
+        let fields = (*owner as *const u128).add(1);
+        MIXED_TAIL_DROPS.with(|count| {
+            assert_eq!(*fields as usize, count.get());
+            count.set(count.get() + 1);
+        });
+    }
+}
+
+#[test]
+fn recursive_heap_children_finish_before_inline_siblings_on_a_small_stack() {
+    static TAIL: Type = Type {
+        drop: Some(mixed_tail_drop),
+        ..GUARD_CLASS
+    };
+    static NODE: Type = Type {
+        affine: true,
+        inline_bytes: 64,
+        variants: &[
+            Variant {
+                name: "next",
+                fields: &[&OPTION],
+            },
+            Variant {
+                name: "tail",
+                fields: &[&TAIL],
+            },
+        ],
+        ..scalar(b'C')
+    };
+    static BOX: Type = Type {
+        affine: true,
+        key: Some(&NODE),
+        ..scalar(b'O')
+    };
+    static OPTION: Type = Type {
+        affine: true,
+        variants: &[
+            Variant {
+                name: "Nothing",
+                fields: &[],
+            },
+            Variant {
+                name: "Some",
+                fields: &[&BOX],
+            },
+        ],
+        ..scalar(b'B')
+    };
+    const DEPTH: usize = 100_000;
+    let mut child = 0;
+    unsafe {
+        for id in 0..DEPTH {
+            let mut tail = [INITIALIZED, id as u128];
+            let mut fields = [
+                crate::aggregates::wrap(child, u64::from(child != 0)),
+                0,
+                0,
+                0,
+            ];
+            crate::ranges::store(fields.as_mut_ptr().add(1), tail.as_mut_ptr() as u128, &TAIL);
+            let result = collection(119, fields.as_mut_ptr() as u128, 0, 0, &BOX);
+            assert_eq!(result >> 64, 0);
+            child = result as u64 as u128;
+        }
+    }
+    std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            MIXED_TAIL_DROPS.with(|count| count.set(0));
+            #[cfg(feature = "allocation-checks")]
+            crate::accounting::fail_after(Some(0));
+            unsafe { plenty_release(child as *mut Header) };
+            #[cfg(feature = "allocation-checks")]
+            crate::accounting::fail_after(None);
+            assert_eq!(MIXED_TAIL_DROPS.with(std::cell::Cell::get), DEPTH);
         })
         .unwrap()
         .join()
