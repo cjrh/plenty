@@ -11,7 +11,7 @@ class Pair:
         &mut self.x
 
 def main() -> Result[(), Failure]:
-    mut pair = Pair(1, 2)?
+    mut pair = Pair(1, 2)
     x = pair.x_ref()
     pair.y = 7
     *x = 9

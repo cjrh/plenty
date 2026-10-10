@@ -10,10 +10,15 @@ pub struct EnumType {
     // Names are unique within a compilation; builtin names include concrete args.
     pub name: String,
     pub variants: Vec<Variant>,
+    /// False only when no payload can need cleanup; see `Ty::managed`.
     pub managed: bool,
+    /// Whether some payload actually needs cleanup; excluded from equality.
+    pub managed_fields: std::cell::OnceCell<bool>,
     pub inline_range: bool,
     /// Layout cache, excluded from nominal type equality and hashing.
     pub payload_bytes: std::cell::OnceCell<usize>,
+    /// Whether any variant keeps owner-local storage; excluded from equality.
+    pub storage: std::cell::OnceCell<bool>,
 }
 impl PartialEq for EnumType {
     fn eq(&self, other: &Self) -> bool {
@@ -32,33 +37,6 @@ impl crate::nominal::Nominal<EnumType> {
     }
     pub fn tuple(&self) -> bool {
         self.name.starts_with("tuple[")
-    }
-    pub fn inline(&self) -> bool {
-        self.propagatable()
-            || self.name.starts_with("SpawnError[")
-            || self.name.starts_with("SendError[")
-            || self.name.starts_with("SendTimeoutError[")
-            || self.name.starts_with("Selected[")
-            || self.name.starts_with("SubmitError[")
-            || self.name.starts_with("ParallelError[")
-            || matches!(
-                self.name.as_str(),
-                "AllocError"
-                    | "ParseError"
-                    | "IoError"
-                    | "DataError"
-                    | "Failure"
-                    | "CStrError"
-                    | "LoadError"
-                    | "ThreadError"
-                    | "ChannelError"
-                    | "RecvError"
-                    | "RecvTimeoutError"
-                    | "SelectError"
-                    | "PoolError"
-                    | "FutureError"
-                    | "PoolMapError"
-            )
     }
     pub fn propagatable(&self) -> bool {
         self.name.starts_with("Option[") || self.name.starts_with("Result[")
@@ -85,6 +63,8 @@ pub fn failure() -> Ty {
         managed: false,
         inline_range: false,
         payload_bytes: std::cell::OnceCell::new(),
+        storage: std::cell::OnceCell::new(),
+        managed_fields: std::cell::OnceCell::new(),
     }))
 }
 
@@ -104,6 +84,8 @@ pub fn alloc_error() -> Ty {
         managed: false,
         inline_range: false,
         payload_bytes: std::cell::OnceCell::new(),
+        storage: std::cell::OnceCell::new(),
+        managed_fields: std::cell::OnceCell::new(),
     }))
 }
 
@@ -397,7 +379,7 @@ pub struct Variant {
     pub fields: Vec<Ty>,
 }
 
-/// Structural products reuse the checked record storage and field operations.
+/// Structural products are single-variant inline enums.
 pub fn tuple(fields: Vec<Ty>) -> Ty {
     Ty::Enum(crate::nominal::Nominal::new(EnumType {
         name: format!(
@@ -413,6 +395,8 @@ pub fn tuple(fields: Vec<Ty>) -> Ty {
         managed: true,
         inline_range: false,
         payload_bytes: std::cell::OnceCell::new(),
+        storage: std::cell::OnceCell::new(),
+        managed_fields: std::cell::OnceCell::new(),
         variants: vec![Variant {
             name: String::new(),
             fields,
@@ -428,6 +412,8 @@ pub fn option(element: Ty) -> Ty {
         managed: element.managed(),
         inline_range: element.has_inline_range(),
         payload_bytes: std::cell::OnceCell::new(),
+        storage: std::cell::OnceCell::new(),
+        managed_fields: std::cell::OnceCell::new(),
         variants: vec![
             Variant {
                 name: "Nothing".into(),
@@ -448,6 +434,8 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
         managed: ok.managed() || error.managed(),
         inline_range: ok.has_inline_range() || error.has_inline_range(),
         payload_bytes: std::cell::OnceCell::new(),
+        storage: std::cell::OnceCell::new(),
+        managed_fields: std::cell::OnceCell::new(),
         variants: vec![
             Variant {
                 name: "Ok".into(),
@@ -464,7 +452,6 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
 #[derive(Clone, Debug, PartialEq)]
 pub enum EnumOp {
     New(crate::nominal::Nominal<EnumType>, usize),
-    TryNew(crate::nominal::Nominal<EnumType>, usize),
     Unwrap(crate::nominal::Nominal<EnumType>),
     Tag(crate::nominal::Nominal<EnumType>),
     TagRef(crate::nominal::Nominal<EnumType>, bool),
@@ -483,10 +470,6 @@ impl EnumOp {
             Self::New(t, tag) => (
                 t.get().variants.get(*tag)?.fields.clone(),
                 Ty::Enum(t.clone()),
-            ),
-            Self::TryNew(t, tag) => (
-                t.get().variants.get(*tag)?.fields.clone(),
-                result(Ty::Enum(t.clone()), alloc_error()),
             ),
             Self::Tag(t) => (vec![Ty::Enum(t.clone())], Ty::I64),
             Self::TagRef(t, mutable) => (

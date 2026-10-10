@@ -23,7 +23,7 @@ def main() -> Result[(), Failure]:
     print(values)?
     empty: dict[str, u16] = {}?
     print(empty)?
-    pair: tuple[u8, str] = (7, "seven")?
+    pair: tuple[u8, str] = (7, "seven")
     print(pair)?
     n: u8 = u8.parse("42")?
     print(n)?
@@ -72,17 +72,17 @@ class Context:
     def __exit__(self: &mut Context) -> ():
         print("exit").unwrap()
 def fail() -> Result[i64, Option[Guard]]:
-    Err(Some(Guard("error").unwrap()))
+    Err(Some(Guard("error")))
 def later() -> i64:
     print("unreachable").unwrap()
     0
 def consume(g: Guard, a: i64, b: i64) -> i64:
     a + b
 def work() -> Result[i64, Failure]:
-    first = Guard("first")?
-    with Context()? as context:
-        second = Guard("second")?
-        return Ok(consume(Guard("argument")?, fail()?, later()))
+    first = Guard("first")
+    with Context() as context:
+        second = Guard("second")
+        return Ok(consume(Guard("argument"), fail()?, later()))
 def main() -> Result[(), IoError]:
     print(work())?
     Ok(())
@@ -105,7 +105,7 @@ def forward(value: Result[(), Failure]) -> Result[(), Failure]:
     value?
     Ok(())
 def main() -> Result[(), Failure]:
-    guard = Guard()?
+    guard = Guard()
     print("__test_begin_no_allocations__")?
     bad = forward(discard(guard))
     good = forward(Ok(()))
@@ -126,7 +126,7 @@ class Guard:
     def __del__(self) -> ():
         print("cleaned").unwrap()
 def main() -> Result[(), Failure]:
-    guard = Guard()?
+    guard = Guard()
     u8.parse("bad")?
     print("unreachable")?
     Ok(())

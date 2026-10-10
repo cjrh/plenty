@@ -69,7 +69,7 @@ def invoke[T](f: &mut Closure[[T], T], n: T) -> T:
     f(n)
 def main() -> ():
     values = [10].unwrap()
-    resource = Resource(2).unwrap()
+    resource = Resource(2)
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
     mut callback = identity(build(values, resource).unwrap())
@@ -100,7 +100,7 @@ def main() -> ():
 fn captures_cannot_be_shadowed_by_loop_pattern_or_unpack_bindings() {
     for statement in [
         "for value in range(2):\n            pass",
-        "pair = (1, 2)?\n        value, other = pair",
+        "pair = (1, 2)\n        value, other = pair",
         "match Some(2):\n            case Some(value):\n                pass\n            case Nothing:\n                pass",
         "items = [value for value in range(2)]?",
     ] {
@@ -123,7 +123,7 @@ def invoke(f: &Callable[[i64], i64], n: i64) -> i64:
     f(n)
 def main() -> Result[(), Failure]:
     for n in range(3):
-        resource = Resource(n)?
+        resource = Resource(n)
         f = def [resource]() -> i64:
             resource.id
         if n == 0:

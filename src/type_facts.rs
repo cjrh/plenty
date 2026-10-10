@@ -10,6 +10,8 @@ pub struct Facts {
     pub copyable: bool,
     pub destructor: bool,
     pub recursive: bool,
+    /// A cycle with no heap boundary: the value would contain itself inline.
+    pub infinite: bool,
     pub complete: bool,
     pub depth: usize,
     pub reflexive: bool,
@@ -25,7 +27,12 @@ impl Ty {
     pub fn facts(&self) -> Facts {
         if !matches!(
             self,
-            Self::Class(_) | Self::Enum(_) | Self::List(_) | Self::Set(_) | Self::Dict(..)
+            Self::Class(_)
+                | Self::Enum(_)
+                | Self::List(_)
+                | Self::Set(_)
+                | Self::Dict(..)
+                | Self::Box(_)
         ) {
             let resource = matches!(
                 self,
@@ -82,14 +89,18 @@ impl Ty {
             facts.reflexive &= !nodes[i].is_float();
             let weight = match &nodes[i] {
                 Self::Enum(t) => t.try_get().map_or(0, |definition| {
-                    if t.inline() && !t.propagatable() {
-                        definition.variants.len().next_power_of_two().ilog2().max(1) as usize
-                    } else {
+                    if t.propagatable() {
                         1
+                    } else {
+                        definition.variants.len().next_power_of_two().ilog2().max(1) as usize
                     }
                 }),
                 Self::Class(t) => usize::from(t.try_get().is_some()),
-                Self::List(_) | Self::Set(_) | Self::Dict(..) | Self::Callable(_) => 1,
+                Self::List(_)
+                | Self::Set(_)
+                | Self::Dict(..)
+                | Self::Box(_)
+                | Self::Callable(_) => 1,
                 Self::Closure(t) => t.depth,
                 Self::Generator(t) => 1 + t.element.layout_depth(),
                 _ => 0,
@@ -119,7 +130,7 @@ impl Ty {
                         vec![]
                     }
                 }
-                Self::List(t) | Self::Set(t) => {
+                Self::List(t) | Self::Set(t) | Self::Box(t) => {
                     facts.affine = true;
                     vec![(**t).clone()]
                 }
@@ -173,16 +184,19 @@ impl Ty {
         }
         facts.recursive = degree[0] != 0;
         if facts.recursive {
-            // Heap nominal records break physical layout cycles. Cutting these
-            // boundaries still counts every surrounding inline sum tag, including
-            // a long Option[Option[...Node]] chain outside the cycle.
+            // Boxes and collections keep their contents on the heap, which
+            // breaks physical layout cycles. Cutting these boundaries still
+            // counts every surrounding inline sum tag, including a long
+            // Option[Option[...Node]] chain outside the cycle.
             let boundaries: Vec<_> = nodes
                 .iter()
                 .enumerate()
                 .map(|(i, t)| {
                     degree[i] != 0
-                        && (matches!(t, Self::Class(_))
-                            || matches!(t, Self::Enum(e) if !e.inline() && !e.tuple()))
+                        && matches!(
+                            t,
+                            Self::Box(_) | Self::List(_) | Self::Set(_) | Self::Dict(..)
+                        )
                 })
                 .collect();
             degree.fill(0);
@@ -211,6 +225,7 @@ impl Ty {
                     }
                 }
             }
+            facts.infinite = degree.iter().any(|&n| n != 0);
         }
         facts.depth = depths[0];
         // Deep copying still uses a native recursive traversal. Do not expose it

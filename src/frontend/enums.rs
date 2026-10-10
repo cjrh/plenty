@@ -328,9 +328,6 @@ impl Lower<'_> {
         let Ty::Enum(mut t) = ty else {
             return Err(at.error("variant qualification requires an enum type"));
         };
-        if !t.inline() && Ty::Enum(t.clone()).layout_depth() >= 64 {
-            return Err(at.error("type nesting exceeds the implementation limit of 64"));
-        }
         let tag = t
             .get()
             .variants
@@ -373,11 +370,7 @@ impl Lower<'_> {
                 ops.push(Op::PushUnit);
             }
         }
-        let op = if t.inline() {
-            EnumOp::New(t, tag)
-        } else {
-            EnumOp::TryNew(t, tag)
-        };
+        let op = EnumOp::New(t, tag);
         let output = op.signature().unwrap().1;
         ops.push(Op::Enum(op));
         Ok(Some(output))
@@ -391,7 +384,16 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
         let temporary_start = self.expression_temps.len();
-        let ty = self.value(value, ops)?;
+        let ty = match self.value(value, ops)? {
+            // Matching a box matches its content: an owned box is consumed,
+            // a borrowed one lends its content.
+            Ty::Box(content) => {
+                ops.push(Op::Box(crate::boxed::BoxOp::Take((*content).clone())));
+                (*content).clone()
+            }
+            reference @ Ty::Ref(..) => self.unbox_reference(reference, ops),
+            ty => ty,
+        };
         let (t, borrowed) = match &ty {
             Ty::Enum(t) => (t.clone(), None),
             Ty::Ref(inner, mutable) => {
@@ -405,9 +407,6 @@ impl Lower<'_> {
             }
             _ => return Err(value.at.error("match requires an enum value or reference")),
         };
-        if matches!(borrowed, Some((_, true))) && !t.inline() && !Ty::Enum(t.clone()).affine() {
-            return Err(value.at.error("mutable payload matching requires an owned enum; immutable enum storage may be shared; use a shared match or replace the whole value"));
-        }
         let source = self.slot(ty, &value.at)?;
         ops.push(Op::StoreLocal(source));
         self.finish_temporaries(temporary_start, ops);
@@ -460,6 +459,10 @@ impl Lower<'_> {
                     return Err(case.at.error(format!("case `{name}` requires {} payload bindings (no parentheses for nullary variants)", fields.len())));
                 }
                 let mut bound = HashSet::new();
+                // A consuming match moves every field of a multi-field variant
+                // out at once; unbound positions are dropped immediately.
+                let split = borrowed.is_none() && fields.len() > 1;
+                let mut split_slots = vec![None; fields.len()];
                 for (field, (name, ty)) in bindings
                     .as_deref()
                     .unwrap_or(&[])
@@ -508,16 +511,14 @@ impl Lower<'_> {
                             Op::Enum(EnumOp::FieldRef(t.clone(), tag, field, mutable)),
                             Op::StoreLocal(slot),
                         ]);
+                    } else if split {
+                        split_slots[field] = Some(slot);
                     } else {
                         body.extend([
-                            if t.inline() {
-                                Op::MoveLocal(
-                                    source,
-                                    format!("{}:{}: matched payload", case.at.line, case.at.column),
-                                )
-                            } else {
-                                Op::LoadLocal(source)
-                            },
+                            Op::MoveLocal(
+                                source,
+                                format!("{}:{}: matched payload", case.at.line, case.at.column),
+                            ),
                             Op::Enum(if ty.affine() {
                                 EnumOp::Take(t.clone(), tag, field)
                             } else {
@@ -526,6 +527,21 @@ impl Lower<'_> {
                             Op::StoreLocal(slot),
                         ]);
                     }
+                }
+                if split {
+                    body.extend([
+                        Op::MoveLocal(
+                            source,
+                            format!("{}:{}: matched payload", case.at.line, case.at.column),
+                        ),
+                        Op::Split(t.clone(), tag),
+                    ]);
+                    body.extend(
+                        split_slots
+                            .iter()
+                            .rev()
+                            .map(|slot| slot.map_or(Op::Drop, Op::StoreLocal)),
+                    );
                 }
                 Pattern::Int {
                     value: Value::I64(tag as i64),

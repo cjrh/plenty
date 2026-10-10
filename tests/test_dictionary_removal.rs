@@ -47,13 +47,13 @@ class Guard:
     id: i64
     def __del__(self: &mut Guard) -> ():
         print(self.id).unwrap()
-mut values = {1: Guard(10).unwrap(), 2: Guard(20).unwrap(), 3: Guard(30).unwrap()}.unwrap()
+mut values = {1: Guard(10), 2: Guard(20), 3: Guard(30)}.unwrap()
 removed = values.pop(2)
 print("removed").unwrap()
 drop(values)
 print("dictionary dropped").unwrap()
 drop(removed)
-mut discarded = {1: Guard(40).unwrap()}.unwrap()
+mut discarded = {1: Guard(40)}.unwrap()
 discarded.pop(1)
 print("done").unwrap()
 "#,
@@ -74,13 +74,13 @@ def key() -> str:
 class Custom:
     def pop(self, n: i64) -> i64:
         n
-mut storage = Storage({"a": "b", "b": "value"}.unwrap()).unwrap()
+mut storage = Storage({"a": "b", "b": "value"}.unwrap())
 print(storage.values.pop(storage.values["a"])).unwrap()
 print(storage.values.pop(key())).unwrap()
 name = "missing"
 print(take(&mut storage.values, &name)).unwrap()
 print(name).unwrap()
-print(Custom().unwrap().pop(42)).unwrap()
+print(Custom().pop(42)).unwrap()
 "#, "Option[str].Some(\"value\")\nkey\nOption[str].Some(\"b\")\nOption[str].Nothing\nmissing\n42");
 }
 

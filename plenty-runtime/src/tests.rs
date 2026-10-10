@@ -19,6 +19,7 @@ const fn scalar(kind: u8) -> Type {
         value: None,
         name: "",
         variants: &[],
+        drop: None,
     }
 }
 const fn list(key: &'static Type) -> Type {
@@ -170,13 +171,14 @@ fn inline_range_sum_slots_copy_and_relocate_only_the_active_payload() {
 #[test]
 fn inline_range_dictionary_removal_and_record_copy_keep_valid_payloads() {
     use crate::aggregates::payload;
-    use crate::ranges::Range;
+    use crate::ranges::{self, Range};
     static MAP: Type = Type {
         value: Some(&UNSIGNED_RANGE),
         ..DICT
     };
     static RECORD: Type = Type {
         affine: true,
+        inline_bytes: 64,
         name: "Ranges",
         variants: &[
             Variant {
@@ -200,45 +202,53 @@ fn inline_range_dictionary_removal_and_record_copy_keep_valid_payloads() {
         }
         let removed = collection(39, map, 3, 0, ptr::null());
         assert_eq!((*(payload(removed) as *const Range)).start, 10);
-        let record = collection(30, 0, 0, 0, &RECORD);
-        collection(21, record, 0, address, ptr::null());
-        collection(21, record, 1, 42, ptr::null());
-        let duplicate = payload(collection(33, record, 0, 0, &RECORD));
-        plenty_release(record as *mut Header);
-        let copied_range = collection(31, duplicate, 0, 0, ptr::null());
-        assert_eq!((*(copied_range as *const Range)).len, 3);
-        assert_eq!(collection(31, duplicate, 1, 0, ptr::null()), 42);
-        plenty_release(duplicate as *mut Header);
+        // Inline class storage: a range slot (3 words), then a number slot.
+        let mut record = [0u128; 4];
+        ranges::store(record.as_mut_ptr(), address, &UNSIGNED_RANGE);
+        record[3] = 42;
+        let mut copied = [0u128; 4];
+        let duplicate = payload(collection(
+            33,
+            record.as_mut_ptr() as u128,
+            copied.as_mut_ptr() as u128,
+            0,
+            &RECORD,
+        ));
+        record.fill(0);
+        assert_eq!(duplicate as u64, copied.as_ptr() as u64);
+        assert_eq!(copied[0] as u64, copied.as_ptr().add(1) as u64);
+        assert_eq!((*(copied[0] as u64 as *const Range)).len, 3);
+        assert_eq!(copied[3], 42);
         plenty_release(map as *mut Header);
     }
 }
-static UNIT: Type = scalar(b'v');
 static FLOAT32: Type = scalar(b'f');
 static FLOAT64: Type = scalar(b'd');
 static LIST_F32: Type = list(&FLOAT32);
 static LIST_F64: Type = list(&FLOAT64);
 static LIST_INT: Type = list(&INTEGER);
 static LIST_LIST: Type = list(&LIST_INT);
-static GUARD: Type = Type {
+static GUARD_CLASS: Type = Type {
     affine: true,
     name: "Guard",
+    inline_bytes: 32,
     variants: &[Variant {
         name: "id",
         fields: &[&INTEGER],
     }],
+    drop: Some(hook),
     ..scalar(b'C')
 };
-static LIST_GUARD: Type = list(&GUARD);
-static DONE: Type = Type {
-    name: "Done",
-    variants: &[Variant {
-        name: "Ok",
-        fields: &[&UNIT],
-    }],
-    ..scalar(b'E')
+/// A boxed guard: a heap owner whose content runs a hook when dropped.
+static GUARD: Type = Type {
+    affine: true,
+    key: Some(&GUARD_CLASS),
+    ..scalar(b'O')
 };
+static LIST_GUARD: Type = list(&GUARD);
 static POINT: Type = Type {
     affine: true,
+    inline_bytes: 16,
     name: "Point",
     variants: &[Variant {
         name: "x",
@@ -248,6 +258,7 @@ static POINT: Type = Type {
 };
 static PAIR: Type = Type {
     affine: true,
+    inline_bytes: 64,
     name: "Pair",
     variants: &[
         Variant {
@@ -436,7 +447,7 @@ fn split_line_prefixes_are_cleaned_on_allocation_failure() {
     }
     for budget in 0..=5 {
         unsafe {
-            let source = strings::new(b"one\ntwo\nthree");
+            let source = strings::new(b"first line\nsecond line\nthird line");
             let result = {
                 let _restore = Restore;
                 crate::accounting::fail_after(Some(budget));
@@ -458,20 +469,6 @@ static OPTION_TEXT: Type = Type {
         Variant {
             name: "Some",
             fields: &[&TEXT],
-        },
-    ],
-    ..scalar(b'B')
-};
-static RESULT_OPTION_TEXT: Type = Type {
-    name: "Result[Option[str], AllocError]",
-    variants: &[
-        Variant {
-            name: "Ok",
-            fields: &[&OPTION_TEXT],
-        },
-        Variant {
-            name: "Err",
-            fields: &[&ALLOC_ERROR],
         },
     ],
     ..scalar(b'B')
@@ -532,7 +529,6 @@ fn dictionary_removal_transfers_owned_payload_and_repairs_hash_storage() {
             let child = collection(0, 0, 0, 0, &LIST_INT);
             plenty_release(collection(1, child, key, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, dictionary, key, child, ptr::null()) as *mut Header);
-            plenty_release(child as *mut Header);
         }
         for key in (0..32).step_by(2) {
             let before = collection(4, dictionary, key, 0, ptr::null());
@@ -571,7 +567,6 @@ fn list_removal_transfers_payload_and_preserves_remaining_order() {
             *child = collection(0, 0, 0, 0, &LIST_INT);
             plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, list, *child, 0, ptr::null()) as *mut Header);
-            plenty_release(*child as *mut Header);
         }
         for index in [i64::MIN, -4, 3, i64::MAX] {
             assert_eq!(collection(40, list, index as u128, 0, ptr::null()), 0);
@@ -804,10 +799,10 @@ fn removed_affixes_have_independent_storage_and_recoverable_failure() {
             crate::accounting::fail_after(None);
         }
     }
-    for (op, expected) in [(71, "🙂é"), (72, "é🙂")] {
+    for (op, expected) in [(71, "🙂🙂é"), (72, "é🙂🙂")] {
         for budget in 0..=1 {
             unsafe {
-                let source = strings::new("é🙂é".as_bytes());
+                let source = strings::new("é🙂🙂é".as_bytes());
                 let affix = strings::new("é".as_bytes());
                 let reset = Restore;
                 crate::accounting::fail_after(Some(budget));
@@ -820,7 +815,7 @@ fn removed_affixes_have_independent_storage_and_recoverable_failure() {
                 } else {
                     let result = crate::aggregates::payload(result) as *mut strings::Text;
                     assert_eq!(strings::text(result), expected);
-                    assert_eq!(strings::scalar_len(result), 2);
+                    assert_eq!(strings::scalar_len(result), 3);
                     plenty_release(result.cast());
                 }
             }
@@ -893,13 +888,11 @@ fn dictionary_update_reserves_all_storage_before_transferring_owned_values() {
             let old = collection(0, 0, 0, 0, &LIST_INT);
             plenty_release(collection(1, old, 99, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, target, 0, old, ptr::null()) as *mut Header);
-            plenty_release(old as *mut Header);
             let source = collection(0, 0, 0, 0, &DICT);
             for n in 0..10 {
                 let child = collection(0, 0, 0, 0, &LIST_INT);
                 plenty_release(collection(1, child, n, 0, ptr::null()) as *mut Header);
                 plenty_release(collection(1, source, n, child, ptr::null()) as *mut Header);
-                plenty_release(child as *mut Header);
             }
             let result = {
                 let _restore = Restore;
@@ -945,7 +938,6 @@ fn list_extension_reserves_before_transferring_owned_entries() {
             let child = collection(0, 0, 0, 0, &LIST_INT);
             plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
-            plenty_release(child as *mut Header);
             let result = {
                 let _restore = Restore;
                 crate::accounting::fail_after(Some(budget));
@@ -1015,8 +1007,6 @@ fn list_reverse_reorders_owned_slots_without_duplication() {
         plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
         let other = collection(0, 0, 0, 0, &LIST_INT);
         plenty_release(collection(1, source, other, 0, ptr::null()) as *mut Header);
-        plenty_release(child as *mut Header);
-        plenty_release(other as *mut Header);
         plenty_release(collection(57, source, 0, 0, ptr::null()) as *mut Header);
         let found = collection(4, source, 1, 0, ptr::null());
         assert_eq!(found, child);
@@ -1045,7 +1035,7 @@ fn repeated_strings_fill_checked_storage_without_temporary_allocations() {
                     collection(56, source as u128, count as u128, 0, ptr::null())
                 };
                 plenty_release(source.cast());
-                if budget == 0 {
+                if budget == 0 && "é\0🙂".len() * count.max(0) as usize > strings::INLINE_MAX {
                     assert_eq!(result, 1u128 << 64);
                 } else {
                     assert_eq!(result >> 64, 0);
@@ -1079,7 +1069,7 @@ fn trimmed_strings_have_independent_storage_and_recover_from_allocation_failure(
                 };
                 assert_eq!(strings::text(source), "　é\0🙂 ");
                 plenty_release(source.cast());
-                if budget == 0 {
+                if budget == 0 && expected.len() > strings::INLINE_MAX {
                     assert_eq!(result, 1u128 << 64);
                 } else {
                     assert_eq!(result >> 64, 0);
@@ -1145,7 +1135,7 @@ fn string_replacement_is_fallible_and_outputs_survive_all_inputs() {
                 plenty_release(source.cast());
                 plenty_release(old_text.cast());
                 plenty_release(new_text.cast());
-                if budget == 0 {
+                if budget == 0 && expected.len() > strings::INLINE_MAX {
                     assert_eq!(result, 1u128 << 64);
                 } else {
                     assert_eq!(result >> 64, 0);
@@ -1180,7 +1170,7 @@ fn string_slice_failure_and_utf8_result_lifetime() {
                 };
                 assert_eq!(strings::text(source), "Aé\0🙂Z");
                 plenty_release(source.cast());
-                if budget == 0 {
+                if budget == 0 && expected.len() > strings::INLINE_MAX {
                     assert_eq!(result, 1u128 << 64);
                 } else {
                     assert_eq!(result >> 64, 0);
@@ -1211,7 +1201,6 @@ fn list_slices_transfer_only_selected_payloads_after_reserving_storage() {
                 *child = collection(0, 0, 0, 0, &LIST_INT);
                 plenty_release(collection(1, *child, i as u128, 0, ptr::null()) as *mut Header);
                 plenty_release(collection(1, source, *child, 0, ptr::null()) as *mut Header);
-                plenty_release(*child as *mut Header);
             }
             let result = {
                 let _restore = Restore;
@@ -1317,7 +1306,6 @@ fn dictionary_snapshot_transfers_owned_payload_only_on_success() {
             let child = collection(0, 0, 0, 0, &LIST_INT);
             plenty_release(collection(1, child, 42, 0, ptr::null()) as *mut Header);
             plenty_release(collection(1, source, 1, child, ptr::null()) as *mut Header);
-            plenty_release(child as *mut Header);
             let result = {
                 let _restore = Restore;
                 crate::accounting::fail_after(Some(budget));
@@ -1379,7 +1367,7 @@ fn dictionary_lookup_succeeds_when_allocation_is_disabled() {
 }
 
 #[test]
-fn checked_character_results_use_inline_tags_and_outlive_the_source() {
+fn character_lookup_returns_inline_options_that_outlive_the_source() {
     unsafe {
         let text = strings::new("é🙂\0".as_bytes());
         for index in [i64::MIN, -4, 3, i64::MAX] {
@@ -1389,22 +1377,22 @@ fn checked_character_results_use_inline_tags_and_outlive_the_source() {
             );
         }
         let result = collection(37, text as u128, (-2i64) as u128, 0, ptr::null());
-        assert_eq!(result >> 64, 2);
+        assert_eq!(result >> 64, 1);
         let character = result as *const strings::Text;
         plenty_release(text.cast());
         assert_eq!(strings::text(character), "🙂");
         assert_eq!(strings::byte_len(character), 4);
         assert_eq!(strings::scalar_len(character), 1);
-        crate::aggregates::retain(result, &RESULT_OPTION_TEXT);
-        crate::aggregates::release(result, &RESULT_OPTION_TEXT);
+        crate::aggregates::retain(result, &OPTION_TEXT);
+        crate::aggregates::release(result, &OPTION_TEXT);
         assert_eq!(strings::text(character), "🙂");
-        crate::aggregates::release(result, &RESULT_OPTION_TEXT);
+        crate::aggregates::release(result, &OPTION_TEXT);
     }
 }
 
 #[cfg(feature = "allocation-checks")]
 #[test]
-fn checked_character_allocation_failure_and_missing_index_are_distinct() {
+fn character_lookup_never_allocates() {
     struct Restore;
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -1413,25 +1401,18 @@ fn checked_character_allocation_failure_and_missing_index_are_distinct() {
     }
     unsafe {
         let text = strings::new("é🙂\0".as_bytes());
-        for budget in 0..=1 {
-            let (missing, present) = {
-                let _restore = Restore;
-                crate::accounting::fail_after(Some(budget));
-                (
-                    collection(37, text as u128, 3, 0, ptr::null()),
-                    collection(37, text as u128, 2, 0, ptr::null()),
-                )
-            };
-            assert_eq!(missing, 0);
-            if budget == 0 {
-                assert_eq!(present, 1u128 << 64);
-            } else {
-                assert_eq!(present >> 64, 2);
-                assert_eq!(strings::text_bytes(present as *const strings::Text), b"\0");
-            }
-            crate::aggregates::release(present, &RESULT_OPTION_TEXT);
-            assert_eq!(strings::text(text), "é🙂\0");
-        }
+        let (missing, present) = {
+            let _restore = Restore;
+            crate::accounting::fail_after(Some(0));
+            (
+                collection(37, text as u128, 3, 0, ptr::null()),
+                collection(37, text as u128, 2, 0, ptr::null()),
+            )
+        };
+        assert_eq!(missing, 0);
+        assert_eq!(present >> 64, 1);
+        assert_eq!(strings::text_bytes(present as *const strings::Text), b"\0");
+        crate::aggregates::release(present, &OPTION_TEXT);
         plenty_release(text.cast());
     }
 }
@@ -1469,14 +1450,14 @@ fn partial_split_cleanup_handles_every_allocation_failure() {
     unsafe {
         let text = strings::new("é\0::🙂::::".as_bytes());
         let separator = strings::new(b"::");
-        // Buffer + owner + four output strings, including the empty pieces.
-        for budget in 0..=6 {
+        // Buffer + owner; every piece is short enough to be stored inline.
+        for budget in 0..=2 {
             let result = {
                 let _restore = Restore;
                 crate::accounting::fail_after(Some(budget));
                 collection(36, text as u128, separator as u128, 0, &RESULT_TEXT_LIST)
             };
-            if budget < 6 {
+            if budget < 2 {
                 assert_eq!(result, 1u128 << 64);
             } else {
                 assert_eq!(result >> 64, 0);
@@ -1525,8 +1506,8 @@ fn text_builders_recover_from_allocation_failure_without_consuming_inputs() {
         }
     }
     unsafe {
-        let a = strings::new(b"a\0");
-        let b = strings::new(b"b");
+        let a = strings::new(b"abcd\0");
+        let b = strings::new(b"efgh");
         for budget in 0..=1 {
             let result = {
                 let _restore = Restore;
@@ -1537,11 +1518,11 @@ fn text_builders_recover_from_allocation_failure_without_consuming_inputs() {
                 assert_eq!(result, Err(crate::memory::AllocError::OutOfMemory));
             } else {
                 let result = result.unwrap();
-                assert_eq!(strings::text_bytes(result), b"a\0b");
+                assert_eq!(strings::text_bytes(result), b"abcd\0efgh");
                 plenty_release(result.cast());
             }
-            assert_eq!(strings::text_bytes(a), b"a\0");
-            assert_eq!(strings::text_bytes(b), b"b");
+            assert_eq!(strings::text_bytes(a), b"abcd\0");
+            assert_eq!(strings::text_bytes(b), b"efgh");
         }
         plenty_release(a.cast());
         plenty_release(b.cast());
@@ -1550,50 +1531,54 @@ fn text_builders_recover_from_allocation_failure_without_consuming_inputs() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
-fn partial_record_and_nested_collection_copies_release_only_owned_values() {
+fn partial_nested_collection_copies_release_only_owned_values() {
     struct Restore;
     impl Drop for Restore {
         fn drop(&mut self) {
             crate::accounting::fail_after(None);
         }
     }
-    for records in [false, true] {
-        let ty = if records { &PAIR } else { &LIST_LIST };
-        let allocations = if records { 3 } else { 6 };
-        unsafe {
-            let source = collection(if records { 30 } else { 0 }, 0, 0, 0, ty);
-            for i in 0..2 {
-                let child = if records {
-                    let child = collection(30, 0, 0, 0, &POINT);
-                    collection(21, child, 0, i + 1, ptr::null());
-                    collection(21, source, i, child, ptr::null());
-                    child
-                } else {
-                    let child = collection(0, 0, 0, 0, &LIST_INT);
-                    plenty_release(collection(1, child, i + 1, 0, ptr::null()) as *mut Header);
-                    plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
-                    child
-                };
-                plenty_release(child as *mut Header);
-            }
-            for budget in 0..=allocations {
-                let result = {
-                    let _restore = Restore;
-                    crate::accounting::fail_after(Some(budget));
-                    collection(33, source, 0, 0, ty)
-                };
-                if budget < allocations {
-                    assert_eq!(result, 1u128 << 64);
-                } else {
-                    assert_eq!(result >> 64, 0);
-                    let copied = crate::aggregates::payload(result);
-                    assert_ne!(copied, source);
-                    assert_eq!(collection(8, source, copied, 0, ty), 1);
-                    plenty_release(copied as *mut Header);
-                }
-            }
-            plenty_release(source as *mut Header);
+    let allocations = 6;
+    unsafe {
+        let source = collection(0, 0, 0, 0, &LIST_LIST);
+        for i in 0..2 {
+            let child = collection(0, 0, 0, 0, &LIST_INT);
+            plenty_release(collection(1, child, i + 1, 0, ptr::null()) as *mut Header);
+            plenty_release(collection(1, source, child, 0, ptr::null()) as *mut Header);
         }
+        for budget in 0..=allocations {
+            let result = {
+                let _restore = Restore;
+                crate::accounting::fail_after(Some(budget));
+                collection(33, source, 0, 0, &LIST_LIST)
+            };
+            if budget < allocations {
+                assert_eq!(result, 1u128 << 64);
+            } else {
+                assert_eq!(result >> 64, 0);
+                let copied = crate::aggregates::payload(result);
+                assert_ne!(copied, source);
+                assert_eq!(collection(8, source, copied, 0, &LIST_LIST), 1);
+                plenty_release(copied as *mut Header);
+            }
+        }
+        plenty_release(source as *mut Header);
+        // Inline records copy into caller storage without allocating.
+        let mut pair = [0u128; 4];
+        let mut copied = [0u128; 4];
+        let result = {
+            let _restore = Restore;
+            crate::accounting::fail_after(Some(0));
+            collection(
+                33,
+                pair.as_mut_ptr() as u128,
+                copied.as_mut_ptr() as u128,
+                0,
+                &PAIR,
+            )
+        };
+        assert_eq!(result >> 64, 0);
+        pair.fill(0);
     }
 }
 
@@ -1743,7 +1728,6 @@ fn inline_payloads_retain_and_drop_through_runtime_slots() {
         let first = wrap(wrap(guard(42), 1), 0);
         let list = collection(0, 0, 0, 0, &LIST_RESULT);
         plenty_release(collection(1, list, first, 0, ptr::null()) as *mut Header);
-        release(first, &RESULT_OPTION);
         let moved = collection(15, list, 0, 0, ptr::null());
         plenty_release(list as *mut Header);
         assert!(trace().is_empty());
@@ -1782,28 +1766,23 @@ fn float_slots_preserve_bits_and_ieee_equality_and_unit_payloads() {
             plenty_release(a as *mut Header);
             plenty_release(b as *mut Header);
         }
-        let done = collection(20, 0, 0, 0, &DONE);
-        collection(21, done, 0, 0, ptr::null());
-        assert_eq!(collection(23, done, 0, 0, ptr::null()), 0);
-        plenty_release(done as *mut Header);
     }
 }
 
+/// Storage of an initialized class with `__del__`: a state word, then fields.
+const INITIALIZED: u128 = 1;
 unsafe fn guard(id: u128) -> u128 {
     unsafe {
-        let value = collection(30, hook as *const () as u128, 0, 0, &GUARD);
-        *((value as *mut u8).add(32).cast::<u128>()) = id;
-        value
+        let mut storage = [INITIALIZED, id];
+        let result = collection(119, storage.as_mut_ptr() as u128, 0, 0, &GUARD);
+        assert_eq!(result >> 64, 0);
+        result as u64 as u128
     }
 }
 unsafe extern "C" fn hook(owner: *mut u128) {
     unsafe {
-        let object = *owner as *mut u8;
-        let id = *object.add(32).cast::<u128>();
+        let id = *((*owner) as u64 as *const u128).add(1);
         TRACE.with(|trace| trace.borrow_mut().push(id));
-        // Reading the dying receiver may retain/release its immortalized header.
-        plenty_retain(object.cast());
-        plenty_release(object.cast());
         if id == 9 {
             plenty_release(guard(77) as *mut Header);
             TRACE.with(|trace| trace.borrow_mut().push(99));
@@ -1866,10 +1845,9 @@ fn destruction_queue_preserves_children_and_nested_drops() {
     unsafe {
         let list = collection(0, 0, 0, 0, &LIST_GUARD);
         for id in [9, 2, 3] {
-            let value = guard(id);
-            let retained = collection(1, list, value, 0, ptr::null());
+            // Affine elements move into the list.
+            let retained = collection(1, list, guard(id), 0, ptr::null());
             plenty_release(retained as *mut Header);
-            plenty_release(value as *mut Header);
         }
         plenty_release(list as *mut Header);
         assert_eq!(trace(), [9, 77, 99, 2, 3]);
@@ -1880,10 +1858,8 @@ fn destruction_queue_preserves_children_and_nested_drops() {
 fn owned_iteration_removes_the_source_owner() {
     unsafe {
         let list = collection(0, 0, 0, 0, &LIST_GUARD);
-        let value = guard(5);
-        let retained = collection(1, list, value, 0, ptr::null());
+        let retained = collection(1, list, guard(5), 0, ptr::null());
         plenty_release(retained as *mut Header);
-        plenty_release(value as *mut Header);
         let taken = collection(15, list, 0, 0, ptr::null());
         plenty_release(taken as *mut Header);
         assert_eq!(trace(), [5]);
@@ -1895,20 +1871,28 @@ fn owned_iteration_removes_the_source_owner() {
 #[test]
 fn shared_descriptor_graphs_and_recursive_copies() {
     unsafe {
-        // Pair contains two Points; both fields reference the same immutable metadata.
-        let pair = collection(30, 0, 0, 0, &PAIR);
-        let a = collection(30, 0, 0, 0, &POINT);
-        let b = collection(30, 0, 0, 0, &POINT);
-        *((a as *mut u8).add(32).cast::<u128>()) = 3;
-        *((b as *mut u8).add(32).cast::<u128>()) = 4;
-        *((pair as *mut u8).add(32).cast::<u128>()) = a;
-        *((pair as *mut u8).add(48).cast::<u128>()) = b;
-        let copy = collection(14, pair, 0, 0, ptr::null());
-        assert_eq!(collection(8, pair, copy, 0, ptr::null()), 1);
-        *((a as *mut u8).add(32).cast::<u128>()) = 10;
-        assert_eq!(collection(8, pair, copy, 0, ptr::null()), 0);
-        plenty_release(pair as *mut Header);
-        plenty_release(copy as *mut Header);
+        // Pair stores two inline Points; both fields share one descriptor.
+        let mut point = [3u128];
+        let mut pair = [0u128; 4];
+        crate::ranges::store(pair.as_mut_ptr(), point.as_mut_ptr() as u128, &POINT);
+        point[0] = 4;
+        crate::ranges::store(pair.as_mut_ptr().add(2), point.as_mut_ptr() as u128, &POINT);
+        assert_eq!(pair[1], 3);
+        assert_eq!(pair[3], 4);
+        let mut copied = [0u128; 4];
+        let pair = pair.as_mut_ptr();
+        let source = pair as u128;
+        let copy = crate::aggregates::payload(collection(
+            33,
+            source,
+            copied.as_mut_ptr() as u128,
+            0,
+            &PAIR,
+        ));
+        assert_eq!(collection(8, source, copy, 0, &PAIR), 1);
+        *pair.add(1) = 10;
+        assert_eq!(collection(8, source, copy, 0, &PAIR), 0);
+        assert_eq!(copied[1], 3);
     }
 }
 
@@ -1920,10 +1904,10 @@ fn dictionaries_preserve_order_and_copy_owned_contents() {
         plenty_release(collection(1, list, 42, 0, ptr::null()) as *mut Header);
         plenty_release(collection(1, dict, 1, list, ptr::null()) as *mut Header);
         plenty_release(list as *mut Header);
-        let independent = collection(14, dict, 0, 0, ptr::null());
+        let independent = crate::aggregates::payload(collection(33, dict, 0, 0, &DICT));
         assert_eq!(collection(8, dict, independent, 0, ptr::null()), 1);
         let values = collection(11, dict, 0, 0, &LIST_LIST);
-        let copied_values = collection(14, values, 0, 0, ptr::null());
+        let copied_values = crate::aggregates::payload(collection(33, values, 0, 0, &LIST_LIST));
         let item = collection(15, values, 0, 0, ptr::null());
         plenty_release(collection(2, item, 7, 0, ptr::null()) as *mut Header);
         let copied_item = collection(15, copied_values, 0, 0, ptr::null());
@@ -2177,15 +2161,16 @@ fn native_checked_generator_abi_consumes_captures_on_both_paths() {
 #[test]
 fn partial_class_cleanup_skips_hook_until_explicitly_armed() {
     unsafe {
-        let partial = collection(108, 0, 0, 0, &GUARD);
-        assert_eq!(partial >> 64, 0);
-        *((partial as *mut u8).add(32).cast::<u128>()) = 41;
-        plenty_release(partial as *mut Header);
+        let mut storage = [0, 41u128];
+        crate::aggregates::release(storage.as_mut_ptr() as u128, &GUARD_CLASS);
         assert!(trace().is_empty());
-        let complete = collection(108, 0, 0, 0, &GUARD);
-        *((complete as *mut u8).add(32).cast::<u128>()) = 42;
-        collection(109, complete, hook as *const () as u128, 0, ptr::null());
-        plenty_release(complete as *mut Header);
+        storage = [INITIALIZED, 42];
+        let value = storage.as_mut_ptr() as u128;
+        // An observer's release leaves the instance alive.
+        crate::aggregates::retain(value, &GUARD_CLASS);
+        crate::aggregates::release(value, &GUARD_CLASS);
+        assert!(trace().is_empty());
+        crate::aggregates::release(value, &GUARD_CLASS);
         assert_eq!(trace(), [42]);
     }
 }
@@ -2238,20 +2223,26 @@ fn deeply_nested_generator_frames_drop_iteratively() {
     }
 }
 
-// Recursive descriptors exercise the runtime representation independently of
-// the frontend, which still rejects recursive source declarations.
+// A class reaches itself through Option[Box[RecursiveNode]].
 static RECURSIVE_NODE: Type = Type {
     affine: true,
     name: "RecursiveNode",
+    inline_bytes: 32,
     variants: &[Variant {
         name: "next",
-        fields: &[&OPTION_RECURSIVE_NODE],
+        fields: &[&OPTION_RECURSIVE_BOX],
     }],
+    drop: Some(recursive_node_drop),
     ..scalar(b'C')
 };
-static OPTION_RECURSIVE_NODE: Type = Type {
+static RECURSIVE_BOX: Type = Type {
     affine: true,
-    name: "Option[RecursiveNode]",
+    key: Some(&RECURSIVE_NODE),
+    ..scalar(b'O')
+};
+static OPTION_RECURSIVE_BOX: Type = Type {
+    affine: true,
+    name: "Option[Box[RecursiveNode]]",
     variants: &[
         Variant {
             name: "Nothing",
@@ -2259,7 +2250,7 @@ static OPTION_RECURSIVE_NODE: Type = Type {
         },
         Variant {
             name: "Some",
-            fields: &[&RECURSIVE_NODE],
+            fields: &[&RECURSIVE_BOX],
         },
     ],
     ..scalar(b'B')
@@ -2272,23 +2263,20 @@ unsafe extern "C" fn recursive_node_drop(_: *mut u128) {
 }
 
 #[test]
-fn recursive_heap_records_drop_on_a_small_worker_stack_without_allocating() {
+fn recursive_boxes_drop_on_a_small_worker_stack_without_allocating() {
     const DEPTH: usize = 100_000;
     let mut child = 0;
-    // SAFETY: each record gets one valid inline Option payload. Ownership of
-    // the previous record transfers directly into the newly allocated parent.
+    // SAFETY: each node's storage holds one valid Option[Box] payload.
+    // Ownership of the previous box transfers into the next node.
     unsafe {
         for _ in 0..DEPTH {
-            let node = collection(
-                30,
-                recursive_node_drop as *const () as u128,
-                0,
-                0,
-                &RECURSIVE_NODE,
-            );
-            *(node as *mut u8).add(32).cast::<u128>() =
-                crate::aggregates::wrap(child, u64::from(child != 0));
-            child = node;
+            let mut storage = [
+                INITIALIZED,
+                crate::aggregates::wrap(child, u64::from(child != 0)),
+            ];
+            let result = collection(119, storage.as_mut_ptr() as u128, 0, 0, &RECURSIVE_BOX);
+            assert_eq!(result >> 64, 0);
+            child = result as u64 as u128;
         }
     }
     // The parent no longer accesses this graph. Its only payload is an owned
@@ -2311,29 +2299,16 @@ fn recursive_heap_records_drop_on_a_small_worker_stack_without_allocating() {
 
 #[cfg(feature = "allocation-checks")]
 #[test]
-fn recursive_record_allocation_failure_leaves_the_child_owner_live() {
+fn failed_box_allocation_drops_the_value_it_would_own() {
     RECURSIVE_DROPS.with(|count| count.set(0));
     unsafe {
-        let child = collection(
-            30,
-            recursive_node_drop as *const () as u128,
-            0,
-            0,
-            &RECURSIVE_NODE,
-        );
-        *(child as *mut u8).add(32).cast::<u128>() = 0; // Nothing
+        let mut leaf = [INITIALIZED, 0];
+        let child = collection(119, leaf.as_mut_ptr() as u128, 0, 0, &RECURSIVE_BOX) as u64 as u128;
+        let mut storage = [INITIALIZED, crate::aggregates::wrap(child, 1)];
         crate::accounting::fail_after(Some(0));
-        let parent = collection(
-            108,
-            recursive_node_drop as *const () as u128,
-            0,
-            0,
-            &RECURSIVE_NODE,
-        );
+        let parent = collection(119, storage.as_mut_ptr() as u128, 0, 0, &RECURSIVE_BOX);
         crate::accounting::fail_after(None);
         assert_eq!(parent >> 64 & 1, 1); // Result.Err(AllocError.OutOfMemory)
-        assert_eq!(RECURSIVE_DROPS.with(std::cell::Cell::get), 0);
-        plenty_release(child as *mut Header);
-        assert_eq!(RECURSIVE_DROPS.with(std::cell::Cell::get), 1);
+        assert_eq!(RECURSIVE_DROPS.with(std::cell::Cell::get), 2);
     }
 }

@@ -1,4 +1,4 @@
-//! Fallible enum payload allocation without copying its arguments.
+//! Enum construction stores its payloads inline without allocating.
 mod support;
 
 fn native(source: &str, expected: &str) {
@@ -20,40 +20,37 @@ fn native(source: &str, expected: &str) {
 
 #[test]
 fn nullary_multi_payload_and_inline_variants() {
-    native(r#"
+    native(
+        r#"
 enum Message:
     Empty
     Data(str, list[i64])
-def data() -> Result[Message, AllocError]:
-    Ok(Message.Data.new("hello", [1, 2].unwrap())?)
+def data() -> Message:
+    Message.Data.new("hello", [1, 2].unwrap())
 print(data()).unwrap()
 print(Message.Empty.new()).unwrap()
 print(Option[i64].Some.new(4)).unwrap()
-"#, "Result[Message, AllocError].Ok(Message.Data(\"hello\", [1, 2]))\nResult[Message, AllocError].Ok(Message.Empty)\nResult[Option[i64], AllocError].Ok(Option[i64].Some(4))");
+"#,
+        "Message.Data(\"hello\", [1, 2])\nMessage.Empty\nOption[i64].Some(4)",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn allocation_failure_releases_owned_payloads() {
-    for budget in 0..=1 {
-        native(
-            &format!(
-                r#"
+fn multi_field_variants_move_payloads_without_allocating() {
+    native(
+        r#"
 enum Message:
     Data(list[i64], list[str])
 a = [1, 2].unwrap()
 b = ["hello"].unwrap()
-print("__test_fail_allocations_after_{budget}__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
 result = Message.Data.new(a, b)
 print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
 print(result).unwrap()
-"#
-            ),
-            if budget == 0 {
-                "Result[Message, AllocError].Err(AllocError.OutOfMemory)"
-            } else {
-                "Result[Message, AllocError].Ok(Message.Data([1, 2], [\"hello\"]))"
-            },
-        );
-    }
+"#,
+        "Message.Data([1, 2], [\"hello\"])",
+    );
 }

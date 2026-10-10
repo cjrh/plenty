@@ -10,7 +10,7 @@ enum Choice[T: IntType]:
     Value(T)
 
 def main() -> Result[(), Failure]:
-    selected = Choice[u8].Value(7)?
+    selected = Choice[u8].Value(7)
     match selected:
         case Choice[u8].Empty:
             print("empty")?
@@ -22,5 +22,5 @@ def main() -> Result[(), Failure]:
 7
 ```
 
-Like other user-defined enums, constructing a value can fail to allocate. The
-`?` propagates that failure. The payload keeps its normal move and copy rules.
+Like other enums, constructing a value does not allocate, so it needs no `?`.
+The payload keeps its normal move and copy rules.

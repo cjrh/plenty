@@ -21,8 +21,11 @@ in their own buffers and result construction. They must not hide infallible
 `String` growth behind a fallible public signature. Input consumption and partial
 external writes cannot generally be rolled back; their contracts must say so.
 All source-level heap construction and allocating operations use checked paths.
-Literals and comprehensions return `Result` directly; public API names have no
-`try_` prefix. `?` and `match` handle errors, while `.unwrap()` explicitly traps
+Values are stored inline unless the program asks for the heap: constructing a
+class instance, tuple, or enum value never allocates and returns the value
+directly. Strings, collections, and `Box(value)` allocate. Their literals,
+comprehensions, and constructors return `Result` directly; public API names have
+no `try_` prefix. `?` and `match` handle errors, while `.unwrap()` explicitly traps
 on `Err` or `Nothing`. Unwrapping moves owned payloads and allocates nothing.
 The trap terminates without unwinding; it is a deliberate caller choice.
 Allocator provenance stays with owners; no public allocator switching API exists.

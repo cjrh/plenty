@@ -1,4 +1,4 @@
-//! Recoverable class storage allocation and constructor ownership.
+//! Inline class storage needs no allocation; only a fallible `__init__` can fail.
 mod support;
 
 fn native(source: &str, expected: &str) {
@@ -18,7 +18,7 @@ fn native(source: &str, expected: &str) {
 }
 
 #[test]
-fn generated_and_custom_constructors_are_fallible() {
+fn generated_and_custom_constructors_return_the_instance() {
     native(
         r#"
 class Point:
@@ -28,19 +28,20 @@ class Number:
     def __init__(self: &mut Number, n: i64) -> ():
         self.value = n * 2
 type Alias = Point
-def build() -> Result[Point, AllocError]:
-    Ok(Alias.new(7)?)
+def build() -> Point:
+    Alias.new(7)
 print(build()).unwrap()
 print(Number.new(4)).unwrap()
 "#,
-        "Result[Point, AllocError].Ok(Point(x=7))\nResult[Number, AllocError].Ok(Number(value=8))",
+        "Point(x=7)\nNumber(value=8)",
     );
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn partial_initialization_releases_fields_without_running_the_class_hook() {
-    for budget in 0..=3 {
+    // Each list allocates once; the instance itself needs no allocation.
+    for budget in 0..=2 {
         native(
             &format!(
                 r#"
@@ -64,7 +65,7 @@ match result:
 drop(Buffer.new())
 "#
             ),
-            if budget == 3 {
+            if budget == 2 {
                 "ready\ncomplete drop\ncomplete drop"
             } else {
                 "AllocError.OutOfMemory\ncomplete drop"
@@ -118,13 +119,12 @@ fn unused_fallible_constructor_does_not_reduce_the_class_depth_limit() {
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn failed_storage_drops_arguments_without_initializing_an_instance() {
+fn construction_moves_arguments_without_allocating() {
     native(
         r#"
 class Resource:
     n: i64
     def __del__(self: &mut Resource) -> ():
-        print("__test_restore_allocations__").unwrap()
         print(self.n).unwrap()
 class Owner:
     resource: Resource
@@ -133,17 +133,15 @@ class Owner:
         self.resource = r
     def __del__(self: &mut Owner) -> ():
         print("owner drop").unwrap()
-resource = Resource(42).unwrap()
+resource = Resource(42)
+print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
-result = Owner.new(resource)
+owner = Owner.new(resource)
+pair = (Resource(7), 8)
 print("__test_restore_allocations__").unwrap()
-match result:
-    case Ok(value):
-        print("unexpected").unwrap()
-    case Err(error):
-        print(error).unwrap()
-drop(Owner.new(Resource(7).unwrap()))
+print("__test_end_no_allocations__").unwrap()
+drop(owner)
 "#,
-        "42\nAllocError.OutOfMemory\ninit\nowner drop\n7",
+        "init\nowner drop\n42\n7",
     );
 }

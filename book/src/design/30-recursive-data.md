@@ -4,15 +4,32 @@ See the [runnable lesson](../tutorial/77-build-recursive-data.md) for a consumin
 chain traversal and a tree declared in an imported module.
 
 Classes and user enums can refer to themselves or one another, including through
-`Option`, `Result`, tuples, lists, dictionary values, and transparent aliases.
-Concrete generic instances can recur too: `Node[T]` may contain
-`Option[Node[T]]`. Finite mutual instances such as `Link[A, B]` and `Link[B, A]`
-share their usual specialization cache.
+`Option`, `Result`, tuples, and transparent aliases. Every such cycle must pass
+through a heap boundary: `Box[T]`, a list, a set, or a dictionary. Values are
+otherwise stored inline, so a cycle without one would describe a value of
+infinite size; the declaration is rejected, naming the type. Concrete generic
+instances can recur too: `Node[T]` may contain `Option[Box[Node[T]]]`. Finite
+mutual instances such as `Link[A, B]` and `Link[B, A]` share their usual
+specialization cache.
 
-Existing heap records provide indirection. Constructing a class or user enum
-allocates its one record and returns `Result[..., AllocError]`; no additional
-`Box` type or allocation is necessary. Standard sums stay inline. Type recursion
-does not place a fixed limit on the number of nodes in a runtime value.
+`Box(value)` moves a value into one heap allocation and returns
+`Result[Box[T], AllocError]`; failure drops the value. Boxing is the only box
+operation that allocates, so it is the only one that needs syntax at the point
+of use.
+
+A `Box[T]` converts to `T` wherever a `T` is required: a function or method
+argument, a return value, an annotated binding, an assignment to an existing
+binding, field, or element, a constructor field, and a collection element. The
+conversion moves the content out and frees the box; it cannot fail. A `&Box[T]`
+converts to `&T` the same way. Nested boxes convert through every level. A boxed
+class's fields and methods are reached directly, and matching a box matches its
+content: an owned box is consumed, a borrowed one lends its content.
+
+Where no type is required the box stays a box: `other = b` moves the box.
+Operators and conditions do not convert either. `*b` moves the content out
+explicitly in those places, and `&*b` and `&mut *b` borrow it. Boxes are affine.
+Type recursion does not place a fixed limit on the number of nodes in a runtime
+value.
 
 Recursive values and aggregates containing them move on assignment and owned
 argument passing. Mutable fields retain ordinary explicit borrowing rules.
@@ -31,10 +48,11 @@ selected fields, and writing explicit traversal functions remain available.
 Dictionary keys and set elements retain their existing closed set of hashable
 types. Callable signatures do not constitute stored recursive values.
 
-Automatic drop uses the existing allocation-free intrusive queue. Class hooks
-run before fields; ordinary scope exit, replacement, early return, and failed
-construction retain their cleanup rules. Native tests build class and enum chains
-of 100,000 nodes each, then drop both with allocation disabled on a 256 KiB stack.
+Automatic drop releases boxes through the existing allocation-free intrusive
+queue, so dropping a chain does not recurse. Class hooks run before fields;
+ordinary scope exit, replacement, early return, and failed construction retain
+their cleanup rules. Native tests build boxed class and enum chains of 100,000
+nodes each, then drop both with allocation disabled on a 256 KiB stack.
 Explicit recursion in user methods or destructor hooks still uses the native stack.
 
 Imports preserve the nominal identity and member visibility of recursive types.
@@ -53,8 +71,9 @@ Aliases resolve with an iterative dependency walk. Definitions and native metada
 use work queues. Type facts inspect finite graphs with visited identities; leaf
 elimination identifies cycles and owners that reach them. Copyability, destruction,
 affinity, and float-sensitive equality metadata are computed from reachable storage.
-Only complete facts are cached. Heap nominal boundaries cut layout cycles while
-surrounding inline sum tags still count toward the nesting limit.
+Only complete facts are cached. Boxes and collections cut layout cycles, and a
+cycle they do not cut is the infinite-size diagnostic. Surrounding inline sum
+tags still count toward the nesting limit, and so does each box.
 
 Alias-only cycles remain invalid and receive bounded dependency-path diagnostics.
 Specialization remains bounded at 256 generic instances, 64 expansion/nesting

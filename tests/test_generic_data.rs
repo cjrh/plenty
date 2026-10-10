@@ -3,7 +3,7 @@ use support::{check_source, run};
 
 #[test]
 fn integer_constraints_apply_to_class_and_enum_arguments() {
-    let output = run("class Counter[T: IntType]:\n    value: T\nenum Integer[T: IntType]:\n    Value(T)\ndef main() -> ():\n    print(Counter(3u8).unwrap()).unwrap()\n    print(Integer[u16].Value(4).unwrap()).unwrap()\n");
+    let output = run("class Counter[T: IntType]:\n    value: T\nenum Integer[T: IntType]:\n    Value(T)\ndef main() -> ():\n    print(Counter(3u8)).unwrap()\n    print(Integer[u16].Value(4)).unwrap()\n");
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -34,7 +34,7 @@ class Sized[T]:
         self.values = [value for n in range(count)]?
         Ok(())
 def main() -> Result[(), Failure]:
-    pair = Pair(7u8, "seven")?
+    pair = Pair(7u8, "seven")
     print(pair)?
     sized = Sized(9u16, 2)?
     print(sized)?
@@ -91,11 +91,11 @@ def unpack[T](choice: Choice[T]) -> T:
 def same[T](left: &Pair[T, T], right: T) -> T:
     right
 def main() -> Result[(), Failure]:
-    pair = Pair[u8, str](4, "four")?
+    pair = Pair[u8, str](4, "four")
     print(key(&pair))?
-    choice = Choice[list[i64]].Value([2, 3]?)?
+    choice = Choice[list[i64]].Value([2, 3]?)
     print(unpack(choice))?
-    equal = Pair[u16, u16](1, 2)?
+    equal = Pair[u16, u16](1, 2)
     print(same(&equal, 7u16))?
     Ok(())
 "#);
@@ -113,7 +113,7 @@ fn inference_rejects_conflicting_and_different_nominal_arguments() {
         ("Pair[u8, u16](1, 2)", "conflicting types"),
         ("Other[u8, u8](1, 2)", "does not match"),
     ] {
-        let source = format!("class Pair[A, B]:\n    a: A\n    b: B\nclass Other[A, B]:\n    a: A\n    b: B\ndef require[T](value: &Pair[T, T]) -> ():\n    pass\ndef main() -> ():\n    value = {actual}.unwrap()\n    require(&value)\n");
+        let source = format!("class Pair[A, B]:\n    a: A\n    b: B\nclass Other[A, B]:\n    a: A\n    b: B\ndef require[T](value: &Pair[T, T]) -> ():\n    pass\ndef main() -> ():\n    value = {actual}\n    require(&value)\n");
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }
@@ -135,14 +135,14 @@ class Logged[T]:
     def __del__(self) -> ():
         print(self.value).unwrap()
 def wrap[T](value: T) -> Result[Cell[T], AllocError]:
-    Cell[T](value)
+    Ok(Cell[T](value))
 def main() -> Result[(), Failure]:
-    mut cell = Cell[u8](5)?
+    mut cell = Cell[u8](5)
     cell.replace(9)
     print(cell.get())?
     text = wrap[str]("hello")?
     print(text.get())?
-    logged = Logged[list[i64]]([1, 2]?)?
+    logged = Logged[list[i64]]([1, 2]?)
     drop(logged)
     Ok(())
 "#);
@@ -167,13 +167,13 @@ type ByteChoice = Choice[u8]
 enum Envelope:
     Item(Choice[list[i64]])
 def main() -> Result[(), Failure]:
-    value = ByteChoice.Value(7)?
+    value = ByteChoice.Value(7)
     match value:
         case Choice[u8].Empty:
             print(0)?
         case Choice[u8].Value(n):
             print(n)?
-    nested = Envelope.Item(Choice[list[i64]].Value([2, 4]?)?)?
+    nested = Envelope.Item(Choice[list[i64]].Value([2, 4]?))
     print(nested)?
     Ok(())
 "#);
@@ -191,12 +191,23 @@ def main() -> Result[(), Failure]:
 #[test]
 fn generic_enum_instances_remain_nominal_and_owned() {
     for (body, expected) in [
-        ("value: Choice[u8] = Choice[i64].Value(1).unwrap()", "expected"),
-        ("value: Choice = Choice[u8].Value(1).unwrap()", "requires 1 type arguments"),
-        ("value: Choice[&i64] = Choice[&i64].Empty.unwrap()", "cannot contain references"),
-        ("value = Choice[list[i64]].Value([1].unwrap()).unwrap()\n    drop(value)\n    drop(value)", "moved"),
+        ("value: Choice[u8] = Choice[i64].Value(1)", "expected"),
+        (
+            "value: Choice = Choice[u8].Value(1)",
+            "requires 1 type arguments",
+        ),
+        (
+            "value: Choice[&i64] = Choice[&i64].Empty",
+            "cannot contain references",
+        ),
+        (
+            "value = Choice[list[i64]].Value([1].unwrap())\n    drop(value)\n    drop(value)",
+            "moved",
+        ),
     ] {
-        let source = format!("enum Choice[T]:\n    Empty\n    Value(T)\ndef main() -> ():\n    {body}\n    pass\n");
+        let source = format!(
+            "enum Choice[T]:\n    Empty\n    Value(T)\ndef main() -> ():\n    {body}\n    pass\n"
+        );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }

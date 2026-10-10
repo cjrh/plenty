@@ -72,13 +72,13 @@ class Guard:
     id: i64
     def __del__(self: &mut Guard) -> ():
         print(self.id).unwrap()
-mut guards = [Guard(10).unwrap(), Guard(20).unwrap(), Guard(30).unwrap()].unwrap()
+mut guards = [Guard(10), Guard(20), Guard(30)].unwrap()
 removed = guards.pop(1)
 print("removed").unwrap()
 drop(guards)
 print("list dropped").unwrap()
 drop(removed)
-mut discarded = [Guard(40).unwrap()].unwrap()
+mut discarded = [Guard(40)].unwrap()
 discarded.pop()
 print("done").unwrap()
 "#,
@@ -101,13 +101,13 @@ def index(items: &mut list[i64]) -> i64:
 class Custom:
     def pop(self) -> i64:
         42
-mut storage = Storage([10, 20].unwrap()).unwrap()
+mut storage = Storage([10, 20].unwrap())
 print(storage.items.pop(index(&mut storage.items))).unwrap()
 position = -1
 print(take(&mut storage.items, &position)).unwrap()
 print(storage.items.pop(len(storage.items) - 1)).unwrap()
 print(storage.items).unwrap()
-print(Custom().unwrap().pop()).unwrap()
+print(Custom().pop()).unwrap()
 "#,
         "index\nOption[i64].Some(10)\nOption[i64].Some(30)\nOption[i64].Some(20)\n[]\n42",
     );

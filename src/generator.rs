@@ -42,7 +42,7 @@ impl GeneratorType {
                         }
                     }
                 }
-                Ty::Enum(t) if t.inline() && t.get().restricted_storage => {
+                Ty::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => {
                     if seen.insert(Some(t.name.as_str())) {
                         work.extend(t.local().variants.iter().flat_map(|v| &v.fields));
                     }
@@ -179,7 +179,7 @@ impl Ty {
             Self::Closure(t) => t.name.is_empty(),
             Self::Generator(t) => t.name.is_none(),
             Self::Ref(t, _) => t.unresolved_generator(),
-            Self::Enum(t) if t.inline() && t.get().restricted_storage => t
+            Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
                 .get()
                 .variants
                 .iter()
@@ -188,10 +188,32 @@ impl Ty {
             _ => false,
         }
     }
+    /// Whether a value keeps owner-local bytes after its 16-byte slot word.
     pub fn has_inline_storage(&self) -> bool {
         match self {
             Self::Range(_) | Self::Generator(_) | Self::Closure(_) => true,
-            Self::Enum(t) if t.inline() => t.get().inline_range || t.get().restricted_storage,
+            Self::Class(t) => t.get().state_bytes() != 0 || !t.get().fields.is_empty(),
+            Self::Enum(t) => *t.get().storage.get_or_init(|| {
+                t.get().variants.iter().any(|v| match v.fields.as_slice() {
+                    [] => false,
+                    [field] => field.has_inline_storage(),
+                    _ => true,
+                })
+            }),
+            _ => false,
+        }
+    }
+    /// A class, or an enum with one multi-field variant, whose fields keep no
+    /// inline data: copying its storage needs no relocation.
+    pub fn flat_record(&self) -> bool {
+        match self {
+            Self::Class(t) => t.get().fields.iter().all(|(_, t)| !t.has_inline_storage()),
+            Self::Enum(t) => match t.get().variants.as_slice() {
+                [variant] if variant.fields.len() > 1 => {
+                    variant.fields.iter().all(|t| !t.has_inline_storage())
+                }
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -200,22 +222,43 @@ impl Ty {
             Self::Closure(t) => t.bytes(),
             Self::Range(_) => 32,
             Self::Generator(t) => *t.bytes.get().expect("resolved generator layout"),
-            Self::Enum(t) if t.inline() => *t.get().payload_bytes.get_or_init(|| {
-                if !self.has_inline_storage() {
-                    return 0;
-                }
+            Self::Enum(t) => *t.get().payload_bytes.get_or_init(|| {
                 t.get()
                     .variants
                     .iter()
-                    .flat_map(|v| &v.fields)
-                    .map(Ty::inline_bytes)
+                    .map(|v| variant_bytes(&v.fields, |t| Ok::<_, ()>(t.inline_bytes())).unwrap())
                     .max()
                     .unwrap_or(0)
+            }),
+            Self::Class(t) => *t.get().bytes.get_or_init(|| {
+                t.get().state_bytes()
+                    + t.get()
+                        .fields
+                        .iter()
+                        .map(|(_, t)| t.slot_bytes())
+                        .sum::<usize>()
             }),
             _ => 0,
         }
     }
 }
+
+/// A single field is the variant's payload; several fields form a record of
+/// typed slots in the owner's storage.
+fn variant_bytes<E>(
+    fields: &[Ty],
+    mut inline: impl FnMut(&Ty) -> Result<usize, E>,
+) -> Result<usize, E> {
+    match fields {
+        [] => Ok(0),
+        [field] => inline(field),
+        _ => fields.iter().try_fold(0, |n, t| Ok(n + 16 + inline(t)?)),
+    }
+}
+
+/// Inline values are copied on every move; keep them small enough for the
+/// native stack. Larger data belongs in a `Box` or a collection.
+pub const INLINE_LIMIT: usize = 64 * 1024;
 
 pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
     match ty {
@@ -255,25 +298,34 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
             t.bytes.set(bytes).expect("layout computed once");
             Ok(bytes)
         }
-        Ty::Enum(t) if t.inline() => {
+        Ty::Enum(t) => {
             if let Some(bytes) = t.get().payload_bytes.get() {
                 return Ok(*bytes);
             }
-            let bytes = if ty.has_inline_storage() {
-                t.get()
-                    .variants
-                    .iter()
-                    .flat_map(|v| &v.fields)
-                    .try_fold(0, |n, t| Ok::<_, String>(n.max(layout(t, active)?)))?
-            } else {
-                0
-            };
-            t.get()
-                .payload_bytes
-                .set(bytes)
-                .expect("sum layout computed once");
-            Ok(bytes)
+            nested(&t.name, active, |active| {
+                t.get().variants.iter().try_fold(0, |n, v| {
+                    Ok(n.max(variant_bytes(&v.fields, |t| layout(t, active))?))
+                })
+            })
+            .map(|bytes| *t.get().payload_bytes.get_or_init(|| bytes))
         }
+        Ty::Class(t) => {
+            if let Some(bytes) = t.get().bytes.get() {
+                return Ok(*bytes);
+            }
+            nested(&t.name, active, |active| {
+                t.get()
+                    .fields
+                    .iter()
+                    .try_fold(t.get().state_bytes(), |n, (_, t)| {
+                        Ok(n + 16 + layout(t, active)?)
+                    })
+            })
+            .map(|bytes| *t.get().bytes.get_or_init(|| bytes))
+        }
+        // A box's content is laid out where the content type itself occurs,
+        // so a recursive type does not measure itself through its boxes.
+        Ty::Box(_) => Ok(0),
         Ty::Range(_) => Ok(32),
         Ty::Ref(t, _) => {
             layout(t, active)?;
@@ -281,6 +333,29 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
         }
         _ => Ok(0),
     }
+}
+
+/// Lay out a nominal type's storage, rejecting a value that contains itself.
+fn nested(
+    name: &str,
+    active: &mut Vec<String>,
+    measure: impl FnOnce(&mut Vec<String>) -> Result<usize, String>,
+) -> Result<usize, String> {
+    if active.iter().any(|n| n == name) {
+        return Err(format!(
+            "`{name}` contains itself and would have infinite size; store the recursive field in a `Box`, list, set, or dict"
+        ));
+    }
+    active.push(name.into());
+    let bytes = measure(active);
+    active.pop();
+    let bytes = bytes?;
+    if bytes > INLINE_LIMIT {
+        return Err(format!(
+            "`{name}` needs {bytes} bytes of inline storage, more than the limit of {INLINE_LIMIT}; store large fields in a `Box`"
+        ));
+    }
+    Ok(bytes)
 }
 
 /// Include types that occur only in temporary operands (such as an empty
@@ -314,6 +389,16 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 let (mut inputs, output) = op.signature().ok_or("invalid enum operation")?;
                 inputs.push(output);
                 inputs
+            }
+            Op::Box(op) => {
+                let (mut inputs, output) = op.signature();
+                inputs.push(output);
+                inputs
+            }
+            Op::Split(t, tag) => {
+                let mut types = vec![Ty::Enum(t.clone())];
+                types.extend(t.get().variants[*tag].fields.iter().cloned());
+                types
             }
             Op::Try {
                 source,

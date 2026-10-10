@@ -23,8 +23,8 @@ def read[T, R: Readable[T]](source: &R) -> T:
 def put[T, W: Writable[T]](target: &mut W, value: T) -> ():
     target.write(value)
 def main() -> Result[(), Failure]:
-    source = Cell(7u8)?
-    mut target = Cell(1u8)?
+    source = Cell(7u8)
+    mut target = Cell(1u8)
     source.send(&mut target)
     print(read(&target))?
     put(&mut target, 9u8)
@@ -59,7 +59,7 @@ class Holder:
 def read[T, R: Readable[T], S: Source[R]](holder: &S) -> T:
     holder.source().read()
 def main() -> Result[(), Failure]:
-    holder = Holder(Cell(7u8)?)?
+    holder = Holder(Cell(7u8))
     print(read(&holder))?
     Ok(())
 "#);
@@ -74,8 +74,8 @@ def main() -> Result[(), Failure]:
 #[test]
 fn protocol_inference_rejects_conflicts_and_unobservable_parameters() {
     for (source, expected) in [
-        ("protocol Readable[T]:\n    def read(self) -> T:\n        pass\nclass Cell:\n    value: u8\n    def read(self) -> u8:\n        self.value\ndef use[T, R: Readable[T]](source: &R, other: T) -> ():\n    pass\ndef main() -> ():\n    cell = Cell(1).unwrap()\n    use(&cell, 2u16)\n", "conflicting types"),
-        ("protocol Marker[T]:\n    def size(self) -> i64:\n        pass\nclass Cell:\n    def size(self) -> i64:\n        1\ndef use[T, R: Marker[T]](source: &R) -> ():\n    pass\ndef main() -> ():\n    cell = Cell().unwrap()\n    use(&cell)\n", "cannot infer type parameter"),
+        ("protocol Readable[T]:\n    def read(self) -> T:\n        pass\nclass Cell:\n    value: u8\n    def read(self) -> u8:\n        self.value\ndef use[T, R: Readable[T]](source: &R, other: T) -> ():\n    pass\ndef main() -> ():\n    cell = Cell(1)\n    use(&cell, 2u16)\n", "conflicting types"),
+        ("protocol Marker[T]:\n    def size(self) -> i64:\n        pass\nclass Cell:\n    def size(self) -> i64:\n        1\ndef use[T, R: Marker[T]](source: &R) -> ():\n    pass\ndef main() -> ():\n    cell = Cell()\n    use(&cell)\n", "cannot infer type parameter"),
     ] {
         let error = check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
@@ -88,7 +88,7 @@ fn protocol_arguments_check_exact_signatures_and_arity() {
     for (function, body, expected) in [
         (
             "def read[R: Readable[u16]](source: &R) -> u16:\n    source.read()\n",
-            "cell = Cell(1).unwrap()\n    read(&cell)",
+            "cell = Cell(1)\n    read(&cell)",
             "signature",
         ),
         (

@@ -1,6 +1,7 @@
 # Export owned objects
 
-A library factory can return a class without exposing its fields to C. Its
+A library factory can return a class without exposing its fields to C. C sees
+an opaque handle: a box that the library allocates for the instance. Its
 generated header names the matching destroy function and its ownership rules.
 
 ```plenty-file counter.plenty
@@ -10,7 +11,7 @@ pub class Counter:
         print(self.value).unwrap()
 
 pub export def create(value: i64) -> Result[Counter, AllocError] = "counter_create":
-    Counter(value)
+    Ok(Counter(value))
 
 pub export def read(owner: &Counter) -> i64 = "counter_read":
     owner.value
@@ -41,7 +42,10 @@ ready
 
 Build `counter.plenty` with `--shared-library --library-name counter` to get a C
 factory returning a status and writing a `counter_Counter *` output on success.
-Release that output exactly once with `counter_Counter_destroy`.
+A class returned to C must be declared as `Result[Class, AllocError]`, because
+allocating its handle can fail. The library allocates the handle before running
+the function, so a failure has no other effects. Release the output exactly once
+with `counter_Counter_destroy`.
 
 `counter_read` borrows a `const counter_Counter *`; `counter_increment` borrows a
 `counter_Counter *` exclusively. Neither transfers ownership. Plenty consumers
@@ -53,6 +57,5 @@ handle again; a Plenty caller gets a moved-value error if it tries to reuse
 
 A separate Plenty consumer imports the generated `counter.plentyi` and links
 the binary. Its owning wrapper cleans up automatically, just like the source
-example. The wrapper needs one additional allocation; `create` reports that
-failure through the same `AllocError` result. Keep the originating library loaded
-for the lifetime of every owner.
+example, and needs no allocation of its own. Keep the originating library
+loaded for the lifetime of every owner.

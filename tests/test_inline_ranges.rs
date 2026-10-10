@@ -73,7 +73,7 @@ print(removed_value).unwrap()
 #[test]
 fn range_fields_references_and_generator_captures_keep_their_storage() {
     expect(r#"
-class Box:
+class Crate:
     before: i64
     values: range[i64]
     optional: Option[range[i64]]
@@ -88,7 +88,7 @@ def produce(r: range[i64]) -> Generator[range[i64]]:
     yield range(7, 9)
 def make_generator() -> Generator[range[i64]]:
     produce(range(3))
-mut b = Box(11, range(2), Nothing, 22).unwrap()
+mut b = Crate(11, range(2), Nothing, 22)
 replace(&mut b.values)
 replace_optional(&mut b.optional)
 print(b.before).unwrap()

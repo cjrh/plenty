@@ -30,7 +30,7 @@ print("ZERO_WIDTH_SPACE".isascii()).unwrap()
 class Custom:
     def isascii(self) -> i64:
         42
-print(Custom().unwrap().isascii()).unwrap()
+print(Custom().isascii()).unwrap()
 def source() -> str:
     print("receiver").unwrap()
     " "
@@ -134,7 +134,7 @@ part = ("" + "a").unwrap()
 print(check(&value, &part)).unwrap()
 print(value).unwrap()
 print(text().startswith(prefix())).unwrap()
-print(Custom().unwrap().startswith()).unwrap()
+print(Custom().startswith()).unwrap()
 "#,
         "True\naba\nreceiver\nargument\nTrue\n42",
     );
@@ -229,7 +229,7 @@ print(last(&text, &part)).unwrap()
 print(last(&text, &text)).unwrap()
 print(text.find("missing")).unwrap()
 print(source().find(needle())).unwrap()
-print(Custom().unwrap().find()).unwrap()
+print(Custom().find()).unwrap()
 "#, "Option[i64].Some(2)\nOption[i64].Some(1)\nOption[i64].Nothing\nreceiver\nargument\nOption[i64].Some(0)\n42");
 }
 
@@ -312,7 +312,7 @@ part = ("" + "a").unwrap()
 print(count(&text, &part)).unwrap()
 print(text).unwrap()
 print(source().count(needle())).unwrap()
-print(Custom().unwrap().count()).unwrap()
+print(Custom().count()).unwrap()
 "#,
         "2\naba\nreceiver\nargument\n2\n42",
     );

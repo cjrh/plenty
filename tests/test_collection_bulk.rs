@@ -26,7 +26,7 @@ def extend(items: &mut list[i64], other: list[i64]) -> Result[(), AllocError]:
     Ok(())
 class Data:
     items: list[i64]
-mut data = Data([1, 2].unwrap()).unwrap()
+mut data = Data([1, 2].unwrap())
 other = [3, 4, 5].unwrap()
 print(extend(&mut data.items, other)).unwrap()
 print(data.items.extend([].unwrap())).unwrap()
@@ -37,7 +37,7 @@ print(nested).unwrap()
 class Custom:
     def extend(self, n: i64) -> i64:
         n
-print(Custom().unwrap().extend(42)).unwrap()
+print(Custom().extend(42)).unwrap()
 "#, "Result[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n[1, 2, 3, 4, 5]\nResult[(), AllocError].Ok(())\n[[1], [2], [3]]\n42");
 }
 
@@ -76,7 +76,7 @@ class Guard:
         print("__test_restore_allocations__").unwrap()
         print(self.id).unwrap()
 mut destination = list[Guard]().unwrap()
-source = [Guard(1).unwrap(), Guard(2).unwrap(), Guard(3).unwrap()].unwrap()
+source = [Guard(1), Guard(2), Guard(3)].unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = destination.extend(source)
 print("__test_restore_allocations__").unwrap()
@@ -153,7 +153,7 @@ def update(data: &mut dict[str, i64], source: dict[str, i64]) -> Result[(), Allo
     data.update(source)
 class Data:
     entries: dict[str, i64]
-mut data = Data({"a": 1, "b": 2}.unwrap()).unwrap()
+mut data = Data({"a": 1, "b": 2}.unwrap())
 print(update(&mut data.entries, {"b": 20, "c": 30, "a": 10, "d": 40}.unwrap())).unwrap()
 print(data.entries).unwrap()
 print(data.entries.update({}.unwrap())).unwrap()
@@ -163,7 +163,7 @@ print(nested).unwrap()
 class Custom:
     def update(self, n: i64) -> i64:
         n
-print(Custom().unwrap().update(42)).unwrap()
+print(Custom().update(42)).unwrap()
 "#, "Result[(), AllocError].Ok(())\n{\"a\": 10, \"b\": 20, \"c\": 30, \"d\": 40}\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n{1: [20], 2: [30]}\n42");
 }
 
@@ -189,7 +189,7 @@ print(source).unwrap()
 #[test]
 fn dictionary_update_reserves_both_buffers_before_replacing_any_owner() {
     let entries = (1..=10)
-        .map(|n| format!("{n}: Guard({}).unwrap()", 100 + n))
+        .map(|n| format!("{n}: Guard({})", 100 + n))
         .collect::<Vec<_>>()
         .join(", ");
     let incoming_drops = (101..=110)
@@ -205,7 +205,7 @@ class Guard:
     def __del__(self) -> ():
         print("__test_restore_allocations__").unwrap()
         print(self.id).unwrap()
-mut data = {{1: Guard(1).unwrap()}}.unwrap()
+mut data = {{1: Guard(1)}}.unwrap()
 source = {{{entries}}}.unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = data.update(source)
@@ -289,7 +289,7 @@ def update(data: &mut set[str], source: set[str]) -> Result[(), AllocError]:
     data.update(source)
 class Data:
     members: set[str]
-mut data = Data({("é" + "🙂").unwrap()}.unwrap()).unwrap()
+mut data = Data({("é" + "🙂").unwrap()}.unwrap())
 print(update(&mut data.members, {("" + "é🙂").unwrap(), "other"}.unwrap())).unwrap()
 print(len(data.members)).unwrap()
 print("é🙂" in data.members).unwrap()

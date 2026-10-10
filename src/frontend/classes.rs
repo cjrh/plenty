@@ -117,6 +117,8 @@ impl ClassDecl {
             },
             fields,
             destructor,
+            bytes: std::cell::OnceCell::new(),
+            managed: std::cell::OnceCell::new(),
         })))
     }
 }
@@ -245,12 +247,17 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             )];
             args.extend(constructor_inputs.iter().map(|(n, _)| name(at, n)));
             let init = expression(at, Expression::Call(method(&class.name, "__init__"), args));
-            let allocation = expression(at, Expression::ClassNew(ty.clone()));
-            let output = TypeRef {
-                concrete: None,
-                at: at.clone(),
-                name: Some("Result".into()),
-                args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
+            let fallible = ty.get().fallible_init;
+            // Storage is inline, so only a fallible initializer makes construction fail.
+            let output = if fallible {
+                TypeRef {
+                    concrete: None,
+                    at: at.clone(),
+                    name: Some("Result".into()),
+                    args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
+                }
+            } else {
+                type_ref(at, &class.name)
             };
             functions.push(Function {
                 once: false,
@@ -270,12 +277,12 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                             name: instance.into(),
                             mutable: true,
                             annotation: None,
-                            value: expression(at, Expression::Try(Box::new(allocation))),
+                            value: expression(at, Expression::ClassNew(ty.clone())),
                         },
                     ),
                     statement(
                         at,
-                        Statement::Expr(if ty.get().fallible_init {
+                        Statement::Expr(if fallible {
                             expression(at, Expression::Try(Box::new(init)))
                         } else {
                             init
@@ -296,10 +303,11 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                     ),
                     statement(
                         at,
-                        Statement::Expr(expression(
-                            at,
-                            Expression::Call("Ok".into(), vec![name(at, instance)]),
-                        )),
+                        Statement::Expr(if fallible {
+                            expression(at, Expression::Call("Ok".into(), vec![name(at, instance)]))
+                        } else {
+                            name(at, instance)
+                        }),
                     ),
                 ],
             });
@@ -353,7 +361,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                 Expression::Call(_, args)
                 | Expression::GenericCall(_, _, args)
                 | Expression::Constructor(_, args)
-                | Expression::Tuple(args, _) => {
+                | Expression::Tuple(args) => {
                     for arg in args {
                         self.expr(arg, initialized)?;
                     }
@@ -523,7 +531,61 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
     Ok(())
 }
 
+/// Fields and methods reach through boxes to their content.
+pub(super) fn unbox(mut ty: Ty) -> Ty {
+    while let Ty::Box(content) = ty {
+        ty = (*content).clone();
+    }
+    ty
+}
+
 impl Lower<'_> {
+    /// Project a reference to a box onto its content, through nested boxes.
+    pub(super) fn unbox_reference(&mut self, mut reference: Ty, ops: &mut Vec<Op>) -> Ty {
+        while let Ty::Ref(inner, mutable) = &reference {
+            let Ty::Box(content) = &**inner else { break };
+            ops.push(Op::Box(crate::boxed::BoxOp::Ref(
+                (**content).clone(),
+                *mutable,
+            )));
+            reference = Ty::Ref(content.clone(), *mutable);
+        }
+        reference
+    }
+    /// Convert a box to its content where the content's type is expected. Moving the value out
+    /// cannot fail and allocates nothing, so the conversion needs no syntax.
+    pub(super) fn unbox_to(&mut self, ty: Ty, expected: &Ty, ops: &mut Vec<Op>) -> Ty {
+        let mut content = &ty;
+        let mut depth = 0;
+        while crate::generator::refine(expected, content).is_none() {
+            match content {
+                Ty::Box(inner) => content = inner,
+                Ty::Ref(inner, _) if matches!(**inner, Ty::Box(_)) && depth == 0 => {
+                    let projected = unbox(Ty::clone(inner));
+                    let matches = matches!(expected, Ty::Ref(target, _)
+                        if crate::generator::refine(target, &projected).is_some());
+                    return if matches {
+                        self.unbox_reference(ty, ops)
+                    } else {
+                        ty
+                    };
+                }
+                _ => return ty,
+            }
+            depth += 1;
+        }
+        let mut ty = ty.clone();
+        for _ in 0..depth {
+            let Ty::Box(inner) = ty else { unreachable!() };
+            ops.push(Op::Box(crate::boxed::BoxOp::Take((*inner).clone())));
+            ty = (*inner).clone();
+        }
+        ty
+    }
+    pub(super) fn reference_binding(&self, e: &Expr) -> bool {
+        matches!(&ungroup(e).kind, Expression::Name(n)
+            if matches!(self.names.get(n), Some(Local { ty: Ty::Ref(..), .. })))
+    }
     pub(super) fn finish_temporaries(&mut self, start: usize, ops: &mut Vec<Op>) {
         for slot in self.expression_temps.drain(start..).rev() {
             ops.push(Op::DropLocal(slot));
@@ -607,8 +669,13 @@ impl Lower<'_> {
                 Ty::Ref(t, _) => (**t).clone(),
                 t => t.clone(),
             }),
+            Expression::Unary(op, base) if op == "*" => match self.place_type(base)? {
+                Ty::Box(t) => Some((*t).clone()),
+                t if self.reference_binding(base) => Some(t),
+                _ => None,
+            },
             Expression::Member(base, n) => {
-                let Ty::Class(t) = self.place_type(base)? else {
+                let Ty::Class(t) = unbox(self.place_type(base)?) else {
                     return None;
                 };
                 t.get()
@@ -668,7 +735,8 @@ impl Lower<'_> {
         let Ty::Ref(_, mutable) = &sig.inputs[0].1 else {
             unreachable!()
         };
-        let (_, loan) = self.borrow(base, *mutable, ops)?;
+        let (reference, loan) = self.borrow(base, *mutable, ops)?;
+        self.unbox_reference(reference, ops);
         let mut loans = vec![loan];
         loans.extend(self.call_arguments(args, &sig.inputs[1..], ops)?);
         ops.push(Op::Call(callee.clone()));
@@ -705,8 +773,25 @@ impl Lower<'_> {
         let Ty::Class(class) = &ty else {
             return Err(base.at.error("generic methods require a class receiver"));
         };
-        let slot = self.slot(ty.clone(), &base.at)?;
-        ops.push(Op::StoreLocal(slot));
+        // `observe` may already hold the temporary owner in a slot and push a
+        // view of it; borrow that owner rather than storing a second copy.
+        let held = match ops.as_slice() {
+            [.., Op::StoreLocal(a), Op::LoadLocal(b)]
+                if a == b && self.expression_temps.last() == Some(a) =>
+            {
+                Some(*a)
+            }
+            _ => None,
+        };
+        let slot = if let Some(slot) = held {
+            ops.pop();
+            self.expression_temps.pop();
+            slot
+        } else {
+            let slot = self.slot(ty.clone(), &base.at)?;
+            ops.push(Op::StoreLocal(slot));
+            slot
+        };
         let receiver = format!("__plenty_receiver_{slot}");
         self.names.insert(
             receiver.clone(),

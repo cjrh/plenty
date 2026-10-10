@@ -53,12 +53,12 @@ fn recursive_owners_keep_the_opaque_c_handle_and_generated_wrapper_contract() {
     let source = r#"
 class Node:
     value: i64
-    next: Option[Node]
+    next: Option[Box[Node]]
     def __del__(self) -> ():
         print(self.value).unwrap()
 export def create(value: i64) -> Result[Node, AllocError] = "calc_create":
-    child = Node(value, Nothing)?
-    Node(value + 1, Some(child))
+    child = Node(value, Nothing)
+    Ok(Node(value + 1, Some(Box(child)?)))
 export def read(owner: &Node) -> i64 = "calc_read":
     owner.value
 "#;
@@ -413,7 +413,7 @@ class Resource:
 export def create(value: i64) -> Result[Resource, AllocError] = "calc_create":
     if value < 0:
         return Err(AllocError.CapacityOverflow)
-    Resource(value)
+    Ok(Resource(value))
 export def limit() -> () = "calc_limit":
     print("__test_warm_io__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
@@ -475,11 +475,21 @@ int main(void) {
             b"22\n11\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n"
         );
         if cfg!(feature = "runtime-checks") {
-            for limit in [
-                "print(\"__test_fail_allocations_after_0__\").unwrap()",
-                "calc.limit()",
+            // The library allocates the handle and the wrapper allocates
+            // nothing. A shared library keeps its own runtime, so a failure
+            // injected by the application does not reach it.
+            for (limit, expected) in [
+                (
+                    "print(\"__test_fail_allocations_after_0__\").unwrap()",
+                    if matches!(kind, LibraryKind::Shared) {
+                        "created\n33"
+                    } else {
+                        "AllocError.OutOfMemory"
+                    },
+                ),
+                ("calc.limit()", "AllocError.OutOfMemory"),
             ] {
-                std::fs::write(&app, format!("import calc\ndef main() -> Result[(), Failure]:\n    {limit}\n    result = calc.create(33)\n    calc.restore()\n    print(\"__test_restore_allocations__\").unwrap()\n    match result:\n        case Ok(owner):\n            print(\"unexpected success\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n")).unwrap();
+                std::fs::write(&app, format!("import calc\ndef main() -> Result[(), Failure]:\n    {limit}\n    result = calc.create(33)\n    calc.restore()\n    print(\"__test_restore_allocations__\").unwrap()\n    match result:\n        case Ok(owner):\n            print(\"created\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n")).unwrap();
                 plenty::compile_file_to_executable_with_options(&app, &executable, None, &options)
                     .unwrap();
                 let output = success(Command::new(&executable).output().unwrap());
@@ -489,7 +499,7 @@ int main(void) {
                     .filter(|line| !line.starts_with("__test_"))
                     .collect::<Vec<_>>()
                     .join("\n");
-                assert_eq!(visible, "AllocError.OutOfMemory");
+                assert_eq!(visible, expected);
             }
         }
     }
@@ -503,7 +513,7 @@ class Resource:
     def __del__(self) -> ():
         print(self.value).unwrap()
 export def create(value: i64) -> Result[Resource, AllocError] = "calc_create":
-    Resource(value)
+    Ok(Resource(value))
 export def read(a: &Resource, b: &Resource) -> i64 = "calc_read":
     a.value + b.value
 export def replace(owner: &mut Resource, value: i64) -> Result[(), AllocError] = "calc_replace":
@@ -580,7 +590,7 @@ class Resource:
     def __del__(self) -> ():
         print("released").unwrap()
 export def create(value: i64) -> Result[Resource, AllocError] = "calc_create":
-    Resource(value)
+    Ok(Resource(value))
 export def consume(owner: Resource, fail: i32) -> Result[i64, i32] = "calc_consume":
     if fail != 0:
         Err(-1)
@@ -616,7 +626,8 @@ int main(void) {
     calc_discard(owner);
     assert(calc_create(44, &owner, &alloc) == 0);
     calc_Resource *returned = 0;
-    assert(calc_identity(owner, &returned, &alloc) == 0 && returned == owner);
+    // The returned owner is a new handle; the consumed one is gone.
+    assert(calc_identity(owner, &returned, &alloc) == 0 && returned != 0);
     calc_Resource_destroy(returned);
     return 0;
 }
@@ -670,7 +681,15 @@ int main(void) {
                 .filter(|line| !line.starts_with("__test_"))
                 .collect::<Vec<_>>()
                 .join("\n");
-            assert_eq!(visible, "released\nreleased\nAllocError.OutOfMemory");
+            // Only a static library shares the application's injected failure.
+            assert_eq!(
+                visible,
+                if matches!(kind, LibraryKind::Shared) {
+                    "released\nunexpected success\nreleased"
+                } else {
+                    "released\nreleased\nAllocError.OutOfMemory"
+                }
+            );
         }
         std::fs::write(&app, "import calc\ndef main() -> Result[(), Failure]:\n    owner = calc.create(11)?\n    calc.discard(owner)\n    calc.discard(owner)\n    Ok(())\n").unwrap();
         let error = plenty::check_file(&app, None).unwrap_err().to_string();
@@ -703,7 +722,7 @@ fn generated_library_names_reject_collisions_before_publication() {
     }
     for (text, expected) in [
         ("class Foo:\n    value: i64\nclass Foo_destroy:\n    value: i64\nexport def a(x: &Foo) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &Foo_destroy) -> i64 = \"calc_b\":\n    x.value\n", "identifier collision"),
-        ("import foreign\nclass Foo:\n    value: i64\nexport def create() -> Result[Foo, AllocError] = \"calc_create\":\n    Foo(1)\n", "imported C symbol"),
+        ("import foreign\nclass Foo:\n    value: i64\nexport def create() -> Result[Foo, AllocError] = \"calc_create\":\n    Ok(Foo(1))\n", "imported C symbol"),
         ("import discovery\nexport def answer() -> i32 = \"calc_answer\":\n    42\n", "imported C symbol"),
         ("import first\nimport second\nexport def a(x: &first.Item) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &second.Item) -> i64 = \"calc_b\":\n    x.value\n", "conflicting interface name"),
         ("export def _plenty_require_contract() -> () = \"calc_bad\":\n    pass\n", "reserved"),

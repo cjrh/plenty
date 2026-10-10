@@ -86,7 +86,7 @@ class Guard:
         write_stdout("drop\n").unwrap()
         pass
 def make() -> OnceClosure[[], Guard]:
-    guard = Guard(1).unwrap()
+    guard = Guard(1)
     def once [guard]() -> Guard:
         guard
 def attempt[F: OnceCallable[[], Guard]](job: F) -> Result[(), Failure]:
@@ -99,7 +99,7 @@ print(attempt(job)).unwrap()
 print("__test_restore_thread_starts__").unwrap()
 with spawn(make()).unwrap():
     pass
-guard = Guard(2).unwrap()
+guard = Guard(2)
 other = def [guard]() -> i64:
     guard.id
 with spawn(other).unwrap() as task:

@@ -17,7 +17,7 @@ class Span:
         self.end - self.start
 
 def main() -> Result[(), Failure]:
-    span = Span(10, 5)?
+    span = Span(10, 5)
     print(span)?
     print(span.length())?
     Ok(())

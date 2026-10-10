@@ -46,7 +46,7 @@ data["name"] = "changed"
 drop(data)
 print(keys).unwrap()
 print(values).unwrap()
-print({0: Label.Text(("A" + "da").unwrap()).unwrap()}.unwrap().values()).unwrap()
+print({0: Label.Text(("A" + "da").unwrap())}.unwrap().values()).unwrap()
 options: dict[i64, Option[str]] = {0: Nothing, 1: Some(("B" + "ea").unwrap())}.unwrap()
 result = options.values()
 drop(options)
@@ -64,7 +64,7 @@ def values(data: &dict[str, i64]) -> Result[list[i64], AllocError]:
     Ok(items)
 def keys(data: &mut dict[str, i64]) -> Result[list[str], AllocError]:
     data.keys()
-mut data = Data({"a": 1, "b": 2}.unwrap()).unwrap()
+mut data = Data({"a": 1, "b": 2}.unwrap())
 print(values(&data.entries)).unwrap()
 print(keys(&mut data.entries)).unwrap()
 print(data.entries.values()).unwrap()
@@ -103,7 +103,7 @@ class Guard:
         print(self.id).unwrap()
 def make() -> dict[i64, Guard]:
     print("make").unwrap()
-    {0: Guard(10).unwrap(), 1: Guard(20).unwrap()}.unwrap()
+    {0: Guard(10), 1: Guard(20)}.unwrap()
 result = make().values()
 print("snapshot").unwrap()
 drop(result)
@@ -126,8 +126,8 @@ class Custom:
         True
 print(make().keys()).unwrap()
 print(make().values()).unwrap()
-print(Custom().unwrap().keys(42)).unwrap()
-custom = Custom().unwrap()
+print(Custom().keys(42)).unwrap()
+custom = Custom()
 print(custom.values()).unwrap()
 "#, "make\nResult[list[i64], AllocError].Ok([1])\nmake\nResult[list[i64], AllocError].Ok([2])\n42\nTrue");
 }
@@ -203,7 +203,7 @@ def snapshot(data: dict[i64, Guard]) -> Result[list[Guard], AllocError]:
     print("__test_restore_allocations__").unwrap()
     print("success").unwrap()
     Ok(result)
-result = snapshot({{0: Guard(10).unwrap(), 1: Guard(20).unwrap()}}.unwrap())
+result = snapshot({{0: Guard(10), 1: Guard(20)}}.unwrap())
 print("returned").unwrap()
 drop(result)
 "#

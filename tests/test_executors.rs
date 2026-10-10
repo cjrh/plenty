@@ -135,7 +135,7 @@ def square(n: i64) -> i64:
     n * n
 def main() -> Result[(), Failure]:
     sender, receiver = channel[i64](1)?
-    inputs = [Work(0, sender.share(), receiver.share())?, Work(1, sender, receiver)?]?
+    inputs = [Work(0, sender.share(), receiver.share()), Work(1, sender, receiver)]?
     with ThreadPoolExecutor(2, 1)? as pool:
         print(pool.map(run, inputs)?)?
         print((pool.submit(square, 9)?).result()?)?
@@ -302,7 +302,7 @@ def work(guard: Guard) -> Guard:
     guard
 def leave(sender: &Sender[i64], mode: i64) -> Result[(), Failure]:
     with ThreadPoolExecutor(2, 1)? as pool:
-        pool.submit(work, Guard(sender.share())?)?
+        pool.submit(work, Guard(sender.share()))?
         if mode == 0:
             return Ok(())
         failed: Result[(), Failure] = Err(Failure.Unspecified)
@@ -313,7 +313,7 @@ leave(&sender, 0).unwrap()
 drop(leave(&sender, 1))
 for n in range(3):
     with ThreadPoolExecutor(1, 1).unwrap() as pool:
-        pool.submit(work, Guard(sender.share()).unwrap()).unwrap()
+        pool.submit(work, Guard(sender.share())).unwrap()
         if n == 0:
             continue
         break

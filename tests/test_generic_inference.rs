@@ -28,7 +28,7 @@ def replace[T](target: &mut T, value: T) -> ():
 def view[T](source: &T) -> &T:
     source
 def main() -> Result[(), Failure]:
-    message = Message("hello")?
+    message = Message("hello")
     print(read_message(&message))?
     borrowed = &message
     print(read_message(borrowed))?
@@ -74,7 +74,7 @@ def main() -> Result[(), Failure]:
     mapping = {"a": 7u8}?
     print(key(&mapping, "a"))?
     print(identity({1u8, 2u8}?))?
-    print(pair((3u32, "cm")?))?
+    print(pair((3u32, "cm")))?
     r: Result[u64, str] = Ok(18446744073709551615u64)
     print(success(r))?
     print(optional(Some(1u8)))?
@@ -126,7 +126,7 @@ class Guard:
         print(self.name).unwrap()
 def make(name: str) -> Result[Guard, Failure]:
     print(name)?
-    Ok(Guard(name)?)
+    Ok(Guard(name))
 def keep[T](a: T, b: T) -> T:
     a
 def main() -> Result[(), Failure]:

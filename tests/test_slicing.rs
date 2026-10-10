@@ -68,7 +68,7 @@ def data() -> list[i64]:
 def index(n: i64) -> i64:
     print(n).unwrap()
     n
-mut record = Data([10, 20, 30].unwrap()).unwrap()
+mut record = Data([10, 20, 30].unwrap())
 start = 0
 stop = 2
 print(slice(&record.items, &start, &stop)).unwrap()
@@ -88,7 +88,7 @@ print(items).unwrap()
 class Custom:
     def slice(self, n: i64) -> i64:
         n
-print(Custom().unwrap().slice(42)).unwrap()
+print(Custom().slice(42)).unwrap()
 "#,
         "Result[list[list[i64]], AllocError].Ok([[2]])\n[[1], [2], [3]]\n42",
     );
@@ -132,7 +132,7 @@ def sliced(items: list[Guard]) -> Result[list[Guard], AllocError]:
     print("__test_restore_allocations__").unwrap()
     print("success").unwrap()
     Ok(result)
-result = sliced([Guard(10).unwrap(), Guard(20).unwrap(), Guard(30).unwrap()].unwrap())
+result = sliced([Guard(10), Guard(20), Guard(30)].unwrap())
 print("returned").unwrap()
 drop(result)
 "#
@@ -207,7 +207,7 @@ class Message:
 def slice(text: &str, start: &i64, stop: &i64) -> Result[str, AllocError]:
     middle = text.slice(start, stop)?
     Ok(middle)
-mut message = Message(("Aé" + "🙂Z").unwrap()).unwrap()
+mut message = Message(("Aé" + "🙂Z").unwrap())
 start = 1
 stop = 3
 saved = slice(&message.text, &start, &stop)

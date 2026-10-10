@@ -1,11 +1,12 @@
 # 21. Understand which values copy and which move
 
 Integers and booleans copy cheaply. Strings share immutable storage without
-copying their bytes. Enums containing only these immutable values can share storage
-too. Collections, classes, generators, and enums containing owned values move on
-assignment, owned argument passing, and return. Use `copy(value)` to duplicate
-collections or their enclosing enums. Nested mutable contents are copied too;
-immutable strings and enums can share storage. Generators and values containing
+copying their bytes. Tuples and enums containing only these immutable values copy
+too: their fields are stored inline, so a copy duplicates those bytes and shares
+the strings. Collections, classes, generators, and tuples or enums containing
+owned values move on assignment, owned argument passing, and return. Use
+`copy(value)` to duplicate collections or their enclosing values. Nested mutable
+contents are copied too; immutable strings can share storage. Generators and values containing
 custom class cleanup cannot be copied.
 
 A generator owns a position in an advancing computation. Assignment transfers

@@ -292,8 +292,29 @@ impl Lower<'_> {
             ops.push(Op::Collection(operation));
             return Ok((output, loan));
         }
+        if let Expression::Unary(op, base) = &ungroup(e).kind {
+            if op == "*" {
+                let reference_binding = self.reference_binding(base);
+                let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+                let Ty::Ref(inner, _) = &reference else {
+                    unreachable!()
+                };
+                return match &**inner {
+                    Ty::Box(content) => {
+                        ops.push(Op::Box(crate::boxed::BoxOp::Ref(
+                            (**content).clone(),
+                            mutable,
+                        )));
+                        Ok((Ty::Ref(content.clone(), mutable), loan))
+                    }
+                    _ if reference_binding => Ok((reference, loan)),
+                    _ => Err(e.at.error("`*` requires a reference or a Box")),
+                };
+            }
+        }
         if let Expression::Member(base, name) = &ungroup(e).kind {
             let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+            let reference = self.unbox_reference(reference, ops);
             let Ty::Ref(inner, _) = reference else {
                 unreachable!()
             };
@@ -355,7 +376,11 @@ impl Lower<'_> {
         let result = self.observe_inner(e, ops)?;
         // A temporary owner survives all observations in the containing full
         // expression, including projections through a temporary collection.
-        if result.1.is_empty() && result.0.has_destructor() {
+        // An element read is a view of its collection, which is held already.
+        if result.1.is_empty()
+            && result.0.has_destructor()
+            && !matches!(ungroup(e).kind, Expression::Index(..))
+        {
             let slot = self.slot(result.0.clone(), &e.at)?;
             ops.push(Op::StoreLocal(slot));
             ops.push(Op::LoadLocal(slot));

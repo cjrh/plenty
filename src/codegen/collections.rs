@@ -97,11 +97,32 @@ impl Lowerer<'_, '_> {
             CollectionOp::TextByteLen => Some(&Ty::Str),
             _ => None,
         };
-        let result = self.collection_call(operation.opcode(), &values, descriptor)?;
+        let mut arguments = values.clone();
+        if let CollectionOp::TryCopy(ty) = operation {
+            // An inline copy needs its own storage before its children are copied.
+            if ty.has_inline_storage() {
+                arguments.push(self.inline_storage(ty.inline_bytes()));
+            }
+        }
+        let result = self.collection_call(operation.opcode(), &arguments, descriptor)?;
         let result = self.unpack(result, &output);
-        let result = self.snapshot_inline(result, &output);
-        for (value, ty) in values.iter().zip(&inputs) {
-            self.release(*value, ty);
+        // An affine element read is a retained view into the borrowed
+        // collection. Copying its storage would split the instance in two.
+        let result = if matches!(operation, CollectionOp::Get(_)) && output.affine() {
+            result
+        } else {
+            self.snapshot_inline(result, &output)
+        };
+        // Inserted affine values move into the collection; the runtime
+        // retains only the copyable operands it stores.
+        let inserts = matches!(
+            operation,
+            CollectionOp::Insert(_) | CollectionOp::TryInsert(_)
+        );
+        for (i, (value, ty)) in values.iter().zip(&inputs).enumerate() {
+            if !(inserts && i > 0 && ty.affine()) {
+                self.release(*value, ty);
+            }
         }
         self.stack.push((result, output));
         Ok(())

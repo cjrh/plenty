@@ -1,13 +1,15 @@
 # Match borrowed values
 
 Use `match &value` to inspect an enum while keeping its owner. Its payload
-bindings are references: `Some(next)` below binds `next` as `&Node[i64]`.
-This lets us traverse a chain without taking it apart or allocating copies.
+bindings are references: `Some(next)` below binds `next` as
+`&Box[links.Node[i64]]`. A reference to a box can be passed where a reference
+to its content is expected, so `total(next)` borrows the next node. This lets
+us traverse a chain without taking it apart or allocating copies.
 
 ```plenty-file links.plenty
 pub class Node[T]:
     pub value: T
-    pub next: Option[Node[T]]
+    pub next: Option[Box[Node[T]]]
 ```
 
 ```plenty
@@ -29,7 +31,7 @@ def increment(node: &mut links.Node[i64]) -> ():
             pass
 
 def main() -> Result[(), Failure]:
-    mut chain = links.Node[i64](3, Some(links.Node[i64](6, Nothing)?))?
+    mut chain = links.Node[i64](3, Some(Box(links.Node[i64](6, Nothing))?))
     print(total(&chain))?
     increment(&mut chain)
     print(total(&chain))?
@@ -101,9 +103,7 @@ def main() -> Result[(), Failure]:
 Option[Result[i64, str]].Some(Result[i64, str].Ok(5))
 ```
 
-Mutable matching supports standard sums and user enums with owned payloads,
-including recursive enums. User enums containing only immutable values can share
-heap storage, so their payloads remain read-only: match a shared borrow and
-construct a replacement when needed. `_` ignores a payload without moving it.
+Mutable matching works for every enum, including recursive ones. `_` ignores a
+payload without moving it.
 Borrowed matching uses the same exhaustiveness checks and qualified user-variant
 names as owned matching.

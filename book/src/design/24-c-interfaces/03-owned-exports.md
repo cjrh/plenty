@@ -1,7 +1,11 @@
 # Owned library objects
 
 An export returning `Result[SomeClass, AllocError]` publishes an opaque owned
-handle. The class fields and native layout remain private. Class names must have
+handle: a box holding the instance. Instances are otherwise stored inline, so the
+export adapter allocates the box before calling the Plenty function. If that
+allocation fails, the function does not run, consumed handle arguments are
+released, and the status reports `AllocError`. If the function returns `Err`,
+the empty box is freed. The class fields and native layout remain private. Class names must have
 distinct ASCII basenames within the library, including across imported modules.
 
 For library `calc` and class `Resource`, the C interface declares:
@@ -29,15 +33,15 @@ cannot collide with foreign imports either. Class names beginning `plenty_` are
 reserved at this boundary.
 
 The generated `.plentyi` publishes an owning class with a private opaque pointer
-and an automatic destructor. Its factory first allocates an empty wrapper, then
-calls the native factory and arms the wrapper on success. Either allocation can
-return `AllocError`; a wrapper allocation failure never calls the native factory.
-A native failure drops the empty wrapper. Scope exit, `drop`, moves, and `?` use
-ordinary Plenty ownership rules. The wrapper adds one fallible allocation and
-never exposes the native object's fields or permits copying the owner.
+and an automatic destructor. Its factory creates an empty wrapper, which needs no
+allocation, then calls the native factory and stores the handle on success. A
+native failure drops the empty wrapper. Scope exit, `drop`, moves, and `?` use
+ordinary Plenty ownership rules. The wrapper never exposes the native object's
+fields or permits copying the owner.
 
-Only allocation-error factories are supported for class results. Other error
-types need a way to represent wrapper-allocation failure. Automatically exported
+Only allocation-error factories are supported for class results, because
+allocating the handle can fail. A consumed handle is moved out of its box, so a
+function returning an owner it received returns a new handle. Automatically exported
 methods are outside this subset; export explicit free-function adapters instead.
 
 ## Borrowing handles

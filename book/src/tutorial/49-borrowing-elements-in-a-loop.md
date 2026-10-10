@@ -11,7 +11,7 @@ class Score:
     value: i64
 
 def main() -> Result[(), Failure]:
-    mut scores = [Score(2)?, Score(5)?]?
+    mut scores = [Score(2), Score(5)]?
     for score in &mut scores:
         score.value = score.value + 1
     print([score.value for score in &scores]?)?

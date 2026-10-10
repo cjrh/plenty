@@ -26,7 +26,7 @@ def reverse(items: &mut list[i64]) -> ():
     items.reverse()
 class Data:
     items: list[i64]
-mut data = Data([1, 2, 3, 4].unwrap()).unwrap()
+mut data = Data([1, 2, 3, 4].unwrap())
 reverse(&mut data.items)
 print(data.items).unwrap()
 data.items.reverse()
@@ -40,7 +40,7 @@ print(one).unwrap()
 class Custom:
     def reverse(self, n: i64) -> i64:
         n
-print(Custom().unwrap().reverse(7)).unwrap()
+print(Custom().reverse(7)).unwrap()
 "#,
         "[4, 3, 2, 1]\n[1, 2, 3, 4]\n[]\n[42]\n7",
     );
@@ -54,7 +54,7 @@ class Guard:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
-mut items = [Guard(1).unwrap(), Guard(2).unwrap(), Guard(3).unwrap()].unwrap()
+mut items = [Guard(1), Guard(2), Guard(3)].unwrap()
 items.reverse()
 print("reversed").unwrap()
 drop(items)
@@ -118,7 +118,7 @@ def clear(items: &mut list[i64]) -> ():
     items.clear()
 class Data:
     items: list[i64]
-mut data = Data([1, 2, 3].unwrap()).unwrap()
+mut data = Data([1, 2, 3].unwrap())
 clear(&mut data.items)
 print(data.items).unwrap()
 data.items.append(42).unwrap()
@@ -138,7 +138,7 @@ print(4 in members).unwrap()
 class Custom:
     def clear(self, value: i64) -> i64:
         value
-print(Custom().unwrap().clear(7)).unwrap()
+print(Custom().clear(7)).unwrap()
 "#,
         "[]\n[42]\n{}\n{\"b\": 20, \"a\": 10}\n0\nTrue\n7",
     );
@@ -158,13 +158,13 @@ class Bag:
         print("bag").unwrap()
         self.items.clear()
         print("empty").unwrap()
-mut items = [[Guard(1).unwrap(), Guard(2).unwrap()].unwrap(), [Guard(3).unwrap()].unwrap()].unwrap()
+mut items = [[Guard(1), Guard(2)].unwrap(), [Guard(3)].unwrap()].unwrap()
 items.clear()
 print("list empty").unwrap()
-mut entries = {2: Guard(20).unwrap(), 1: Guard(10).unwrap()}.unwrap()
+mut entries = {2: Guard(20), 1: Guard(10)}.unwrap()
 entries.clear()
 print("dict empty").unwrap()
-drop(Bag([Guard(4).unwrap(), Guard(5).unwrap()].unwrap()).unwrap())
+drop(Bag([Guard(4), Guard(5)].unwrap()))
 "#,
         "1\n2\n3\nlist empty\n20\n10\ndict empty\nbag\n4\n5\nempty",
     );

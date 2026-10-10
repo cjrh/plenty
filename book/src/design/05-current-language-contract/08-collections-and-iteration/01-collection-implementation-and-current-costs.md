@@ -22,10 +22,12 @@ dictionaries and sets. Private builders append in place; literal and comprehensi
 construction is amortized linear under ordinary hash distribution. Public updates
 also mutate in place; repeated `append` no longer copies existing contents.
 Only explicit `copy` duplicates owned contents. Compiler-emitted type metadata caches
-whether a type owns mutable contents, preventing copies from expanding shared
-immutable enum graphs.
-Heap payloads are reference counted. Standard sum wrappers live inline and
-retain/release only their active payload. Replacing a local releases its previous
+whether a type owns mutable contents.
+Class instances, tuples, and enum values are stored inline in the buffer's rows,
+so a `list[Point]` keeps its points contiguous and building it allocates only for
+buffer growth. Inserting an affine element moves it into the buffer.
+Heap payloads are reference counted. Inline values retain/release only their
+active payload and fields. Replacing a local releases its previous
 value; scope/function exits release remaining owners. Collection buffers are
 reclaimed along with objects; type metadata lives in immutable program data.
 Private expression temporaries

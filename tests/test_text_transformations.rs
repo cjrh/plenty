@@ -101,7 +101,7 @@ print(result).unwrap()
 class Custom:
     def removeprefix(self) -> i64:
         42
-print(Custom().unwrap().removeprefix()).unwrap()
+print(Custom().removeprefix()).unwrap()
 "#, "source\npattern\nResult[str, AllocError].Ok(\"value\")\nResult[str, AllocError].Ok(\"é\")\n42");
 }
 
@@ -197,7 +197,7 @@ print("ZERO_WIDTH_SPACE".strip()).unwrap()
 class Custom:
     def strip(self, value: i64) -> i64:
         value
-print(Custom().unwrap().strip(42)).unwrap()
+print(Custom().strip(42)).unwrap()
 "#.replace("ZERO_WIDTH_SPACE", "\u{200b}"), "Result[str, AllocError].Ok(\"é🙂\")\nResult[str, AllocError].Ok(\"é🙂 　\")\nResult[str, AllocError].Ok(\"　 é🙂\")\n6\n1\nResult[str, AllocError].Ok(\"\u{200b}\")\n42");
 }
 
@@ -300,7 +300,7 @@ print(saved).unwrap()
 class Custom:
     def repeat(self) -> i64:
         42
-print(Custom().unwrap().repeat()).unwrap()
+print(Custom().repeat()).unwrap()
 def source() -> str:
     print("receiver").unwrap()
     return "x"

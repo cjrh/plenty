@@ -18,7 +18,7 @@ def read_message[T: Readable](source: &T) -> str:
     source.read()
 
 def main() -> Result[(), Failure]:
-    message = Message("hello")?
+    message = Message("hello")
     print(read_message(&message))?
     Ok(())
 ```

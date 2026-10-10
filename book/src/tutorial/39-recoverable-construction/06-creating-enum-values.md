@@ -1,6 +1,8 @@
 # Creating enum values
 
-Enum variants also offer explicit fallible construction:
+Constructing an enum value never allocates, so it never needs recovery. The
+payload is stored inline, and `Enum.Variant.new(...)` is the same as
+`Enum.Variant(...)`:
 
 ```plenty
 enum Message:
@@ -13,9 +15,9 @@ def main() -> Result[(), IoError]:
     Ok(())
 ```
 ```output
-Result[Message, AllocError].Ok(Message.Text("hello"))
-Result[Message, AllocError].Ok(Message.Empty)
+Message.Text("hello")
+Message.Empty
 ```
 
-Payload arguments move into the constructor and are dropped if its allocation
-fails. Nullary variants take no arguments to `new`.
+Payload arguments move into the value. Allocations inside argument
+expressions, such as building the string, keep their own `Result`.

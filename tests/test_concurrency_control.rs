@@ -59,7 +59,7 @@ fn tokens_move_through_ordinary_owners_and_scoped_threads() {
 class Stop:
     token: CancellationToken
 token = CancellationToken().unwrap()
-stored = [Stop(token.share()).unwrap()].unwrap()
+stored = [Stop(token.share())].unwrap()
 sender, receiver = channel[CancellationToken](1).unwrap()
 sender.send(stored[0].token.share()).unwrap()
 worker_token = receiver.recv().unwrap()

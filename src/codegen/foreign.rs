@@ -2,7 +2,8 @@
 use super::*;
 
 pub(super) fn parameter(ty: &Ty) -> AbiParam {
-    let parameter = AbiParam::new(if matches!(ty, Ty::Ref(..)) {
+    // A class crosses C as its boxed handle.
+    let parameter = AbiParam::new(if matches!(ty, Ty::Ref(..) | Ty::Class(_)) {
         PTR_TY
     } else {
         clif_type(ty.clone())

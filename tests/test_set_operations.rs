@@ -10,7 +10,7 @@ def remove(target: &mut set[str], blocked: &set[str]) -> ():
     target.difference_update(blocked)
 class Store:
     members: set[str]
-mut store = Store({("é" + "").unwrap(), "remove", "keep"}.unwrap()).unwrap()
+mut store = Store({("é" + "").unwrap(), "remove", "keep"}.unwrap())
 blocked = {"é", "remove", "other"}.unwrap()
 remove(&mut store.members, &blocked)
 print(len(store.members)).unwrap()
@@ -24,7 +24,7 @@ print(len(store.members)).unwrap()
 class Custom:
     def difference_update(self) -> i64:
         42
-print(Custom().unwrap().difference_update()).unwrap()
+print(Custom().difference_update()).unwrap()
 "#,
         "1\nTrue\nFalse\n3\n1\n0\n42",
     );
@@ -69,7 +69,7 @@ def keep(target: &mut set[str], allowed: &set[str]) -> ():
     target.intersection_update(allowed)
 class Store:
     members: set[str]
-mut store = Store({("é" + "").unwrap(), "remove", "keep"}.unwrap()).unwrap()
+mut store = Store({("é" + "").unwrap(), "remove", "keep"}.unwrap())
 allowed = {"é", "keep", "extra"}.unwrap()
 keep(&mut store.members, &allowed)
 print(len(store.members)).unwrap()
@@ -81,7 +81,7 @@ print(len(store.members)).unwrap()
 class Custom:
     def intersection_update(self) -> i64:
         42
-print(Custom().unwrap().intersection_update()).unwrap()
+print(Custom().intersection_update()).unwrap()
 "#,
         "2\nTrue\nFalse\n3\n0\n42",
     );
@@ -329,7 +329,7 @@ print(len(a)).unwrap()
 class Custom:
     def issubset(self) -> i64:
         42
-print(Custom().unwrap().issubset()).unwrap()
+print(Custom().issubset()).unwrap()
 "#,
         "True\nTrue\nFalse\nTrue\nFalse\nTrue\nTrue\nTrue\nTrue\n2\n42",
     );

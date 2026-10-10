@@ -1,12 +1,15 @@
 # Ownership and reclamation
 
-Classes, mutable collections, and aggregates containing them move on assignment and owned
-argument passing; independent duplication requires a successful `copy(value)`. Immutable `str`
-and enums containing only immutable values may share storage. Copyability is
-cached on concrete enum and class metadata so shared type graphs are not traversed repeatedly.
+Classes, boxes, mutable collections, and aggregates containing them move on assignment
+and owned argument passing; independent duplication requires a successful `copy(value)`.
+Immutable `str` storage may be shared. Classes, tuples, and enums store their
+fields inline in their owner's storage, so a copy of a copyable value copies its
+bytes and retains its strings. Copyability is cached on concrete enum and class
+metadata so shared type graphs are not traversed repeatedly.
 
 Every managed expression operand, live local, stored field, and frame capture
-has one owner. Loading a copyable value retains its immutable storage. Moving
+has one owner. Loading a copyable value copies its inline storage and retains
+its strings. Inserting an affine value into a collection moves it there. Moving
 an owned value clears the source ownership slot. Stores evaluate the RHS, release the
 old owner, then transfer the new one. Scope exits, loop exits, and function exits
 release locals; compiler-private temporaries are bounded by local slots.

@@ -37,7 +37,7 @@ pub class Scratch:
         Ok(value)
 
 pub def create() -> Result[Scratch, Failure]:
-    mut owner = Scratch()?
+    mut owner = Scratch()
     owner.raw = create_raw()
     if owner.raw.is_null():
         return Err(Failure.Unspecified)
@@ -59,8 +59,9 @@ def main() -> Result[(), Failure]:
 4
 ```
 
-`Scratch()` allocates the Plenty owner before acquiring a C resource. Its null
-field is fully initialized, so cleanup is active even if later work fails. Once
+`Scratch()` creates the Plenty owner, without allocating, before acquiring a C
+resource. Its null field is fully initialized, so cleanup is active even if later
+work fails. Once
 the factory returns, the resource moves into `file`. Leaving scope, including
 through `?`, closes it exactly once. The library that creates the file also
 destroys it. A class with a destructor cannot be copied.

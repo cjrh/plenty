@@ -44,7 +44,7 @@ enum Job[F: Callable[[], i64]]:
     Run(F)
     Empty
 
-def package[F: Callable[[], i64]](callback: F) -> Result[Job[F], AllocError]:
+def package[F: Callable[[], i64]](callback: F) -> Job[F]:
     Job[F].Run(callback)
 
 def invoke[F: Callable[[], i64]](job: &Job[F]) -> i64:
@@ -58,7 +58,7 @@ def main() -> Result[(), Failure]:
     value = 42
     callback = def [value]() -> i64:
         value
-    job = package(callback)?
+    job = package(callback)
     print(invoke(&job))?
     Ok(())
 ```

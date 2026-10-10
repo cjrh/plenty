@@ -73,14 +73,14 @@ def value(values: &mut set[i64]) -> i64:
 class Custom:
     def discard(self, n: i64) -> i64:
         n
-mut storage = Storage({1, 2}.unwrap()).unwrap()
+mut storage = Storage({1, 2}.unwrap())
 print(storage.values.discard(value(&mut storage.values))).unwrap()
 key = 1
 print(remove(&mut storage.values, &key)).unwrap()
 print(key).unwrap()
 print(storage.values.discard(len(storage.values) + 1)).unwrap()
 print(len(storage.values)).unwrap()
-print(Custom().unwrap().discard(7)).unwrap()
+print(Custom().discard(7)).unwrap()
 "#,
         "value\nTrue\nTrue\n1\nTrue\n0\n7",
     );

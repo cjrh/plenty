@@ -40,7 +40,7 @@ def numbers(resource: Resource) -> Generator[i64]:
     yield resource.id
     yield resource.id + 1
 def main() -> Result[(), Failure]:
-    mut source = numbers(Resource(4)?)
+    mut source = numbers(Resource(4))
     print(next(source).unwrap())?
     take = def once [mut source]() -> i64:
         next(source).unwrap()
@@ -48,7 +48,7 @@ def main() -> Result[(), Failure]:
     print(moved)?
     result = moved.unwrap()()
     print(result)?
-    source = numbers(Resource(6)?)
+    source = numbers(Resource(6))
     unused = def once [mut source]() -> i64:
         next(source).unwrap()
     drop(unused)

@@ -10,8 +10,8 @@ def main() -> Result[(), Failure]:
     mut counts = {"apple": 2, "pear": 3}?
     for fruit, count in (&mut counts).items():
         *count = *count + 1
-    print([(fruit, count)? for fruit, count in counts.items()]?)?
-    print([a + b for a, b in [(1, 2)?, (3, 4)?]?]?)?
+    print([(fruit, count) for fruit, count in counts.items()]?)?
+    print([a + b for a, b in [(1, 2), (3, 4)]?]?)?
     Ok(())
 ```
 ```output

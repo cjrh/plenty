@@ -50,7 +50,7 @@ class Resource:
 def numbers(resource: Resource) -> Generator[i64]:
     print("resumed").unwrap()
     yield resource.n
-drop(Some(numbers(Resource(7).unwrap())))
+drop(Some(numbers(Resource(7))))
 "#,
         "7",
     );

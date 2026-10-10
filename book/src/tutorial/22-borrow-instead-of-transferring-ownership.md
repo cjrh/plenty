@@ -90,7 +90,7 @@ class Pair:
         &mut self.left
 
 def main() -> Result[(), Failure]:
-    mut pair = Pair(1, 2)?
+    mut pair = Pair(1, 2)
     left = pair.left_ref()
     *left = 8
     print(pair.left)?

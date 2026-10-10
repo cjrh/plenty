@@ -78,7 +78,7 @@ pub(crate) unsafe fn try_c_string(text: *const Text) -> Result<*mut Text, CStrEr
 }
 
 /// Inline data lives in the word, so the view borrows the word's storage.
-pub(crate) unsafe fn bytes<'a>(text: &'a *const Text) -> &'a [u8] {
+pub(crate) unsafe fn bytes(text: &*const Text) -> &[u8] {
     // SAFETY: the caller keeps a heap text alive for the returned view's lifetime.
     unsafe {
         if is_inline(*text) {
@@ -91,7 +91,7 @@ pub(crate) unsafe fn bytes<'a>(text: &'a *const Text) -> &'a [u8] {
         )
     }
 }
-pub(crate) unsafe fn utf8<'a>(text: &'a *const Text) -> &'a str {
+pub(crate) unsafe fn utf8(text: &*const Text) -> &str {
     // SAFETY: both new() and compiler literals validate UTF-8.
     unsafe { str::from_utf8_unchecked(bytes(text)) }
 }

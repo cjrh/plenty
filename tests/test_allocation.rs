@@ -29,7 +29,7 @@ def extend(values: &mut list[i64]) -> Result[(), AllocError]:
     values.append(42)?
     Ok(())
 def build() -> Result[i64, AllocError]:
-    mut data = Data([].unwrap()).unwrap()
+    mut data = Data([].unwrap())
     extend(&mut data.values)?
     data.values.append(7)?
     mut seen = set[str]().unwrap()
@@ -197,7 +197,7 @@ def append(values: &mut list[Guard], item: Guard) -> Result[(), AllocError]:
     print("unreachable").unwrap()
     Ok(())
 mut values: list[Guard] = [].unwrap()
-item = Guard().unwrap()
+item = Guard()
 print("__test_fail_allocations_after_0__").unwrap()
 result = append(&mut values, item)
 print("__test_begin_no_allocations__").unwrap()

@@ -49,6 +49,8 @@ pub enum Ty {
     List(Rc<Ty>),
     Set(Rc<Ty>),
     Dict(Rc<Ty>, Rc<Ty>),
+    /// One owned heap value; recursive types reach themselves through boxes.
+    Box(Rc<Ty>),
     Range(Rc<Ty>),
     Enum(crate::nominal::Nominal<crate::sum::EnumType>),
     Class(crate::nominal::Nominal<crate::record::ClassType>),
@@ -60,14 +62,15 @@ impl Ty {
     /// Range payloads also occur inside standard sums. Tags remain in the
     /// ordinary 128-bit representation; slot_bytes includes owner-local payloads.
     pub fn has_inline_range(&self) -> bool {
-        matches!(self, Self::Range(_))
-            || matches!(self, Self::Enum(t) if t.inline() && t.get().inline_range)
+        matches!(self, Self::Range(_)) || matches!(self, Self::Enum(t) if t.get().inline_range)
     }
     pub fn slot_bytes(&self) -> usize {
         16 + self.inline_bytes()
     }
-    pub fn inline_sum(&self) -> bool {
-        matches!(self, Self::Enum(t) if t.inline())
+    /// Values carried as 128 bits: a payload word plus binary tags. A class's
+    /// own tag records whether its initializer completed.
+    pub fn wide(&self) -> bool {
+        matches!(self, Self::Enum(_) | Self::Class(_))
     }
     pub fn is_float(&self) -> bool {
         matches!(self, Self::F32 | Self::F64)
@@ -87,7 +90,7 @@ impl Ty {
                     .max()
                     .unwrap_or(0)
             }
-            Self::List(t) | Self::Set(t) | Self::Channel(t, _) | Self::Future(t) => {
+            Self::List(t) | Self::Set(t) | Self::Channel(t, _) | Self::Future(t) | Self::Box(t) => {
                 1 + t.layout_depth()
             }
             Self::Generator(t) => 1 + t.element.layout_depth(),
@@ -110,6 +113,7 @@ impl Ty {
                 | Self::Dict(_, _)
                 | Self::Generator(_)
                 | Self::Class(_)
+                | Self::Box(_)
                 | Self::File
         ) || matches!(self, Self::Enum(_) if self.facts().affine)
     }
@@ -127,7 +131,7 @@ impl Ty {
             Self::Closure(t) => {
                 !t.name.is_empty() && !t.borrowed && !self.contains_generator_frame()
             }
-            Self::Enum(t) if t.inline() && t.get().restricted_storage => t
+            Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
                 .get()
                 .variants
                 .iter()
@@ -175,10 +179,29 @@ impl Ty {
     /// Values requiring cleanup have one owner per operand/local. This includes
     /// inline generators as well as heap-backed values; scalars copy as bits.
     pub fn managed(&self) -> bool {
-        if let Self::Enum(t) = self {
-            if t.inline() {
-                return t.get().managed;
+        match self {
+            // Inline values need cleanup only when a payload or field does.
+            Self::Enum(t) => {
+                let definition = t.get();
+                return definition.managed
+                    && *definition.managed_fields.get_or_init(|| {
+                        definition
+                            .variants
+                            .iter()
+                            .flat_map(|v| &v.fields)
+                            .any(Ty::managed)
+                    });
             }
+            // An undefined forward reference is conservatively managed.
+            Self::Class(t) => {
+                return t.try_get().is_none_or(|definition| {
+                    *definition.managed.get_or_init(|| {
+                        definition.destructor.is_some()
+                            || definition.fields.iter().any(|(_, t)| t.managed())
+                    })
+                });
+            }
+            _ => {}
         }
         matches!(
             self,
@@ -192,7 +215,7 @@ impl Ty {
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
-                | Self::Enum(_)
+                | Self::Box(_)
                 | Self::Class(_)
                 | Self::Generator(_)
         )
@@ -266,6 +289,7 @@ impl fmt::Display for Ty {
             Ty::List(t) => return write!(f, "list[{t}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),
             Ty::Dict(k, v) => return write!(f, "dict[{k}, {v}]"),
+            Ty::Box(t) => return write!(f, "Box[{t}]"),
             Ty::Range(t) => {
                 return if **t == Ty::I64 {
                     f.write_str("range")
@@ -389,6 +413,9 @@ pub enum Op {
     MoveLocal(u8, String),
     DropLocal(u8),
     Enum(crate::sum::EnumOp),
+    Box(crate::boxed::BoxOp),
+    /// Move every field out of a multi-field variant or tuple, in field order.
+    Split(crate::nominal::Nominal<crate::sum::EnumType>, usize),
     /// Defensive trap after an exhaustive finite-domain match.
     Unreachable,
     Collection(crate::collection::CollectionOp),
@@ -1387,6 +1414,26 @@ fn step(
             }
             stack.truncate(stack.len() - inputs.len());
             stack.push(output);
+        }
+        Op::Box(operation) => {
+            let (inputs, output) = operation.signature();
+            if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
+                return Err("box operation type mismatch".into());
+            }
+            stack.truncate(stack.len() - inputs.len());
+            stack.push(output);
+        }
+        Op::Split(t, tag) => {
+            let definition = t.get();
+            let fields = &definition
+                .variants
+                .get(*tag)
+                .ok_or("invalid split variant")?
+                .fields;
+            if fields.len() < 2 || stack.pop() != Some(Ty::Enum(t.clone())) {
+                return Err("invalid split".into());
+            }
+            stack.extend(fields.iter().cloned());
         }
         Op::Unreachable => return Ok(Flow::Exits),
         Op::Yield(ty) => {

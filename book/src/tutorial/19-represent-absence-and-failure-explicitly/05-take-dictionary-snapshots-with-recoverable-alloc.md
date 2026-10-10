@@ -26,8 +26,8 @@ Result[list[i64], AllocError].Ok([10, 20])
 ```
 
 For numbers, strings, and other immutable values, the dictionary remains usable
-after either outcome. Strings and immutable enum storage are shared; the new
-list does not copy their contents. The snapshot remains valid after the source
+after either outcome. String storage is shared, so the new list does not copy
+string contents. The snapshot remains valid after the source
 changes or leaves scope. An empty dictionary produces `Ok([])` if its new list
 header can be allocated.
 

@@ -49,7 +49,7 @@ class Resource:
 
 #[test]
 fn fields_constructors_methods_and_copy() {
-    run(&format!("{POINT}\nmut p = Point(3, 4).unwrap()\nprint(p.magnitude_squared()).unwrap()\np.shift(1)\nmut q = copy(p).unwrap()\nq.x = 20\nprint(p).unwrap()\nprint(q).unwrap()\nprint(p == q).unwrap()\nprint(Point(2, 3).unwrap().magnitude_squared()).unwrap()"),
+    run(&format!("{POINT}\nmut p = Point(3, 4)\nprint(p.magnitude_squared()).unwrap()\np.shift(1)\nmut q = copy(p).unwrap()\nq.x = 20\nprint(p).unwrap()\nprint(q).unwrap()\nprint(p == q).unwrap()\nprint(Point(2, 3).magnitude_squared()).unwrap()"),
         "25\nPoint(x=4, y=5)\nPoint(x=20, y=5)\nFalse\n13\n");
 }
 
@@ -66,7 +66,7 @@ class Pair:
         else:
             self.x = -x
         self.y = self.x + 1
-print(Pair(3, False).unwrap()).unwrap()
+print(Pair(3, False)).unwrap()
 "#,
         "Pair(x=-3, y=-2)\n",
     );
@@ -80,7 +80,7 @@ fn nested_field_borrows_and_collection_mutation() {
 class Drawing:
     origin: Point
     values: list[i64]
-mut drawing = Drawing(Point(1, 2).unwrap(), [3].unwrap()).unwrap()
+mut drawing = Drawing(Point(1, 2), [3].unwrap())
 drawing.origin.shift(2)
 r = &mut drawing.origin.x
 *r = 8
@@ -100,18 +100,18 @@ fn aliases_and_forward_field_types() {
     run(
         r#"
 type P = Point
-class Box:
+class Crate:
     point: P
 enum Value:
-    Position(Box)
+    Position(Crate)
 class Point:
     x: i64
-print(Value.Position(Box(P(3).unwrap()).unwrap()).unwrap()).unwrap()
+print(Value.Position(Crate(P(3)))).unwrap()
 class Empty:
     pass
-print(Empty().unwrap()).unwrap()
+print(Empty()).unwrap()
 "#,
-        "Value.Position(Box(point=Point(x=3)))\nEmpty()\n",
+        "Value.Position(Crate(point=Point(x=3)))\nEmpty()\n",
     );
 }
 
@@ -121,13 +121,13 @@ fn scope_move_replace_return_and_early_drop() {
         &format!(
             r#"{RESOURCE}
 def make() -> Resource:
-    Resource("returned").unwrap()
+    Resource("returned")
 def consume(value: Resource) -> ():
     print("consume").unwrap()
 def demo() -> ():
-    a = Resource("first").unwrap()
-    mut b = Resource("old").unwrap()
-    b = Resource("replacement").unwrap()
+    a = Resource("first")
+    mut b = Resource("old")
+    b = Resource("replacement")
     c = a
     drop(c)
     consume(make())
@@ -149,12 +149,12 @@ class Parent:
     second: Resource
     def __del__(self) -> ():
         print("parent").unwrap()
-        drop(Resource("inside").unwrap())
+        drop(Resource("inside"))
         print("after").unwrap()
 class Outer:
     first: Parent
     second: Resource
-drop(Outer(Parent(Resource("a").unwrap(), Resource("b").unwrap()).unwrap(), Resource("c").unwrap()).unwrap())
+drop(Outer(Parent(Resource("a"), Resource("b")), Resource("c")))
 print("finished").unwrap()
 "#
         ),
@@ -184,7 +184,7 @@ def callee() -> i64:
     print("callee").unwrap()
     42
 def caller() -> i64:
-    r = Resource("drop").unwrap()
+    r = Resource("drop")
     return callee()
 print(caller()).unwrap()
 "#
@@ -197,14 +197,14 @@ print(caller()).unwrap()
 fn generator_capture_and_abandonment() {
     run(&format!(r#"{RESOURCE}
 def values(a: Resource, b: Resource) -> Generator[i64]:
-    c = Resource("local").unwrap()
+    c = Resource("local")
     yield 1
     print("complete").unwrap()
-drop(values(Resource("unstarted a").unwrap(), Resource("unstarted b").unwrap()))
-mut it = values(Resource("a").unwrap(), Resource("b").unwrap())
+drop(values(Resource("unstarted a"), Resource("unstarted b")))
+mut it = values(Resource("a"), Resource("b"))
 print(next(it)).unwrap()
 drop(it)
-mut done = values(Resource("finished a").unwrap(), Resource("finished b").unwrap())
+mut done = values(Resource("finished a"), Resource("finished b"))
 next(done)
 next(done)
 "#), "unstarted b\nunstarted a\nOption[i64].Some(1)\nlocal\nb\na\ncomplete\nlocal\nfinished b\nfinished a\n");
@@ -219,10 +219,10 @@ class Wrapper:
     r: Resource
     values: list[i64]
     def __del__(self) -> ():
-        self.r = Resource("new").unwrap()
+        self.r = Resource("new")
         self.values.append(9).unwrap()
         print(self.values).unwrap()
-drop(Wrapper(Resource("old").unwrap(), [1].unwrap()).unwrap())
+drop(Wrapper(Resource("old"), [1].unwrap()))
 "#
         ),
         "old\n[1, 9]\nnew\n",
@@ -277,7 +277,7 @@ fn invalid_lifecycle_methods() {
         reject(source, diagnostic);
     }
     reject(
-        &format!("{RESOURCE}\nr = Resource('x').unwrap()\nr.__del__()"),
+        &format!("{RESOURCE}\nr = Resource('x')\nr.__del__()"),
         "cannot be called directly",
     );
 }
@@ -285,47 +285,44 @@ fn invalid_lifecycle_methods() {
 #[test]
 fn owned_fields_and_copy_restrictions() {
     reject(
-        &format!("{RESOURCE}\nr = Resource('x').unwrap()\ncopy(r).unwrap()"),
+        &format!("{RESOURCE}\nr = Resource('x')\ncopy(r).unwrap()"),
         "cannot be copied",
     );
     reject(
-        &format!("{RESOURCE}\nr = [Resource('x').unwrap()].unwrap()\ncopy(r).unwrap()"),
+        &format!("{RESOURCE}\nr = [Resource('x')].unwrap()\ncopy(r).unwrap()"),
         "cannot be copied",
     );
     reject(
-        &format!("{RESOURCE}\nr = Option[Resource].Some(Resource('x').unwrap())\ncopy(r).unwrap()"),
+        &format!("{RESOURCE}\nr = Option[Resource].Some(Resource('x'))\ncopy(r).unwrap()"),
         "cannot be copied",
     );
     reject(
-        &format!("{RESOURCE}\nclass Box:\n    r: Resource\nb = Box(Resource('x').unwrap()).unwrap()\nx = b.r"),
+        &format!("{RESOURCE}\nclass Crate:\n    r: Resource\nb = Crate(Resource('x'))\nx = b.r"),
         "cannot move out of a field",
     );
 }
 
 #[test]
 fn field_borrow_conflicts_and_mutability() {
+    reject(&format!("{POINT}\np = Point(1, 2)\np.x = 3"), "mut binding");
     reject(
-        &format!("{POINT}\np = Point(1, 2).unwrap()\np.x = 3"),
-        "mut binding",
-    );
-    reject(
-        &format!("{POINT}\np = Point(1, 2).unwrap()\np.shift(3)"),
+        &format!("{POINT}\np = Point(1, 2)\np.shift(3)"),
         "mut binding",
     );
     run(
-        &format!("{POINT}\nmut p = Point(1, 2).unwrap()\nr = &p.x\np.y = 3\nprint(r).unwrap()"),
+        &format!("{POINT}\nmut p = Point(1, 2)\nr = &p.x\np.y = 3\nprint(r).unwrap()"),
         "1\n",
     );
     reject(
-        &format!("{POINT}\nmut p = Point(1, 2).unwrap()\nr = &p.x\ndrop(p)\nprint(r).unwrap()"),
+        &format!("{POINT}\nmut p = Point(1, 2)\nr = &p.x\ndrop(p)\nprint(r).unwrap()"),
         "moved",
     );
     reject(
-        &format!("{POINT}\nmut p = Point(1, 2).unwrap()\nr = &mut p\n*r = Point(3, 4).unwrap()"),
+        &format!("{POINT}\nmut p = Point(1, 2)\nr = &mut p\n*r = Point(3, 4)"),
         "cannot replace a whole class",
     );
     reject(
-        &format!("{POINT}\np = Point(1, 2).unwrap()\nq = p\nprint(p).unwrap()"),
+        &format!("{POINT}\np = Point(1, 2)\nq = p\nprint(p).unwrap()"),
         "moved",
     );
 }
@@ -339,7 +336,7 @@ class Counter:
         *destination = *destination + self.value + *source
 mut n = 1
 mut other = 2
-c = Counter(3).unwrap()
+c = Counter(3)
 destination = &mut n
 source = &other
 c.add_to(destination, source)
@@ -348,7 +345,7 @@ print(other).unwrap()
 "#;
     run(source, "6\n2\n");
     reject(
-        &format!("{POINT}\nmut p = Point(1, 2).unwrap()\nr = &p\np.shift(r.x)"),
+        &format!("{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x)"),
         "conflicting borrow",
     );
 }
@@ -361,7 +358,7 @@ fn disjoint_fields_support_simultaneous_exclusive_loans() {
 class Pair:
     left: Point
     right: Point
-mut pair = Pair(Point(1, 2).unwrap(), Point(3, 4).unwrap()).unwrap()
+mut pair = Pair(Point(1, 2), Point(3, 4))
 x = &mut pair.left.x
 y = &mut pair.left.y
 right = &mut pair.right
@@ -385,7 +382,7 @@ fn projected_loans_still_reject_overlapping_places_and_parent_access() {
         "r = &mut p\ns = &mut r.x\nr.shift(1)\nprint(s).unwrap()",
     ] {
         reject(
-            &format!("{POINT}\nmut p = Point(1, 2).unwrap()\n{body}"),
+            &format!("{POINT}\nmut p = Point(1, 2)\n{body}"),
             "conflicting borrow",
         );
     }
@@ -394,9 +391,9 @@ fn projected_loans_still_reject_overlapping_places_and_parent_access() {
             r#"{POINT}
 class Outer:
     point: Point
-mut outer = Outer(Point(1, 2).unwrap()).unwrap()
+mut outer = Outer(Point(1, 2))
 x = &outer.point.x
-outer.point = Point(3, 4).unwrap()
+outer.point = Point(3, 4)
 print(x).unwrap()
 "#
         ),
@@ -413,7 +410,7 @@ class Wrapper:
     r: Resource
     def size(self) -> i64:
         len(self.r.name)
-print(Wrapper(Resource("temporary").unwrap()).unwrap().size()).unwrap()
+print(Wrapper(Resource("temporary")).size()).unwrap()
 print("after").unwrap()
 "#
         ),
@@ -426,10 +423,10 @@ fn list_iteration_moves_and_drops_each_element() {
     run(
         &format!(
             r#"{RESOURCE}
-for r in [Resource("a").unwrap(), Resource("b").unwrap()].unwrap():
+for r in [Resource("a"), Resource("b")].unwrap():
     print("body").unwrap()
 print("after").unwrap()
-for r in [Resource("c").unwrap(), Resource("d").unwrap()].unwrap():
+for r in [Resource("c"), Resource("d")].unwrap():
     break
 print("broken").unwrap()
 "#
@@ -443,7 +440,7 @@ fn matched_payload_is_owned_by_its_binding() {
     run(
         &format!(
             r#"{RESOURCE}
-match Option[Resource].Some(Resource("payload").unwrap()):
+match Option[Resource].Some(Resource("payload")):
     case Option[Resource].Some(r):
         drop(r)
         print("after drop").unwrap()
@@ -462,8 +459,8 @@ fn generator_yields_transfer_class_ownership() {
         &format!(
             r#"{RESOURCE}
 def resources() -> Generator[Resource]:
-    yield Resource("a").unwrap()
-    yield Resource("b").unwrap()
+    yield Resource("a")
+    yield Resource("b")
 for r in resources():
     print("body").unwrap()
 print("after").unwrap()
@@ -479,10 +476,10 @@ fn class_copy_recursively_duplicates_owned_fields() {
 class Shape:
     origin: Point
     vertices: list[Point]
-mut original = Shape(Point(1, 2).unwrap(), [Point(3, 4).unwrap()].unwrap()).unwrap()
+mut original = Shape(Point(1, 2), [Point(3, 4)].unwrap())
 mut changed = copy(original).unwrap()
 changed.origin.x = 9
-changed.vertices.append(Point(5, 6).unwrap()).unwrap()
+changed.vertices.append(Point(5, 6)).unwrap()
 print(original).unwrap()
 print(changed).unwrap()
 "#), "Shape(origin=Point(x=1, y=2), vertices=[Point(x=3, y=4)])\nShape(origin=Point(x=9, y=2), vertices=[Point(x=3, y=4), Point(x=5, y=6)])\n");
@@ -492,7 +489,7 @@ print(changed).unwrap()
 fn initialized_early_return_and_match_paths() {
     run(
         r#"
-class Box:
+class Crate:
     value: i64
     def __init__(self, option: Option[i64]) -> ():
         match option:
@@ -501,10 +498,10 @@ class Box:
                 return
             case Option[i64].Nothing:
                 self.value = 0
-print(Box(Option[i64].Some(7)).unwrap()).unwrap()
-print(Box(Option[i64].Nothing).unwrap()).unwrap()
+print(Crate(Option[i64].Some(7))).unwrap()
+print(Crate(Option[i64].Nothing)).unwrap()
 "#,
-        "Box(value=7)\nBox(value=0)\n",
+        "Crate(value=7)\nCrate(value=0)\n",
     );
 }
 
@@ -523,9 +520,9 @@ fn observed_temporaries_survive_the_full_expression() {
     run(
         &format!(
             r#"{RESOURCE}
-print([Resource("element").unwrap()].unwrap()[0].name).unwrap()
-print(Resource("left").unwrap() == Resource("right").unwrap()).unwrap()
-names = [Resource("item").unwrap().name for n in range(2)].unwrap()
+print([Resource("element")].unwrap()[0].name).unwrap()
+print(Resource("left") == Resource("right")).unwrap()
+names = [Resource("item").name for n in range(2)].unwrap()
 print(names).unwrap()
 "#
         ),
@@ -536,7 +533,7 @@ print(names).unwrap()
 #[test]
 fn methods_are_namespaced_and_generated_signatures_are_bounded() {
     run(
-        "class C:\n    def len(self) -> i64:\n        5\nprint(C().unwrap().len()).unwrap()",
+        "class C:\n    def len(self) -> i64:\n        5\nprint(C().len()).unwrap()",
         "5\n",
     );
     let fields = (0..256)
@@ -554,7 +551,7 @@ def consume(items: list[Resource]) -> ():
     for item in items:
         drop(item)
         print("after item").unwrap()
-consume({{1: Resource("payload").unwrap()}}.unwrap().values().unwrap())
+consume({{1: Resource("payload")}}.unwrap().values().unwrap())
 print("after call").unwrap()
 "#
         ),

@@ -17,14 +17,14 @@ fn shared_matches_preserve_recursive_owners() {
         r#"
 enum Chain:
     End
-    Link(i64, Chain)
+    Link(i64, Box[Chain])
 def total(chain: &Chain) -> i64:
     match chain:
         case Chain.End:
             0
         case Chain.Link(value, rest):
             *value + total(rest)
-chain = Chain.Link(3, Chain.Link(7, Chain.End.unwrap()).unwrap()).unwrap()
+chain = Chain.Link(3, Box(Chain.Link(7, Box(Chain.End).unwrap())).unwrap())
 print(total(&chain)).unwrap()
 print(total(&chain)).unwrap()
 "#,
@@ -72,7 +72,7 @@ fn mutable_siblings_and_nested_sum_replacement_preserve_variants() {
         r#"
 enum Pair:
     Both(i64, Option[Result[i64, i64]], list[i64])
-mut pair = Pair.Both(1, Some(Ok(2)), [].unwrap()).unwrap()
+mut pair = Pair.Both(1, Some(Ok(2)), [].unwrap())
 match &mut pair:
     case Pair.Both(left, right, _):
         *left = 5
@@ -96,11 +96,18 @@ fn payload_loans_reject_invalidation_and_escaping_storage() {
         ("value = Some(1)\nmatch &value:\n    case Some(number):\n        *number = 2\n    case Nothing:\n        pass", "exclusive reference"),
         ("def bad(source: &i64) -> &i64:\n    value = Some(*source)\n    match &value:\n        case Some(number):\n            number\n        case Nothing:\n            source", "reference parameter"),
         ("match &Some(1):\n    case Some(number):\n        pass\n    case Nothing:\n        pass", "named binding"),
-        ("enum Value:\n    Number(i64)\nmut value = Value.Number(1).unwrap()\nother = value\nmatch &mut value:\n    case Value.Number(number):\n        *number = 2\nprint(other).unwrap()", "immutable enum storage may be shared"),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{source}\n{error}");
     }
+}
+
+#[test]
+fn mutable_matches_update_inline_enums_without_changing_copies() {
+    runs(
+        "enum Value:\n    Number(i64)\nmut value = Value.Number(1)\nother = value\nmatch &mut value:\n    case Value.Number(number):\n        *number = 2\nprint(other).unwrap()\nprint(value).unwrap()",
+        "Value.Number(1)\nValue.Number(2)\n",
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -109,7 +116,7 @@ fn recursive_class_traversal_and_nested_mutation_do_not_allocate() {
     runs(r#"
 class Node:
     value: i64
-    next: Option[Node]
+    next: Option[Box[Node]]
 def total(node: &Node) -> i64:
     match &node.next:
         case Some(next):
@@ -123,7 +130,7 @@ def bump(node: &mut Node) -> ():
             bump(next)
         case Nothing:
             pass
-mut root = Node(1, Some(Node(2, Nothing).unwrap())).unwrap()
+mut root = Node(1, Some(Box(Node(2, Nothing)).unwrap()))
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 bump(&mut root)
@@ -210,10 +217,10 @@ def visit(value: &Option[Item]) -> Result[(), str]:
         case Nothing:
             pass
     Ok(())
-mut value = Some(Some(Item("old").unwrap()))
+mut value = Some(Some(Item("old")))
 match &mut value:
     case Some(inner):
-        *inner = Some(Item("new").unwrap())
+        *inner = Some(Item("new"))
         print(visit(inner)).unwrap()
     case Nothing:
         pass
@@ -260,7 +267,7 @@ def first(value: &mut Data) -> &mut i64:
     match value:
         case Data.Values(number, _):
             number
-mut items = [Data.Values(1, [2].unwrap()).unwrap()].unwrap()
+mut items = [Data.Values(1, [2].unwrap())].unwrap()
 number = first(&mut items[0])
 *number = 7
 match &mut items[0]:
@@ -325,13 +332,13 @@ class Item:
 def numbers(item: Item) -> Generator[i64]:
     yield 1
     yield 2
-mut wrapped = Some(Some(numbers(Item("first").unwrap())))
+mut wrapped = Some(Some(numbers(Item("first"))))
 match &mut wrapped:
     case Some(inner):
         match inner:
             case Some(source):
                 print(next(source)).unwrap()
-                *source = numbers(Item("second").unwrap())
+                *source = numbers(Item("second"))
                 print(next(source)).unwrap()
             case Nothing:
                 pass

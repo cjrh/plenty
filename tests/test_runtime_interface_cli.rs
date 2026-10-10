@@ -94,7 +94,7 @@ fn generation_rejects_unusable_names_without_replacing_previous_output() {
         assert_eq!(std::fs::read_to_string(&output).unwrap(), "previous");
     }
     for name in ["Library", "load"] {
-        std::fs::write(&producer, format!("class {name}:\n    value: i32\nexport def create() -> Result[{name}, AllocError] = \"calc_create\":\n    {name}(1)\n")).unwrap();
+        std::fs::write(&producer, format!("class {name}:\n    value: i32\nexport def create() -> Result[{name}, AllocError] = \"calc_create\":\n    Ok({name}(1))\n")).unwrap();
         let error = plenty::emit_runtime_interface(&producer, &output, None, "calc")
             .unwrap_err()
             .to_string();
@@ -121,7 +121,7 @@ fn loaded_wrappers_keep_raw_addresses_private_and_enforce_moves() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let producer = root.join("source.plenty");
-    std::fs::write(&producer, "class Resource:\n    value: i32\nexport def create() -> Result[Resource, AllocError] = \"calc_create\":\n    Resource(1)\nexport def read(value: &Resource) -> i32 = \"calc_read\":\n    value.value\nexport def finish(value: Resource) -> () = \"calc_finish\":\n    drop(value)\n").unwrap();
+    std::fs::write(&producer, "class Resource:\n    value: i32\nexport def create() -> Result[Resource, AllocError] = \"calc_create\":\n    Ok(Resource(1))\nexport def read(value: &Resource) -> i32 = \"calc_read\":\n    value.value\nexport def finish(value: Resource) -> () = \"calc_finish\":\n    drop(value)\n").unwrap();
     plenty::emit_runtime_interface(&producer, &root.join("plugin.plentyi"), None, "calc").unwrap();
     let entry = root.join("main.plenty");
     for (body, expected) in [

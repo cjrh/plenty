@@ -740,7 +740,7 @@ impl Scope {
                     self.expr(arg, locals)?;
                 }
             }
-            Expression::Call(_, args) | Expression::Tuple(args, _) => {
+            Expression::Call(_, args) | Expression::Tuple(args) => {
                 for arg in args {
                     self.expr(arg, locals)?;
                 }
@@ -1153,9 +1153,12 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
                     visible(ty, at, access, aliases)?;
                 }
             }
-            Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) | Ty::Channel(t, _) | Ty::Future(t) => {
-                visible(t, at, access, aliases)?
-            }
+            Ty::List(t)
+            | Ty::Set(t)
+            | Ty::Ref(t, _)
+            | Ty::Channel(t, _)
+            | Ty::Future(t)
+            | Ty::Box(t) => visible(t, at, access, aliases)?,
             Ty::Generator(t) => visible(&t.element, at, access, aliases)?,
             Ty::Dict(k, v) => {
                 visible(k, at, access, aliases)?;

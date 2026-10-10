@@ -40,12 +40,14 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Unit values | Expressions, function returns, enum and tuple payloads implemented; standalone bindings, parameters, and collection/class storage deferred |
 | Value reclamation, owned moves, explicit copy/drop | Implemented |
 | Local/parameter references and last-use borrow checking | Bindings, disjoint class fields, collection elements, and returned references tied to one reference parameter; stored references deferred |
-| Borrowed enum matching | Shared matches preserve owners; mutable matches update inline sums and affine enum payloads. Payload loans protect variants, support restricted returns, and allocate nothing; [reference](31-borrowed-enum-matching.md) |
+| Inline values | Class instances, tuples, and enum values store their fields inline in their owner's storage; construction never allocates. Inline storage is limited to 64 KiB per type; [reference](12-classes-fixed-layout-records.md) |
+| `Box[T]` | One owned heap value; `Box(value)` returns `Result`, a box converts to its content wherever the content's type is required, and a boxed class's fields and methods are reached directly; [reference](30-recursive-data.md) |
+| Borrowed enum matching | Shared matches preserve owners; mutable matches update every enum's payloads. Payload loans protect variants, support restricted returns, and allocate nothing; [reference](31-borrowed-enum-matching.md) |
 | Interpreter, REPL, JIT | Out of scope |
 | Lists, dictionaries, sets, ranges, `for`, comprehensions | Implemented |
 | Allocation-free ranges | `range(...)` and `range[T](...)` return inline range values directly; calls, returns, standard sums, indexing, membership, and repeated iteration need no range allocation |
 | Borrowed collection iteration | Shared list loops borrow owned elements; mutable list loops yield mutable element references. Shared copyable elements and dictionary keys remain values |
-| Tuples and unpacking | `(a, b)`, `(a,)`, `tuple[A, B]` / `(A, B)` annotations, literal indexing, flat binding/loop unpacking, and checked tuple construction returning `Result` |
+| Tuples and unpacking | `(a, b)`, `(a,)`, `tuple[A, B]` / `(A, B)` annotations, literal indexing, flat binding/loop unpacking, and inline tuple construction |
 | Collection convenience APIs | Basic indexing, membership, append/add, updates, keys/values, optional list/dictionary `get`, list/dictionary `pop`, set `discard`, and fallible forward list slices; slice syntax and steps are deferred |
 | Text convenience APIs | Length, indexing, iteration, concatenation, equality, membership, fallible joining, forward slicing, literal replacement, explicit-separator splitting, sized numeric parsing, and fallible scalar formatting |
 | Dictionary `items()` | Borrowed key/value loops and comprehensions, including mutable value references; storable views and implicit snapshots are not supported |
@@ -64,7 +66,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Lazy native `Generator[T]`, typed yield, consuming iteration | Implemented with allocation-free concrete frames, direct construction, specialized consumers, and moves through factories and standard sums; recursive inline layouts are rejected |
 | Absolute module imports and `pub` visibility | Implemented: one source root, private-by-default declarations/members, qualified imports and aliases; cycles and re-exports deferred |
 | Modern program input, file I/O, and command-line argument APIs | Recoverable console I/O, arguments, Linux whole-file helpers, and scoped File operations implemented, including bounded reads, capability queries, update/exclusive modes, saved text positions, truncation, `readlines`, and `writelines`; direct file iteration remains deferred |
-| Recursive class/enum types | Self and mutual recursion, aliases and finite generic instances; ordinary fallible records and allocation-free deep drop. Automatic deep copy, equality, and formatting are gated; [reference](30-recursive-data.md) |
+| Recursive class/enum types | Self and mutual recursion through `Box` or a collection, aliases and finite generic instances, and allocation-free deep drop; recursion without a heap boundary is rejected. Automatic deep copy, equality, and formatting are gated; [reference](30-recursive-data.md) |
 | Native C imports | Trusted `.plentyi` interfaces, sized scalars and nominal opaque pointers, explicit symbols, private wrappers, and static or shared linking; [C interface reference](24-c-interfaces.md) |
 | Ownership-aware C adapters | Call-scoped scalar/output references, allocation-free UTF-8 views, fallible C-string conversion, and owned class wrappers with matching native destruction and explicit transfer/error policies; [adapter reference](24-c-interfaces/01-ownership-and-text-adapters.md) |
 | C library exports | Numeric and Result C entries, scalar/class borrows, owned factories and consuming arguments, matching destruction, static/shared output, precise C headers, and owning `.plentyi` wrappers; [library reference](24-c-interfaces/02-library-exports.md) |
@@ -93,7 +95,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 
 Collections, classes, generators, and enums containing owned values transfer ownership.
 `copy(value)` explicitly duplicates mutable contents; `drop(value)` consumes an
-owner early. Immutable strings and immutable enums may share storage. Collection
+owner early. Immutable strings may share storage; tuples and enums copy their inline fields. Collection
 updates operate in place. Named local and parameter references use `&T` / `&mut T`,
 with last-use loan checking over an access CFG. Class fields, list elements, and
 dictionary values and enum payloads can also be borrowed; stored references are deferred. Returned

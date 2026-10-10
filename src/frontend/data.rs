@@ -106,13 +106,22 @@ impl DataTypes {
                     type_params: class.type_params.clone(),
                     at: at.clone(),
                     inputs,
-                    output: reference(
-                        "Result".into(),
-                        vec![
-                            reference(class.name.clone(), types.clone()),
-                            reference("AllocError".into(), vec![]),
-                        ],
-                    ),
+                    // Only a fallible initializer makes construction fail.
+                    output: if class
+                        .methods
+                        .iter()
+                        .any(|m| m.name == "__init__" && m.output.name.is_some())
+                    {
+                        reference(
+                            "Result".into(),
+                            vec![
+                                reference(class.name.clone(), types.clone()),
+                                reference("AllocError".into(), vec![]),
+                            ],
+                        )
+                    } else {
+                        reference(class.name.clone(), types.clone())
+                    },
                     doc: String::new(),
                     body: vec![Stmt {
                         at: at.clone(),
@@ -377,14 +386,20 @@ impl TypeAliases {
                 }
             }
             for ((name, _), ty) in self.data.instances.borrow().iter() {
-                if ty.layout_depth() > 64 {
-                    let at = self
-                        .data
+                let at = || {
+                    self.data
                         .enums
                         .get(name)
                         .map(|d| &d.at)
-                        .unwrap_or_else(|| &self.data.classes[name].at);
-                    return Err(at.error("type nesting exceeds the implementation limit of 64"));
+                        .unwrap_or_else(|| &self.data.classes[name].at)
+                };
+                if ty.facts().infinite {
+                    return Err(at().error(format!(
+                        "`{ty}` contains itself and would have infinite size; store the recursive field in a `Box`, list, set, or dict"
+                    )));
+                }
+                if ty.layout_depth() > 64 {
+                    return Err(at().error("type nesting exceeds the implementation limit of 64"));
                 }
             }
             Ok(())
@@ -434,6 +449,8 @@ impl TypeAliases {
                 managed: true,
                 inline_range: false,
                 payload_bytes: std::cell::OnceCell::new(),
+                storage: std::cell::OnceCell::new(),
+                managed_fields: std::cell::OnceCell::new(),
             },
         )))
     }
@@ -500,7 +517,7 @@ mod tests {
 
     #[test]
     fn repeated_data_method_calls_share_native_specializations() {
-        let mut source = String::from("class Cell[T]:\n    value: T\n    def keep[U](self, value: U) -> U:\n        value\ntype Byte = u8\ntype ByteCell = Cell[Byte]\ndef main() -> ():\n    cell = ByteCell(7).unwrap()\n");
+        let mut source = String::from("class Cell[T]:\n    value: T\n    def keep[U](self, value: U) -> U:\n        value\ntype Byte = u8\ntype ByteCell = Cell[Byte]\ndef main() -> ():\n    cell = ByteCell(7)\n");
         for _ in 0..100 {
             source.push_str("    cell.keep(1u8)\n    cell.keep[u8](1)\n    cell.keep[Byte](1)\n");
         }

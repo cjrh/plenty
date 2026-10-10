@@ -1,11 +1,11 @@
 # Deterministic destruction
 
-The runtime's iterative heap destruction is tested with a 100,000-record chain
-whose static descriptors refer back to themselves through inline `Option`.
+The runtime's iterative heap destruction is tested with a 100,000-box chain
+whose static descriptors refer back to themselves through `Option[Box[...]]`.
 The sole owner transfers to a worker with a 64 KiB stack; all hooks run exactly
-once with allocation disabled. Source-level tests also build recursive class and
-enum chains of 100,000 nodes each and drop both on a 256 KiB native stack with
-allocation disabled. This does not provide a public thread API.
+once with allocation disabled. Source-level tests also build boxed recursive
+class and enum chains of 100,000 nodes each and drop both on a 256 KiB native
+stack with allocation disabled. This does not provide a public thread API.
 
 Plenty uses ownership-driven destruction, without a tracing garbage collector.
 The compiler inserts cleanup on ordinary control-flow exits. This applies to memory
@@ -72,9 +72,13 @@ drops in a function with resource-bearing slots. More precise cleanup analysis
 could recover those tail calls later. Generators count as resource-bearing because
 their frames may capture classes regardless of their yield type.
 
-The destruction queue processes nested values in depth-first declaration order
-without recursive native stack growth through automatic field cleanup. A hook
-runs through a native ABI adapter before its fields are queued. Drops performed
+Values stored inline, such as class instances, tuples, and enum payloads, drop
+immediately in declaration order; their nesting depth is bounded by their type.
+Boxes and collections join the destruction queue, which processes them in
+depth-first declaration order without recursive native stack growth. When a
+value being destroyed from the queue holds a box or collection, that heap child
+finishes after the value's later inline siblings. A hook runs through a native
+ABI adapter before its fields are released. Drops performed
 inside the hook drain synchronously, preserving their order relative to its other
 effects; temporarily suspending the outer queue prevents sibling cleanup from
 running early. Source-level recursive hook calls can still use the native stack.

@@ -11,18 +11,18 @@ class Resource:
 def fail() -> Result[i64, AllocError]:
     Err(AllocError.OutOfMemory)
 def make() -> Result[OnceClosure[[Resource, i64], Result[i64, AllocError]], AllocError]:
-    first = Resource(1)?
-    second = Resource(2)?
+    first = Resource(1)
+    second = Resource(2)
     callback = def once [first, second](argument: Resource, value: i64) -> Result[i64, AllocError]:
         print("entered").unwrap()
         fail()?
         Ok(first.id + second.id + argument.id + value)
     Ok(callback)
 def before_entry() -> Result[(), AllocError]:
-    make()?(Resource(3)?, fail()?)?
+    make()?(Resource(3), fail()?)?
     Ok(())
 def after_entry() -> Result[(), AllocError]:
-    make()?(Resource(3)?, 0)?
+    make()?(Resource(3), 0)?
     Ok(())
 def main() -> Result[(), Failure]:
     print(before_entry())?
@@ -53,7 +53,7 @@ def invoke[T, F: OnceCallable[[], T]](callback: F) -> T:
     callback()
 def main() -> ():
     values = [7, 8].unwrap()
-    resource = Resource(1).unwrap()
+    resource = Resource(1)
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
     wrapped = Some(make(values, resource))
@@ -98,7 +98,7 @@ class Resource:
         print(self.id).unwrap()
 def main() -> Result[(), Failure]:
     for n in range(3):
-        resource = Resource(n)?
+        resource = Resource(n)
         callback = def once [resource]() -> Resource:
             resource
         if n == 0:

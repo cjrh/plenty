@@ -312,7 +312,7 @@ impl Interface {
                     args.push("&mut out_ok".into());
                     if let Some(handle) = owner {
                         output = format!("Result[{}, AllocError]", handle.name);
-                        body.push_str(&format!("    mut owner = {}({storage}.null())?\n    mut out_ok = {storage}.null()\n", handle.name));
+                        body.push_str(&format!("    mut owner = {}({storage}.null())\n    mut out_ok = {storage}.null()\n", handle.name));
                     } else {
                         body.push_str(&format!("    mut out_ok: {ok} = 0\n"));
                     }

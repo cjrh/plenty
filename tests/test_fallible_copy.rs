@@ -33,7 +33,7 @@ def change_dictionary(source: &dict[str, list[i64]]) -> Result[dict[str, list[i6
     mut result = copy(source)?
     result.insert("key", [99].unwrap())?
     Ok(result)
-point = Point(1, [2, 3].unwrap()).unwrap()
+point = Point(1, [2, 3].unwrap())
 mapping = {"key": [1].unwrap()}.unwrap()
 print(changed(&point)).unwrap()
 print(point).unwrap()
@@ -46,9 +46,9 @@ print(copy({1, 2}.unwrap())).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn every_nested_record_enum_and_list_copy_allocation_can_fail() {
-    // Bundle header (1), outer list (2), its two inner lists (4),
-    // Items record (1), and its list payload (2).
-    for budget in 0..=10 {
+    // The outer list (2), its two inner lists (4), and the Items payload's
+    // list (2). The Bundle and Items values themselves are inline.
+    for budget in 0..=8 {
         native(
             &format!(
                 r#"
@@ -61,7 +61,7 @@ class Bundle:
     right: Result[Items, str]
 def duplicate(source: &Bundle) -> Result[Bundle, AllocError]:
     copy(source)
-source = Bundle(("cop" + "ied").unwrap(), [[1, 2].unwrap(), [3].unwrap()].unwrap(), Ok(Items.Batch([4, 5].unwrap()).unwrap())).unwrap()
+source = Bundle(("cop" + "ied").unwrap(), [[1, 2].unwrap(), [3].unwrap()].unwrap(), Ok(Items.Batch([4, 5].unwrap())))
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = duplicate(&source)
 print("__test_restore_allocations__").unwrap()
@@ -82,7 +82,7 @@ match duplicate(&source):
             ),
             &format!(
                 "{}\ncopied\n[[1, 2], [3]]\nResult[Items, str].Ok(Items.Batch([4, 5]))\nTrue",
-                if budget == 10 {
+                if budget == 8 {
                     "True"
                 } else {
                     "AllocError.OutOfMemory"
@@ -131,7 +131,7 @@ fn immutable_values_and_inactive_owned_variants_copy_without_allocating() {
 enum Label:
     Text(str)
 text = ("hel" + "lo").unwrap()
-label = Label.Text(text).unwrap()
+label = Label.Text(text)
 absent: Option[list[i64]] = Nothing
 error: Result[list[i64], str] = Err(text)
 print("__test_begin_no_allocations__").unwrap()
@@ -168,7 +168,7 @@ def duplicate(source: &list[i64], guard: Guard) -> Result[list[i64], AllocError]
     print("unreachable").unwrap()
     Ok(result)
 source = [1, 2].unwrap()
-guard = Guard().unwrap()
+guard = Guard()
 print("__test_fail_allocations_after_0__").unwrap()
 result = duplicate(&source, guard)
 print("__test_restore_allocations__").unwrap()
@@ -182,8 +182,8 @@ print(source).unwrap()
 #[rstest]
 #[case("copy()", "copy takes one argument")]
 #[case("copy(1, 2)", "copy takes one argument")]
-#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = Guard().unwrap()\ncopy(source)", "cannot be copied")]
-#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = [Guard().unwrap()].unwrap()\ncopy(source)", "cannot be copied")]
+#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = Guard()\ncopy(source)", "cannot be copied")]
+#[case("class Guard:\n    def __del__(self: &mut Guard) -> ():\n        pass\nsource = [Guard()].unwrap()\ncopy(source)", "cannot be copied")]
 #[case(
     "def values() -> Generator[i64]:\n    yield 1\nsource = values()\ncopy(source)",
     "cannot be copied"

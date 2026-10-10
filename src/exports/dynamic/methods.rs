@@ -67,7 +67,7 @@ pub(super) fn generate(export: &Export, index: usize, interface: &Interface) -> 
             if let Some(handle) = owner {
                 let name = &handle.name;
                 output = format!("Result[{name}, AllocError]");
-                body.push_str(&format!("        mut owner = {name}(self._origin, self._drop_{name}, {storage}.null())?\n        mut out_ok = {storage}.null()\n"));
+                body.push_str(&format!("        mut owner = {name}(self._origin, self._drop_{name}, {storage}.null())\n        mut out_ok = {storage}.null()\n"));
             } else {
                 body.push_str(&format!("        mut out_ok: {ok} = 0\n"));
             }

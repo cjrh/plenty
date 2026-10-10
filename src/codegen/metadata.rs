@@ -3,14 +3,16 @@ use super::*;
 
 fn blob(module: &mut ObjectModule, bytes: Vec<u8>, links: &[(usize, DataId)]) -> Result<DataId> {
     let id = module.declare_anonymous_data(false, false)?;
-    define(module, id, bytes, links)?;
+    define(module, id, bytes, links, None)?;
     Ok(id)
 }
+/// `hook` is a class's `__del__` adapter, stored at the descriptor's byte 56.
 fn define(
     module: &mut ObjectModule,
     id: DataId,
     bytes: Vec<u8>,
     links: &[(usize, DataId)],
+    hook: Option<FuncId>,
 ) -> Result<()> {
     let mut data = DataDescription::new();
     data.set_align(8);
@@ -18,6 +20,10 @@ fn define(
     for &(offset, target) in links {
         let reference = module.declare_data_in_data(target, &mut data);
         data.write_data_addr(offset as u32, reference, 0);
+    }
+    if let Some(hook) = hook {
+        let reference = module.declare_func_in_data(hook, &mut data);
+        data.write_function_addr(56, reference);
     }
     module.define_data(id, &data)?;
     Ok(())
@@ -57,7 +63,7 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.borrow()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 56];
+    let mut bytes = vec![0; 64];
     bytes[0] = match ty {
         Ty::I8 => b'1',
         Ty::Callable(_) | Ty::Task(_) => b'c',
@@ -85,14 +91,9 @@ fn define_type(
         Ty::Dict(..) => b'D',
         Ty::Range(_) => b'R',
         Ty::Class(_) => b'C',
+        Ty::Box(_) => b'O',
         Ty::Generator(_) => b'G',
-        Ty::Enum(t) => {
-            if t.inline() {
-                b'B'
-            } else {
-                b'E'
-            }
-        }
+        Ty::Enum(_) => b'B',
         Ty::Ref(..) => b'v',
     };
     bytes[1] = u8::from(ty.affine());
@@ -101,9 +102,12 @@ fn define_type(
     bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());
     let mut links = Vec::new();
     match ty {
-        Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Channel(t, _) | Ty::Future(t) => {
-            links.push((8, reserve(module, runtime, t, pending)?))
-        }
+        Ty::List(t)
+        | Ty::Set(t)
+        | Ty::Range(t)
+        | Ty::Channel(t, _)
+        | Ty::Future(t)
+        | Ty::Box(t) => links.push((8, reserve(module, runtime, t, pending)?)),
         Ty::Dict(k, v) => {
             links.push((8, reserve(module, runtime, k, pending)?));
             links.push((16, reserve(module, runtime, v, pending)?));
@@ -166,5 +170,9 @@ fn define_type(
     }
     links.push((40, blob(module, entries, &variant_links)?));
     word(&mut bytes, 48, variants.len());
-    define(module, id, bytes, &links)
+    let hook = class_definition
+        .as_ref()
+        .and_then(|t| t.destructor.as_ref())
+        .map(|name| runtime.drop_hooks[name]);
+    define(module, id, bytes, &links, hook)
 }

@@ -53,7 +53,7 @@ def format(prefix: &str, parts: &list[str]) -> Result[str, AllocError]:
     prefix.concat(", ".join(parts)?)?.concat("!")
 def show(data: &Texts) -> Result[str, AllocError]:
     format(&data.prefix, &data.parts)
-data = Texts("Hello ", ["Ada", "Bea"].unwrap()).unwrap()
+data = Texts("Hello ", ["Ada", "Bea"].unwrap())
 print(show(&data)).unwrap()
 print(data.prefix).unwrap()
 print(data.parts).unwrap()
@@ -76,7 +76,7 @@ class Custom:
     def join(self, text: str) -> str:
         text
 print(separator().join(parts())).unwrap()
-print(Custom().unwrap().join("class method")).unwrap()
+print(Custom().join("class method")).unwrap()
 "#,
         "separator\nparts\nResult[str, AllocError].Ok(\"a-b\")\nclass method",
     );
@@ -120,12 +120,12 @@ def separator() -> str:
 class Custom:
     def split(self, text: str) -> str:
         text
-text = Text("a:b").unwrap()
+text = Text("a:b")
 sep = ":"
 print(split(&text.contents, &sep)).unwrap()
 print(text.contents).unwrap()
 print(source().split(separator())).unwrap()
-print(Custom().unwrap().split("custom")).unwrap()
+print(Custom().split("custom")).unwrap()
 "#,
         "Result[list[str], AllocError].Ok([\"a\", \"b\"])\na:b\nsource\nseparator\nResult[list[str], AllocError].Ok([\"left\", \"right\"])\ncustom",
     );
@@ -169,7 +169,7 @@ def split(source: str, guard: Guard) -> Result[list[str], AllocError]:
     print("unreachable").unwrap()
     Ok(pieces)
 source = ("alphabet:" + "betagamma:deltaepsilon").unwrap()
-guard = Guard().unwrap()
+guard = Guard()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = split(source, guard)
 print("__test_begin_no_allocations__").unwrap()
@@ -228,12 +228,12 @@ def index() -> i64:
 class Custom:
     def get(self, index: i64) -> i64:
         index
-text = Text("abc").unwrap()
+text = Text("abc")
 position = -2
 print(text.value.get(&position)).unwrap()
 print(text.value).unwrap()
 print(source().get(index())).unwrap()
-print(Custom().unwrap().get(42)).unwrap()
+print(Custom().get(42)).unwrap()
 "#,
         "Option[str].Some(\"b\")\nabc\nsource\nindex\nOption[str].Some(\"🙂\")\n42",
     );
@@ -314,7 +314,7 @@ def build(parts: list[str], guard: Guard) -> Result[str, AllocError]:
     print("unreachable").unwrap()
     Ok(joined)
 parts = [("ab" + "cd").unwrap(), ("ef" + "gh").unwrap()].unwrap()
-guard = Guard().unwrap()
+guard = Guard()
 print("__test_fail_allocations_after_0__").unwrap()
 result = build(parts, guard)
 print("__test_begin_no_allocations__").unwrap()

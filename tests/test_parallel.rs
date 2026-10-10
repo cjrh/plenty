@@ -77,7 +77,7 @@ def main() -> Result[(), Failure]:
     signal, wait = channel[i64](1)?
     dropped, count = channel[i64](8)?
     with ThreadPoolExecutor(3, 1)? as pool:
-        inputs = [Input(n, signal.share(), wait.share(), dropped.share())? for n in range(8)]?
+        inputs = [Input(n, signal.share(), wait.share(), dropped.share()) for n in range(8)]?
         match pool.map_result(work, inputs):
             case Err(error):
                 match error:

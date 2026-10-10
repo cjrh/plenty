@@ -58,15 +58,13 @@ fn main_drops_resources_before_the_native_wrapper_returns() {
     let declarations = "class Resource:\n    name: str\n    def __del__(self) -> ():\n        print(self.name).unwrap()\ndef status() -> i32:\n    print('status').unwrap()\n    7i32\n";
     for tail in ["return status()", "status()"] {
         run_both(
-            &format!("{declarations}def main() -> i32:\n    a = Resource('first').unwrap()\n    b = Resource('second').unwrap()\n    {tail}\n"),
+            &format!("{declarations}def main() -> i32:\n    a = Resource('first')\n    b = Resource('second')\n    {tail}\n"),
             7,
             "status\nsecond\nfirst\n",
         );
     }
     run_both(
-        &format!(
-            "{declarations}def main() -> ():\n    a = Resource('unit').unwrap()\n    return\n"
-        ),
+        &format!("{declarations}def main() -> ():\n    a = Resource('unit')\n    return\n"),
         0,
         "unit\n",
     );

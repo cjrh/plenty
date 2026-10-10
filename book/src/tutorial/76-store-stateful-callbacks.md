@@ -20,7 +20,7 @@ def subtract(total: &mut i64, value: i64) -> i64:
     *total
 
 def main() -> Result[(), Failure]:
-    mut handlers = [Handler(10, accumulate)?, Handler(100, subtract)?]?
+    mut handlers = [Handler(10, accumulate), Handler(100, subtract)]?
     for handler in &mut handlers:
         print(handler.call(3))?
     print(handlers[0].call(2))?
@@ -34,8 +34,9 @@ def main() -> Result[(), Failure]:
 ```
 
 Each record owns independent state. `call` borrows that state exclusively for the
-callback and preserves it for later calls. Constructing the records and list is
-fallible; selecting and invoking a callback does not allocate. The callback's
+callback and preserves it for later calls. Constructing the records allocates
+nothing; only the list can fail to allocate. Selecting and invoking a callback
+does not allocate. The callback's
 body retains its ordinary allocation contract.
 
 `State` can be a class containing owned resources, which drop normally with the

@@ -96,7 +96,7 @@ def numbers(r: Resource) -> Generator[i64]:
     yield 4
     print("unexpected continuation").unwrap()
     yield r.n
-source = numbers(Resource(7).unwrap())
+source = numbers(Resource(7))
 print("__test_fail_allocations_after_1__").unwrap()
 result = set[i64].from(source)
 print("__test_restore_allocations__").unwrap()

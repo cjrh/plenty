@@ -99,18 +99,13 @@ impl Lower<'_> {
         let source = self.slot(ty.clone(), &value.at)?;
         ops.push(Op::StoreLocal(source));
         let mut seen = HashSet::new();
-        for (i, (name, ty)) in names.iter().zip(fields).enumerate() {
+        let mut targets = Vec::new();
+        for (name, ty) in names.iter().zip(fields) {
             if name != "_" && !seen.insert(name) {
                 return Err(value.at.error("duplicate unpacking binding"));
             }
-            ops.push(Op::LoadLocal(source));
-            ops.push(Op::Enum(if ty.affine() {
-                crate::sum::EnumOp::Take(t.clone(), 0, i)
-            } else {
-                crate::sum::EnumOp::Field(t.clone(), 0, i)
-            }));
             if name == "_" {
-                ops.push(Op::Drop);
+                targets.push(None);
                 continue;
             }
             if *ty == Ty::Unit {
@@ -136,29 +131,35 @@ impl Lower<'_> {
                 );
                 slot
             };
-            ops.push(Op::StoreLocal(slot));
+            targets.push(Some(slot));
         }
+        // Move every element out at once; `_` positions are dropped here.
+        ops.push(Op::MoveLocal(source, "unpacked tuple".into()));
+        if let [ty] = fields.as_slice() {
+            ops.push(Op::Enum(if ty.affine() {
+                crate::sum::EnumOp::Take(t.clone(), 0, 0)
+            } else {
+                crate::sum::EnumOp::Field(t.clone(), 0, 0)
+            }));
+        } else {
+            ops.push(Op::Split(t.clone(), 0));
+        }
+        ops.extend(
+            targets
+                .iter()
+                .rev()
+                .map(|slot| slot.map_or(Op::Drop, Op::StoreLocal)),
+        );
         ops.push(Op::DropLocal(source));
         Ok(())
     }
     pub(super) fn tuple(
         &mut self,
         values: &[Expr],
-        fallible: bool,
         expected: Type,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
-        let expected = if fallible {
-            match expected {
-                Some(Ty::Enum(t)) if t.name.starts_with("Result[") => {
-                    Some(t.get().variants[0].fields[0].clone())
-                }
-                _ => None,
-            }
-        } else {
-            expected
-        };
         let fields = match &expected {
             Some(Ty::Enum(t)) if t.tuple() => Some(&t.get().variants[0].fields),
             _ => None,
@@ -193,11 +194,7 @@ impl Lower<'_> {
         let Ty::Enum(t) = crate::sum::tuple(types) else {
             unreachable!()
         };
-        let op = if fallible {
-            crate::sum::EnumOp::TryNew(t, 0)
-        } else {
-            crate::sum::EnumOp::New(t, 0)
-        };
+        let op = crate::sum::EnumOp::New(t, 0);
         let output = op.signature().unwrap().1;
         ops.push(Op::Enum(op));
         Ok(output)
@@ -241,6 +238,14 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        let ty = self.expr_hinted(e, expected.clone(), ops)?;
+        Ok(match (ty, expected) {
+            (Some(ty), Some(expected)) => Some(self.unbox_to(ty, &expected, ops)),
+            (ty, _) => ty,
+        })
+    }
+
+    fn expr_hinted(&mut self, e: &Expr, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
         match &e.kind {
             Expression::Name(name)
                 if !self.names.contains_key(name)
@@ -293,9 +298,7 @@ impl Lower<'_> {
                 self.numeric_binary(op, left, right, expected.unwrap(), &e.at, ops)
                     .map(Some)
             }
-            Expression::Tuple(values, fallible) => self
-                .tuple(values, *fallible, expected, &e.at, ops)
-                .map(Some),
+            Expression::Tuple(values) => self.tuple(values, expected, &e.at, ops).map(Some),
             Expression::Call(name, args)
                 if enums::prelude_variant(name) && !self.names.contains_key(name) =>
             {
@@ -1107,15 +1110,6 @@ impl Lower<'_> {
                         &base.at,
                         ops,
                     )?;
-                    if t.inline() {
-                        let Ty::Enum(wrapper) =
-                            crate::sum::result(Ty::Enum(t), crate::sum::alloc_error())
-                        else {
-                            unreachable!()
-                        };
-                        ops.push(Op::Enum(crate::sum::EnumOp::New(wrapper.clone(), 0)));
-                        return Ok(Some(Ty::Enum(wrapper)));
-                    }
                     return Ok(result);
                 }
             }
@@ -1190,7 +1184,7 @@ impl Lower<'_> {
             }
             return self.variant(ty, name, Some(args), &base.at, ops);
         }
-        if let Some(Ty::Class(class)) = self.place_type(base) {
+        if let Some(Ty::Class(class)) = self.place_type(base).map(classes::unbox) {
             return self.class_method(base, class, name, None, args, ops);
         }
         if self.place_type(base) == Some(Ty::File) {

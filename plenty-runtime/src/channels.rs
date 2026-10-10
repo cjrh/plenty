@@ -248,7 +248,11 @@ pub(crate) unsafe extern "C" fn plenty_channel(
     // allocates full typed output storage, and retains the endpoint until return.
     unsafe {
         match op {
-            0 => out.write(aggregates::channel_new(&*descriptor, *args as usize)),
+            0 => out.write(aggregates::channel_new(
+                &*descriptor,
+                *args as usize,
+                out.add(1),
+            )),
             1 | 2 => {
                 let result = send(*args, *args.add(1), op == 2);
                 let result = ranges::copy_payload(result, &*descriptor, out.add(1).cast());

@@ -159,18 +159,18 @@ class Resource:
     def __del__(self: &mut Resource) -> ():
         print(self.n).unwrap()
 def values(resource: Resource) -> Generator[i64]:
-    local = Resource(resource.n + 10).unwrap()
+    local = Resource(resource.n + 10)
     yield resource.n
     yield local.n
-drop(values(Resource(1).unwrap()))
-mut a = values(Resource(2).unwrap())
+drop(values(Resource(1)))
+mut a = values(Resource(2))
 print(next(a)).unwrap()
 b = a
 drop(Some(b))
-mut c = values(Resource(3).unwrap())
+mut c = values(Resource(3))
 for n in c:
     print(n).unwrap()
-mut d = values(Resource(4).unwrap())
+mut d = values(Resource(4))
 for n in d:
     break
 "#,
@@ -194,9 +194,9 @@ def discard(source: Generator[i64]) -> ():
 class Owner:
     n: i64
     def __del__(self: &mut Owner) -> ():
-        discard(pending(Resource(self.n).unwrap()))
+        discard(pending(Resource(self.n)))
         print("finished").unwrap()
-drop(Owner(7).unwrap())
+drop(Owner(7))
 "#,
         "7\nfinished\n",
     );
@@ -356,9 +356,9 @@ def fail() -> Result[i64, i64]:
 def receive(source: Generator[i64], value: i64) -> i64:
     value
 def run() -> Result[i64, i64]:
-    mut source = values(Resource(1).unwrap())
+    mut source = values(Resource(1))
     first = next(source).unwrap()
-    receive(values(Resource(2).unwrap()), fail()?)
+    receive(values(Resource(2)), fail()?)
     Ok(first)
 print(run()).unwrap()
 "#,

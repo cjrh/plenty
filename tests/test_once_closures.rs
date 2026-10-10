@@ -91,14 +91,14 @@ class Resource:
     def __del__(self) -> ():
         print(self.id).unwrap()
 def main() -> Result[(), Failure]:
-    first = Resource(1)?
-    second = Resource(2)?
+    first = Resource(1)
+    second = Resource(2)
     take = def once [first, second]() -> Resource:
         first
     result = take()
     print(result.id)?
     drop(result)
-    third = Resource(3)?
+    third = Resource(3)
     unused = def once [third]() -> Resource:
         third
     drop(unused)

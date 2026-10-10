@@ -38,14 +38,14 @@ class Resource:
     def __del__(self) -> ():
         print(self.id).unwrap()
 def make() -> Result[Closure[[Resource, i64], i64], AllocError]:
-    resource = Resource(1)?
+    resource = Resource(1)
     f = def [resource](argument: Resource, value: i64) -> i64:
         resource.id + argument.id + value
     Ok(f)
 def fail() -> Result[i64, AllocError]:
     Err(AllocError.OutOfMemory)
 def work() -> Result[(), AllocError]:
-    make()?(Resource(2)?, fail()?)
+    make()?(Resource(2), fail()?)
     Ok(())
 def main() -> Result[(), Failure]:
     print(work())?

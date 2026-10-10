@@ -17,7 +17,7 @@ def read[T, R: Readable[T]](source: &R) -> T:
     source.read()
 
 def main() -> Result[(), Failure]:
-    cell = Cell(7u8)?
+    cell = Cell(7u8)
     print(read(&cell))?
     Ok(())
 ```

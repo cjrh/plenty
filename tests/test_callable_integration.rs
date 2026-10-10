@@ -24,7 +24,7 @@ def main() -> Result[(), Failure]:
     f = small
     callbacks = [small]?
     index = 0
-    handler = Handler(small)?
+    handler = Handler(small)
     print(1 + f(2))?
     print(1 + factory()(3))?
     print(1 + callbacks[index](4))?
@@ -94,7 +94,7 @@ def consume(guard: Guard, n: i64) -> i64:
     n
 def work() -> Result[i64, AllocError]:
     callback = consume
-    Ok(callback(Guard()?, fail()?))
+    Ok(callback(Guard(), fail()?))
 def main() -> Result[(), Failure]:
     print(work())?
     Ok(())

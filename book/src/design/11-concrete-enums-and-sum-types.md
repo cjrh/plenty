@@ -1,10 +1,9 @@
 # Concrete enums and sum types
 
-`Enum.Variant.new(payloads)` returns `Result[Enum, AllocError]`. Nullary
-variants use `.new()` with no arguments. Payloads evaluate before allocation
-and move into the call; failure drops them. Inline standard variants need no
-allocation and produce `Ok` directly. This API does not make payload expressions
-fallible automatically.
+Constructing an enum value never allocates. `Enum.Variant(payloads)` and its
+`Enum.Variant.new(payloads)` alias return `Enum` directly; nullary variants use
+`.new()` with no arguments. Payloads evaluate first and move into the value.
+Allocations inside payload expressions keep their own `Result`.
 
 ```python
 enum Reading:
@@ -26,14 +25,17 @@ Enums are nominal module-level types. Variants have zero or more fixed positiona
 payloads; nullary variants omit parentheses. Qualified constructors and patterns
 use an enum name, a transparent alias, or an explicit builtin instantiation such
 as `Option[i64]`. Type/alias declarations may refer forward;
-[recursive enums](30-recursive-data.md), including through containers, are supported. Enum names
+[recursive enums](30-recursive-data.md) reach themselves through `Box` or a
+collection. Enum names
 share the type declaration namespace. A binding shadowing a type qualifier is
 diagnosed rather than silently selecting different behavior.
 
-Type nesting is limited to 64 levels, and expanded builtin type argument names
-to 16,384 bytes, with diagnostics when these implementation limits are exceeded.
-Compiler-emitted metadata links shared type nodes, so shared enum dependencies
-do not expand exponentially. There is no runtime metadata parsing or allocation.
+Type nesting is limited to 64 levels, expanded builtin type argument names
+to 16,384 bytes, and a type's inline storage to 64 KiB, with diagnostics when
+these implementation limits are exceeded. Compiler-emitted metadata links shared
+type nodes, and layouts are computed once per type, so shared enum dependencies
+do not expand compile-time work exponentially. There is no runtime metadata
+parsing or allocation.
 
 `Option[T]` and `Result[T, E]` are compiler-known concrete enum constructors,
 without user generics or traits. Payloads may be integers, floats, bool, str,
@@ -69,19 +71,20 @@ may shadow outer bindings. Continuing arms agree on result type; arms ending in
 return/break/continue do not contribute a join value. A function-tail match
 produces its final arm expression, like the existing statement-form `if`.
 
-Native user-defined enum values are pointer-sized handles to tagged
-records. Owned payloads may be mutated through exclusive match loans; copyable
-enum records retain immutable shared storage. A record contains a managed header,
-immutable type metadata pointer, tag, and one typed slot per active payload field.
-Slots use 16 bytes plus 32 inline
-bytes when the field is a range or a standard sum containing one. Equality compares nominal type, tag, and
-payload contents, using IEEE comparisons for floats. Runtime metadata records
-whether equality is reflexive; float-containing values cannot use pointer identity
-as an equality shortcut because of NaN. Aggregate pairs are memoized during a
-structural comparison in a bounded 256-entry stack cache, with no allocator
-calls. Eviction may repeat work on very large shared graphs. Automatic equality
-and formatting reject recursive data types. Common acyclic shared graphs fit
-without exponential expansion.
+Every enum value uses the inline representation of `Option` and `Result`: a
+payload word and a path of binary tags. A variant with one field keeps that
+field's value in the payload word. A variant with several fields keeps them in
+typed slots in the owner's storage, after its 16-byte slot word, and the payload
+word addresses them. Each slot uses 16 bytes plus the field's own inline bytes,
+and the owner reserves room for the largest variant. A tuple is a single-variant
+enum. Moving a value copies its bytes; copying a copyable value also retains its
+strings. Owned payloads may be mutated through exclusive match loans.
+
+Equality compares nominal type, tag, and payload contents, using IEEE
+comparisons for floats. Runtime metadata records whether equality is reflexive;
+float-containing values cannot use identity as an equality shortcut because of
+NaN. Every value has one owner, so traversal is bounded by the value's size.
+Automatic equality and formatting reject recursive data types.
 Printing uses qualified variant names. No niche optimization,
 stable external layout, or per-instantiation code generation is required.
 Frontend coverage lowers to the existing scalar-tag match with an invalid-tag

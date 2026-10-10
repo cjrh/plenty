@@ -16,12 +16,12 @@ class Resource:
         print(("release " + self.name).unwrap()).unwrap()
 
 def work() -> Result[(), Failure]:
-    resource = Resource("example")?
+    resource = Resource("example")
     print(resource)?
     Ok(())
 
 def main() -> Result[(), Failure]:
-    mut point = Point(3, 4)?
+    mut point = Point(3, 4)
     print(point.squared_length())?
     point.shift(1)
     print(point)?

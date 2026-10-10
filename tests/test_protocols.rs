@@ -27,10 +27,10 @@ def read[T: Readable](source: &T) -> str:
 def increment[T: Incrementable](source: &mut T) -> ():
     source.increment(2)
     print(source.view()).unwrap()
-text = Text("hello").unwrap()
+text = Text("hello")
 print(read[Text](&text)).unwrap()
 print(read(&text)).unwrap()
-mut counter = Counter(3).unwrap()
+mut counter = Counter(3)
 increment[Counter](&mut counter)
 increment(&mut counter)
 print(counter.value).unwrap()
@@ -57,7 +57,7 @@ fn constraints_check_every_required_method_and_exact_signature() {
         ("class Bad:\n    value: i64\n    def read(self, n: i64) -> i64:\n        n\n", "signature of `read`"),
     ] {
         for callee in ["accepts[Bad]", "accepts"] {
-            let source = format!("{prefix}{declaration}x = Bad(1).unwrap()\n{callee}(&x)");
+            let source = format!("{prefix}{declaration}x = Bad(1)\n{callee}(&x)");
             let error = support::check_source(&source).unwrap_err().to_string();
             assert!(error.contains(expected), "{error}");
         }

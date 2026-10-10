@@ -14,6 +14,7 @@ static NUMBER: Type = Type {
     value: None,
     name: "i64",
     variants: &[],
+    drop: None,
 };
 
 fn release(value: u128) {
@@ -116,6 +117,7 @@ fn receiving_copies_inline_ranges_before_reusing_the_slot() {
         value: None,
         name: "range",
         variants: &[],
+        drop: None,
     };
     let (sender, receiver) = create(&RANGE, 1).unwrap();
     let first = ranges::Range::new(5, 9, 1, true);

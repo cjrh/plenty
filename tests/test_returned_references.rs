@@ -13,7 +13,7 @@ class Pair:
     right: Point
     def left_ref(self: &mut Pair) -> &mut Point:
         &mut self.left
-mut pair = Pair(Point(1, 2).unwrap(), Point(3, 4).unwrap()).unwrap()
+mut pair = Pair(Point(1, 2), Point(3, 4))
 left = pair.left_ref()
 x = &mut left.x
 pair.right.x = 7
@@ -32,7 +32,7 @@ def select(p: &mut Pair, which: bool) -> &mut i64:
     if which:
         return &mut p.x
     &mut p.y
-mut pair = Pair(1, 2).unwrap()
+mut pair = Pair(1, 2)
 r = select(&mut pair, True)
 pair.y = 3
 print(r).unwrap()
@@ -78,7 +78,7 @@ class Pair:
     y: i64
     def x_ref(self: &mut Pair) -> &mut i64:
         &mut self.x
-mut pair = Pair(2, 3).unwrap()
+mut pair = Pair(2, 3)
 x = pair.x_ref()
 *x = 5
 mut number = 7
@@ -102,7 +102,7 @@ def select(pair: &mut Pair, left: bool) -> &mut i64:
     if left:
         return &mut pair.x
     &mut pair.y
-mut p = Pair(1, 2).unwrap()
+mut p = Pair(1, 2)
 r = select(&mut p, False)
 *r = 8
 print(p).unwrap()
@@ -149,7 +149,7 @@ class Pair:
     right: Point
 def right(pair: &mut Pair) -> &mut Point:
     &mut pair.right
-mut pair = Pair(Point(1).unwrap(), Point(2).unwrap()).unwrap()
+mut pair = Pair(Point(1), Point(2))
 r = right(&mut pair)
 x = &mut r.x
 pair.right.x = 9
@@ -197,7 +197,7 @@ class Point:
     x: i64
     def view(self) -> &i64:
         &self.x
-print(Point(1).unwrap().view()).unwrap()
+print(Point(1).view()).unwrap()
 "#,
         "require a named receiver",
     );
@@ -207,7 +207,7 @@ class Point:
     x: i64
     def view(self) -> &i64:
         &self.x
-print([Point(1).unwrap()].unwrap()[0].view()).unwrap()
+print([Point(1)].unwrap()[0].view()).unwrap()
 "#,
         "require a named receiver",
     );

@@ -28,7 +28,7 @@ class Handler[S]:
         self.callback(&mut self.state)
 def bump(state: &mut State) -> ():
     state.value = state.value + 1
-mut handlers = [Handler(State(10).unwrap(), bump).unwrap()].unwrap()
+mut handlers = [Handler(State(10), bump)].unwrap()
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 handlers[0].call()

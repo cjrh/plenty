@@ -15,7 +15,7 @@ enum Data:
 
 def suspended() -> Generator[i64]:
     len([n for n in range(10_000)].unwrap())
-    match Data.Values([n for n in range(10_000)].unwrap()).unwrap():
+    match Data.Values([n for n in range(10_000)].unwrap()):
         case Data.Values(values):
             len(values)
     yield 1
@@ -49,7 +49,7 @@ class Pair:
     first: Buffer
     second: Buffer
 def buffers(a: Buffer, b: Buffer) -> Generator[Buffer]:
-    local = Buffer([("local" + " data").unwrap()].unwrap()).unwrap()
+    local = Buffer([("local" + " data").unwrap()].unwrap())
     yield a
     yield b
 
@@ -89,14 +89,14 @@ def main() -> ():
     next(finished)
 
     for n in range(100):
-        drop(Pair(Buffer([("a" + " data").unwrap()].unwrap()).unwrap(), Buffer([("b" + " data").unwrap()].unwrap()).unwrap()).unwrap())
-        mut iterator = buffers(Buffer([("x" + " data").unwrap()].unwrap()).unwrap(), Buffer([("y" + " data").unwrap()].unwrap()).unwrap())
+        drop(Pair(Buffer([("a" + " data").unwrap()].unwrap()), Buffer([("b" + " data").unwrap()].unwrap())))
+        mut iterator = buffers(Buffer([("x" + " data").unwrap()].unwrap()), Buffer([("y" + " data").unwrap()].unwrap()))
         next(iterator)
         drop(iterator)
-        drop(buffers(Buffer([("unstarted" + " data").unwrap()].unwrap()).unwrap(), Buffer([("unused" + " data").unwrap()].unwrap()).unwrap()))
-        for item in [Buffer([("first" + " data").unwrap()].unwrap()).unwrap(), Buffer([("second" + " data").unwrap()].unwrap()).unwrap()].unwrap():
+        drop(buffers(Buffer([("unstarted" + " data").unwrap()].unwrap()), Buffer([("unused" + " data").unwrap()].unwrap())))
+        for item in [Buffer([("first" + " data").unwrap()].unwrap()), Buffer([("second" + " data").unwrap()].unwrap())].unwrap():
             drop(item)
-        match Option[Buffer].Some(Buffer([("matched" + " data").unwrap()].unwrap()).unwrap()):
+        match Option[Buffer].Some(Buffer([("matched" + " data").unwrap()].unwrap())):
             case Option[Buffer].Some(value):
                 drop(value)
             case Option[Buffer].Nothing:

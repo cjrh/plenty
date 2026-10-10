@@ -200,6 +200,7 @@ impl Ty {
             Self::Channel(t, sender) => Self::Channel(Rc::new(t.weaken()), *sender),
             Self::Future(t) => Self::Future(Rc::new(t.weaken())),
             Self::Set(t) => Self::Set(Rc::new(t.weaken())),
+            Self::Box(t) => Self::Box(Rc::new(t.weaken())),
             Self::Dict(k, v) => Self::Dict(Rc::new(k.weaken()), Rc::new(v.weaken())),
             Self::Ref(t, m) => Self::Ref(Rc::new(t.weaken()), *m),
             Self::Callable(t) => Self::Callable(Rc::new(crate::op::CallableSig {
@@ -222,6 +223,7 @@ impl Clone for Ty {
             Self::List(t) => Self::List(Rc::new((**t).clone())),
             Self::Set(t) => Self::Set(Rc::new((**t).clone())),
             Self::Dict(k, v) => Self::Dict(Rc::new((**k).clone()), Rc::new((**v).clone())),
+            Self::Box(t) => Self::Box(Rc::new((**t).clone())),
             Self::Ref(t, m) => Self::Ref(Rc::new((**t).clone()), *m),
             Self::Callable(t) => Self::Callable(Rc::new((**t).clone())),
             Self::Closure(t) => Self::Closure(t.clone()),
@@ -265,6 +267,8 @@ mod tests {
             )],
             destructor: None,
             fallible_init: false,
+            bytes: std::cell::OnceCell::new(),
+            managed: std::cell::OnceCell::new(),
         });
         let field = node.get().fields[0].1.clone();
         drop(node);
@@ -280,6 +284,31 @@ mod tests {
     }
 
     #[test]
+    fn boxed_recursive_fields_do_not_leak_tables() {
+        let owner = Rc::new(Types::default());
+        let witness = Rc::downgrade(&owner);
+        let node = owner.class("Node");
+        node.define(ClassType {
+            name: "Node".into(),
+            fields: vec![(
+                "next".into(),
+                crate::sum::option(Ty::Box(Rc::new(Ty::Class(node.clone())))),
+            )],
+            destructor: None,
+            fallible_init: false,
+            bytes: std::cell::OnceCell::new(),
+            managed: std::cell::OnceCell::new(),
+        });
+        let field = node.get().fields[0].1.clone();
+        drop(node);
+        drop(owner);
+        assert!(field.recursive_data());
+        assert!(!field.facts().infinite);
+        drop(field);
+        assert!(witness.upgrade().is_none());
+    }
+
+    #[test]
     fn partially_resolved_tables_are_freed_after_a_diagnostic() {
         let owner = Rc::new(Types::default());
         let witness = Rc::downgrade(&owner);
@@ -290,6 +319,8 @@ mod tests {
             fields: vec![("b".into(), Ty::Class(b.clone()))],
             destructor: None,
             fallible_init: false,
+            bytes: std::cell::OnceCell::new(),
+            managed: std::cell::OnceCell::new(),
         });
         assert!(!Ty::Class(a.clone()).facts().complete);
         drop(a);

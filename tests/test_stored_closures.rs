@@ -24,12 +24,12 @@ def counter(total: i64) -> Closure[[i64], i64]:
     def [mut total](n: i64) -> i64:
         total = total + n
         total
-mut first = Handler(counter(10)).unwrap()
-mut second = Handler(counter(100)).unwrap()
+mut first = Handler(counter(10))
+mut second = Handler(counter(100))
 bias = 1000
 subtract = def [bias](n: i64) -> i64:
     bias - n
-third = Handler(subtract).unwrap()
+third = Handler(subtract)
 print(first.call(3)).unwrap()
 print(second.call(7)).unwrap()
 print(first.callback(2)).unwrap()
@@ -51,7 +51,7 @@ def subtract(n: i64) -> Closure[[i64], i64]:
     def [span](x: i64) -> i64:
         span[1] - x
 def pack[A, B](a: A, b: B) -> Result[tuple[A, B], AllocError]:
-    (a, b)
+    Ok((a, b))
 pair = pack(add(10), subtract(30)).unwrap()
 print(pair[0](2)).unwrap()
 print(pair[1](3)).unwrap()
@@ -71,7 +71,7 @@ def counter(n: i64) -> Closure[[], i64]:
     def [mut n]() -> i64:
         n = n + 1
         n
-mut pair = (counter(1), counter(10)).unwrap()
+mut pair = (counter(1), counter(10))
 first = &mut pair[0]
 second = &mut pair[1]
 print(first()).unwrap()
@@ -84,7 +84,7 @@ print(pair[0]()).unwrap()
         "drop(pair)\nprint(callback()).unwrap()",
         "print(pair[0]()).unwrap()\nprint(callback()).unwrap()",
     ] {
-        let source = format!("def counter(n: i64) -> Closure[[], i64]:\n    def [mut n]() -> i64:\n        n = n + 1\n        n\nmut pair = (counter(1), counter(2)).unwrap()\ncallback = &mut pair[0]\n{tail}\n");
+        let source = format!("def counter(n: i64) -> Closure[[], i64]:\n    def [mut n]() -> i64:\n        n = n + 1\n        n\nmut pair = (counter(1), counter(2))\ncallback = &mut pair[0]\n{tail}\n");
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
@@ -194,7 +194,7 @@ def make(n: i64) -> Closure[[], i64]:
         total = total + 1
         span[1] + total
 def pack[F](callback: F) -> Result[Job[F], AllocError]:
-    Job[F].Run(callback)
+    Ok(Job[F].Run(callback))
 def invoke[F](job: &mut Job[F]) -> i64:
     match &mut job:
         case Job[F].Run(callback):
@@ -218,7 +218,7 @@ print(consume(job)).unwrap()
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn enum_environment_failure_drops_transferred_resources_once() {
+fn enum_environments_move_resources_without_allocating() {
     run(
         r#"
 enum Job[F]:
@@ -229,8 +229,8 @@ class Guard:
         write_stdout("drop\n").unwrap()
         pass
 def pack[F](callback: F) -> Result[Job[F], AllocError]:
-    Job[F].Run(callback)
-guard = Guard(1).unwrap()
+    Ok(Job[F].Run(callback))
+guard = Guard(1)
 callback = def [guard]() -> i64:
     guard.id
 print("__test_fail_allocations_after_0__").unwrap()
@@ -242,7 +242,7 @@ match pack(callback):
         pass
 print("__test_restore_allocations__").unwrap()
 "#,
-        "__test_fail_allocations_after_0__\ndrop\nfailed\n__test_restore_allocations__\n",
+        "__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n",
     );
 }
 
@@ -262,9 +262,9 @@ def ranged(n: i64) -> Closure[[], i64]:
         span[2]
 def choose[A, B](a: A, b: B, left: bool) -> Result[Choice[A, B], AllocError]:
     if left:
-        Choice[A, B].Left(a)
+        Ok(Choice[A, B].Left(a))
     else:
-        Choice[A, B].Right(b)
+        Ok(Choice[A, B].Right(b))
 def invoke[A, B](job: &Choice[A, B]) -> i64:
     match &job:
         case Choice[A, B].Left(callback):
@@ -286,7 +286,7 @@ fn consuming_jobs_transfer_captured_owners_from_collections_tuples_and_enums() {
 enum Job[F]:
     Run(F)
 def package[F](callback: F) -> Result[Job[F], AllocError]:
-    Job[F].Run(callback)
+    Ok(Job[F].Run(callback))
 def consume[F](job: Job[F]) -> list[i64]:
     match job:
         case Job[F].Run(callback):
@@ -304,7 +304,7 @@ for callback in queue:
 mut named = {0: make(3).unwrap()}.unwrap()
 third = named.pop(0).unwrap()
 print(third()).unwrap()
-pair = (make(4).unwrap(), make(5).unwrap()).unwrap()
+pair = (make(4).unwrap(), make(5).unwrap())
 fourth, fifth = pair
 print(fourth()).unwrap()
 print(fifth()).unwrap()
@@ -344,12 +344,12 @@ class Guard:
 class Holder[F]:
     job: F
 def make(n: i64) -> Result[OnceClosure[[], Guard], AllocError]:
-    guard = Guard(n)?
+    guard = Guard(n)
     job = def once [guard]() -> Guard:
         guard
     Ok(job)
 mut jobs = [make(1).unwrap(), make(2).unwrap()].unwrap()
-abandoned = Holder(make(3).unwrap()).unwrap()
+abandoned = Holder(make(3).unwrap())
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 job = jobs.pop(0).unwrap()
@@ -373,7 +373,7 @@ class Guard:
         write_stdout("drop\n").unwrap()
         pass
 def make(n: i64) -> Result[Closure[[], i64], AllocError]:
-    guard = Guard(n)?
+    guard = Guard(n)
     callback = def [guard]() -> i64:
         guard.id
     Ok(callback)
@@ -431,11 +431,11 @@ class Guard:
 class Handler[F]:
     callback: F
 def make(id: i64) -> Result[Closure[[], i64], AllocError]:
-    resource = Guard(id)?
+    resource = Guard(id)
     callback = def [resource]() -> i64:
         resource.id
     Ok(callback)
-mut handler = Handler(make(1).unwrap()).unwrap()
+mut handler = Handler(make(1).unwrap())
 handler.callback = make(2).unwrap()
 print(handler.callback()).unwrap()
 drop(handler)
@@ -447,10 +447,10 @@ drop(handler)
 #[test]
 fn stored_closures_retain_ownership_borrowing_and_comparison_limits() {
     for (source, expected) in [
-        ("class Holder[T]:\n    item: T\nn = 1\nf = def [&n]() -> i64:\n    n\nh = Holder(f).unwrap()\n", "reference"),
-        ("class Holder[T]:\n    item: T\nn = 1\nf = def [mut n]() -> i64:\n    n = n + 1\n    n\nh = Holder(f).unwrap()\nh.item()\n", "immutable"),
-        ("class Holder[T]:\n    item: T\nn = 1\nf = def [n]() -> i64:\n    n\nh = Holder(f).unwrap()\nprint(h == h).unwrap()\n", "containing closures do not support equality"),
-        ("class Holder[T]:\n    item: T\nn = 1\nf = def [n]() -> i64:\n    n\nh = Holder(f).unwrap()\ncopy(h)\n", "cannot be copied"),
+        ("class Holder[T]:\n    item: T\nn = 1\nf = def [&n]() -> i64:\n    n\nh = Holder(f)\n", "reference"),
+        ("class Holder[T]:\n    item: T\nn = 1\nf = def [mut n]() -> i64:\n    n = n + 1\n    n\nh = Holder(f)\nh.item()\n", "immutable"),
+        ("class Holder[T]:\n    item: T\nn = 1\nf = def [n]() -> i64:\n    n\nh = Holder(f)\nprint(h == h).unwrap()\n", "containing closures do not support equality"),
+        ("class Holder[T]:\n    item: T\nn = 1\nf = def [n]() -> i64:\n    n\nh = Holder(f)\ncopy(h)\n", "cannot be copied"),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{expected}: {error}");
@@ -459,7 +459,7 @@ fn stored_closures_retain_ownership_borrowing_and_comparison_limits() {
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn failed_record_allocation_cleans_owned_environment_and_calls_do_not_allocate() {
+fn record_environments_drop_once_and_calls_do_not_allocate() {
     run(r#"
 class Guard:
     id: i64
@@ -469,12 +469,12 @@ class Guard:
 class Holder[T]:
     callback: T
 def make(id: i64) -> Result[Closure[[], i64], AllocError]:
-    guard = Guard(id)?
+    guard = Guard(id)
     callback = def [guard]() -> i64:
         guard.id
     Ok(callback)
 callback = make(9).unwrap()
-holder = Holder(make(3).unwrap()).unwrap()
+holder = Holder(make(3).unwrap())
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 value = holder.callback()
@@ -483,12 +483,7 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(value).unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
-match Holder(callback):
-    case Ok(value):
-        drop(value)
-    case Err(_):
-        write_stdout("failed\n").unwrap()
-        pass
+drop(Holder(callback))
 print("__test_restore_allocations__").unwrap()
-"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n3\n__test_fail_allocations_after_0__\ndrop\nfailed\n__test_restore_allocations__\n");
+"#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n3\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n");
 }

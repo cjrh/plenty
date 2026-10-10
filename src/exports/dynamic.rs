@@ -110,6 +110,6 @@ pub(super) fn generate(interface: &Interface, exports: &[Export]) -> Result<Stri
         ));
         args.push(format!("destructor{i}"));
     }
-    source.push_str(&format!("    match Library({}):\n        case Ok(value):\n            Ok(value)\n        case Err(error):\n            Err(_allocation(error))\n", args.join(", ")));
+    source.push_str(&format!("    Ok(Library({}))\n", args.join(", ")));
     Ok(source)
 }

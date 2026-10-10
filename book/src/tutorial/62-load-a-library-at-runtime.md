@@ -11,7 +11,7 @@ class Counter:
         print("released").unwrap()
 
 export def create(value: i64) -> Result[Counter, AllocError] = "counter_create":
-    Counter(value)
+    Ok(Counter(value))
 
 export def read(counter: &Counter) -> i64 = "counter_read":
     counter.value

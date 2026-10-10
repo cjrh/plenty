@@ -311,7 +311,7 @@ class Counter:
     def __del__(self) -> ():
         print("released").unwrap()
 export def create(value: i64) -> Result[Counter, AllocError] = "calc_create":
-    Counter(value)
+    Ok(Counter(value))
 export def read(counter: &Counter) -> i64 = "calc_read":
     counter.value
 export def bump(counter: &mut Counter) -> Result[(), i32] = "calc_bump":
@@ -450,11 +450,12 @@ export def restore_allocations() -> () = "calc_restore_allocations":
     print(changed)?
     print(same)?
     print("__test_fail_allocations_after_0__").unwrap()
-    failed_wrapper = library.transfer(owner)
+    # The wrapper needs no allocation, and this library has its own runtime.
+    transferred = library.transfer(owner)
     print("__test_restore_allocations__").unwrap()
-    match failed_wrapper:
+    match transferred:
         case Ok(_):
-            print("unexpected")?
+            print("transferred")?
         case Err(error):
             print(error)?
     library.fail_allocations()
@@ -478,17 +479,19 @@ export def restore_allocations() -> () = "calc_restore_allocations":
     assert_eq!(
         lines,
         [
+            // Loading allocates once in this process: the library's records
+            // are inline.
             "LoadError.OutOfMemory",
-            "LoadError.OutOfMemory",
-            "LoadError.OutOfMemory",
+            "loaded",
+            "loaded",
             "loaded",
             "loaded",
             "warm",
             "10",
             "Result[(), i32].Err(-1)",
             "True",
+            "transferred",
             "released",
-            "AllocError.OutOfMemory",
             "AllocError.OutOfMemory"
         ]
     );

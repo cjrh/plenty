@@ -9,6 +9,21 @@ pub struct ClassType {
     pub fields: Vec<(String, Ty)>,
     pub destructor: Option<String>,
     pub fallible_init: bool,
+    /// Inline field storage size; excluded from nominal equality.
+    pub bytes: std::cell::OnceCell<usize>,
+    /// Whether an instance needs cleanup; excluded from nominal equality.
+    pub managed: std::cell::OnceCell<bool>,
+}
+impl ClassType {
+    /// A class with `__del__` keeps a state word before its fields: whether
+    /// initialization completed, and how many observers borrow it.
+    pub fn state_bytes(&self) -> usize {
+        if self.destructor.is_some() {
+            16
+        } else {
+            0
+        }
+    }
 }
 impl PartialEq for ClassType {
     fn eq(&self, other: &Self) -> bool {
@@ -26,7 +41,8 @@ pub fn method(class: &str, method: &str) -> String {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClassOp {
-    TryNew(crate::nominal::Nominal<ClassType>),
+    /// Zeroed inline storage, before `__init__` initializes the fields.
+    New(crate::nominal::Nominal<ClassType>),
     ArmDrop(crate::nominal::Nominal<ClassType>),
     Field(crate::nominal::Nominal<ClassType>, usize),
     FieldRef(crate::nominal::Nominal<ClassType>, usize, bool),
@@ -35,10 +51,7 @@ impl ClassOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
             Self::ArmDrop(t) => (vec![Ty::Ref(Rc::new(Ty::Class(t.clone())), true)], Ty::Unit),
-            Self::TryNew(t) => (
-                vec![],
-                crate::sum::result(Ty::Class(t.clone()), crate::sum::alloc_error()),
-            ),
+            Self::New(t) => (vec![], Ty::Class(t.clone())),
             Self::Field(t, i) => (
                 vec![Ty::Class(t.clone())],
                 t.get().fields.get(*i)?.1.clone(),

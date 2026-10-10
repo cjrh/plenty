@@ -17,7 +17,7 @@ print(b).unwrap()
 r = &mut values[0]
 *r = 7
 print(first(&values)).unwrap()
-mut points = [Point(3).unwrap()].unwrap()
+mut points = [Point(3)].unwrap()
 p = &mut points[0].x
 *p = 9
 print(points).unwrap()
@@ -49,10 +49,10 @@ def find(points: &list[Point], wanted: i64) -> &Point:
         if point.x == wanted:
             return point
     &points[0]
-mut points = [Point(1).unwrap(), Point(2).unwrap()].unwrap()
+mut points = [Point(1), Point(2)].unwrap()
 found = find(&points, 2)
 print(found.x).unwrap()
-points.append(Point(3).unwrap()).unwrap()
+points.append(Point(3)).unwrap()
 print(len(points)).unwrap()
 "#,
     );
@@ -88,7 +88,7 @@ class Point:
 def bump(points: &mut list[Point]) -> ():
     for point in points:
         point.x = point.x + 10
-mut points = [Point(1).unwrap(), Point(2).unwrap()].unwrap()
+mut points = [Point(1), Point(2)].unwrap()
 for point in &points:
     print(point.x).unwrap()
 bump(&mut points)

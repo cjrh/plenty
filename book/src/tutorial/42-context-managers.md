@@ -14,7 +14,7 @@ class Message:
         print("exit").unwrap()
 
 def main() -> Result[(), Failure]:
-    with Message("hello")? as text:
+    with Message("hello") as text:
         print(text)?
     print("after")?
     Ok(())
@@ -47,7 +47,7 @@ class Counter:
         self.count = self.count + 10
 
 def main() -> Result[(), Failure]:
-    mut counter = Counter(0)?
+    mut counter = Counter(0)
     with &mut counter as n:
         print(n)?
     print(counter.count)?
@@ -72,7 +72,7 @@ class Label:
         print(self.text).unwrap()
 
 def main() -> Result[(), Failure]:
-    with Label("first")? as first, Label("second")? as second:
+    with Label("first") as first, Label("second") as second:
         print("body")?
     Ok(())
 ```
@@ -101,7 +101,7 @@ class Counter:
         print(self.count).unwrap()
 
 def main() -> Result[(), Failure]:
-    with Counter(1)? as counter:
+    with Counter(1) as counter:
         counter.count = 7
     Ok(())
 ```

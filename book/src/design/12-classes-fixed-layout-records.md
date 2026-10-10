@@ -1,13 +1,12 @@
 # Classes: fixed-layout records
 
-`Class(arguments)` and its `Class.new(arguments)` alias return
-`Result[Class, AllocError]`, with identical visibility and argument types. Arguments evaluate before allocation;
-failure drops moved arguments without calling `__init__` or `__del__`. This makes
-instance storage allocation recoverable, not allocations inside argument
-expressions or an ordinary initializer. `new` is a reserved class member.
+`Class(arguments)` and its `Class.new(arguments)` alias return the instance
+directly, with identical visibility and argument types. Instance storage is
+inline, so construction never allocates. Allocations inside argument expressions
+or an initializer keep their own `Result`. `new` is a reserved class member.
 
-An explicit `__init__` may return `Result[(), AllocError]`. Such classes require
-checked construction; `?` in initialization propagates through the constructor.
+An explicit `__init__` may return `Result[(), AllocError]`. Then both forms return
+`Result[Class, AllocError]`; `?` in initialization propagates through the constructor.
 Failure drops initialized fields and remaining arguments, but skips the class's
 `__del__`. The custom destructor becomes active only after successful initialization.
 Every successful return must initialize every field. An explicit `return Err(...)`
@@ -73,10 +72,17 @@ receiver through an alias.
 
 Fields may contain classes, enums, and collections, but not references,
 generators, or unit. Forward declarations, aliases, and
-[recursive owners](30-recursive-data.md) are supported. Methods become statically resolved native
-functions. Class instances currently use one owned heap allocation with a runtime
-header, concrete type metadata, an optional destructor adapter, and typed field
-slots. Slots use 16 bytes, with 32 additional inline bytes for ranges or standard
-sums containing ranges. This representation favors simple lowering and fast compilation; it is not
-a public FFI layout guarantee. The compiler caches complete graph properties;
-recursive nominal boundaries keep physical layouts finite.
+[recursive owners](30-recursive-data.md) through `Box` or a collection are
+supported. Methods become statically resolved native functions.
+
+An instance keeps its fields inline, in the storage of whatever owns it: a
+local's frame slot, a containing record, or a collection's buffer. Its 128-bit
+value word addresses that storage. Each field uses a typed 16-byte slot plus the
+field's own inline bytes. A class with `__del__` keeps one more word before its
+fields: whether initialization completed, and how many observers currently
+borrow it through retained copies of the value word. Releasing an observer only
+decrements that count; releasing the owner runs the destructor, then drops the
+fields in declaration order. The destructor adapter is linked into the class's
+type metadata. Moving an instance copies its storage. Inline storage is limited
+to 64 KiB per type. This representation is not a public FFI layout guarantee.
+The compiler caches complete graph properties and layouts.

@@ -22,24 +22,13 @@ def _error(status: u32) -> LoadError:
         return LoadError.MissingSymbol
     LoadError.IncompatibleContract
 
-def _allocation(error: AllocError) -> LoadError:
-    match error:
-        case AllocError.OutOfMemory:
-            LoadError.OutOfMemory
-        case AllocError.CapacityOverflow:
-            LoadError.CapacityOverflow
-
 class _Lease:
     _handle: _LibraryLease
     def __del__(self: &mut _Lease) -> ():
         _close(self._handle)
 
 def _lease() -> Result[_Lease, LoadError]:
-    match _Lease(_LibraryLease.null()):
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            Err(_allocation(error))
+    Ok(_Lease(_LibraryLease.null()))
 
 def _lookup(lease: _LibraryLease, name: str) -> Result[_FunctionAddress, LoadError]:
     mut address = _FunctionAddress.null()

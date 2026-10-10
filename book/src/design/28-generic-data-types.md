@@ -7,7 +7,7 @@ uses the current concrete class; an explicit mutable receiver is written
 are specialized with the class. Their bodies are checked for each used instance.
 Generic classes can be constructed inside generic functions.
 
-Specialization adds no instance allocation beyond ordinary class storage. Moves,
+Specialization adds no instance allocation; instances keep their fields inline. Moves,
 field borrowing, partial initialization cleanup, and custom destruction keep
 their ordinary class semantics. Methods may declare their own parameters and
 IntType, protocol, or callable constraints. Their arguments determine these
@@ -26,9 +26,8 @@ instance. Type aliases can name complete instances. Different arguments produce
 different nominal types, even when no payload mentions the parameter.
 
 Concrete instances are cached per compilation. Fields keep the ordinary enum
-storage, allocation, ownership, and drop rules; generic syntax adds no runtime
-type lookup or extra allocation. User enum construction still returns Result.
-Option and Result retain their separate allocation-free representation.
+storage, ownership, and drop rules; generic syntax adds no runtime type lookup
+or allocation. Construction returns the value directly, as for every enum.
 
 Class constructors infer parameters from their input arguments, using generated
 field order or an explicit initializer's signature. `Cell(7u8)` means

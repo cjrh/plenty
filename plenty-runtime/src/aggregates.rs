@@ -26,12 +26,15 @@ pub(crate) struct Type {
     pub(crate) value: Option<&'static Type>,
     pub(crate) name: &'static str,
     pub(crate) variants: &'static [Variant],
+    /// A class's `__del__` adapter, which receives the instance's slot.
+    pub(crate) drop: Option<unsafe extern "C" fn(*mut u128)>,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 56);
+    assert!(size_of::<Type>() == 64);
     assert!(std::mem::offset_of!(Type, key) == 8);
     assert!(std::mem::offset_of!(Type, name) == 24);
     assert!(std::mem::offset_of!(Type, variants) == 40);
+    assert!(std::mem::offset_of!(Type, drop) == 56);
     assert!(size_of::<Variant>() == 32);
 };
 impl Type {
@@ -51,6 +54,7 @@ impl Type {
                     | b'P'
                     | b'Z'
                     | b'K'
+                    | b'O'
             )
     }
     fn key(&self) -> &Type {
@@ -63,8 +67,30 @@ impl Type {
         let mask = (self.variants.len().next_power_of_two() - 1).max(1);
         (value >> 64) as usize & mask
     }
-    fn payload(&self, value: u128) -> Option<&Type> {
-        self.variants[self.tag(value)].fields.first().copied()
+    /// The single field stored directly in an inline sum's payload word.
+    pub(crate) fn payload(&self, value: u128) -> Option<&Type> {
+        match self.variants[self.tag(value)].fields {
+            [field] => Some(field),
+            _ => None,
+        }
+    }
+    /// The owner-local field storage of a class or a multi-field variant.
+    pub(crate) fn record(&self, value: u128) -> Option<Record<'_>> {
+        let fields = match self.kind {
+            b'C' => Fields::Class(self.variants),
+            b'B' => match self.variants[self.tag(value)].fields {
+                fields @ [_, _, ..] => Fields::Variant(fields),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let base = value as u64 as *mut u128;
+        let state = self.kind == b'C' && self.drop.is_some();
+        (!base.is_null()).then_some(Record {
+            fields,
+            base,
+            state,
+        })
     }
     fn tag_bits(&self) -> u32 {
         self.variants.len().next_power_of_two().ilog2().max(1)
@@ -72,7 +98,7 @@ impl Type {
     pub(crate) fn unpack(&self, value: u128) -> u128 {
         (value & u64::MAX as u128) | ((value >> (64 + self.tag_bits())) << 64)
     }
-    fn pack(&self, value: u128, tag: usize) -> u128 {
+    pub(crate) fn pack(&self, value: u128, tag: usize) -> u128 {
         (value & u64::MAX as u128) | ((((value >> 64) << self.tag_bits()) | tag as u128) << 64)
     }
 }
@@ -91,15 +117,109 @@ struct Collection {
     entries: Entries,
     table: Vec<usize>,
 }
+const _: () = assert!(std::mem::offset_of!(Collection, ty) == 16);
+
+#[derive(Clone, Copy)]
+pub(crate) enum Fields<'a> {
+    /// Class descriptors name each field as a one-field variant.
+    Class(&'a [Variant]),
+    Variant(&'a [&'static Type]),
+}
+/// Typed field slots inside their owner's storage. Each slot reserves its
+/// type's complete inline payload. A class with `__del__` keeps one state word
+/// before its fields: bit 0 marks a completed initializer, and the remaining
+/// bits count observers, which borrow the instance through a retained copy of
+/// its value word and must not run its destructor.
+#[derive(Clone, Copy)]
+pub(crate) struct Record<'a> {
+    fields: Fields<'a>,
+    /// The start of the storage, including any state word.
+    base: *mut u128,
+    state: bool,
+}
+impl Record<'_> {
+    pub(crate) fn len(&self) -> usize {
+        match self.fields {
+            Fields::Class(fields) => fields.len(),
+            Fields::Variant(fields) => fields.len(),
+        }
+    }
+    pub(crate) fn ty(&self, index: usize) -> &'static Type {
+        match self.fields {
+            Fields::Class(fields) => fields[index].fields[0],
+            Fields::Variant(fields) => fields[index],
+        }
+    }
+    /// Storage size in 16-byte words, including any state word.
+    pub(crate) fn words(&self) -> usize {
+        usize::from(self.state)
+            + (0..self.len())
+                .map(|i| self.ty(i).slot_words())
+                .sum::<usize>()
+    }
+    pub(crate) fn moved_to(&self, base: *mut u128) -> Self {
+        Self { base, ..*self }
+    }
+    pub(crate) fn slot(&self, index: usize) -> *mut u128 {
+        let offset: usize = (0..index).map(|i| self.ty(i).slot_words()).sum();
+        // SAFETY: the owner reserved `words()` slots at `base`.
+        unsafe { self.base.add(usize::from(self.state) + offset) }
+    }
+    fn state(&self) -> Option<*mut u64> {
+        self.state.then_some(self.base.cast())
+    }
+    /// Release the owned fields in declaration order. Inline fields finish
+    /// immediately; heap fields join the destruction queue.
+    unsafe fn release(&self) {
+        for i in 0..self.len() {
+            unsafe { release(self.slot(i).read(), self.ty(i)) };
+        }
+    }
+}
+
+/// Boxes are the only heap records: recursive types reach themselves through them.
 #[repr(C)]
-struct Record {
+struct Boxed {
     header: Header,
     ty: *const Type,
-    tag_or_hook: u64,
-    fields: [u128; 0],
+    padding: u64,
+    slot: [u128; 0],
 }
-const _: () = assert!(std::mem::offset_of!(Collection, ty) == 16);
-const _: () = assert!(std::mem::offset_of!(Record, fields) == 32);
+const _: () = assert!(std::mem::offset_of!(Boxed, slot) == 32);
+
+/// Move `value` into a new box. On failure the caller still owns `value`.
+unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> {
+    let content = ty.key();
+    let boxed = memory::try_allocate::<Boxed, u128>(content.slot_words())?;
+    unsafe {
+        boxed.write(Boxed {
+            header: Header::new(box_destroy),
+            ty,
+            padding: 0,
+            slot: [],
+        });
+        ranges::store(std::ptr::addr_of_mut!((*boxed).slot).cast(), value, content);
+    }
+    Ok(boxed)
+}
+unsafe extern "C" fn box_destroy(header: *mut Header) {
+    unsafe {
+        let boxed = header.cast::<Boxed>();
+        let content = (*(*boxed).ty).key();
+        let slot = std::ptr::addr_of_mut!((*boxed).slot).cast::<u128>();
+        release(slot.read(), content);
+        memory::free::<Boxed, u128>(boxed, content.slot_words());
+    }
+}
+/// Free a box whose content the caller has already moved out.
+unsafe fn box_take(boxed: *mut Boxed) {
+    unsafe {
+        std::ptr::addr_of_mut!((*boxed).slot)
+            .cast::<u128>()
+            .write(0);
+        plenty_release(boxed.cast());
+    }
+}
 
 unsafe fn value_type<'a>(value: u128) -> &'a Type {
     // SAFETY: all managed aggregates have an immutable static Type pointer at byte 16.
@@ -110,37 +230,57 @@ unsafe fn value_type<'a>(value: u128) -> &'a Type {
     }
 }
 pub(crate) unsafe fn retain(value: u128, ty: &Type) {
-    if ty.kind == b'H' {
-        unsafe {
+    unsafe {
+        if ty.kind == b'H' {
             crate::closures::retain(value as *mut u128);
-        }
-    } else if ty.kind == b'B' {
-        if let Some(t) = ty.payload(value) {
-            unsafe {
+        } else if let Some(record) = ty.record(value) {
+            if let Some(state) = record.state() {
+                *state += 2;
+                return;
+            }
+            for i in 0..record.len() {
+                retain(record.slot(i).read(), record.ty(i));
+            }
+        } else if ty.kind == b'B' {
+            if let Some(t) = ty.payload(value) {
                 retain(ty.unpack(value), t);
             }
-        }
-    } else if ty.managed() {
-        unsafe {
+        } else if ty.kind == b'C' {
+        } else if ty.managed() {
             plenty_retain(value as *mut Header);
         }
     }
 }
 pub(crate) unsafe fn release(value: u128, ty: &Type) {
-    if ty.kind == b'H' {
-        unsafe {
+    unsafe {
+        if ty.kind == b'H' {
             crate::closures::release(value as *mut u128);
-        }
-    } else if ty.kind == b'B' {
-        if let Some(t) = ty.payload(value) {
-            unsafe {
+        } else if let Some(record) = ty.record(value) {
+            if let Some(state) = record.state() {
+                if *state >= 2 {
+                    *state -= 2;
+                    return;
+                }
+                if *state & 1 != 0 {
+                    // The hook borrows the instance through its own slot. It
+                    // may mutate fields but cannot replace the receiver.
+                    *state = 0;
+                    let mut owner = value;
+                    let hook = ty.drop.expect("class destructor");
+                    memory::with_nested_drops(|| hook(&mut owner));
+                    if owner != value {
+                        crate::fail("destructor replaced its receiver");
+                    }
+                }
+            }
+            record.release();
+        } else if ty.kind == b'B' {
+            if let Some(t) = ty.payload(value) {
                 release(ty.unpack(value), t);
             }
-        }
-    } else if ty.kind == b'G' && ty.inline_bytes != 0 {
-        unsafe { crate::generators::release_inline(value as *mut Generator) };
-    } else if ty.managed() {
-        unsafe {
+        } else if ty.kind == b'G' && ty.inline_bytes != 0 {
+            crate::generators::release_inline(value as *mut Generator);
+        } else if ty.managed() {
             plenty_release(value as *mut Header);
         }
     }
@@ -172,125 +312,51 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
     unsafe {
         let c = header.cast::<Collection>();
         let ty = &*(*c).ty;
-        // Queue in reverse so complete child destruction follows index order.
-        for entry in (*c).entries.iter().rev() {
+        // Heap children join a LIFO queue, so queue them in reverse to
+        // finish in index order. Inline children drop immediately, in order.
+        let inline = ty.key().payload_bytes() != 0
+            || ty.value.is_some_and(|value| value.payload_bytes() != 0);
+        let release_entry = |entry: Entry| {
+            release(entry.key, ty.key());
             if let Some(value) = &ty.value {
                 release(entry.value, value);
             }
-            release(entry.key, ty.key());
+        };
+        if inline {
+            (*c).entries.iter().for_each(release_entry);
+        } else {
+            (*c).entries.iter().rev().for_each(|entry| {
+                if let Some(value) = &ty.value {
+                    release(entry.value, value);
+                }
+                release(entry.key, ty.key());
+            });
         }
         std::ptr::drop_in_place(c);
         memory::free::<Collection, u8>(c, 0);
     }
 }
-fn record_count(ty: &Type, tag: u64) -> usize {
-    if ty.kind == b'C' {
-        ty.variants.len()
-    } else {
-        ty.variants
-            .get(tag as usize)
-            .unwrap_or_else(|| crate::fail("invalid enum variant"))
-            .fields
-            .len()
-    }
-}
-fn field_type(ty: &Type, tag: u64, index: usize) -> &Type {
-    if ty.kind == b'C' {
-        ty.variants[index].fields[0]
-    } else {
-        ty.variants[tag as usize].fields[index]
-    }
-}
-fn record_words(ty: &Type, tag: u64) -> usize {
-    (0..record_count(ty, tag))
-        .map(|i| field_type(ty, tag, i).slot_words())
-        .sum()
-}
-unsafe fn record_slot(record: *mut Record, index: usize) -> *mut u128 {
-    unsafe {
-        let ty = &*(*record).ty;
-        let offset: usize = (0..index)
-            .map(|i| field_type(ty, (*record).tag_or_hook, i).slot_words())
-            .sum();
-        std::ptr::addr_of_mut!((*record).fields)
-            .cast::<u128>()
-            .add(offset)
-    }
-}
-fn record_new(ty: &'static Type, tag_or_hook: u64) -> *mut Record {
-    try_record_new(ty, tag_or_hook).unwrap_or_else(|_| crate::fail("record allocation failed"))
-}
-fn try_record_new(ty: &'static Type, tag_or_hook: u64) -> Result<*mut Record, AllocError> {
-    let count = record_words(ty, tag_or_hook);
-    let r = memory::try_allocate::<Record, u128>(count)?;
-    unsafe {
-        r.write(Record {
-            header: Header::new(record_destroy),
-            ty,
-            tag_or_hook,
-            fields: [],
-        });
-    }
-    Ok(r)
-}
-
-/// Build the endpoint pair transactionally. The zeroed pair can be released
-/// before either endpoint is initialized if the bounded queue cannot allocate.
-pub(crate) unsafe fn channel_new(result: &'static Type, capacity: usize) -> u128 {
+/// Build the endpoint pair directly in the caller's two-slot tuple storage.
+pub(crate) unsafe fn channel_new(
+    result: &'static Type,
+    capacity: usize,
+    storage: *mut u128,
+) -> u128 {
     if capacity == 0 {
         return wrap(wrap(0, 0), 1); // Err(ChannelError.InvalidCapacity)
     }
     unsafe {
         let pair = result.variants[0].fields[0];
-        let build = || -> Result<u128, AllocError> {
-            let record = try_record_new(pair, 0)?;
-            match crate::channels::create(pair.variants[0].fields[0].key(), capacity) {
-                Ok((sender, receiver)) => {
-                    record_slot(record, 0).write(sender);
-                    record_slot(record, 1).write(receiver);
-                    Ok(record as u128)
-                }
-                Err(error) => {
-                    plenty_release(record.cast());
-                    Err(error)
-                }
+        match crate::channels::create(pair.variants[0].fields[0].key(), capacity) {
+            Ok((sender, receiver)) => {
+                storage.write(sender);
+                storage.add(1).write(receiver);
+                wrap(pair.pack(storage as u128, 0), 0)
             }
-        };
-        match build() {
-            Ok(pair) => wrap(pair, 0),
             Err(error) => wrap(wrap(wrap(0, error as u64), 1), 1),
         }
     }
 }
-unsafe extern "C" fn record_destroy(header: *mut Header) {
-    // No Rust reference to the record survives a user callback. The callback
-    // may read or mutate fields through its exclusive native receiver slot.
-    unsafe {
-        let r = header.cast::<Record>();
-        let ty = &*(*r).ty;
-        let tag = (*r).tag_or_hook;
-        let count = record_count(ty, tag);
-        if ty.kind == b'C' && tag != 0 {
-            (*header)
-                .refs
-                .store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
-            // Reconstitute an exposed native pointer before casting to its ABI
-            // function type; transmuting an integer directly loses provenance.
-            let address = std::ptr::with_exposed_provenance::<()>(tag as usize);
-            let hook: unsafe extern "C" fn(*mut u128) = std::mem::transmute(address);
-            let mut owner = r as u128;
-            memory::with_nested_drops(|| hook(&mut owner));
-            if owner != r as u128 {
-                crate::fail("destructor replaced its receiver");
-            }
-        }
-        for i in (0..count).rev() {
-            release(*record_slot(r, i), field_type(ty, tag, i));
-        }
-        memory::free::<Record, u128>(r, record_words(ty, tag));
-    }
-}
-
 pub(crate) fn index(index: i64, len: usize) -> usize {
     checked_index(index, len).unwrap_or_else(|| crate::fail("index out of bounds"))
 }
@@ -434,12 +500,13 @@ impl Collection {
             source.table.fill(0);
             for entry in source.entries.iter() {
                 if let Some(index) = self.find(entry.key) {
-                    let old = self.entries.get(index).value;
+                    // An inline value lives in the row, so release it before
+                    // its storage is overwritten.
+                    if let Some(value_type) = ty.value {
+                        release(self.entries.get(index).value, value_type);
+                    }
                     self.entries.set(index, true, entry.value);
                     release(entry.key, ty.key());
-                    if let Some(value_type) = ty.value {
-                        release(old, value_type);
-                    }
                 } else {
                     let bucket = self.bucket(entry.key);
                     self.table[bucket] = self.entries.len() + 1;
@@ -451,14 +518,40 @@ impl Collection {
         }
     }
 
+    /// Store borrowed copyable operands and adopt affine ones, which move
+    /// in. A failed insertion drops what it adopted; borrowed operands stay
+    /// with the caller.
     unsafe fn try_insert(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
+        unsafe {
+            // The descriptor is static; reading it does not borrow `self`.
+            let ty = &*self.ty;
+            let key_ty = ty.key();
+            let value_ty = ty.value;
+            if !key_ty.affine {
+                retain(key, key_ty);
+            }
+            if let Some(ty) = value_ty.filter(|ty| !ty.affine) {
+                retain(value, ty);
+            }
+            let stored = self.try_store(key, value);
+            if stored.is_err() {
+                release(key, key_ty);
+                if let Some(ty) = value_ty {
+                    release(value, ty);
+                }
+            }
+            stored
+        }
+    }
+    /// Insert owned operands without adjusting their ownership.
+    unsafe fn try_store(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
             if self.ty().kind != b'L' {
                 if let Some(i) = self.find(key) {
                     if let Some(ty) = &self.ty().value {
-                        retain(value, ty);
                         release(self.entries.get(i).value, ty);
                     }
+                    release(key, self.ty().key());
                     self.entries.set(i, true, value);
                     return Ok(());
                 }
@@ -477,10 +570,6 @@ impl Collection {
                 1
             };
             self.try_reserve(additional)?;
-            retain(key, self.ty().key());
-            if let Some(ty) = &self.ty().value {
-                retain(value, ty);
-            }
             if self.ty().kind != b'L' {
                 let bucket = self.bucket(key);
                 self.table[bucket] = self.entries.len() + 1;
@@ -518,57 +607,35 @@ impl Collection {
     }
 }
 
+/// Structural equality. Every value has one owner, so traversal is bounded by
+/// the value's own size; nothing is shared except immutable strings.
 unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
-    // Immutable payloads can form shared DAGs. Memoize aggregate pairs so IEEE
-    // comparisons do not turn a shared float-containing graph into exponential work.
-    unsafe { equal_inner(a, b, ty, &mut [(0, 0); 256], &mut 0) }
-}
-unsafe fn equal_inner(
-    a: u128,
-    b: u128,
-    ty: &Type,
-    seen: &mut [(u128, u128); 256],
-    cursor: &mut usize,
-) -> bool {
     unsafe {
         if a == b && ty.reflexive {
             return true;
         }
-        if matches!(ty.kind, b'C' | b'E' | b'L' | b'D') {
-            if seen.contains(&(a, b)) {
-                return true;
-            }
-            seen[*cursor] = (a, b);
-            *cursor = (*cursor + 1) % seen.len();
-        }
         match ty.kind {
-            b'B' => {
-                if ty.tag(a) != ty.tag(b) {
+            b'B' | b'C' => {
+                if ty.kind == b'B' && ty.tag(a) != ty.tag(b) {
                     return false;
                 }
-                ty.payload(a)
-                    .is_none_or(|t| equal_inner(ty.unpack(a), ty.unpack(b), t, seen, cursor))
+                match (ty.record(a), ty.record(b)) {
+                    (Some(left), Some(right)) => (0..left.len())
+                        .all(|i| equal(left.slot(i).read(), right.slot(i).read(), left.ty(i))),
+                    (None, None) => ty
+                        .payload(a)
+                        .is_none_or(|t| equal(ty.unpack(a), ty.unpack(b), t)),
+                    _ => false,
+                }
             }
             b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
             b'd' => f64::from_bits(a as u64) == f64::from_bits(b as u64),
             b's' => strings::bytes(&(a as *const Text)) == strings::bytes(&(b as *const Text)),
-            b'C' | b'E' => {
-                let (a, b) = (a as *const Record, b as *const Record);
-                if (*(*a).ty).name != (*(*b).ty).name {
-                    return false;
-                }
-                if ty.kind == b'E' && (*a).tag_or_hook != (*b).tag_or_hook {
-                    return false;
-                }
-                (0..record_count(ty, (*a).tag_or_hook)).all(|i| {
-                    equal_inner(
-                        *record_slot(a.cast_mut(), i),
-                        *record_slot(b.cast_mut(), i),
-                        field_type(ty, (*a).tag_or_hook, i),
-                        seen,
-                        cursor,
-                    )
-                })
+            b'O' => {
+                let (a, b) = (a as *const Boxed, b as *const Boxed);
+                let slot =
+                    |boxed: *const Boxed| std::ptr::addr_of!((*boxed).slot).cast::<u128>().read();
+                equal(slot(a), slot(b), ty.key())
             }
             b'R' => {
                 let (a, b) = (&*(a as *const Range), &*(b as *const Range));
@@ -582,7 +649,7 @@ unsafe fn equal_inner(
                 }
                 for (i, entry) in a.entries.iter().enumerate() {
                     if ty.kind == b'L' {
-                        if !equal_inner(entry.key, b.entries.get(i).key, ty.key(), seen, cursor) {
+                        if !equal(entry.key, b.entries.get(i).key, ty.key()) {
                             return false;
                         }
                     } else {
@@ -590,13 +657,7 @@ unsafe fn equal_inner(
                             return false;
                         };
                         if ty.kind == b'D'
-                            && !equal_inner(
-                                entry.value,
-                                b.entries.get(j).value,
-                                ty.value(),
-                                seen,
-                                cursor,
-                            )
+                            && !equal(entry.value, b.entries.get(j).value, ty.value())
                         {
                             return false;
                         }
@@ -608,8 +669,18 @@ unsafe fn equal_inner(
         }
     }
 }
-unsafe fn copy(value: u128, ty: &Type) -> u128 {
-    unsafe { try_copy(value, ty) }.unwrap_or_else(|_| crate::fail("copy allocation failed"))
+/// Copy `value` into an independent owner. A value with inline storage first
+/// moves its bytes to `storage`, which reserves `ty.payload_bytes()`.
+unsafe fn try_copy(value: u128, ty: &Type, storage: *mut u128) -> Result<u128, AllocError> {
+    unsafe {
+        let mut value = if ty.payload_bytes() != 0 {
+            ranges::copy_payload(value, ty, storage.cast())
+        } else {
+            value
+        };
+        try_copy_into(&mut value, ty)?;
+        Ok(value)
+    }
 }
 
 /// A fully initialized temporary owner, including a partially filled collection.
@@ -819,72 +890,138 @@ unsafe fn try_list_slice(
     }
 }
 
-unsafe fn try_copy(value: u128, ty: &Type) -> Result<u128, AllocError> {
+/// Replace the owned children of a byte-copied value with independent copies.
+/// Its inline storage must already be private. On failure it owns nothing.
+unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
     unsafe {
         if !ty.affine {
-            retain(value, ty);
-            return Ok(value);
+            retain(*value, ty);
+            return Ok(());
         }
-        match ty.kind {
-            b'B' => match ty.payload(value) {
-                Some(t) => Ok(ty.pack(try_copy(ty.unpack(value), t)?, ty.tag(value))),
-                None => Ok(value),
-            },
-            b'C' | b'E' => {
-                let source = value as *const Record;
-                if ty.kind == b'C' && (*source).tag_or_hook != 0 {
-                    crate::fail("cannot copy a class with custom cleanup");
-                }
-                let tag = (*source).tag_or_hook;
-                let count = record_count(ty, tag);
-                let result = try_record_new(&*(*source).ty, tag)?;
-                for i in 0..count {
-                    match try_copy(*record_slot(source.cast_mut(), i), field_type(ty, tag, i)) {
-                        Ok(field) => {
-                            ranges::store(record_slot(result, i), field, field_type(ty, tag, i))
-                        }
-                        Err(error) => {
-                            // Only the initialized prefix owns values. Never
-                            // run a whole-record destructor on a partial copy.
-                            for j in (0..i).rev() {
-                                release(*record_slot(result, j), field_type(ty, tag, j));
-                            }
-                            memory::free::<Record, u128>(result, record_words(ty, tag));
-                            return Err(error);
-                        }
+        if let Some(record) = ty.record(*value) {
+            if record.state().is_some() {
+                crate::fail("cannot copy a class with custom cleanup");
+            }
+            for i in 0..record.len() {
+                let mut field = record.slot(i).read();
+                if let Err(error) = try_copy_into(&mut field, record.ty(i)) {
+                    // The prefix owns copies; the rest still names the source.
+                    for j in (0..i).rev() {
+                        release(record.slot(j).read(), record.ty(j));
                     }
+                    for j in 0..record.len() {
+                        record.slot(j).write(0);
+                    }
+                    *value = 0;
+                    return Err(error);
                 }
-                Ok(result as u128)
+                record.slot(i).write(field);
             }
-            b'L' | b'S' | b'D' => {
-                let source = &*(value as *const Collection);
-                let result = try_collection_new(&*source.ty, source.entries.len())?;
-                let owner = OwnedValue {
-                    value: result as u128,
-                    ty,
-                };
-                for entry in source.entries.iter() {
-                    let key = OwnedValue {
-                        value: try_copy(entry.key, ty.key())?,
-                        ty: ty.key(),
-                    };
-                    let value = match ty.value {
-                        Some(t) => Some(OwnedValue {
-                            value: try_copy(entry.value, t)?,
-                            ty: t,
-                        }),
-                        None => None,
-                    };
-                    (*result).try_insert(key.value, value.as_ref().map_or(0, |v| v.value))?;
+            return Ok(());
+        }
+        let copied = match ty.kind {
+            b'B' => match ty.payload(*value) {
+                Some(t) => {
+                    let mut inner = ty.unpack(*value);
+                    try_copy_into(&mut inner, t).map(|()| ty.pack(inner, ty.tag(*value)))
                 }
-                Ok(owner.into_value())
-            }
+                None => return Ok(()),
+            },
+            b'L' | b'S' | b'D' => try_copy_collection(*value, ty),
+            b'O' => try_copy_box(*value as *const Boxed, ty),
             _ => {
-                retain(value, ty);
-                Ok(value)
+                retain(*value, ty);
+                return Ok(());
+            }
+        };
+        match copied {
+            Ok(copy) => {
+                *value = copy;
+                Ok(())
+            }
+            Err(error) => {
+                *value = 0;
+                Err(error)
             }
         }
     }
+}
+
+unsafe fn try_copy_box(source: *const Boxed, ty: &Type) -> Result<u128, AllocError> {
+    unsafe {
+        let content = ty.key();
+        let source = std::ptr::addr_of!((*source).slot).cast::<u128>().read();
+        let boxed = try_box_new(ty, source)?;
+        let slot = std::ptr::addr_of_mut!((*boxed).slot).cast::<u128>();
+        let mut inner = slot.read();
+        let copied = try_copy_into(&mut inner, content);
+        slot.write(inner);
+        match copied {
+            Ok(()) => Ok(boxed as u128),
+            Err(error) => {
+                plenty_release(boxed.cast());
+                Err(error)
+            }
+        }
+    }
+}
+
+unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError> {
+    unsafe {
+        let source = &*(value as *const Collection);
+        let result = try_collection_new(&*source.ty, source.entries.len())?;
+        let owner = OwnedValue {
+            value: result as u128,
+            ty,
+        };
+        for entry in source.entries.iter() {
+            // Insert byte copies that still name the source, then replace them
+            // in place, so inline payloads are copied into the final buffer.
+            (*result).try_store(entry.key, entry.value)?;
+            let row = (*result).entries.len() - 1;
+            let key = (*result).entries.slot(row, false);
+            let mut copy = key.read();
+            if let Err(error) = try_copy_into(&mut copy, ty.key()) {
+                key.write(0);
+                if ty.value.is_some() {
+                    (*result).entries.slot(row, true).write(0);
+                }
+                return Err(error);
+            }
+            key.write(copy);
+            if let Some(t) = ty.value {
+                let value = (*result).entries.slot(row, true);
+                let mut copy = value.read();
+                let copied = try_copy_into(&mut copy, t);
+                value.write(copy);
+                copied?;
+            }
+        }
+        Ok(owner.into_value())
+    }
+}
+
+/// Render `(a, b)`, or `(x=a, y=b)` with class field names.
+unsafe fn render_fields(
+    record: Record<'_>,
+    names: Option<&[Variant]>,
+    out: &mut crate::render_buffer::Buffer,
+) {
+    out.push(b'(');
+    for i in 0..record.len() {
+        if out.failed() {
+            break;
+        }
+        if i != 0 {
+            out.extend_from_slice(b", ");
+        }
+        if let Some(names) = names {
+            out.extend_from_slice(names[i].name.as_bytes());
+            out.push(b'=');
+        }
+        unsafe { render(record.slot(i).read(), record.ty(i), out) };
+    }
+    out.push(b')');
 }
 
 unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer) {
@@ -894,15 +1031,39 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     unsafe {
         match ty.kind {
             b'B' => {
-                out.extend_from_slice(ty.name.as_bytes());
-                out.push(b'.');
-                let variant = &ty.variants[ty.tag(value)];
-                out.extend_from_slice(variant.name.as_bytes());
-                if let Some(t) = ty.payload(value) {
+                let tuple = ty.name.starts_with("tuple[");
+                if !tuple {
+                    out.extend_from_slice(ty.name.as_bytes());
+                    out.push(b'.');
+                    let variant = &ty.variants[ty.tag(value)];
+                    out.extend_from_slice(variant.name.as_bytes());
+                }
+                if let Some(record) = ty.record(value) {
+                    render_fields(record, None, out);
+                } else if let Some(t) = ty.payload(value) {
                     out.push(b'(');
                     render(ty.unpack(value), t, out);
-                    out.push(b')');
+                    out.extend_from_slice(if tuple { b",)" } else { b")" });
+                } else if tuple {
+                    out.extend_from_slice(b"()");
                 }
+            }
+            b'C' => {
+                out.extend_from_slice(ty.name.as_bytes());
+                match ty.record(value) {
+                    Some(record) => render_fields(record, Some(ty.variants), out),
+                    None => out.extend_from_slice(b"()"),
+                }
+            }
+            b'O' => {
+                let boxed = value as *const Boxed;
+                out.extend_from_slice(b"Box(");
+                render(
+                    std::ptr::addr_of!((*boxed).slot).cast::<u128>().read(),
+                    ty.key(),
+                    out,
+                );
+                out.push(b')');
             }
             b'1'..=b'4' => write!(out, "{}", value as i64).unwrap(),
             b'5'..=b'8' => write!(out, "{value}").unwrap(),
@@ -925,42 +1086,6 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                     b"File(open)"
                 },
             ),
-            b'C' | b'E' => {
-                let r = value as *const Record;
-                let tuple = ty.kind == b'E' && ty.name.starts_with("tuple[");
-                if !tuple {
-                    out.extend_from_slice(ty.name.as_bytes());
-                }
-                let count = record_count(ty, (*r).tag_or_hook);
-                if ty.kind == b'E' && !tuple {
-                    out.push(b'.');
-                    out.extend_from_slice(ty.variants[(*r).tag_or_hook as usize].name.as_bytes());
-                }
-                if count > 0 || ty.kind == b'C' {
-                    out.push(b'(');
-                    for i in 0..count {
-                        if out.failed() {
-                            break;
-                        }
-                        if i != 0 {
-                            out.extend_from_slice(b", ");
-                        }
-                        if ty.kind == b'C' {
-                            out.extend_from_slice(ty.variants[i].name.as_bytes());
-                            out.push(b'=');
-                        }
-                        render(
-                            *record_slot(r.cast_mut(), i),
-                            field_type(ty, (*r).tag_or_hook, i),
-                            out,
-                        );
-                    }
-                    if tuple && count == 1 {
-                        out.push(b',');
-                    }
-                    out.push(b')');
-                }
-            }
             b'R' => {
                 let r = &*(value as *const Range);
                 let signed = ty.key().kind <= b'4';
@@ -1056,19 +1181,10 @@ pub(crate) unsafe fn collection(
                 _ => {}
             }
         }
-        if op == 14 || op == 33 {
-            let ty = if descriptor.is_null() {
-                value_type(a)
-            } else {
-                &*descriptor
-            };
-            return if op == 14 {
-                copy(a, ty)
-            } else {
-                match try_copy(a, ty) {
-                    Ok(value) => wrap(value, 0),
-                    Err(error) => wrap(wrap(0, error as u64), 1),
-                }
+        if op == 33 {
+            return match try_copy(a, &*descriptor, b as *mut u128) {
+                Ok(value) => wrap(value, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
             };
         }
         if !descriptor.is_null() && (*descriptor).kind == b's' && !matches!(op, 110 | 111) {
@@ -1613,43 +1729,23 @@ pub(crate) unsafe fn collection(
             },
             11 => try_dictionary_snapshot(&mut *(a as *mut Collection), &*descriptor, true)
                 .unwrap_or_else(|_| crate::fail("dictionary snapshot allocation failed")),
-            108 => match try_record_new(&*descriptor, a as u64) {
-                Ok(record) => wrap(record as u128, 0),
+            119 => match try_box_new(&*descriptor, a) {
+                Ok(boxed) => wrap(boxed as u128, 0),
+                Err(error) => {
+                    // A failed box drops the value it would have owned.
+                    release(a, (*descriptor).key());
+                    wrap(wrap(0, error as u64), 1)
+                }
+            },
+            120 => {
+                box_take(a as *mut Boxed);
+                0
+            }
+            // An empty box for content the caller stores afterwards.
+            121 => match try_box_new(&*descriptor, 0) {
+                Ok(boxed) => wrap(boxed as u128, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
             },
-            109 => {
-                (*(a as *mut Record)).tag_or_hook = b as u64;
-                0
-            }
-            20 | 30 => record_new(&*descriptor, a as u64) as u128,
-            21 => {
-                let r = a as *mut Record;
-                let ty = &*(*r).ty;
-                let i = index(b as i64, record_count(ty, (*r).tag_or_hook));
-                let field_ty = field_type(ty, (*r).tag_or_hook, i);
-                let slot = record_slot(r, i);
-                retain(value, field_ty);
-                release(*slot, field_ty);
-                ranges::store(slot, value, field_ty);
-                0
-            }
-            22 => (*(a as *const Record)).tag_or_hook as u128,
-            23 | 25 | 31 => {
-                let r = a as *mut Record;
-                let ty = &*(*r).ty;
-                if op != 31 && (*r).tag_or_hook as u128 != value {
-                    crate::fail("invalid enum projection");
-                }
-                let i = index(b as i64, record_count(ty, (*r).tag_or_hook));
-                let slot = record_slot(r, i);
-                let field = *slot;
-                if op == 25 {
-                    *slot = 0;
-                } else {
-                    retain(field, field_type(ty, (*r).tag_or_hook, i));
-                }
-                field
-            }
             24 => {
                 let mut item = 0;
                 let ready = plenty_generator_resume(a as *mut Generator, &mut item);

@@ -19,9 +19,9 @@ def describe(reading: Reading) -> str:
             reason
 
 def main() -> Result[(), Failure]:
-    print(describe((Reading.Missing)?))?
-    print(describe(Reading.Value(42)?))?
-    print(describe(Reading.Invalid("sensor offline")?))?
+    print(describe(Reading.Missing))?
+    print(describe(Reading.Value(42)))?
+    print(describe(Reading.Invalid("sensor offline")))?
     Ok(())
 ```
 
@@ -31,8 +31,9 @@ positive
 sensor offline
 ```
 
-Variants without data omit parentheses. Payloads may have several positions,
-such as `Pair(i64, str)`. Bindings in a case are immutable and stay inside
+Constructing an enum value never allocates: the payload is stored inline, so
+`Reading.Value(42)` needs no `?`. Variants without data omit parentheses.
+Payloads may have several positions, such as `Pair(i64, str)`. Bindings in a case are immutable and stay inside
 that case. Use `_` for an unused payload position, or a final whole-value
 `case _:` for the remaining variants. Duplicate or missing cases are errors:
 
@@ -42,7 +43,7 @@ enum Switch:
     Off
 
 def main() -> ():
-    match (Switch.On).unwrap():
+    match Switch.On:
         case Switch.On:
             print("on").unwrap()
 ```

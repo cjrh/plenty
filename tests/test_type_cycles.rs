@@ -19,16 +19,33 @@ fn errors_show_the_actual_cycle_without_an_unrelated_prefix() {
 }
 
 #[test]
-fn nominal_boundaries_allow_recursive_storage() {
+fn heap_boundaries_allow_recursive_storage() {
     for source in [
-        "class Node:\n    next: Option[Node]",
+        "class Node:\n    next: Option[Box[Node]]",
         "class Left:\n    child: Right\nclass Right:\n    children: list[Left]",
-        "type Link = Node\nenum Node:\n    End\n    Next(Link)",
+        "type Link = Node\nenum Node:\n    End\n    Next(Box[Link])",
         "class Node[T]:\n    children: list[Node[T]]\ntype Numbers = Node[i64]",
-        "enum E:\n    A(E)",
+        "enum E:\n    A(Box[E])",
         "type A = list[E]\nenum E:\n    A(A)",
     ] {
         support::check_source(source).unwrap();
+    }
+}
+
+#[test]
+fn inline_recursion_without_a_box_is_rejected() {
+    for source in [
+        "class Node:\n    next: Option[Node]",
+        "enum E:\n    A(E)",
+        "type Link = Node\nenum Node:\n    End\n    Next(Link)",
+        "class A:\n    b: B\nclass B:\n    a: Option[A]",
+        "class Pair[T]:\n    first: T\n    rest: Option[Pair[T]]\ntype Numbers = Pair[i64]",
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(
+            error.contains("would have infinite size"),
+            "{source}\n{error}"
+        );
     }
 }
 
@@ -50,7 +67,7 @@ fn long_alias_chains_use_a_worklist_and_bound_cycle_diagnostics() {
 fn diamond_dependencies_and_generic_parameter_shadows_are_not_cycles() {
     support::check_source("class Root:\n    left: Left\n    right: Right\nclass Left:\n    value: Leaf\nclass Right:\n    value: Leaf\nclass Leaf:\n    value: i64").unwrap();
     support::check_source(
-        "class Item:\n    value: Wrapper[i64]\nclass Wrapper[Item]:\n    value: Item\nx = Wrapper[i64](3).unwrap()",
+        "class Item:\n    value: Wrapper[i64]\nclass Wrapper[Item]:\n    value: Item\nx = Wrapper[i64](3)",
     )
     .unwrap();
 }

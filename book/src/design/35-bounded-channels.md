@@ -74,7 +74,8 @@ actually form a cycle. Keep receivers outside queued message cycles.
 
 ## Allocation and synchronization
 
-Construction allocates the pair record and one pinned core/ring block. Each ring
+Construction allocates one pinned core/ring block; the endpoint pair is an
+inline tuple. Each ring
 slot reserves the complete message layout. Sharing, sending, receiving, waiting,
 disconnection, and the error wrappers allocate nothing. Evaluating a message
 expression and executing its destructor retain their ordinary effects.

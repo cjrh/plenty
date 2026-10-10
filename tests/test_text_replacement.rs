@@ -53,7 +53,7 @@ class Message:
     text: str
 def replace(text: &str, old: &str, new: &str) -> Result[str, AllocError]:
     text.replace(old, new)
-mut message = Message(("Aé" + "🙂é").unwrap()).unwrap()
+mut message = Message(("Aé" + "🙂é").unwrap())
 old = ("" + "é").unwrap()
 new = ("" + "Z").unwrap()
 saved = replace(&message.text, &old, &new)
@@ -91,7 +91,7 @@ print(fail()).unwrap()
 class Custom:
     def replace(self, value: i64) -> i64:
         value
-print(Custom().unwrap().replace(42)).unwrap()
+print(Custom().replace(42)).unwrap()
 "#, "receiver\nold\nnew\nResult[str, AllocError].Ok(\"XbX\")\nreceiver\nmissing\nResult[str, AllocError].Err(AllocError.CapacityOverflow)\n42");
 }
 

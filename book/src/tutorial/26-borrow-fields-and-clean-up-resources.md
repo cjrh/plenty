@@ -8,7 +8,7 @@ class Basket:
     items: list[str]
 
 def main() -> Result[(), Failure]:
-    mut basket = Basket(0, []?)?
+    mut basket = Basket(0, []?)
     count = &mut basket.count
     *count = 2
     basket.items.append("apple")?
@@ -34,7 +34,7 @@ class Position:
     y: i64
 
 def main() -> Result[(), Failure]:
-    mut position = Position(1, 2)?
+    mut position = Position(1, 2)
     x = &mut position.x
     y = &mut position.y
     *x = 10
@@ -67,8 +67,8 @@ class Pair:
         print("release pair").unwrap()
 
 def work() -> Result[(), Failure]:
-    pair = Pair(Resource("first")?, Resource("second")?)?
-    spare = Resource("spare")?
+    pair = Pair(Resource("first"), Resource("second"))
+    spare = Resource("spare")
     print("working")?
     Ok(())
 

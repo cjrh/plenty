@@ -243,6 +243,7 @@ mod tests {
         value: None,
         name: "",
         variants: &[],
+        drop: None,
     };
 
     #[test]

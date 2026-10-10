@@ -1,4 +1,4 @@
-//! Source-level recursive owners use the ordinary record ABI and cleanup path.
+//! Recursive types reach themselves through `Box`, which owns a heap value.
 mod support;
 
 fn runs(source: &str, expected: &str) {
@@ -17,10 +17,10 @@ fn recursive_class_constructs_moves_and_borrows_fields() {
         r#"
 class Node:
     value: i64
-    next: Option[Node]
+    next: Option[Box[Node]]
     def head(self) -> i64:
         self.value
-mut chain = Node(1, Some(Node(2, Nothing).unwrap())).unwrap()
+mut chain = Node(1, Some(Box(Node(2, Nothing)).unwrap()))
 print(chain.head()).unwrap()
 chain.value = 4
 print(chain.head()).unwrap()
@@ -35,7 +35,7 @@ fn recursive_enum_and_generic_class_have_finite_native_layouts() {
         r#"
 enum Tree:
     Leaf(i64)
-    Branch(Tree, Tree)
+    Branch(Box[Tree], Box[Tree])
 def total(tree: Tree) -> i64:
     match tree:
         case Tree.Leaf(value):
@@ -44,10 +44,10 @@ def total(tree: Tree) -> i64:
             total(left) + total(right)
 class Node[T]:
     value: T
-    next: Option[Node[T]]
-tree = Tree.Branch(Tree.Leaf(3).unwrap(), Tree.Leaf(7).unwrap()).unwrap()
+    next: Option[Box[Node[T]]]
+tree = Tree.Branch(Box(Tree.Leaf(3)).unwrap(), Box(Tree.Leaf(7)).unwrap())
 print(total(tree)).unwrap()
-node = Node[i64](42, Nothing).unwrap()
+node = Node[i64](42, Nothing)
 print(node.value).unwrap()
 "#,
         "10\n42\n",
@@ -64,7 +64,7 @@ class Root:
 class Branch:
     value: i64
     children: list[Root]
-root = Root([Branch(7, [].unwrap()).unwrap()].unwrap()).unwrap()
+root = Root([Branch(7, [].unwrap())].unwrap())
 print(root.children[0].value).unwrap()
 "#,
         "7\n",
@@ -77,10 +77,10 @@ fn consuming_matches_can_walk_deep_values_iteratively() {
         r#"
 enum Chain[T]:
     End
-    Link(T, Chain[T])
-mut chain = Chain[i64].End.unwrap()
+    Link(T, Box[Chain[T]])
+mut chain = Chain[i64].End
 for n in range(1000):
-    chain = Chain[i64].Link(n, chain).unwrap()
+    chain = Chain[i64].Link(n, Box(chain).unwrap())
 mut total = 0
 while True:
     match chain:
@@ -103,9 +103,9 @@ fn recursive_owners_preserve_borrow_and_move_rules() {
             "borrowed = &node\nnode.value = 2\nprint(borrowed.value).unwrap()",
             "borrow",
         ),
-        ("node.next = Some(node)", "moved"),
+        ("node.next = Some(Box(node).unwrap())", "moved"),
     ] {
-        let source = format!("class Node:\n    value: i64\n    next: Option[Node]\nmut node = Node(1, Nothing).unwrap()\n{body}\n");
+        let source = format!("class Node:\n    value: i64\n    next: Option[Box[Node]]\nmut node = Node(1, Nothing)\n{body}\n");
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{source}\n{error}");
     }
@@ -121,9 +121,9 @@ fn unsupported_deep_operations_are_rejected_through_wrappers() {
         "wrapped = Some(node)\nprint(wrapped)",
         "wrapped = [node].unwrap()\ncopy(wrapped)",
         "wrapped = [node].unwrap()\nwrapped == wrapped",
-        "other = Node(2, Nothing).unwrap()\nwrapped = [node].unwrap()\nother in wrapped",
+        "other = Node(2, Nothing)\nwrapped = [node].unwrap()\nother in wrapped",
     ] {
-        let source = format!("class Node:\n    value: i64\n    next: Option[Node]\nnode = Node(1, Nothing).unwrap()\n{body}\n");
+        let source = format!("class Node:\n    value: i64\n    next: Option[Box[Node]]\nnode = Node(1, Nothing)\n{body}\n");
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(
             error.contains("not supported for recursive data"),
@@ -136,7 +136,7 @@ fn unsupported_deep_operations_are_rejected_through_wrappers() {
 fn recursive_names_do_not_bypass_inline_tag_or_finite_depth_limits() {
     let wrapped = format!("{}Node{}", "Option[".repeat(65), "]".repeat(65));
     for source in [
-        format!("class Node:\n    next: Option[Node]\ntype TooDeep = {wrapped}"),
+        format!("class Node:\n    next: Option[Box[Node]]\ntype TooDeep = {wrapped}"),
         format!("class Node:\n    next: {wrapped}"),
         (0..66)
             .map(|i| format!("class C{i}:\n    next: C{}\n", i + 1))
@@ -154,10 +154,10 @@ fn finite_mutual_generic_instances_reuse_their_nominal_identities() {
         r#"
 class Link[A, B]:
     value: A
-    next: Option[Link[B, A]]
+    next: Option[Box[Link[B, A]]]
 type Head = Link[i64, u8]
-tail = Link[u8, i64](7u8, Nothing).unwrap()
-head = Head(42, Some(tail)).unwrap()
+tail = Link[u8, i64](7u8, Nothing)
+head = Head(42, Some(Box(tail).unwrap()))
 print(head.value).unwrap()
 "#,
         "42\n",
@@ -166,36 +166,35 @@ print(head.value).unwrap()
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn failed_recursive_construction_cleans_consumed_children_exactly_once() {
+fn failed_boxes_drop_the_values_they_would_own_exactly_once() {
     runs(r#"
 class Node:
-    next: Option[Node]
+    next: Option[Box[Node]]
     def __del__(self) -> ():
         write_stdout("drop\n").unwrap()
         pass
 enum Tree:
     Leaf(Node)
-    Pair(Tree, Tree)
-child = Node(Nothing).unwrap()
+    Pair(Box[Tree], Box[Tree])
+child = Node(Nothing)
 print("__test_fail_allocations_after_0__").unwrap()
-failed = Node(Some(child))
+failed = Box(child)
 print("__test_restore_allocations__").unwrap()
 match failed:
     case Ok(value):
         print("unexpected").unwrap()
     case Err(error):
         print(error).unwrap()
-left = Tree.Leaf(Node(Nothing).unwrap()).unwrap()
-right = Tree.Leaf(Node(Nothing).unwrap()).unwrap()
+left = Tree.Leaf(Node(Nothing))
 print("__test_fail_allocations_after_0__").unwrap()
-failed_pair = Tree.Pair(left, right)
+failed_tree = Box(left)
 print("__test_restore_allocations__").unwrap()
-match failed_pair:
+match failed_tree:
     case Ok(value):
         print("unexpected").unwrap()
     case Err(error):
         print(error).unwrap()
-"#, "__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\nAllocError.OutOfMemory\n__test_fail_allocations_after_0__\ndrop\ndrop\n__test_restore_allocations__\nAllocError.OutOfMemory\n");
+"#, "__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\nAllocError.OutOfMemory\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\nAllocError.OutOfMemory\n");
 }
 
 #[cfg(all(feature = "runtime-checks", target_os = "linux"))]
@@ -204,14 +203,14 @@ fn deep_source_values_drop_on_a_small_native_stack_without_allocating() {
     let source = r#"
 enum Chain:
     End
-    Link(Chain)
+    Link(Box[Chain])
 class Node:
-    next: Option[Node]
-mut chain = Chain.End.unwrap()
-mut nodes: Option[Node] = Nothing
+    next: Option[Box[Node]]
+mut chain = Chain.End
+mut nodes: Option[Box[Node]] = Nothing
 for n in range(100000):
-    chain = Chain.Link(chain).unwrap()
-    nodes = Some(Node(nodes).unwrap())
+    chain = Chain.Link(Box(chain).unwrap())
+    nodes = Some(Box(Node(nodes)).unwrap())
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 drop(chain)
@@ -245,8 +244,8 @@ class Node:
     def __del__(self) -> ():
         write_stdout("drop\n").unwrap()
         pass
-mut root = Node(0, [Node(1, [].unwrap()).unwrap()].unwrap()).unwrap()
-replacement = Node(2, [].unwrap()).unwrap()
+mut root = Node(0, [Node(1, [].unwrap())].unwrap())
+replacement = Node(2, [].unwrap())
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 root.children[0] = replacement

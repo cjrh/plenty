@@ -110,7 +110,7 @@ class OwnedError:
     def __del__(self) -> ():
         print("cleaned").unwrap()
 def main() -> Result[(), OwnedError]:
-    Err(OwnedError().unwrap())
+    Err(OwnedError())
 "#,
     );
     assert_eq!(output.status.code(), Some(1));
@@ -154,7 +154,7 @@ class Wrapper:
     def unwrap(self) -> i64:
         self.value
 def main() -> ():
-    wrapper = Wrapper(42).unwrap()
+    wrapper = Wrapper(42)
     value: i64 = wrapper.unwrap()
     print(value).unwrap()
 "#,

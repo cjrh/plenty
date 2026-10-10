@@ -280,7 +280,7 @@ fn emit_object(
     let builder = ObjectBuilder::new(isa, "plenty", cranelift_module::default_libcall_names())?;
     let mut module = ObjectModule::new(builder);
 
-    let runtime = declare_runtime(&mut module)?;
+    let mut runtime = declare_runtime(&mut module)?;
 
     // Pass 1: collect every user-defined function reachable from `ops`
     // (top-level, nested under another definition, or inside a match
@@ -288,6 +288,11 @@ fn emit_object(
     // convention so its body can `return_call` other user functions.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
     collect_user_fns(ops, &mut module, &mut user_fns)?;
+    runtime.drop_hooks = user_fns
+        .iter()
+        .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
+        .collect();
+    let runtime = runtime;
 
     // Pass 1b: emit one read-only data symbol per source string literal.
     // We walk the ops (recursing into bodies and match arms) collecting
@@ -387,6 +392,8 @@ struct Runtime {
     thread_join: FuncId,
     thread_adapters: std::cell::RefCell<HashMap<String, FuncId>>,
     type_data: std::cell::RefCell<HashMap<Ty, DataId>>,
+    /// `__del__` adapters by method name, linked into class descriptors.
+    drop_hooks: HashMap<String, FuncId>,
     collection: FuncId,
     channel: FuncId,
     control: FuncId,
@@ -512,6 +519,7 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         },
         generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
+        drop_hooks: HashMap::new(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
         collection: {
@@ -788,7 +796,7 @@ fn emit_user_function(
             // Null denotes an uninitialized ownership slot, never a source value.
             if ty.managed() {
                 let zero = bcx.ins().iconst(types::I64, 0);
-                let zero = if ty.inline_sum() {
+                let zero = if ty.wide() {
                     bcx.ins().uextend(types::I128, zero)
                 } else {
                     zero
@@ -976,7 +984,7 @@ fn emit_main(
 /// interpretation. `Str` is a host pointer (`PTR_TY`), the address of
 /// a counted immutable object in read-only data or the managed runtime heap.
 fn clif_type(ty: Ty) -> types::Type {
-    if ty.inline_sum() {
+    if ty.wide() {
         return types::I128;
     }
     match ty {
@@ -999,6 +1007,7 @@ fn clif_type(ty: Ty) -> types::Type {
         | Ty::List(_)
         | Ty::Set(_)
         | Ty::Dict(_, _)
+        | Ty::Box(_)
         | Ty::Range(_)
         | Ty::Class(_)
         | Ty::Enum(_)
@@ -1095,7 +1104,7 @@ struct Lowerer<'a, 'b> {
 
 impl Lowerer<'_, '_> {
     fn retain(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
-        if ty.inline_sum() || matches!(ty, Ty::Closure(_)) {
+        if ty.wide() || matches!(ty, Ty::Closure(_)) {
             if ty.managed() {
                 self.collection_call(26, &[value], Some(ty))
                     .expect("sum metadata");
@@ -1111,7 +1120,7 @@ impl Lowerer<'_, '_> {
         }
     }
     fn release(&mut self, value: cranelift_codegen::ir::Value, ty: &Ty) {
-        if ty.inline_sum() || matches!(ty, Ty::Generator(_) | Ty::Closure(_)) {
+        if ty.wide() || matches!(ty, Ty::Generator(_) | Ty::Closure(_)) {
             if ty.managed() {
                 self.collection_call(27, &[value], Some(ty))
                     .expect("sum metadata");
@@ -1238,6 +1247,8 @@ impl Lowerer<'_, '_> {
             Op::ClosureCall(t) => self.lower_closure_call(t)?,
             Op::Class(operation) => self.lower_class(operation)?,
             Op::Enum(operation) => self.lower_enum(operation)?,
+            Op::Split(t, tag) => self.lower_split(t, *tag)?,
+            Op::Box(operation) => self.lower_box(operation)?,
             Op::Yield(ty) => self.lower_yield(ty)?,
             Op::Next(i, _) => self.lower_next(*i)?,
             Op::DropLocal(i) => self.drop_local(*i),

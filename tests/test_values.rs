@@ -30,18 +30,18 @@ fn run(source: &str) -> std::process::Output {
     "[[\"ab\"]]\n[[\"new\"]]\nxy\n"
 )]
 #[case("def repeat(n: i64, s: str) -> str:\n    if n == 0:\n        s\n    else:\n        repeat(n - 1, (s + '').unwrap())\nprint(repeat(10_000, 'ok')).unwrap()", "ok\n")]
-#[case("enum Color:\n    Red\n    Blue\nprint((Color.Red).unwrap()).unwrap()\nprint((Color.Red).unwrap() == (Color.Red).unwrap()).unwrap()\nprint((Color.Red).unwrap() == (Color.Blue).unwrap()).unwrap()", "Color.Red\nTrue\nFalse\n")]
-#[case("enum Reading:\n    Missing\n    Value(i64)\n    Invalid(str)\ndef show(r: Reading) -> str:\n    match r:\n        case Reading.Missing:\n            'missing'\n        case Reading.Value(n):\n            'value' if n == 42 else 'other'\n        case Reading.Invalid(reason):\n            reason\nprint(show((Reading.Missing).unwrap())).unwrap()\nprint(show(Reading.Value(42).unwrap())).unwrap()\nprint(show(Reading.Invalid(('bad' + ' input').unwrap()).unwrap())).unwrap()", "missing\nvalue\nbad input\n")]
-#[case("enum Pair:\n    Value(i8, u64, str)\nx = Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b').unwrap()\nmatch x:\n    case Pair.Value(a, b, c):\n        print(a).unwrap()\n        print(b).unwrap()\n        print(c).unwrap()\nprint(x == Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b').unwrap()).unwrap()", "-128\n18446744073709551615\na\0b\nTrue\n")]
-#[case("type Input = Reading\nenum Reading:\n    Data(list[str])\nx = Input.Data([('a' + 'b').unwrap()].unwrap()).unwrap()\nmatch copy(x).unwrap():\n    case Reading.Data(items):\n        mut copy = items\n        copy.append('c').unwrap()\n        print(copy).unwrap()\nprint(x).unwrap()", "[\"ab\", \"c\"]\nReading.Data([\"ab\"])\n")]
-#[case("enum Outer:\n    Value(Inner)\nenum Inner:\n    Text(str)\nprint([Outer.Value(Inner.Text('hi').unwrap()).unwrap()].unwrap() == [Outer.Value(Inner.Text(('h' + 'i').unwrap()).unwrap()).unwrap()].unwrap()).unwrap()\nprint({'x': Outer.Value(Inner.Text('hi').unwrap()).unwrap()}.unwrap()).unwrap()", "True\n{\"x\": Outer.Value(Inner.Text(\"hi\"))}\n")]
+#[case("enum Color:\n    Red\n    Blue\nprint(Color.Red).unwrap()\nprint(Color.Red == Color.Red).unwrap()\nprint(Color.Red == Color.Blue).unwrap()", "Color.Red\nTrue\nFalse\n")]
+#[case("enum Reading:\n    Missing\n    Value(i64)\n    Invalid(str)\ndef show(r: Reading) -> str:\n    match r:\n        case Reading.Missing:\n            'missing'\n        case Reading.Value(n):\n            'value' if n == 42 else 'other'\n        case Reading.Invalid(reason):\n            reason\nprint(show(Reading.Missing)).unwrap()\nprint(show(Reading.Value(42))).unwrap()\nprint(show(Reading.Invalid(('bad' + ' input').unwrap()))).unwrap()", "missing\nvalue\nbad input\n")]
+#[case("enum Pair:\n    Value(i8, u64, str)\nx = Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b')\nmatch x:\n    case Pair.Value(a, b, c):\n        print(a).unwrap()\n        print(b).unwrap()\n        print(c).unwrap()\nprint(x == Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b')).unwrap()", "-128\n18446744073709551615\na\0b\nTrue\n")]
+#[case("type Input = Reading\nenum Reading:\n    Data(list[str])\nx = Input.Data([('a' + 'b').unwrap()].unwrap())\nmatch copy(x).unwrap():\n    case Reading.Data(items):\n        mut copy = items\n        copy.append('c').unwrap()\n        print(copy).unwrap()\nprint(x).unwrap()", "[\"ab\", \"c\"]\nReading.Data([\"ab\"])\n")]
+#[case("enum Outer:\n    Value(Inner)\nenum Inner:\n    Text(str)\nprint([Outer.Value(Inner.Text('hi'))].unwrap() == [Outer.Value(Inner.Text(('h' + 'i').unwrap()))].unwrap()).unwrap()\nprint({'x': Outer.Value(Inner.Text('hi'))}.unwrap()).unwrap()", "True\n{\"x\": Outer.Value(Inner.Text(\"hi\"))}\n")]
 #[case("def choose(n: i64) -> Option[i64]:\n    if n > 0:\n        Option[i64].Some(n)\n    else:\n        Option[i64].Nothing\nfor n in [-1, 2].unwrap():\n    match choose(n):\n        case Option[i64].Some(value):\n            print(value).unwrap()\n        case Option[i64].Nothing:\n            print('nothing').unwrap()", "nothing\n2\n")]
 #[case("type R = Result[i64, str]\ndef answer(ok: bool) -> R:\n    if ok:\n        R.Ok(42)\n    else:\n        R.Err('no')\nprint(answer(True)).unwrap()\nprint(answer(False)).unwrap()", "Result[i64, str].Ok(42)\nResult[i64, str].Err(\"no\")\n")]
-#[case("enum E:\n    A\n    B(i64)\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            return 1\n        case E.B(n):\n            n\nprint(f(E.B(42).unwrap())).unwrap()\nfor e in [(E.A).unwrap(), E.B(2).unwrap(), E.B(3).unwrap()].unwrap():\n    match e:\n        case E.A:\n            continue\n        case E.B(n):\n            if n == 3:\n                break\n            print(n).unwrap()", "42\n2\n")]
-#[case("enum E:\n    A\n    B(str)\nx = 99\nmatch E.B('yes').unwrap():\n    case E.B(x):\n        print(x).unwrap()\n    case _:\n        pass\nprint(x).unwrap()", "yes\n99\n")]
+#[case("enum E:\n    A\n    B(i64)\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            return 1\n        case E.B(n):\n            n\nprint(f(E.B(42))).unwrap()\nfor e in [E.A, E.B(2), E.B(3)].unwrap():\n    match e:\n        case E.A:\n            continue\n        case E.B(n):\n            if n == 3:\n                break\n            print(n).unwrap()", "42\n2\n")]
+#[case("enum E:\n    A\n    B(str)\nx = 99\nmatch E.B('yes'):\n    case E.B(x):\n        print(x).unwrap()\n    case _:\n        pass\nprint(x).unwrap()", "yes\n99\n")]
 #[case("type O = Option[str]\ndef f(n: i64, o: O) -> str:\n    match o:\n        case O.Nothing:\n            'empty'\n        case O.Some(s):\n            if n == 0:\n                s\n            else:\n                f(n - 1, O.Some((s + '').unwrap()))\nprint(f(10_000, O.Some('ok'))).unwrap()", "ok\n")]
 #[case(
-    "enum Pair:\n    Values(str, str)\ndef item(n: i64) -> str:\n    print(n).unwrap()\n    ('value' + '').unwrap()\nmatch Pair.Values(item(1), item(2)).unwrap():\n    case Pair.Values(_, last):\n        print(last).unwrap()",
+    "enum Pair:\n    Values(str, str)\ndef item(n: i64) -> str:\n    print(n).unwrap()\n    ('value' + '').unwrap()\nmatch Pair.Values(item(1), item(2)):\n    case Pair.Values(_, last):\n        print(last).unwrap()",
     "1\n2\nvalue\n"
 )]
 #[case(
@@ -61,36 +61,33 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
 #[rstest]
 #[case("enum E:\n    A\n    A", "duplicate variant")]
 #[case(
-    "enum E:\n    A(i64)\nprint(E.A(True).unwrap()).unwrap()",
+    "enum E:\n    A(i64)\nprint(E.A(True)).unwrap()",
     "expected i64, got bool"
 )]
-#[case("enum E:\n    A\nprint(E.A().unwrap()).unwrap()", "nullary variants")]
+#[case("enum E:\n    A\nprint(E.A()).unwrap()", "nullary variants")]
+#[case("enum E:\n    A(i64)\nprint(E.A).unwrap()", "payload arguments")]
 #[case(
-    "enum E:\n    A(i64)\nprint((E.A).unwrap()).unwrap()",
-    "payload arguments"
-)]
-#[case(
-    "enum E:\n    A\n    B\nmatch (E.A).unwrap():\n    case E.A:\n        pass",
+    "enum E:\n    A\n    B\nmatch E.A:\n    case E.A:\n        pass",
     "non-exhaustive match; missing E.B"
 )]
 #[case(
-    "enum E:\n    A\n    B\nmatch (E.A).unwrap():\n    case E.A:\n        pass\n    case E.A:\n        pass",
+    "enum E:\n    A\n    B\nmatch E.A:\n    case E.A:\n        pass\n    case E.A:\n        pass",
     "duplicate variant case"
 )]
 #[case(
-    "enum E:\n    A\nmatch (E.A).unwrap():\n    case _:\n        pass\n    case E.A:\n        pass",
+    "enum E:\n    A\nmatch E.A:\n    case _:\n        pass\n    case E.A:\n        pass",
     "unreachable case"
 )]
 #[case(
-    "enum E:\n    A\nenum F:\n    A\nmatch (E.A).unwrap():\n    case F.A:\n        pass",
+    "enum E:\n    A\nenum F:\n    A\nmatch E.A:\n    case F.A:\n        pass",
     "expected E, got F"
 )]
 #[case(
-    "enum E:\n    A(i64, i64)\nmatch E.A(1, 2).unwrap():\n    case E.A(x, x):\n        pass",
+    "enum E:\n    A(i64, i64)\nmatch E.A(1, 2):\n    case E.A(x, x):\n        pass",
     "duplicate payload binding"
 )]
 #[case(
-    "enum E:\n    A(i64)\nmatch E.A(1).unwrap():\n    case E.A(x):\n        pass\nprint(x).unwrap()",
+    "enum E:\n    A(i64)\nmatch E.A(1):\n    case E.A(x):\n        pass\nprint(x).unwrap()",
     "unknown binding"
 )]
 #[case("enum E:\n    A\nx: set[E] = set().unwrap()", "set elements must")]
@@ -98,7 +95,7 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
 #[case("x = Result[i64].Ok(1)", "Result requires 2")]
 #[case("x = Result[(), str].Ok(1)", "expected (), got i64")]
 #[case(
-    "enum E:\n    A\nE = 1\nprint((E.A).unwrap()).unwrap()",
+    "enum E:\n    A\nE = 1\nprint(E.A).unwrap()",
     "shadows a type qualifier"
 )]
 #[case("enum E:\n    A\n    B\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            1\n        case E.B:\n            True", "expected i64, got bool")]
@@ -148,35 +145,38 @@ fn input_preserves_nul_and_validates_utf8() {
 }
 
 #[test]
-fn shared_enum_dependencies_do_not_expand_exponentially() {
-    let mut source = String::from("enum E0:\n    End\n");
+fn doubling_inline_types_hit_the_size_limit_without_exponential_work() {
+    // Each level stores two copies of the previous one inline.
+    let mut inline = String::from("enum E0:\n    End\n");
+    let mut boxed = inline.clone();
     for n in 1..40 {
-        source.push_str(&format!(
+        inline.push_str(&format!(
             "enum E{n}:\n    End\n    Pair(E{}, E{})\n",
             n - 1,
             n - 1
         ));
     }
-    source.push_str("print((E39.End).unwrap()).unwrap()\n");
-    source.push_str("x0 = (E0.End).unwrap()\n");
-    for n in 1..40 {
-        source.push_str(&format!(
-            "x{n} = E{n}.Pair(x{}, x{}).unwrap()\n",
+    // Each boxed level counts twice toward the nesting limit of 64.
+    for n in 1..30 {
+        boxed.push_str(&format!(
+            "enum E{n}:\n    End\n    Pair(Box[E{}], Box[E{}])\n",
             n - 1,
             n - 1
         ));
     }
-    source.push_str("print(x39 == x39).unwrap()\n");
-    source.push_str(
-        "items = [x39].unwrap()\nother = copy(items).unwrap()\nprint(items == other).unwrap()\n",
-    );
-    let output = run(&source);
+    inline.push_str("print(E39.End).unwrap()\n");
+    boxed.push_str("print(E29.End).unwrap()\n");
+    let start = std::time::Instant::now();
+    let error = support::check_source(&inline).unwrap_err().to_string();
+    assert!(error.contains("more than the limit"), "{error}");
+    assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    let output = run(&boxed);
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(output.stdout, b"E39.End\nTrue\nTrue\n");
+    assert_eq!(output.stdout, b"E29.End\n");
 }
 
 #[test]

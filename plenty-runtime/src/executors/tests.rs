@@ -11,6 +11,7 @@ static NUMBER: Type = Type {
     value: None,
     name: "i64",
     variants: &[],
+    drop: None,
 };
 
 unsafe extern "C" fn square(input: *const u128, out: *mut u128) {
@@ -135,6 +136,7 @@ fn cell_moves_inline_result_before_releasing_storage() {
         value: None,
         name: "range",
         variants: &[],
+        drop: None,
     };
     unsafe {
         let words = 1 + RANGE.slot_words();
@@ -271,6 +273,7 @@ fn pair_jobs_relocate_both_inline_captures_and_result() {
         value: None,
         name: "range",
         variants: &[],
+        drop: None,
     };
     static PAIR: Type = Type {
         kind: b'H',
@@ -285,6 +288,7 @@ fn pair_jobs_relocate_both_inline_captures_and_result() {
             name: "captures",
             fields: &[&RANGE, &RANGE],
         }],
+        drop: None,
     };
     unsafe extern "C" fn combine(input: *const u128, out: *mut u128) {
         unsafe {

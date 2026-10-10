@@ -14,7 +14,7 @@ pub class Point:
     pub def squared_length(self) -> i64:
         self.x * self.x + self.y * self.y
 
-pub def make_point() -> Result[Point, AllocError]:
+pub def make_point() -> Point:
     Point(3, 4)
 ```
 
@@ -25,7 +25,7 @@ import geometry
 from geometry import Point as Position
 
 def main() -> Result[(), Failure]:
-    point: Position = geometry.make_point()?
+    point: Position = geometry.make_point()
     print(point.squared_length())?
     print(point.x)?
     Ok(())
@@ -87,7 +87,7 @@ Application:
 from counter import Counter
 
 def main() -> Result[(), Failure]:
-    mut count = Counter(41)?
+    mut count = Counter(41)
     count.increment()
     print(count.read())?
     Ok(())
@@ -115,7 +115,7 @@ pub class Secret:
 from secret import Secret
 
 def main() -> ():
-    item = Secret(42).unwrap()
+    item = Secret(42)
     print(item.value).unwrap()
 ```
 

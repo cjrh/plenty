@@ -52,11 +52,9 @@ No lifetime annotation syntax or general trait system is required for this subse
 
 Tuples are immutable structural products. A tuple containing owned fields is
 affine; whole-tuple unpacking transfers each component and `_` drops a component.
-Copyable tuples share immutable storage on assignment. The initial implementation
-uses the existing heap record representation and cleanup machinery. A tuple
-display `(a, b)` returns
-`Result[tuple[A, B], AllocError]` and consumes and cleans up evaluated components
-on failure. Component expressions retain their own allocation/error contracts.
+A tuple stores its components inline, as a single-variant enum, so `(a, b)` has
+type `tuple[A, B]` and never allocates. Copying a copyable tuple copies its
+storage. Component expressions retain their own allocation/error contracts.
 Indices must be nonnegative integer literals, checked against the tuple's arity;
 owned fields can be observed or explicitly copied, but ownership extraction
 requires unpacking. References and generators cannot be stored in tuples yet.

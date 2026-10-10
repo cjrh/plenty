@@ -34,7 +34,7 @@ class Row:
     values: list[i64]
 def change(rows: &mut list[Row]) -> ():
     rows[0].values[-1] = 7
-mut rows = [Row([1, 2].unwrap()).unwrap()].unwrap()
+mut rows = [Row([1, 2].unwrap())].unwrap()
 change(&mut rows)
 rows[0].values[0] = 8
 print(rows).unwrap()
@@ -81,7 +81,7 @@ fn existing_nested_slots_need_no_allocation_including_inline_payloads() {
     expect(r#"
 class Row:
     values: list[Option[range[i64]]]
-mut rows = [Row([Some(range(3))].unwrap()).unwrap()].unwrap()
+mut rows = [Row([Some(range(3))].unwrap())].unwrap()
 mut table = {"row": [1, 2].unwrap()}.unwrap()
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
@@ -105,10 +105,10 @@ class Item:
 def missing() -> Result[i64, str]:
     Err("index failed")
 def update(rows: &mut list[list[Item]]) -> Result[(), str]:
-    rows[0][missing()?] = Item("pending").unwrap()
+    rows[0][missing()?] = Item("pending")
     Ok(())
-mut rows = [[Item("old").unwrap()].unwrap()].unwrap()
-rows[0][0] = Item("replacement").unwrap()
+mut rows = [[Item("old")].unwrap()].unwrap()
+rows[0][0] = Item("replacement")
 print(update(&mut rows)).unwrap()
 print(rows[0][0].label).unwrap()
 drop(rows)

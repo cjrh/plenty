@@ -483,6 +483,20 @@ impl TypeRef {
             }
             return Ok(Some(crate::generator::ty(element, None)));
         }
+        if name == "Box" {
+            if self.args.len() != 1 {
+                return Err(self.at.error("Box requires 1 type argument"));
+            }
+            let content = self.args[0]
+                .resolve(aliases)?
+                .ok_or_else(|| self.at.error("a box cannot hold unit"))?;
+            if !content.heap_storable() {
+                return Err(self
+                    .at
+                    .error("references and generators cannot be stored in a box"));
+            }
+            return Ok(Some(Ty::Box(Rc::new(content))));
+        }
         if name == "Future" {
             if self.args.len() != 1 {
                 return Err(self.at.error("Future requires one result type"));
@@ -673,7 +687,7 @@ enum Expression {
     Anonymous(Box<Function>),
     GenericValue(String, Vec<TypeRef>),
     GenericCall(String, Vec<TypeRef>, Vec<Expr>),
-    Tuple(Vec<Expr>, bool),
+    Tuple(Vec<Expr>),
     Try(Box<Expr>),
     ClassNew(crate::nominal::Nominal<crate::record::ClassType>),
     ClassReady(crate::nominal::Nominal<crate::record::ClassType>, Box<Expr>),
@@ -1305,7 +1319,7 @@ impl Parser {
             }
             self.expect(",")?;
         }
-        Ok(Expression::Tuple(values, true))
+        Ok(Expression::Tuple(values))
     }
     fn expr(&mut self, min: u8) -> Result<Expr> {
         if self.peek().is("def") {
@@ -1619,6 +1633,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "next"
                 | "copy"
                 | "drop"
+                | "Box"
         )
 }
 pub(crate) fn reserved(name: &str) -> bool {
@@ -1986,7 +2001,7 @@ impl Lower<'_> {
                 return Err(e.at.error("a type is not a value; select a variant"))
             }
             Expression::ClassNew(t) => {
-                let op = crate::record::ClassOp::TryNew(t.clone());
+                let op = crate::record::ClassOp::New(t.clone());
                 let output = op.signature().unwrap().1;
                 ops.push(Op::Class(op));
                 Some(output)
@@ -2009,9 +2024,7 @@ impl Lower<'_> {
                     Some(ty)
                 }
             }
-            Expression::Tuple(values, fallible) => {
-                Some(self.tuple(values, *fallible, None, &e.at, ops)?)
-            }
+            Expression::Tuple(values) => Some(self.tuple(values, None, &e.at, ops)?),
             Expression::Collection { .. } => Some(self.fallible_display(e, None, ops)?),
             Expression::Index(base, index) => {
                 let ty = self.index(base, index, ops)?;
@@ -2105,8 +2118,16 @@ impl Lower<'_> {
                         .map(|(ty, _)| Some(ty));
                 }
                 if op == "*" {
-                    let Ty::Ref(ty, _) = self.value(value, ops)? else {
-                        return Err(value.at.error("dereference requires a reference"));
+                    let ty = match self.value(value, ops)? {
+                        // Moving the content out consumes the box.
+                        Ty::Box(content) => {
+                            ops.push(Op::Box(crate::boxed::BoxOp::Take((*content).clone())));
+                            return Ok(Some((*content).clone()));
+                        }
+                        Ty::Ref(ty, _) => ty,
+                        _ => {
+                            return Err(value.at.error("dereference requires a reference or a Box"))
+                        }
                     };
                     let loan = self.reference_origin(value, ops)?;
                     if ty.affine() {
@@ -2361,6 +2382,21 @@ impl Lower<'_> {
                 if matches!(name.as_str(), "copy" | "drop") {
                     return self.copy_or_drop(name, args, &e.at, ops);
                 }
+                if name == "Box" {
+                    let [content] = args.as_slice() else {
+                        return Err(e.at.error("Box takes one value"));
+                    };
+                    let ty = self.value(content, ops)?;
+                    if !ty.heap_storable() {
+                        return Err(content
+                            .at
+                            .error("references and generators cannot be stored in a box"));
+                    }
+                    let operation = crate::boxed::BoxOp::New(ty);
+                    let output = operation.signature().1;
+                    ops.push(Op::Box(operation));
+                    return Ok(Some(output));
+                }
                 if name == "next" {
                     return self.next(args, &e.at, ops);
                 }
@@ -2500,6 +2536,12 @@ impl Lower<'_> {
         for (arg, (_, expected)) in args.iter().zip(inputs) {
             if let Ty::Ref(_, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, ops)?;
+                // A borrowed box also lends its content.
+                let ty = if ty == *expected {
+                    ty
+                } else {
+                    self.unbox_reference(ty, ops)
+                };
                 self.same(Some(ty), Some(expected.clone()), &arg.at)?;
                 argument_loans.push(loan);
                 continue;

@@ -33,7 +33,7 @@ pub class Resource:
         set_raw(self.raw, value)
 
 pub def create(mode: i32) -> Result[Resource, Failure]:
-    mut owner = Resource()?
+    mut owner = Resource()
     if open_raw(&mut owner.raw, mode) != 0:
         return Err(Failure.Unspecified)
     if owner.raw.is_null():

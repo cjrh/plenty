@@ -17,7 +17,7 @@ class Point:
         self.y = self.y + amount
 
 def main() -> Result[(), Failure]:
-    mut point = Point(3, 4)?
+    mut point = Point(3, 4)
     print(point.squared_length())?
     point.shift(1)
     mut changed = copy(point)?
@@ -37,6 +37,10 @@ Ordinary methods borrow `self` read-only by default: `self` is shorthand for
 `self: &Point` here. A method that changes fields declares `self: &mut Point`.
 Calling it requires a `mut` binding or an exclusive reference. Every other
 parameter and every return has an explicit type.
+
+An instance stores its fields inline, so `Point(3, 4)` allocates nothing and
+needs no `?`. `copy` can still fail, because a copied list or string field
+allocates.
 
 Class instances move even when their fields are all integers. `other = point`
 transfers ownership; `copy(point)` requests independent fields. Reading an

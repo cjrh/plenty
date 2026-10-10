@@ -3,8 +3,9 @@
 `Option` and `Result` use an inline 128-bit representation: one 64-bit terminal
 payload and one 64-bit path of binary tags, outermost tag first. Nested standard
 sums add tag bits without boxing; the existing 64-level type limit bounds the path.
-The terminal payload is scalar bits or a handle to an independently owned heap
-value, or an internal address of owner-local inline range data. This
+The terminal payload is scalar bits, a handle to an independently owned heap
+value, or an internal address of owner-local inline data: a range, a closure
+environment, a class's fields, or a multi-field variant's fields. This
 representation preserves all integer and float bit patterns; it does
 not reserve a null pointer or numeric sentinel as a source-level value.
 
@@ -18,17 +19,17 @@ disabled; printing them retains the ordinary fallible formatting cost. See
 Construction, passing, returning, matching, and `?` do not allocate a standard
 sum wrapper. Copies of scalar-only sums and their equality comparisons are also
 allocation-free. Payload operations retain their existing costs: creating a list,
-concatenating strings, copying mutable contents, constructing a user-defined enum,
-or formatting output can allocate. Cleanup may execute user code that allocates.
+concatenating strings, copying mutable contents, boxing a value, or formatting
+output can allocate. Cleanup may execute user code that allocates.
 This is a wrapper guarantee, not yet a guarantee of recoverable allocation failure.
 
 Native calls carry standard sums as integer pairs through Cranelift's internal
 calling convention. Addressable locals, collection entries, record fields, and
 generator slots use 16-byte storage for scalar/pointer payloads and sum tags.
-Slots whose types can contain a range add 32 bytes of inline range data; only
+Slots whose types keep inline data add its bytes after the 16-byte word; only
 those slots grow. Native functions returning such a value receive caller-owned
-range storage, and copies relocate its private address while preserving sum tags.
-No range owner is allocated. The
+storage, and copies relocate its private address while preserving sum tags.
+No owner is allocated. The
 runtime aggregate helper takes pointers to aligned input/output slots rather than
 depending on a platform's C ABI for `u128`. Neither representation is a public FFI ABI.
 

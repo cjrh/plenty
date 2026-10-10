@@ -93,7 +93,7 @@ fn generics_recursive_owners_and_projected_references_cross_thread_boundary() {
         r#"
 class Node:
     value: i64
-    next: Option[Node]
+    next: Option[Box[Node]]
 def total(node: &Node) -> i64:
     match &node.next:
         case Some(rest):
@@ -103,7 +103,7 @@ def total(node: &Node) -> i64:
 def add[T: IntType](value: &mut T, amount: T) -> ():
     *value = *value + amount
 def main() -> Result[(), Failure]:
-    node = Node(2, Some(Node(3, Nothing)?))?
+    node = Node(2, Some(Box(Node(3, Nothing))?))
     with spawn(total, &node)? as task:
         print(task.join())?
     mut nested: Option[Result[u8, i32]] = Some(Ok(4u8))
@@ -198,7 +198,7 @@ class Resource:
 def worker(value: &Resource) -> i64:
     value.value
 def main() -> Result[(), Failure]:
-    value = Resource(1)?
+    value = Resource(1)
     with spawn(worker, &value)?:
         pass
     Ok(())
@@ -305,7 +305,7 @@ class Resource:
     def __del__(self: &mut Resource) -> ():
         print(self.name).unwrap()
 def make(name: str) -> Result[Resource, AllocError]:
-    Resource(name)
+    Ok(Resource(name))
 def run(join: bool) -> Result[(), Failure]:
     with spawn(make, "finished")? as task:
         if join:
@@ -369,7 +369,7 @@ def main() -> Result[(), Failure]:
     with spawn(&job)? as a, spawn(&job)? as b:
         print(a.join())?
         print(b.join())?
-    mut pair = Pair(1, 2)?
+    mut pair = Pair(1, 2)
     with spawn(bump, &mut pair.left)?, spawn(bump, &mut pair.right)?:
         pass
     print(pair.left + pair.right)?
@@ -441,7 +441,7 @@ class Counter:
 def bump(counter: &mut Counter) -> ():
     counter.value = counter.value + 1
 def run() -> Result[(), Failure]:
-    with Counter(5)? as counter:
+    with Counter(5) as counter:
         with spawn(bump, counter)?:
             return Ok(())
 def main() -> Result[(), Failure]:

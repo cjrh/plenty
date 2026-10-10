@@ -12,12 +12,12 @@ class Wrapper[T]:
         &self.value
 class Factory[T]:
     def make[U](self, unused: U, value: i64) -> Result[T, AllocError]:
-        T(value)
+        Ok(T(value))
 def main() -> Result[(), Failure]:
-    wrapper = Wrapper(U(9)?)?
+    wrapper = Wrapper(U(9))
     reference = wrapper.borrowed(1u8)
     print(reference.value)?
-    factory = Factory[U]()?
+    factory = Factory[U]()
     print(factory.make(1u8, 10)?)?
     Ok(())
 "#);
@@ -52,7 +52,7 @@ protocol Source[T]:
 def unused[T, F: Callable[[], Wrapper[T]]](f: F) -> ():
     pass
 def main() -> ():
-    wrapper = Wrapper(Reader().unwrap()).unwrap()
+    wrapper = Wrapper(Reader())
     print(wrapper.read()).unwrap()
 "#,
     )
@@ -94,7 +94,7 @@ class Pair[T]:
         write_stdout("pair drop\n").unwrap()
         pass
 def main() -> Result[(), Failure]:
-    result = Pair(Resource(1)?, Resource(2)?)
+    result = Pair(Resource(1), Resource(2))
     print(result)?
     Ok(())
 "#);
@@ -127,7 +127,7 @@ def read[T, R: Readable[T]](source: &R) -> T:
 def values(cell: Cell[u8]) -> Generator[u8]:
     yield cell.read()
 def main() -> ():
-    cell = Cell(7u8).unwrap()
+    cell = Cell(7u8)
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
     value = read(&cell)
@@ -151,7 +151,7 @@ def main() -> ():
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn failed_generic_data_allocation_reclaims_transferred_arguments() {
+fn generic_data_construction_moves_arguments_without_allocating() {
     let output = run(r#"
 class Resource:
     def __del__(self) -> ():
@@ -162,8 +162,8 @@ class Holder[T]:
 enum Packet[T]:
     Value(T)
 def main() -> ():
-    first = Resource().unwrap()
-    second = Resource().unwrap()
+    first = Resource()
+    second = Resource()
     print("__test_fail_allocations_after_0__").unwrap()
     a = Holder(first)
     b = Packet[Resource].Value(second)
@@ -176,7 +176,7 @@ def main() -> ():
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_fail_allocations_after_0__\ndrop\ndrop\n__test_restore_allocations__\nResult[Holder[Resource], AllocError].Err(AllocError.OutOfMemory)\nResult[Packet[Resource], AllocError].Err(AllocError.OutOfMemory)\n");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "__test_fail_allocations_after_0__\n__test_restore_allocations__\nHolder[Resource](value=Resource())\nPacket[Resource].Value(Resource())\ndrop\ndrop\n");
 }
 
 #[test]

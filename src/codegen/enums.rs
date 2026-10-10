@@ -7,7 +7,7 @@ pub(super) fn pack_value(
     value: cranelift_codegen::ir::Value,
     ty: &Ty,
 ) -> cranelift_codegen::ir::Value {
-    if ty.inline_sum() || matches!(ty, Ty::Ref(..)) {
+    if ty.wide() || matches!(ty, Ty::Ref(..)) {
         return value;
     }
     let word = if ty.is_float() {
@@ -36,41 +36,86 @@ pub(super) fn pack_value(
 }
 
 impl Lowerer<'_, '_> {
+    /// Byte offset of a field slot inside its owner's inline record storage.
+    fn record_offset<'t>(fields: impl Iterator<Item = &'t Ty>) -> i64 {
+        fields.map(|t| t.slot_bytes() as i64).sum()
+    }
+
+    /// Fresh stack storage for a record. Zeroed slots own nothing, so a
+    /// partially initialized class can be released safely.
+    fn record_storage(&mut self, bytes: usize) -> cranelift_codegen::ir::Value {
+        if bytes == 0 {
+            return self.bcx.ins().iconst(PTR_TY, 0);
+        }
+        let storage = self.inline_storage(bytes);
+        let config = self.module.target_config();
+        self.bcx.emit_small_memset(
+            config,
+            storage,
+            0,
+            bytes as u64,
+            8,
+            cranelift_codegen::ir::MemFlags::trusted(),
+        );
+        storage
+    }
+
+    /// Load field `index` of a record value, copying its own inline storage
+    /// out of the record so it survives the record's release.
+    fn record_field(
+        &mut self,
+        record: cranelift_codegen::ir::Value,
+        offset: i64,
+        ty: &Ty,
+    ) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value) {
+        let storage = self.raw_word(record);
+        let slot = self.bcx.ins().iadd_imm(storage, offset);
+        let value = self.bcx.ins().load(
+            types::I128,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            slot,
+            0,
+        );
+        let value = self.unpack(value, ty);
+        (self.snapshot_inline(value, ty), slot)
+    }
+
     pub(super) fn lower_class(&mut self, op: &crate::record::ClassOp) -> Result<()> {
         use crate::record::ClassOp;
         let (inputs, output) = op.signature().ok_or("invalid class operation")?;
         let result = match op {
-            ClassOp::TryNew(t) | ClassOp::ArmDrop(t) => {
-                let callback = if let Some(name) = &t.get().destructor {
-                    let id = self.user_fns[name]
-                        .drop_callback
-                        .ok_or("missing destructor adapter")?;
-                    let reference = self.module.declare_func_in_func(id, self.bcx.func);
-                    self.bcx.ins().func_addr(PTR_TY, reference)
-                } else {
-                    self.bcx.ins().iconst(PTR_TY, 0)
-                };
-                if matches!(op, ClassOp::ArmDrop(_)) {
-                    let (address, _) = self.pop_typed(inputs[0].clone())?;
-                    let address = self.raw_word(address);
-                    let owner = self.bcx.ins().load(
+            ClassOp::New(t) => {
+                let storage = self.record_storage(Ty::Class(t.clone()).inline_bytes());
+                self.bcx.ins().uextend(types::I128, storage)
+            }
+            ClassOp::ArmDrop(t) => {
+                // Mark the state word: initialization completed, so release
+                // runs `__del__`. A class without one has nothing to record.
+                let (reference, _) = self.pop_typed(inputs[0].clone())?;
+                if t.get().state_bytes() != 0 {
+                    let address = self.raw_word(reference);
+                    let storage = self.bcx.ins().load(
                         PTR_TY,
                         cranelift_codegen::ir::MemFlags::trusted(),
                         address,
                         0,
                     );
-                    self.collection_call(109, &[owner, callback], None)?
-                } else {
-                    let disabled = self.bcx.ins().iconst(PTR_TY, 0);
-                    self.collection_call(108, &[disabled], Some(&Ty::Class(t.clone())))?
+                    let one = self.bcx.ins().iconst(types::I64, 1);
+                    self.bcx.ins().store(
+                        cranelift_codegen::ir::MemFlags::trusted(),
+                        one,
+                        storage,
+                        0,
+                    );
                 }
+                self.bcx.ins().iconst(types::I64, 0)
             }
-            ClassOp::Field(_, i) => {
+            ClassOp::Field(t, i) => {
                 let (owner, _) = self.pop_typed(inputs[0].clone())?;
-                let index = self.bcx.ins().iconst(types::I64, *i as i64);
-                let value = self.collection_call(31, &[owner, index], None)?;
-                let value = self.unpack(value, &output);
-                let value = self.snapshot_inline(value, &output);
+                let offset = t.get().state_bytes() as i64
+                    + Self::record_offset(t.get().fields[..*i].iter().map(|(_, t)| t));
+                let (value, _) = self.record_field(owner, offset, &output);
+                self.retain(value, &output);
                 self.release(owner, &inputs[0]);
                 self.pack(value, &output)
             }
@@ -83,17 +128,35 @@ impl Lowerer<'_, '_> {
                     address,
                     0,
                 );
-                let offset: i64 = t.get().fields[..*i]
-                    .iter()
-                    .map(|(_, t)| t.slot_bytes() as i64)
-                    .sum();
-                self.bcx.ins().iadd_imm(owner, 32 + offset)
+                let offset = t.get().state_bytes() as i64
+                    + Self::record_offset(t.get().fields[..*i].iter().map(|(_, t)| t));
+                self.bcx.ins().iadd_imm(owner, offset)
             }
         };
         let result = self.unpack(result, &output);
         self.stack.push((result, output));
         Ok(())
     }
+
+    /// Move every field out of a multi-field variant or tuple.
+    pub(super) fn lower_split(
+        &mut self,
+        t: &crate::nominal::Nominal<crate::sum::EnumType>,
+        tag: usize,
+    ) -> Result<()> {
+        let ty = Ty::Enum(t.clone());
+        let (value, _) = self.pop_typed(ty)?;
+        let payload = self.tagged_payload(value, t.tag_bits());
+        let fields = t.get().variants[tag].fields.clone();
+        let mut offset = 0;
+        for field in fields {
+            let (value, _) = self.record_field(payload, offset, &field);
+            offset += field.slot_bytes() as i64;
+            self.stack.push((value, field));
+        }
+        Ok(())
+    }
+
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
         if let EnumOp::TagRef(t, _) | EnumOp::FieldRef(t, ..) = op {
@@ -101,40 +164,30 @@ impl Lowerer<'_, '_> {
             let result = match op {
                 EnumOp::TagRef(..) => {
                     let packed = self.read_reference(reference);
-                    if t.inline() {
-                        let tags = self.bcx.ins().ushr_imm(packed, 64);
-                        let tags = self.raw_word(tags);
-                        let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
-                        self.bcx.ins().band_imm(tags, mask as i64)
-                    } else {
-                        let owner = self.raw_word(packed);
-                        self.bcx.ins().load(
-                            types::I64,
-                            cranelift_codegen::ir::MemFlags::trusted(),
-                            owner,
-                            24,
-                        )
-                    }
+                    let tags = self.bcx.ins().ushr_imm(packed, 64);
+                    let tags = self.raw_word(tags);
+                    let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
+                    self.bcx.ins().band_imm(tags, mask as i64)
                 }
                 EnumOp::FieldRef(_, tag, field, _) => {
-                    if t.inline() {
+                    let fields = &t.get().variants[*tag].fields;
+                    if fields.len() == 1 {
                         let one = self.bcx.ins().iconst(types::I64, t.tag_bits() as i64);
                         let one = self.bcx.ins().uextend(types::I128, one);
                         let step = self.bcx.ins().ishl_imm(one, 64);
                         self.bcx.ins().iadd(reference, step)
                     } else {
+                        // The payload word in the slot addresses the record.
                         let address = self.raw_word(reference);
-                        let owner = self.bcx.ins().load(
+                        let storage = self.bcx.ins().load(
                             PTR_TY,
                             cranelift_codegen::ir::MemFlags::trusted(),
                             address,
                             0,
                         );
-                        let offset: i64 = t.get().variants[*tag].fields[..*field]
-                            .iter()
-                            .map(|t| t.slot_bytes() as i64)
-                            .sum();
-                        self.bcx.ins().iadd_imm(owner, 32 + offset)
+                        let offset = Self::record_offset(fields[..*field].iter());
+                        let slot = self.bcx.ins().iadd_imm(storage, offset);
+                        self.bcx.ins().uextend(types::I128, slot)
                     }
                 }
                 _ => unreachable!(),
@@ -146,120 +199,91 @@ impl Lowerer<'_, '_> {
         let t = match op {
             EnumOp::New(t, _)
             | EnumOp::Unwrap(t)
-            | EnumOp::TryNew(t, _)
             | EnumOp::Tag(t)
             | EnumOp::Field(t, _, _)
             | EnumOp::Take(t, _, _) => t,
             EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
         };
-        if t.inline() {
-            let result = match op {
-                EnumOp::Unwrap(t) => {
-                    let (value, _) = self.pop_typed(inputs[0].clone())?;
-                    let tag = self.sum_tag(value);
-                    let failed =
-                        self.bcx
-                            .ins()
-                            .icmp_imm(IntCC::NotEqual, tag, i64::from(t.is_option()));
-                    self.bcx.ins().trapnz(failed, TrapCode::unwrap_user(4));
-                    self.sum_payload(value)
-                }
-                EnumOp::New(_, tag) | EnumOp::TryNew(_, tag) => {
-                    let payload = if let Some(ty) = inputs.first() {
-                        let (v, _) = self.pop_typed(ty.clone())?;
-                        self.pack(v, ty)
-                    } else {
+        let result = match op {
+            EnumOp::Unwrap(t) => {
+                let (value, _) = self.pop_typed(inputs[0].clone())?;
+                let tag = self.sum_tag(value);
+                let failed =
+                    self.bcx
+                        .ins()
+                        .icmp_imm(IntCC::NotEqual, tag, i64::from(t.is_option()));
+                self.bcx.ins().trapnz(failed, TrapCode::unwrap_user(4));
+                self.sum_payload(value)
+            }
+            EnumOp::New(_, tag) => {
+                let payload = match inputs.as_slice() {
+                    [] => {
                         let zero = self.bcx.ins().iconst(types::I64, 0);
                         self.bcx.ins().uextend(types::I128, zero)
-                    };
-                    let value = self.wrap_tagged(payload, *tag, t.tag_bits());
-                    if matches!(op, EnumOp::TryNew(..)) {
-                        self.wrap_sum(value, 0)
-                    } else {
-                        value
                     }
-                }
-                EnumOp::Tag(_) => {
-                    let (value, _) = self.pop_typed(inputs[0].clone())?;
-                    let tags = self.bcx.ins().ushr_imm(value, 64);
-                    let tags = self.raw_word(tags);
-                    let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
-                    let tag = self.bcx.ins().band_imm(tags, mask as i64);
-                    self.release(value, &inputs[0]);
-                    tag
-                }
-                EnumOp::Field(..) | EnumOp::Take(..) => {
-                    // Single-payload inline projection transfers this operand's
-                    // ownership. Any remaining source binding owns its own retain.
-                    let (value, _) = self.pop_typed(inputs[0].clone())?;
-                    self.tagged_payload(value, t.tag_bits())
-                }
-                EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
-            };
-            let result = self.unpack(result, &output);
-            self.stack.push((result, output));
-            return Ok(());
-        }
-        let mut values = Vec::new();
-        for ty in inputs.iter().rev() {
-            let (value, _) = self.pop_typed(ty.clone())?;
-            values.push(self.pack(value, ty));
-        }
-        values.reverse();
-        let result = match op {
-            EnumOp::Unwrap(_) => unreachable!("standard sums are inline"),
-            EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
-            EnumOp::TryNew(t, tag) => {
-                let tag = self.bcx.ins().iconst(types::I64, *tag as i64);
-                let result = self.collection_call(108, &[tag], Some(&Ty::Enum(t.clone())))?;
-                let success = self.bcx.create_block();
-                let done = self.bcx.create_block();
-                self.bcx.append_block_param(done, types::I128);
-                let failed = self.sum_tag(result);
-                self.bcx
-                    .ins()
-                    .brif(failed, done, &[result.into()], success, &[]);
-                self.bcx.switch_to_block(success);
-                self.bcx.seal_block(success);
-                let record = self.sum_payload(result);
-                for (i, value) in values.iter().enumerate() {
-                    let field = self.bcx.ins().iconst(types::I64, i as i64);
-                    self.collection_call(21, &[record, field, *value], None)?;
-                }
-                self.bcx.ins().jump(done, &[result.into()]);
-                self.bcx.switch_to_block(done);
-                self.bcx.seal_block(done);
-                self.bcx.block_params(done)[0]
+                    [ty] => {
+                        let (v, _) = self.pop_typed(ty.clone())?;
+                        self.pack(v, ty)
+                    }
+                    fields => {
+                        let mut values = Vec::new();
+                        for ty in fields.iter().rev() {
+                            let (value, _) = self.pop_typed(ty.clone())?;
+                            values.push(value);
+                        }
+                        values.reverse();
+                        let bytes = fields.iter().map(Ty::slot_bytes).sum();
+                        let storage = self.inline_storage(bytes);
+                        let mut offset = 0;
+                        for (value, ty) in values.into_iter().zip(fields) {
+                            let slot = self.bcx.ins().iadd_imm(storage, offset);
+                            self.store_slot(slot, value, ty);
+                            offset += ty.slot_bytes() as i64;
+                        }
+                        self.bcx.ins().uextend(types::I128, storage)
+                    }
+                };
+                self.wrap_tagged(payload, *tag, t.tag_bits())
             }
-            EnumOp::New(t, tag) => {
-                let tag = self.bcx.ins().iconst(types::I64, *tag as i64);
-                let result = self.collection_call(20, &[tag], Some(&Ty::Enum(t.clone())))?;
-                for (i, value) in values.iter().enumerate() {
-                    let field = self.bcx.ins().iconst(types::I64, i as i64);
-                    self.collection_call(21, &[result, field, *value], None)?;
-                }
-                result
+            EnumOp::Tag(_) => {
+                let (value, _) = self.pop_typed(inputs[0].clone())?;
+                let tags = self.bcx.ins().ushr_imm(value, 64);
+                let tags = self.raw_word(tags);
+                let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
+                let tag = self.bcx.ins().band_imm(tags, mask as i64);
+                self.release(value, &inputs[0]);
+                tag
             }
-            EnumOp::Tag(_) => self.collection_call(22, &values, None)?,
             EnumOp::Field(_, tag, field) | EnumOp::Take(_, tag, field) => {
-                let tag = self.bcx.ins().iconst(types::I64, *tag as i64);
-                let field = self.bcx.ins().iconst(types::I64, *field as i64);
-                self.collection_call(
+                let (value, _) = self.pop_typed(inputs[0].clone())?;
+                let fields = t.get().variants[*tag].fields.clone();
+                if fields.len() == 1 {
+                    // Single-payload projection transfers this operand's
+                    // ownership. Any remaining source binding owns its own retain.
+                    self.tagged_payload(value, t.tag_bits())
+                } else {
+                    let payload = self.tagged_payload(value, t.tag_bits());
+                    let offset = Self::record_offset(fields[..*field].iter());
+                    let (field_value, slot) = self.record_field(payload, offset, &output);
                     if matches!(op, EnumOp::Take(..)) {
-                        25
+                        let zero = self.bcx.ins().iconst(types::I64, 0);
+                        let zero = self.bcx.ins().uextend(types::I128, zero);
+                        self.bcx.ins().store(
+                            cranelift_codegen::ir::MemFlags::trusted(),
+                            zero,
+                            slot,
+                            0,
+                        );
                     } else {
-                        23
-                    },
-                    &[values[0], field, tag],
-                    None,
-                )?
+                        self.retain(field_value, &output);
+                    }
+                    self.release(value, &inputs[0]);
+                    self.pack(field_value, &output)
+                }
             }
+            EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
         };
         let result = self.unpack(result, &output);
-        let result = self.snapshot_inline(result, &output);
-        for (value, ty) in values.iter().zip(&inputs) {
-            self.release(*value, ty);
-        }
         self.stack.push((result, output));
         Ok(())
     }
@@ -277,7 +301,7 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
         let target = clif_type(ty.clone());
-        if ty.inline_sum() || matches!(ty, Ty::Ref(..)) {
+        if ty.wide() || matches!(ty, Ty::Ref(..)) {
             return if self.bcx.func.dfg.value_type(value) == types::I128 {
                 value
             } else {
@@ -399,7 +423,50 @@ impl Lowerer<'_, '_> {
         let ty = source.get().variants[success_tag].fields[0].clone();
         let payload = self.unpack(payload, &ty);
         self.stack.push((payload, ty));
-        debug_assert!(target.inline());
+        Ok(())
+    }
+}
+
+impl Lowerer<'_, '_> {
+    pub(super) fn lower_box(&mut self, op: &crate::boxed::BoxOp) -> Result<()> {
+        use crate::boxed::BoxOp;
+        let (inputs, output) = op.signature();
+        let (operand, _) = self.pop_typed(inputs[0].clone())?;
+        let result = match op {
+            BoxOp::New(t) => {
+                // The runtime moves the value into the box, or drops it on failure.
+                let value = self.pack(operand, t);
+                let boxed = Ty::Box(std::rc::Rc::new(t.clone()));
+                self.collection_call(119, &[value], Some(&boxed))?
+            }
+            BoxOp::Take(t) => {
+                let slot = self.bcx.ins().iadd_imm(operand, 32);
+                let value = self.bcx.ins().load(
+                    types::I128,
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    slot,
+                    0,
+                );
+                let value = self.unpack(value, t);
+                let value = self.snapshot_inline(value, t);
+                self.collection_call(120, &[operand], None)?;
+                self.pack(value, t)
+            }
+            BoxOp::Ref(..) => {
+                // A reference to the box's slot becomes one to its content slot.
+                let address = self.raw_word(operand);
+                let boxed = self.bcx.ins().load(
+                    PTR_TY,
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    address,
+                    0,
+                );
+                let slot = self.bcx.ins().iadd_imm(boxed, 32);
+                self.bcx.ins().uextend(types::I128, slot)
+            }
+        };
+        let result = self.unpack(result, &output);
+        self.stack.push((result, output));
         Ok(())
     }
 }

@@ -76,14 +76,52 @@ impl Type {
         (self.inline_bytes as usize).max(if self.has_inline_range() { 32 } else { 0 })
     }
 
-    fn active_payload(&self, value: u128) -> Option<&Type> {
+    /// The bytes and kind of the owner-local storage `value` currently uses.
+    fn active_payload(&self, value: u128) -> Option<Payload<'_>> {
+        if let Some(record) = self.record(value) {
+            return Some(Payload::Record(record));
+        }
         match self.kind {
-            b'R' | b'G' | b'H' if self.payload_bytes() != 0 && value as u64 != 0 => Some(self),
-            b'B' => self.variants[self.tag(value)]
-                .fields
-                .first()
+            b'R' | b'G' | b'H' if self.payload_bytes() != 0 && value as u64 != 0 => {
+                Some(Payload::Object(self))
+            }
+            b'B' => self
+                .payload(value)
                 .and_then(|t| t.active_payload(self.unpack(value))),
             _ => None,
+        }
+    }
+}
+
+enum Payload<'a> {
+    Object(&'a Type),
+    Record(crate::aggregates::Record<'a>),
+}
+impl Payload<'_> {
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Object(ty) => ty.payload_bytes(),
+            Self::Record(record) => record.words() * 16,
+        }
+    }
+    /// Repair internal addresses after the payload's bytes moved to `destination`.
+    unsafe fn relocate(&self, destination: *mut u128) {
+        unsafe {
+            match self {
+                Self::Object(ty) if ty.kind == b'G' => {
+                    crate::generators::relocate(destination.cast())
+                }
+                Self::Object(ty) if ty.kind == b'H' => crate::closures::relocate(destination),
+                Self::Object(_) => {}
+                Self::Record(record) => {
+                    let moved = record.moved_to(destination);
+                    for i in 0..moved.len() {
+                        if moved.ty(i).payload_bytes() != 0 {
+                            relocate(moved.slot(i), moved.ty(i));
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -97,13 +135,9 @@ pub(crate) unsafe fn copy_payload(value: u128, ty: &Type, destination: *mut Rang
             std::ptr::copy(
                 value as u64 as *const u8,
                 destination.cast(),
-                active.payload_bytes(),
+                active.bytes(),
             );
-            if active.kind == b'G' {
-                crate::generators::relocate(destination.cast());
-            } else if active.kind == b'H' {
-                crate::closures::relocate(destination.cast());
-            }
+            active.relocate(destination.cast());
         }
         (value & !(u64::MAX as u128)) | destination as u128
     } else {
@@ -124,18 +158,14 @@ pub(crate) unsafe fn store(slot: *mut u128, value: u128, ty: &Type) {
     }
 }
 
-/// Repair the internal range address after moving a complete typed storage slot.
+/// Repair the internal address after moving a complete typed storage slot.
 pub(crate) unsafe fn relocate(slot: *mut u128, ty: &Type) {
     unsafe {
         let value = slot.read();
         if let Some(active) = ty.active_payload(value) {
             let destination = slot.add(1);
             slot.write((value & !(u64::MAX as u128)) | destination as u128);
-            if active.kind == b'G' {
-                crate::generators::relocate(destination.cast());
-            } else if active.kind == b'H' {
-                crate::closures::relocate(destination.cast());
-            }
+            active.relocate(destination);
         }
     }
 }

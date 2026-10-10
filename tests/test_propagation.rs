@@ -56,7 +56,7 @@ def item(n: i64) -> Result[i64, str]:
 def collect(n: i64) -> Result[list[i64], str]:
     Ok([item(i)? for i in range(n)].unwrap())
 def field() -> Option[i64]:
-    Some(Some(Point(7).unwrap())?.x)
+    Some(Some(Point(7))?.x)
 print(unwrap()).unwrap()
 print(unit(True)).unwrap()
 print(unit(False)).unwrap()
@@ -75,16 +75,16 @@ class Guard:
     def __del__(self) -> ():
         print(self.label).unwrap()
 def fail() -> Result[i64, Guard]:
-    Err(Guard("error").unwrap())
+    Err(Guard("error"))
 def later() -> i64:
     print("must not run").unwrap()
     3
 def consume(g: Guard, a: i64, b: i64) -> i64:
     a + b
 def work() -> Result[i64, Guard]:
-    first = Guard("first").unwrap()
-    second = Guard("second").unwrap()
-    Ok(consume(Guard("argument").unwrap(), fail()?, later()))
+    first = Guard("first")
+    second = Guard("second")
+    Ok(consume(Guard("argument"), fail()?, later()))
 match work():
     case Ok(_):
         pass
@@ -106,7 +106,7 @@ def replace(value: &mut Option[list[i64]]) -> ():
 def values(x: Result[Option[f64], str]) -> Generator[Result[Option[f64], str]]:
     yield x
     yield Err("end")
-mut h = Holder(Some([1, 2].unwrap())).unwrap()
+mut h = Holder(Some([1, 2].unwrap()))
 replace(&mut h.value)
 print(h).unwrap()
 mut items: list[Result[Option[u64], str]] = [Ok(Some(18446744073709551615u64)), Err("bad")].unwrap()
@@ -185,7 +185,7 @@ def propagate(guard: Guard) -> Result[(), Guard]:
     wrap(guard)?
     Ok(())
 def main() -> ():
-    guard = Guard("dropped").unwrap()
+    guard = Guard("dropped")
     print("__test_begin_no_allocations__").unwrap()
     result = propagate(guard)
     match result:
@@ -287,7 +287,7 @@ fn allocation_instrumentation_detects_a_temporary_allocation() {
     "identical Result error types"
 )]
 #[case(
-    "enum E:\n    Value(i64)\ndef f() -> Option[i64]:\n    Some(E.Value(1).unwrap()?)",
+    "enum E:\n    Value(i64)\ndef f() -> Option[i64]:\n    Some(E.Value(1)?)",
     "same Result or Option family"
 )]
 #[case(

@@ -1,15 +1,17 @@
 # Build recursive data
 
 A class or enum can contain more values of its own type. This is useful for
-chains, trees, and syntax nodes. Existing class and enum records provide the
-indirection; you do not need a separate `Box` type.
+chains, trees, and syntax nodes. Ordinary values are stored inline, so a type
+that contained itself directly would have no finite size. Store the recursive
+part in a `Box`, which owns one value on the heap, or in a list, set, or dict.
 
-This chain ends with `Empty`. Each `Link` owns a value and the rest of the chain:
+This chain ends with `Empty`. Each `Link` owns a value and a box holding the
+rest of the chain:
 
 ```plenty
 enum Chain[T]:
     Empty
-    Link(T, Chain[T])
+    Link(T, Box[Chain[T]])
 
 def total(chain: Chain[i64]) -> i64:
     mut remaining = chain
@@ -24,9 +26,9 @@ def total(chain: Chain[i64]) -> i64:
     answer
 
 def main() -> Result[(), Failure]:
-    mut chain = Chain[i64].Empty?
+    mut chain = Chain[i64].Empty
     for value in range(1, 4):
-        chain = Chain[i64].Link(value, chain)?
+        chain = Chain[i64].Link(value, Box(chain)?)
     print(total(chain))?
     Ok(())
 ```
@@ -35,13 +37,43 @@ def main() -> Result[(), Failure]:
 6
 ```
 
-Constructing each user-enum record can fail, so it returns a `Result` and uses
-the ordinary `?` propagation. Moving a chain or matching it adds no allocation.
-`total` consumes the chain: each match transfers the tail into `rest`, then the
-loop puts it back into `remaining`. The caller cannot use `chain` after that call.
+`Box(value)` moves the value onto the heap. That allocation can fail, so it
+returns a `Result` and uses the ordinary `?` propagation. Constructing the
+`Link` itself allocates nothing.
 
-Classes can own recursive children too. This companion module declares a generic
-tree node with public fields:
+Taking a value back out of a box allocates nothing and cannot fail, so it needs
+no syntax. `rest` is a `Box[Chain[i64]]` and `remaining` is a `Chain[i64]`, so
+`remaining = rest` moves the content out and frees the box. The same conversion
+happens wherever the content's type is required: an argument, a return value,
+an annotated binding, an assignment, a constructor field, or a collection
+element. `total` consumes the chain: each match transfers the tail into `rest`,
+then the loop puts its content back into `remaining`. The caller cannot use
+`chain` after that call.
+
+A boxed class's fields and methods are reached as `b.field` and `b.method()`,
+and where a function expects `&T`, you can pass a `&Box[T]`. Where no type is
+required, a box stays a box: `other = b` moves the box itself. Operators and
+conditions do not convert either. Write `*b` there to move the content out, or
+`&*b` and `&mut *b` to borrow it.
+
+Without the box, the compiler rejects the declaration:
+
+```plenty-error
+enum Chain:
+    Empty
+    Link(i64, Chain)
+
+def main() -> ():
+    pass
+```
+
+```error
+`Chain` contains itself and would have infinite size; store the recursive field in a `Box`, list, set, or dict
+```
+
+Classes can own recursive children too. A list of children already keeps them
+on the heap, so it needs no box. This companion module declares a generic tree
+node with public fields:
 
 ```plenty-file forest.plenty
 pub class Node[T]:
@@ -53,7 +85,7 @@ pub class Node[T]:
 import forest
 
 def main() -> Result[(), Failure]:
-    mut root = forest.Node[i64](1, [forest.Node[i64](2, []?)?]?)?
+    mut root = forest.Node[i64](1, [forest.Node[i64](2, []?)]?)
     root.children[0].value = 9
     print(root.value)?
     print(root.children[0].value)?
@@ -67,14 +99,14 @@ def main() -> Result[(), Failure]:
 
 The nested assignment updates the existing child without copying or allocating
 another node. An empty children list terminates this tree. For a single optional
-child, a field such as `next: Option[Node]` can terminate with `Nothing` instead;
-the `Option` wrapper itself allocates nothing. Classes and enums may also refer
-to one another through aliases and collections.
+child, a field such as `next: Option[Box[Node]]` can terminate with `Nothing`.
+Classes and enums may also refer to one another through aliases.
 
 Leaving scope drops the whole owned structure automatically. Automatic cleanup
-uses an allocation-free queue, so its native stack usage does not grow with the
-number of nodes in a chain. If you write a recursive traversal function yourself,
-ordinary function-call stack limits still apply; the loop above avoids that.
+uses an allocation-free queue for boxes, so its native stack usage does not grow
+with the number of nodes in a chain. If you write a recursive traversal function
+yourself, ordinary function-call stack limits still apply; the loop above avoids
+that.
 
 To inspect a structure while keeping it, [match a borrowed value](78-match-borrowed-values.md).
 Moving individual owned fields out of a class remains unsupported.

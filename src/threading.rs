@@ -134,9 +134,12 @@ fn check_type(
         Ty::Generator(_) => {
             return Err("generator worker eligibility is not implemented yet".into())
         }
-        Ty::Ref(t, _) | Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Channel(t, _) => {
-            types.push((**t).clone())
-        }
+        Ty::Ref(t, _)
+        | Ty::List(t)
+        | Ty::Set(t)
+        | Ty::Range(t)
+        | Ty::Channel(t, _)
+        | Ty::Box(t) => types.push((**t).clone()),
         Ty::Dict(k, v) => types.extend([(**k).clone(), (**v).clone()]),
         Ty::Class(t) if seen.insert(format!("class:{}", t.name)) => {
             let t = t.get();
@@ -180,7 +183,7 @@ fn receiver_cycle(message: &Ty, receiver: &Ty) -> bool {
             continue;
         }
         match ty {
-            Ty::Channel(t, _) | Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) => {
+            Ty::Channel(t, _) | Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) | Ty::Box(t) => {
                 pending.push((*t).clone())
             }
             Ty::Dict(k, v) => pending.extend([(*k).clone(), (*v).clone()]),
@@ -251,6 +254,15 @@ fn inspect(
                 types.extend(inputs);
                 types.push(output);
             }
+        }
+        Op::Box(op) => {
+            let (inputs, output) = op.signature();
+            types.extend(inputs);
+            types.push(output);
+        }
+        Op::Split(t, tag) => {
+            types.push(Ty::Enum(t.clone()));
+            types.extend(t.get().variants[*tag].fields.iter().cloned());
         }
         Op::ReadRef(ty) | Op::WriteRef(ty) => types.push(ty.clone()),
         _ => {}

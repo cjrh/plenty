@@ -6,15 +6,15 @@ spell a tuple as `(i64, str)` or `tuple[i64, str]`. Unpacking transfers owned
 components, and `_` discards a component. Indices must be integer literals.
 
 ```plenty
-def measurement() -> Result[(i64, str), AllocError]:
+def measurement() -> (i64, str):
     (42, "cm")
 
 def main() -> Result[(), Failure]:
-    value, unit = measurement()?
+    value, unit = measurement()
     print(value)?
     print(unit)?
-    for number, word in [(1, "one")?, (2, "two")?]?:
-        print((number, word)?)?
+    for number, word in [(1, "one"), (2, "two")]?:
+        print((number, word))?
     print((3, "three"))?
     Ok(())
 ```
@@ -23,9 +23,9 @@ def main() -> Result[(), Failure]:
 cm
 (1, "one")
 (2, "two")
-Result[tuple[i64, str], AllocError].Ok((3, "three"))
+(3, "three")
 ```
 
-Tuple storage currently allocates. `(a, b)` returns `Result[tuple[A, B], AllocError]`;
-it consumes its evaluated components even on failure. As with fallible collection
-displays, use checked operations separately inside component expressions.
+A tuple stores its components inline, so `(a, b)` never allocates and has type
+`tuple[A, B]` directly. The list above still allocates, so its display keeps
+its `?`.

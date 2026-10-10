@@ -106,6 +106,7 @@ impl Ty {
                 self,
                 Self::Enum(_)
                     | Self::Class(_)
+                    | Self::Box(_)
                     | Self::Generator(_)
                     | Self::File
                     | Self::Channel(..)

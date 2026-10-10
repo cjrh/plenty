@@ -134,7 +134,7 @@ def consume(guard: Guard, values: list[i64], after: i64) -> ():
 def build(guard: Guard) -> Result[(), AllocError]:
     consume(guard, list[i64].new()?, later())
     Ok(())
-guard = Guard().unwrap()
+guard = Guard()
 print("__test_fail_allocations_after_0__").unwrap()
 result = build(guard)
 match result:

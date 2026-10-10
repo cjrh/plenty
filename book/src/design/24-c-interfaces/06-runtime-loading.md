@@ -34,7 +34,7 @@ fingerprint guard, and resolves every export before returning a usable table.
 The private lookup lease is cleaned up on every exit. A `Library` stores cached
 addresses; calls use native indirect C instructions without repeated lookup.
 Scalar adapters do not allocate; native callees retain their own allocation
-behavior. The table itself is an ordinary fallibly allocated Plenty class.
+behavior. The table itself is an ordinary Plenty class, stored inline.
 Its private fields prevent callers from constructing an unchecked table.
 Generation currently allows 128 functions including generated destructors, and
 240 parameters per method (consuming owners also need temporary slots). Names

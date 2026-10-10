@@ -15,8 +15,8 @@ def counter(total: i64) -> Closure[[i64], i64]:
         total
 
 def main() -> Result[(), Failure]:
-    mut first = Handler(counter(10))?
-    mut second = Handler(counter(100))?
+    mut first = Handler(counter(10))
+    mut second = Handler(counter(100))
     print(first.call(3))?
     print(second.call(7))?
     print(first.callback(2))?
@@ -32,8 +32,8 @@ def main() -> Result[(), Failure]:
 The `Callable` constraint checks the callback's signature when constructing the
 record. It does not erase the concrete environment or allocate storage for it.
 The records own independent environments. Each environment is stored directly
-inside its record; the only construction allocation is the ordinary fallible
-record allocation. Invoking these counters does not allocate. A callback may
+inside its record, and constructing a record allocates nothing. Invoking these
+counters does not allocate. A callback may
 still perform its own fallible work.
 
 Keep captured state owned when storing a callback. A closure borrowing a local
@@ -49,7 +49,7 @@ def add(offset: i64) -> Closure[[i64], i64]:
         offset + n
 
 def main() -> Result[(), Failure]:
-    pair = (add(10), add(100))?
+    pair = (add(10), add(100))
     print(pair[0](2))?
     first, second = pair
     print(second(3))?

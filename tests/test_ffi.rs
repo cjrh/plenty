@@ -348,7 +348,8 @@ def main() -> Result[(), Failure]:
         } else {
             "Result[u64, CStrError].Err(CStrError.Allocation(AllocError.OutOfMemory))\n0"
         };
-        assert_eq!(actual, format!("{result}\n0\n0\n532\nResult[(), CStrError].Err(CStrError.Allocation(AllocError.OutOfMemory))\n0"));
+        // Constructing the owner needs no allocation, so the handle opens and closes.
+        assert_eq!(actual, format!("{result}\n1\n0\n532\nResult[(), CStrError].Err(CStrError.Allocation(AllocError.OutOfMemory))\n0"));
     }
 }
 

@@ -20,7 +20,7 @@ def counter(n: i64) -> Closure[[], i64]:
     def [mut n]() -> i64:
         n = n + 1
         n
-mut pair = (counter(1), counter(10)).unwrap()
+mut pair = (counter(1), counter(10))
 with spawn(&mut pair[0]).unwrap() as first, spawn(&mut pair[1]).unwrap() as second:
     print(first.join()).unwrap()
     print(second.join()).unwrap()
@@ -79,7 +79,7 @@ fn stored_callback_capture_and_body_effects_are_checked_transitively() {
     let definitions = "def unsafe_job(n: i64) -> Closure[[], i64]:\n    def [n]() -> i64:\n        file = open(\"unused\", \"r\").unwrap()\n        n\n";
     for body in [
         "callbacks = [unsafe_job(1)].unwrap()\nwith spawn(&callbacks[0]).unwrap():\n    pass",
-        "class Holder[F]:\n    callback: F\nholder = Holder(unsafe_job(1)).unwrap()\nwith spawn(&holder.callback).unwrap():\n    pass",
+        "class Holder[F]:\n    callback: F\nholder = Holder(unsafe_job(1))\nwith spawn(&holder.callback).unwrap():\n    pass",
         "with spawn(unsafe_job, 1).unwrap():\n    pass",
     ] {
         let error = support::check_source(&format!("{definitions}{body}\n")).unwrap_err().to_string();
@@ -143,7 +143,7 @@ class Guard:
         write_stdout("drop\n").unwrap()
         pass
 def owned_result() -> Result[OnceClosure[[], Guard], AllocError]:
-    guard = Guard(1)?
+    guard = Guard(1)
     job = def once [guard]() -> Guard:
         guard
     Ok(job)
@@ -176,7 +176,7 @@ class Guard:
         file = open("unused", "r").unwrap()
         drop(file)
 def make() -> Result[Closure[[], i64], AllocError]:
-    guard = Guard(1)?
+    guard = Guard(1)
     callback = def [guard]() -> i64:
         guard.id
     Ok(callback)

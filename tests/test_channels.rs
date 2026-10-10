@@ -110,7 +110,7 @@ class Mailbox[T]:
 def deliver[T](sender: &Sender[T], message: T) -> Result[(), SendError[T]]:
     sender.send(message)
 sender, receiver = channel[str](2).unwrap()
-mailbox = Mailbox(sender).unwrap()
+mailbox = Mailbox(sender)
 other = mailbox.sender.share()
 deliver(&other, "hello").unwrap()
 drop(other)
@@ -146,6 +146,7 @@ print("__test_fail_allocations_after_0__").unwrap()
 first = channel[i64](2)
 print("__test_restore_allocations__").unwrap()
 print(first).unwrap()
+# The endpoint pair is inline; only the shared queue allocates.
 print("__test_fail_allocations_after_1__").unwrap()
 second = channel[i64](2)
 print("__test_restore_allocations__").unwrap()
@@ -165,7 +166,7 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(answer).unwrap()
 print(closed).unwrap()
-"#, "Result[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.InvalidCapacity)\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.CapacityOverflow))\n__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.OutOfMemory))\n__test_fail_allocations_after_1__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.OutOfMemory))\n__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n13\nResult[range, RecvError].Err(RecvError.Disconnected)\n");
+"#, "Result[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.InvalidCapacity)\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.CapacityOverflow))\n__test_fail_allocations_after_0__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Err(ChannelError.Allocation(AllocError.OutOfMemory))\n__test_fail_allocations_after_1__\n__test_restore_allocations__\nResult[tuple[Sender[i64], Receiver[i64]], ChannelError].Ok((<sender>, <receiver>))\n__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n13\nResult[range, RecvError].Err(RecvError.Disconnected)\n");
 }
 
 #[test]
@@ -180,8 +181,8 @@ class Guard:
         pass
 feedback, report = channel[i64](4).unwrap()
 sender, receiver = channel[Guard](1).unwrap()
-sender.send(Guard(1, feedback.share()).unwrap()).unwrap()
-match sender.send_nowait(Guard(2, feedback.share()).unwrap()):
+sender.send(Guard(1, feedback.share())).unwrap()
+match sender.send_nowait(Guard(2, feedback.share())):
     case Ok(_):
         print("wrong").unwrap()
     case Err(error):
@@ -334,7 +335,7 @@ print(receiver.recv().unwrap()).unwrap()
 
 #[test]
 fn recursive_messages_cannot_keep_their_own_receiver_alive() {
-    let source = "class Message:\n    receiver: Receiver[Message]\nsender, receiver = channel[Message](1).unwrap()\nsender.send(Message(receiver).unwrap()).unwrap()\n";
+    let source = "class Message:\n    receiver: Receiver[Message]\nsender, receiver = channel[Message](1).unwrap()\nsender.send(Message(receiver)).unwrap()\n";
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains("retain its own receiver"), "{error}");
     let source = "class A:\n    receiver: Receiver[B]\nclass B:\n    receiver: Receiver[A]\nsender, receiver = channel[A](1).unwrap()\n";
@@ -344,18 +345,18 @@ fn recursive_messages_cannot_keep_their_own_receiver_alive() {
         r#"
 class Node:
     value: i64
-    next: Option[Node]
+    next: Option[Box[Node]]
     reply: Sender[i64]
 reply, answers = channel[i64](1).unwrap()
 sender, receiver = channel[Node](1).unwrap()
-sender.send(Node(42, Nothing, reply).unwrap()).unwrap()
+sender.send(Node(42, Nothing, reply)).unwrap()
 node = receiver.recv().unwrap()
 node.reply.send(node.value).unwrap()
 print(answers.recv().unwrap()).unwrap()
 class Event:
     reply: Sender[Event]
 events, listener = channel[Event](1).unwrap()
-events.send(Event(events.share()).unwrap()).unwrap()
+events.send(Event(events.share())).unwrap()
 drop(events)
 drop(listener)
 "#,

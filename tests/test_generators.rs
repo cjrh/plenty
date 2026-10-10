@@ -36,7 +36,7 @@ fn run(source: &str) -> std::process::Output {
 #[case("for n in count(100):\n    if n == 1:\n        continue\n    if n == 3:\n        break\n    print(n).unwrap()", "0\n2\n")]
 #[case("def g() -> Generator[i64]:\n    for n in range(5):\n        if n == 1:\n            continue\n        if n == 3:\n            break\n        yield n\n    yield 99\nprint(list(g()).unwrap()).unwrap()", "[0, 2, 99]\n")]
 #[case("def g() -> Generator[i64]:\n    for a in count(3):\n        for b in count(2):\n            yield a * 10 + b\nprint(list(g()).unwrap()).unwrap()", "[0, 1, 10, 11, 20, 21]\n")]
-#[case("enum E:\n    A(i64)\n    B\ndef g(e: E) -> Generator[i64]:\n    match e:\n        case E.A(n):\n            yield n\n            yield n + 1\n        case E.B:\n            return\n    yield 9\nprint(list(g(E.A(2).unwrap())).unwrap()).unwrap()\nprint(list(g((E.B).unwrap())).unwrap()).unwrap()", "[2, 3, 9]\n[]\n")]
+#[case("enum E:\n    A(i64)\n    B\ndef g(e: E) -> Generator[i64]:\n    match e:\n        case E.A(n):\n            yield n\n            yield n + 1\n        case E.B:\n            return\n    yield 9\nprint(list(g(E.A(2))).unwrap()).unwrap()\nprint(list(g(E.B)).unwrap()).unwrap()", "[2, 3, 9]\n[]\n")]
 #[case("def g() -> Generator[list[str]]:\n    mut xs = [('a' + '\\0b').unwrap()].unwrap()\n    yield copy(xs).unwrap()\n    xs.append('c').unwrap()\n    yield xs\nprint(list(g()).unwrap()).unwrap()", "[[\"a\\0b\"], [\"a\\0b\", \"c\"]]\n")]
 #[case("def g() -> Generator[Option[str]]:\n    yield Option[str].Some(('hello' + ' world').unwrap())\n    yield Option[str].Nothing\nprint(list(g()).unwrap()).unwrap()", "[Option[str].Some(\"hello world\"), Option[str].Nothing]\n")]
 #[case(

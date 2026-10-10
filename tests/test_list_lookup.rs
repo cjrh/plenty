@@ -41,7 +41,7 @@ found = words.get(0)
 words[0] = "replacement"
 drop(words)
 print(found).unwrap()
-values = [Value.Text(("A" + "da").unwrap()).unwrap()].unwrap()
+values = [Value.Text(("A" + "da").unwrap())].unwrap()
 value = values.get(-1)
 drop(values)
 print(value).unwrap()
@@ -67,7 +67,7 @@ def items() -> list[i64]:
 def index() -> i64:
     print("index").unwrap()
     0
-storage = Storage([10, 20].unwrap()).unwrap()
+storage = Storage([10, 20].unwrap())
 position = -1
 print(lookup(&storage.items, &position)).unwrap()
 print(items().get(index())).unwrap()
@@ -100,7 +100,7 @@ fn hits_misses_and_retention_work_with_allocation_disabled() {
 enum Value:
     Text(str)
 items = [("A" + "da").unwrap()].unwrap()
-values = [Value.Text(("B" + "ea").unwrap()).unwrap()].unwrap()
+values = [Value.Text(("B" + "ea").unwrap())].unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 print("__test_begin_no_allocations__").unwrap()
 found = items.get(0)
@@ -128,7 +128,7 @@ print(value).unwrap()
     "get cannot return owned list values"
 )]
 #[case(
-    "class Item:\n    value: i64\n[Item(1).unwrap()].unwrap().get(0)",
+    "class Item:\n    value: i64\n[Item(1)].unwrap().get(0)",
     "get cannot return owned list values"
 )]
 #[case(

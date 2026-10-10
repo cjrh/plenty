@@ -46,7 +46,7 @@ enum Value:
     Text(str)
 options: dict[i64, Option[str]] = {1: Nothing, 2: Some("hello")}.unwrap()
 results: dict[i64, Result[(), i64]] = {1: Ok(()), 2: Err(4)}.unwrap()
-values = {1: (Value.Empty).unwrap(), 2: Value.Text("hello").unwrap()}.unwrap()
+values = {1: Value.Empty, 2: Value.Text("hello")}.unwrap()
 print(options.get(1)).unwrap()
 print(options.get(2)).unwrap()
 print(options.get(3)).unwrap()
@@ -65,7 +65,7 @@ class Directory:
     names: dict[str, str]
 def lookup(names: &dict[str, str], key: &str) -> Option[str]:
     names.get(key)
-mut directory = Directory({"name": ("A" + "da").unwrap()}.unwrap()).unwrap()
+mut directory = Directory({"name": ("A" + "da").unwrap()}.unwrap())
 key = ("na" + "me").unwrap()
 found = lookup(&directory.names, &key)
 directory.names[key] = "Bea"
@@ -106,7 +106,7 @@ class Custom:
     def get(self, key: i64) -> i64:
         key
 print(data().get(key())).unwrap()
-print(Custom().unwrap().get(7)).unwrap()
+print(Custom().get(7)).unwrap()
 "#,
         "receiver\nkey\nOption[i64].Some(42)\n7",
     );
@@ -137,7 +137,7 @@ fn lookup_and_result_retention_allocate_nothing() {
 enum Value:
     Text(str)
 strings = {("na" + "me").unwrap(): ("A" + "da").unwrap()}.unwrap()
-values = {1: Value.Text(("B" + "ea").unwrap()).unwrap()}.unwrap()
+values = {1: Value.Text(("B" + "ea").unwrap())}.unwrap()
 key = ("n" + "ame").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 print("__test_begin_no_allocations__").unwrap()
@@ -196,11 +196,11 @@ print(len(values)).unwrap()
     "get cannot return owned dictionary values"
 )]
 #[case(
-    "class Item:\n    value: i64\nprint({1: Item(2).unwrap()}.unwrap().get(1)).unwrap()",
+    "class Item:\n    value: i64\nprint({1: Item(2)}.unwrap().get(1)).unwrap()",
     "get cannot return owned dictionary values"
 )]
 #[case(
-    "enum Item:\n    Values(list[i64])\nprint({1: Item.Values([2].unwrap()).unwrap()}.unwrap().get(1)).unwrap()",
+    "enum Item:\n    Values(list[i64])\nprint({1: Item.Values([2].unwrap())}.unwrap().get(1)).unwrap()",
     "get cannot return owned dictionary values"
 )]
 #[case(

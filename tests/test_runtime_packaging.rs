@@ -65,7 +65,7 @@ def values() -> Generator[str]:
 
 def main() -> ():
     print(list(values()).unwrap()).unwrap()
-    drop(Resource("done").unwrap())
+    drop(Resource("done"))
 "#,
     )
     .unwrap();

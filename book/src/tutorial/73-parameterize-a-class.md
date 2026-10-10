@@ -17,10 +17,10 @@ def read[T](cell: &Cell[T]) -> T:
     cell.get()
 
 def main() -> Result[(), Failure]:
-    mut count = Cell(7u8)?
+    mut count = Cell(7u8)
     count.replace(9)
     print(read(&count))?
-    text = Cell("hello")?
+    text = Cell("hello")
     print(text.get())?
     Ok(())
 ```

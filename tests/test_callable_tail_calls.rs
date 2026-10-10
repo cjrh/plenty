@@ -35,7 +35,7 @@ def called() -> i64:
     print("call").unwrap()
     42
 def guarded() -> i64:
-    guard = Guard().unwrap()
+    guard = Guard()
     operation = called
     operation()
 def interval() -> range[u8]:

@@ -68,7 +68,7 @@ def main() -> Result[(), Failure]:
     index = 0
     print(handlers[index](5))?
     print(handlers[0](6))?
-    handler = Handler(double)?
+    handler = Handler(double)
     print(handler.operation(7))?
     print(Some(double).unwrap()(8))?
     Ok(())
@@ -162,7 +162,7 @@ class Pair:
     right: i64
 def left(value: &mut Pair) -> &mut i64:
     &mut value.left
-mut pair = Pair(1, 2).unwrap()
+mut pair = Pair(1, 2)
 select = left
 reference = select(&mut pair)
 pair.right = 4

@@ -1,30 +1,25 @@
 # Creating classes
 
-Use `Class.new(...)` to handle failure to allocate instance storage. It takes
-the same arguments as the ordinary constructor and works with `?`:
+A class instance stores its fields inline, so constructing one needs no
+allocation. `Class.new(...)` is the same as `Class(...)` and returns the
+instance:
 
 ```plenty
 class Point:
     x: i64
     y: i64
 
-def point() -> Result[Point, AllocError]:
-    Ok(Point.new(3, 4)?)
-
 def main() -> Result[(), IoError]:
-    print(point())?
+    print(Point.new(3, 4))?
     Ok(())
 ```
 ```output
-Result[Point, AllocError].Ok(Point(x=3, y=4))
+Point(x=3, y=4)
 ```
 
-Arguments move into the call even when allocation fails. Failure drops those
-arguments; it does not run the new instance's initializer or destructor.
-Allocations inside argument expressions and an ordinary `__init__` retain their
-own failure behavior.
-
-An initializer can also propagate allocation failures itself:
+Construction can fail only when the initializer can. An initializer returning
+`Result[(), AllocError]` makes both `Class(...)` and `Class.new(...)` return
+`Result[Class, AllocError]`:
 
 ```plenty
 class Buffer:
@@ -42,7 +37,6 @@ def main() -> Result[(), IoError]:
 Result[Buffer, AllocError].Ok(Buffer(values=[]))
 ```
 
-Both `Buffer(...)` and `Buffer.new(...)` return the checked construction result.
-If initialization fails, the fields already
-initialized are dropped, but the incomplete instance's `__del__` is skipped.
-Successful initialization must fill every field and return `Ok(())`.
+If initialization fails, the fields already initialized are dropped, but the
+incomplete instance's `__del__` is skipped. Successful initialization must fill
+every field and return `Ok(())`.

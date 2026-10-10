@@ -68,7 +68,7 @@ print(items().find(needle())).unwrap()
 class Custom:
     def find(self) -> i64:
         42
-print(Custom().unwrap().find()).unwrap()
+print(Custom().find()).unwrap()
 print("aba".find("a")).unwrap()
 "#,
         "receiver\nargument\nOption[i64].Some(0)\n42\nOption[i64].Some(0)",

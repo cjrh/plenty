@@ -46,8 +46,8 @@ class Resource:
     def __del__(self) -> ():
         print(self.id).unwrap()
 def main() -> Result[(), Failure]:
-    a = Resource(1)?
-    b = Resource(2)?
+    a = Resource(1)
+    b = Resource(2)
     inner = def [a, b]() -> i64:
         a.id + b.id
     outer = def [inner]() -> i64:

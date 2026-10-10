@@ -13,18 +13,18 @@ enum Job[T, F: OnceCallable[[], T]]:
 def named(n: u8) -> u8:
     n + 1
 def package[T, F: OnceCallable[[], T]](callback: F) -> Result[Job[T, F], AllocError]:
-    Job[T, F].Run(callback)
+    Ok(Job[T, F].Run(callback))
 def consume[T, F: OnceCallable[[], T]](job: Job[T, F]) -> T:
     match job:
         case Job[T, F].Run(callback):
             mut owned = callback
             owned()
-mut first = Handler(named).unwrap()
+mut first = Handler(named)
 print(first.call(2)).unwrap()
 offset = 10u8
 callback = def [offset](n: u8) -> u8:
     offset + n
-mut second = Handler(callback).unwrap()
+mut second = Handler(callback)
 print(second.call(3)).unwrap()
 values = [42].unwrap()
 job = def once [values]() -> list[i64]:
