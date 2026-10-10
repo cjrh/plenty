@@ -163,7 +163,6 @@ seven bytes hold the UTF-8 data. Inline values own nothing, so retain and releas
 ignore them. A borrowed `text` argument to a C import passes a pointer into the
 borrowed slot for inline strings; C-string arguments are always converted to a
 terminated heap copy. There is no public
-owning/view string distinction. Legacy input validates UTF-8, rejecting malformed
-sequences and preserving embedded NUL. Future FFI adapters must explicitly
+owning/view string distinction. FFI adapters must explicitly
 convert to pointer/length or temporary terminated C text; C-text export must
 reject embedded NUL when the external API cannot represent it.

@@ -93,13 +93,6 @@ A learner-visible language change updates, in the same change:
 
 Tutorial code fences are executable tests, so stale lessons fail the suite.
 
-## Legacy
-
-The original stack-based language survives only behind `--legacy`, as backend
-regression coverage. It does not define the current language. Some source
-comments still carry `§N.M` references to its removed `DESIGN.md`; treat them as
-historical.
-
 ## Project conventions
 
 - **Don't add comments that just restate the code.** Comments should give the

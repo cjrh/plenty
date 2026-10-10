@@ -26,7 +26,7 @@
   source loading/code generation. This option does not enable cross-compilation.
 - `plenty --check FILE` validates without native emission, linking, or execution.
 - `plenty --check-module FILE` checks a library and its imports without requiring `main`.
-- `--module-root DIR` selects the source root for modern file commands.
+- `--module-root DIR` selects the source root for file commands.
 - `--linker PATH` selects a `cc`-compatible linker driver for compilation or
   execution. The default is `cc` on `PATH`.
 - Repeat `--link-arg ARG` to pass individual native driver arguments verbatim,

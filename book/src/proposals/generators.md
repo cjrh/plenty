@@ -286,7 +286,7 @@ or mutual tail calls merely because generators exist in the same module.
   printed output alone does not catch leaks, duplicated ownership, invalid out
   slot reads, or double release after exhaustion. Static literals/metadata are
   excluded from dynamic counts.
-- Keep legacy AOT, existing non-generator tail calls, all executable tutorial
+- Keep native compilation, existing non-generator tail calls, all executable tutorial
   examples, formatting, Clippy, and the full suite passing. Track compilation
   cost on a function with many yield points; generated code/frame metadata must
   grow linearly with that concrete body's size.

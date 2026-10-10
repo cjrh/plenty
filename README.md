@@ -1,11 +1,11 @@
 # Plenty
 
-Plenty is becoming a statically typed language with Python-shaped syntax,
+Plenty is a statically typed language with Python-shaped syntax,
 expression-valued blocks, explicit mutability, and native compilation through
 Cranelift. Fast compilation and a small, understandable language are primary
 design goals.
 
-This branch implements the typed AOT language, including collections, concrete
+The language supports collections, concrete
 enums, fixed-layout classes, generators, explicit copying, and checked references.
 Trusted [C interfaces](book/src/design/24-c-interfaces.md) support scalar/opaque
 imports, owned resource wrappers, explicit text adapters, and static/shared linking.
@@ -149,15 +149,10 @@ There is no `None` or implicit nullable type. `()` describes successful
 completion without a value; it is not a marker for a missing value.
 
 Run `cargo test` for frontend diagnostics, native execution, deep
-tail recursion, executable tutorial lessons, and historical backend regressions.
+tail recursion, executable tutorial lessons, and backend regressions.
 `cargo test --test test_tutorial` checks the learning guide specifically.
 `cargo clippy --all-targets -- -D warnings` checks the Rust implementation.
 
-The old stack syntax is available only through `--legacy` (before a filename
-or `--compile`) and `compile_legacy_source_to_executable` while backend
-regressions remain useful. It also uses AOT. Its old tutorial and design are
-in git history only; they do not define the new language or current execution
-modes.
 `compile_source_to_executable` and `check_source` accept isolated binary source
 strings with `main` and reject filesystem imports. For projects, use
 `compile_file_to_executable(path, output, root)` and `check_file(path, root)`;

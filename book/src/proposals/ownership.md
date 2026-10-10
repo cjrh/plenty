@@ -236,8 +236,7 @@ or implicit finalizer execution is part of this contract.
 
 - `src/op.rs`: explicit copy-versus-move local reads, cleanup operations or scope
   metadata, initialized ownership slots, managed/copyable type classification,
-  and affine control-flow verification. Keep legacy `Dup`, `Drop`, `Clear`,
-  stack printing, and string match semantics correct under reclamation too.
+  and affine control-flow verification.
 - `src/frontend.rs`: retain lexical scope/local IDs during lowering, classify
   affine loads, validate definite ownership, and attach cleanup to all exits.
   `finish_return` must preserve result/argument owners while arranging cleanup.
@@ -285,7 +284,6 @@ and static type metadata should be excluded from dynamic live-byte counts.
 | Tail calls | Large direct/mutual recursion with owned arguments; captured value survives caller cleanup; no per-tail-call live allocation growth |
 | Affine checks | Use after assignment/call/iteration move, one-branch move, terminated branch exclusion, move then reinitialize, move reaching backedge, moved break path joined with zero iterations |
 | Generator destruction | Unstarted, each yield state, early break, return from consumer, exhaustion, repeated exhausted resume, nested generator capture |
-| Legacy backend | `dup`/`drop`/`clear`, printing without consumption, string equality/matching, ordinary and tail-call string parameters |
 
 Runtime traps currently terminate the process. They need not unwind source
 scopes in this first contract; process termination reclaims address space.

@@ -29,7 +29,7 @@ integer-family constraints, unsigned range boundary choices, and requirements
 for future multiline closures. Broader inference remains proposed; the numeric rules
 in this section continue to describe implemented behavior.
 
-Integer casts use truncation/sign-extension like the historical backend.
+Integer casts use truncation/sign-extension.
 Integer overflow and division by zero are runtime errors. `//` floors signed
 integer quotients, including negative operands; `%` is also integer-only.
 `/` accepts same-width floats. Floating-point arithmetic uses IEEE semantics:

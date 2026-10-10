@@ -29,7 +29,7 @@ executing effects. A `plenty-file` companion module stays on the same page as it
 example. Every book page must appear in `SUMMARY.md`.
 
 Do not maintain another copy of tutorial sources in tests. Update the lessons
-as part of each learner-visible language change. Native legacy regression tests
+as part of each learner-visible language change. Native regression tests
 specify their expected output independently.
 
 ## Performance evidence
