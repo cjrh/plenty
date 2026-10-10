@@ -15,9 +15,13 @@ them out requires whole-tuple unpacking:
 
 ```python
 number, text = (42, "cm")
+number, text = 42, "cm"
 ```
 
 Flat unpacking transfers each component; `_` destroys a discarded component.
+The parentheses are optional on the right of an unpacking statement, and targets
+may also be fields and collection elements: see
+[assignment to several targets](../04-expressions/assignment.md#several-targets).
 Nested and starred unpacking are unsupported. Unit components can be discarded
 or used as unit expressions without enabling standalone unit storage.
 

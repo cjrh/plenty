@@ -3,6 +3,7 @@
 use crate::aggregates::Type;
 use crate::entry_order::Order;
 use crate::{memory, ranges};
+use std::cmp::Ordering;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Entry {
@@ -251,6 +252,64 @@ impl Entries {
             }
         }
         self.relocate();
+    }
+    /// Exchange two dense rows of any layout without allocating.
+    pub fn swap(&mut self, i: usize, j: usize) {
+        assert!(self.order.is_none(), "only dense lists swap");
+        assert!(i < self.len() && j < self.len());
+        if i == j {
+            return;
+        }
+        for word in 0..self.stride {
+            self.data
+                .swap(i * self.stride + word, j * self.stride + word);
+        }
+        // Each row is read again before the next exchange, so its inline
+        // address must be valid immediately rather than after a final pass.
+        if self.key.payload_bytes() != 0 {
+            let base = self.data.as_mut_ptr();
+            unsafe {
+                ranges::relocate(base.add(i * self.stride), self.key);
+                ranges::relocate(base.add(j * self.stride), self.key);
+            }
+        }
+    }
+    /// Sort dense rows in place without allocating. Rows that compare equal may
+    /// change relative order, so `compare` must not equate distinguishable rows.
+    pub fn sort_unstable_by(&mut self, mut compare: impl FnMut(u128, u128) -> Ordering) {
+        assert!(self.order.is_none(), "only dense lists sort");
+        let len = self.len();
+        if self.stride == 2 {
+            // Scalar rows hold their value in the first of two words.
+            let (rows, _) = self.data[..len * 2].as_chunks_mut::<2>();
+            rows.sort_unstable_by(|a, b| compare(a[0], b[0]));
+            return;
+        }
+        // Wider rows carry inline payloads of a size known only at run time.
+        // Heapsort needs nothing beyond row exchanges.
+        let mut sift = |entries: &mut Self, mut root: usize, end: usize| loop {
+            let mut child = 2 * root + 1;
+            if child >= end {
+                break;
+            }
+            if child + 1 < end
+                && compare(entries.get(child).key, entries.get(child + 1).key).is_lt()
+            {
+                child += 1;
+            }
+            if compare(entries.get(root).key, entries.get(child).key).is_ge() {
+                break;
+            }
+            entries.swap(root, child);
+            root = child;
+        };
+        for start in (0..len / 2).rev() {
+            sift(self, start, len);
+        }
+        for end in (1..len).rev() {
+            self.swap(0, end);
+            sift(self, 0, end);
+        }
     }
     pub fn retain(&mut self, mut keep: impl FnMut(&Entry) -> bool) {
         if self.order.is_some() {

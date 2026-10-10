@@ -1275,7 +1275,7 @@ impl Parser {
                     && self
                         .tokens
                         .get(self.pos + 1)
-                        .is_some_and(|t| t.is("=") || t.is(":") || t.is(","));
+                        .is_some_and(|t| t.is("=") || t.is(":"));
             if assignment {
                 let name = self.name()?;
                 if self.eat(",") {
@@ -1287,7 +1287,7 @@ impl Parser {
                         }
                     }
                     self.expect("=")?;
-                    let value = self.expr(0)?;
+                    let value = self.unpacked_value()?;
                     self.kind(Kind::Newline, "the end of the statement")?;
                     return Ok(Stmt {
                         at,
@@ -1312,7 +1312,37 @@ impl Parser {
                 }
             } else {
                 let target = self.expr(0)?;
-                if self.eat("=") {
+                if self.peek().is(",") {
+                    let mut targets = vec![target];
+                    while self.eat(",") {
+                        targets.push(self.expr(0)?);
+                    }
+                    self.expect("=")?;
+                    let value = self.unpacked_value()?;
+                    let names = targets
+                        .iter()
+                        .map(|target| match &target.kind {
+                            Expression::Name(name) => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    match names {
+                        Some(names) => Statement::Unpack {
+                            names,
+                            mutable: false,
+                            value,
+                        },
+                        // A tuple is never a place, so a tuple target marks an
+                        // assignment to several places.
+                        None => Statement::SetIndex {
+                            target: Expr {
+                                at: at.clone(),
+                                kind: Expression::Tuple(targets),
+                            },
+                            value,
+                        },
+                    }
+                } else if self.eat("=") {
                     Statement::SetIndex {
                         target,
                         value: self.expr(0)?,
@@ -1326,6 +1356,23 @@ impl Parser {
             self.kind(Kind::Newline, "the end of the statement")?;
         }
         Ok(Stmt { at, kind })
+    }
+    /// The right side of an assignment to several targets: one expression, or
+    /// a tuple written without its parentheses.
+    fn unpacked_value(&mut self) -> Result<Expr> {
+        let first = self.expr(0)?;
+        if !self.peek().is(",") {
+            return Ok(first);
+        }
+        let at = first.at.clone();
+        let mut values = vec![first];
+        while self.eat(",") {
+            values.push(self.expr(0)?);
+        }
+        Ok(Expr {
+            at,
+            kind: Expression::Tuple(values),
+        })
     }
     fn parenthesized(&mut self) -> Result<Expression> {
         if self.eat(")") {
@@ -2877,7 +2924,9 @@ impl Lower<'_> {
                     None
                 }
                 Statement::SetIndex { target, value } => {
-                    if matches!(&target.kind, Expression::Unary(op, _) if op == "*") {
+                    if let Expression::Tuple(targets) = &target.kind {
+                        self.assign_targets(targets, value, ops)?;
+                    } else if matches!(&target.kind, Expression::Unary(op, _) if op == "*") {
                         self.write_reference(target, value, ops)?;
                     } else if matches!(&target.kind, Expression::Member(..)) {
                         self.set_field(target, value, ops)?;

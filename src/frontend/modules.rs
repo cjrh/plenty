@@ -514,10 +514,25 @@ impl Scope {
                     self.expr(value, locals)?;
                     locals.extend(names.iter().cloned());
                 }
-                Statement::SetIndex { target, value } => {
-                    self.expr(target, locals)?;
-                    self.expr(value, locals)?;
-                }
+                Statement::SetIndex { target, value } => match &mut target.kind {
+                    Expression::Tuple(targets) => {
+                        self.expr(value, locals)?;
+                        for target in targets {
+                            // A name target binds as unpacking does, so it must
+                            // not resolve to a declaration of the same name.
+                            if let Expression::Name(name) = &target.kind {
+                                self.fresh_capture_binding([name], &target.at)?;
+                                locals.insert(name.clone());
+                            } else {
+                                self.expr(target, locals)?;
+                            }
+                        }
+                    }
+                    _ => {
+                        self.expr(target, locals)?;
+                        self.expr(value, locals)?;
+                    }
+                },
                 Statement::If { condition, yes, no } => {
                     self.expr(condition, locals)?;
                     self.block(yes, &mut locals.clone())?;

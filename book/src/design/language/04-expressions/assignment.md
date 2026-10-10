@@ -28,6 +28,58 @@ resolution and the write. Replacing an owned value destroys its previous value
 exactly once. If an index propagates an error, a pending right-hand owner is
 cleaned up and no write occurs.
 
+Whole-instance assignment through `*reference = instance` is rejected for class
+references, including class-valued field references. Replace the owning binding
+or a named field instead.
+
+## Several targets
+
+`target, target = value, value` assigns to two or more targets at once:
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut items = [10, 20, 30]?
+    items[0], items[2] = items[2], items[0]
+    print(items)?
+    mut low = 1
+    mut high = 2
+    low, high = high, low
+    print((low, high))?
+    Ok(())
+```
+
+```output
+[30, 20, 10]
+(2, 1)
+```
+
+The right side is one tuple. With several targets its parentheses are optional,
+so `a, b = b, a` means `a, b = (b, a)`; a single target still requires them. Its
+component count must equal the target count.
+
+1. Evaluate the whole right side.
+2. Assign each component to its target, from left to right, exactly as a single
+   assignment to that target would.
+
+Because the right side is complete before the first write, targets can exchange
+values. Each target evaluates its own indices when its turn comes, so an earlier
+target can change a later target's index: `i, items[i] = 2, 5` writes `items[2]`.
+A target is a name, a field, a collection element, `*reference`, or `_`, which
+destroys its component. A name follows the single-assignment rule: it assigns an
+existing `mut` local or declares a new immutable one. `mut a, b = value`
+declares mutable locals and accepts names only. Naming the same local twice,
+nesting targets, starred targets, and a closure capture as a name target are
+rejected. In a constructor, a `self.field` target initializes its field, and
+later targets may read it.
+
+The right side obeys ordinary ownership, so reading an owned element such as a
+nested list still cannot move it out of its collection. Exchange owned list
+elements with [`swap`](../../facilities/01-builtins/lists.md). When a target
+traps on a missing index or key, earlier targets have already been assigned.
+Nothing is allocated.
+
+## Replacing a field
+
 `replace(owner.field, replacement)` follows the same evaluation order but returns
 the previous field value to the caller instead of destroying it. It requires the
 same type, visibility, mutability, and loan checks. It supports nested fields,
@@ -35,7 +87,3 @@ boxed owners, and fields reached through collection elements. It allocates
 nothing and keeps the field initialized. It accepts a field rather than a whole
 binding, element, or temporary receiver. A user declaration named `replace`
 continues to resolve normally.
-
-Whole-instance assignment through `*reference = instance` is rejected for class
-references, including class-valued field references. Replace the owning binding
-or a named field instead.

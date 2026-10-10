@@ -10,6 +10,7 @@ for ownership and borrowing.
 - [Take dictionary snapshots](dictionary-snapshots.md)
 - [Remove set members](set-removal.md)
 - [Reverse a list](reverse.md)
+- [Sort a list and exchange elements](sort-and-swap.md)
 - [Clear and reuse storage](clear.md)
 - [Extend a list](extend.md)
 - [Update dictionaries](dictionary-update.md)
