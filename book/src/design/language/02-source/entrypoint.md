@@ -20,6 +20,6 @@ change status one. Intermediate error propagation prints nothing. See
 format and fallback behavior.
 
 Checking and compilation diagnose missing or invalid entrypoints before running
-code or producing an output artifact. Compilation errors execute nothing;
-runtime errors can leave effects that already occurred. Library checking does
-not require `main`.
+code or producing an output artifact. Both diagnostics list all four accepted
+return types. Compilation errors execute nothing; runtime errors can leave
+effects that already occurred. Library checking does not require `main`.
