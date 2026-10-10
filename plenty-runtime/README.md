@@ -242,7 +242,7 @@ return. There is no global selection lock or per-wait heap allocation.
 ## Validation
 
 ```sh
-cargo test --workspace --features runtime-checks
+cargo test --workspace --all-features
 cargo clippy --all --workspace --all-features
 MIRIFLAGS=-Zmiri-permissive-provenance cargo +nightly miri test -p plenty-runtime
 ```
@@ -259,7 +259,10 @@ thread-local budget, without allocating inside the allocator. Integration tests
 exercise every collection construction/growth/reservation allocation and nested
 copy and string-splitting allocation, including partial-record, pending-key, and
 partial-piece cleanup, and retry after
-each failure. Raw ABI tests also run under `--features allocation-checks`.
+each failure. This crate's `allocation-checks` feature installs the same
+allocator for its own unit tests and enables the raw ABI tests that need it.
+`--all-features` selects both; `--features runtime-checks` at the workspace
+root does not reach this crate, and skips them.
 Checked character lookup also verifies zero allocations for missing indices,
 one for present scalars, and allocation-free propagation on failure.
 Optional dictionary lookup checks allocation-free hits/misses, equal but separately

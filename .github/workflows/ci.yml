@@ -21,4 +21,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
       - run: cargo build --workspace --verbose
-      - run: cargo test --workspace --features runtime-checks --verbose
+      # --all-features, not --features runtime-checks: the runtime crate's
+      # allocation-checks unit tests are gated on a feature the root does not forward.
+      - run: cargo test --workspace --all-features --verbose
