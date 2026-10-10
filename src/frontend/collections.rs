@@ -978,7 +978,24 @@ impl Lower<'_> {
         Ok(())
     }
 
-    pub(super) fn index(&mut self, base: &Expr, index: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+    pub(super) fn index(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+        let Expression::Index(base, index) = &e.kind else {
+            unreachable!()
+        };
+        if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
+            let (reference, loan) = self.borrow(e, false, ops)?;
+            let Ty::Ref(value, _) = reference else {
+                unreachable!()
+            };
+            if value.affine() {
+                return Err(index
+                    .at
+                    .error("cannot move out of a tuple index; unpack the tuple instead"));
+            }
+            ops.push(Op::ReadRef((*value).clone()));
+            Self::end_reads(vec![loan], ops);
+            return Ok((*value).clone());
+        }
         if let Some(ty @ Ty::List(_)) = self.place_type(base) {
             let value = ty.element().unwrap();
             if value.is_numeric() || value == Ty::Bool {
