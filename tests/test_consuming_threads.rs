@@ -95,7 +95,7 @@ def attempt[F: OnceCallable[[], Guard]](job: F) -> Result[(), Failure]:
     Ok(())
 job = make()
 print("__test_fail_thread_starts__").unwrap()
-print(attempt(job)).unwrap()
+print(str.repr(attempt(job)).unwrap()).unwrap()
 print("__test_restore_thread_starts__").unwrap()
 with spawn(make()).unwrap():
     pass

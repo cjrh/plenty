@@ -43,7 +43,7 @@ def build() -> Result[i64, AllocError]:
     print(seen).unwrap()
     print(mapping).unwrap()
     Ok(data.values[1])
-print(build()).unwrap()
+print(str.repr(build()).unwrap()).unwrap()
 "#,
         "{\"yes\"}\n{\"answer\": 42}\nResult[i64, AllocError].Ok(7)",
     );
@@ -57,8 +57,8 @@ def reserve(values: &mut list[i64], count: i64) -> Result[(), MemoryError]:
     values.reserve(count)?
     Ok(())
 mut values = [1, 2].unwrap()
-print(reserve(&mut values, -1)).unwrap()
-print(reserve(&mut values, 9223372036854775807)).unwrap()
+print(str.repr(reserve(&mut values, -1)).unwrap()).unwrap()
+print(str.repr(reserve(&mut values, 9223372036854775807)).unwrap()).unwrap()
 print(values).unwrap()
 error = AllocError.CapacityOverflow
 print(copy(error).unwrap() == error).unwrap()
@@ -93,12 +93,12 @@ mut values = {initial}
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = {operation}
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(len(values)).unwrap()
 print(0 in values).unwrap()
 print(7 in values).unwrap()
 print(99 in values).unwrap()
-print({operation}).unwrap()
+print(str.repr({operation}).unwrap()).unwrap()
 print(len(values)).unwrap()
 "#
         );
@@ -127,10 +127,10 @@ mut values = {initial}
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = values.reserve(100)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(len(values)).unwrap()
 print(7 in values).unwrap()
-print(values.reserve(100)).unwrap()
+print(str.repr(values.reserve(100)).unwrap()).unwrap()
 "#
             ),
             &format!(
@@ -165,9 +165,9 @@ mut seen = {"existing"}.unwrap()
 mut mapping = {"existing": 1}.unwrap()
 mut numbers = set[i64]().unwrap()
 mut counts = dict[i64, i64]().unwrap()
-print(values.reserve(32)).unwrap()
-print(numbers.reserve(32)).unwrap()
-print(counts.reserve(32)).unwrap()
+print(str.repr(values.reserve(32)).unwrap()).unwrap()
+print(str.repr(numbers.reserve(32)).unwrap()).unwrap()
+print(str.repr(counts.reserve(32)).unwrap()).unwrap()
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 result = work(&mut values, &mut seen, &mut mapping, &mut numbers, &mut counts)
@@ -175,7 +175,7 @@ error = AllocError.OutOfMemory
 same = copy(error).unwrap() == error
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(same).unwrap()
 print(len(values)).unwrap()
 print(mapping["existing"]).unwrap()

@@ -11,13 +11,12 @@ def demo() -> Result[(), IoError]:
         print(file.read()?)?
     Ok(())
 def main() -> Result[(), IoError]:
-    print(demo())?
+    demo()?
     Ok(())
 ```
 ```output
 é🦀
 hello
-Result[(), IoError].Ok(())
 ```
 
 
@@ -30,15 +29,14 @@ def demo() -> Result[(), IoError]:
     with open("lines.txt")? as file:
         print(file.readline(2)?)?
         print(file.readline(2)?)?
-        print(file.readline(2))?
+        print(file.readline(2)? == "\n")?
     Ok(())
 def main() -> Result[(), IoError]:
-    print(demo())?
+    demo()?
     Ok(())
 ```
 ```output
 ab
 cd
-Result[str, IoError].Ok("\n")
-Result[(), IoError].Ok(())
+True
 ```

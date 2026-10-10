@@ -5,14 +5,14 @@ newline. Success returns the number of Unicode characters. An I/O error can
 follow a partial write, so retrying the whole string can duplicate output.
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), Failure]:
     result = write_stdout("Hello!\n")
-    print(result)?
+    print(result?)?
     Ok(())
 ```
 ```output
 Hello!
-Result[i64, IoError].Ok(7)
+7
 ```
 
 `IoError.System(code)` carries a native OS error code (or zero when unavailable).

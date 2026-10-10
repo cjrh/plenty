@@ -48,7 +48,7 @@ def work() -> Result[(), AllocError]:
     make()?(Resource(2), fail()?)
     Ok(())
 def main() -> Result[(), Failure]:
-    print(work())?
+    print(str.repr(work()).unwrap())?
     Ok(())
 "#);
     assert!(

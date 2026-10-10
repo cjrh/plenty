@@ -40,7 +40,7 @@ fn replacement_is_literal_and_non_overlapping(
     #[case] expected: &str,
 ) {
     native(
-        &format!("print({text:?}.replace({old:?}, {new:?})).unwrap()"),
+        &format!("print(str.repr({text:?}.replace({old:?}, {new:?})).unwrap()).unwrap()"),
         &format!("Result[str, AllocError].Ok({expected:?})"),
     );
 }
@@ -61,14 +61,14 @@ message.text = "changed"
 drop(message)
 drop(old)
 drop(new)
-print(saved).unwrap()
+print(str.repr(saved).unwrap()).unwrap()
 def inspect(text: &mut str) -> Result[i64, AllocError]:
     result = text.replace("", "🙂")?
     *text = "changed"
     print(result).unwrap()
     Ok(len(result))
 mut text = "ab"
-print(inspect(&mut text)).unwrap()
+print(str.repr(inspect(&mut text)).unwrap()).unwrap()
 print(text).unwrap()
 "#,
         "Result[str, AllocError].Ok(\"AZ🙂Z\")\n🙂a🙂b🙂\nResult[i64, AllocError].Ok(5)\nchanged",
@@ -86,8 +86,8 @@ def missing() -> Result[str, AllocError]:
     Err(AllocError.CapacityOverflow)
 def fail() -> Result[str, AllocError]:
     text("receiver", ("A" + "B").unwrap()).replace(missing()?, text("skipped", "C"))
-print(text("receiver", "aba").replace(text("old", "a"), text("new", "X"))).unwrap()
-print(fail()).unwrap()
+print(str.repr(text("receiver", "aba").replace(text("old", "a"), text("new", "X"))).unwrap()).unwrap()
+print(str.repr(fail()).unwrap()).unwrap()
 class Custom:
     def replace(self, value: i64) -> i64:
         value
@@ -100,8 +100,8 @@ fn replacement_accepts_shared_input_storage_without_consuming_it() {
     native(
         r#"
 text = ("a" + "b").unwrap()
-print(text.replace(text, text)).unwrap()
-print(text.replace("", text)).unwrap()
+print(str.repr(text.replace(text, text)).unwrap()).unwrap()
+print(str.repr(text.replace("", text)).unwrap()).unwrap()
 print(text).unwrap()
 "#,
         "Result[str, AllocError].Ok(\"ab\")\nResult[str, AllocError].Ok(\"abaabbab\")\nab",
@@ -129,9 +129,9 @@ new = {new:?}
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = text.replace(old, new)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(text).unwrap()
-print(text.replace(old, new)).unwrap()
+print(str.repr(text.replace(old, new)).unwrap()).unwrap()
 "#
             ),
             &format!(
@@ -162,7 +162,7 @@ print(text.replace(old, new)).unwrap()
 #[case("print(\"text\".replace(1, \"X\")).unwrap()", "expected str")]
 #[case("print(\"text\".replace(\"t\", 1)).unwrap()", "expected str")]
 #[case("print([1].unwrap().replace(\"t\", \"X\")).unwrap()", "expected str")]
-#[case("mut text = \"text\"\nloan = &mut text\nprint(text.replace(\"t\", \"X\")).unwrap()\n*loan = \"changed\"", "borrow")]
+#[case("mut text = \"text\"\nloan = &mut text\nprint(str.repr(text.replace(\"t\", \"X\")).unwrap()).unwrap()\n*loan = \"changed\"", "borrow")]
 fn invalid_replacement_is_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");

@@ -229,7 +229,7 @@ def main() -> Result[(), Failure]:
     left: Result[Option[LoadError], LoadError] = Ok(Some(LoadError.InvalidPath))
     right: Result[Option[LoadError], LoadError] = Ok(Some(LoadError.IncompatibleContract))
     print(left == right)?
-    print(right)?
+    print(str.repr(right).unwrap())?
     Ok(())
 "#,
     );
@@ -287,13 +287,13 @@ def main() -> Result[(), Failure]:
     path = "{}"
     library = plugin.load(&path)?
     mut value: i16 = 10
-    print(library.change(&mut value, 0))?
-    print(library.change(&mut value, 1))?
+    print(str.repr(library.change(&mut value, 0)).unwrap())?
+    print(str.repr(library.change(&mut value, 1)).unwrap())?
     print(value)?
-    print(library.numeric(0))?
-    print(library.numeric(1))?
-    print(library.allocation())?
-    print(library.failure())?
+    print(str.repr(library.numeric(0)).unwrap())?
+    print(str.repr(library.numeric(1)).unwrap())?
+    print(str.repr(library.allocation()).unwrap())?
+    print(str.repr(library.failure()).unwrap())?
     number: f64 = 2.5
     print(library.read(&number, &number))?
     Ok(())
@@ -351,10 +351,10 @@ def main() -> Result[(), Failure]:
     path = "{}"
     library = plugin.load(&path)?
     mut counter = acquire(&path)?
-    print(library.bump(&mut counter))?
+    print(str.repr(library.bump(&mut counter)).unwrap())?
     print(library.read(&counter))?
     counter = library.transfer(counter)?
-    print(library.finish(counter))?
+    print(str.repr(library.finish(counter)).unwrap())?
     last = library.create(42)?
     drop(library)
     drop(last)
@@ -447,7 +447,7 @@ export def restore_allocations() -> () = "calc_restore_allocations":
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
     print(value)?
-    print(changed)?
+    print(str.repr(changed).unwrap())?
     print(same)?
     print("__test_fail_allocations_after_0__").unwrap()
     # The wrapper needs no allocation, and this library has its own runtime.

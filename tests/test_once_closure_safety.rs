@@ -25,8 +25,8 @@ def after_entry() -> Result[(), AllocError]:
     make()?(Resource(3), 0)?
     Ok(())
 def main() -> Result[(), Failure]:
-    print(before_entry())?
-    print(after_entry())?
+    print(str.repr(before_entry()).unwrap())?
+    print(str.repr(after_entry()).unwrap())?
     Ok(())
 "#);
     assert!(

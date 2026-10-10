@@ -19,12 +19,11 @@ def write_example() -> Result[(), IoError]:
     Ok(())
 
 def main() -> Result[(), IoError]:
-    print(write_example())?
+    write_example()?
     Ok(())
 ```
 ```output
 6
-Result[(), IoError].Ok(())
 ```
 
 Explicit close lets you propagate its error. Context exit then closes the already

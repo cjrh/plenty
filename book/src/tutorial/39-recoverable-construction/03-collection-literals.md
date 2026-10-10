@@ -6,14 +6,14 @@ Collection literals directly return `Result[collection, AllocError]`:
 def build() -> Result[list[list[i64]], AllocError]:
     [[1, 2]?, [3]?]
 
-def main() -> Result[(), IoError]:
-    print({"answer": 42})?
-    print(build())?
+def main() -> Result[(), Failure]:
+    print({"answer": 42}?)?
+    print(build()?)?
     Ok(())
 ```
 ```output
-Result[dict[str, i64], AllocError].Ok({"answer": 42})
-Result[list[list[i64]], AllocError].Ok([[1, 2], [3]])
+{"answer": 42}
+[[1, 2], [3]]
 ```
 
 Construction stops at its first allocation failure, drops the partial collection,

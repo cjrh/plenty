@@ -17,13 +17,12 @@ def inspect_file() -> Result[(), IoError]:
     Ok(())
 
 def main() -> Result[(), IoError]:
-    print(inspect_file())?
+    inspect_file()?
     Ok(())
 ```
 ```output
 False
 True
-Result[(), IoError].Ok(())
 ```
 
 Closing twice succeeds. A closed file remains a valid value; it no longer owns
@@ -42,11 +41,12 @@ def read_example() -> Result[str, IoError]:
         return Ok(file.read()?)
 
 def main() -> Result[(), IoError]:
-    print(read_example())?
+    print(read_example()?)?
     Ok(())
 ```
 ```output
-Result[str, IoError].Ok("hello\nworld")
+hello
+world
 ```
 
 Returning the owned text closes the file first. `with &mut file as stream:`

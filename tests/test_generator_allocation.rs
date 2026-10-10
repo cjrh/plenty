@@ -33,7 +33,7 @@ def consume() -> Result[i64, AllocError]:
     for n in source:
         total = total + n
     Ok(total)
-print(consume()).unwrap()
+print(str.repr(consume()).unwrap()).unwrap()
 "#,
         "Result[i64, AllocError].Ok(12)",
     );
@@ -71,7 +71,7 @@ def consume() -> Result[i64, AllocError]:
             return Ok(n)
         case Nothing:
             return Ok(0)
-print(consume()).unwrap()
+print(str.repr(consume()).unwrap()).unwrap()
 "#,
         "created\nresumed\nResult[i64, AllocError].Ok(12)",
     );

@@ -61,7 +61,7 @@ use std::process::Command;
     "mut a = [1, 2].unwrap()\na[len(a) - 1] = len(a) + 1\nprint(a).unwrap()",
     "[1, 3]\n"
 )]
-#[case("type R = Result[list[i64], str]\na = R.Ok([1].unwrap())\nb = copy(a).unwrap()\nmatch b:\n    case R.Ok(items):\n        mut x = items\n        x.append(2).unwrap()\n        print(x).unwrap()\n    case R.Err(_):\n        pass\nprint(a).unwrap()", "[1, 2]\nResult[list[i64], str].Ok([1])\n")]
+#[case("type R = Result[list[i64], str]\na = R.Ok([1].unwrap())\nb = copy(a).unwrap()\nmatch b:\n    case R.Ok(items):\n        mut x = items\n        x.append(2).unwrap()\n        print(x).unwrap()\n    case R.Err(_):\n        pass\nprint(str.repr(a).unwrap()).unwrap()", "[1, 2]\nResult[list[i64], str].Ok([1])\n")]
 #[case(
     "mut a: list[i64] = [].unwrap()\nfor n in range(20_000):\n    a.append(n).unwrap()\nprint(len(a)).unwrap()\nprint(a[-1]).unwrap()",
     "20000\n19999\n"

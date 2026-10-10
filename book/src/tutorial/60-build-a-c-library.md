@@ -12,7 +12,7 @@ export def positive(value: i32) -> Result[i32, i32] = "calc_positive":
 
 def main() -> Result[(), Failure]:
     print(positive(42)?)?
-    print(positive(-1))?
+    print(str.repr(positive(-1))?)?
     Ok(())
 ```
 ```output

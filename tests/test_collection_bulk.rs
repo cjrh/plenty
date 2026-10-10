@@ -28,11 +28,11 @@ class Data:
     items: list[i64]
 mut data = Data([1, 2].unwrap())
 other = [3, 4, 5].unwrap()
-print(extend(&mut data.items, other)).unwrap()
-print(data.items.extend([].unwrap())).unwrap()
+print(str.repr(extend(&mut data.items, other)).unwrap()).unwrap()
+print(str.repr(data.items.extend([].unwrap())).unwrap()).unwrap()
 print(data.items).unwrap()
 mut nested = [[1].unwrap()].unwrap()
-print(nested.extend([[2].unwrap(), [3].unwrap()].unwrap())).unwrap()
+print(str.repr(nested.extend([[2].unwrap(), [3].unwrap()].unwrap())).unwrap()).unwrap()
 print(nested).unwrap()
 class Custom:
     def extend(self, n: i64) -> i64:
@@ -51,11 +51,11 @@ def more(items: &list[i64]) -> list[i64]:
     print(len(items)).unwrap()
     [len(items), len(items) + 1].unwrap()
 mut items = [10].unwrap()
-print(items.extend(more(&items))).unwrap()
+print(str.repr(items.extend(more(&items))).unwrap()).unwrap()
 print(items).unwrap()
 source = [("A" + "da").unwrap()].unwrap()
 mut names = ["Bea"].unwrap()
-print(append_copy(&mut names, &source)).unwrap()
+print(str.repr(append_copy(&mut names, &source)).unwrap()).unwrap()
 drop(names)
 print(source).unwrap()
 "#,
@@ -80,7 +80,7 @@ source = [Guard(1), Guard(2), Guard(3)].unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = destination.extend(source)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(len(destination)).unwrap()
 print("drop destination").unwrap()
 drop(destination)
@@ -111,7 +111,7 @@ def run() -> Result[list[str], AllocError]:
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
     Ok(items)
-print(run()).unwrap()
+print(str.repr(run()).unwrap()).unwrap()
 "#,
         "Result[list[str], AllocError].Ok([\"Ada\", \"Bea\"])",
     );
@@ -120,10 +120,10 @@ print(run()).unwrap()
 #[rstest]
 #[case("items = [1].unwrap()\nitems.extend([2].unwrap())", "immutable")]
 #[case(
-    "mut items = [1].unwrap()\nsource = [2].unwrap()\nitems.extend(source)\nprint(source).unwrap()",
+    "mut items = [1].unwrap()\nsource = [2].unwrap()\ndrop(items.extend(source))\nprint(source).unwrap()",
     "moved"
 )]
-#[case("mut items = [1].unwrap()\nitems.extend(items)", "moved")]
+#[case("mut items = [1].unwrap()\ndrop(items.extend(items))\n", "moved")]
 #[case(
     "mut items = [1].unwrap()\nsource = [2].unwrap()\nitems.extend(&source)",
     "expected list[i64]"
@@ -138,7 +138,7 @@ print(run()).unwrap()
 )]
 #[case("[1].unwrap().extend([2].unwrap())", "extend requires a mutable list")]
 #[case(
-    "mut items = [1].unwrap()\nloan = &items\nitems.extend([2].unwrap())\nprint(loan).unwrap()",
+    "mut items = [1].unwrap()\nloan = &items\ndrop(items.extend([2].unwrap()))\nprint(loan).unwrap()",
     "borrow"
 )]
 fn invalid_extension(#[case] source: &str, #[case] expected: &str) {
@@ -154,11 +154,11 @@ def update(data: &mut dict[str, i64], source: dict[str, i64]) -> Result[(), Allo
 class Data:
     entries: dict[str, i64]
 mut data = Data({"a": 1, "b": 2}.unwrap())
-print(update(&mut data.entries, {"b": 20, "c": 30, "a": 10, "d": 40}.unwrap())).unwrap()
+print(str.repr(update(&mut data.entries, {"b": 20, "c": 30, "a": 10, "d": 40}.unwrap())).unwrap()).unwrap()
 print(data.entries).unwrap()
-print(data.entries.update({}.unwrap())).unwrap()
+print(str.repr(data.entries.update({}.unwrap())).unwrap()).unwrap()
 mut nested = {1: [10].unwrap()}.unwrap()
-print(nested.update({1: [20].unwrap(), 2: [30].unwrap()}.unwrap())).unwrap()
+print(str.repr(nested.update({1: [20].unwrap(), 2: [30].unwrap()}.unwrap())).unwrap()).unwrap()
 print(nested).unwrap()
 class Custom:
     def update(self, n: i64) -> i64:
@@ -178,8 +178,8 @@ def fail(data: &mut dict[str, list[i64]]) -> Result[(), AllocError]:
     data.update(missing()?)
 mut data = {"a": [1].unwrap()}.unwrap()
 source = {"a": [2].unwrap(), "b": [3].unwrap()}.unwrap()
-print(update(&mut data, &source)).unwrap()
-print(fail(&mut data)).unwrap()
+print(str.repr(update(&mut data, &source)).unwrap()).unwrap()
+print(str.repr(fail(&mut data)).unwrap()).unwrap()
 print(data).unwrap()
 print(source).unwrap()
 "#, "Result[(), AllocError].Ok(())\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\n{\"a\": [2], \"b\": [3]}\n{\"a\": [2], \"b\": [3]}");
@@ -210,7 +210,7 @@ source = {{{entries}}}.unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = data.update(source)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(len(data)).unwrap()
 print("drop destination").unwrap()
 drop(data)
@@ -244,7 +244,7 @@ def run() -> Result[dict[str, str], AllocError]:
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
     Ok(data)
-print(run()).unwrap()
+print(str.repr(run()).unwrap()).unwrap()
 "#,
         "Result[dict[str, str], AllocError].Ok({\"a\": \"new\", \"b\": \"Bea\", \"c\": \"Cam\"})",
     );
@@ -253,10 +253,10 @@ print(run()).unwrap()
 #[rstest]
 #[case("data = {1: 2}.unwrap()\ndata.update({1: 3}.unwrap())", "immutable")]
 #[case(
-    "mut data = {1: 2}.unwrap()\nsource = {2: 3}.unwrap()\ndata.update(source)\nprint(source).unwrap()",
+    "mut data = {1: 2}.unwrap()\nsource = {2: 3}.unwrap()\ndrop(data.update(source))\nprint(source).unwrap()",
     "moved"
 )]
-#[case("mut data = {1: 2}.unwrap()\ndata.update(data)", "moved")]
+#[case("mut data = {1: 2}.unwrap()\ndrop(data.update(data))\n", "moved")]
 #[case(
     "mut data = {1: 2}.unwrap()\nsource = {2: 3}.unwrap()\ndata.update(&source)",
     "expected dict[i64, i64]"
@@ -274,7 +274,7 @@ print(run()).unwrap()
     "update requires a mutable dictionary"
 )]
 #[case(
-    "mut data = {1: 2}.unwrap()\nloan = &data\ndata.update({2: 3}.unwrap())\nprint(loan).unwrap()",
+    "mut data = {1: 2}.unwrap()\nloan = &data\ndrop(data.update({2: 3}.unwrap()))\nprint(loan).unwrap()",
     "borrow"
 )]
 fn invalid_dictionary_update(#[case] source: &str, #[case] expected: &str) {
@@ -290,16 +290,16 @@ def update(data: &mut set[str], source: set[str]) -> Result[(), AllocError]:
 class Data:
     members: set[str]
 mut data = Data({("é" + "🙂").unwrap()}.unwrap())
-print(update(&mut data.members, {("" + "é🙂").unwrap(), "other"}.unwrap())).unwrap()
+print(str.repr(update(&mut data.members, {("" + "é🙂").unwrap(), "other"}.unwrap())).unwrap()).unwrap()
 print(len(data.members)).unwrap()
 print("é🙂" in data.members).unwrap()
 print("other" in data.members).unwrap()
-print(data.members.update(set[str]().unwrap())).unwrap()
+print(str.repr(data.members.update(set[str]().unwrap())).unwrap()).unwrap()
 mut flags = {False}.unwrap()
-print(flags.update({False, True}.unwrap())).unwrap()
+print(str.repr(flags.update({False, True}.unwrap())).unwrap()).unwrap()
 print(len(flags)).unwrap()
 mut bytes = {1u8}.unwrap()
-print(bytes.update({1u8, 2u8}.unwrap())).unwrap()
+print(str.repr(bytes.update({1u8, 2u8}.unwrap())).unwrap()).unwrap()
 print(2u8 in bytes).unwrap()
 "#, "Result[(), AllocError].Ok(())\n2\nTrue\nTrue\nResult[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\n2\nResult[(), AllocError].Ok(())\nTrue");
 }
@@ -309,13 +309,13 @@ fn set_update_keeps_probe_chains_valid_through_growth_and_removal() {
     native(
         r#"
 mut values = {n for n in range(100) if n % 2 == 0}.unwrap()
-print(values.update({n for n in range(100)}.unwrap())).unwrap()
+print(str.repr(values.update({n for n in range(100)}.unwrap())).unwrap()).unwrap()
 mut valid = len(values) == 100
 for n in range(100):
     valid = valid and n in values
 for n in range(25):
     values.discard(n)
-print(values.update({n for n in range(25)}.unwrap())).unwrap()
+print(str.repr(values.update({n for n in range(25)}.unwrap())).unwrap()).unwrap()
 for n in range(100):
     valid = valid and n in values
 print(valid).unwrap()
@@ -333,7 +333,7 @@ def update(data: &mut set[str], source: &set[str]) -> Result[(), AllocError]:
     data.update(copy(source)?)
 mut data = {"Ada"}.unwrap()
 source = {("A" + "da").unwrap(), ("B" + "ea").unwrap()}.unwrap()
-print(update(&mut data, &source)).unwrap()
+print(str.repr(update(&mut data, &source)).unwrap()).unwrap()
 drop(data)
 print(len(source)).unwrap()
 print("Bea" in source).unwrap()
@@ -354,7 +354,7 @@ source = {{n for n in range(11)}}.unwrap()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = data.update(source)
 print("__test_restore_allocations__").unwrap()
-print(result).unwrap()
+print(str.repr(result).unwrap()).unwrap()
 print(len(data)).unwrap()
 print(0 in data).unwrap()
 print(10 in data).unwrap()
@@ -404,10 +404,10 @@ match run():
 #[rstest]
 #[case("data = {1}.unwrap()\ndata.update({2}.unwrap())", "immutable")]
 #[case(
-    "mut data = {1}.unwrap()\nsource = {2}.unwrap()\ndata.update(source)\nprint(source).unwrap()",
+    "mut data = {1}.unwrap()\nsource = {2}.unwrap()\ndrop(data.update(source))\nprint(source).unwrap()",
     "moved"
 )]
-#[case("mut data = {1}.unwrap()\ndata.update(data)", "moved")]
+#[case("mut data = {1}.unwrap()\ndrop(data.update(data))\n", "moved")]
 #[case(
     "mut data = {1}.unwrap()\nsource = {2}.unwrap()\ndata.update(&source)",
     "expected set[i64]"
@@ -426,7 +426,7 @@ match run():
     "update requires a mutable dictionary or set"
 )]
 #[case(
-    "mut data = {1}.unwrap()\nloan = &data\ndata.update({2}.unwrap())\nprint(loan).unwrap()",
+    "mut data = {1}.unwrap()\nloan = &data\ndrop(data.update({2}.unwrap()))\nprint(loan).unwrap()",
     "borrow"
 )]
 fn invalid_set_update(#[case] source: &str, #[case] expected: &str) {

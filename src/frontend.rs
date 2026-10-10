@@ -1907,12 +1907,32 @@ impl Lower<'_> {
         {
             Ok(())
         } else {
+            let can_propagate = got.as_ref().and_then(|ty| self.result_success(ty)).is_some_and(|ty| {
+                let success = (ty != Ty::Unit).then_some(ty);
+                success == expected
+                    || matches!((&expected, &success), (Some(a), Some(b)) if crate::generator::refine(a, b).is_some())
+            });
             Err(at.error(format!(
-                "expected {}, got {}",
+                "expected {}, got {}{}",
                 type_name(expected),
-                type_name(got)
+                type_name(got),
+                if can_propagate {
+                    "; use `?` to propagate the error or match the result explicitly"
+                } else {
+                    ""
+                }
             )))
         }
+    }
+    /// Success type of a Result that `?` can propagate in this function.
+    /// Keep diagnostic advice subject to the same residual rules as lowering.
+    fn result_success(&self, ty: &Ty) -> Option<Ty> {
+        let Ty::Enum(source) = ty else { return None };
+        let Some(Some(Ty::Enum(target))) = &self.return_type else {
+            return None;
+        };
+        (self.yield_type.is_none() && target.accepts_result_error(source))
+            .then(|| source.get().variants[0].fields[0].clone())
     }
     fn value(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
         self.expr(e, ops)?
@@ -1957,10 +1977,7 @@ impl Lower<'_> {
                 "`?` operand and function return must use the same Result or Option family",
             ));
         }
-        if !source.is_option()
-            && !target.discards_error()
-            && source.get().variants[1].fields != target.get().variants[1].fields
-        {
+        if !source.is_option() && !target.accepts_result_error(&source) {
             return Err(e
                 .at
                 .error("`?` requires identical Result error types; convert the error explicitly"));
@@ -2394,6 +2411,22 @@ impl Lower<'_> {
                     }
                     if ty.recursive_data() {
                         return Err(e.at.error("automatic formatting is not supported for recursive data; print selected fields"));
+                    }
+                    if matches!(&ty, Ty::Enum(t) if t.is_result()) {
+                        // Observation also accepts references and borrowed owners.
+                        // Do not advise moving them with `?` based on type alone.
+                        let unborrowed = loans.is_empty()
+                            && !matches!(&ungroup(&args[0]).kind, Expression::Name(name)
+                                if self.names.get(name).is_some_and(|local| matches!(local.ty, Ty::Ref(..))));
+                        let hint = self.result_success(&ty).filter(|success| {
+                            unborrowed
+                                && *success != Ty::Unit
+                                && !matches!(success, Ty::Enum(t) if t.is_result())
+                        });
+                        return Err(args[0].at.error(format!(
+                            "print cannot print a Result directly; {}match the result explicitly, or use `str.repr` for intentional wrapper formatting",
+                            if hint.is_some() { "use `?` on the argument to propagate its error, " } else { "" }
+                        )));
                     }
                     let operation = CollectionOp::TryPrint(ty);
                     let output = operation.signature().1;
@@ -2869,6 +2902,17 @@ impl Lower<'_> {
                 }
             };
             if !last {
+                if let Some(ty @ Ty::Enum(t)) = &result {
+                    if t.is_result() {
+                        let can_propagate = self.result_success(ty).is_some_and(
+                            |success| !matches!(success, Ty::Enum(t) if t.is_result()),
+                        );
+                        return Err(stmt.at.error(format!(
+                            "cannot implicitly discard a Result; {}match the result explicitly, or use `drop(result)` to discard it deliberately",
+                            if can_propagate { "use `?` to propagate the error, " } else { "" }
+                        )));
+                    }
+                }
                 if result.is_some() {
                     ops.push(Op::Drop);
                 }

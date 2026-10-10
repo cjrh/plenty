@@ -11,17 +11,17 @@ def names(scores: &dict[str, i64]) -> Result[list[str], AllocError]:
 
 def main() -> Result[(), Failure]:
     mut scores = {"Ada": 10, "Bea": 20}?
-    saved = scores.values()
+    saved = scores.values()?
     scores["Ada"] = 30
-    print(names(&scores))?
+    print(names(&scores)?)?
     print(saved)?
     print(scores)?
     Ok(())
 ```
 
 ```output
-Result[list[str], AllocError].Ok(["Ada", "Bea"])
-Result[list[i64], AllocError].Ok([10, 20])
+["Ada", "Bea"]
+[10, 20]
 {"Ada": 30, "Bea": 20}
 ```
 
@@ -41,13 +41,13 @@ def rows(data: &dict[str, list[i64]]) -> Result[list[list[i64]], AllocError]:
 
 def main() -> Result[(), Failure]:
     data = {"first": [1, 2]?, "second": [3]?}?
-    print(rows(&data))?
+    print(rows(&data)?)?
     print(data)?
     Ok(())
 ```
 
 ```output
-Result[list[list[i64]], AllocError].Ok([[1, 2], [3]])
+[[1, 2], [3]]
 {"first": [1, 2], "second": [3]}
 ```
 

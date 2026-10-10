@@ -8,22 +8,21 @@ def rename(text: &str) -> Result[str, AllocError]:
     updated = text.replace("Plenty", "plenty")?
     Ok(updated)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), Failure]:
     original = "Plenty is Plenty"
-    print(rename(&original))?
+    print(rename(&original)?)?
     print(original)?
-    print("aaaaa".replace("aa", "X"))?
-    print("Aé".replace("", "-"))?
-    print("banana".replace("na", ""))?
+    print("aaaaa".replace("aa", "X")?)?
+    print("Aé".replace("", "-")?)?
+    print("banana".replace("na", "")?)?
     Ok(())
 ```
-
 ```output
-Result[str, AllocError].Ok("plenty is plenty")
+plenty is plenty
 Plenty is Plenty
-Result[str, AllocError].Ok("XXa")
-Result[str, AllocError].Ok("-A-é-")
-Result[str, AllocError].Ok("ba")
+XXa
+-A-é-
+ba
 ```
 
 An empty search string inserts the replacement before, between, and after Unicode

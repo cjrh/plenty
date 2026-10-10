@@ -170,7 +170,7 @@ def nested(n: i64) -> Result[i64, ThreadError]:
         return task.join()
 def main() -> Result[(), Failure]:
     with spawn(fail)? as task:
-        print(task.join())?
+        print(str.repr(task.join()).unwrap())?
     with spawn(span)? as task:
         saved = task.join()
         print(saved)?
@@ -201,7 +201,7 @@ def failed(n: &mut i64) -> Result[(), Failure]:
 def main() -> Result[(), Failure]:
     mut n = 0
     early(&mut n)?
-    print(failed(&mut n))?
+    print(str.repr(failed(&mut n)).unwrap())?
     for i in range(5):
         with spawn(update, &mut n)?:
             if i == 2:
@@ -291,11 +291,11 @@ def main() -> Result[(), Failure]:
     mut a = 1
     mut b = 2
     print("__test_one_thread_start__")?
-    print(attempt(&mut a, &mut b))?
+    print(str.repr(attempt(&mut a, &mut b)).unwrap())?
     print("__test_restore_thread_starts__")?
     print(a)?
     print(b)?
-    print(attempt(&mut a, &mut b))?
+    print(str.repr(attempt(&mut a, &mut b)).unwrap())?
     print(a)?
     print(b)?
     Ok(())
@@ -374,9 +374,9 @@ def main() -> Result[(), Failure]:
         value = value + 10
         value
     print("__test_fail_thread_starts__")?
-    print(attempt(&mut job))?
+    print(str.repr(attempt(&mut job)).unwrap())?
     print("__test_restore_thread_starts__")?
-    print(attempt(&mut job))?
+    print(str.repr(attempt(&mut job)).unwrap())?
     print(value)?
     Ok(())
 "#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n1\n__test_fail_thread_starts__\nResult[i64, ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\nResult[i64, ThreadError].Ok(11)\n11\n");
@@ -450,7 +450,7 @@ def work() -> Result[list[i64], AllocError]:
 def main() -> Result[(), Failure]:
     values = [7]?
     with spawn(work)? as task:
-        print(task.join())?
+        print(str.repr(task.join()).unwrap())?
     print(values)?
     print([4, 5]?)?
     Ok(())

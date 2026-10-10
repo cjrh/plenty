@@ -360,7 +360,7 @@ def run() -> Result[i64, i64]:
     first = next(source).unwrap()
     receive(values(Resource(2)), fail()?)
     Ok(first)
-print(run()).unwrap()
+print(str.repr(run()).unwrap()).unwrap()
 "#,
         "2\n1\nResult[i64, i64].Err(9)\n",
     );

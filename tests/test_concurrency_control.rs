@@ -94,7 +94,7 @@ with ThreadPoolExecutor(1, 1).unwrap() as pool:
     pending = pool.submit(value).unwrap()
     print(pending.cancel()).unwrap()
     print(pending.wait_timeout(0)).unwrap()
-    print(pending.result()).unwrap()
+    print(str.repr(pending.result()).unwrap()).unwrap()
     signal.send(7).unwrap()
     print(running.wait_timeout(10000)).unwrap()
     print(running.wait_timeout(18446744073709551615u64)).unwrap()
@@ -109,7 +109,7 @@ fn timed_channel_operations_preserve_unsent_values_and_prioritize_readiness() {
     runs(
         r#"
 sender, receiver = channel[list[i64]](1).unwrap()
-print(receiver.recv_timeout(0)).unwrap()
+print(str.repr(receiver.recv_timeout(0)).unwrap()).unwrap()
 sender.send_timeout([1].unwrap(), 0).unwrap()
 match sender.send_timeout([2, 3].unwrap(), 1):
     case Ok(_):
@@ -124,10 +124,10 @@ print(receiver.recv_timeout(0).unwrap()).unwrap()
 sender.send_timeout([4].unwrap(), 0).unwrap()
 drop(sender)
 print(receiver.recv_timeout(0).unwrap()).unwrap()
-print(receiver.recv_timeout(0)).unwrap()
+print(str.repr(receiver.recv_timeout(0)).unwrap()).unwrap()
 other, destination = channel[i64](1).unwrap()
 drop(destination)
-print(other.send_timeout(42, 0)).unwrap()
+print(str.repr(other.send_timeout(42, 0)).unwrap()).unwrap()
 "#,
         "Result[list[i64], RecvTimeoutError].Err(RecvTimeoutError.TimedOut)\n[2, 3]\n[1]\n[4]\nResult[list[i64], RecvTimeoutError].Err(RecvTimeoutError.Disconnected)\nResult[(), SendTimeoutError[i64]].Err(SendTimeoutError[i64].Disconnected(42))\n",
     );
@@ -164,16 +164,16 @@ def describe(value: Selected[i64, str]) -> str:
             text
 left, first = channel[i64](2).unwrap()
 right, second = channel[str](1).unwrap()
-print(select_recv_nowait(&first, &second)).unwrap()
-print(select_recv_timeout(&first, &second, 0)).unwrap()
+print(str.repr(select_recv_nowait(&first, &second)).unwrap()).unwrap()
+print(str.repr(select_recv_timeout(&first, &second, 0)).unwrap()).unwrap()
 left.send(7).unwrap()
 right.send("text").unwrap()
 print(describe(select_recv(&first, &second).unwrap())).unwrap()
 drop(left)
 print(describe(select_recv_timeout(&first, &second, 0).unwrap())).unwrap()
-print(select_recv_nowait(&first, &second)).unwrap()
+print(str.repr(select_recv_nowait(&first, &second)).unwrap()).unwrap()
 drop(right)
-print(select_recv(&first, &second)).unwrap()
+print(str.repr(select_recv(&first, &second)).unwrap()).unwrap()
 "#,
         "Result[Selected[i64, str], SelectError].Err(SelectError.Empty)\nResult[Selected[i64, str], SelectError].Err(SelectError.TimedOut)\nnumber\ntext\nResult[Selected[i64, str], SelectError].Err(SelectError.Empty)\nResult[Selected[i64, str], SelectError].Err(SelectError.Disconnected)\n",
     );
@@ -202,7 +202,7 @@ match select_recv(&first, &alias).unwrap():
         print(values[2]).unwrap()
     case Selected[range[i64], range[i64]].Second(_):
         print("wrong").unwrap()
-print(first.recv_nowait()).unwrap()
+print(str.repr(first.recv_nowait()).unwrap()).unwrap()
 "#,
         "[8, 9]\n12\nResult[range, RecvError].Err(RecvError.Empty)\n",
     );
@@ -245,7 +245,7 @@ print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(stopped).unwrap()
 print(answer).unwrap()
-print(empty).unwrap()
+print(str.repr(empty).unwrap()).unwrap()
 "#,
         "__test_fail_allocations_after_0__\n__test_restore_allocations__\nAllocError.OutOfMemory\n__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nTrue\n22\nResult[i64, RecvTimeoutError].Err(RecvTimeoutError.TimedOut)\n",
     );

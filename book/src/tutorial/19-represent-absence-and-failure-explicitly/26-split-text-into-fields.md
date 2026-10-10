@@ -7,24 +7,23 @@ returns `Result[list[str], AllocError]`, so `?` can propagate allocation failure
 def fields(line: &str) -> Result[list[str], AllocError]:
     line.split("::")
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), Failure]:
     line = "Ada::Bea::::"
     match fields(&line):
         case Ok(parts):
             print(parts)?
-            print(" / ".join(parts))?
+            print(str.repr(" / ".join(parts)?)?)?
         case Err(error):
             print(error)?
     print(line)?
-    print("".split(","))?
+    print("".split(",")?)?
     Ok(())
 ```
-
 ```output
 ["Ada", "Bea", "", ""]
-Result[str, AllocError].Ok("Ada / Bea /  / ")
+"Ada / Bea /  / "
 Ada::Bea::::
-Result[list[str], AllocError].Ok([""])
+[""]
 ```
 
 Adjacent and trailing separators preserve empty fields. Matches do not overlap:

@@ -41,6 +41,15 @@ the enclosing function explicitly returns `Result[T, Failure]`. Success types ca
 differ. There are no other implicit error conversions or Result/Option
 conversions. `?` on a unit success payload is a unit expression.
 
+An expression statement cannot implicitly discard a `Result`; explicit
+`drop(result)` is the opt-out. Builtin `print` also rejects a direct `Result`
+argument, including a borrowed one. Handle the result before printing its payload.
+For intentional wrapper inspection, format it with `str.repr(result)` and handle
+that formatting Result too, for example `print(str.repr(result)?)?` in a function
+returning `Result[(), Failure]`. `Option` and Results inside printable aggregates
+remain printable. Diagnostics suggest `?` only when the enclosing function can
+propagate that error and its success payload fits the use.
+
 `Failure` is a builtin, allocation-free, copyable enum with one nullary variant,
 `Failure.Unspecified`. It deliberately retains no error details. In a function
 returning `Result[T, Failure]` (including aliases), `?` accepts any Result error

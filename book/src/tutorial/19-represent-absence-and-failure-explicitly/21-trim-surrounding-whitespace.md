@@ -4,15 +4,14 @@
 from both ends, the left end, or the right end. Each returns `Result[str, AllocError]`:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), Failure]:
     text = "  é🙂  "
-    print(text.strip())?
-    print(text.lstrip())?
-    print(text.rstrip())?
-    print(" \t\n".strip())?
+    print(str.repr(text.strip())?)?
+    print(str.repr(text.lstrip())?)?
+    print(str.repr(text.rstrip())?)?
+    print(str.repr(" \t\n".strip())?)?
     Ok(())
 ```
-
 ```output
 Result[str, AllocError].Ok("é🙂")
 Result[str, AllocError].Ok("é🙂  ")

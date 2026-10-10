@@ -60,7 +60,7 @@ mut value: Result[Result[i64, i64], i64] = Ok(Err(7))
 print(*inner(&value)).unwrap()
 number = writable(&mut value)
 *number = 42
-print(value).unwrap()
+print(str.repr(value).unwrap()).unwrap()
 "#,
         "7\nResult[Result[i64, i64], i64].Ok(Result[i64, i64].Err(42))\n",
     );
@@ -188,7 +188,7 @@ match &mut number:
         change()
     case Err(_):
         pass
-print(number).unwrap()
+print(str.repr(number).unwrap()).unwrap()
 "#,
         "Option[Option[i64]].Some(Option[i64].Nothing)\nResult[i64, str].Ok(11)\n",
     );
@@ -244,7 +244,7 @@ mut value = Some(Some(Item("old")))
 match &mut value:
     case Some(inner):
         *inner = Some(Item("new"))
-        print(visit(inner)).unwrap()
+        print(str.repr(visit(inner)).unwrap()).unwrap()
     case Nothing:
         pass
 drop(value)
@@ -386,7 +386,7 @@ def complete(value: &mut Result[(), i64]) -> ():
             pass
 mut value: Result[(), i64] = Ok(())
 complete(&mut value)
-print(value).unwrap()
+print(str.repr(value).unwrap()).unwrap()
 "#,
         "Result[(), i64].Ok(())\n",
     );

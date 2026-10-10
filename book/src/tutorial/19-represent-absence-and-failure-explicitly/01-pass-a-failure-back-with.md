@@ -13,9 +13,9 @@ def checked_name(name: str) -> Result[str, str]:
     validate(name)?
     Ok(name)
 
-def main() -> Result[(), IoError]:
-    print(checked_name("Plenty"))?
-    print(checked_name(""))?
+def main() -> Result[(), Failure]:
+    print(str.repr(checked_name("Plenty"))?)?
+    print(str.repr(checked_name(""))?)?
     Ok(())
 ```
 
@@ -28,6 +28,24 @@ Here `validate(name)?` has a unit success value, so it can stand alone. On
 failure, the final `Ok(name)` never runs. Live local values and previously
 evaluated expression temporaries are cleaned up automatically, just as for
 an explicit `return`.
+
+`str.repr` explicitly formats each wrapper here so both outcomes are visible.
+Ordinary `print` requires you to handle a Result first; use
+`print(checked_name("Plenty")?)?` when you want just the successful name.
+An expression statement cannot silently discard a Result either:
+
+```plenty-error
+def main() -> Result[(), Failure]:
+    print("hello")
+    Ok(())
+```
+```error
+cannot implicitly discard a Result
+```
+
+Add `?` to propagate the error, or match the result to recover. Use
+`drop(result)` only when ignoring either outcome is intentional. This check
+does not diagnose unused bindings or discard of `Option` or other values.
 
 `?` works with `Option` too: it extracts `Some` or immediately returns `Nothing`.
 

@@ -10,12 +10,11 @@ def demo() -> Result[(), IoError]:
     print(read_text("new.txt")?)?
     Ok(())
 def main() -> Result[(), IoError]:
-    print(demo())?
+    demo()?
     Ok(())
 ```
 ```output
 first version
-Result[(), IoError].Ok(())
 ```
 
 Add `+` to an open mode to enable both reading and writing. `r+` preserves an
@@ -32,10 +31,9 @@ def demo() -> Result[(), IoError]:
     print(read_text("update.txt")?)?
     Ok(())
 def main() -> Result[(), IoError]:
-    print(demo())?
+    demo()?
     Ok(())
 ```
 ```output
 hallo
-Result[(), IoError].Ok(())
 ```

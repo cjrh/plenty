@@ -109,7 +109,7 @@ def update(rows: &mut list[list[Item]]) -> Result[(), str]:
     Ok(())
 mut rows = [[Item("old")].unwrap()].unwrap()
 rows[0][0] = Item("replacement")
-print(update(&mut rows)).unwrap()
+print(str.repr(update(&mut rows)).unwrap()).unwrap()
 print(rows[0][0].label).unwrap()
 drop(rows)
 "#,
