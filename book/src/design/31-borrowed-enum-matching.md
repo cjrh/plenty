@@ -52,4 +52,4 @@ Native tests cover recursive class and enum traversal, imported generic classes,
 shared/mutable returns, disjoint fields, nested inline replacement, ranges,
 closure captures, collection entries, cleanup, and all 64 packed tag positions.
 Runtime allocation checks verify traversal and mutation with allocation disabled.
-The [runnable lesson](../tutorial/78-match-borrowed-values.md) teaches these rules.
+The [runnable lesson](../tutorial/06-data/08-borrowed-matching.md) teaches these rules.

@@ -1,4 +1,5 @@
-//! Execute the learner's guide in `book/src/tutorial`: `plenty` fences require
+//! Execute the learner's guide and supplementary reference examples:
+//! `plenty` fences require
 //! `output` fences; `plenty-error` fences require an `error` diagnostic
 //! substring. Preceding `plenty-file path.plenty` fences on the same page
 //! supply modules for that one example.
@@ -102,7 +103,7 @@ impl Drop for Workspace {
 fn every_tutorial_program_and_diagnostic_matches_the_language() {
     let fences: Vec<Fence> = summary_pages()
         .into_iter()
-        .filter(|page| page.starts_with("tutorial/"))
+        .filter(|page| page.starts_with("tutorial/") || page.starts_with("design/examples/"))
         .flat_map(|page| {
             let markdown = std::fs::read_to_string(book_src().join(&page)).unwrap();
             fences(&page, &markdown)

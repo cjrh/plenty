@@ -36,4 +36,4 @@ and do not restart it after wakeups. A zero budget checks immediately. A timeout
 does not reset or consume the token. Lock contention and scheduling can delay
 return beyond the budget; this is not a real-time deadline.
 
-See the [runnable lesson](../tutorial/91-stop-work-cooperatively.md).
+See the [runnable lesson](../tutorial/11-concurrency/cooperative-cancellation.md).

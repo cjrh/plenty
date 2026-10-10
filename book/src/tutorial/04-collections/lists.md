@@ -1,0 +1,73 @@
+# Lists, moves, and explicit copies
+
+A list contains values of one type. Use `list[T]` in signatures and annotations.
+An empty list needs an annotation or a typed constructor such as `list[i64]()`.
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut original: list[i64] = [10, 20]?
+    mut changed = copy(original)?
+    changed.append(30)?
+    changed[0] = 99
+    print(original)?
+    print(changed)?
+    print(changed[-1])?
+    print(len(changed))?
+    Ok(())
+```
+
+```output
+[10, 20]
+[99, 20, 30]
+30
+3
+```
+
+The explicit `copy(original)` creates independent contents. Without `copy`,
+assignment transfers ownership and the old binding cannot be used. Updates happen
+in place and require a `mut` owner or an exclusive reference.
+Owned function parameters are immutable bindings; reference parameters can grant
+permission to change the caller's value.
+Negative indices count from the end. Invalid indices stop the program with a
+runtime error.
+
+`copy(original)` returns a `Result`, as do all allocating operations. The
+examples propagate failures with `?`, as taught in [Absence and failure](../03-absence/index.md).
+
+Collections can nest. Write directly through the indices to update an inner list;
+this neither copies nor allocates any containing list.
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut rows = [[1, 2]?, [3]?]?
+    rows[0][-1] = 9
+    print(rows)?
+    Ok(())
+```
+
+```output
+[[1, 9], [3]]
+```
+
+Assignment evaluates its right-hand value first, then its destination indices
+once each from left to right. It saves those index values before resolving the
+destination, so `rows[0][len(rows[0]) - 1] = 9` works too. Bounds and key checks
+use the collection's contents after all these expressions finish.
+
+An index is any expression, including an element of another list. Here `order`
+chooses which element of `values` to read and to replace.
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut values = [30, 10, 20]?
+    order = [1, 2, 0]?
+    print(values[order[0]])?
+    values[order[2]] = 31
+    print(values)?
+    Ok(())
+```
+
+```output
+10
+[31, 10, 20]
+```

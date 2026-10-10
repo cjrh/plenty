@@ -24,7 +24,7 @@ Allocations performed by the called function retain their ordinary Result API.
 An ordinary generic class can pair explicit owned state with a named callback
 that borrows that state. Collections of these records form stateful registries
 without requiring stored closure environments; see the
-[runnable registry example](../tutorial/76-store-stateful-callbacks.md).
+[runnable registry example](../tutorial/10-functions/explicit-state-callbacks.md).
 Native regression tests disable heap allocation across callable creation,
 selection, copies, calls, and nested inline Result/Option/range returns.
 

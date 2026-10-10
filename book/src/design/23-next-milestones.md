@@ -21,7 +21,8 @@ where relevant; extend borrowing precision against measured compilation cost.
 
 ## Runnable documentation
 
-`tests/test_tutorial.rs` reads tutorial pages in `book/src/tutorial/` directly,
+`tests/test_tutorial.rs` reads tutorial pages in `book/src/tutorial/` and
+supplementary reference examples in `book/src/design/examples/` directly,
 in `SUMMARY.md` order. Every `plenty` fence has a following `output` fence and
 runs through compile-and-run and an explicitly compiled binary. Every
 `plenty-error` fence has an `error` diagnostic substring and must fail without
