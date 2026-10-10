@@ -171,8 +171,10 @@ cargo run --release --example compile_bench -- 1000 10
 cargo run --release --example compile_bench -- 1000 10 --aot
 ```
 
-The first number is the generated function count, the second is repetitions.
-The harness warms up once and reports median check time; `--aot` additionally
+The first number is the generated unit count (a protocol, a class, an enum, and
+three functions each), the second is repetitions. The harness warms up once and
+reports median check time, then repeats with four times the units and prints the
+ratio, which is about 4 while checking is linear; `--aot` additionally
 measures the complete native compilation and link pipeline. Rust's own build
 time and generated program execution are excluded.
 

@@ -60,10 +60,12 @@ reject imports instead of implicitly searching the filesystem.
 `compile_file_to_executable(path, output, root)`, `check_file(path, root)`, and
 `check_module_file(path, root)` resolve imports from an explicit optional root.
 Checking performs no execution or native emission.
-`examples/compile_bench.rs` generates a repeatable function workload and reports
-median checking time, optionally including full AOT compilation and linking.
-It reports build mode, target, source size, function count, and repetitions;
-record machine details alongside any published result.
+`examples/compile_bench.rs` generates a repeatable workload of units, each a
+protocol, a class, an enum, and three functions, and reports median checking
+time, optionally including full AOT compilation and linking. It also checks four
+times as many units and prints the ratio: about 4 is linear, about 16 quadratic.
+It reports build mode, target, source size, unit count, and repetitions; record
+machine details alongside any published result.
 
 Initial diagnostic baseline (2026-10-05): AMD Ryzen 7 7840HS, x86_64 Linux,
 debug Rust build, 100 generated functions / 6,194 source bytes, one warm-up and
@@ -74,6 +76,14 @@ release-performance guarantee or a bound for larger programs.
 After the ownership/reference migration, the same debug workload and repetitions
 measured 1.487 ms for parse/resolve/check and 53.140 ms for full AOT. These are
 single-session diagnostic measurements, not a controlled performance comparison.
+
+Checking is linear in the number of declarations (issue #53); earlier figures
+came from a 100-function workload too small to show that it was quadratic. On
+the same machine with a release build (2026-10-10), 4,000 units / 156,003 lines
+checked in 1.61 s and 16,000 units / 624,003 lines in 6.69 s; full AOT of 1,000
+units / 39,003 lines took 3.24 s. `tests/test_compile_scaling.rs` fails if
+checking classes, functions, or protocols becomes superlinear. Native emission
+is single-threaded and dominates a full compile.
 Functions without loan facts skip CFG loan analysis; no whole-program alias
 analysis or per-call body inspection is required.
 The legacy parser and explicit legacy entry points remain to exercise the
