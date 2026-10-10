@@ -75,5 +75,5 @@ need that distinction. Values and their total must fit `i64`; arithmetic overflo
 is a runtime trap.
 
 See the
-[text I/O reference](../../design/05-current-language-contract/01-practical-text-i-o.md)
+[text I/O reference](../../design/facilities/02-io/index.md)
 for file contracts and limits.

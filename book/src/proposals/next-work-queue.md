@@ -3,7 +3,7 @@
 This is a historical completion record for the ten items proposed after
 `47888d0`. It is not an active queue. All remaining work and priorities now live
 in the [backlog](../backlog.md); current contracts and limits live in the
-[implementation status](../design/04-implementation-status.md) and reference.
+[implementation status](../design/toolchain/02-architecture/support.md) and reference.
 
 The table describes the original commits, including syntax later replaced.
 In particular, `try` and `try_` APIs are obsolete, allocation-capable APIs now

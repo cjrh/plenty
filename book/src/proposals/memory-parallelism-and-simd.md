@@ -2,7 +2,7 @@
 
 > Active tasks and priorities live in the [backlog](../backlog.md). Staging below
 > records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/04-implementation-status.md)
+> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
 > and [reference](../design/index.md) for current behavior.
 
 Status: **research and proposed direction, not implemented language behavior**.
@@ -29,7 +29,7 @@ nor a general auto-vectorizer should be necessary for the basic language.
 
 This snapshot predates fallible allocation, inline sums/ranges/generators, static
 type metadata, and atomic ownership counts. It explains the original proposal's
-motivation, not current behavior. See the [implementation status](../design/04-implementation-status.md)
+motivation, not current behavior. See the [implementation status](../design/toolchain/02-architecture/support.md)
 and [native concurrency audit](native-concurrency.md) for the current contracts.
 
 | Area | Original behavior and implication |

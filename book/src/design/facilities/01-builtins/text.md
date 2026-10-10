@@ -1,0 +1,35 @@
+# Text
+
+`str` is immutable valid UTF-8 representing Unicode scalar values. Embedded
+U+0000 is ordinary content (`\0` is a literal escape). Equality and hashing
+compare all bytes without normalization; strings have no public terminator.
+`len(text)` counts scalars, including combining marks individually, rather than
+bytes or grapheme clusters.
+
+String literals require no allocation. Results of at most seven UTF-8 bytes,
+including every single character and the empty string, also require no heap
+allocation. Longer constructed results use fallible storage. This threshold does
+not change the public type or the result type of an operation.
+
+## Character lookup
+
+`text[index] -> str` accepts an `i64` scalar index, with negative indices counted
+from the end. A missing index traps. `text.get(index) -> Option[str]` instead
+returns `Nothing`, including for either extreme `i64` index.
+
+Both observe the text and index once in source order, accept references, and
+produce an independent single-scalar string without allocation. ASCII lookup is
+constant-time; other text requires scanning to the scalar boundary. String
+iteration likewise yields one-scalar strings without allocation.
+
+## Classification
+
+`text.isascii() -> bool` is true for empty text and for every ASCII character,
+including controls and NUL. `text.isspace() -> bool` requires nonempty text whose
+characters all have Unicode's White_Space property. NUL and U+200B are not
+whitespace. The bundled Unicode tables also govern trimming; Python's additional
+whitespace classifications are not promised.
+
+Both methods observe their receiver, take no arguments, and allocate nothing.
+Other operations are grouped under [search](text-search.md),
+[building](text-building.md), and [splitting](text-splitting.md).

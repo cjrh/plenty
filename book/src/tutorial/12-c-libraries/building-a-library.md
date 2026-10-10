@@ -60,5 +60,5 @@ Exports support numeric scalars, borrows, unit, supported `Result` values, and
 [owned class handles](export-owned-objects.md). Read the generated
 header's requirements even for simple APIs: runtime traps can terminate the
 process, and current libraries require serialized calls on one caller thread.
-See the [library reference](../../design/24-c-interfaces/02-library-exports.md)
+See the [library reference](../../design/facilities/04-interop/exports.md)
 for supported export types and packaging details.

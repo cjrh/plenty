@@ -56,7 +56,7 @@ issue ownership, discussion, and PR review state live in the database.
 | Path | Contents |
 |---|---|
 | `book/src/design/` | Language reference: current behavior, limits, architecture |
-| `book/src/design/04-implementation-status.md` | What works today |
+| `book/src/design/toolchain/02-architecture/support.md` | What works today |
 | `book/src/tutorial/` | Learn Plenty: runnable lessons, checked by tests |
 | `book/src/backlog.md` | The only list of future work and priorities |
 | `book/src/proposals/` | Design rationale and alternatives (may contain old syntax) |

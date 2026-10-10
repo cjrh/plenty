@@ -2,13 +2,13 @@
 
 > Active tasks and priorities live in the [backlog](../backlog.md). Staging below
 > records design dependencies, not scheduled work; some syntax and assumptions
-> are historical. See the [implementation status](../design/04-implementation-status.md)
+> are historical. See the [implementation status](../design/toolchain/02-architecture/support.md)
 > and [reference](../design/index.md) for current behavior.
 
 Status: researched proposal, 2026-10-05. Scalar/opaque-pointer C imports and
 explicit static/shared linking, C exports, and typed resident runtime loading are
-now implemented; see the [C interface reference](../design/24-c-interfaces.md)
-and [runtime loading](../design/24-c-interfaces/06-runtime-loading.md). The code blocks below
+now implemented; see the [C interface reference](../design/facilities/04-interop/trusted-declarations.md)
+and [runtime loading](../design/facilities/04-interop/loading.md). The code blocks below
 remain historical sketches, not runnable Plenty syntax.
 
 Plenty should support ordinary C libraries without making every application
@@ -74,7 +74,7 @@ Runtime loading is an explicit operation returning `Result`.
 The accepted [generated export contract design](ffi-export-contracts.md) adds
 versioned Plenty metadata alongside the ordinary C ABI. Adapters, metadata, and
 C headers with precise ownership, borrowing, cleanup, and error comments come
-from one checked export representation. The [initial export subset](../design/24-c-interfaces/02-library-exports.md)
+from one checked export representation. The [initial export subset](../design/facilities/04-interop/exports.md)
 now implements numeric APIs; richer ownership and loading remain future work.
 
 The initial interface file can use a dedicated suffix such as `.plentyi`, imported
