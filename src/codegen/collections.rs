@@ -59,6 +59,43 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
+        let fast = match operation {
+            CollectionOp::ListLenRef(_) => Some((self.runtime.list_len, true)),
+            CollectionOp::ListScalarGetRef(_) => Some((self.runtime.list_scalar_get, true)),
+            CollectionOp::Len(Ty::List(_)) => Some((self.runtime.list_len, false)),
+            CollectionOp::Get(Ty::List(element)) | CollectionOp::IterGet(Ty::List(element))
+                if element.is_numeric() || **element == Ty::Bool =>
+            {
+                Some((self.runtime.list_scalar_get, false))
+            }
+            _ => None,
+        };
+        if let Some((helper, borrowed)) = fast {
+            let (inputs, output) = operation.signature();
+            let index = if inputs.len() == 2 {
+                Some(self.pop_typed(Ty::I64)?.0)
+            } else {
+                None
+            };
+            let (receiver, ty) = self.pop_typed(inputs[0].clone())?;
+            let owner = if borrowed {
+                let packed = self.read_reference(receiver);
+                self.raw_word(packed)
+            } else {
+                receiver
+            };
+            let mut args = vec![owner];
+            args.extend(index);
+            let function = self.module.declare_func_in_func(helper, self.bcx.func);
+            let call = self.bcx.ins().call(function, &args);
+            let result = self.bcx.inst_results(call)[0];
+            let result = self.unpack(result, &output);
+            if !borrowed {
+                self.release(receiver, &ty);
+            }
+            self.stack.push((result, output));
+            return Ok(());
+        }
         let (inputs, output) = operation.signature();
         let mut values = Vec::new();
         for input in inputs.iter().rev() {

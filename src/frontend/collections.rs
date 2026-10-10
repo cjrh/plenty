@@ -806,8 +806,8 @@ impl Lower<'_> {
         Ok(Iteration {
             condition: vec![
                 Op::LoadLocal(index),
-                Op::LoadLocal(source),
-                Op::Collection(CollectionOp::Len(ty.clone())),
+                Op::BorrowLocal(source, false),
+                Op::Collection(CollectionOp::ListLenRef(ty.clone())),
                 Op::Lt,
             ],
             body: vec![
@@ -869,14 +869,22 @@ impl Lower<'_> {
             ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
         }
         let text = ty == Ty::Str;
+        let list = matches!(ty, Ty::List(_));
+        let scalar_list = list && (element.is_numeric() || element == Ty::Bool);
         let condition = if hashed {
             vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne]
         } else {
             vec![
                 Op::LoadLocal(index),
-                Op::LoadLocal(source),
+                if list {
+                    Op::BorrowLocal(source, false)
+                } else {
+                    Op::LoadLocal(source)
+                },
                 Op::Collection(if text {
                     CollectionOp::TextByteLen
+                } else if list {
+                    CollectionOp::ListLenRef(ty.clone())
                 } else {
                     CollectionOp::Len(ty.clone())
                 }),
@@ -884,10 +892,16 @@ impl Lower<'_> {
             ]
         };
         let body = vec![
-            Op::LoadLocal(source),
+            if scalar_list {
+                Op::BorrowLocal(source, false)
+            } else {
+                Op::LoadLocal(source)
+            },
             Op::LoadLocal(index),
             Op::Collection(if text {
                 CollectionOp::TextAtByte
+            } else if scalar_list {
+                CollectionOp::ListScalarGetRef(ty.clone())
             } else if hashed {
                 CollectionOp::HashIterGet(ty.clone())
             } else {
@@ -961,6 +975,17 @@ impl Lower<'_> {
     }
 
     pub(super) fn index(&mut self, base: &Expr, index: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+        if let Some(ty @ Ty::List(_)) = self.place_type(base) {
+            let value = ty.element().unwrap();
+            if value.is_numeric() || value == Ty::Bool {
+                let (_, loan) = self.borrow(base, false, ops)?;
+                let got = self.expr_expected(index, Some(Ty::I64), ops)?;
+                self.same(got, Some(Ty::I64), &index.at)?;
+                ops.push(Op::Collection(CollectionOp::ListScalarGetRef(ty)));
+                Self::end_reads(vec![loan], ops);
+                return Ok(value);
+            }
+        }
         let (ty, loans) = self.observe(base, ops)?;
         if let Ty::Enum(t) = &ty {
             if t.tuple() {
@@ -1836,6 +1861,12 @@ impl Lower<'_> {
             return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
         }
         if name == "len" {
+            if let Some(ty @ Ty::List(_)) = self.place_type(&args[0]) {
+                let (_, loan) = self.borrow(&args[0], false, ops)?;
+                ops.push(Op::Collection(CollectionOp::ListLenRef(ty)));
+                Self::end_reads(vec![loan], ops);
+                return Ok(Ty::I64);
+            }
             let (ty, loans) = self.observe(&args[0], ops)?;
             if ty.element().is_none() || ty.restricted_storage() {
                 return Err(at.error("len requires an iterable"));

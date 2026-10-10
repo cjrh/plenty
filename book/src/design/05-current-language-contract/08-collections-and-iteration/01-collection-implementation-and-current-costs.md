@@ -8,6 +8,31 @@ dynamic type inference. No per-element compilation or trait instantiation occurs
 Every program links the same precompiled Rust runtime archive; no runtime source
 is compiled for individual programs.
 
+List length and integer/float/boolean element reads use narrow native helpers
+(`plenty_list_len` and `plenty_list_scalar_get`) instead of the collection
+dispatcher and its 128-bit argument scratch area. The helper ABI takes a live
+list owner pointer and, for reads, an `i64` index, returning one 64-bit word.
+Scalar results preserve their payload bits before codegen narrows or bitcasts
+them to their declared type. Both helpers read the current private row storage;
+codegen depends on neither Rust `Vec` layout nor cached buffer addresses.
+Negative and extreme indices use the dispatcher's existing bounds normalization
+and `index out of bounds` diagnostic.
+
+Named list receivers, including field/element projections and reference
+parameters, are borrowed through each observation. Scalar list iteration also
+borrows its compiler-owned source local. These paths create no temporary
+collection owner and emit no receiver retain/release calls. Owned temporary
+receivers use the same helpers but are released after the result is obtained.
+Nested-list projection can still call the generic element-reference operation;
+managed element reads retain the generic ownership path. Stores, hash probes,
+string character indexing, and front removal are unchanged. Scalar class field
+loads already have separate direct lowering; managed/inline field ownership
+and snapshots can still require runtime calls.
+
+The reproducible `examples/collection_bench.py` suite covers reads, writes,
+length, nested lists, hash hits/misses, and front removal at two input sizes.
+`examples/collection-bench.md` records compiler options and measured costs.
+
 Ranges carry 32 bytes of inline bounds/step/length data. Runtime argument slots
 refer to live caller-owned data; stored range values (including inside standard
 sums) keep their data in the owning local, record, generator frame, or collection
