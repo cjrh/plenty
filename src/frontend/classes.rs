@@ -795,6 +795,7 @@ impl Lower<'_> {
         self.unbox_reference(reference, ops);
         let mut loans = vec![loan];
         loans.extend(self.call_arguments(args, &sig.inputs[1..], ops)?);
+        self.record_direct_call(&callee, &base.at, &loans, ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);

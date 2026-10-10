@@ -26,6 +26,7 @@ mod generics;
 mod modules;
 mod protocols;
 mod references;
+mod tail_calls;
 mod threads;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -1769,6 +1770,8 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 
 struct Lower<'a> {
     function_name: String,
+    source_tail: Vec<crate::ownership::Site>,
+    tail_candidates: Vec<tail_calls::Candidate>,
     closure_loans: HashMap<String, Vec<usize>>,
     captures: HashSet<String>,
     heap: &'a mut Heap,
@@ -2627,6 +2630,7 @@ impl Lower<'_> {
             );
         }
         let argument_loans = self.call_arguments(args, &sig.inputs, ops)?;
+        self.record_direct_call(name, at, &argument_loans, ops);
         self.push_call(Op::Call(name.to_owned()), &sig.inputs, &argument_loans, ops);
         self.call_reference_result(name, &sig, &argument_loans, ops);
         Self::end_reads(argument_loans, ops);
@@ -2764,7 +2768,7 @@ impl Lower<'_> {
                     }
                 }
                 Statement::Expr(e) => {
-                    let ty = self.expr_expected(
+                    let ty = self.tail_expression(
                         e,
                         if last {
                             self.return_type.clone().flatten()
@@ -2772,6 +2776,7 @@ impl Lower<'_> {
                             None
                         },
                         ops,
+                        last && self.yield_type.is_none(),
                     )?;
                     if last && self.return_origin.is_some() && matches!(ty, Some(Ty::Ref(..))) {
                         let loan = self.check_return_reference(e, ops)?;
@@ -2792,7 +2797,12 @@ impl Lower<'_> {
                         .ok_or_else(|| stmt.at.error("return outside a function"))?;
                     let mut returned = Vec::new();
                     let ty = match e {
-                        Some(e) => self.expr_expected(e, expected.clone(), &mut returned)?,
+                        Some(e) => self.tail_expression(
+                            e,
+                            expected.clone(),
+                            &mut returned,
+                            self.yield_type.is_none(),
+                        )?,
                         None => None,
                     };
                     self.refine_return(ty, &stmt.at)?;
@@ -3275,6 +3285,8 @@ fn lower_function(
     };
     let mut lower = Lower {
         function_name: f.name.clone(),
+        source_tail: Vec::new(),
+        tail_candidates: Vec::new(),
         closure_loans: HashMap::new(),
         captures: f
             .captures
@@ -3372,6 +3384,10 @@ fn lower_function(
     if yield_type.is_none() {
         mark_tail_calls(&mut body);
     }
+    lower
+        .generics
+        .tail_candidates
+        .insert(f.name.clone(), std::mem::take(&mut lower.tail_candidates));
     let compiled = CompiledFn {
         location: f
             .at
@@ -3537,6 +3553,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             crate::generator::validate_ops(&f.body).map_err(|message| at.error(message))?;
         }
     }
+    tail_calls::validate(&ops, &generics)?;
     if require_main {
         ops.push(Op::Call("main".into()));
         if let [Ty::Enum(t)] = sigs["main"].outputs.as_slice() {

@@ -32,7 +32,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Explicit binary `main` entry point | Implemented: parameterless `main` returns `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`; a returned `Err` is reported on standard error with status one; module scope contains declarations and imports |
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
 | Stack overflow report | Executables print `error: stack overflow` and end with `SIGABRT` on the main thread, scoped workers, and executor workers; other faults keep their default action. See [runtime packaging](09-rust-runtime-packaging.md#stack-overflow) |
-| Direct and mutual tail calls | Implemented; caller cleanup, including destructors, runs before the transfer. References originating in the caller's reference parameters are forwarded; a reference into the caller's own storage keeps ordinary post-call cleanup |
+| Direct and mutual tail calls | Implemented; caller cleanup, including destructors, runs before the transfer. References originating in reference parameters are forwarded. Direct recursive source-tail calls without an approved lifetime/ABI plan are compile errors; non-tail recursion and unsupported indirect transfers remain stack-limited |
 | Early returns and return-aware branch checking | Implemented in AOT |
 | Concrete enums, tagged payloads, exhaustive matching | Implemented, including fallible `Enum.Variant(...)` |
 | Generic data declarations | Concrete enums and classes with cached specialization, aliases, inferred class construction, nested payloads, IntType/Callable/OnceCallable constraints, generic methods, and ordinary ownership rules; see [generic data types](28-generic-data-types.md) |

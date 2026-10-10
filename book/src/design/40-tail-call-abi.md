@@ -5,6 +5,9 @@ representation plan is shared by validation and native lowering. An approved
 transfer emits `return_call` or `return_call_indirect`; a mismatch at lowering
 is an internal compiler error. Unsupported transfers become explicit ordinary
 calls before native lowering, preserving argument evaluation and cleanup order.
+For direct calls in a recursion cycle, an unsupported source-tail transfer is
+a compile error instead; see the
+[function contract](05-current-language-contract/07-functions-expressions-and-control-flow.md).
 
 | Arguments and result | Native transfer |
 |---|---|

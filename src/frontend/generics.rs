@@ -79,6 +79,7 @@ pub(super) fn prepare(
         pending: VecDeque::new(),
         functions: HashMap::new(),
         compiled: Vec::new(),
+        tail_candidates: HashMap::new(),
         active: HashSet::new(),
         completed: HashSet::new(),
         frames: HashMap::new(),
@@ -113,6 +114,7 @@ pub(super) struct Engine {
     pub(super) pending: VecDeque<Function>,
     pub(super) functions: HashMap<String, Function>,
     pub(super) compiled: Vec<Op>,
+    pub(super) tail_candidates: HashMap<String, Vec<tail_calls::Candidate>>,
     pub(super) active: HashSet<String>,
     pub(super) completed: HashSet<String>,
     pub(super) frames: HashMap<(String, Vec<Ty>), String>,
@@ -487,6 +489,7 @@ impl Lower<'_> {
         let symbol = self.specialize(name, actual, at)?;
         let callee = self.specialize_frames(&symbol, arguments, at)?;
         let sig = self.sigs[&callee].clone();
+        self.record_direct_call(&callee, at, &loans, ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
@@ -512,6 +515,25 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
 }
 
 impl Engine {
+    pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
+        self.cache
+            .iter()
+            .chain(self.frames.iter())
+            .find_map(|((name, types), instance)| {
+                (instance == symbol).then(|| {
+                    format!(
+                        "{name}[{}]",
+                        types
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
+            })
+            .unwrap_or_else(|| symbol.into())
+    }
+
     fn infer_bounds(
         &self,
         template: &Function,
