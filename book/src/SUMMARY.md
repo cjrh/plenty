@@ -260,6 +260,7 @@
             - [Support index](design/toolchain/02-architecture/support.md)
             - [Runtime contributor guide](runtime.md)
     - [Supplementary examples](design/examples/index.md)
+        - [Finder feasibility experiment](design/examples/finder.md)
         - [Collection operation examples](design/examples/collections/index.md)
             - [Handle collection allocation failures](design/examples/collections/capacity.md)
             - [Empty a collection and reuse its storage](design/examples/collections/clear.md)

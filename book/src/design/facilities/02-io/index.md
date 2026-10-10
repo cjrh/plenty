@@ -15,3 +15,6 @@ These APIs are prelude builtins. File I/O currently supports Linux;
 unsupported hosts report `IoError.Unsupported`. Standard-stream input uses the
 process descriptor on Unix. Binary I/O, configurable encodings, public OS
 descriptors, and lazy file iteration are unsupported.
+Directory enumeration and file-type metadata are also unavailable; the
+[finder experiment](../../examples/finder.md) records the resulting limits for
+a filesystem search tool.
