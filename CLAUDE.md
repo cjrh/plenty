@@ -8,21 +8,23 @@ small, understandable language. There is no interpreter, REPL, or JIT.
 This file is for fast orientation. The documentation is authoritative; also
 follow `AGENTS.md`.
 
-## Worktrees and pull requests
+## Local worktrees and pull requests
 
-Repository changes are delivered as GitHub PRs in `cjrh/plenty`; the user reviews
-and merges them. A change request authorizes committing the scoped changes,
-pushing the task branch, and creating/updating its PR unless local-only work was
-requested. It does not authorize merging, enabling auto-merge, pushing to the
-default branch, or rewriting a published branch.
+Issues and pull requests are entirely local records in the shared `issues.db`.
+Do not create GitHub issues/PRs, add GitHub URLs, or fetch/push as part of this
+workflow. A change request authorizes committing the scoped changes locally and
+creating/updating a local PR record. The user reviews and merges; do not merge
+or rewrite a branch under review without explicit instruction.
 
-1. Inspect `git status`, `git worktree list`, and the repository's remote/default
-   branch. Fetch before creating a new task branch from the current remote
-   default branch. Create a separate worktree for each independent task/worker,
-   with a descriptive branch name; continue in an already assigned worktree
-   rather than creating duplicate branches or PRs. Keep the main worktree out of
+1. Inspect local status and worktrees. For issue work, read its description,
+   comments, and linked PRs, then claim it atomically using the procedure below
+   **before starting implementation**. Do not start an issue claimed by another
+   agent. Continue your assigned task using its existing claim/worktree/PR.
+   Create a separate worktree and descriptive branch from the local target
+   branch (normally `main`) for new work. Keep the main worktree out of
    implementation work. Never reset/stash another worker's changes or include
-   unrelated changes in a commit.
+   unrelated changes in a commit. An unnumbered task still needs a worktree/PR,
+   but does not require inventing an issue just to claim it.
 2. Establish responsibility for components/files before running workers
    concurrently. If work depends on another PR, state its base/dependency
    explicitly. Avoid unnecessary edits to shared documentation/backlog sections.
@@ -33,22 +35,21 @@ default branch, or rewriting a published branch.
    lint checks; use `cargo test --workspace` when checking the full suite, since
    the runtime is a separate workspace member. Documentation-only changes need
    relevant document/link/example checks, not an unrelated full compiler build.
-4. Review and stage only the task's files, commit, push the task branch, and
-   create/update its PR using `gh`. Use a draft until implementation and required
-   validation are complete. The PR should explain the problem and final behavior,
-   cite applicable backlog items and **SQLite issue #N** explicitly (not GitHub's
-   `Fixes #N` unless it is actually a GitHub issue), and report checks, results,
-   and material limitations. Use a body file for multiline PR descriptions.
-5. Inspect PR checks and address failures caused by the change. Report external
-   blockers or checks not run accurately. When updating a published branch with
-   the latest default branch, prefer a merge that preserves its history; do not
-   force-push without explicit instruction. Resolve conflicts within the task
-   worktree and rerun affected checks. Hand off the PR URL and leave merging to
-   the user; keep the worktree and branch for review feedback.
+4. Review and stage only the task's files, commit locally, and create/update its
+   PR record using the issues-browser CLI below. Explain the problem and final
+   behavior, cite applicable backlog items, and report actual validation and
+   limitations in a Markdown description file. Link every relevant local issue
+   through a fixing reference in the title or a structured issue comment.
+5. Run relevant checks locally and address failures caused by the change.
+   Report blockers or checks not run accurately. Resolve conflicts within the
+   task worktree and rerun affected checks. Hand off the local PR number,
+   source/target branches, and worktree path. Keep the claim, branch, and
+   worktree available through review and revisions; merging belongs to the user.
 
 The issues database is the deliberate exception to isolated working files: all
 workers use the main worktree's database as described below. Do not introduce
-another task-status file; planned work/status remains in `book/src/backlog.md`.
+another task-status file. Planned work/priorities remain in `book/src/backlog.md`;
+issue ownership, discussion, and PR review state live in the database.
 
 ## Where things are
 
@@ -126,8 +127,9 @@ be named `main`. Resolve the path once for the session and pass it explicitly
 to every SQLite command or script:
 
 ```sh
-export PLENTY_MAIN_WORKTREE="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+export PLENTY_MAIN_WORKTREE="$(rtk proxy git worktree list --porcelain | sed -n '1s/^worktree //p')"
 export PLENTY_ISSUES_DB="$PLENTY_MAIN_WORKTREE/issues.db"
+export PLENTY_REVIEW_CLI="$(dirname "$PLENTY_MAIN_WORKTREE")/issues-browser/cli.js"
 test -n "$PLENTY_MAIN_WORKTREE" && test -f "$PLENTY_ISSUES_DB"
 ```
 
@@ -143,11 +145,15 @@ search and INSERT within one write transaction; let SQLite assign `number` and
 read the assigned ID rather than computing `MAX(number) + 1`. For edits, read
 and update inside a short transaction or compare the original field value in
 the UPDATE predicate to avoid overwriting another worker's intervening edit.
-Never hold a transaction while researching, building, or waiting on GitHub.
+Never hold a transaction while researching, building, or waiting for review.
 
 An open fixing PR is not a completed fix in the shared register. Keep the issue
-open until the PR has merged; then close it with the actual merged fixing commit
-and resolution. Keep shared backlog status consistent with that distinction.
+open until the user has actually merged it into the target branch; then record
+the PR as merged, close the fixed issue with the actual fixing commit and
+resolution, and release its claim. A PR status of `merged` is metadata, not proof
+that Git has merged anything. Keep shared backlog status consistent with that
+distinction. Closing an unmerged PR does not resolve the issue; its owner must
+explicitly release the claim if abandoning the task.
 
 Feature PRs must not stage `issues.db` from their task worktree: doing so can
 replace newer shared entries with a stale branch snapshot. Persisting the tracked
@@ -157,6 +163,108 @@ WAL-mode database with an ordinary file copy. Do not overwrite/reset the live
 database when switching/updating the main checkout; preserve newer rows and
 reconcile logical changes transactionally. Database persistence must never
 discard another worker's additions or edits.
+
+### Claim an issue before starting work
+
+Use a unique author label for each agent/task, for example
+`codex-issue-15-<session-id>`. Read **all** comments and linked PRs before claiming:
+an informal ownership comment or an existing open PR also requires coordination,
+even if it predates the claim protocol. Never take over because a claim looks
+old. Only resume another session's claim when assigned that task by the user.
+
+The helper uses existing `comments` rows; it does not add tables or change issue
+status. Run these from your checkout, always passing the shared database path:
+
+```sh
+rtk proxy sqlite3 -readonly "$PLENTY_ISSUES_DB" \
+  "SELECT number, author, body, pull_request_number FROM comments WHERE issue_number = 15 ORDER BY number"
+rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-list --status open
+rtk proxy python3 scripts/issue_claim.py status --db "$PLENTY_ISSUES_DB" --issue 15
+rtk proxy python3 scripts/issue_claim.py claim --db "$PLENTY_ISSUES_DB" --issue 15 \
+  --author codex-issue-15-SESSION --note 'Implementing issue #15 in branch codex/issue-15, worktree /tmp/plenty-issue-15.'
+```
+
+**Proceed only if the claim command succeeds.** It uses `BEGIN IMMEDIATE` and a
+five-second busy timeout to read active claims and insert one comment atomically.
+A competing claim, a closed/missing issue, or a database error exits nonzero;
+do not treat an error or timeout as permission to work. Keep the returned comment
+number as the claim ID. Continuing your own assigned task reuses that claim;
+calling `claim` again deliberately fails even for the same author.
+
+A claim comment starts with the exact line `[claim]`. A release starts with
+`[release #N]`, where `N` is the claim comment number, and has the same author.
+Other comments, including PR links, do not release claims. Use the helper, not
+a separate read followed by the ordinary `comment` command. These labels are a
+cooperative ownership protocol, not authentication; never impersonate an owner.
+
+Keep ownership through review and fixes. After completion or an explicit
+abandonment/handoff, the owner releases it with a reason (replace `42` with the
+actual claim comment number):
+
+```sh
+rtk proxy python3 scripts/issue_claim.py release --db "$PLENTY_ISSUES_DB" --issue 15 \
+  --author codex-issue-15-SESSION --claim 42 --note 'Merged into main as COMMIT; issue resolved.'
+```
+
+For a user-authorized takeover, record the authorization in the release note
+under the original owner label, then claim with the new owner's label. Do not
+delete/edit old claims or silently release another agent's work. Claim helper
+checks run with `rtk proxy python3 -B -m unittest discover -s scripts -p 'test_issue_claim.py'`.
+
+### Create and link a local PR
+
+The sibling Electron app `../issues-browser` supplies `cli.js` (Node.js 24+).
+Resolve its path relative to the **primary** worktree as above, not relative to
+a task worktree. If the CLI is missing, report the missing dependency; do not
+fall back to GitHub. On an older database, run its additive migration before
+using claims or PRs:
+
+```sh
+rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" migrate
+rtk proxy git worktree add -b codex/issue-15 /tmp/plenty-issue-15 main
+```
+
+Use task-specific branch/path values; reuse an assigned worktree. After working,
+validating, and committing there, write the review description to a real Markdown
+file and create the local PR (example paths and numbers must be replaced):
+
+```sh
+rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-create \
+  --repo "$PLENTY_MAIN_WORKTREE" --worktree /tmp/plenty-issue-15 --target main \
+  --title 'Fixes #15: explain the resulting behavior' --details-file /tmp/issue-15-pr.md
+```
+
+This inserts a `pull_requests` row with a local PR number, the actual source
+branch, repository/worktree paths, target branch, title, and description. It
+requires an existing registered worktree on a named branch and an existing
+target branch; it does not create branches/worktrees or merge them. The GUI's
+Pull Requests tab displays these records and the local branch comparison.
+
+`Fixes #15`, `Closes #15`, and `Resolves issue #15` in the **title** create automatic
+links to local issues. Alternatively (or additionally), write an issue comment
+with the PR foreign key; a number only in the comment text is insufficient:
+
+```sh
+rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" comment \
+  --issue 15 --pr 3 --author codex-issue-15-SESSION --body-file /tmp/issue-15-review-comment.md
+rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-show --number 3
+```
+
+Reuse the same record for revisions. Read it first and pass its returned
+`revision` to detect concurrent edits (here `1` is only an example):
+
+```sh
+rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-update \
+  --number 3 --revision 1 --details-file /tmp/issue-15-pr.md
+```
+
+If the revision is stale, reread and reconcile instead of overwriting another
+worker's changes. PR statuses are `open`, `merged`, and `closed`; there is no
+draft status. Describe incomplete work/checks explicitly. Once the user has
+actually merged the branch, use `pr-update --number N --revision R --status merged`
+with current values, close the fixed issue with a resolution, and release the
+claim. Neither automatic links nor status updates close issues or perform Git
+operations. Leave Git branches/worktrees for the user's review and cleanup.
 
 ### Schema and commands
 
@@ -172,6 +280,20 @@ never write to it directly. The database
 uses WAL mode for the shared file; SQLite serializes writers. Set a busy timeout
 so short competing writes wait instead of failing, and retry/reconcile explicitly
 if the timeout is exhausted. WAL does not coordinate independent database copies.
+
+The issues-browser migration also maintains:
+
+- `comments(number, issue_number, pull_request_number, author, body, created_at)`:
+  `issue_number` is a required foreign key; `pull_request_number` is an optional
+  foreign key. Claims, releases, discussion, and PR links are append-only comments.
+- `pull_requests(number, title, details, repository_path, worktree_path,
+  source_branch, target_branch, status, created_at, updated_at, revision)`:
+  one open PR per repository/source/target combination. Updates increment
+  `revision`; use the CLI for validation and optimistic concurrency checks.
+
+Enable `PRAGMA foreign_keys = ON` on every connection writing comments/PRs.
+Use the CLI's migration; do not invent competing table layouts. Title-derived
+issue links are computed by the app/CLI, not stored in a separate link table.
 
 | Task | Command |
 |---|---|
