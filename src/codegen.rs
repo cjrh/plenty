@@ -1259,6 +1259,17 @@ impl Lowerer<'_, '_> {
                 self.release(old, ty);
                 self.write_reference(reference, value, ty);
             }
+            Op::ReplaceRef(ty) => {
+                let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
+                let (value, _) = self.pop_typed(ty.clone())?;
+                let old = self.read_reference(reference);
+                let old = self.unpack(old, ty);
+                // Inline field storage is overwritten below; relocate the old
+                // owner without retaining it or running its destructor.
+                let old = self.snapshot_inline(old, ty);
+                self.write_reference(reference, value, ty);
+                self.stack.push((old, ty.clone()));
+            }
             Op::Collection(operation) => self.lower_collection(operation)?,
             Op::ClosureNew(t) => self.lower_closure_new(t)?,
             Op::ClosureCall(t) => self.lower_closure_call(t)?,

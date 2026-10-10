@@ -684,7 +684,7 @@ impl Scope {
             {
                 if let Some(symbol) = self.symbol(n, &e.at)? {
                     *n = symbol;
-                } else if !builtin(n) && !self.namespace_root(n) {
+                } else if n != "replace" && !builtin(n) && !self.namespace_root(n) {
                     *n = qualified(&self.module, n);
                 }
             }

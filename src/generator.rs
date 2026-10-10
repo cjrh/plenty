@@ -408,7 +408,11 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 validate_ops(cleanup)?;
                 vec![Ty::Enum(source.clone()), Ty::Enum(target.clone())]
             }
-            Op::ReadRef(t) | Op::Reborrow(t) | Op::WriteRef(t) | Op::Yield(t) => vec![t.clone()],
+            Op::ReadRef(t)
+            | Op::Reborrow(t)
+            | Op::WriteRef(t)
+            | Op::ReplaceRef(t)
+            | Op::Yield(t) => vec![t.clone()],
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     validate_ops(&arm.body)?;

@@ -2108,7 +2108,17 @@ impl Lower<'_> {
                 } else {
                     let (ty, loans) = self.field(e, ops)?;
                     if ty.affine() {
-                        return Err(e.at.error("cannot move out of a field; use copy or borrow"));
+                        let copy = if ty.can_copy() && !ty.recursive_data() {
+                            "copy(value.field).unwrap(), "
+                        } else {
+                            ""
+                        };
+                        let borrow = if matches!(ty, Ty::Enum(_)) && ty.recursive_data() {
+                            "match &value.field (or &mut value.field)"
+                        } else {
+                            "&value.field (or &mut value.field)"
+                        };
+                        return Err(e.at.error(format!("cannot move out of a field; use {copy}{borrow}, or replace(value.field, replacement) on a mutable owner")));
                     }
                     Self::end_reads(loans, ops);
                     Some(ty)
@@ -2486,6 +2496,13 @@ impl Lower<'_> {
                 }
                 if matches!(name.as_str(), "copy" | "drop") {
                     return self.copy_or_drop(name, args, &e.at, ops);
+                }
+                if name == "replace"
+                    && !self.sigs.contains_key(name)
+                    && !self.generics.templates.contains_key(name)
+                    && !self.aliases.contains_key(name)
+                {
+                    return self.replace_field(args, &e.at, ops).map(Some);
                 }
                 if name == "Box" {
                     let [content] = args.as_slice() else {
