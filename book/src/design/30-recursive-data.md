@@ -54,6 +54,7 @@ ordinary scope exit, replacement, early return, and failed construction retain
 their cleanup rules. Native tests build boxed class and enum chains of 100,000
 nodes each, then drop both with allocation disabled on a 256 KiB stack.
 Explicit recursion in user methods or destructor hooks still uses the native stack.
+Exhausting it ends the program with a [stack overflow report](09-rust-runtime-packaging.md#stack-overflow).
 
 Imports preserve the nominal identity and member visibility of recursive types.
 Recursive classes can also remain behind existing opaque C export handles. Static
