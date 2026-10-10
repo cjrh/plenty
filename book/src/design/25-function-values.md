@@ -71,6 +71,6 @@ For one generic API that accepts both representations, use a `Callable` constrai
 as described in [generic functions](02-generic-functions-and-argument-inference.md).
 
 Indirect calls in tail position use native tail calls with the same cleanup order
-and borrowing restrictions as direct calls: the caller's locals are dropped
-before the transfer. Calls involving inline argument/result storage retain their
+and reference rule as direct calls: the caller's locals are dropped before the
+transfer, and references originating in its reference parameters are forwarded. Calls involving inline argument/result storage retain their
 frame but drop its locals first.

@@ -47,6 +47,8 @@ expressions (including early guard clauses) become tail-call operations.
 Cranelift emits `return_call` or `return_call_indirect` with the Tail calling
 convention. The arguments are evaluated first; the caller's remaining owned
 parameters and locals, including those with destructors, are then dropped in
-ordinary exit order before the transfer. A call passing a reference argument, or
-a `return` inside a `with` block, is an ordinary call followed by cleanup; see
+ordinary exit order before the transfer. A call passing a reference into the
+caller's own locals, owned parameters, or temporaries, or a `return` inside a
+`with` block, is an ordinary call followed by cleanup. References that originate
+in the caller's reference parameters are forwarded by a tail call; see
 [deterministic destruction](../14-deterministic-destruction.md).

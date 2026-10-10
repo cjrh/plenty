@@ -494,6 +494,14 @@ pub enum Op {
     /// Invoke a user-defined function by name from tail position (§11.8).
     /// Native lowering reuses the caller's frame. Emitted by tail-call marking.
     TailCall(String),
+    /// Lifetime fact about the call op that immediately follows: it passes
+    /// references, and each one refers to storage borrowed through a reference
+    /// parameter of the enclosing function, so none points into this frame.
+    /// A tail call may release the frame before transferring only with this
+    /// fact; any other call passing a reference keeps the frame until it
+    /// returns. The frontend states it per call from loan origins; it is never
+    /// derived from types.
+    ForwardsReferences,
     /// Leave the current function with its declared results on the stack.
     /// Unlike the end of a match arm, this exits the entire call frame.
     Return,
@@ -1366,7 +1374,7 @@ fn step(
             }
             stack.push(source.get().variants[usize::from(source.is_option())].fields[0].clone());
         }
-        Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) => {}
+        Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;
             stack.push(Ty::Ref(Rc::new(ty.clone()), *mutable));
@@ -2000,4 +2008,83 @@ fn fmt_types(tys: &[Ty]) -> String {
         .map(|t| t.to_string())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Later passes read the lifetime fact from the op stream, so its position
+    /// is part of the contract: directly before the call it describes.
+    #[test]
+    fn lifetime_fact_directly_precedes_only_forwarding_calls() {
+        let source = r#"
+def read(value: &i64, n: i64) -> i64:
+    *value + n
+def view(value: &i64) -> &i64:
+    value
+def forwards(value: &i64) -> i64:
+    read(value, 1)
+def forwards_result(value: &i64) -> &i64:
+    return view(value)
+def forwards_indirectly(value: &i64) -> i64:
+    operation = read
+    operation(value, 1)
+def lends_local(value: &i64) -> i64:
+    local = 2
+    read(&local, 1)
+def lends_owned(value: i64) -> i64:
+    read(&value, 1)
+def lends_one(value: &i64, other: i64) -> i64:
+    read(value, read(&other, 1))
+def main() -> ():
+    pass
+"#;
+        let mut heap = crate::value::Heap::default();
+        let program = crate::frontend::compile(source, &mut heap).unwrap();
+        let body = |name: &str| {
+            program
+                .ops
+                .iter()
+                .find_map(|op| match op {
+                    Op::DefineFn(n, f) if n == name => Some(f.body.clone()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        for name in ["forwards", "forwards_result"] {
+            assert!(
+                matches!(
+                    &body(name)[..],
+                    [.., Op::ForwardsReferences, Op::TailCall(_)]
+                ),
+                "{name}"
+            );
+        }
+        assert!(matches!(
+            &body("forwards_indirectly")[..],
+            [.., Op::ForwardsReferences, Op::TailCallIndirect(_)]
+        ));
+        for name in ["lends_local", "lends_owned"] {
+            let body = body(name);
+            assert!(
+                !body.iter().any(|op| matches!(
+                    op,
+                    Op::ForwardsReferences | Op::TailCall(_) | Op::TailCallIndirect(_)
+                )),
+                "{name}"
+            );
+        }
+        // The fact belongs to one call: the inner call lends a parameter slot.
+        let body = body("lends_one");
+        let facts = body
+            .iter()
+            .filter(|op| matches!(op, Op::ForwardsReferences))
+            .count();
+        assert_eq!(facts, 1);
+        assert!(matches!(
+            &body[..],
+            [.., Op::ForwardsReferences, Op::TailCall(_)]
+        ));
+    }
 }

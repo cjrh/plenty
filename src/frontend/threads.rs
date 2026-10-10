@@ -39,15 +39,10 @@ impl Lower<'_> {
                 let output = self
                     .call_named(function, args, &worker.at, ops)?
                     .unwrap_or(Ty::Unit);
-                let index = (begin..ops.len())
-                    .rfind(|&i| matches!(ops[i], Op::Call(_)))
-                    .ok_or_else(|| {
-                        call.at
-                            .error("spawn requires a statically selected function")
-                    })?;
-                let Op::Call(symbol) = ops.remove(index) else {
-                    unreachable!()
-                };
+                let (index, symbol) = take_call(ops, begin).ok_or_else(|| {
+                    call.at
+                        .error("spawn requires a statically selected function")
+                })?;
                 let inputs: Vec<_> = self.sigs[&symbol]
                     .inputs
                     .iter()

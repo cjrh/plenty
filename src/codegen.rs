@@ -870,6 +870,7 @@ fn emit_user_function(
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
+            forwards_references: false,
             loop_targets: Vec::new(),
             generator: None,
             local_frame,
@@ -970,6 +971,7 @@ fn emit_main(
             locals: &[],
             stack: Vec::new(),
             terminated: false,
+            forwards_references: false,
             loop_targets: Vec::new(),
             generator: None,
             local_frame: None,
@@ -1110,6 +1112,9 @@ struct Lowerer<'a, 'b> {
     /// Once set, the outer loop in
     /// [`emit_user_function`] stops feeding ops to this lowerer.
     terminated: bool,
+    /// The frontend's lifetime fact for the op being lowered: set by
+    /// `Op::ForwardsReferences` and consumed by the next op.
+    forwards_references: bool,
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
     generator: Option<GeneratorContext>,
@@ -1209,6 +1214,8 @@ impl Lowerer<'_, '_> {
         }
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
+        // The fact describes only the op after its marker.
+        let forwards_references = std::mem::take(&mut self.forwards_references);
         match op {
             Op::Thread(operation) => self.lower_thread(operation)?,
             Op::Channel(operation) => self.lower_channel(operation)?,
@@ -1220,6 +1227,7 @@ impl Lowerer<'_, '_> {
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) => {}
+            Op::ForwardsReferences => self.forwards_references = true,
             Op::BorrowLocal(i, mutable) => {
                 let (frame, offset) = if let Some(g) = &self.generator {
                     (g.frame, 64)
@@ -1393,14 +1401,16 @@ impl Lowerer<'_, '_> {
                 let value = self.bcx.ins().func_addr(PTR_TY, reference);
                 self.stack.push((value, Ty::Callable(signature.clone())));
             }
-            Op::CallIndirect(signature) => self.lower_indirect_call(signature, false)?,
-            Op::TailCallIndirect(signature) => self.lower_indirect_call(signature, true)?,
+            Op::CallIndirect(signature) => self.lower_indirect_call(signature, None)?,
+            Op::TailCallIndirect(signature) => {
+                self.lower_indirect_call(signature, Some(forwards_references))?
+            }
             Op::ForeignCall { declaration, sig } => self.lower_foreign_call(declaration, sig)?,
             Op::ForeignNull(ty) => {
                 let value = self.bcx.ins().iconst(PTR_TY, 0);
                 self.stack.push((value, ty.clone()));
             }
-            Op::TailCall(name) => self.lower_tail_call(name)?,
+            Op::TailCall(name) => self.lower_tail_call(name, forwards_references)?,
             Op::Break | Op::Continue => {
                 let &(header, exit) = self
                     .loop_targets
@@ -2030,10 +2040,12 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// `tail` is `None` for an ordinary call. In tail position it holds the
+    /// frontend's fact that every reference argument outlives this frame.
     fn lower_indirect_call(
         &mut self,
         signature: &crate::op::CallableSig,
-        tail: bool,
+        tail: Option<bool>,
     ) -> Result<()> {
         let split = self
             .stack
@@ -2050,8 +2062,11 @@ impl Lowerer<'_, '_> {
         let native = user_fn_signature(self.module, &sig);
         let reference = self.bcx.import_signature(native);
         // A reference argument may point into this frame, whose locals then
-        // outlive the call.
-        let transfer = tail && !signature.inputs.iter().any(Ty::contains_reference);
+        // outlive the call, unless the frontend proved otherwise.
+        let transfer = tail.is_some_and(|forwards_references| {
+            forwards_references || !signature.inputs.iter().any(Ty::contains_reference)
+        });
+        let tail = tail.is_some();
         if transfer {
             self.release_locals();
             if !signature
@@ -2091,10 +2106,13 @@ impl Lowerer<'_, '_> {
     /// keep the frame and use an ordinary call. Inline arguments and results
     /// live in this frame, but its locals are still released first. A
     /// reference argument may point at one of those locals, so they are
-    /// released only after the callee returns.
-    fn lower_tail_call(&mut self, name: &str) -> Result<()> {
+    /// released only after the callee returns, unless `forwards_references`
+    /// carries the frontend's proof that every reference argument refers to
+    /// storage borrowed through a reference parameter. Such a reference holds
+    /// an address outside this frame.
+    fn lower_tail_call(&mut self, name: &str, forwards_references: bool) -> Result<()> {
         let signature = &self.user_fns[name].sig;
-        if signature.inputs.iter().any(|(_, t)| t.contains_reference()) {
+        if !forwards_references && signature.inputs.iter().any(|(_, t)| t.contains_reference()) {
             self.lower_call(name)?;
             self.return_values(self.stack.clone());
             self.terminated = true;

@@ -31,7 +31,7 @@ supported subset, not Python's full API or Rust's full ownership system.
 | Native target validation | `x86_64-unknown-linux-gnu` only; requested target, packaged runtime, and Cranelift ISA must agree before emission. `--print-target` reports the packaged target |
 | Explicit binary `main` entry point | Implemented: parameterless `main` returns `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`; a returned `Err` is reported on standard error with status one; module scope contains declarations and imports |
 | Rust runtime, embedded precompiled archive | Implemented; runtime compilation happens when building Plenty |
-| Direct and mutual tail calls | Implemented; caller cleanup, including destructors, runs before the transfer. Calls passing a reference keep ordinary post-call cleanup |
+| Direct and mutual tail calls | Implemented; caller cleanup, including destructors, runs before the transfer. References originating in the caller's reference parameters are forwarded; a reference into the caller's own storage keeps ordinary post-call cleanup |
 | Early returns and return-aware branch checking | Implemented in AOT |
 | Concrete enums, tagged payloads, exhaustive matching | Implemented, including fallible `Enum.Variant(...)` |
 | Generic data declarations | Concrete enums and classes with cached specialization, aliases, inferred class construction, nested payloads, IntType/Callable/OnceCallable constraints, generic methods, and ordinary ownership rules; see [generic data types](28-generic-data-types.md) |
