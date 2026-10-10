@@ -203,6 +203,7 @@
 - [Explicit parallel operations](design/37-parallel-operations.md)
 - [Cooperative cancellation](design/38-cooperative-cancellation.md)
 - [Timed waits and receive selection](design/39-timed-waits-and-selection.md)
+- [Tail-call ABI](design/40-tail-call-abi.md)
 - [Native runtime](runtime.md)
 
 # Proposals

@@ -72,5 +72,6 @@ as described in [generic functions](02-generic-functions-and-argument-inference.
 
 Indirect calls in tail position use native tail calls with the same cleanup order
 and borrowing restrictions as direct calls: the caller's locals are dropped
-before the transfer. Calls involving inline argument/result storage retain their
-frame but drop its locals first.
+before the transfer. Exact-compatible inline results forward the caller's incoming
+result area. Owned inline arguments retain their frame but drop its locals first;
+see the [tail-call ABI](40-tail-call-abi.md).
