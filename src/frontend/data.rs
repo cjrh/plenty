@@ -11,8 +11,8 @@ pub(crate) struct TypeAliases {
 
 #[derive(Default)]
 pub(super) struct DataTypes {
-    enums: HashMap<String, enums::EnumDecl>,
-    classes: HashMap<String, classes::ClassDecl>,
+    enums: Rc<HashMap<String, enums::EnumDecl>>,
+    classes: Rc<HashMap<String, classes::ClassDecl>>,
     instances: RefCell<HashMap<(String, Vec<Ty>), Ty>>,
     named: RefCell<HashMap<String, Ty>>,
     arguments: RefCell<HashMap<String, (String, Vec<Ty>)>>,
@@ -23,6 +23,8 @@ pub(super) struct DataTypes {
     depth: Cell<usize>,
     /// Signature-shape probes use placeholder arguments, not real instances.
     shapes_only: bool,
+    /// The shape-only tables, created by the first probe and shared by the rest.
+    shapes: RefCell<Option<TypeAliases>>,
 }
 
 struct DefinitionJob {
@@ -151,21 +153,38 @@ impl TypeAliases {
             .collect();
         declarations.sort_by_key(|(name, _)| *name);
         for (_, params) in declarations {
-            let mut validation = self.validation();
-            for (name, _) in params {
-                validation.insert(name.clone(), Some(Ty::I64));
+            let bounds: Vec<_> = params
+                .iter()
+                .filter_map(|(_, b)| b.as_ref())
+                .filter(|b| generics::callable_bound(b))
+                .collect();
+            if bounds.is_empty() {
+                continue;
             }
-            for bound in params.iter().filter_map(|(_, b)| b.as_ref()) {
-                if generics::callable_bound(bound) {
-                    generics::callable_pattern(bound).resolve(&validation)?;
+            self.probe(params.iter().map(|(name, _)| name), |validation| {
+                for bound in bounds {
+                    generics::callable_pattern(bound).resolve(validation)?;
                 }
-            }
+                Ok(())
+            })?;
         }
         Ok(())
     }
-    /// Shape checks must not enqueue placeholder data instances in the real program.
-    pub(super) fn validation(&self) -> Self {
-        Self {
+    /// Runs a signature-shape check with `placeholders` naming arbitrary types.
+    ///
+    /// Shape checks must not enqueue placeholder data instances in the real
+    /// program, so they resolve against a separate copy of the tables. Every
+    /// probe shares one copy: a copy per declaration made checking quadratic
+    /// in program size (issue #53). The copy is taken at the first probe, which
+    /// must follow `resolve_types`; later real instances are not needed, since
+    /// a probe only asks whether a signature resolves.
+    pub(super) fn probe<'a, T>(
+        &self,
+        placeholders: impl IntoIterator<Item = &'a String>,
+        check: impl FnOnce(&TypeAliases) -> Result<T>,
+    ) -> Result<T> {
+        let mut shapes = self.data.shapes.borrow_mut();
+        let validation = shapes.get_or_insert_with(|| Self {
             named: self.named.clone(),
             data: Rc::new(DataTypes {
                 enums: self.data.enums.clone(),
@@ -176,22 +195,43 @@ impl TypeAliases {
                 shapes_only: true,
                 ..DataTypes::default()
             }),
+        });
+        let shadowed: Vec<_> = placeholders
+            .into_iter()
+            .map(|name| (name, validation.named.insert(name.clone(), Some(Ty::I64))))
+            .collect();
+        let result = check(validation);
+        // Restore in reverse so a repeated placeholder gets its original binding back.
+        for (name, previous) in shadowed.into_iter().rev() {
+            match previous {
+                Some(ty) => validation.named.insert(name.clone(), ty),
+                None => validation.named.remove(name),
+            };
         }
+        // Placeholder specializations are never lowered.
+        validation.data.pending.borrow_mut().clear();
+        result
     }
     pub(super) fn with_data(
         enums: &[enums::EnumDecl],
         classes: &[classes::ClassDecl],
     ) -> Result<Self> {
-        let mut data = DataTypes::default();
-        data.deferred.set(true);
+        let mut enum_declarations = HashMap::new();
         for e in enums {
             validate_parameters(&e.name, &e.type_params, &e.at)?;
-            data.enums.insert(e.name.clone(), e.clone());
+            enum_declarations.insert(e.name.clone(), e.clone());
         }
+        let mut class_declarations = HashMap::new();
         for c in classes {
             validate_parameters(&c.name, &c.type_params, &c.at)?;
-            data.classes.insert(c.name.clone(), c.clone());
+            class_declarations.insert(c.name.clone(), c.clone());
         }
+        let data = DataTypes {
+            enums: Rc::new(enum_declarations),
+            classes: Rc::new(class_declarations),
+            ..DataTypes::default()
+        };
+        data.deferred.set(true);
         Ok(Self {
             named: HashMap::new(),
             data: Rc::new(data),
@@ -230,7 +270,9 @@ impl TypeAliases {
         if let Some(ty) = self.data.instances.borrow().get(&key) {
             return Ok(ty.clone());
         }
+        // Placeholder instances do not count against the program's limit.
         if !actual.is_empty()
+            && !self.data.shapes_only
             && self
                 .data
                 .instances

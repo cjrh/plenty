@@ -44,9 +44,10 @@ pub(super) fn prepare(
     aliases.validate_data_bounds()?;
     functions.extend(aliases.data.factories());
     let mut declarations = HashMap::new();
+    let function_names: HashSet<_> = functions.iter().map(|f| f.name.as_str()).collect();
     for protocol in &protocols {
         if aliases.contains_key(&protocol.name)
-            || functions.iter().any(|f| f.name == protocol.name)
+            || function_names.contains(protocol.name.as_str())
             || declarations
                 .insert(protocol.name.clone(), protocol.clone())
                 .is_some()
@@ -58,14 +59,15 @@ pub(super) fn prepare(
         }
         // Validate requirements even if no function uses this protocol. The
         // receiver placeholder is replaced by the implementing class at use.
-        let mut validation = aliases.validation();
-        validation.insert(protocol.name.clone(), Some(Ty::I64));
-        for (name, _) in &protocol.type_params {
-            validation.insert(name.clone(), Some(Ty::I64));
-        }
-        for method in &protocol.methods {
-            protocols::signature(method, &validation)?;
-        }
+        aliases.probe(
+            std::iter::once(&protocol.name).chain(protocol.type_params.iter().map(|(n, _)| n)),
+            |validation| {
+                for method in &protocol.methods {
+                    protocols::signature(method, validation)?;
+                }
+                Ok(())
+            },
+        )?;
     }
     let mut engine = Engine {
         protocols: declarations,
@@ -608,11 +610,9 @@ impl Engine {
     pub(super) fn validate_template(&self, f: &Function, aliases: &TypeAliases) -> Result<()> {
         for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
             if callable_bound(bound) && !bound.args.is_empty() {
-                let mut validation = aliases.validation();
-                for (name, _) in &f.type_params {
-                    validation.insert(name.clone(), Some(Ty::I64));
-                }
-                callable_pattern(bound).resolve(&validation)?;
+                aliases.probe(f.type_params.iter().map(|(name, _)| name), |validation| {
+                    callable_pattern(bound).resolve(validation).map(drop)
+                })?;
             } else if let Some(protocol) = bound
                 .name
                 .as_ref()

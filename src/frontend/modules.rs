@@ -398,8 +398,10 @@ struct Scope {
     captures: HashSet<String>,
     uncaptured: HashSet<String>,
     module: String,
-    symbols: HashMap<String, String>,
-    namespaces: HashMap<String, Rc<HashMap<String, String>>>,
+    // Module-wide tables are shared: every function, class, and closure gets
+    // its own scope, and copying these per scope is quadratic (issue #53).
+    symbols: Rc<HashMap<String, String>>,
+    namespaces: Rc<HashMap<String, Rc<HashMap<String, String>>>>,
     type_params: HashSet<String>,
 }
 
@@ -826,12 +828,13 @@ fn resolve(
             uncaptured: HashSet::new(),
             type_params: HashSet::new(),
             module: m.name.clone(),
-            symbols: m
-                .names()
-                .into_iter()
-                .map(|n| (n.clone(), qualified(&m.name, &n)))
-                .collect(),
-            namespaces: HashMap::new(),
+            symbols: Rc::new(
+                m.names()
+                    .into_iter()
+                    .map(|n| (n.clone(), qualified(&m.name, &n)))
+                    .collect(),
+            ),
+            namespaces: Rc::default(),
         };
         for (import, dependency) in m.imports.iter().zip(&dependencies[i]) {
             let root = import.binding.split('.').next().unwrap();
@@ -854,10 +857,9 @@ fn resolve(
                         import.module
                     ))
                 })?;
-                scope.symbols.insert(import.binding.clone(), name.clone());
+                Rc::make_mut(&mut scope.symbols).insert(import.binding.clone(), name.clone());
             } else {
-                scope
-                    .namespaces
+                Rc::make_mut(&mut scope.namespaces)
                     .insert(import.binding.clone(), exports[*dependency].clone());
             }
         }
