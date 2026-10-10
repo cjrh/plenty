@@ -73,6 +73,8 @@ mod generators;
 mod inline;
 mod metadata;
 mod references;
+#[cfg(test)]
+mod tail_tests;
 mod threads;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
@@ -2064,6 +2066,17 @@ impl Lowerer<'_, '_> {
             return Err(
                 "internal tail-call ABI invariant: caller does not use Tail convention".into(),
             );
+        }
+        if self
+            .bcx
+            .func
+            .signature
+            .returns
+            .iter()
+            .map(|param| param.value_type)
+            .ne(plan.layout.outputs.iter().copied())
+        {
+            return Err("internal tail-call ABI invariant: native result layout mismatch".into());
         }
         if plan.layout.result_area.is_some() {
             // This address belongs to an older frame. It cannot alias outgoing

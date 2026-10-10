@@ -64,8 +64,10 @@ among their variants. Frames can contain other generator frames.
 Constructors and returning functions use caller-owned output storage. Moves
 relocate nested inline payloads without allocating, and cleanup finishes
 synchronously before the enclosing storage expires, including inside drop hooks.
-Calls passing or returning inline storage (or references to it) use ordinary
-calls when a native tail call could invalidate that storage.
+Tail calls returning an exact-compatible concrete frame forward the incoming
+result storage. Calls passing an owned inline frame still keep the caller alive
+through an ordinary call. Reference calls also retain their frame until their
+lifetime permits removal; see the [tail-call ABI](40-tail-call-abi.md).
 
 Frame layouts are cached per concrete producer. Recursive inline layouts are
 rejected; nested layouts are limited to 64 levels and native frame offsets to

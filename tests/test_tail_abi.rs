@@ -1,6 +1,50 @@
 mod support;
 
 #[cfg(target_os = "linux")]
+#[test]
+fn native_inline_result_recursion_emits_a_jump_instead_of_a_call() {
+    let workspace = tempfile::tempdir().unwrap();
+    let object = workspace.path().join("tail.o");
+    plenty::compile_source_to_object(
+        r#"
+def countdown(n: i64) -> range[i64]:
+    if n == 0:
+        return range(4)
+    countdown(n - 1)
+def main() -> ():
+    pass
+"#,
+        &object,
+    )
+    .unwrap();
+    let output = std::process::Command::new("objdump")
+        .arg("-dr")
+        .arg(&object)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let assembly = String::from_utf8(output.stdout).unwrap();
+    let body = assembly
+        .split("<__plenty_fn_countdown>:")
+        .nth(1)
+        .unwrap()
+        .split("\n\n")
+        .next()
+        .unwrap();
+    let lines: Vec<_> = body.lines().collect();
+    let jump = lines
+        .windows(2)
+        .any(|pair| pair[0].contains("jmp") && pair[1].contains("__plenty_fn_countdown"));
+    assert!(jump, "expected native tail jump to countdown:\n{body}");
+    assert!(
+        !lines
+            .windows(2)
+            .any(|pair| pair[0].contains("call") && pair[1].contains("__plenty_fn_countdown")),
+        "recursive call retained frame:\n{body}"
+    );
+}
+
+#[cfg(target_os = "linux")]
 fn bounded(source: &str, expected: &str) {
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("tail-abi");
@@ -90,6 +134,39 @@ def main() -> Result[(), Failure]:
     Ok(())
 "#,
         "Option[i64].Some(42)\ndrop\n",
+    );
+}
+
+#[test]
+fn returned_closure_relocates_nested_captures_and_drops_them_once() {
+    let output = support::run(
+        r#"
+class Guard:
+    value: str
+    def __del__(self) -> ():
+        print(self.value).unwrap()
+def make() -> Closure[[], i64]:
+    guard = Guard("closure cleanup")
+    values = Some(range(3, 8))
+    def [guard, values]() -> i64:
+        len(values.unwrap()) + len(guard.value)
+def forward() -> Closure[[], i64]:
+    make()
+def outer() -> Closure[[], i64]:
+    forward()
+callback = outer()
+print(callback()).unwrap()
+drop(callback)
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "20\nclosure cleanup\n"
     );
 }
 
