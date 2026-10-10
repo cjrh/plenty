@@ -54,11 +54,11 @@ use cranelift_codegen::ir::{
     types, AbiParam, Block, BlockArg, Function, InstBuilder, Signature, TrapCode, UserFuncName,
 };
 use cranelift_codegen::isa::CallConv;
+use cranelift_codegen::settings;
 use cranelift_codegen::settings::Configurable;
-use cranelift_codegen::{settings, Context};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
+use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
-use cranelift_object::{ObjectBuilder, ObjectModule};
+use cranelift_object::ObjectModule;
 
 use crate::lexer;
 mod channels;
@@ -72,6 +72,7 @@ mod foreign;
 mod generators;
 mod inline;
 mod metadata;
+mod output;
 mod references;
 #[cfg(test)]
 mod tail_tests;
@@ -79,6 +80,7 @@ mod threads;
 use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
+use output::Output;
 
 // ---- Cranelift API reference ----
 //
@@ -278,20 +280,33 @@ fn emit_object(
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
 ) -> Result<()> {
+    let workers = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let bytes = object_bytes(ops, heap, entry, exports, interface, workers)?;
+    std::fs::write(output, bytes)?;
+    Ok(())
+}
+
+/// The object's bytes are the same for every `workers` count.
+fn object_bytes(
+    ops: &[Op],
+    heap: &Heap,
+    entry: Option<bool>,
+    exports: &[crate::exports::Export],
+    interface: Option<&crate::exports::Interface>,
+    workers: usize,
+) -> Result<Vec<u8>> {
     let prepared = crate::tail_abi::prepare(ops);
     let ops = prepared.as_slice();
-    let isa = host_isa()?;
-    let builder = ObjectBuilder::new(isa, "plenty", cranelift_module::default_libcall_names())?;
-    let mut module = ObjectModule::new(builder);
+    let mut out = Output::new(host_isa()?, workers)?;
 
-    let mut runtime = declare_runtime(&mut module)?;
+    let mut runtime = declare_runtime(&mut out.module)?;
 
     // Pass 1: collect every user-defined function reachable from `ops`
     // (top-level, nested under another definition, or inside a match
     // arm), declare each as a Cranelift symbol with the tail-call
     // convention so its body can `return_call` other user functions.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
-    collect_user_fns(ops, &mut module, &mut user_fns)?;
+    collect_user_fns(ops, &mut out.module, &mut user_fns)?;
     runtime.drop_hooks = user_fns
         .iter()
         .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
@@ -303,39 +318,28 @@ fn emit_object(
     // every `StrId` referenced by `PushStr` or `Pattern::Str`, then
     // declare and define each one. The compiler's string pool is the
     // source of truth for the literal bytes.
-    let str_data = declare_str_data(ops, heap, &mut module)?;
+    let str_data = declare_str_data(ops, heap, &mut out.module)?;
 
     // An immortal empty string substitutes for the legacy input helper's EOF.
-    let eof_empty_str = declare_eof_empty_str(&mut module)?;
-    threads::emit_adapters(
-        ops,
-        &user_fns,
-        &str_data,
-        eof_empty_str,
-        &runtime,
-        &mut module,
-    )?;
-    executors::emit_adapters(
-        ops,
-        &user_fns,
-        &str_data,
-        eof_empty_str,
-        &runtime,
-        &mut module,
-    )?;
+    let eof_empty_str = declare_eof_empty_str(&mut out.module)?;
+    threads::emit_adapters(ops, &user_fns, &str_data, eof_empty_str, &runtime, &mut out)?;
+    executors::emit_adapters(ops, &user_fns, &str_data, eof_empty_str, &runtime, &mut out)?;
 
     // Pass 2: emit each user function's body. Bodies can refer to each
     // other (forward references, mutual recursion) because every callee
     // is already declared.
-    let names: Vec<String> = user_fns.keys().cloned().collect();
-    for name in &names {
+    // `FuncId`s follow declaration order. The map's own order changes from
+    // run to run, which would make the object differ between identical builds.
+    let mut names: Vec<&String> = user_fns.keys().collect();
+    names.sort_unstable_by_key(|name| user_fns[*name].id);
+    for name in names {
         emit_user_function(
             name,
             &user_fns,
             &str_data,
             eof_empty_str,
             &runtime,
-            &mut module,
+            &mut out,
         )?;
     }
 
@@ -350,15 +354,11 @@ fn emit_object(
             &str_data,
             eof_empty_str,
             &runtime,
-            &mut module,
+            &mut out,
         )?;
     }
-    exports::emit(exports, interface, &user_fns, &runtime, &mut module)?;
-
-    let product = module.finish();
-    let bytes = product.emit()?;
-    std::fs::write(output, bytes)?;
-    Ok(())
+    exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
+    out.finish()
 }
 
 /// Build an `ISA` for the host target. Cranelift's `native` crate
@@ -383,6 +383,17 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     // reports the resulting fault as a stack overflow.
     flags.set("enable_probestack", "true")?;
     flags.set("probestack_strategy", "inline")?;
+    // The verifier checks the IR this compiler builds, not the user's program,
+    // and costs about a fifth of emission (issue #55). Debug builds, which run
+    // the tests, keep it.
+    flags.set(
+        "enable_verifier",
+        if cfg!(debug_assertions) {
+            "true"
+        } else {
+            "false"
+        },
+    )?;
     let isa_builder = cranelift_native::builder().map_err(|e| -> Box<dyn Error> { e.into() })?;
     let isa = isa_builder.finish(settings::Flags::new(flags))?;
     if isa.triple().to_string() != crate::native_target() || isa.pointer_type() != PTR_TY {
@@ -783,19 +794,18 @@ fn emit_user_function(
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
     runtime: &Runtime,
-    module: &mut ObjectModule,
+    out: &mut Output,
 ) -> Result<()> {
     let decl = &fns[name];
     if decl.generator.is_some() {
-        return generators::emit_generator(name, fns, str_data, eof_empty_str, runtime, module);
+        return generators::emit_generator(name, fns, str_data, eof_empty_str, runtime, out);
     }
+    let module = &mut out.module;
     let cl_sig = user_fn_signature(module, &decl.sig);
 
-    let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(UserFuncName::user(0, decl.id.as_u32()), cl_sig);
-    let mut func_ctx = FunctionBuilderContext::new();
+    let mut func = Function::with_name_signature(UserFuncName::user(0, decl.id.as_u32()), cl_sig);
     {
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut func_ctx);
+        let mut bcx = FunctionBuilder::new(&mut func, &mut out.builder);
         let entry = bcx.create_block();
         bcx.append_block_params_for_function_params(entry);
         bcx.switch_to_block(entry);
@@ -907,16 +917,13 @@ fn emit_user_function(
         }
         bcx.finalize();
     }
-    module
-        .define_function(decl.id, &mut ctx)
-        .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e:?}").into() })?;
+    out.define(decl.id, func)?;
     if let Some(id) = decl.drop_callback {
+        let module = &mut out.module;
         let mut signature = module.make_signature();
         signature.params.push(AbiParam::new(PTR_TY));
-        let mut ctx = Context::new();
-        ctx.func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
-        let mut fc = FunctionBuilderContext::new();
-        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fc);
+        let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+        let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
         let block = b.create_block();
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
@@ -927,7 +934,7 @@ fn emit_user_function(
         b.ins().call(callee, &[receiver]);
         b.ins().return_(&[]);
         b.finalize();
-        module.define_function(id, &mut ctx)?;
+        out.define(id, func)?;
     }
     Ok(())
 }
@@ -944,8 +951,9 @@ fn emit_main(
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
     runtime: &Runtime,
-    module: &mut ObjectModule,
+    out: &mut Output,
 ) -> Result<()> {
+    let module = &mut out.module;
     // `plenty_main`: exported, no arguments, returns `i32`. The Rust
     // runtime's native `main` forwards into this and returns
     // its result as the process exit code. SystemV convention because
@@ -956,11 +964,9 @@ fn emit_main(
     main_sig.returns.push(AbiParam::new(types::I32));
     let main_id = module.declare_function("plenty_main", Linkage::Export, &main_sig)?;
 
-    let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(UserFuncName::user(0, main_id.as_u32()), main_sig);
-    let mut func_ctx = FunctionBuilderContext::new();
+    let mut func = Function::with_name_signature(UserFuncName::user(0, main_id.as_u32()), main_sig);
     {
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut func_ctx);
+        let mut bcx = FunctionBuilder::new(&mut func, &mut out.builder);
         let entry = bcx.create_block();
         bcx.append_block_params_for_function_params(entry);
         bcx.switch_to_block(entry);
@@ -997,8 +1003,7 @@ fn emit_main(
         lower.bcx.ins().return_(&[status]);
         bcx.finalize();
     }
-    module.define_function(main_id, &mut ctx)?;
-    Ok(())
+    out.define(main_id, func)
 }
 
 /// The CLIF type backing each Plenty value. Plenty's signed/unsigned

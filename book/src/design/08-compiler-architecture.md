@@ -82,8 +82,26 @@ came from a 100-function workload too small to show that it was quadratic. On
 the same machine with a release build (2026-10-10), 4,000 units / 156,003 lines
 checked in 1.61 s and 16,000 units / 624,003 lines in 6.69 s; full AOT of 1,000
 units / 39,003 lines took 3.24 s. `tests/test_compile_scaling.rs` fails if
-checking classes, functions, or protocols becomes superlinear. Native emission
-is single-threaded and dominates a full compile.
+checking classes, functions, or protocols becomes superlinear.
+
+Native emission builds each function's Cranelift IR on one thread, in
+declaration order, and compiles the IR to machine code on every available core
+(issue #55). Functions are compiled in batches of a fixed IR size and defined in
+the object in the order they were built, so the object is byte-for-byte the
+same on every run and for every core count; a unit test compares one, two, and
+eight workers. Cranelift's IR verifier checks the compiler's own output, not the
+user's program, and runs only in debug builds of the compiler, which the tests
+use. On the same machine (2026-10-10, release build, 16 hardware threads), full
+AOT of 1,000 units / 39,003 lines fell from 3.25 s to 0.87 s, and emitting the
+object for 5,000 units / 195,003 lines from 16.9 s to 4.35 s, of which checking
+is 2.6 s. Peak memory is unchanged. On one core the second figure is 13.2 s:
+that gain is the verifier alone.
+
+Cranelift's single-pass register allocator was measured and not adopted. On
+the 195,003-line program it cut emission CPU time from 18.5 s to 10.3 s but
+wall time only from 4.4 s to 4.0 s, grew machine code by 37%, and slowed the
+`examples/collection_bench.py` workloads by 3% to 20%. Plenty has one build
+mode, and that trade does not suit it.
 Functions without loan facts skip CFG loan analysis; no whole-program alias
 analysis or per-call body inspection is required.
 The legacy parser and explicit legacy entry points remain to exercise the

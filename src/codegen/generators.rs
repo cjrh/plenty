@@ -23,8 +23,9 @@ pub(super) fn emit_generator(
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
     runtime: &Runtime,
-    module: &mut ObjectModule,
+    out: &mut Output,
 ) -> Result<()> {
+    let module = &mut out.module;
     let decl = &fns[name];
     let resume_id = decl.resume.unwrap();
     let slot_types: Vec<_> = decl
@@ -54,14 +55,12 @@ pub(super) fn emit_generator(
 
     // Constructor: transfer arguments into zero-initialized frame slots. No
     // source body instruction runs until the first next/iteration.
-    let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(
+    let mut func = Function::with_name_signature(
         UserFuncName::user(0, decl.id.as_u32()),
         user_fn_signature(module, &decl.sig),
     );
-    let mut fn_ctx = FunctionBuilderContext::new();
     {
-        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fn_ctx);
+        let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
         let entry = b.create_block();
         b.append_block_params_for_function_params(entry);
         b.switch_to_block(entry);
@@ -92,16 +91,15 @@ pub(super) fn emit_generator(
         b.ins().return_(&[frame]);
         b.finalize();
     }
-    module.define_function(decl.id, &mut ctx)?;
+    out.define(decl.id, func)?;
+    let module = &mut out.module;
 
-    let mut ctx = Context::new();
-    ctx.func = Function::with_name_signature(
+    let mut func = Function::with_name_signature(
         UserFuncName::user(0, resume_id.as_u32()),
         resume_signature(module),
     );
-    let mut fn_ctx = FunctionBuilderContext::new();
     {
-        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fn_ctx);
+        let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
         let dispatch = b.create_block();
         b.append_block_params_for_function_params(dispatch);
         b.switch_to_block(dispatch);
@@ -158,12 +156,7 @@ pub(super) fn emit_generator(
         b.seal_all_blocks();
         b.finalize();
     }
-    module
-        .define_function(resume_id, &mut ctx)
-        .map_err(|error| -> Box<dyn Error> {
-            format!("in generator `{name}`: {error:?}").into()
-        })?;
-    Ok(())
+    out.define(resume_id, func)
 }
 
 impl Lowerer<'_, '_> {
