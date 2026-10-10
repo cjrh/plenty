@@ -1147,6 +1147,27 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     }
 }
 
+/// Narrow ABI: a live borrowed list owner, with no ownership transfer. The
+/// compiler never reads Collection, Entries, or Vec layout across this boundary.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_list_len(owner: *const u8) -> u64 {
+    // SAFETY: the compiler keeps the list's owner alive through the call.
+    unsafe { (*(owner.cast::<Collection>())).entries.len() as u64 }
+}
+
+/// Returns the low 64 payload bits of an integer, float, or boolean list row.
+/// No pointer into the buffer escapes, including across later growing mutations.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_list_scalar_get(owner: *const u8, i: i64) -> u64 {
+    // SAFETY: generated callers supply a live list of scalars. Bounds and
+    // negative indices use the same normalization as the generic dispatcher.
+    unsafe {
+        let collection = &*owner.cast::<Collection>();
+        let i = index(i, collection.entries.len());
+        collection.entries.get(i).key as u64
+    }
+}
+
 #[no_mangle]
 pub(crate) unsafe extern "C" fn plenty_collection(
     op: i64,

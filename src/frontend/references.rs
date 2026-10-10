@@ -430,6 +430,11 @@ impl Lower<'_> {
                 self.field(e, ops)
             }
             Expression::Index(base, index) => {
+                if matches!(self.place_type(base), Some(Ty::List(element))
+                    if element.is_numeric() || *element == Ty::Bool)
+                {
+                    return self.index(base, index, ops).map(|ty| (ty, vec![]));
+                }
                 let (ty, loans) = self.observe(base, ops)?;
                 if let Ty::Enum(t) = &ty {
                     if t.tuple() {

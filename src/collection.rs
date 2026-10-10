@@ -69,6 +69,9 @@ pub enum CollectionOp {
     ListReverse(Ty), // exclusive list -> retained internal alias
     Clear(Ty),       // exclusive list/dict/set -> retained internal alias
     Len(Ty),
+    /// Non-owning list observations; the frontend keeps the receiver's loan live.
+    ListLenRef(Ty),
+    ListScalarGetRef(Ty),
     IterGet(Ty),
     // Hash cursors are stable slot IDs plus one; zero terminates traversal.
     HashIterFirst(Ty),
@@ -361,6 +364,11 @@ impl CollectionOp {
             }
             ListReverse(t) | Clear(t) => (vec![t.clone()], t.clone()),
             Len(t) | HashIterFirst(t) => (vec![t.clone()], Ty::I64),
+            ListLenRef(t) => (vec![Ty::Ref(Rc::new(t.clone()), false)], Ty::I64),
+            ListScalarGetRef(t) => (
+                vec![Ty::Ref(Rc::new(t.clone()), false), Ty::I64],
+                t.element().unwrap(),
+            ),
             HashIterNext(t) => (vec![t.clone(), Ty::I64], Ty::I64),
             IterGet(t) | IterTake(t) | HashIterGet(t) => {
                 (vec![t.clone(), Ty::I64], t.element().unwrap())
@@ -459,6 +467,9 @@ impl CollectionOp {
             Self::ListReverse(_) => 57,
             Self::Clear(_) => 58,
             Self::Len(_) => 5,
+            Self::ListLenRef(_) | Self::ListScalarGetRef(_) => {
+                unreachable!("borrowed list observations use narrow runtime helpers")
+            }
             Self::IterGet(_) => 6,
             Self::HashIterFirst(_) => 123,
             Self::HashIterNext(_) => 124,

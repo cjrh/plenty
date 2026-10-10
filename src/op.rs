@@ -1397,6 +1397,16 @@ fn step(
             }
         }
         Op::Collection(operation) => {
+            match operation {
+                crate::collection::CollectionOp::ListLenRef(ty) if !matches!(ty, Ty::List(_)) => {
+                    return Err("list length requires a list reference".into());
+                }
+                crate::collection::CollectionOp::ListScalarGetRef(ty) if !matches!(ty, Ty::List(element) if element.is_numeric() || **element == Ty::Bool) =>
+                {
+                    return Err("scalar list access requires a scalar list reference".into());
+                }
+                _ => {}
+            }
             let (inputs, output) = operation.signature();
             if stack.len() < inputs.len() || stack[stack.len() - inputs.len()..] != inputs {
                 return Err("collection operation type mismatch".into());
