@@ -44,6 +44,43 @@ need their own ABI and runtime validation before this gate is expanded; a custom
 linker alone cannot provide it. Checking Plenty source remains independent of
 native emission unless a target is explicitly requested.
 
+## Stack overflow
+
+A program that exhausts its native stack writes `error: stack overflow` to
+standard error and ends with `SIGABRT` (a shell reports status 134). This
+applies to the main thread, scoped workers, and executor workers. The status is
+deliberately distinct from one, which a returned `Err` or a checked runtime
+error produces, and from `SIGSEGV`, which still means an invalid memory access.
+Nothing is unwound: destructors and context exits do not run, and a partial
+output line not yet written is lost. Whether the system writes a core file
+follows its usual `SIGABRT` policy.
+
+An executable's startup installs one `SIGSEGV` handler. Each thread registers
+an alternate signal stack before running Plenty code and removes it when that
+code returns. The 16 KiB stack is a reservation in the thread's own entry
+frame, at the top of its stack, so a thread pays one system call on entry and
+one on exit, with no allocation or mapping.
+
+The handler reports exhaustion only for a data access that lies below the
+thread's entry frame and no more than one page below the faulting stack
+pointer. Any other fault, and a `SIGSEGV` sent by a process, restores the
+default action and ends the program as before. The handler uses only
+`sigaltstack`, `write`, `sigaction`, `raise`, and `abort`. Generated functions
+whose frame exceeds one page probe each page, so a large frame faults at the
+end of its stack and cannot step over a worker's one-page guard.
+
+Limits:
+
+- A handler already installed for `SIGSEGV` when `main` starts is left in
+  place, and no report is made.
+- A Plenty library leaves signal handling to its host: it installs no handler,
+  and threads it starts register no signal stack. Exhaustion there keeps the
+  host's behavior, normally a bare `SIGSEGV`.
+- Foreign code that moves its stack pointer more than a page without touching
+  the pages between is not recognized.
+- The stack size itself is the system's: the stack limit for the main thread
+  and the default thread stack size for workers.
+
 The public signatures and memory layouts are checked by native regression tests
 and compile-time layout assertions. Standalone runtime tests also run under Miri
 with exposed-provenance semantics for the ABI's packed pointer slots. The

@@ -228,7 +228,11 @@ fn ring_and_cells_synchronize_competing_workers() {
     let pool = allocate_pool(2, 1).unwrap();
     unsafe {
         for i in 0..2 {
-            (*pool).workers.add(i).write(Worker { thread: 0, pool });
+            (*pool).workers.add(i).write(Worker {
+                thread: 0,
+                entry: 0,
+                pool,
+            });
         }
         let address = pool.expose_provenance();
         std::thread::scope(|scope| {
@@ -301,7 +305,11 @@ fn pair_jobs_relocate_both_inline_captures_and_result() {
     }
     let pool = allocate_pool(1, 1).unwrap();
     unsafe {
-        (*pool).workers.write(Worker { thread: 0, pool });
+        (*pool).workers.write(Worker {
+            thread: 0,
+            entry: 0,
+            pool,
+        });
         let address = pool.expose_provenance();
         std::thread::scope(|scope| {
             scope.spawn(move || {

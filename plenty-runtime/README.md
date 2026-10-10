@@ -235,6 +235,9 @@ return. There is no global selection lock or per-wait heap allocation.
   CRLF pairs; a two-pass builder shares literal split's guarded output storage.
 - Other runtime failures terminate without unwinding Plenty frames. Internal Rust panics
   abort rather than crossing native frames.
+- Native stack exhaustion in an executable prints `error: stack overflow` and
+  aborts. `stack_overflow.rs` holds the `SIGSEGV` handler and the per-thread
+  signal stack; the library runtime installs neither.
 
 ## Validation
 
@@ -307,7 +310,10 @@ Native fixtures verify the calls; raw conversion tests run under Miri.
 
 The internal `plenty_thread_start`/`plenty_thread_join` ABI uses joinable POSIX
 threads on the supported x86_64 Linux GNU target. Generated adapters receive
-caller-owned, pinned storage. The parent owns the thread-id word; the worker owns
+caller-owned, pinned storage. Its first two words belong to the runtime: the
+thread id, owned by the parent, and the adapter's address, which the runtime's
+own thread entry reads so that every thread registers its stack overflow
+signal stack before the adapter runs. The worker owns
 the argument and result slots until join completes. Starting reports the native
 error code without consuming or running the job on failure. Joining is mandatory
 before reclaiming storage. There is no Rust closure box or language heap allocation

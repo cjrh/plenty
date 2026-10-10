@@ -137,7 +137,7 @@ Leaving scope drops the whole owned structure automatically. Automatic cleanup
 uses an allocation-free queue for boxes, so its native stack usage does not grow
 with the number of nodes in a chain. If you write a recursive traversal function
 yourself, ordinary function-call stack limits still apply; the loop above avoids
-that.
+that. A program that runs out of stack prints `error: stack overflow` and stops.
 
 To inspect a structure while keeping it, [match a borrowed value](78-match-borrowed-values.md).
 Moving individual owned fields out without replacing them remains unsupported.

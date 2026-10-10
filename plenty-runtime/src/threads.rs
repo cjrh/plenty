@@ -5,6 +5,8 @@
 //! the thread stack; pthread_create reports resource exhaustion to the caller.
 use std::ffi::c_void;
 
+pub(crate) type Entry = unsafe extern "C" fn(*mut c_void) -> *mut c_void;
+
 // This is the x86_64 Linux GNU ABI, the compiler's only supported native target.
 // Keep pthread_t opaque to generated code: it reserves one aligned machine word.
 #[link(name = "pthread")]
@@ -12,7 +14,7 @@ extern "C" {
     fn pthread_create(
         thread: *mut usize,
         attributes: *const c_void,
-        entry: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
+        entry: Entry,
         argument: *mut c_void,
     ) -> i32;
     fn pthread_join(thread: usize, result: *mut *mut c_void) -> i32;
@@ -28,11 +30,19 @@ pub(crate) fn fail_after(starts: Option<usize>) {
     STARTS_LEFT.set(starts);
 }
 
+/// Every native thread enters here, so each one can report a stack overflow.
+unsafe extern "C" fn run(storage: *mut c_void) -> *mut c_void {
+    // SAFETY: `plenty_thread_start` stored the entry before creating this
+    // thread, and the parent does not touch that word again.
+    let entry = unsafe { storage.cast::<Entry>().add(1).read() };
+    // SAFETY: the entry receives the storage its creator paired it with.
+    crate::stack_overflow::guarded(|| unsafe { entry(storage) })
+}
+
+/// Start `entry(storage)` on a new thread. `storage` begins with two words
+/// owned by the runtime: the thread id, then the entry for [`run`].
 #[no_mangle]
-pub(crate) unsafe extern "C" fn plenty_thread_start(
-    storage: *mut usize,
-    entry: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
-) -> i32 {
+pub(crate) unsafe extern "C" fn plenty_thread_start(storage: *mut usize, entry: Entry) -> i32 {
     #[cfg(any(test, feature = "allocation-checks"))]
     if STARTS_LEFT.with(|left| match left.get() {
         Some(0) => true,
@@ -47,7 +57,10 @@ pub(crate) unsafe extern "C" fn plenty_thread_start(
     // SAFETY: generated code provides pinned, initialized task storage and a
     // matching C entry adapter. Only the parent accesses the thread-id word;
     // the worker owns its argument/result slots until pthread_join completes.
-    unsafe { pthread_create(storage, std::ptr::null(), entry, storage.cast()) }
+    unsafe {
+        storage.cast::<Entry>().add(1).write(entry);
+        pthread_create(storage, std::ptr::null(), run, storage.cast())
+    }
 }
 
 #[no_mangle]
@@ -70,11 +83,12 @@ mod tests {
     #[repr(C)]
     struct Task {
         thread: usize,
+        entry: usize,
         arrivals: *const AtomicUsize,
         result: usize,
     }
 
-    unsafe extern "C" fn run(data: *mut c_void) -> *mut c_void {
+    unsafe extern "C" fn work(data: *mut c_void) -> *mut c_void {
         // SAFETY: the test pins each Task until its join completes. The parent
         // touches only the disjoint thread word before joining.
         unsafe {
@@ -94,18 +108,20 @@ mod tests {
         let arrivals = AtomicUsize::new(0);
         let mut a = Task {
             thread: 0,
+            entry: 0,
             arrivals: &arrivals,
             result: 0,
         };
         let mut b = Task {
             thread: 0,
+            entry: 0,
             arrivals: &arrivals,
             result: 0,
         };
         // SAFETY: both tasks remain at these addresses until both workers join.
         unsafe {
-            assert_eq!(plenty_thread_start((&raw mut a).cast(), run), 0);
-            assert_eq!(plenty_thread_start((&raw mut b).cast(), run), 0);
+            assert_eq!(plenty_thread_start((&raw mut a).cast(), work), 0);
+            assert_eq!(plenty_thread_start((&raw mut b).cast(), work), 0);
             plenty_thread_join((&raw const a).cast());
             plenty_thread_join((&raw const b).cast());
         }
@@ -117,12 +133,13 @@ mod tests {
         let arrivals = AtomicUsize::new(0);
         let mut task = Task {
             thread: 0,
+            entry: 0,
             arrivals: &arrivals,
             result: 99,
         };
         fail_after(Some(0));
         // SAFETY: failure injection prevents entry; storage is nevertheless valid.
-        let status = unsafe { plenty_thread_start((&raw mut task).cast(), run) };
+        let status = unsafe { plenty_thread_start((&raw mut task).cast(), work) };
         fail_after(None);
         assert_eq!(status, 11);
         assert_eq!(task.result, 99);

@@ -56,7 +56,9 @@ channels can still deadlock if the application's protocol cannot make progress.
 
 An application `Result` remains a separate layer. A worker returning
 `Result[T, E]` produces `Future[Result[T, E]]`; the first `?` on `result()` handles
-cancellation and the next handles the application error.
+cancellation and the next handles the application error. A job that exhausts its
+worker's stack is not a job failure: it ends the process with a
+[stack overflow report](09-rust-runtime-packaging.md#stack-overflow).
 
 ## Ordered mapping
 
