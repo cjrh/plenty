@@ -22,3 +22,25 @@ The recursive call is the last operation on that path. Plenty reuses its call
 frame in native code. An explicit
 `return sum_to(n - 1, total + n)` works too. In contrast, `1 + recurse(...)`
 still has addition to do after the call and is not a tail call.
+
+Returning a range also works: the result's storage belongs to the original
+caller and stays alive throughout the recursion.
+
+```plenty
+def countdown(n: i64) -> range[i64]:
+    if n == 0:
+        return range(2, 5)
+    countdown(n - 1)
+
+def main() -> Result[(), IoError]:
+    print(countdown(1000))?
+    Ok(())
+```
+
+```output
+range(2, 5, 1)
+```
+
+Passing an owned range, record, or generator as an argument still needs an
+ordinary call and consumes native stack space. Returning one alone does not
+impose that limit.

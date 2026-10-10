@@ -25,6 +25,7 @@ mod op;
 mod ownership;
 mod record;
 mod sum;
+mod tail_abi;
 mod threading;
 mod toolchain;
 mod type_facts;
