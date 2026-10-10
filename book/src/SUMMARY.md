@@ -326,5 +326,3 @@
     - [Plenty's next language phase](proposals/next-language-phase.md)
     - [Keyword arguments, defaults, and static unpacking](proposals/keyword-arguments-and-unpacking.md)
     - [GCC backend (`plenty_codegen_gcc`)](proposals/codegen-gcc.md)
-    - [Ownership and reclamation proposal](proposals/ownership.md)
-    - [Foundation batch history](proposals/next-work-queue.md)

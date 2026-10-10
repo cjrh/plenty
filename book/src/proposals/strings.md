@@ -180,8 +180,9 @@ staging choice, never a reason to retain NUL-terminated storage.
 5. `src/frontend/collections.rs`, `src/collection.rs`, and
    `src/codegen/collections.rs`: add the optional byte-cursor lowering described
    above. Ordinary scalar indexing signatures remain unchanged.
-6. The ARC integration pass described in `ownership.md` inserts retain/drop at
-   local loads, overwrites, temporaries, calls, returns, and control-flow exits.
+6. The ARC integration pass of the original ownership proposal, since removed,
+   inserts retain/drop at local loads, overwrites, temporaries, calls, returns,
+   and control-flow exits.
    Do not ship partial retain/drop insertion that can prematurely free strings
    still reachable through a collection, enum, frame, or legacy operand stack.
 7. Update `DESIGN.md` to remove owning/view-type and C-string statements; teach

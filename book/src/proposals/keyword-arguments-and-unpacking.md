@@ -1,7 +1,7 @@
 # Keyword arguments, defaults, and static unpacking
 
-> **Status: Not implemented.** The compiler rejects every form on this page, and
-> no backlog entry schedules it.
+> **Status: Not implemented** (B36). The compiler rejects every form on this
+> page.
 > [Signatures and calls](../design/language/06-functions/01-signatures-and-calls.md)
 > states the current rule: no default or keyword arguments. The present tense
 > below describes the proposed design.
@@ -266,8 +266,8 @@ with `**rest` are rejected.
 4. A borrowed sequence view type, then `*args: T`.
 5. Sequence patterns with `*rest`, after views and sequence `match`.
 
-Each stage updates the function reference and the tutorial lessons that teach
-calls. The work needs a backlog entry before it starts.
+Each stage updates the function reference, the tutorial lessons that teach
+calls, and its backlog entry (B36).
 
 ## Open questions
 

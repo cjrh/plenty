@@ -16,16 +16,15 @@ remains with its backlog ID.
 | Implemented | The design shipped. The page keeps the rationale. |
 | Partly implemented | Some of it shipped. The block says which parts. |
 | Not implemented | Nothing shipped. The page is the design record for future work. |
-| Superseded | A later proposal replaced it. The body is not maintained. |
-| Historical record | A record of completed work. The body is not maintained. |
 
 Below its status block a proposal keeps its original wording. It may say
 "should" or "add" about things that now exist, and its code blocks may show
 syntax that never shipped. Proposal code is not compiled by the test suite.
 
-A change that implements, alters, or abandons a proposed design updates that
-proposal's status block in the same change. Statuses were last reconciled with
-the compiler on 2026-10-10.
+A change that implements or alters a proposed design updates that proposal's
+status block in the same change. A proposal that is superseded or abandoned, or
+that only records completed work, is deleted; Git history keeps it. Statuses
+were last reconciled with the compiler on 2026-10-10.
 
 ## Implemented
 
@@ -59,12 +58,5 @@ the compiler on 2026-10-10.
 
 | Proposal | Backlog |
 | --- | --- |
-| [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | None |
+| [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | B36 |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
-
-## Superseded and historical
-
-| Proposal | Status |
-| --- | --- |
-| [Ownership and reclamation proposal](ownership.md) | Superseded by [references and explicit copying](references-and-copying.md) |
-| [Foundation batch history](next-work-queue.md) | Historical record |

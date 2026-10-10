@@ -3,8 +3,9 @@
 > **Status: Implemented.** Model A was accepted and shipped: mutable values
 > move, borrows are checked, and copying is explicit. The
 > [ownership reference](../design/language/05-ownership/index.md) owns the
-> contract. This supersedes the independent collection values of the original
-> [ownership proposal](ownership.md). Model B below is the rejected alternative.
+> contract. This superseded the original ownership proposal, which copied
+> collections on update; that page was removed. Model B below is the rejected
+> alternative.
 >
 > **Shipped beyond this text:** [returned references](../design/language/05-ownership/04-returned-references.md),
 > field and element projections, [reference rebinding](../design/language/05-ownership/03-reference-rebinding.md),
