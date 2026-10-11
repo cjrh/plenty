@@ -26,21 +26,45 @@ implicitly convert, and this does not introduce higher-rank polymorphism.
 [Generic inference](../07-generics/inference.md) also works inside callable
 inputs and results.
 
-Multiline anonymous functions use `def(parameters) -> T:` with an indented body:
+An anonymous function is `def(parameters) -> T:` followed by a body. Its
+position fixes the form of the body: outside brackets the body is an indented
+block; inside `()`, `[]`, or `{}` it is one expression, whose value is returned.
 
 ```plenty
+def apply(f: Callable[[i64], i64], value: i64) -> i64:
+    f(value)
+
 def main() -> Result[(), Failure]:
     twice = def(value: i64) -> i64:
         value * 2
     print(twice(3))?
+    print(apply(def(value: i64) -> i64: value + 1, 3))?
     Ok(())
 ```
+
+The one-expression body is the final expression of a block, so both forms
+create the same value and follow the same type, capture, and ownership rules.
+Only the layout differs:
+
+- The expression extends as far as it can and ends at the `,` or closing
+  bracket of the enclosing element. Line breaks inside brackets do not end it.
+- Statements have no one-expression form: `return`, a binding, an assignment,
+  or a second expression is rejected. Give such a function an indented body and
+  bind it to a name first.
+- A string body is the returned value, not documentation.
+- Outside brackets a body on the `def` line is rejected. Parentheses are
+  brackets: `twice = (def(value: i64) -> i64: value * 2)`.
+
+In both forms an anonymous function must be a complete expression: a bound or
+returned value, an argument, an element, or the contents of parentheses. As the
+operand of an operator, including `&` and `&mut`, it needs parentheses:
+`&(def [offset](value: i64) -> i64: value + offset)`. Parameter and result types
+are always written. `lambda` is reserved and rejected with the `def` spelling.
 
 Capture-free anonymous functions have ordinary `Callable` types, can nest, and
 can be returned. Their parameters and locals form a separate scope; enclosing
 generic type parameters are substituted. Implicit capture of an enclosing
-local, including one shadowing a module function, is rejected. Indented anonymous
-bodies inside delimiters are unsupported. Use an explicit
+local, including one shadowing a module function, is rejected. Use an explicit
 [capture list](03-closures.md) for environments.
 
 `Callable` signatures exclude generator frames and closure environment values.

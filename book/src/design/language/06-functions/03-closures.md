@@ -1,7 +1,9 @@
 # Closure environments
 
 `def [captures](parameters) -> T:` creates a reusable concrete environment.
-Captures are explicit; no implicit deep copy occurs.
+Captures are explicit; no implicit deep copy occurs. The body takes either
+[anonymous function form](02-function-values.md): an indented block outside
+brackets, one expression inside them.
 
 | Capture | Access inside the body |
 | --- | --- |

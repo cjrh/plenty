@@ -6,9 +6,7 @@ the worker also moves those inputs into its result.
 ```plenty
 def main() -> Result[(), Failure]:
     values = [3, 4]?
-    job = def once [values]() -> list[i64]:
-        values
-    with spawn(job)? as task:
+    with spawn(def once [values]() -> list[i64]: values)? as task:
         print(task.join())?
     Ok(())
 ```
