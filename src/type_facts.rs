@@ -379,7 +379,8 @@ mod tests {
             Ty::Ref(Rc::new(Ty::I64), false),
             Ty::Channel(Rc::new(Ty::I64), true),
             Ty::Future(Rc::new(Ty::I64)),
-            Ty::Callable(Rc::new(signature)),
+            Ty::Callable(Rc::new(signature.clone())),
+            Ty::BoxedCallable(Rc::new(signature)),
             Ty::Closure(Rc::new(closure)),
             Ty::Generator(Rc::new(crate::generator::GeneratorType {
                 element: list(&Ty::I64),
