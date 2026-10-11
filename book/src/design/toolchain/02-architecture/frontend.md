@@ -9,6 +9,8 @@ rejected without recursive traversal of long chains.
 Nominal definitions reserve identities before resolving fields. Weak stored
 edges and table-owning handles represent recursive type graphs without compiler
 memory cycles. Concrete type facts and native metadata use finite graph walks.
+A complete class or enum caches its facts; a collection or box combines its
+contents' facts instead of walking again.
 Aliases normalize to `Ty` values and generate no runtime operations.
 
 Module loading canonicalizes qualified names and checks imported modules together
