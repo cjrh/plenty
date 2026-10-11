@@ -54,6 +54,37 @@ enum Kind {
     Eof,
 }
 
+/// A diagnostic that keeps its position apart from its text, so that an error
+/// in a generic instance's body can move to the use that required the
+/// instance. It displays as the plain `location: message` text.
+#[derive(Debug)]
+struct Located {
+    location: String,
+    message: String,
+}
+
+impl std::fmt::Display for Located {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.location, self.message)
+    }
+}
+
+impl Error for Located {}
+
+/// A body diagnostic in its final form. Lowering one function can lower
+/// another on demand; the marker stops the outer function from attributing the
+/// inner one's error to its own instantiation.
+#[derive(Debug)]
+struct Attributed(String);
+
+impl std::fmt::Display for Attributed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Error for Attributed {}
+
 #[derive(Clone, Debug)]
 struct Token {
     kind: Kind,
@@ -68,7 +99,10 @@ impl Token {
     }
 
     fn error(&self, message: impl std::fmt::Display) -> Box<dyn Error> {
-        format!("{}: {message}", self.location()).into()
+        Box::new(Located {
+            location: self.location(),
+            message: message.to_string(),
+        })
     }
 
     fn location(&self) -> String {
@@ -2028,7 +2062,7 @@ impl Lower<'_> {
             }
             Expression::GenericCall(name, types, _) => self
                 .generics
-                .explicit_output(name, types, self.aliases)
+                .explicit_output(name, types, self.aliases, &e.at)
                 .filter(Ty::is_numeric),
             Expression::Number(n) if numeric_suffix(n) => {
                 self.number(n, false, &e.at, &mut Vec::new()).ok()
@@ -2247,6 +2281,8 @@ impl Lower<'_> {
                 self.generics
                     .functions
                     .insert(name.clone(), function.clone());
+                self.generics
+                    .inherit_requirement(&self.function_name, &name);
                 self.generics.pending.push_back(function);
                 Some(self.function_value(&name, &e.at, ops)?)
             }
@@ -3422,6 +3458,9 @@ fn register_signature(
     Ok(())
 }
 
+/// Lowers one function. An error in the body of a generic instance is reported
+/// at the use that first required the instance, with the body position in a
+/// note: see `ownership::Instantiation`.
 fn lower_function(
     f: Function,
     heap: &mut Heap,
@@ -3434,6 +3473,36 @@ fn lower_function(
     if generics.completed.contains(&f.name) {
         return Ok(());
     }
+    let required = generics.required.get(&f.name).cloned();
+    let outer = aliases
+        .data
+        .attribute(required.clone().map(data::Requiring::Instance));
+    let lowered = lower_body(f, heap, sigs, generics, aliases, access, returned_fields);
+    aliases.data.attribute(outer);
+    lowered.map_err(|error| {
+        if error.is::<Attributed>() {
+            return error;
+        }
+        let text = match (&required, error.downcast_ref::<Located>()) {
+            (Some(required), Some(error)) => {
+                required.report(&format!("{}: ", error.location), &error.message)
+            }
+            (Some(required), None) => required.report("", &error.to_string()),
+            (None, _) => error.to_string(),
+        };
+        Box::new(Attributed(text)) as Box<dyn Error>
+    })
+}
+
+fn lower_body(
+    f: Function,
+    heap: &mut Heap,
+    sigs: &mut HashMap<String, Rc<FnSig>>,
+    generics: &mut generics::Engine,
+    aliases: &TypeAliases,
+    access: &modules::AccessMap,
+    returned_fields: &mut HashMap<String, Vec<usize>>,
+) -> Result<()> {
     if !generics.active.insert(f.name.clone()) {
         return Err(f.at.error("recursive generator factory requires a concrete return type; recursive inline frames are not supported"));
     }
@@ -3597,6 +3666,7 @@ fn lower_function(
         origins: Rc::new(crate::ownership::Origins {
             source: f.at.source.clone(),
             names: lower.slot_names,
+            required: lower.generics.required.get(&f.name).cloned(),
         }),
         generator: yield_type,
         sig,

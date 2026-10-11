@@ -1,7 +1,8 @@
 //! Execute the learner's guide and supplementary reference examples:
 //! `plenty` fences require
-//! `output` fences; `plenty-error` fences require an `error` diagnostic
-//! substring. Preceding `plenty-file path.plenty` fences on the same page
+//! `output` fences; `plenty-error` fences require an `error` fence whose every
+//! line is a substring of the diagnostic, so a lesson can show a diagnostic's
+//! note without the temporary path between its lines. Preceding `plenty-file path.plenty` fences on the same page
 //! supply modules for that one example.
 //! `sh plenty-build` fences run explicit library/interface build commands.
 use std::path::{Path, PathBuf};
@@ -303,12 +304,14 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
                         source.line
                     );
                     assert!(output.stdout.is_empty(), "invalid program had effects");
-                    assert!(
-                        String::from_utf8_lossy(&output.stderr).contains(message),
-                        "{} {backend}: expected {message:?}, got {}",
-                        source.line,
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    for line in message.lines().map(str::trim) {
+                        assert!(
+                            stderr.contains(line),
+                            "{} {backend}: expected {line:?}, got {stderr}",
+                            source.line
+                        );
+                    }
                 }
                 assert!(!executable.exists());
             }

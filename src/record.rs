@@ -39,6 +39,10 @@ impl Hash for ClassType {
 pub fn method(class: &str, method: &str) -> String {
     format!("__plenty_class_{}.{}", class, method)
 }
+/// A method symbol as `Class.method`, for diagnostics.
+pub fn method_display(symbol: &str) -> &str {
+    symbol.strip_prefix("__plenty_class_").unwrap_or(symbol)
+}
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClassOp {
     /// Zeroed inline storage, before `__init__` initializes the fields.
