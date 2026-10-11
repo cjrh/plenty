@@ -7,7 +7,7 @@ method names. Their contracts complement the language rules for
 [iteration](../../language/09-iteration/index.md).
 
 - [Numbers](numbers.md): parsing, checked integer conversion, limits and
-  constants, `abs`/`min`/`max`/`sum`, powers, float functions, and scalar
+  constants, powers, float functions, and scalar
   formatting.
 - [Formatting](formatting.md): representations and printed values.
 - [Tuples](tuples.md): fixed products and component access.

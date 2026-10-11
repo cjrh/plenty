@@ -16,13 +16,8 @@ pub enum FloatOp {
     Fmod = 7,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NumericOp {
-    /// `T -> T`. The minimum of a signed integer type traps as overflow.
-    Abs,
-    /// `T T -> T`. A NaN operand gives NaN.
-    Min,
-    Max,
     /// `T T -> T`. An integer result outside `T` and a negative integer
     /// exponent trap; floats follow the platform `pow`.
     Pow,
@@ -30,41 +25,22 @@ pub enum NumericOp {
     Sqrt,
     /// `F -> F`, or `F F -> F` for `Pow` and `Fmod`.
     Float(FloatOp),
-    /// A list of numbers, or a shared reference to one when `borrowed`, to
-    /// the checked sum of its elements in order, starting from zero.
-    ListSum {
-        element: Ty,
-        borrowed: bool,
-    },
 }
 
 impl NumericOp {
-    /// Number of same-typed operands; `ListSum` takes its one list instead.
+    /// Number of same-typed operands.
     fn operands(&self) -> usize {
         match self {
-            Self::Min | Self::Max | Self::Pow | Self::Float(FloatOp::Pow | FloatOp::Fmod) => 2,
-            _ => 1,
+            Self::Pow | Self::Float(FloatOp::Pow | FloatOp::Fmod) => 2,
+            Self::Sqrt | Self::Float(_) => 1,
         }
     }
 
     pub fn check(&self, stack: &mut Vec<Ty>) -> Result<(), String> {
-        if let Self::ListSum { element, borrowed } = self {
-            let list = Ty::List(std::rc::Rc::new(element.clone()));
-            let input = if *borrowed {
-                Ty::Ref(std::rc::Rc::new(list), false)
-            } else {
-                list
-            };
-            if !element.is_numeric() || stack.pop() != Some(input) {
-                return Err("sum requires a list of numbers".into());
-            }
-            stack.push(element.clone());
-            return Ok(());
-        }
         let ty = stack.pop().ok_or("numeric operation stack underflow")?;
         let accepted = match self {
             Self::Sqrt | Self::Float(_) => ty.is_float(),
-            _ => ty.is_numeric(),
+            Self::Pow => ty.is_numeric(),
         };
         if !accepted {
             return Err(format!("numeric operation does not accept {ty}"));

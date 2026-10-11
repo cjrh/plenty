@@ -87,16 +87,16 @@ def main() -> Result[(), Failure]:
     // Found while lowering the body.
     assert_eq!(
         rejection(
-            "def add[T](a: T, b: T) -> T:
+            "def sum[T](a: T, b: T) -> T:
     a + b
 
 def main() -> ():
-    x = add[u8](1, 2)
-    y = add[bool](True, False)
+    x = sum[u8](1, 2)
+    y = sum[bool](True, False)
 "
         ),
-        "6:9: cannot instantiate `add[bool]`: its definition is rejected
-  2:5: note: in instantiation `add[bool]`: operator `+` does not accept bool"
+        "6:9: cannot instantiate `sum[bool]`: its definition is rejected
+  2:5: note: in instantiation `sum[bool]`: operator `+` does not accept bool"
     );
     // Found by tail-call validation, after every body is lowered.
     assert_eq!(

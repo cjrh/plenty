@@ -1,6 +1,5 @@
-//! Numeric built-ins: `abs`, `min`, `max`, `sum`, the methods on a number,
-//! the constants `T.MIN`, `T.MAX`, `T.PI`, and `T.E`, and the `FloatType`
-//! constraint (issue #34).
+//! Numeric built-ins: the methods on a number, the constants `T.MIN`,
+//! `T.MAX`, `T.PI`, and `T.E`, and the `FloatType` constraint (issue #34).
 mod support;
 use rstest::rstest;
 
@@ -116,147 +115,12 @@ fn unknown_constants_are_rejected(#[case] body: &str, #[case] expected: &str) {
 }
 
 #[test]
-fn abs_min_and_max_keep_the_operand_type() {
-    assert_lines(
-        "def largest[T: IntType](a: T, b: T) -> T:\n    max(a, b)\n",
-        "    low = -3\n    half = -2.5\n    r = &low\n",
-        &[
-            ("abs(low)", "3"),
-            ("abs(3)", "3"),
-            ("abs(half)", "2.5"),
-            ("abs(-0.0)", "0.0"),
-            ("abs(-1.5f32)", "1.5"),
-            ("abs(7u8)", "7"),
-            ("abs(i64.MIN + 1)", "9223372036854775807"),
-            ("abs(-127i8)", "127"),
-            ("abs(*r)", "3"),
-            ("min(low, 2)", "-3"),
-            ("max(low, 2)", "2"),
-            ("min(200u8, 100u8)", "100"),
-            ("max(200u8, 100u8)", "200"),
-            ("max(-1i8, 1i8)", "1"),
-            ("min(u64.MAX, 1u64)", "1"),
-            ("min(1.5, 2.5)", "1.5"),
-            ("max(1.0f32, 2.0f32)", "2.0"),
-            ("min(max(low, 0), 10)", "0"),
-            ("min(low, 4) + 1", "-2"),
-            ("largest(3u8, 9u8)", "9"),
-            ("largest(-3, -9)", "-3"),
-        ],
-    );
-}
-
-#[test]
-fn literals_take_their_type_from_the_other_operand_or_the_annotation() {
+fn a_literal_exponent_takes_the_receiver_type() {
     assert_lines(
         "",
-        "    a: u8 = abs(5)\n    b: f32 = min(1.5, 2.5)\n    c: u8 = max(3, 9)\n    d = max(1, 2) + 3u16\n    e = 1u8 + abs(3) + min(4, 5)\n    n = 3u8\n    f: u8 = n.pow(2)\n",
-        &[
-            ("a", "5"),
-            ("b", "1.5"),
-            ("c", "9"),
-            ("d", "5"),
-            ("e", "8"),
-            ("f", "9"),
-        ],
+        "    n = 3u8\n    square: u8 = n.pow(2)\n    below = u8.MAX - 5\n",
+        &[("square", "9"), ("below", "250"), ("1u8 + n.pow(2)", "10")],
     );
-}
-
-#[test]
-fn float_min_and_max_propagate_nan_and_order_the_zeros() {
-    assert_lines(
-        "",
-        "    zero = 0.0\n    nan = zero / zero\n",
-        &[
-            ("min(nan, 1.0)", "NaN"),
-            ("min(1.0, nan)", "NaN"),
-            ("max(nan, 1.0)", "NaN"),
-            ("max(1.0, nan)", "NaN"),
-            ("min(0.0, -0.0)", "-0.0"),
-            ("min(-0.0, 0.0)", "-0.0"),
-            ("max(0.0, -0.0)", "0.0"),
-            ("max(-0.0, 0.0)", "0.0"),
-            ("abs(nan)", "NaN"),
-            ("abs(-1.0 / zero)", "inf"),
-        ],
-    );
-}
-
-#[rstest]
-#[case(
-    "    x = min(1, 2.0)\n",
-    "2:13: cannot combine i64 with f64; convert with `f64(1)`"
-)]
-#[case(
-    "    a = 1u8\n    x = max(a, 2i16)\n",
-    "3:13: cannot combine u8 with i16; convert with `i16(a)`"
-)]
-#[case(
-    "    x = min(1, 2, 3)\n",
-    "2:9: min takes two numbers of one type; nest calls for more, and use a loop over a collection"
-)]
-#[case(
-    "    xs = [1, 2].unwrap()\n    x = max(xs)\n",
-    "3:9: max takes two numbers of one type; nest calls for more, and use a loop over a collection"
-)]
-#[case("    x = max(\"a\", \"b\")\n", "2:13: max requires numbers, got str")]
-#[case("    x = abs()\n", "2:9: abs takes one number")]
-#[case("    x = abs(1, 2)\n", "2:9: abs takes one number")]
-#[case("    x = abs(\"x\")\n", "2:13: abs requires a number, got str")]
-#[case("    x = abs(True)\n", "2:13: abs requires a number, got bool")]
-fn abs_min_and_max_reject_other_operands(#[case] body: &str, #[case] expected: &str) {
-    assert_eq!(rejection(body), expected);
-}
-
-#[test]
-fn sum_adds_a_list_from_zero_and_leaves_it_usable() {
-    assert_lines(
-        "class Scores:\n    values: list[u8]\ndef total(xs: &list[i64]) -> i64:\n    sum(xs)\n",
-        "    xs = [1, 2, 3]?\n    halves = [1.5, 2.5]?\n    small: list[f32] = [0.5, 0.25]?\n    no_ints: list[u8] = list()?\n    no_floats: list[f64] = list()?\n    scores = Scores([200, 55]?)\n    rows = [[1.5, 2.0]?, [4.0]?]?\n    r = &xs\n    mixed = [100i8, -100i8, 100i8]?\n",
-        &[
-            ("sum(xs)", "6"),
-            ("sum(xs)", "6"),
-            ("len(xs)", "3"),
-            ("total(&xs)", "6"),
-            ("sum(r)", "6"),
-            ("sum(halves)", "4.0"),
-            ("sum(small)", "0.75"),
-            ("sum(no_ints)", "0"),
-            ("sum(no_floats)", "0.0"),
-            ("sum(scores.values)", "255"),
-            ("sum(rows[0])", "3.5"),
-            ("sum([1u8, 2u8]?)", "3"),
-            ("sum([i * i for i in range(4)]?)", "14"),
-            ("sum(mixed)", "100"),
-            ("sum(xs) + 1", "7"),
-        ],
-    );
-}
-
-#[rstest]
-#[case("    x = sum()\n", "2:9: sum takes one list of numbers")]
-#[case(
-    "    xs = [1, 2].unwrap()\n    x = sum(xs, 0)\n",
-    "3:9: sum takes one list of numbers"
-)]
-#[case(
-    "    x = sum(range(4))\n",
-    "2:13: sum requires a list of numbers, got range; add other values in a loop"
-)]
-#[case(
-    "    xs = [\"a\", \"b\"].unwrap()\n    x = sum(xs)\n",
-    "3:13: sum requires a list of numbers, got list[str]; add other values in a loop"
-)]
-#[case(
-    "    xs = {1, 2}.unwrap()\n    x = sum(xs)\n",
-    "3:13: sum requires a list of numbers, got set[i64]; add other values in a loop"
-)]
-#[case(
-    "    x = sum(3)\n",
-    "2:13: sum requires a list of numbers, got i64; add other values in a loop"
-)]
-fn sum_rejects_other_arguments(#[case] body: &str, #[case] expected: &str) {
-    assert_eq!(rejection(body), expected);
 }
 
 #[test]
@@ -364,11 +228,6 @@ fn numeric_methods_reject_other_operands(#[case] body: &str, #[case] expected: &
 }
 
 #[rstest]
-#[case::abs_of_the_minimum("    low = i64.MIN\n    print(abs(low))?\n", "3:11: integer overflow")]
-#[case::abs_of_a_narrow_minimum(
-    "    low = i8.MIN\n    print(abs(low))?\n",
-    "3:11: integer overflow"
-)]
 #[case::pow("    n = 2\n    print(1 + n.pow(63))?\n", "3:15: integer overflow")]
 #[case::unsigned_pow("    n = 16u8\n    print(n.pow(2))?\n", "3:11: integer overflow")]
 #[case::pow_below_the_minimum("    n = -2i8\n    print(n.pow(8))?\n", "3:11: integer overflow")]
@@ -376,48 +235,45 @@ fn numeric_methods_reject_other_operands(#[case] body: &str, #[case] expected: &
     "    n = 2\n    print(n.pow(0 - 1))?\n",
     "3:11: negative integer exponent"
 )]
-#[case::sum(
-    "    xs = [i64.MAX, 1]?\n    print(sum(xs))?\n",
-    "3:11: integer overflow"
-)]
-#[case::unsigned_sum(
-    "    xs = [200u8, 100u8]?\n    print(sum(xs))?\n",
-    "3:11: integer overflow"
-)]
-#[case::sum_adds_in_order(
-    "    xs = [100i8, 100i8, -100i8]?\n    print(sum(xs))?\n",
-    "3:11: integer overflow"
-)]
 fn integer_results_outside_the_type_trap(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(trap(body), expected);
 }
 
 #[test]
-fn locals_and_class_methods_may_reuse_the_names() {
+fn class_methods_may_reuse_the_method_names() {
     assert_lines(
-        "class Account:\n    total: i64\n    def sum(self) -> i64:\n        self.total\n    def pow(self, n: i64) -> i64:\n        self.total * n\n    def sqrt(self) -> i64:\n        0\n",
-        "    account = Account(4)\n    sum = 10\n    min = 1\n    max = sum + min\n    abs = max\n",
+        "class Account:\n    total: i64\n    def pow(self, n: i64) -> i64:\n        self.total * n\n    def sqrt(self) -> i64:\n        0\n",
+        "    account = Account(4)\n",
+        &[("account.pow(3)", "12"), ("account.sqrt()", "0")],
+    );
+}
+
+/// `abs`, `min`, `max`, and `sum` are not built in, so a program may define
+/// them.
+#[test]
+fn programs_may_define_abs_min_max_and_sum() {
+    assert_lines(
+        "def abs(x: i64) -> i64:\n    if x < 0:\n        return 0 - x\n    x\ndef min(a: i64, b: i64) -> i64:\n    if a < b:\n        return a\n    b\ndef max(a: i64, b: i64) -> i64:\n    if a > b:\n        return a\n    b\ndef sum(xs: &list[i64]) -> i64:\n    mut total = 0\n    for x in xs:\n        total = total + *x\n    total\n",
+        "    xs = [3, -4, 5]?\n",
         &[
-            ("account.sum()", "4"),
-            ("account.pow(3)", "12"),
-            ("account.sqrt()", "0"),
-            ("abs", "11"),
+            ("abs(-7)", "7"),
+            ("min(3, -4)", "-4"),
+            ("max(3, -4)", "3"),
+            ("sum(&xs)", "4"),
+            ("max(abs(min(-9, 2)), sum(&xs))", "9"),
         ],
     );
 }
 
 #[rstest]
-#[case("abs")]
-#[case("min")]
-#[case("max")]
-#[case("sum")]
-fn top_level_definitions_cannot_take_a_builtin_name(#[case] name: &str) {
-    let error = support::check_source(&format!(
-        "def {name}(x: i64) -> i64:\n    x\ndef main() -> ():\n    pass\n"
-    ))
-    .unwrap_err()
-    .to_string();
-    assert!(error.contains("cannot redefine a builtin"), "{error}");
+#[case("abs(1)")]
+#[case("min(1, 2)")]
+#[case("max(1, 2)")]
+#[case("sum(xs)")]
+fn abs_min_max_and_sum_are_not_built_in(#[case] call: &str) {
+    let error = rejection(&format!("    xs = [1, 2].unwrap()\n    x = {call}\n"));
+    let name = &call[..3];
+    assert_eq!(error, format!("3:9: unknown function `{name}`"));
 }
 
 #[test]

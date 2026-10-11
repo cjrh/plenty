@@ -62,7 +62,7 @@ Floats support `+`, `-`, `*`, `/`, unary signs, and comparisons.
 `//` and `%` currently require integers. Floats cannot be dictionary keys or set elements. Float literals that overflow their declared width are compile errors.
 
 Math functions are methods on a float, and each float type provides the
-constants `PI` and `E`. `abs`, `min`, and `max` accept floats too:
+constants `PI` and `E`:
 
 ```plenty
 def main() -> Result[(), IoError]:
@@ -74,8 +74,6 @@ def main() -> Result[(), IoError]:
     print((2.5).floor())?
     print((2.5).ceil())?
     print((7.5).fmod(2.0))?
-    print(abs(-1.5))?
-    print(max(1.5f32, 0.25f32))?
     Ok(())
 ```
 
@@ -86,8 +84,6 @@ def main() -> Result[(), IoError]:
 1.0
 2.0
 3.0
-1.5
-1.5
 1.5
 ```
 

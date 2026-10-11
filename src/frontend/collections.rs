@@ -488,12 +488,6 @@ impl Lower<'_> {
             }
             Expression::Tuple(values) => self.tuple(values, expected, &e.at, ops).map(Some),
             Expression::Call(name, args)
-                if numeric::function(name) && !self.names.contains_key(name) =>
-            {
-                self.numeric_call(name, args, expected, &e.at, ops)
-                    .map(Some)
-            }
-            Expression::Call(name, args)
                 if enums::prelude_variant(name) && !self.names.contains_key(name) =>
             {
                 self.prelude_constructor(name, Some(args), expected, &e.at, ops)

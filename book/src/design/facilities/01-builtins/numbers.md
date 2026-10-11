@@ -54,32 +54,6 @@ a value of type `T`, so `u8.MAX - small` needs no cast. A float type has no
 upper-case; any other name after a numeric type is a compile-time error that
 lists these four.
 
-## Absolute value, minimum, and maximum
-
-`abs(x)` takes one number and returns its magnitude in the same type. The
-minimum of a signed integer type has no magnitude in that type, so
-`abs(i64.MIN)` is the `integer overflow` runtime error that `-i64.MIN` is. On an
-unsigned integer `abs` returns its operand.
-
-`min(a, b)` and `max(a, b)` take exactly two numbers of one type and return one
-of them. Operands of different numeric types are rejected with the cast that
-reconciles them, as arithmetic operands are. Calls nest for more values, as in
-`min(a, min(b, c))`; a collection needs a loop. For floats, a NaN operand gives
-NaN, and `-0.0` is below `0.0`.
-
-## Sum
-
-`sum(xs)` takes one list of numbers and returns the total in the element type.
-It starts from zero and adds the elements in order, so an empty list gives `0`
-or `0.0`. Integer addition is checked at every step: a partial total outside
-the element type is the `integer overflow` runtime error even when the full
-total would fit. Float addition follows IEEE 754. `sum` observes its list, as
-`len` does, and allocates nothing. Other collections and ranges, and lists of
-other element types, are compile-time errors; add those in a loop.
-
-`abs`, `min`, `max`, and `sum` are built-in names: a top-level declaration
-cannot take one, and a local binding can.
-
 ## Powers
 
 `base.pow(exponent)` is defined on every numeric type and takes one exponent of

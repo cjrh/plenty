@@ -1907,10 +1907,6 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "tuple"
                 | "IntType"
                 | "FloatType"
-                | "abs"
-                | "min"
-                | "max"
-                | "sum"
                 | "next"
                 | "copy"
                 | "drop"
@@ -2854,9 +2850,6 @@ impl Lower<'_> {
                         kind: Expression::Name(name.clone()),
                     };
                     return self.call_value(&callee, args, ops);
-                }
-                if numeric::function(name) {
-                    return self.numeric_call(name, args, None, &e.at, ops).map(Some);
                 }
                 if name == "print" {
                     if self.names.contains_key(name) {

@@ -66,25 +66,3 @@ def main() -> Result[(), Failure]:
 10
 [31, 10, 20]
 ```
-
-`sum` adds a list of numbers. It starts from zero, leaves the list usable, and
-checks integer overflow at every addition:
-
-```plenty
-def main() -> Result[(), Failure]:
-    prices = [250, 120, 30]?
-    weights = [0.5, 0.25]?
-    empty: list[u8] = list()?
-    print(sum(prices))?
-    print(sum(weights))?
-    print(sum(empty))?
-    print(len(prices))?
-    Ok(())
-```
-
-```output
-400
-0.75
-0
-3
-```
