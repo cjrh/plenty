@@ -1,5 +1,6 @@
 //! `match` patterns: type arguments come from the matched value, payload
-//! positions nest, and `|` joins alternatives (issue #36).
+//! positions nest, `|` joins alternatives, and literals match integers,
+//! strings, and booleans (issue #36).
 mod support;
 
 fn runs(source: &str, expected: &str) {
@@ -782,7 +783,7 @@ fn payload_positions_take_only_patterns() {
     );
     assert_eq!(
         rejects("Shape", "case other:\n    0"),
-        "13:14: qualify user-defined variants with their enum type"
+        "13:14: a case cannot bind the whole value to `other`; match any value with `_`, or qualify a variant with its enum type"
     );
     assert_eq!(
         rejects("Option[i64]", "case Some(Shape.Dot):\n    0\ncase _:\n    1"),
@@ -796,10 +797,6 @@ fn payload_positions_take_only_patterns() {
         "13:19: case `Rect` requires 2 payload bindings (no parentheses for nullary variants)"
     );
     assert_eq!(
-        rejects("Option[i64]", "case Some(3):\n    0\ncase _:\n    1"),
-        "13:19: literal patterns are not supported; `match` selects enum variants, so compare other values with an `if`/`elif` chain"
-    );
-    assert_eq!(
         rejects("Option[Option[i64]]", "case Some(Some(mut v)):\n    0\ncase _:\n    1"),
         "13:24: payload bindings cannot be declared `mut`; bind the payload and move it into a mutable local in the arm, as in `mut local = payload`, or match `&mut value` to change it in place"
     );
@@ -809,6 +806,618 @@ fn payload_positions_take_only_patterns() {
             "case Some((a, b)):\n    0\ncase _:\n    1"
         ),
         "13:19: tuple patterns are not supported; bind the tuple and unpack it in the arm"
+    );
+}
+
+#[test]
+fn literals_select_integers_strings_and_booleans() {
+    runs(
+        r#"enum Shape:
+    Dot
+    Circle(i64)
+    Rect(i64, i64)
+enum Token:
+    Word(str)
+    Number(u8)
+    Flag(bool)
+    Boxed(Box[i64])
+
+def op(name: str) -> i64:
+    match name:
+        case "cpy":
+            1
+        case "inc" | "dec":
+            2
+        case _:
+            0
+
+def small(n: i64) -> str:
+    match n:
+        case 0:
+            "zero"
+        case -1:
+            "minus one"
+        case 1 | 2 | 3:
+            "few"
+        case _:
+            "many"
+
+def flag(b: bool) -> str:
+    match b:
+        case True:
+            "yes"
+        case False:
+            "no"
+
+def byte(b: u8) -> str:
+    match b:
+        case 255:
+            "max"
+        case 0u8:
+            "min"
+        case _:
+            "mid"
+
+def token(t: Token) -> str:
+    match t:
+        case Token.Word("if" | "else"):
+            "keyword"
+        case Token.Word(w):
+            w
+        case Token.Number(0):
+            "zero"
+        case Token.Number(_):
+            "number"
+        case Token.Flag(True):
+            "on"
+        case Token.Flag(False):
+            "off"
+        case Token.Boxed(7):
+            "seven"
+        case Token.Boxed(_):
+            "boxed"
+
+def borrowed(t: &Token) -> i64:
+    match t:
+        case Token.Word("if"):
+            1
+        case Token.Word(w):
+            len(w)
+        case Token.Number(3):
+            3
+        case _:
+            0
+
+def area(shape: Option[Shape]) -> i64:
+    match shape:
+        case Some(Shape.Rect(0, _) | Shape.Rect(_, 0)):
+            0
+        case Some(Shape.Rect(w, h)):
+            w * h
+        case Some(Shape.Circle(1)):
+            3
+        case Some(Shape.Circle(r)):
+            3 * r * r
+        case Some(Shape.Dot) | Nothing:
+            -1
+
+def by_ref(n: &i64, s: &str) -> i64:
+    match n:
+        case 5:
+            match s:
+                case "five":
+                    55
+                case _:
+                    5
+        case _:
+            0
+
+def main() -> Result[(), Failure]:
+    print(op("cpy"))?
+    print(op("dec"))?
+    print(op("zzz"))?
+    print(small(0))?
+    print(small(-1))?
+    print(small(3))?
+    print(small(99))?
+    print(flag(True))?
+    print(flag(False))?
+    print(byte(255u8))?
+    print(byte(0u8))?
+    print(byte(7u8))?
+    print(token(Token.Word("else")))?
+    print(token(Token.Word("name")))?
+    print(token(Token.Number(0u8)))?
+    print(token(Token.Number(9u8)))?
+    print(token(Token.Flag(True)))?
+    print(token(Token.Flag(False)))?
+    print(token(Token.Boxed(Box(7)?)))?
+    print(token(Token.Boxed(Box(8)?)))?
+    w = Token.Word("hello")
+    print(borrowed(&w))?
+    print(borrowed(&Token.Word("if")))?
+    print(borrowed(&Token.Number(3u8)))?
+    print(area(Some(Shape.Rect(0, 4))))?
+    print(area(Some(Shape.Rect(4, 0))))?
+    print(area(Some(Shape.Rect(4, 5))))?
+    print(area(Some(Shape.Circle(1))))?
+    print(area(Some(Shape.Circle(2))))?
+    print(area(Nothing))?
+    five = 5
+    name = "five"
+    print(by_ref(&five, &name))?
+    other = "x"
+    print(by_ref(&five, &other))?
+    Ok(())
+"#,
+        r#"1
+2
+0
+zero
+minus one
+few
+many
+yes
+no
+max
+min
+mid
+keyword
+name
+zero
+number
+on
+off
+seven
+boxed
+5
+1
+3
+0
+0
+20
+3
+12
+-1
+55
+5
+"#,
+    );
+}
+
+#[test]
+fn literals_match_payloads_of_owned_and_borrowed_values() {
+    runs(
+        r#"enum Instr:
+    Push(i64)
+    Op(str)
+    Pair(i64, list[i64])
+    Jump(str, i64)
+
+class Machine:
+    mode: str
+    count: u16
+
+def run(program: &list[Instr]) -> Result[i64, Failure]:
+    mut stack: list[i64] = []?
+    mut total = 0
+    for instr in program:
+        match instr:
+            case Instr.Push(0):
+                continue
+            case Instr.Push(n):
+                stack.append(*n)?
+            case Instr.Op("add"):
+                total = total + 1
+            case Instr.Op("stop"):
+                break
+            case Instr.Op(_):
+                total = total + 100
+            case Instr.Pair(1, items):
+                total = total + len(items)
+            case Instr.Pair(_, _):
+                pass
+            case Instr.Jump("end", 0) | Instr.Jump("stop", _):
+                return Ok(-1)
+            case Instr.Jump(label, n):
+                total = total + len(label) + *n
+    Ok(total + len(stack))
+
+def bump(instr: &mut Instr) -> ():
+    match instr:
+        case Instr.Push(0):
+            pass
+        case Instr.Push(n):
+            *n = *n + 1
+        case Instr.Jump("a", n):
+            *n = 0
+        case _:
+            pass
+
+def consume(instr: Instr) -> Result[i64, Failure]:
+    match instr:
+        case Instr.Pair(1, items):
+            Ok(len(items))
+        case Instr.Pair(_, items):
+            Ok(0 - len(items))
+        case Instr.Op("x") | Instr.Push(1):
+            Ok(42)
+        case _:
+            Ok(0)
+
+def describe(m: &Machine) -> str:
+    match m.mode:
+        case "run":
+            match m.count:
+                case 0:
+                    "idle run"
+                case _:
+                    "running"
+        case _:
+            "stopped"
+
+def classify(xs: &list[i64]) -> str:
+    match len(xs):
+        case 0:
+            "empty"
+        case 1:
+            "one"
+        case _:
+            match xs[0] == xs[1]:
+                case True:
+                    "same"
+                case False:
+                    "differ"
+
+def words(text: str) -> Result[i64, Failure]:
+    mut n = 0
+    mut i = 0
+    while i < 1000:
+        match text:
+            case "a":
+                n = n + 1
+            case "b":
+                n = n + 2
+            case _:
+                n = n + 3
+        i = i + 1
+    Ok(n)
+
+def main() -> Result[(), Failure]:
+    program = [Instr.Push(0), Instr.Push(5), Instr.Op("add"), Instr.Op("other"), Instr.Pair(1, [1, 2, 3]?), Instr.Pair(2, [1]?), Instr.Jump("abc", 4), Instr.Op("stop"), Instr.Op("add")]?
+    print(run(&program)?)?
+    early = [Instr.Jump("stop", 9)]?
+    print(run(&early)?)?
+    mut a = Instr.Push(1)
+    bump(&mut a)
+    print(a)?
+    mut b = Instr.Jump("a", 7)
+    bump(&mut b)
+    print(b)?
+    mut c = Instr.Push(0)
+    bump(&mut c)
+    print(c)?
+    print(consume(Instr.Pair(1, [1, 2]?))?)?
+    print(consume(Instr.Pair(3, [1, 2]?))?)?
+    print(consume(Instr.Op("x"))?)?
+    print(consume(Instr.Push(1))?)?
+    print(consume(Instr.Push(2))?)?
+    m = Machine("run", 0u16)
+    print(describe(&m))?
+    m2 = Machine("run", 3u16)
+    print(describe(&m2))?
+    m3 = Machine("halt", 3u16)
+    print(describe(&m3))?
+    print(classify(&[]?))?
+    print(classify(&[1]?))?
+    print(classify(&[1, 1]?))?
+    print(classify(&[1, 2]?))?
+    print(words("a")?)?
+    print(words("zz")?)?
+    Ok(())
+"#,
+        r#"112
+-1
+Instr.Push(2)
+Instr.Jump("a", 0)
+Instr.Push(0)
+2
+-2
+42
+42
+0
+idle run
+running
+stopped
+empty
+one
+same
+differ
+1000
+3000
+"#,
+    );
+}
+
+/// A literal test reads a copy of a `str` payload, so a later case can still
+/// bind or move the payload it tested.
+#[test]
+fn literals_leave_heap_strings_for_later_cases() {
+    runs(
+        r#"enum Token:
+    Word(str)
+    Pair(str, list[i64])
+
+def kind(t: Token) -> Result[i64, Failure]:
+    match t:
+        case Token.Word("ab" | "cd"):
+            Ok(1)
+        case Token.Word(w):
+            Ok(len(w))
+        case Token.Pair("ab", items):
+            Ok(len(items))
+        case Token.Pair(_, _):
+            Ok(-1)
+
+def peek(t: &Token) -> i64:
+    match t:
+        case Token.Word("ab"):
+            1
+        case Token.Pair("ab", items):
+            len(items)
+        case _:
+            0
+
+def name(s: str) -> i64:
+    match s:
+        case "ab":
+            1
+        case _:
+            0
+
+def main() -> Result[(), Failure]:
+    a = "a"
+    ab = (a + "b")?
+    print(name((a + "b")?))?
+    print(name((a + "c")?))?
+    print(kind(Token.Word((a + "b")?))?)?
+    print(kind(Token.Word((a + "bcdefghijklmnopqrstuvwxyz")?))?)?
+    print(kind(Token.Pair((a + "b")?, [1, 2]?))?)?
+    print(kind(Token.Pair((a + "z")?, [1, 2]?))?)?
+    t = Token.Pair((a + "b")?, [1, 2, 3]?)
+    print(peek(&t))?
+    print(peek(&t))?
+    w = Token.Word(ab)
+    print(peek(&w))?
+    Ok(())
+"#,
+        r#"1
+0
+1
+26
+2
+-1
+3
+3
+1
+"#,
+    );
+}
+
+#[test]
+fn literals_match_through_references_and_boxes() {
+    runs(
+        r#"def a(n: &mut i64) -> i64:
+    match n:
+        case 1:
+            *n = 10
+            1
+        case _:
+            0
+
+def b(n: Box[i64]) -> i64:
+    match n:
+        case 7:
+            1
+        case _:
+            0
+
+def c(n: &Box[str]) -> i64:
+    match n:
+        case "x":
+            1
+        case _:
+            0
+
+def d(xs: &list[str]) -> Result[i64, Failure]:
+    mut total = 0
+    for x in xs:
+        match x:
+            case "a" | "b":
+                total = total + 1
+            case _:
+                total = total + 10
+    Ok(total)
+
+def main() -> Result[(), Failure]:
+    mut n = 1
+    print(a(&mut n))?
+    print(n)?
+    x = 5
+    match &x:
+        case 5:
+            print("five")?
+        case _:
+            print("other")?
+    match x + 1:
+        case 6:
+            print("six")?
+        case _:
+            print("other")?
+    match 1_000:
+        case 1_000:
+            print("thousand")?
+        case _:
+            print("other")?
+    print(b(Box(7)?))?
+    s = Box("x")?
+    print(c(&s))?
+    print(d(&["a", "b", "c"]?)?)?
+    Ok(())
+"#,
+        "1\n10\nfive\nsix\nthousand\n1\n1\n12\n",
+    );
+}
+
+#[test]
+fn a_match_with_many_literal_cases_compiles() {
+    let mut source = String::from("def pick(name: str) -> i64:\n    match name:\n");
+    for case in 0..2000 {
+        source.push_str(&format!("        case \"op{case}\":\n            {case}\n"));
+    }
+    source.push_str(
+        "        case _:\n            -1\ndef main() -> Result[(), Failure]:\n    print(pick(\"op1999\"))?\n    print(pick(\"op2000\"))?\n    Ok(())\n",
+    );
+    runs(&source, "1999\n-1\n");
+}
+
+#[test]
+fn literal_coverage_is_checked() {
+    for (ty, cases, expected) in [
+        (
+            "i64",
+            "case 1:\n    1",
+            "12:11: non-exhaustive match; cases cannot name every i64 value, so end with `case _:`",
+        ),
+        (
+            "u8",
+            "case 0 | 1:\n    1",
+            "12:11: non-exhaustive match; cases cannot name every u8 value, so end with `case _:`",
+        ),
+        (
+            "str",
+            "case \"a\":\n    1",
+            "12:11: non-exhaustive match; cases cannot name every str value, so end with `case _:`",
+        ),
+        (
+            "&str",
+            "case \"a\":\n    1",
+            "12:11: non-exhaustive match; cases cannot name every str value, so end with `case _:`",
+        ),
+        (
+            "bool",
+            "case True:\n    1",
+            "12:11: non-exhaustive match; missing False",
+        ),
+        (
+            "Option[i64]",
+            "case Some(1):\n    1\ncase Nothing:\n    2",
+            "12:11: non-exhaustive match; missing Some(_)",
+        ),
+        (
+            "Option[bool]",
+            "case Some(True):\n    1\ncase Nothing:\n    2",
+            "12:11: non-exhaustive match; missing Some(False)",
+        ),
+        (
+            "Choice[str]",
+            "case Choice.Two(\"a\", _):\n    1\ncase Choice.One(_) | Choice.Empty:\n    2",
+            "12:11: non-exhaustive match; missing Choice.Two(_, _)",
+        ),
+        (
+            "bool",
+            "case True:\n    1\ncase False:\n    2\ncase _:\n    3",
+            "17:9: unreachable case",
+        ),
+        (
+            "i64",
+            "case 1:\n    1\ncase 1:\n    2\ncase _:\n    3",
+            "15:9: unreachable case",
+        ),
+        (
+            "i64",
+            "case 1 | 2:\n    1\ncase 2 | 3:\n    2\ncase _:\n    3",
+            "15:14: unreachable `|` alternative: earlier patterns already match every value it names",
+        ),
+        (
+            "str",
+            "case _:\n    1\ncase \"a\":\n    2",
+            "15:9: unreachable case",
+        ),
+        (
+            "Option[i64]",
+            "case Some(n):\n    n\ncase Some(1):\n    1\ncase Nothing:\n    2",
+            "15:9: unreachable case",
+        ),
+    ] {
+        assert_eq!(rejects(ty, cases), expected, "{ty}: {cases}");
+    }
+}
+
+#[test]
+fn a_literal_takes_the_type_of_the_value_it_matches() {
+    for (ty, pattern, expected) in [
+        (
+            "i64",
+            "\"a\"",
+            "a string pattern cannot match a value of type i64",
+        ),
+        (
+            "i64",
+            "True",
+            "a boolean pattern cannot match a value of type i64",
+        ),
+        (
+            "str",
+            "1",
+            "an integer pattern cannot match a value of type str",
+        ),
+        (
+            "Shape",
+            "1",
+            "an integer pattern cannot match a value of type Shape",
+        ),
+        (
+            "i64",
+            "Shape.Dot",
+            "a variant pattern cannot match a value of type i64",
+        ),
+        (
+            "i64",
+            "Some(n)",
+            "a variant pattern cannot match a value of type i64",
+        ),
+        ("u8", "256", "integer literal out of range for u8"),
+        (
+            "u8",
+            "-1",
+            "a negative pattern cannot match a value of type u8",
+        ),
+        ("i8", "-129", "integer literal out of range for i8"),
+        (
+            "u8",
+            "1i64",
+            "this pattern has type i64, but the value it matches has type u8",
+        ),
+        (
+            "i64",
+            "9223372036854775808",
+            "integer literal out of range for i64",
+        ),
+    ] {
+        assert_eq!(
+            rejects(ty, &format!("case {pattern}:\n    0\ncase _:\n    1")),
+            format!("13:14: {expected}"),
+            "{ty}: {pattern}"
+        );
+    }
+    assert_eq!(
+        rejects("Option[i64]", "case Some(\"a\"):\n    0\ncase _:\n    1"),
+        "13:19: a string pattern cannot match a value of type i64"
+    );
+    runs(
+        "def f(value: i64) -> i64:\n    match value:\n        case -9223372036854775808 | 0i64 | 9223372036854775807:\n            0\n        case _:\n            1\ndef main() -> Result[(), Failure]:\n    print((f(-9223372036854775807 - 1), f(5)))?\n    Ok(())\n",
+        "(0, 1)\n",
     );
 }
 

@@ -1,6 +1,6 @@
 //! `match` patterns: their syntax, the check against the matched type, and the
-//! decision tree that tests each variant tag at most once per path. The
-//! reference is `book/src/design/language/04-expressions/matching.md`.
+//! decision tree that tests each variant tag and each literal at most once per
+//! path. The reference is `book/src/design/language/04-expressions/matching.md`.
 use super::*;
 use crate::boxed::BoxOp;
 use crate::nominal::Nominal;
@@ -28,6 +28,15 @@ pub(super) enum PatKind {
     /// and payload patterns (absent without parentheses).
     Variant(Option<Box<TypeRef>>, String, Option<Vec<Pat>>),
     Or(Vec<Pat>),
+    Literal(Literal),
+}
+
+#[derive(Clone)]
+pub(super) enum Literal {
+    /// The digits as written, with any suffix, and whether a `-` precedes them.
+    Integer(String, bool),
+    Text(String),
+    Bool(bool),
 }
 
 impl Pat {
@@ -35,7 +44,7 @@ impl Pat {
     pub(super) fn bindings(&self) -> Vec<&String> {
         fn walk<'a>(pattern: &'a Pat, names: &mut Vec<&'a String>) {
             match &pattern.kind {
-                PatKind::Wildcard => {}
+                PatKind::Wildcard | PatKind::Literal(_) => {}
                 PatKind::Binding(name) => {
                     if !names.contains(&name) {
                         names.push(name);
@@ -63,7 +72,7 @@ impl Pat {
         visit: &mut dyn FnMut(&mut TypeRef) -> Result<()>,
     ) -> Result<()> {
         match &mut self.kind {
-            PatKind::Wildcard | PatKind::Binding(_) => Ok(()),
+            PatKind::Wildcard | PatKind::Binding(_) | PatKind::Literal(_) => Ok(()),
             PatKind::Variant(qualifier, _, payload) => {
                 if let Some(qualifier) = qualifier {
                     visit(qualifier)?;
@@ -112,22 +121,11 @@ impl Parser {
                 kind: PatKind::Wildcard,
             });
         }
-        let literal = match &at.kind {
-            Kind::Text(_) | Kind::Number(_) => true,
-            Kind::Word(word) => word == "True" || word == "False",
-            Kind::Symbol(sign) => {
-                sign == "-"
-                    && self
-                        .tokens
-                        .get(self.pos + 1)
-                        .is_some_and(|t| matches!(t.kind, Kind::Number(_)))
-            }
-            _ => false,
-        };
-        if literal {
-            return Err(at.error(
-                "literal patterns are not supported; `match` selects enum variants, so compare other values with an `if`/`elif` chain",
-            ));
+        if let Some(literal) = self.literal_pattern()? {
+            return Ok(Pat {
+                at,
+                kind: PatKind::Literal(literal),
+            });
         }
         if at.is("mut") {
             return Err(at.error(
@@ -156,8 +154,13 @@ impl Parser {
             })
         });
         if qualifier.is_none() && !enums::prelude_variant(&name) {
-            if depth == 0 || self.peek().is("(") {
+            if self.peek().is("(") {
                 return Err(at.error("qualify user-defined variants with their enum type"));
+            }
+            if depth == 0 {
+                return Err(at.error(format!(
+                    "a case cannot bind the whole value to `{name}`; match any value with `_`, or qualify a variant with its enum type"
+                )));
             }
             return Ok(Pat {
                 at,
@@ -181,6 +184,34 @@ impl Parser {
             at,
             kind: PatKind::Variant(qualifier, name, payload),
         })
+    }
+
+    fn literal_pattern(&mut self) -> Result<Option<Literal>> {
+        let at = self.peek().clone();
+        let negative = at.is("-")
+            && self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| matches!(t.kind, Kind::Number(_)));
+        if negative {
+            self.take();
+        }
+        let literal = match &self.peek().kind {
+            Kind::Number(text) => {
+                if text.contains(['.', 'e', 'E']) || text.ends_with("f32") || text.ends_with("f64")
+                {
+                    return Err(at.error(
+                        "a pattern cannot be a float; compare floats with an `if`/`elif` chain",
+                    ));
+                }
+                Literal::Integer(text.clone(), negative)
+            }
+            Kind::Text(text) => Literal::Text(text.clone()),
+            Kind::Word(word) if word == "True" || word == "False" => Literal::Bool(word == "True"),
+            _ => return Ok(None),
+        };
+        self.take();
+        Ok(Some(literal))
     }
 
     /// Names the accepted spelling when it can be read past the brackets.
@@ -237,6 +268,62 @@ enum Checked {
     },
     /// Each alternative keeps its position for the unreachable diagnostic.
     Or(Vec<(Token, Checked)>),
+    Literal {
+        /// As for a variant: a literal matches through the boxes around it.
+        boxes: Vec<Ty>,
+        ty: Ty,
+        value: Constant,
+    },
+}
+
+/// The value a literal pattern names, in the type at its position.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Constant {
+    Int(Value),
+    Str(String),
+    Bool(bool),
+}
+
+impl Constant {
+    /// The constant as a pattern would spell it.
+    fn text(&self) -> String {
+        match self {
+            Constant::Int(value) => match value {
+                Value::I8(n) => n.to_string(),
+                Value::I16(n) => n.to_string(),
+                Value::I32(n) => n.to_string(),
+                Value::I64(n) => n.to_string(),
+                Value::U8(n) => n.to_string(),
+                Value::U16(n) => n.to_string(),
+                Value::U32(n) => n.to_string(),
+                Value::U64(n) => n.to_string(),
+            },
+            Constant::Str(text) => format!("{text:?}"),
+            Constant::Bool(true) => "True".into(),
+            Constant::Bool(false) => "False".into(),
+        }
+    }
+}
+
+/// An unsuffixed integer takes the integer type at its position; a suffixed
+/// one must already have it.
+fn integer_constant(text: &str, negative: bool, ty: &Ty, at: &Token) -> Result<Value> {
+    if text.contains(|c: char| c.is_ascii_alphabetic()) {
+        let value = integer(text, negative, at)?;
+        let written = Ty::from(value);
+        if written != *ty {
+            return Err(at.error(format!(
+                "this pattern has type {written}, but the value it matches has type {ty}"
+            )));
+        }
+        return Ok(value);
+    }
+    if negative && ty.int_range().is_some_and(|(min, _)| min == 0) {
+        return Err(at.error(format!(
+            "a negative pattern cannot match a value of type {ty}"
+        )));
+    }
+    integer(&format!("{text}{ty}"), negative, at)
 }
 
 /// A pattern free of `|`, with the alternatives chosen to reach it.
@@ -245,7 +332,7 @@ type Alternative = (Checked, Vec<usize>);
 impl Checked {
     fn binds(&self) -> bool {
         match self {
-            Checked::Wildcard => false,
+            Checked::Wildcard | Checked::Literal { .. } => false,
             Checked::Binding(_) => true,
             Checked::Variant { fields, .. } => fields.iter().any(Checked::binds),
             Checked::Or(alternatives) => alternatives.iter().any(|(_, p)| p.binds()),
@@ -270,7 +357,9 @@ impl Checked {
     /// `tokens` numbers every alternative met on the way.
     fn alternatives(&self, tokens: &mut Vec<Token>) -> Option<Vec<Alternative>> {
         Some(match self {
-            Checked::Wildcard | Checked::Binding(_) => vec![(self.clone(), Vec::new())],
+            Checked::Wildcard | Checked::Binding(_) | Checked::Literal { .. } => {
+                vec![(self.clone(), Vec::new())]
+            }
             Checked::Or(alternatives) => {
                 let mut rows = Vec::new();
                 for (at, alternative) in alternatives {
@@ -332,7 +421,7 @@ impl Checked {
     /// Where each binding sits below the matched value.
     fn paths<'a>(&'a self, prefix: &mut Vec<Step>, out: &mut Vec<(&'a str, Vec<Step>)>) {
         match self {
-            Checked::Wildcard | Checked::Or(_) => {}
+            Checked::Wildcard | Checked::Or(_) | Checked::Literal { .. } => {}
             Checked::Binding(name) => out.push((name, prefix.clone())),
             Checked::Variant {
                 boxes,
@@ -376,6 +465,15 @@ struct Row<'a> {
     index: usize,
 }
 
+impl Row<'_> {
+    fn duplicate(&self) -> Self {
+        Row {
+            patterns: self.patterns.clone(),
+            index: self.index,
+        }
+    }
+}
+
 enum Tree {
     /// The row selected when every earlier test succeeded.
     Leaf(usize),
@@ -388,6 +486,15 @@ enum Tree {
         /// Present only while some variant has no branch of its own.
         default: Option<Box<Tree>>,
     },
+    /// Compare the integer, string, or boolean at a position with each
+    /// constant in turn.
+    Compare {
+        steps: Vec<Step>,
+        ty: Ty,
+        branches: Vec<(Constant, Tree)>,
+        /// Absent only when `True` and `False` both have a branch.
+        default: Option<Box<Tree>>,
+    },
 }
 
 impl Tree {
@@ -396,6 +503,16 @@ impl Tree {
             Tree::Leaf(row) => counts[arms[*row]] += 1,
             Tree::Fail => {}
             Tree::Switch {
+                branches, default, ..
+            } => {
+                for (_, tree) in branches {
+                    tree.leaves(counts, arms);
+                }
+                if let Some(tree) = default {
+                    tree.leaves(counts, arms);
+                }
+            }
+            Tree::Compare {
                 branches, default, ..
             } => {
                 for (_, tree) in branches {
@@ -429,18 +546,22 @@ impl<'a> Compiler<'a> {
         let Some(column) = first
             .patterns
             .iter()
-            .position(|p| matches!(p, Checked::Variant { .. }))
+            .position(|p| matches!(p, Checked::Variant { .. } | Checked::Literal { .. }))
         else {
             self.reached[first.index] = true;
             return (Tree::Leaf(first.index), vec![]);
-        };
-        let Checked::Variant { boxes, t, .. } = first.patterns[column] else {
-            unreachable!()
         };
         self.tests += 1;
         if self.tests > MAX_TESTS {
             return (Tree::Fail, vec![]);
         }
+        let (boxes, t) = match first.patterns[column] {
+            Checked::Variant { boxes, t, .. } => (boxes, t),
+            Checked::Literal { boxes, ty, .. } => {
+                return self.compare(rows, occurrences, column, boxes, ty)
+            }
+            _ => unreachable!(),
+        };
         let definition = t.get();
         let mut tags = Vec::new();
         for row in &rows {
@@ -538,6 +659,89 @@ impl<'a> Compiler<'a> {
     }
 }
 
+impl<'a> Compiler<'a> {
+    /// The test for a column of literals. A row naming no literal there joins
+    /// every branch, in source order, so each constant is compared once.
+    fn compare(
+        &mut self,
+        rows: Vec<Row<'a>>,
+        occurrences: &[Vec<Step>],
+        column: usize,
+        boxes: &[Ty],
+        ty: &Ty,
+    ) -> (Tree, Vec<Vec<String>>) {
+        let mut steps = occurrences[column].clone();
+        steps.extend(boxes.iter().cloned().map(Step::Unbox));
+        let mut outer = occurrences.to_vec();
+        outer.remove(column);
+
+        let mut index: HashMap<&'a Constant, usize> = HashMap::new();
+        let mut groups: Vec<(&'a Constant, Vec<Row<'a>>)> = Vec::new();
+        let mut rest: Vec<Row<'a>> = Vec::new();
+        for row in rows {
+            let pattern = row.patterns[column];
+            let mut patterns = row.patterns;
+            patterns.remove(column);
+            let row = Row {
+                patterns,
+                index: row.index,
+            };
+            if let Checked::Literal { value, .. } = pattern {
+                let group = *index.entry(value).or_insert_with(|| {
+                    // Rows seen so far that match any value come first.
+                    groups.push((value, rest.iter().map(Row::duplicate).collect()));
+                    groups.len() - 1
+                });
+                groups[group].1.push(row);
+            } else {
+                for (_, group) in &mut groups {
+                    group.push(row.duplicate());
+                }
+                rest.push(row);
+            }
+        }
+
+        let complete = *ty == Ty::Bool && groups.len() == 2;
+        let mut missing = Vec::new();
+        let mut branches = Vec::with_capacity(groups.len());
+        let named: Vec<&Constant> = groups.iter().map(|(value, _)| *value).collect();
+        for (value, group) in groups {
+            let (tree, witnesses) = self.compile(group, &outer);
+            for mut witness in witnesses {
+                witness.insert(column, value.text());
+                missing.push(witness);
+            }
+            branches.push((value.clone(), tree));
+        }
+        let default = if complete {
+            None
+        } else {
+            // Integers and strings have more values than cases can name, so
+            // the values no case names are spelled `_`.
+            let unnamed = match (ty, named.as_slice()) {
+                (Ty::Bool, [Constant::Bool(named)]) => Constant::Bool(!named).text(),
+                _ => "_".to_string(),
+            };
+            let (tree, witnesses) = self.compile(rest, &outer);
+            for mut witness in witnesses {
+                witness.insert(column, unnamed.clone());
+                missing.push(witness);
+            }
+            Some(Box::new(tree))
+        };
+        missing.truncate(MAX_WITNESSES + 1);
+        (
+            Tree::Compare {
+                steps,
+                ty: ty.clone(),
+                branches,
+                default,
+            },
+            missing,
+        )
+    }
+}
+
 /// A variant as a pattern would spell it.
 fn variant_text(t: &Nominal<EnumType>, tag: usize, payload: &[String]) -> String {
     let name = &t.get().variants[tag].name;
@@ -562,10 +766,12 @@ pub(super) struct Subject {
 }
 
 impl Lower<'_> {
+    /// `root` is true for the case's own pattern, which matches the whole value.
     fn check_pattern(
         &self,
         pattern: &Pat,
         ty: &Ty,
+        root: bool,
         bound: &mut Vec<(String, Ty)>,
     ) -> Result<Checked> {
         let mut boxes = Vec::new();
@@ -594,6 +800,11 @@ impl Lower<'_> {
             PatKind::Variant(qualifier, name, payload) => {
                 let t = match content {
                     Ty::Enum(t) if !t.tuple() => t,
+                    _ if root => {
+                        return Err(pattern.at.error(format!(
+                            "a variant pattern cannot match a value of type {ty}"
+                        )))
+                    }
                     _ => {
                         return Err(pattern.at.error(format!(
                             "a variant pattern requires an enum payload, but this payload has type {ty}; bind it with a name or skip it with `_`"
@@ -617,13 +828,37 @@ impl Lower<'_> {
                     .iter()
                     .flatten()
                     .zip(fields)
-                    .map(|(pattern, ty)| self.check_pattern(pattern, ty, bound))
+                    .map(|(pattern, ty)| self.check_pattern(pattern, ty, false, bound))
                     .collect::<Result<_>>()?;
                 Ok(Checked::Variant {
                     boxes,
                     t: t.clone(),
                     tag,
                     fields,
+                })
+            }
+            PatKind::Literal(literal) => {
+                let value = match (literal, content) {
+                    (Literal::Integer(text, negative), ty) if ty.is_int() => {
+                        Constant::Int(integer_constant(text, *negative, ty, &pattern.at)?)
+                    }
+                    (Literal::Text(text), Ty::Str) => Constant::Str(text.clone()),
+                    (Literal::Bool(value), Ty::Bool) => Constant::Bool(*value),
+                    _ => {
+                        let kind = match literal {
+                            Literal::Integer(..) => "an integer",
+                            Literal::Text(_) => "a string",
+                            Literal::Bool(_) => "a boolean",
+                        };
+                        return Err(pattern
+                            .at
+                            .error(format!("{kind} pattern cannot match a value of type {ty}")));
+                    }
+                };
+                Ok(Checked::Literal {
+                    boxes,
+                    ty: content.clone(),
+                    value,
                 })
             }
             PatKind::Or(alternatives) => {
@@ -633,7 +868,7 @@ impl Lower<'_> {
                     let mut names = Vec::new();
                     checked.push((
                         alternative.at.clone(),
-                        self.check_pattern(alternative, ty, &mut names)?,
+                        self.check_pattern(alternative, ty, root, &mut names)?,
                     ));
                     let Some(expected) = &shared else {
                         shared = Some(names);
@@ -724,16 +959,15 @@ impl Lower<'_> {
         &mut self,
         value: &Expr,
         cases: &[enums::Case],
-        t: &Nominal<EnumType>,
+        matched: &Ty,
         subject: Subject,
         tail: bool,
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
-        let matched = Ty::Enum(t.clone());
         let mut checked = Vec::with_capacity(cases.len());
         for case in cases {
             let mut bound = Vec::new();
-            let pattern = self.check_pattern(&case.pattern, &matched, &mut bound)?;
+            let pattern = self.check_pattern(&case.pattern, matched, true, &mut bound)?;
             checked.push((pattern, bound));
         }
         // One row per `|` combination; `arms[row]` is its case.
@@ -776,7 +1010,7 @@ impl Lower<'_> {
         );
         if compiler.tests > MAX_TESTS {
             return Err(value.at.error(format!(
-                "match needs more than {MAX_TESTS} variant tests; split it into nested matches"
+                "match needs more than {MAX_TESTS} tests; split it into nested matches"
             )));
         }
         let reached = compiler.reached;
@@ -819,13 +1053,17 @@ impl Lower<'_> {
             } else {
                 ""
             };
-            let missing = missing
+            let missing: Vec<String> = missing
                 .into_iter()
                 .take(MAX_WITNESSES)
                 .map(|mut witness| witness.remove(0))
-                .collect::<Vec<_>>()
-                .join(", ")
-                + more;
+                .collect();
+            if missing == ["_"] {
+                return Err(value.at.error(format!(
+                    "non-exhaustive match; cases cannot name every {matched} value, so end with `case _:`"
+                )));
+            }
+            let missing = missing.join(", ") + more;
             return Err(value
                 .at
                 .error(format!("non-exhaustive match; missing {missing}")));
@@ -923,10 +1161,13 @@ impl Lower<'_> {
                 bodies.into_iter().map(Option::unwrap).collect(),
             )));
         } else if let Tree::Leaf(row) = &tree {
-            // A lone `case _:` keeps the dispatch on the tag that every other
-            // match has, so the statement lowers the same way with or without
-            // further cases.
-            self.peek(&subject, &[], t, ops);
+            // A lone `case _:` keeps the dispatch that every other match has,
+            // so the statement lowers the same way with or without further
+            // cases.
+            match matched {
+                Ty::Enum(t) => self.peek(&subject, &[], t, ops),
+                scalar => self.read(&subject, &[], scalar, ops),
+            }
             ops.push(Op::Match(
                 vec![MatchArm {
                     pattern: Pattern::Wildcard,
@@ -968,8 +1209,27 @@ impl Lower<'_> {
         }
     }
 
+    /// Push a copy of the integer, string, or boolean at a position, leaving
+    /// the matched value in place.
+    fn read(&self, subject: &Subject, steps: &[Step], ty: &Ty, ops: &mut Vec<Op>) {
+        if let Some((loan, mutable)) = subject.borrowed {
+            ops.push(Op::LoadLocal(subject.source));
+            ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
+            project(steps, mutable, ops);
+            ops.push(Op::ReadRef(ty.clone()));
+            ops.push(Op::UseLoan(loan));
+        } else if steps.is_empty() {
+            ops.push(Op::LoadLocal(subject.source));
+        } else {
+            // As in `peek`: the read consumes the reference.
+            ops.push(Op::BorrowLocal(subject.source, false));
+            project(steps, false, ops);
+            ops.push(Op::ReadRef(ty.clone()));
+        }
+    }
+
     fn emit_tree(
-        &self,
+        &mut self,
         tree: &Tree,
         subject: &Subject,
         leaf: &mut dyn FnMut(usize) -> Vec<Op>,
@@ -1006,6 +1266,39 @@ impl Lower<'_> {
                     pattern: Pattern::Wildcard,
                     body: body.into(),
                 });
+                ops.push(Op::Match(arms.into()));
+            }
+            Tree::Compare {
+                steps,
+                ty,
+                branches,
+                default,
+            } => {
+                self.read(subject, steps, ty, ops);
+                let mut arms = Vec::with_capacity(branches.len() + 1);
+                for (value, tree) in branches {
+                    let mut body = Vec::new();
+                    self.emit_tree(tree, subject, leaf, &mut body);
+                    arms.push(MatchArm {
+                        pattern: match value {
+                            Constant::Int(value) => Pattern::Int {
+                                value: *value,
+                                explicit_ty: true,
+                            },
+                            Constant::Str(text) => Pattern::Str(self.heap.add_str(text.clone())),
+                            Constant::Bool(value) => Pattern::Bool(*value),
+                        },
+                        body: body.into(),
+                    });
+                }
+                if let Some(tree) = default {
+                    let mut body = Vec::new();
+                    self.emit_tree(tree, subject, leaf, &mut body);
+                    arms.push(MatchArm {
+                        pattern: Pattern::Wildcard,
+                        body: body.into(),
+                    });
+                }
                 ops.push(Op::Match(arms.into()));
             }
         }

@@ -67,6 +67,7 @@
         - [Borrow distinct fields](tutorial/06-data/04-borrow-fields.md)
         - [Borrowing a field through a getter](tutorial/06-data/05-field-getters.md)
         - [Describe alternatives with enums](tutorial/06-data/06-enums.md)
+        - [Match literal values](tutorial/06-data/literal-patterns.md)
         - [Creating enum values](tutorial/06-data/07-enum-payload-ownership.md)
         - [Match borrowed values](tutorial/06-data/08-borrowed-matching.md)
         - [Clean up owned instances](tutorial/06-data/09-cleanup.md)

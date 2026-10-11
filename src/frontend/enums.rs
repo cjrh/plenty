@@ -364,29 +364,42 @@ impl Lower<'_> {
             reference @ Ty::Ref(..) => self.unbox_reference(reference, ops),
             ty => ty,
         };
-        let (t, borrowed) = match &ty {
-            Ty::Enum(t) => (t.clone(), None),
-            Ty::Ref(inner, mutable) => {
-                let Ty::Enum(t) = &**inner else {
-                    return Err(value.at.error(NOT_AN_ENUM));
-                };
-                (
-                    t.clone(),
-                    Some((self.reference_origin(value, ops)?, *mutable)),
-                )
+        let (ty, borrowed) = match ty {
+            Ty::Ref(inner, mutable) if matches!(*inner, Ty::Enum(_)) => {
+                let borrowed = Some((self.reference_origin(value, ops)?, mutable));
+                (Ty::Ref(inner, mutable), borrowed)
             }
-            _ => return Err(value.at.error(NOT_AN_ENUM)),
+            // No pattern binds part of an integer, string, or boolean, so a
+            // reference to one is read once and the copy is matched.
+            Ty::Ref(inner, _) if literal_matchable(&inner) => {
+                let loan = self.reference_origin(value, ops)?;
+                ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
+                ops.push(Op::ReadRef((*inner).clone()));
+                ops.push(Op::UseLoan(loan));
+                ((*inner).clone(), None)
+            }
+            ty if matches!(ty, Ty::Enum(_)) || literal_matchable(&ty) => (ty, None),
+            _ => return Err(value.at.error(NOT_MATCHABLE)),
+        };
+        let matched = match &ty {
+            Ty::Ref(inner, _) => (**inner).clone(),
+            ty => ty.clone(),
         };
         let source = self.slot(ty, &value.at)?;
         ops.push(Op::StoreLocal(source));
         self.finish_temporaries(temporary_start, ops);
         let subject = patterns::Subject { source, borrowed };
-        self.match_patterns(value, cases, &t, subject, tail, ops)
+        self.match_patterns(value, cases, &matched, subject, tail, ops)
     }
 }
 
-const NOT_AN_ENUM: &str =
-    "match requires an enum value or reference; compare other values with an `if`/`elif` chain";
+const NOT_MATCHABLE: &str =
+    "match requires an enum, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain";
+
+/// The types a literal pattern can match.
+fn literal_matchable(ty: &Ty) -> bool {
+    ty.is_int() || matches!(ty, Ty::Str | Ty::Bool)
+}
 
 pub(super) fn prelude_variant(name: &str) -> bool {
     matches!(name, "Ok" | "Err" | "Some" | "Nothing")
