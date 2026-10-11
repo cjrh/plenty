@@ -17,8 +17,11 @@ nothing and traps on a missing index.
 Indices can be references; negatives count from the end. `get` and `pop` handle
 extreme `i64` indices safely. Neither allocates; a missing `pop` leaves the list
 unchanged. `pop` requires exclusive access, preserves remaining order and capacity,
-and supports all list element types. Last-element removal is constant-time;
-other positions shift subsequent elements.
+and supports all list element types. Last-element removal touches no surviving
+rows and is constant-time in the list length, including for inline elements.
+Other positions shift and repair only subsequent rows. Extracted inline payloads
+are copied into the caller's own storage before another list mutation or
+destruction; the freed capacity can be reused by a later `append`.
 
 `get` observes the list and index once in source order. It supports only
 non-affine values, including immutable enums; retained results survive replacement

@@ -5,6 +5,9 @@ use crate::entry_order::Order;
 use crate::{memory, ranges};
 use std::cmp::Ordering;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy)]
 pub(crate) struct Entry {
     pub key: u128,
@@ -121,12 +124,18 @@ impl Entries {
             }
         }
     }
-    fn relocate(&mut self) {
+    fn relocate(&mut self, dense_start: usize) {
         // Include an extracted row: its inline address must survive shifting
         // without allocating scratch storage or retaining its transferred owners.
         // Dead hash rows may contain already-freed owners. Never relocate them.
         let base = self.data.as_mut_ptr();
-        for i in self.indices().chain(self.removed.then_some(self.len())) {
+        let dense_end = if self.order.is_none() {
+            self.data.len() / self.stride
+        } else {
+            dense_start
+        };
+        let sparse = self.order.iter().flat_map(Order::indices);
+        for i in (dense_start..dense_end).chain(sparse) {
             unsafe {
                 let slot = base.add(i * self.stride);
                 ranges::relocate(slot, self.key);
@@ -150,7 +159,7 @@ impl Entries {
             let previous = self.data.as_ptr();
             memory::try_reserve(&mut self.data, words)?;
             if previous != self.data.as_ptr() {
-                self.relocate();
+                self.relocate(0);
             }
             return Ok(());
         }
@@ -164,7 +173,7 @@ impl Entries {
         let previous = self.data.as_ptr();
         memory::try_reserve(&mut self.data, words)?;
         if previous != self.data.as_ptr() {
-            self.relocate();
+            self.relocate(0);
         }
         Ok(())
     }
@@ -230,12 +239,17 @@ impl Entries {
         }
         assert!(index < self.len());
         self.data.truncate(self.len() * self.stride);
+        self.removed = true;
+        // The tail's payload already occupies extraction scratch. No row moves,
+        // so neither rotation nor address repair is needed.
+        if index == self.len() {
+            return entry;
+        }
         let start = index * self.stride;
         // Rotation leaves every surviving row in order, and moves the extracted
         // row into existing storage at the end. This works for arbitrary layouts.
         self.data[start..].rotate_left(self.stride);
-        self.removed = true;
-        self.relocate();
+        self.relocate(index);
         let extracted = self.len() * self.stride;
         Entry {
             key: self.data[extracted],
@@ -251,7 +265,7 @@ impl Entries {
                     .swap(i * self.stride + word, j * self.stride + word);
             }
         }
-        self.relocate();
+        self.relocate(0);
     }
     /// Exchange two dense rows of any layout without allocating.
     pub fn swap(&mut self, i: usize, j: usize) {
@@ -339,7 +353,7 @@ impl Entries {
         }
         self.data.truncate(target * self.stride);
         self.removed = false;
-        self.relocate();
+        self.relocate(0);
     }
 }
 

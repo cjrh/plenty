@@ -6,7 +6,9 @@ fn native(source: &str, expected: &str) {
     let output = support::run(source);
     assert!(
         output.status.success(),
-        "{source}\n{}",
+        "{source}\nstatus: {}\nstdout: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -84,6 +86,75 @@ print("done").unwrap()
 "#,
         "removed\n10\n30\nlist dropped\n20\n40\ndone",
     );
+}
+
+#[test]
+fn repeated_tail_pops_snapshot_inline_owners_before_reusing_scratch() {
+    native(
+        r#"
+class Guard:
+    id: i64
+    rows: list[i64]
+    def __del__(self: &mut Guard) -> ():
+        print(self.id).unwrap()
+mut guards = [Guard(10, [1].unwrap()), Guard(20, [2].unwrap()), Guard(30, [3].unwrap())].unwrap()
+last = guards.pop().unwrap()
+middle = guards.pop().unwrap()
+first = guards.pop().unwrap()
+print(guards.pop()).unwrap()
+guards.append(Guard(40, [4].unwrap())).unwrap()
+drop(guards)
+print(first.rows).unwrap()
+print(middle.rows).unwrap()
+print(last.rows).unwrap()
+drop(middle)
+drop(first)
+drop(last)
+"#,
+        "Option[Guard].Nothing\n40\n[1]\n[2]\n[3]\n20\n10\n30",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn scalar_and_inline_tail_drains_transfer_ownership_without_allocating() {
+    native(
+        r#"
+mut scalars = [n for n in range(128)].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+mut total = 0
+while len(scalars) > 0:
+    total = total + scalars.pop().unwrap()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(total).unwrap()
+"#,
+        "8128",
+    );
+    // Formatting an integer can allocate, so the custom cleanup adapter stays
+    // silent while allocations are disabled. Drop order is checked separately.
+    let source = r#"
+class Guard:
+    id: i64
+    rows: list[i64]
+    def __del__(self: &mut Guard) -> ():
+        ()
+mut guards = [Guard(n, [n].unwrap()) for n in range(128)].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+mut total = 0
+while len(guards) > 0:
+    guard = guards.pop().unwrap()
+    total = total + guard.rows[0]
+    guards.append(guard).unwrap()
+    drop(guards.pop().unwrap())
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(total).unwrap()
+drop(guards)
+"#;
+    native(source, "8128");
 }
 
 #[test]
