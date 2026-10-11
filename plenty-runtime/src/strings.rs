@@ -110,6 +110,40 @@ pub(crate) fn try_new(text: &str) -> Result<*mut Text, AllocError> {
     })
 }
 
+pub(crate) fn from_codepoint(code: u32) -> Option<*mut Text> {
+    char::from_u32(code).map(|character| {
+        let mut bytes = [0; 4];
+        pack(character.encode_utf8(&mut bytes).as_bytes())
+    })
+}
+
+pub(crate) unsafe fn try_case(text: *const Text, upper: bool) -> Result<*mut Text, AllocError> {
+    unsafe {
+        let source = utf8(&text);
+        if upper {
+            try_characters(source.chars().flat_map(char::to_uppercase))
+        } else {
+            try_characters(source.chars().flat_map(char::to_lowercase))
+        }
+    }
+}
+
+fn try_characters(characters: impl Iterator<Item = char> + Clone) -> Result<*mut Text, AllocError> {
+    let (mut bytes, mut scalars) = (0, 0);
+    for character in characters.clone() {
+        bytes = add_length(bytes, character.len_utf8() as u64)?;
+        scalars = add_length(scalars, 1)?;
+    }
+    try_build(bytes, scalars, |out| {
+        let mut offset = 0;
+        for character in characters {
+            let length = character.len_utf8();
+            character.encode_utf8(&mut out[offset..offset + length]);
+            offset += length;
+        }
+    })
+}
+
 /// Produce a string of known checked size. Short results are packed inline and
 /// cannot fail; longer ones allocate once. `fill` writes exactly byte_len bytes.
 fn try_build(
@@ -272,8 +306,12 @@ pub(crate) extern "C" fn plenty_readline() -> *mut Text {
     new(&line)
 }
 
-pub(crate) unsafe fn at(text: *const Text, index: i64) -> *mut Text {
-    unsafe { scalar(text, index) }.unwrap_or_else(|| crate::fail("index out of bounds"))
+pub(crate) unsafe fn at(text: *const Text, index: i64, site: *const crate::Site) -> *mut Text {
+    unsafe {
+        scalar(text, index).unwrap_or_else(|| {
+            crate::aggregates::out_of_bounds(index, scalar_len(text) as usize, site)
+        })
+    }
 }
 
 /// Borrow a live UTF-8 string. A scalar is at most four UTF-8 bytes, so the

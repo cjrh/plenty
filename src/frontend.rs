@@ -7,9 +7,10 @@ use std::error::Error;
 use std::rc::Rc;
 
 use crate::collection::CollectionOp;
-use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
+use crate::op::{mark_tail_calls, CompiledFn, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 mod callables;
+mod casts;
 mod channels;
 mod classes;
 mod closures;
@@ -315,12 +316,19 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                 });
             }
             '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ',' | '+' | '-' | '*' | '%' | '/'
-            | '=' | '!' | '<' | '>' | '&' | '?' => {
+            | '=' | '!' | '<' | '>' | '&' | '|' | '^' | '~' | '?' => {
                 let mut symbol = c.to_string();
                 if let Some(next) = chars.get(pos + 1) {
                     if matches!(
                         (c, *next),
-                        ('-', '>') | ('=', '=') | ('!', '=') | ('<', '=') | ('>', '=') | ('/', '/')
+                        ('-', '>')
+                            | ('=', '=')
+                            | ('!', '=')
+                            | ('<', '=')
+                            | ('>', '=')
+                            | ('/', '/')
+                            | ('<', '<')
+                            | ('>', '>')
                     ) {
                         symbol.push(*next);
                         pos += 1;
@@ -402,6 +410,8 @@ struct Function {
     inputs: Vec<(String, TypeRef)>,
     output: TypeRef,
     doc: String,
+    /// Where the docstring was written, for diagnostics about a body that is only a docstring.
+    doc_at: Option<Token>,
     body: Vec<Stmt>,
 }
 
@@ -1195,6 +1205,7 @@ impl Parser {
                 inputs,
                 output,
                 doc: String::new(),
+                doc_at: None,
                 body: vec![],
             });
         }
@@ -1211,6 +1222,7 @@ impl Parser {
                 inputs,
                 output,
                 doc: String::new(),
+                doc_at: None,
                 body,
             });
         }
@@ -1226,7 +1238,7 @@ impl Parser {
             ));
         }
         let mut body = self.suite()?;
-        let doc = if matches!(
+        let (doc, doc_at) = if matches!(
             body.first(),
             Some(Stmt {
                 kind: Statement::Expr(Expr {
@@ -1240,16 +1252,16 @@ impl Parser {
                 kind:
                     Statement::Expr(Expr {
                         kind: Expression::Text(s),
-                        ..
+                        at,
                     }),
                 ..
             } = body.remove(0)
             else {
                 unreachable!()
             };
-            s
+            (s, Some(at))
         } else {
-            String::new()
+            (String::new(), None)
         };
         Ok(Function {
             once,
@@ -1262,6 +1274,7 @@ impl Parser {
             inputs,
             output,
             doc,
+            doc_at,
             body,
         })
     }
@@ -1604,10 +1617,10 @@ impl Parser {
             }
             Kind::Symbol(s) if s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
-                Expression::Unary(op.into(), Box::new(self.expr(7)?))
+                Expression::Unary(op.into(), Box::new(self.expr(10)?))
             }
-            Kind::Symbol(s) if s == "-" || s == "+" || s == "*" => {
-                Expression::Unary(s.clone(), Box::new(self.expr(7)?))
+            Kind::Symbol(s) if s == "-" || s == "+" || s == "*" || s == "~" => {
+                Expression::Unary(s.clone(), Box::new(self.expr(10)?))
             }
             Kind::Symbol(s) if s == "(" => self.parenthesized()?,
             Kind::Symbol(s) if s == "[" || s == "{" => self.collection_display(s)?,
@@ -1641,15 +1654,7 @@ impl Parser {
                         Expression::Constructor(ty, self.arguments()?)
                     }
                 } else if self.eat("(") {
-                    let mut args = Vec::new();
-                    while !self.eat(")") {
-                        args.push(self.expr(0)?);
-                        if self.eat(")") {
-                            break;
-                        }
-                        self.expect(",")?;
-                    }
-                    Expression::Call(s.clone(), args)
+                    Expression::Call(s.clone(), self.arguments()?)
                 } else {
                     Expression::Name(s.clone())
                 }
@@ -1782,7 +1787,20 @@ impl Parser {
             if not_in {
                 self.take();
             }
-            let right = self.expr(prec + 1)?;
+            // `a ** b` parses as `a * (*b)`, which is valid when `b` is a
+            // reference. Mark the dereference so that its failure reports
+            // the missing operator rather than a dereference.
+            let power = op == "*"
+                && self.peek().is("*")
+                && self.peek().line == token.line
+                && self.peek().column == token.column + 1;
+            let mut right = self.expr(prec + 1)?;
+            if power && matches!(&right.kind, Expression::Unary(op, _) if op == "*") {
+                right.at = Token {
+                    kind: Kind::Symbol("**".into()),
+                    ..token.clone()
+                };
+            }
             let at = left.at.clone();
             left = Expr {
                 at,
@@ -1841,6 +1859,8 @@ pub(crate) fn builtin(name: &str) -> bool {
         || matches!(
             name,
             "print"
+                | "ord"
+                | "chr"
                 | "spawn"
                 | "Future"
                 | "SubmitError"
@@ -1984,8 +2004,12 @@ fn binary(t: &Token) -> Option<(String, u8)> {
         "or" => 1,
         "and" => 2,
         "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not in" => 3,
-        "+" | "-" => 4,
-        "*" | "%" | "/" | "//" => 5,
+        "|" => 4,
+        "^" => 5,
+        "&" => 6,
+        "<<" | ">>" => 7,
+        "+" | "-" => 8,
+        "*" | "%" | "/" | "//" => 9,
         _ => return None,
     };
     Some((s.clone(), precedence))
@@ -2077,6 +2101,22 @@ impl Lower<'_> {
             _ => ops.push(Op::Site(site)),
         }
     }
+    /// `slot_names` keeps every binding this function has made, so a name
+    /// found there but no longer in `names` left scope with its block.
+    fn unknown_binding(&self, name: &str) -> String {
+        let hint = if self.slot_names.iter().flatten().any(|n| &**n == name) {
+            format!("; a binding declared inside a block ends with that block; bind `mut {name}` to a value before the block and assign it inside")
+        } else {
+            String::new()
+        };
+        format!("unknown binding `{name}`{hint}")
+    }
+    /// Attribute a runtime trap in the integer operation pushed next to `at`.
+    fn mark_arithmetic(&self, op: &str, ty: &Ty, at: &Token, ops: &mut Vec<Op>) {
+        if !ty.is_float() && matches!(op, "+" | "-" | "*" | "//" | "%" | "<<" | ">>") {
+            self.mark(at, ops);
+        }
+    }
     fn numeric_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
             Expression::Constructor(ty, _) => ty
@@ -2106,9 +2146,14 @@ impl Lower<'_> {
             | Expression::Invoke(..)
             | Expression::Method(..)
             | Expression::GenericMethod(..) => self.expression_type_hint(e).filter(Ty::is_numeric),
-            Expression::Unary(op, inner) if op == "+" || op == "-" => self.numeric_hint(inner),
+            Expression::Unary(op, inner) if op == "+" || op == "-" || op == "~" => {
+                self.numeric_hint(inner)
+            }
             Expression::Binary(op, a, b)
-                if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%") =>
+                if matches!(
+                    op.as_str(),
+                    "+" | "-" | "*" | "/" | "//" | "%" | "&" | "|" | "^" | "<<" | ">>"
+                ) =>
             {
                 self.numeric_hint(a).or_else(|| self.numeric_hint(b))
             }
@@ -2124,13 +2169,44 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
-        let a = self.expr_expected(left, Some(ty.clone()), ops)?;
-        self.same(a, Some(ty.clone()), &left.at)?;
-        let b = self.expr_expected(right, Some(ty.clone()), ops)?;
-        self.same(b, Some(ty.clone()), &right.at)?;
-        Self::numeric_operation(op, ty, at, ops)
+        let (a, mut loans) = self.observe_expected(left, Some(ty.clone()), ops)?;
+        if a.is_numeric() && a != ty && self.fixes_numeric_type(right, &ty) {
+            return Err(mixed_numeric(left, &a, right, &ty));
+        }
+        if op == "*" && matches!(a, Ty::List(_)) {
+            return Err(left.at.error(LIST_REPETITION));
+        }
+        self.same(Some(a), Some(ty.clone()), &left.at)?;
+        let (b, other_loans) = self.observe_expected(right, Some(ty.clone()), ops)?;
+        if b.is_numeric() && b != ty && self.fixes_numeric_type(left, &ty) {
+            return Err(mixed_numeric(left, &ty, right, &b));
+        }
+        if op == "*" && matches!(b, Ty::List(_)) {
+            return Err(right.at.error(LIST_REPETITION));
+        }
+        self.same(Some(b), Some(ty.clone()), &right.at)?;
+        loans.extend(other_loans);
+        self.mark_arithmetic(op, &ty, at, ops);
+        let output = Self::numeric_operation(op, ty, at, ops)?;
+        Self::end_reads(loans, ops);
+        Ok(output)
+    }
+    /// Whether `e` has the numeric type `ty` by itself. When `ty` instead came
+    /// from an annotation, a mismatching operand disagrees with that context
+    /// and not with the other operand.
+    fn fixes_numeric_type(&self, e: &Expr, ty: &Ty) -> bool {
+        self.numeric_hint(e).as_ref() == Some(ty)
+            || (ty.is_float()
+                && matches!(&ungroup(e).kind, Expression::Number(n) if n.contains(['.', 'e', 'E'])))
     }
     fn numeric_operation(op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
+        if let Some(kind) = IntegerOp::binary(op) {
+            if !ty.is_int() {
+                return Err(at.error("bitwise operations require integers"));
+            }
+            ops.push(Op::Integer(kind));
+            return Ok(ty);
+        }
         if op == "/" && !ty.is_float() {
             return Err(at.error("use `//` for integer division; `/` requires floats"));
         }
@@ -2442,7 +2518,7 @@ impl Lower<'_> {
                 let local = self
                     .names
                     .get(name)
-                    .ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
+                    .ok_or_else(|| e.at.error(self.unknown_binding(name)))?;
                 if matches!(local.ty, Ty::Task(_)) {
                     return Err(e.at.error("scoped tasks cannot escape or be copied; use task.join() inside its with block"));
                 }
@@ -2484,6 +2560,11 @@ impl Lower<'_> {
                             return Ok(Some((*content).clone()));
                         }
                         Ty::Ref(ty, _) => ty,
+                        // The parser marks a `*` written directly after a
+                        // multiplication `*`; see the binary operator loop.
+                        _ if e.at.is("**") => {
+                            return Err(e.at.error("exponentiation with `**` is not supported; multiply explicitly, as in `x * x`"))
+                        }
                         _ => {
                             return Err(value.at.error("dereference requires a reference or a Box"))
                         }
@@ -2510,7 +2591,13 @@ impl Lower<'_> {
                 }
                 let mut body = Vec::new();
                 let ty = self.value(value, &mut body)?;
-                if op == "not" {
+                if op == "~" {
+                    if !ty.is_int() {
+                        return Err(e.at.error("bitwise complement requires an integer"));
+                    }
+                    ops.extend(body);
+                    ops.push(Op::Integer(IntegerOp::Not));
+                } else if op == "not" {
                     self.same(Some(ty.clone()), Some(Ty::Bool), &e.at)?;
                     ops.extend(body);
                     ops.push(Op::Not);
@@ -2531,6 +2618,7 @@ impl Lower<'_> {
                     }
                     ops.extend(body);
                     if op == "-" {
+                        self.mark(&e.at, ops);
                         ops.push(Op::Sub);
                     }
                 }
@@ -2574,6 +2662,11 @@ impl Lower<'_> {
                 Some(Ty::Bool)
             }
             Expression::Binary(op, left, right) => {
+                if op == "*" {
+                    if let Some(display) = [left, right].into_iter().find_map(|e| list_display(e)) {
+                        return Err(display.at.error(LIST_REPETITION));
+                    }
+                }
                 if op != "and" && op != "or" {
                     if let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right))
                     {
@@ -2585,11 +2678,7 @@ impl Lower<'_> {
                 let (a, mut loans) = self.observe(left, ops)?;
                 let mut rhs = Vec::new();
                 let (b, other_loans) = if a.is_numeric() {
-                    (
-                        self.expr_expected(right, Some(a.clone()), &mut rhs)?
-                            .ok_or_else(|| right.at.error("expected a numeric value"))?,
-                        vec![],
-                    )
+                    self.observe_expected(right, Some(a.clone()), &mut rhs)?
                 } else {
                     self.observe(right, &mut rhs)?
                 };
@@ -2603,6 +2692,20 @@ impl Lower<'_> {
                         return Err(e.at.error("closures do not support binary operators"));
                     }
                     return Err(e.at.error("generators do not support binary operators"));
+                }
+                if a.is_numeric() && b.is_numeric() && a != b {
+                    return Err(mixed_numeric(left, &a, right, &b));
+                }
+                if op == "*" {
+                    match (&a, &b) {
+                        (Ty::List(_), other) if other.is_int() => {
+                            return Err(left.at.error(LIST_REPETITION))
+                        }
+                        (other, Ty::List(_)) if other.is_int() => {
+                            return Err(right.at.error(LIST_REPETITION))
+                        }
+                        _ => {}
+                    }
                 }
                 self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
                 if matches!(op.as_str(), "==" | "!=") && a.facts().closure {
@@ -2631,7 +2734,8 @@ impl Lower<'_> {
                     Some(Ty::Bool)
                 } else {
                     if !a.is_numeric()
-                        && !(matches!(op.as_str(), "==" | "!=") || (op == "+" && a == Ty::Str))
+                        && !(matches!(op.as_str(), "==" | "!=")
+                            || (a == Ty::Str && (op == "+" || is_comparison(op))))
                     {
                         return Err(e.at.error(format!(
                             "operator `{op}` does not accept {}",
@@ -2649,11 +2753,20 @@ impl Lower<'_> {
                             .error("floor division and modulo currently require integers"));
                     }
                     ops.extend(rhs);
+                    if let Some(kind) = IntegerOp::binary(op) {
+                        if !a.is_int() {
+                            return Err(e.at.error("bitwise operations require integers"));
+                        }
+                        ops.push(Op::Integer(kind));
+                        Self::end_reads(loans, ops);
+                        return Ok(Some(a));
+                    }
                     if op == "+" && a == Ty::Str {
                         ops.push(Op::Collection(CollectionOp::TextTryConcat));
                         Self::end_reads(loans, ops);
                         return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
                     }
+                    self.mark_arithmetic(op, &a, &e.at, ops);
                     ops.push(match op.as_str() {
                         "+" => Op::Add,
                         "-" => Op::Sub,
@@ -2688,6 +2801,26 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if matches!(name.as_str(), "ord" | "chr")
+                    && !self.names.contains_key(name)
+                    && !self.sigs.contains_key(name)
+                {
+                    let [argument] = args.as_slice() else {
+                        return Err(e.at.error(format!("{name} takes one argument")));
+                    };
+                    let operation = if name == "ord" {
+                        CollectionOp::TextOrd
+                    } else {
+                        CollectionOp::TextChr
+                    };
+                    let (inputs, output) = operation.signature();
+                    let (actual, loans) =
+                        self.observe_expected(argument, Some(inputs[0].clone()), ops)?;
+                    self.same(Some(actual), Some(inputs[0].clone()), &argument.at)?;
+                    ops.push(Op::Collection(operation));
+                    Self::end_reads(loans, ops);
+                    return Ok(Some(output));
+                }
                 if name == "CancellationToken" {
                     return self.control_new(args, &e.at, ops);
                 }
@@ -2819,9 +2952,13 @@ impl Lower<'_> {
                     if let Some(target) = target.as_ref().filter(|t| t.is_collection()) {
                         return self.construct(target.clone(), args, &e.at, ops).map(Some);
                     }
-                    let target = target
-                        .filter(|ty| ty.is_numeric())
-                        .ok_or_else(|| e.at.error("only numeric types support cast syntax"))?;
+                    let target = target.filter(|ty| ty.is_numeric()).ok_or_else(|| {
+                        e.at.error(if lookup_type(name, self.aliases) == Some(Some(Ty::Str)) {
+                            "only numeric types support cast syntax; format a number or boolean as text with `str.from(value)?`"
+                        } else {
+                            "only numeric types support cast syntax"
+                        })
+                    })?;
                     if args.len() != 1 {
                         return Err(e.at.error("numeric casts take one argument"));
                     }
@@ -2829,7 +2966,7 @@ impl Lower<'_> {
                     if !source.is_numeric() {
                         return Err(e.at.error("numeric casts require a number"));
                     }
-                    ops.push(Op::Cast(target.clone()));
+                    self.checked_cast(&source, &target, &args[0], &e.at, ops)?;
                     Some(target)
                 } else if name == "contains" {
                     if args.len() != 2 {
@@ -3285,6 +3422,38 @@ impl Lower<'_> {
     }
 }
 
+const LIST_REPETITION: &str = "lists do not support `*` repetition; build the list with a comprehension, such as `[value for _ in range(count)]?`";
+
+/// The list display that `e` is, possibly parenthesized or followed by `?`.
+fn list_display(e: &Expr) -> Option<&Expr> {
+    match &e.kind {
+        Expression::Group(inner) | Expression::Try(inner) => list_display(inner),
+        Expression::Collection { kind, .. } if kind == "list" => Some(e),
+        _ => None,
+    }
+}
+
+/// Arithmetic never converts between numeric types. The suggested cast widens
+/// where one operand's type holds the other's values: to the float of an
+/// integer/float pair, otherwise to the wider type.
+fn mixed_numeric(left: &Expr, a: &Ty, right: &Expr, b: &Ty) -> Box<dyn Error> {
+    let bits = |ty: &Ty| ty.to_string()[1..].parse::<u32>().unwrap_or(0);
+    let convert_left = if a.is_float() == b.is_float() {
+        bits(a) < bits(b)
+    } else {
+        b.is_float()
+    };
+    let (operand, target) = if convert_left { (left, b) } else { (right, a) };
+    let spelled = match &ungroup(operand).kind {
+        Expression::Name(name) => name.as_str(),
+        Expression::Number(text) => text.as_str(),
+        _ => "...",
+    };
+    operand.at.error(format!(
+        "cannot combine {a} with {b}; convert with `{target}({spelled})`"
+    ))
+}
+
 fn ungroup(mut e: &Expr) -> &Expr {
     while let Expression::Group(inner) = &e.kind {
         e = inner;
@@ -3652,6 +3821,15 @@ fn lower_body(
         }
     }
     if let BlockResult::Continues(output) = lower.block(&f.body, &mut body, yield_type.is_none())? {
+        if let Some(doc_at) = f
+            .doc_at
+            .as_ref()
+            .filter(|_| f.body.is_empty() && lower.return_type == Some(Some(Ty::Str)))
+        {
+            return Err(doc_at.error(
+                "expected str, got (); a string at the beginning of a function is its documentation; write `return` before it to return the text",
+            ));
+        }
         lower.refine_return(output, &f.at)?;
     }
     if yield_type.is_none() {
@@ -3702,6 +3880,11 @@ fn lower_body(
             .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
         origins: Rc::new(crate::ownership::Origins {
             source: f.at.source.clone(),
+            trap_file: f
+                .at
+                .source
+                .as_ref()
+                .map(|source| lower.generics.trap_file(source)),
             names: lower.slot_names,
             required: lower.generics.required.get(&f.name).cloned(),
         }),
@@ -3720,6 +3903,7 @@ fn lower_body(
 fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let modules::Resolved {
         source_paths,
+        source_root,
         mut functions,
         declarations,
         enums,
@@ -3740,6 +3924,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         &aliases,
     )?);
     let mut generics = generics::prepare(functions, &aliases, protocols)?;
+    generics.source_root = source_root;
     while !generics.expand_data(&aliases)?.is_empty() {}
     let mut sigs = HashMap::new();
     let mut returned_fields = HashMap::new();

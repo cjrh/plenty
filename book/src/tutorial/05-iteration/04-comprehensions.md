@@ -52,7 +52,7 @@ def main() -> Result[(), Failure]:
     mut counts = {"apple": 2, "pear": 3}?
     for fruit, count in (&mut counts).items():
         *count = *count + 1
-    print([(fruit, count) for fruit, count in counts.items()]?)?
+    print([(*fruit, *count) for fruit, count in counts.items()]?)?
     print([a + b for a, b in [(1, 2), (3, 4)]?]?)?
     Ok(())
 ```
@@ -63,6 +63,8 @@ def main() -> Result[(), Failure]:
 
 For dictionaries containing owned values, use `copy(value)?` when the snapshot
 needs independent owners.
+Shared item views yield references for every key and value, so the `*` above
+reads each copyable value before storing it in the snapshot tuple.
 
 Text comprehensions collect Unicode scalars:
 

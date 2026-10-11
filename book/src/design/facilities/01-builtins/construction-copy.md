@@ -11,8 +11,10 @@ returns `OutOfMemory`. Partial storage is reclaimed on failure.
 
 `[elements]`, `{key: value}`, `{elements}`, and typed empty constructors such as
 `list[i64]()` also return `Result[collection, AllocError]`. `{}` is a dictionary.
-Entries must have identical types. Empty displays require contextual types;
-nonempty displays infer from their first entry unless context supplies the type.
+Entries must have identical types. Empty displays require contextual types,
+such as the annotation in `names: list[str] = []?`; a typed constructor such as
+`list[str]()?` needs none. Nonempty displays infer from their first entry unless
+context supplies the type.
 Already typed entries never implicitly narrow.
 
 The owner is allocated first, then entries evaluate left to right. A failed

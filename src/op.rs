@@ -492,6 +492,32 @@ impl fmt::Display for CallableSig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegerOp {
+    And,
+    Or,
+    Xor,
+    Not,
+    ShiftLeft,
+    ShiftRight,
+    WrappingAdd,
+    WrappingSub,
+    WrappingMul,
+}
+
+impl IntegerOp {
+    pub(crate) fn binary(operator: &str) -> Option<Self> {
+        Some(match operator {
+            "&" => Self::And,
+            "|" => Self::Or,
+            "^" => Self::Xor,
+            "<<" => Self::ShiftLeft,
+            ">>" => Self::ShiftRight,
+            _ => return None,
+        })
+    }
+}
+
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
@@ -564,6 +590,8 @@ pub enum Op {
     /// Integer division rounded toward negative infinity (modern `//`).
     FloorDiv,
     Modulo,
+    /// Integer operations that never use implicit overflow checking.
+    Integer(IntegerOp),
     /// Pop two values; push `true` if they are equal, `false` otherwise.
     /// Polymorphic over Int/Str/Bool (§11.8); mixed-type pairs are rejected
     /// by the type checker, never reached at runtime by a compiled source.
@@ -638,8 +666,15 @@ pub enum Op {
     /// and zero-extends unsigned ones; narrowing truncates; equal-width
     /// signedness change reinterprets the bit pattern. Casts that would
     /// silently change a value's mathematical meaning are still allowed —
-    /// that is the whole point of an explicit cast word.
+    /// that is the whole point of an explicit cast word. `T.wrapping_from`
+    /// lowers to this op; the bare cast `T(x)` lowers to `CheckedCast`.
     Cast(Ty),
+    /// Pop a number; push it converted to the target numeric type. A value
+    /// the target integer type cannot represent traps: an out-of-range
+    /// integer, or a float that is NaN or out of range once truncated toward
+    /// zero. Conversions to a float type, and integer conversions that
+    /// preserve every source value, emit no check.
+    CheckedCast(Ty),
     /// Pop an integer of any width; push `Result[target, ParseError]`: `Ok`
     /// with the value at the target integer width when it is in range, and
     /// `Err(ParseError.OutOfRange)` otherwise. Unlike `Cast`, it never
@@ -1678,6 +1713,16 @@ fn step(
             }
             arith(stack, "// or %")?;
         }
+        Op::Integer(kind) => {
+            let ty = stack.pop().ok_or("integer operation stack underflow")?;
+            if !ty.is_int() {
+                return Err("bitwise and wrapping operations require integers".into());
+            }
+            if *kind != IntegerOp::Not && stack.pop().as_ref() != Some(&ty) {
+                return Err("integer operations require same-typed operands".into());
+            }
+            stack.push(ty);
+        }
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;
             if a != b {
@@ -1901,6 +1946,16 @@ fn step(
             }
             stack.push(target.clone());
         }
+        Op::CheckedCast(target) => {
+            let top = stack.pop().ok_or("stack underflow on cast")?;
+            if !top.is_numeric() || !target.is_numeric() {
+                return Err(format!(
+                    "cast to {target} requires numeric source and target types, got {top}"
+                )
+                .into());
+            }
+            stack.push(target.clone());
+        }
         Op::TryCast(target) => {
             let top = stack.pop().ok_or("stack underflow on checked cast")?;
             if !top.is_int() || !target.is_int() {
@@ -1969,8 +2024,10 @@ fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
 /// Stack effect for numeric ordering: same-typed numbers in, Bool out.
 fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if !a.is_numeric() || a != b {
-        return Err(format!("`{op_label}` requires same-typed numbers, got ({a} {b})").into());
+    if !(a.is_numeric() || a == Ty::Str) || a != b {
+        return Err(
+            format!("`{op_label}` requires same-typed numbers or strings, got ({a} {b})").into(),
+        );
     }
     stack.push(Ty::Bool);
     Ok(())

@@ -98,6 +98,7 @@ pub(super) fn prepare(
         completed: HashSet::new(),
         frames: HashMap::new(),
         required: HashMap::new(),
+        source_root: None,
     };
     let mut names = HashSet::new();
     for f in functions {
@@ -136,6 +137,20 @@ pub(super) struct Engine {
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<String, Rc<Instantiation>>,
+    pub(super) source_root: Option<std::path::PathBuf>,
+}
+
+impl Engine {
+    /// `source` relative to the source root; unchanged without a root.
+    pub(super) fn trap_file(&self, source: &Rc<str>) -> Rc<str> {
+        self.source_root
+            .as_deref()
+            .and_then(|root| std::path::Path::new(&**source).strip_prefix(root).ok())
+            .map_or_else(
+                || Rc::clone(source),
+                |relative| relative.to_string_lossy().as_ref().into(),
+            )
+    }
 }
 
 type Substitution = HashMap<String, TypeRef>;

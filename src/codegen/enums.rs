@@ -212,7 +212,12 @@ impl Lowerer<'_, '_> {
                     self.bcx
                         .ins()
                         .icmp_imm(IntCC::NotEqual, tag, i64::from(t.is_option()));
-                self.bcx.ins().trapnz(failed, TrapCode::unwrap_user(4));
+                self.trap_if(
+                    failed,
+                    TrapKind::Unwrap {
+                        option: t.is_option(),
+                    },
+                )?;
                 self.sum_payload(value)
             }
             EnumOp::New(_, tag) => {

@@ -5,7 +5,9 @@ later functions or recurse mutually; aliases and data declarations can refer
 forward. Duplicate declarations and redefinitions are rejected.
 
 Function parameters and local bindings occupy lexical scopes. A declaration in
-a branch does not escape that branch. Assigning an existing mutable local changes
+a branch does not escape that branch: using the name afterwards is an unknown
+binding, and the diagnostic says that the earlier binding ended with its block.
+Bind a `mut` local to a value before the block and assign it inside instead. Assigning an existing mutable local changes
 that local across a branch join. Pattern bindings belong to their arm and may
 shadow outer bindings. A new binding cannot read itself in its initializer.
 

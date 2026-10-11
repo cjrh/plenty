@@ -17,11 +17,14 @@ pub struct Site {
     pub scope_end: bool,
 }
 
-/// Per-function facts used only to render ownership diagnostics. They never
-/// affect liveness or aliasing.
+/// Per-function facts used only to render ownership diagnostics and trap
+/// reports. They never affect liveness or aliasing.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Origins {
     pub source: Option<Rc<str>>,
+    /// `source` relative to the source root, for runtime trap reports.
+    /// Generated code must not depend on where the tree is checked out.
+    pub trap_file: Option<Rc<str>>,
     /// Source name of each local slot, parameters first. Slots are never
     /// reused, so a name stays valid after its scope ends. Compiler
     /// temporaries have none.

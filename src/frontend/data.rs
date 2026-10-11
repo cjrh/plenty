@@ -176,6 +176,7 @@ impl DataTypes {
                         reference(class.name.clone(), types.clone())
                     },
                     doc: String::new(),
+                    doc_at: None,
                     body: vec![Stmt {
                         at: at.clone(),
                         kind: Statement::Expr(Expr {
