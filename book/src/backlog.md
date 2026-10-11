@@ -208,9 +208,10 @@ Completed cleanup includes:
 - Generic instance body errors reported at the use that required the instance,
   with a note at the body (issue #40; local PR #45).
 
-Continue addressing open issues in severity order. Concurrency API consistency
-and join/deadlock diagnostics (issues #28 and #12) remain open. Claims and
-current ownership belong in `issues.db`; these references do not assign work.
+Continue addressing open issues in severity order. Join/deadlock diagnostics
+(issue #12) remain open; B22 records the completed concurrency API consistency
+work (issue #28). Claims and current ownership belong in `issues.db`; these
+references do not assign work.
 `Failure` still keeps no details; storing a cause in it belongs to B14.
 
 Other cleanup findings include source locations for runtime traps (issue #37),
