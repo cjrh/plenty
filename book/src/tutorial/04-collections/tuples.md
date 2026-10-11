@@ -45,6 +45,26 @@ def main() -> Result[(), Failure]:
 (1, [2, 3])
 ```
 
+Copyable components can be changed through mutable references too. A saved
+copy has its own inline storage:
+
+```plenty
+def main() -> Result[(), Failure]:
+    mut pair = (1, 2)
+    saved = pair
+    first = &mut pair[0]
+    *first = 5
+    print(pair)?
+    print(saved)?
+    Ok(())
+```
+
+```output
+(5, 2)
+(1, 2)
+```
+
+Use a reference for the write; direct `pair[0] = 5` is not supported.
 Reading an exclusively borrowed component is rejected:
 
 ```plenty-error
