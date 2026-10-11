@@ -248,6 +248,54 @@ impl Ty {
     }
 }
 
+impl Ty {
+    /// Stable compiler spelling for names derived from concrete types. Display
+    /// may describe origins shared by distinct specialized environments.
+    pub fn identity_name(&self) -> String {
+        match self {
+            Ty::Closure(t) => {
+                let signature = t.signature.identity_name().replacen(
+                    "Callable",
+                    if t.once { "OnceClosure" } else { "Closure" },
+                    1,
+                );
+                if t.name.is_empty() {
+                    signature
+                } else {
+                    format!("{signature} from `{}`", t.name)
+                }
+            }
+            Ty::Callable(t) => t.identity_name(),
+            Ty::Enum(t) => t.name.clone(),
+            Ty::Class(t) => t.name.clone(),
+            Ty::List(t) => format!("list[{}]", t.identity_name()),
+            Ty::Set(t) => format!("set[{}]", t.identity_name()),
+            Ty::Dict(k, v) => format!("dict[{}, {}]", k.identity_name(), v.identity_name()),
+            Ty::Box(t) => format!("Box[{}]", t.identity_name()),
+            Ty::Future(t) => format!("Future[{}]", t.identity_name()),
+            Ty::Channel(t, sender) => format!(
+                "{}[{}]",
+                if *sender { "Sender" } else { "Receiver" },
+                t.identity_name()
+            ),
+            Ty::Ref(t, mutable) => format!(
+                "&{}{}",
+                if *mutable { "mut " } else { "" },
+                t.identity_name()
+            ),
+            Ty::Range(t) if **t != Ty::I64 => format!("range[{}]", t.identity_name()),
+            Ty::Generator(t) => {
+                let mut name = format!("Generator[{}]", t.element.identity_name());
+                if let Some(producer) = &t.name {
+                    name.push_str(&format!(" from `{producer}`"));
+                }
+                name
+            }
+            _ => self.to_string(),
+        }
+    }
+}
+
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -264,10 +312,10 @@ impl fmt::Display for Ty {
                     if t.once { "OnceClosure" } else { "Closure" },
                     1,
                 );
-                return if t.name.is_empty() {
-                    f.write_str(&signature)
+                return if let Some(location) = &t.location {
+                    write!(f, "{signature} defined at {location}")
                 } else {
-                    write!(f, "{signature} from `{}`", t.name)
+                    f.write_str(&signature)
                 };
             }
             Ty::Callable(sig) => return write!(f, "{sig}"),
@@ -297,8 +345,8 @@ impl fmt::Display for Ty {
                     write!(f, "range[{t}]")
                 }
             }
-            Ty::Enum(t) => return f.write_str(&t.name),
-            Ty::Class(t) => return f.write_str(&t.name),
+            Ty::Enum(t) => return f.write_str(t.display_name()),
+            Ty::Class(t) => return f.write_str(t.display_name()),
             Ty::Generator(t) => {
                 write!(f, "Generator[{}]", t.element)?;
                 if let Some(name) = &t.name {
@@ -346,6 +394,20 @@ pub struct CallableSig {
     pub output: Option<Ty>,
 }
 impl CallableSig {
+    fn identity_name(&self) -> String {
+        format!(
+            "Callable[[{}], {}]",
+            self.inputs
+                .iter()
+                .map(Ty::identity_name)
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.output
+                .as_ref()
+                .map(Ty::identity_name)
+                .unwrap_or_else(|| "()".into())
+        )
+    }
     pub fn from_function(sig: &FnSig) -> Self {
         Self {
             inputs: sig.inputs.iter().map(|(_, ty)| ty.clone()).collect(),

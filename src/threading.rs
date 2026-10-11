@@ -122,7 +122,7 @@ fn check_type(
             return Err("executor and future handles cannot enter worker threads; wait and submit on the owning thread".into())
         }
         Ty::Channel(message, false)
-            if checked_receivers.insert(ty.to_string()) && receiver_cycle(message, ty) =>
+            if checked_receivers.insert(ty.identity_name()) && receiver_cycle(message, ty) =>
         {
             return Err(format!("recursive channel ownership through {ty} could retain its own receiver; keep receiving handles outside queued message cycles"));
         }

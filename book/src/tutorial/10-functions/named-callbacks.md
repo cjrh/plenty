@@ -1,7 +1,9 @@
 # Pass functions as values
 
 Use a function's name without parentheses to pass it as a value. A `Callable`
-annotation specifies its parameter types and return type:
+annotation specifies its parameter types and return type. The value stores
+only a code address. To accept a callback with captured state too, use a
+[generic callback parameter](generic-callback-apis.md).
 
 ```plenty
 def double(value: i64) -> i64:

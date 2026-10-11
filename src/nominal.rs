@@ -25,6 +25,8 @@ enum Link<T> {
 
 pub struct Nominal<T> {
     pub name: String,
+    /// User-facing spelling, excluded from identity and type-table lookup.
+    display_name: Option<Rc<str>>,
     link: Link<T>,
 }
 
@@ -41,8 +43,16 @@ impl<T: Definition> Nominal<T> {
     pub fn new(value: T) -> Self {
         Self {
             name: value.name().into(),
+            display_name: None,
             link: Link::Local(Rc::new(value)),
         }
+    }
+    pub fn with_display_name(mut self, name: String) -> Self {
+        self.display_name = (name != self.name).then(|| name.into());
+        self
+    }
+    pub fn display_name(&self) -> &str {
+        self.display_name.as_deref().unwrap_or(&self.name)
     }
     pub fn get(&self) -> Rc<T> {
         self.try_get()
@@ -105,6 +115,7 @@ impl<T: Definition> Nominal<T> {
         };
         Self {
             name: self.name.clone(),
+            display_name: self.display_name.clone(),
             link,
         }
     }
@@ -122,6 +133,7 @@ impl<T: Definition> Clone for Nominal<T> {
         };
         Self {
             name: self.name.clone(),
+            display_name: self.display_name.clone(),
             link,
         }
     }
@@ -147,6 +159,7 @@ impl Types {
         let slot = Rc::new(OnceCell::new());
         let value = Nominal {
             name: name.into(),
+            display_name: None,
             link: Link::Owned(self.clone(), Rc::downgrade(&slot)),
         };
         self.classes.borrow_mut().push(slot);
@@ -156,6 +169,7 @@ impl Types {
         let slot = Rc::new(OnceCell::new());
         let value = Nominal {
             name: name.into(),
+            display_name: None,
             link: Link::Owned(self.clone(), Rc::downgrade(&slot)),
         };
         self.enums.borrow_mut().push(slot);

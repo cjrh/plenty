@@ -40,6 +40,10 @@ do not unify merely because their signatures match. Factories and generic
 consumers preserve that concrete layout. Prefer `F: Callable[...]` with `&F`
 or `&mut F` for reusable callback APIs accepting both named functions and
 closures; the generic constraint is separate from a code-only `Callable` value.
+Diagnostics identify a concrete closure by its definition's source file, line,
+and column (line and column for source supplied without a filename). This
+location describes its origin; different generic instantiations of the same
+expression can still have distinct environment types.
 
 Creating, moving, passing, returning, calling, and dropping inline environments
 adds no heap allocation. Captured owners drop in reverse capture order.
