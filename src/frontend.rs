@@ -1037,6 +1037,7 @@ impl Parser {
         let mut inputs = Vec::new();
         let mut adapters = Vec::new();
         while !self.eat(")") {
+            let param_at = self.peek().clone();
             let param = self.name()?;
             if captures.iter().any(|c| c.name == param) {
                 return Err(at.error("a parameter cannot shadow a closure capture"));
@@ -1049,7 +1050,8 @@ impl Parser {
             {
                 TypeRef {
                     concrete: None,
-                    at: at.clone(),
+                    // Preserve the shorthand's provenance for receiver diagnostics.
+                    at: param_at,
                     name: Some(
                         if matches!(name.as_str(), "__init__" | "__del__") {
                             "&mut"
@@ -1938,6 +1940,7 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 
 struct Lower<'a> {
     function_name: String,
+    bare_self_receiver: bool,
     source_tail: Vec<crate::ownership::Site>,
     tail_candidates: Vec<tail_calls::Candidate>,
     closure_loans: HashMap<String, Vec<usize>>,
@@ -3462,6 +3465,9 @@ fn lower_function(
     };
     let mut lower = Lower {
         function_name: f.name.clone(),
+        bare_self_receiver: f.inputs.first().is_some_and(|(name, ty)| {
+            name == "self" && ty.name.as_deref() == Some("&") && ty.at.is("self")
+        }),
         source_tail: Vec::new(),
         tail_candidates: Vec::new(),
         closure_loans: HashMap::new(),

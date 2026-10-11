@@ -33,7 +33,12 @@ A method's first parameter is `self`. Bare `self` means `&Class` in ordinary
 methods and `&mut Class` in `__init__` and `__del__`. Mutating ordinary methods
 declare `self: &mut Class`; their receiver must be a mutable owner or exclusive
 reference. Methods resolve statically and borrow their receiver. Temporary
-owned receivers are supported when no reference escapes. See
+owned receivers are supported when no reference escapes. Attempting mutation
+through an ordinary method's bare `self` reports the explicit
+`self: &mut Class` annotation needed for an exclusive receiver. For a generic
+class, use its declared type parameters in that annotation, such as
+`self: &mut Cell[T]`; the diagnostic points to these parameters rather than a
+particular specialization. See
 [classes](../03-types/classes.md) for initialization and field rules and
 [returned references](../05-ownership/04-returned-references.md) for receiver
 lifetime restrictions.

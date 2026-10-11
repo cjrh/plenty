@@ -328,6 +328,60 @@ fn field_borrow_conflicts_and_mutability() {
 }
 
 #[test]
+fn bare_self_mutation_names_the_supported_receiver_signature() {
+    for body in [
+        "self.value = self.value + 1",
+        "increment(&mut self.value)",
+        "self.increment()",
+    ] {
+        let source = format!(
+            "def increment(value: &mut i64) -> ():\n    *value = *value + 1\nclass Counter:\n    value: i64\n    def increment(self: &mut Counter) -> ():\n        self.value = self.value + 1\n    def change(self) -> ():\n        {body}\nmut counter = Counter(1)\ncounter.change()\nprint(counter.value).unwrap()\n"
+        );
+        reject(&source, "declare `self: &mut Counter`");
+        run(
+            &source.replace("def change(self)", "def change(self: &mut Counter)"),
+            "2\n",
+        );
+    }
+}
+
+#[test]
+fn bare_self_hint_survives_generic_method_specialization() {
+    let source = "class Counter:\n    value: i64\n    def change[T: IntType](self, amount: T) -> ():\n        self.value = self.value + i64(amount)\nmut counter = Counter(1)\ncounter.change(2u8)\nprint(counter.value).unwrap()\n";
+    reject(source, "declare `self: &mut Counter`");
+    run(&source.replace("(self,", "(self: &mut Counter,"), "3\n");
+}
+
+#[test]
+fn generic_class_self_hint_uses_the_declared_type_parameters() {
+    let source = "class Cell[T]:\n    value: T\n    def replace(self, value: T) -> ():\n        self.value = value\nmut cell = Cell[i64](1)\ncell.replace(2)\nprint(cell.value).unwrap()\n";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(
+        error.contains("using the class's type parameters"),
+        "{error}"
+    );
+    assert!(!error.contains("self: &mut Cell[i64]"), "{error}");
+    run(&source.replace("(self,", "(self: &mut Cell[T],"), "2\n");
+}
+
+#[test]
+fn shared_reference_errors_do_not_suggest_changing_a_bare_receiver() {
+    for source in [
+        "class C:\n    value: i64\n    def change(self: &C) -> ():\n        self.value = 1\n",
+        "class C:\n    value: i64\n    def change(self, other: &C) -> ():\n        other.value = 1\n",
+        "class C:\n    value: i64\ndef change(self: &C) -> ():\n    self.value = 1\n",
+        "class C:\n    value: i64\n    def __del__(self) -> ():\n        shared = &self\n        shared.value = 1\n",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let error = support::compile_source_to_executable(source, &directory.path().join("program"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("cannot borrow shared reference as mutable"), "{source}\n{error}");
+        assert!(!error.contains("declare `self:"), "{source}\n{error}");
+    }
+}
+
+#[test]
 fn method_reference_arguments_reborrow_for_the_whole_call() {
     let source = r#"
 class Counter:
