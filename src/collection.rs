@@ -79,6 +79,7 @@ pub enum CollectionOp {
     HashIterFirst(Ty),
     HashIterNext(Ty),
     HashIterGet(Ty),
+    HashIterKeyRef(Ty),
     IterTake(Ty),
     Contains(Ty),
     Range(Ty),
@@ -373,6 +374,10 @@ impl CollectionOp {
                 t.element().unwrap(),
             ),
             HashIterNext(t) => (vec![t.clone(), Ty::I64], Ty::I64),
+            HashIterKeyRef(t) => (
+                vec![Ty::Ref(Rc::new(t.clone()), false), Ty::I64],
+                Ty::Ref(Rc::new(t.element().unwrap()), false),
+            ),
             IterGet(t) | IterTake(t) | HashIterGet(t) => {
                 (vec![t.clone(), Ty::I64], t.element().unwrap())
             }
@@ -479,6 +484,7 @@ impl CollectionOp {
             Self::HashIterFirst(_) => 123,
             Self::HashIterNext(_) => 124,
             Self::HashIterGet(_) => 125,
+            Self::HashIterKeyRef(_) => 140,
             Self::IterTake(_) => 15,
             Self::Contains(_) => 7,
             Self::Range(_) => 10,

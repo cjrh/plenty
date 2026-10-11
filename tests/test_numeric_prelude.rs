@@ -176,7 +176,7 @@ fn checked_conversions_cover_every_width_and_signedness() {
     "Result[u8, ParseError].Ok(7)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[u8, ParseError].Err(ParseError.Invalid)\n"
 )]
 #[case(
-    "match i8.try_from(200u8):\n    case Ok(value):\n        print(value).unwrap()\n    case Err(error):\n        print(error == ParseError.OutOfRange).unwrap()\nxs = [1, 300, -1].unwrap()\nfor x in &xs:\n    print(str.repr(u8.try_from(x)).unwrap()).unwrap()",
+    "match i8.try_from(200u8):\n    case Ok(value):\n        print(value).unwrap()\n    case Err(error):\n        print(error == ParseError.OutOfRange).unwrap()\nxs = [1, 300, -1].unwrap()\nfor x in &xs:\n    print(str.repr(u8.try_from(*x)).unwrap()).unwrap()",
     "True\nResult[u8, ParseError].Ok(1)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\n"
 )]
 #[case(

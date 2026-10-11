@@ -2124,11 +2124,14 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
-        let a = self.expr_expected(left, Some(ty.clone()), ops)?;
-        self.same(a, Some(ty.clone()), &left.at)?;
-        let b = self.expr_expected(right, Some(ty.clone()), ops)?;
-        self.same(b, Some(ty.clone()), &right.at)?;
-        Self::numeric_operation(op, ty, at, ops)
+        let (a, mut loans) = self.observe_expected(left, Some(ty.clone()), ops)?;
+        self.same(Some(a), Some(ty.clone()), &left.at)?;
+        let (b, other_loans) = self.observe_expected(right, Some(ty.clone()), ops)?;
+        self.same(Some(b), Some(ty.clone()), &right.at)?;
+        loans.extend(other_loans);
+        let output = Self::numeric_operation(op, ty, at, ops)?;
+        Self::end_reads(loans, ops);
+        Ok(output)
     }
     fn numeric_operation(op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
         if op == "/" && !ty.is_float() {
@@ -2585,11 +2588,7 @@ impl Lower<'_> {
                 let (a, mut loans) = self.observe(left, ops)?;
                 let mut rhs = Vec::new();
                 let (b, other_loans) = if a.is_numeric() {
-                    (
-                        self.expr_expected(right, Some(a.clone()), &mut rhs)?
-                            .ok_or_else(|| right.at.error("expected a numeric value"))?,
-                        vec![],
-                    )
+                    self.observe_expected(right, Some(a.clone()), &mut rhs)?
                 } else {
                     self.observe(right, &mut rhs)?
                 };

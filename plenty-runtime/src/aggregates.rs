@@ -1843,6 +1843,11 @@ pub(crate) unsafe fn collection(
                 retain(key, c.ty().key());
                 key
             }
+            140 => {
+                let owner = *(a as *const u128);
+                let c = &mut *(owner as *mut Collection);
+                c.entries.slot(b as usize - 1, false) as u128
+            }
             4 | 6 => {
                 let c = &*(a as *const Collection);
                 if op == 4 && c.ty().kind == b'D' {
