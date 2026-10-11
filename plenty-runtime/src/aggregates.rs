@@ -1378,7 +1378,10 @@ pub(crate) unsafe fn collection_at(
                 Err(error) => wrap(wrap(0, error as u64), 1),
             };
         }
-        if !descriptor.is_null() && (*descriptor).kind == b's' && !matches!(op, 110 | 111 | 122) {
+        if !descriptor.is_null()
+            && (*descriptor).kind == b's'
+            && !matches!(op, 110 | 111 | 122 | 141)
+        {
             let text = a as *const Text;
             return match op {
                 5 => strings::scalar_len(text) as u128,
@@ -1669,10 +1672,22 @@ pub(crate) unsafe fn collection_at(
             127 => {
                 let c = &mut *(a as *mut Collection);
                 let element = (*c.ty).key();
-                c.entries.sort_unstable_by(|x, y| compare(x, y, element));
+                c.entries.sort_unstable_by(|x, y| {
+                    let order = compare(x, y, element);
+                    if b != 0 {
+                        order.reverse()
+                    } else {
+                        order
+                    }
+                });
                 plenty_retain(a as *mut Header);
                 a
             }
+            141 => match compare(a, b, &*descriptor) {
+                Ordering::Less => (-1i64) as u128,
+                Ordering::Equal => 0,
+                Ordering::Greater => 1,
+            },
             57 => {
                 (*(a as *mut Collection)).entries.reverse();
                 plenty_retain(a as *mut Header);

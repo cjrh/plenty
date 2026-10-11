@@ -62,14 +62,15 @@ pub enum CollectionOp {
     ListCount(Ty),
     ListFind(Ty),
     ListRFind(Ty),
-    DictGet(Ty),     // observed dictionary/key -> Option[non-affine value]
-    DictPop(Ty),     // exclusive dictionary/key -> Option[owned value]
-    ListPop(Ty),     // exclusive list/index -> Option[owned element]
-    SetDiscard(Ty),  // exclusive set/value -> bool
-    ListReverse(Ty), // exclusive list -> retained internal alias
-    ListSwap(Ty),    // exclusive list, two indices -> retained internal alias
-    ListSort(Ty),    // exclusive list -> retained internal alias
-    Clear(Ty),       // exclusive list/dict/set -> retained internal alias
+    DictGet(Ty),      // observed dictionary/key -> Option[non-affine value]
+    DictPop(Ty),      // exclusive dictionary/key -> Option[owned value]
+    ListPop(Ty),      // exclusive list/index -> Option[owned element]
+    SetDiscard(Ty),   // exclusive set/value -> bool
+    ListReverse(Ty),  // exclusive list -> retained internal alias
+    ListSwap(Ty),     // exclusive list, two indices -> retained internal alias
+    ListSort(Ty),     // exclusive list, descending bool -> retained internal alias
+    OrderCompare(Ty), // two ordered keys -> i64
+    Clear(Ty),        // exclusive list/dict/set -> retained internal alias
     Len(Ty),
     /// Non-owning list observations; the frontend keeps the receiver's loan live.
     ListLenRef(Ty),
@@ -271,6 +272,7 @@ impl CollectionOp {
             TextByteLen => (vec![Ty::Str], Ty::I64),
             TextIsAscii | TextIsSpace | TextIsDigit | TextIsAlpha => (vec![Ty::Str], Ty::Bool),
             TextCompare => (vec![Ty::Str, Ty::Str], Ty::I64),
+            OrderCompare(t) => (vec![t.clone(), t.clone()], Ty::I64),
             TextOrd => (
                 vec![Ty::Str],
                 crate::sum::result(Ty::U32, crate::sum::parse_error()),
@@ -386,7 +388,8 @@ impl CollectionOp {
             SetIntersectionUpdate(t) | SetDifferenceUpdate(t) => {
                 (vec![t.clone(), t.clone()], t.clone())
             }
-            ListReverse(t) | ListSort(t) | Clear(t) => (vec![t.clone()], t.clone()),
+            ListReverse(t) | Clear(t) => (vec![t.clone()], t.clone()),
+            ListSort(t) => (vec![t.clone(), Ty::Bool], t.clone()),
             ListSwap(t) => (vec![t.clone(), Ty::I64, Ty::I64], t.clone()),
             Len(t) | HashIterFirst(t) => (vec![t.clone()], Ty::I64),
             ListLenRef(t) => (vec![Ty::Ref(Rc::new(t.clone()), false)], Ty::I64),
@@ -511,6 +514,7 @@ impl CollectionOp {
             Self::ListReverse(_) => 57,
             Self::ListSwap(_) => 126,
             Self::ListSort(_) => 127,
+            Self::OrderCompare(_) => 141,
             Self::Clear(_) => 58,
             Self::Len(_) => 5,
             Self::ListLenRef(_) | Self::ListScalarGetRef(_) => {

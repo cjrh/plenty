@@ -19,6 +19,33 @@ fn native(source: &str, expected: &str) {
 }
 
 #[test]
+fn key_sort_borrows_owned_elements_and_supports_descending_and_sorted_copies() {
+    native(
+        r#"
+class Point:
+    x: i64
+    y: i64
+def x(point: &Point) -> i64:
+    point.x
+mut points = [Point(3, 1), Point(1, 2), Point(2, 4)].unwrap()
+points.sort_by_key(x)
+for point in &points:
+    print(point.x).unwrap()
+points.sort_by_key(x, True)
+for point in &points:
+    print(point.x).unwrap()
+mut numbers = [3, 1, 2].unwrap()
+print(sorted(&numbers).unwrap()).unwrap()
+print(numbers).unwrap()
+numbers.sort(True)
+print(numbers).unwrap()
+print(sorted(&numbers, True).unwrap()).unwrap()
+"#,
+        "1\n2\n3\n3\n2\n1\n[1, 2, 3]\n[3, 1, 2]\n[3, 2, 1]\n[3, 2, 1]",
+    );
+}
+
+#[test]
 fn swap_exchanges_elements_through_bindings_fields_and_references() {
     native(
         r#"
@@ -241,7 +268,7 @@ fn swap_traps_on_a_missing_index() {
 #[case("items = [1].unwrap()\nloan = &items\nloan.swap(0, 0)", "shared")]
 #[case("items = [1].unwrap()\nitems.sort()", "immutable")]
 #[case("[1].unwrap().sort()", "sort requires a mutable list")]
-#[case("mut items = [1].unwrap()\nitems.sort(1)", "sort takes no arguments")]
+#[case("mut items = [1].unwrap()\nitems.sort(1)", "expected bool, got i64")]
 #[case(
     "mut items = [True].unwrap()\nitems.sort()",
     "sort does not order bool elements"
