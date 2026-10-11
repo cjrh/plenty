@@ -1,0 +1,270 @@
+# The public algorithms and error policy are Plenty code. Numeric methods are
+# IEEE/platform primitives. See book/src/design/facilities/math.md for contracts.
+
+pub enum MathError:
+    Domain
+    Overflow
+
+pub def isnan(x: f64) -> bool:
+    x != x
+
+pub def isinf(x: f64) -> bool:
+    x == f64.INF or x == -f64.INF
+
+pub def isfinite(x: f64) -> bool:
+    not isnan(x) and not isinf(x)
+
+pub def fabs(x: f64) -> f64:
+    x.fabs()
+
+pub def copysign(x: f64, y: f64) -> f64:
+    x.copysign(y)
+
+# Match Python's equality, infinity and weak symmetric tolerance rules.
+# Positional tolerances are explicit until Plenty supports default arguments.
+pub def isclose(a: f64, b: f64, rel_tol: f64, abs_tol: f64) -> Result[bool, MathError]:
+    if rel_tol < 0.0 or abs_tol < 0.0:
+        return Err(MathError.Domain)
+    if a == b:
+        return Ok(True)
+    if isinf(a) or isinf(b):
+        return Ok(False)
+    diff = fabs(b - a)
+    Ok(diff <= fabs(rel_tol * b) or diff <= fabs(rel_tol * a) or diff <= abs_tol)
+
+pub def degrees(x: f64) -> f64:
+    x * (180.0 / f64.PI)
+
+pub def radians(x: f64) -> f64:
+    x * (f64.PI / 180.0)
+
+# NaN propagates. Finite inputs producing infinity overflow; invalid operations
+# producing NaN are domain errors. Underflow to zero is successful.
+def unary_result(x: f64, result: f64) -> Result[f64, MathError]:
+    if isnan(result) and not isnan(x):
+        return Err(MathError.Domain)
+    if isinf(result) and isfinite(x):
+        return Err(MathError.Overflow)
+    Ok(result)
+
+pub def sqrt(x: f64) -> Result[f64, MathError]:
+    if x < 0.0:
+        return Err(MathError.Domain)
+    unary_result(x, x.sqrt())
+
+pub def exp(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.exp())
+
+pub def exp2(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.exp2())
+
+pub def expm1(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.expm1())
+
+pub def log(x: f64) -> Result[f64, MathError]:
+    if x <= 0.0:
+        return Err(MathError.Domain)
+    unary_result(x, x.log())
+
+pub def log2(x: f64) -> Result[f64, MathError]:
+    if x <= 0.0:
+        return Err(MathError.Domain)
+    unary_result(x, x.log2())
+
+pub def log10(x: f64) -> Result[f64, MathError]:
+    if x <= 0.0:
+        return Err(MathError.Domain)
+    unary_result(x, x.log10())
+
+pub def log1p(x: f64) -> Result[f64, MathError]:
+    if x <= -1.0:
+        return Err(MathError.Domain)
+    unary_result(x, x.log1p())
+
+pub def log_base(x: f64, base: f64) -> Result[f64, MathError]:
+    if base == 1.0:
+        return Err(MathError.Domain)
+    numerator = log(x)?
+    denominator = log(base)?
+    Ok(numerator / denominator)
+
+pub def sin(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.sin())
+
+pub def cos(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.cos())
+
+pub def tan(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.tan())
+
+pub def asin(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.asin())
+
+pub def acos(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.acos())
+
+pub def atan(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.atan())
+
+pub def atan2(y: f64, x: f64) -> Result[f64, MathError]:
+    Ok(y.atan2(x))
+
+pub def sinh(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.sinh())
+
+pub def cosh(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.cosh())
+
+pub def tanh(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.tanh())
+
+pub def asinh(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.asinh())
+
+pub def acosh(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.acosh())
+
+pub def atanh(x: f64) -> Result[f64, MathError]:
+    if fabs(x) == 1.0:
+        return Err(MathError.Domain)
+    unary_result(x, x.atanh())
+
+pub def cbrt(x: f64) -> Result[f64, MathError]:
+    unary_result(x, x.cbrt())
+
+pub def pow(x: f64, y: f64) -> Result[f64, MathError]:
+    if x == 0.0 and y < 0.0 and isfinite(y):
+        return Err(MathError.Domain)
+    result = x.pow(y)
+    if isnan(result) and not isnan(x) and not isnan(y):
+        return Err(MathError.Domain)
+    if isinf(result) and isfinite(x) and isfinite(y):
+        return Err(MathError.Overflow)
+    Ok(result)
+
+pub def fmod(x: f64, y: f64) -> Result[f64, MathError]:
+    result = x.fmod(y)
+    if isnan(result) and not isnan(x) and not isnan(y):
+        return Err(MathError.Domain)
+    Ok(result)
+
+# Python returns arbitrary-size integers. Plenty returns i64 with checked range.
+def integer_result(x: f64) -> Result[i64, MathError]:
+    if isnan(x):
+        return Err(MathError.Domain)
+    if x < -9223372036854775808.0 or x >= 9223372036854775808.0:
+        return Err(MathError.Overflow)
+    Ok(i64(x))
+
+pub def floor(x: f64) -> Result[i64, MathError]:
+    integer_result(x.floor())
+
+pub def ceil(x: f64) -> Result[i64, MathError]:
+    integer_result(x.ceil())
+
+pub def trunc(x: f64) -> Result[i64, MathError]:
+    integer_result(x.trunc())
+
+# Fixed-width integer algorithms need no runtime implementation. Division before
+# multiplication guards overflow without trapping or losing integer precision.
+pub def factorial(n: i64) -> Result[u64, MathError]:
+    if n < 0:
+        return Err(MathError.Domain)
+    if n > 20:
+        return Err(MathError.Overflow)
+    mut result = 1u64
+    mut i = 2i64
+    while i <= n:
+        result *= u64(i)
+        i += 1
+    Ok(result)
+
+pub def gcd(a: u64, b: u64) -> u64:
+    mut x = a
+    mut y = b
+    while y != 0:
+        remainder = x % y
+        x = y
+        y = remainder
+    x
+
+pub def lcm(a: u64, b: u64) -> Result[u64, MathError]:
+    if a == 0 or b == 0:
+        return Ok(0u64)
+    quotient = a // gcd(a, b)
+    if quotient > u64.MAX // b:
+        return Err(MathError.Overflow)
+    Ok(quotient * b)
+
+pub def isqrt(n: u64) -> u64:
+    mut low = 0u64
+    mut high = 4294967296u64
+    while high - low > 1:
+        middle = low + (high - low) // 2
+        if middle <= n // middle:
+            low = middle
+        else:
+            high = middle
+    low
+
+pub def perm(n: u64, k: u64) -> Result[u64, MathError]:
+    if k > n:
+        return Ok(0u64)
+    mut result = 1u64
+    mut i = 0u64
+    while i < k:
+        factor = n - i
+        if result > u64.MAX // factor:
+            return Err(MathError.Overflow)
+        result *= factor
+        i += 1
+    Ok(result)
+
+pub def comb(n: u64, k: u64) -> Result[u64, MathError]:
+    if k > n:
+        return Ok(0u64)
+    mut count = k
+    if n - k < count:
+        count = n - k
+    mut result = 1u64
+    mut i = 1u64
+    while i <= count:
+        numerator = n - count + i
+        divisor = gcd(numerator, i)
+        factor = numerator // divisor
+        partial = result // (i // divisor)
+        if partial > u64.MAX // factor:
+            return Err(MathError.Overflow)
+        result = partial * factor
+        i += 1
+    Ok(result)
+
+# These helpers specialize normally and preserve Plenty's arithmetic traps.
+pub def abs[T](x: T) -> T:
+    if x == 0:
+        return 0
+    if x < 0:
+        return 0 - x
+    x
+
+pub def min[T](a: T, b: T) -> T:
+    if b < a:
+        return b
+    a
+
+pub def max[T](a: T, b: T) -> T:
+    if b > a:
+        return b
+    a
+
+pub def sum[T](items: &list[T], start: T) -> T:
+    mut total = start
+    for item in items:
+        total += *item
+    total
+
+pub def prod[T](items: &list[T], start: T) -> T:
+    mut total = start
+    for item in items:
+        total *= *item
+    total

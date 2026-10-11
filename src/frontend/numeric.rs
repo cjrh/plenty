@@ -19,6 +19,26 @@ fn float_method(name: &str) -> Option<NumericOp> {
         "floor" => NumericOp::Float(FloatOp::Floor),
         "ceil" => NumericOp::Float(FloatOp::Ceil),
         "fmod" => NumericOp::Float(FloatOp::Fmod),
+        "tan" => NumericOp::Float(FloatOp::Tan),
+        "asin" => NumericOp::Float(FloatOp::Asin),
+        "acos" => NumericOp::Float(FloatOp::Acos),
+        "atan" => NumericOp::Float(FloatOp::Atan),
+        "atan2" => NumericOp::Float(FloatOp::Atan2),
+        "sinh" => NumericOp::Float(FloatOp::Sinh),
+        "cosh" => NumericOp::Float(FloatOp::Cosh),
+        "tanh" => NumericOp::Float(FloatOp::Tanh),
+        "asinh" => NumericOp::Float(FloatOp::Asinh),
+        "acosh" => NumericOp::Float(FloatOp::Acosh),
+        "atanh" => NumericOp::Float(FloatOp::Atanh),
+        "exp2" => NumericOp::Float(FloatOp::Exp2),
+        "expm1" => NumericOp::Float(FloatOp::Expm1),
+        "log1p" => NumericOp::Float(FloatOp::Log1p),
+        "log2" => NumericOp::Float(FloatOp::Log2),
+        "log10" => NumericOp::Float(FloatOp::Log10),
+        "cbrt" => NumericOp::Float(FloatOp::Cbrt),
+        "trunc" => NumericOp::Float(FloatOp::Trunc),
+        "fabs" => NumericOp::Float(FloatOp::Abs),
+        "copysign" => NumericOp::Float(FloatOp::Copysign),
         _ => return None,
     })
 }
@@ -42,6 +62,12 @@ fn constant(ty: &Ty, name: &str) -> Option<Op> {
         (Ty::F32, "E") => u64::from(std::f32::consts::E.to_bits()),
         (Ty::F64, "PI") => std::f64::consts::PI.to_bits(),
         (Ty::F64, "E") => std::f64::consts::E.to_bits(),
+        (Ty::F32, "TAU") => u64::from(std::f32::consts::TAU.to_bits()),
+        (Ty::F64, "TAU") => std::f64::consts::TAU.to_bits(),
+        (Ty::F32, "INF") => u64::from(f32::INFINITY.to_bits()),
+        (Ty::F64, "INF") => f64::INFINITY.to_bits(),
+        (Ty::F32, "NAN") => u64::from(f32::NAN.to_bits()),
+        (Ty::F64, "NAN") => f64::NAN.to_bits(),
         _ => return None,
     };
     Some(Op::PushFloat {
@@ -61,7 +87,7 @@ impl Lower<'_> {
     ) -> Result<Ty> {
         ops.push(constant(&ty, name).ok_or_else(|| {
             at.error(format!(
-                "unknown constant `{ty}.{name}`; integer types provide `MIN` and `MAX`, float types provide `PI` and `E`"
+                "unknown constant `{ty}.{name}`; integer types provide `MIN` and `MAX`, float types provide `PI`, `E`, `TAU`, `INF`, and `NAN`"
             ))
         })?);
         Ok(ty)
@@ -114,7 +140,9 @@ impl Lower<'_> {
                 "{name} requires a float, got {ty}; convert with `f64(...)`"
             )));
         }
-        if matches!(operation, NumericOp::Pow | NumericOp::Float(FloatOp::Fmod)) {
+        if operation == NumericOp::Pow
+            || matches!(operation, NumericOp::Float(op) if op.is_binary())
+        {
             let [other] = args else {
                 return Err(base
                     .at

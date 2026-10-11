@@ -99,15 +99,15 @@ fn constants_are_values_of_their_type() {
 #[rstest]
 #[case(
     "    x = i64.max\n",
-    "2:9: unknown constant `i64.max`; integer types provide `MIN` and `MAX`, float types provide `PI` and `E`"
+    "2:9: unknown constant `i64.max`; integer types provide `MIN` and `MAX`, float types provide `PI`, `E`, `TAU`, `INF`, and `NAN`"
 )]
 #[case(
     "    x = f64.MAX\n",
-    "2:9: unknown constant `f64.MAX`; integer types provide `MIN` and `MAX`, float types provide `PI` and `E`"
+    "2:9: unknown constant `f64.MAX`; integer types provide `MIN` and `MAX`, float types provide `PI`, `E`, `TAU`, `INF`, and `NAN`"
 )]
 #[case(
     "    x = u8.PI\n",
-    "2:9: unknown constant `u8.PI`; integer types provide `MIN` and `MAX`, float types provide `PI` and `E`"
+    "2:9: unknown constant `u8.PI`; integer types provide `MIN` and `MAX`, float types provide `PI`, `E`, `TAU`, `INF`, and `NAN`"
 )]
 #[case("    x: u8 = i64.MAX\n", "2:5: expected u8, got i64")]
 fn unknown_constants_are_rejected(#[case] body: &str, #[case] expected: &str) {
@@ -161,6 +161,42 @@ fn float_methods_follow_the_platform_math_library() {
             ("r.sqrt()", "1.0"),
             ("hypotenuse(3.0, 4.0)", "5.0"),
             ("hypotenuse(6.0f32, 8.0f32)", "10.0"),
+        ],
+    );
+}
+
+#[test]
+fn extended_float_primitives_preserve_f32_and_generic_types() {
+    assert_lines(
+        "def sign[T: FloatType](magnitude: T, source: T) -> T:\n    magnitude.copysign(source)\n",
+        "",
+        &[
+            ("f32.TAU", "6.2831855"),
+            ("f32.INF", "inf"),
+            ("f64.INF", "inf"),
+            ("f32.NAN != f32.NAN", "True"),
+            ("f64.NAN != f64.NAN", "True"),
+            ("(0.0f32).tan()", "0.0"),
+            ("(0.0f32).asin()", "0.0"),
+            ("(1.0f32).acos()", "0.0"),
+            ("(0.0f32).atan()", "0.0"),
+            ("(0.0f32).atan2(-1.0)", "3.1415927"),
+            ("(0.0f32).sinh()", "0.0"),
+            ("(0.0f32).cosh()", "1.0"),
+            ("(0.0f32).tanh()", "0.0"),
+            ("(0.0f32).asinh()", "0.0"),
+            ("(1.0f32).acosh()", "0.0"),
+            ("(0.0f32).atanh()", "0.0"),
+            ("(3.0f32).exp2()", "8.0"),
+            ("(1e-10f32).expm1()", "1e-10"),
+            ("(1e-10f32).log1p()", "1e-10"),
+            ("(8.0f32).log2()", "3.0"),
+            ("(100.0f32).log10()", "2.0"),
+            ("(-8.0f32).cbrt()", "-2.0"),
+            ("(-2.5f32).trunc()", "-2.0"),
+            ("(-0.0f32).fabs()", "0.0"),
+            ("sign(1.0f32, -0.0f32)", "-1.0"),
+            ("sign(1.0, -0.0)", "-1.0"),
         ],
     );
 }
@@ -222,7 +258,7 @@ fn integer_pow_is_exact_within_the_type() {
     "    x = 2.0\n    n = 2\n    y = x.pow(n)\n",
     "4:15: cannot combine f64 with i64; convert with `f64(n)`"
 )]
-#[case("    x = 2.0\n    y = x.tan()\n", "3:9: unsupported method `tan`")]
+#[case("    x = 2.0\n    y = x.tan(1.0)\n", "3:9: tan takes no arguments")]
 fn numeric_methods_reject_other_operands(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(rejection(body), expected);
 }

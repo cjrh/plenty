@@ -12,6 +12,12 @@ ThinLTO, abort-on-panic static archives and embeds them with native link require
 Program compilation extracts the archive and links through a `cc` driver. Runtime
 source and the Rust toolchain are not needed by an installed compiler.
 
+Standard library Plenty sources are embedded in the compiler as well. `std.math`
+is parsed and checked as an ordinary module, with a stable toolchain identity;
+it is never loaded from the user's source root. Its algorithms and error policy
+remain Plenty code, while numeric methods supply IEEE/platform primitives.
+See [the math contract](../../facilities/math.md).
+
 The application archive supplies C `main`, calling `plenty_main`. A separate
 library archive omits both startup and that dependency; shared-library export
 maps hide runtime symbols. Both archives are built with the compiler.

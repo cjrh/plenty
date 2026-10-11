@@ -95,7 +95,8 @@ impl Ty {
     /// Range payloads also occur inside standard sums. Tags remain in the
     /// ordinary 128-bit representation; slot_bytes includes owner-local payloads.
     pub fn has_inline_range(&self) -> bool {
-        matches!(self, Self::Range(_)) || matches!(self, Self::Enum(t) if t.get().inline_range)
+        matches!(self, Self::Range(_))
+            || matches!(self, Self::Enum(t) if t.try_get().is_some_and(|t| t.inline_range))
     }
     pub fn slot_bytes(&self) -> usize {
         16 + self.inline_bytes()
@@ -225,15 +226,16 @@ impl Ty {
         match self {
             // Inline values need cleanup only when a payload or field does.
             Self::Enum(t) => {
-                let definition = t.get();
-                return definition.managed
-                    && *definition.managed_fields.get_or_init(|| {
-                        definition
-                            .variants
-                            .iter()
-                            .flat_map(|v| &v.fields)
-                            .any(Ty::managed)
-                    });
+                return t.try_get().is_none_or(|definition| {
+                    definition.managed
+                        && *definition.managed_fields.get_or_init(|| {
+                            definition
+                                .variants
+                                .iter()
+                                .flat_map(|v| &v.fields)
+                                .any(Ty::managed)
+                        })
+                });
             }
             // An undefined forward reference is conservatively managed.
             Self::Class(t) => {

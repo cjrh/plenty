@@ -54,11 +54,11 @@ The bare cast `T(value)` is the form that
 ## Limits and constants
 
 `T.MIN` and `T.MAX` are the smallest and largest values of an integer type `T`.
-`T.PI` and `T.E` are the values of a float type `T` nearest to π and e. Each is
-a value of type `T`, so `u8.MAX - small` needs no cast. A float type has no
-`MIN` or `MAX`, and an integer type has no `PI` or `E`. The names are
-upper-case; any other name after a numeric type is a compile-time error that
-lists these four.
+Float types provide `T.PI`, `T.E`, `T.TAU` (nearest to π, e, and 2π), `T.INF`
+(positive infinity), and `T.NAN` (a quiet NaN). Each constant has type `T`, so
+`u8.MAX - small` needs no cast. Float types have no `MIN` or `MAX`, and integers
+have no float constants. Names are upper-case; unknown names are compile-time
+errors listing the supported constants.
 
 ## Powers
 
@@ -86,15 +86,27 @@ infinity, following IEEE 754 and the platform math library.
 |---|---|
 | `x.sqrt()` | Square root; NaN for a negative `x` |
 | `x.exp()` | e to the power `x` |
+| `x.exp2()`, `x.expm1()` | 2 to the power `x`; e to the power `x` minus 1, accurate near zero |
 | `x.log()` | Natural logarithm; `-inf` for zero, NaN for a negative `x` |
-| `x.sin()`, `x.cos()` | Sine and cosine of `x` radians |
-| `x.floor()`, `x.ceil()` | Nearest whole value at or below, at or above `x`; still a float |
+| `x.log2()`, `x.log10()`, `x.log1p()` | Base-2, base-10, and natural log of `1 + x` (accurate near zero) |
+| `x.sin()`, `x.cos()`, `x.tan()` | Trigonometric functions of `x` radians |
+| `x.asin()`, `x.acos()`, `x.atan()`, `y.atan2(x)` | Inverse trigonometry in radians; atan2 preserves quadrant and signed zeros |
+| `x.sinh()`, `x.cosh()`, `x.tanh()` | Hyperbolic functions |
+| `x.asinh()`, `x.acosh()`, `x.atanh()` | Inverse hyperbolic functions |
+| `x.cbrt()` | Real cube root, including negative inputs |
+| `x.floor()`, `x.ceil()`, `x.trunc()` | Whole value toward negative infinity, positive infinity, or zero; still a float |
+| `x.fabs()`, `x.copysign(y)` | Absolute magnitude; magnitude with the sign bit of `y` |
 | `x.pow(y)` | `x` to the power `y` |
 | `x.fmod(y)` | Remainder of `x / y` with the sign of `x`; NaN when `y` is zero |
 
 An integer receiver is a compile-time error naming the float cast. `%` remains
 integer-only; `fmod` is the float remainder. `floor` and `ceil` return floats,
 and the cast `i64(x.floor())` produces the integer.
+
+Each binary method takes one argument of the receiver's type. Unary methods
+take no arguments. Generic `FloatType` functions can use every method.
+[The imported `std.math` functions](../math.md) wrap these primitives with
+recoverable domain and overflow errors and checked integer rounding.
 
 ## Formatting
 

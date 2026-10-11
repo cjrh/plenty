@@ -14,6 +14,32 @@ pub enum FloatOp {
     Ceil = 5,
     Pow = 6,
     Fmod = 7,
+    Tan = 8,
+    Asin = 9,
+    Acos = 10,
+    Atan = 11,
+    Atan2 = 12,
+    Sinh = 13,
+    Cosh = 14,
+    Tanh = 15,
+    Asinh = 16,
+    Acosh = 17,
+    Atanh = 18,
+    Exp2 = 19,
+    Expm1 = 20,
+    Log1p = 21,
+    Log2 = 22,
+    Log10 = 23,
+    Cbrt = 24,
+    Trunc = 25,
+    Abs = 26,
+    Copysign = 27,
+}
+
+impl FloatOp {
+    pub fn is_binary(self) -> bool {
+        matches!(self, Self::Pow | Self::Fmod | Self::Atan2 | Self::Copysign)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -31,7 +57,8 @@ impl NumericOp {
     /// Number of same-typed operands.
     fn operands(&self) -> usize {
         match self {
-            Self::Pow | Self::Float(FloatOp::Pow | FloatOp::Fmod) => 2,
+            Self::Pow => 2,
+            Self::Float(op) if op.is_binary() => 2,
             Self::Sqrt | Self::Float(_) => 1,
         }
     }

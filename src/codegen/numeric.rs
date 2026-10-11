@@ -15,7 +15,7 @@ impl Lowerer<'_, '_> {
                 Ok(())
             }
             NumericOp::Float(kind) => {
-                let (x, y, ty) = if matches!(kind, FloatOp::Pow | FloatOp::Fmod) {
+                let (x, y, ty) = if kind.is_binary() {
                     self.pop_pair()?
                 } else {
                     let (x, ty) = self.stack.pop().ok_or("AOT: stack underflow on float")?;

@@ -5,6 +5,8 @@ block, and what remains after failure.
 
 - [Built-in types and operations](01-builtins/index.md): numbers, text, tuples,
   lists, dictionaries, sets, and ranges.
+- [Standard math library](math.md): embedded Plenty algorithms and recoverable
+  domain/overflow errors.
 - [Input, output, and files](02-io/index.md): arguments, streams, whole-file
   helpers, and owned file handles.
 - [Concurrency and parallelism](03-concurrency/index.md): certified workers,

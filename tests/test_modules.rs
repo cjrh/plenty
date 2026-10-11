@@ -12,6 +12,35 @@ fn workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 }
 
 #[test]
+fn structural_aliases_allow_forward_enums_and_preserve_managed_payloads() {
+    run(
+        &[(
+            "main.plenty",
+            r#"
+type Real = Result[f64, Error]
+type Optional = Option[Real]
+type Text = Option[Result[str, Error]]
+enum Error:
+    Domain
+def main() -> Result[(), Failure]:
+    problem = Real.Err(Error.Domain)
+    print(problem == Real.Err(Error.Domain))?
+    print(Optional.Some(problem))?
+    value = Text.Some(Ok('owned'))
+    match value:
+        case Some(result):
+            print(result?)?
+        case Nothing:
+            pass
+    Ok(())
+"#,
+        )],
+        "main.plenty",
+        "True\nOption[Result[f64, Error]].Some(Result[f64, Error].Err(Error.Domain))\nowned\n",
+    );
+}
+
+#[test]
 fn parameterized_protocols_are_explicit_imported_contracts() {
     run(&[
         ("api.plenty", "pub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def read[T, R: Readable[T]](source: &R) -> T:\n    source.read()\n"),

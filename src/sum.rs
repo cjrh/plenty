@@ -481,7 +481,9 @@ pub fn option(element: Ty) -> Ty {
             restricted_storage: element.restricted_storage(),
             name: format!("Option[{element}]"),
             facts: std::cell::OnceCell::new(),
-            managed: element.managed(),
+            // Payloads may be forward nominal definitions during alias
+            // resolution. Query actual cleanup lazily after finalization.
+            managed: true,
             inline_range: element.has_inline_range(),
             payload_bytes: std::cell::OnceCell::new(),
             storage: std::cell::OnceCell::new(),
@@ -507,7 +509,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
             restricted_storage: ok.restricted_storage() || error.restricted_storage(),
             name: format!("Result[{ok}, {error}]"),
             facts: std::cell::OnceCell::new(),
-            managed: ok.managed() || error.managed(),
+            managed: true,
             inline_range: ok.has_inline_range() || error.has_inline_range(),
             payload_bytes: std::cell::OnceCell::new(),
             storage: std::cell::OnceCell::new(),

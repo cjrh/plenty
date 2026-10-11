@@ -5,6 +5,32 @@
 use super::*;
 use std::path::{Path, PathBuf};
 
+/// Toolchain sources have stable identities and never participate in filesystem
+/// search. Keeping them in the compiler also makes installation relocatable.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum ModuleSource {
+    File(PathBuf),
+    Standard(&'static str),
+}
+
+impl ModuleSource {
+    fn path(&self) -> PathBuf {
+        match self {
+            Self::File(path) => path.clone(),
+            Self::Standard(name) => PathBuf::from(format!("{}.plenty", name.replace('.', "/"))),
+        }
+    }
+
+    fn read(&self) -> Result<String> {
+        match self {
+            Self::Standard("std.math") => Ok(include_str!("../../stdlib/std/math.plenty").into()),
+            Self::Standard(_) => unreachable!("validated standard module"),
+            Self::File(path) => std::fs::read_to_string(path)
+                .map_err(|e| format!("reading {}: {e}", path.display()).into()),
+        }
+    }
+}
+
 struct Import {
     at: Token,
     module: String,
@@ -186,7 +212,17 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
             module.declarations.push(a);
             name
         } else if !public && (parser.peek().is("import") || parser.peek().is("from")) {
-            module.imports.extend(parser.imports()?);
+            let imports = parser.imports()?;
+            for import in &imports {
+                if import.binding.split('.').next() == Some("std")
+                    && import.module.split('.').next() != Some("std")
+                {
+                    return Err(import
+                        .at
+                        .error("`std` is reserved for the toolchain standard library"));
+                }
+            }
+            module.imports.extend(imports);
             continue;
         } else {
             return Err(at.error(if public {
@@ -195,6 +231,9 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
                 "executable statements are not allowed at module scope; put them inside `def main() -> ():`"
             }));
         };
+        if name == "std" {
+            return Err(at.error("`std` is reserved for the toolchain standard library"));
+        }
         if builtin(&name) {
             return Err(at.error(format!("cannot redefine builtin `{name}` as a type")));
         }
@@ -253,20 +292,26 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
         )
         .into());
     }
+    if ["std", "std.plenty", "std.plentyi"]
+        .iter()
+        .any(|name| root.join(name).exists())
+    {
+        return Err("`std` is reserved for the toolchain standard library; rename the local module or namespace".into());
+    }
     struct Loader {
         root: PathBuf,
-        active: Vec<PathBuf>,
-        loaded: HashMap<PathBuf, usize>,
+        active: Vec<ModuleSource>,
+        loaded: HashMap<ModuleSource, usize>,
         modules: Vec<Module>,
         dependencies: Vec<Vec<usize>>,
     }
     impl Loader {
-        fn file(&mut self, path: PathBuf, name: String) -> Result<(usize, Token)> {
-            if let Some(start) = self.active.iter().position(|p| p == &path) {
+        fn file(&mut self, source: ModuleSource, name: String) -> Result<(usize, Token)> {
+            if let Some(start) = self.active.iter().position(|p| p == &source) {
                 let cycle = self.active[start..]
                     .iter()
-                    .chain(std::iter::once(&path))
-                    .map(|p| p.display().to_string())
+                    .chain(std::iter::once(&source))
+                    .map(|p| p.path().display().to_string())
                     .collect::<Vec<_>>()
                     .join(" -> ");
                 return Err(format!("circular import: {cycle}").into());
@@ -277,10 +322,8 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                         .into(),
                 );
             }
-            self.active.push(path.clone());
-            let source = std::fs::read_to_string(&path)
-                .map_err(|e| format!("reading {}: {e}", path.display()))?;
-            let (module, at) = parse(&source, Some(&path), name)?;
+            self.active.push(source.clone());
+            let (module, at) = parse(&source.read()?, Some(&source.path()), name)?;
             let mut deps = Vec::new();
             for import in &module.imports {
                 let dependency = self.import_path(import)?;
@@ -288,15 +331,17 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     *index
                 } else {
                     // Canonical relative paths make alternate spellings refer to one module.
-                    let relative = dependency
-                        .strip_prefix(&self.root)
-                        .unwrap()
-                        .with_extension("");
-                    let identity = relative
-                        .components()
-                        .map(|c| c.as_os_str().to_string_lossy())
-                        .collect::<Vec<_>>()
-                        .join(".");
+                    let identity = match &dependency {
+                        ModuleSource::Standard(name) => (*name).into(),
+                        ModuleSource::File(path) => path
+                            .strip_prefix(&self.root)
+                            .unwrap()
+                            .with_extension("")
+                            .components()
+                            .map(|c| c.as_os_str().to_string_lossy())
+                            .collect::<Vec<_>>()
+                            .join("."),
+                    };
                     self.file(dependency, identity)
                         .map_err(|e| import.at.error(e))?
                         .0
@@ -310,13 +355,22 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                 );
             }
             let index = self.modules.len();
-            self.loaded.insert(path, index);
+            self.loaded.insert(source, index);
             self.modules.push(module);
             self.dependencies.push(deps);
             Ok((index, at))
         }
 
-        fn import_path(&self, import: &Import) -> Result<PathBuf> {
+        fn import_path(&self, import: &Import) -> Result<ModuleSource> {
+            if import.module.split('.').next() == Some("std") {
+                return match import.module.as_str() {
+                    "std.math" => Ok(ModuleSource::Standard("std.math")),
+                    _ => Err(import.at.error(format!(
+                        "unknown standard library module `{}`; available modules: std.math",
+                        import.module
+                    ))),
+                };
+            }
             let mut path = self.root.clone();
             let parts: Vec<_> = import.module.split('.').collect();
             for (i, part) in parts.iter().enumerate() {
@@ -373,7 +427,7 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "canonical imported paths must be .plenty files or .plentyi interfaces with identifier components",
                 ));
             }
-            Ok(canonical)
+            Ok(ModuleSource::File(canonical))
         }
     }
     let mut loader = Loader {
@@ -383,9 +437,16 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
         modules: vec![],
         dependencies: vec![],
     };
-    let (_, at) = loader.file(entry, String::new())?;
+    let (_, at) = loader.file(ModuleSource::File(entry), String::new())?;
     let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
-    result.source_paths = loader.loaded.into_keys().collect();
+    result.source_paths = loader
+        .loaded
+        .into_keys()
+        .filter_map(|source| match source {
+            ModuleSource::File(path) => Some(path),
+            ModuleSource::Standard(_) => None,
+        })
+        .collect();
     result.source_paths.sort();
     result.source_root = Some(loader.root);
     Ok(result)
