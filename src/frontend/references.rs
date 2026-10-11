@@ -58,7 +58,7 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
-        if self.place_type(e).is_some() {
+        if self.place_type(e).is_some() || self.is_function_place(e) {
             return self.borrow(e, false, ops);
         }
         let ty = self
@@ -492,7 +492,14 @@ impl Lower<'_> {
             )));
             return Ok((result, loan));
         }
-        let local = self.named_place(e)?;
+        let local = if self.is_function_place(e) {
+            if mutable {
+                return Err(e.at.error("named function declarations are immutable; assign the function to a mut binding before borrowing it with &mut"));
+            }
+            self.function_place(e)?
+        } else {
+            self.named_place(e)?
+        };
         self.mark(&e.at, ops);
         let (ty, root, parent) = if let Ty::Ref(ty, writable) = &local.ty {
             if mutable && !writable {
@@ -519,6 +526,40 @@ impl Lower<'_> {
             ops.push(Op::BorrowLocal(local.slot, mutable));
         }
         Ok((Ty::Ref(Rc::new(ty), mutable), id))
+    }
+
+    fn is_function_place(&self, e: &Expr) -> bool {
+        match &ungroup(e).kind {
+            Expression::Name(name) => {
+                !self.names.contains_key(name) && self.sigs.contains_key(name)
+            }
+            Expression::GenericValue(name, _) => {
+                !self.names.contains_key(name) && self.generics.templates.contains_key(name)
+            }
+            _ => false,
+        }
+    }
+
+    fn function_place(&mut self, e: &Expr) -> Result<Local> {
+        let mut initializer = Vec::new();
+        let ty = self.value(ungroup(e), &mut initializer)?;
+        let Some(Op::FunctionAddress(symbol, _)) = initializer.last() else {
+            unreachable!("named function value lowers to a code address")
+        };
+        if let Some(local) = self.function_places.get(symbol) {
+            return Ok(local.clone());
+        }
+        let symbol = symbol.clone();
+        let slot = self.slot(ty.clone(), &e.at)?;
+        initializer.push(Op::StoreLocal(slot));
+        self.function_initializers.extend(initializer);
+        let local = Local {
+            slot,
+            ty,
+            mutable: false,
+        };
+        self.function_places.insert(symbol, local.clone());
+        Ok(local)
     }
     /// Load for observation, preserving ownership and extending loans through the consumer.
     pub(super) fn observe(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {

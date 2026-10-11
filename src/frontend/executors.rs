@@ -143,6 +143,7 @@ impl Lower<'_> {
                 worker: closure.name.clone(),
                 output,
                 closure: Some(closure.clone()),
+                shared: None,
                 input,
             });
             ExecutorOp::Submit(job, name == "submit_nowait")
@@ -217,31 +218,58 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<ExecutorOp> {
         let [worker, source] = args else {
-            return Err(at.error(format!(
-                "use pool.{method}(named_function, owned_list_or_range)"
-            )));
+            return Err(at.error(format!("use pool.{method}(worker, owned_list_or_range)")));
         };
-        let Expression::Name(function) = &ungroup(worker).kind else {
-            return Err(worker.at.error(format!(
-                "{method} currently requires a statically named function"
-            )));
+        let reduce = method == "reduce_tree";
+        let owned_worker = match &ungroup(worker).kind {
+            Expression::Name(function) if !self.names.contains_key(function) => None,
+            _ if reduce => {
+                return Err(worker
+                    .at
+                    .error("reduce_tree requires a statically named function"));
+            }
+            _ => Some(self.value(worker, ops)?),
         };
-        if self.names.contains_key(function) {
-            return Err(worker.at.error(format!("{method} currently requires a statically named function; submit owned closures individually")));
-        }
         let input = self.value(source, ops)?;
         let (Ty::List(element) | Ty::Range(element)) = &input else {
             return Err(source.at.error(format!(
                 "{method} currently consumes an owned list or integer range"
             )));
         };
-        // Specialize and check the ordinary named call with a typed placeholder.
-        // Its operations never execute; only the selected signature and body
-        // enter the compiler's usual monomorphization/effect-checking pipeline.
-        let reduce = method == "reduce_tree";
+        let shared = match owned_worker {
+            None => None,
+            Some(ty) => {
+                if matches!(ty, Ty::Ref(..)) {
+                    return Err(worker.at.error(format!("{method} workers must own their captures; borrowed work belongs in scoped spawn")));
+                }
+                let Ty::Closure(closure) = &ty else {
+                    return Err(worker.at.error(format!("{method} requires a concrete reusable closure or statically named function; indirect Callable values lack worker eligibility evidence")));
+                };
+                if closure.once || closure.mutable {
+                    return Err(worker.at.error(format!("{method} shares its worker across jobs; use a reusable immutable closure, not a mutable or one-shot closure")));
+                }
+                if !ty.heap_storable() {
+                    return Err(worker.at.error(format!("{method} workers must own their captures; borrowed work belongs in scoped spawn")));
+                }
+                if closure.signature.inputs != vec![(**element).clone()] {
+                    return Err(worker.at.error(format!(
+                        "{method} worker must take one owned input of type {element}"
+                    )));
+                }
+                Some(closure.clone())
+            }
+        };
         let mut arguments = Vec::new();
         let mut names = Vec::new();
-        for _ in 0..if reduce { 2 } else { 1 } {
+        // Probe named workers using typed placeholders without executing the
+        // call. Concrete closures already carry their specialized signature.
+        for _ in 0..if shared.is_some() {
+            0
+        } else if reduce {
+            2
+        } else {
+            1
+        } {
             let slot = self.slot((**element).clone(), at)?;
             let name = format!("__plenty_executor_item_{slot}");
             self.bind(
@@ -259,7 +287,14 @@ impl Lower<'_> {
             names.push(name);
         }
         let mut probe = Vec::new();
-        let output = self.call_named(function, &arguments, &worker.at, &mut probe);
+        let output = if let Some(closure) = &shared {
+            Ok(closure.signature.output.clone())
+        } else {
+            let Expression::Name(function) = &ungroup(worker).kind else {
+                unreachable!()
+            };
+            self.call_named(function, &arguments, &worker.at, &mut probe)
+        };
         for name in names {
             self.names.remove(&name);
         }
@@ -285,18 +320,21 @@ impl Lower<'_> {
                 .at
                 .error("map_result worker must return Result[T, E] with a non-unit T"));
         }
-        let worker = probe
-            .iter()
-            .rev()
-            .find_map(|op| match op {
-                Op::Call(name) => Some(name.clone()),
-                _ => None,
+        let worker = shared
+            .as_ref()
+            .map(|closure| closure.name.clone())
+            .or_else(|| {
+                probe.iter().rev().find_map(|op| match op {
+                    Op::Call(name) => Some(name.clone()),
+                    _ => None,
+                })
             })
             .ok_or_else(|| at.error(format!("{method} requires a statically selected function")))?;
-        if self.sigs[&worker]
-            .inputs
-            .iter()
-            .any(|(_, t)| !t.heap_storable())
+        if shared.is_none()
+            && self.sigs[&worker]
+                .inputs
+                .iter()
+                .any(|(_, t)| !t.heap_storable())
         {
             return Err(at.error(format!("{method} workers take their input by value")));
         }
@@ -327,6 +365,7 @@ impl Lower<'_> {
                     input: Ty::Closure(closure.clone()),
                     output,
                     closure: Some(closure),
+                    shared: None,
                 }),
                 input,
             ));
@@ -338,6 +377,7 @@ impl Lower<'_> {
                 input: (**element).clone(),
                 output,
                 closure: None,
+                shared,
             }),
             input,
             fallible,

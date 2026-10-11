@@ -35,6 +35,7 @@ impl Ty {
                 Self::File
                     | Self::Generator(_)
                     | Self::Closure(_)
+                    | Self::BoxedCallable(_)
                     | Self::Task(_)
                     | Self::Channel(..)
                     | Self::CancellationToken
@@ -47,7 +48,7 @@ impl Ty {
                 destructor: resource,
                 complete: true,
                 reflexive: !self.is_float(),
-                closure: matches!(self, Self::Closure(_)),
+                closure: matches!(self, Self::Closure(_) | Self::BoxedCallable(_)),
                 concurrent_handle: matches!(
                     self,
                     Self::Channel(..) | Self::CancellationToken | Self::Executor | Self::Future(_)
@@ -134,7 +135,7 @@ impl Ty {
         let mut weights = Vec::new();
         let mut i = 0;
         while i < nodes.len() {
-            facts.closure |= matches!(nodes[i], Self::Closure(_));
+            facts.closure |= matches!(nodes[i], Self::Closure(_) | Self::BoxedCallable(_));
             facts.concurrent_handle |= matches!(
                 nodes[i],
                 Self::Channel(..) | Self::CancellationToken | Self::Executor | Self::Future(_)
@@ -154,6 +155,7 @@ impl Ty {
                 | Self::Dict(..)
                 | Self::Box(_)
                 | Self::Callable(_) => 1,
+                Self::BoxedCallable(_) => 1,
                 Self::Closure(t) => t.depth,
                 Self::Generator(t) => 1 + t.element.layout_depth(),
                 _ => 0,
@@ -193,6 +195,7 @@ impl Ty {
                 }
                 Self::File
                 | Self::Closure(_)
+                | Self::BoxedCallable(_)
                 | Self::Generator(_)
                 | Self::Channel(..)
                 | Self::CancellationToken

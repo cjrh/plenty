@@ -221,6 +221,10 @@ impl Ty {
                 inputs: t.inputs.iter().map(Ty::weaken).collect(),
                 output: t.output.as_ref().map(Ty::weaken),
             })),
+            Self::BoxedCallable(t) => Self::BoxedCallable(Rc::new(crate::op::CallableSig {
+                inputs: t.inputs.iter().map(Ty::weaken).collect(),
+                output: t.output.as_ref().map(Ty::weaken),
+            })),
             _ => self.clone(),
         }
     }
@@ -240,6 +244,7 @@ impl Clone for Ty {
             Self::Box(t) => Self::Box(Rc::new((**t).clone())),
             Self::Ref(t, m) => Self::Ref(Rc::new((**t).clone()), *m),
             Self::Callable(t) => Self::Callable(Rc::new((**t).clone())),
+            Self::BoxedCallable(t) => Self::BoxedCallable(t.clone()),
             Self::Closure(t) => Self::Closure(t.clone()),
             Self::Generator(t) => Self::Generator(t.clone()),
             Self::Range(t) => Self::Range(t.clone()),

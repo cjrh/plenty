@@ -44,6 +44,16 @@ bodies inside delimiters are unsupported. Use an explicit
 [capture list](03-closures.md) for environments.
 
 `Callable` signatures exclude generator frames and closure environment values.
-A named function value can itself be borrowed through a reference parameter.
+A named function can be borrowed directly: `apply(&double, value)` or
+`callback = &double`. Each borrowed declaration or explicit specialization,
+such as `&identity[u8]`, has one immutable code-address slot in the borrowing
+function, initialized at entry without allocation. Its references follow the
+ordinary local borrow and escape checks. A local binding shadowing a function
+name takes precedence. A generator can borrow one for a call, but a reference
+to that local slot cannot remain live across `yield`.
+Generic reference bindings require explicit specialization;
+a concrete callable parameter can instead supply the expected signature.
+`&mut double` is rejected because declarations are immutable; first assign
+`mut callback = double`, then borrow `&mut callback` when exclusive access is needed.
 `Callable` constraints, as distinct from storage types, accept reusable named
 functions and concrete captured closures.

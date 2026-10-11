@@ -73,6 +73,7 @@ fn define_type(
         Ty::CancellationToken => b'K',
         Ty::Future(_) => b'Z',
         Ty::Closure(_) => b'H',
+        Ty::BoxedCallable(_) => b'J',
         Ty::I16 => b'2',
         Ty::I32 => b'3',
         Ty::I64 => b'4',

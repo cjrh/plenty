@@ -404,7 +404,10 @@ impl TypeRef {
         if aliases.data.contains(name) {
             return aliases.instantiate(self).map(Some);
         }
-        if matches!(name.as_str(), "Callable" | "Closure" | "OnceClosure") {
+        if matches!(
+            name.as_str(),
+            "Callable" | "BoxedCallable" | "Closure" | "OnceClosure"
+        ) {
             let (output, inputs) = self.args.split_last().ok_or_else(|| {
                 self.at
                     .error("use Callable[[parameter types], return type]")
@@ -420,6 +423,11 @@ impl TypeRef {
                 output: output.resolve(aliases)?,
             };
             callables::validate(&signature, &self.at)?;
+            if name == "BoxedCallable" && matches!(signature.output, Some(Ty::Ref(..))) {
+                return Err(self
+                    .at
+                    .error("BoxedCallable callbacks cannot return references yet"));
+            }
             if matches!(name.as_str(), "Closure" | "OnceClosure") {
                 return Ok(Some(Ty::Closure(Rc::new(
                     crate::closure::ClosureType::new(
@@ -433,7 +441,11 @@ impl TypeRef {
                     .map_err(|message| self.at.error(message))?,
                 ))));
             }
-            return Ok(Some(Ty::Callable(Rc::new(signature))));
+            return Ok(Some(if name == "BoxedCallable" {
+                Ty::BoxedCallable(Rc::new(signature))
+            } else {
+                Ty::Callable(Rc::new(signature))
+            }));
         }
         if name == "tuple" {
             if self.args.is_empty() {
@@ -839,7 +851,7 @@ impl Parser {
                 }
                 if matches!(
                     name.as_str(),
-                    "Callable" | "Closure" | "OnceClosure" | "OnceCallable"
+                    "Callable" | "BoxedCallable" | "Closure" | "OnceClosure" | "OnceCallable"
                 ) {
                     self.expect("[")?;
                     self.expect("[")?;
@@ -1706,6 +1718,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "select_recv_timeout"
                 | "Generator"
                 | "Callable"
+                | "BoxedCallable"
                 | "Closure"
                 | "OnceClosure"
                 | "OnceCallable"
@@ -1833,6 +1846,8 @@ struct Lower<'a> {
     aliases: &'a TypeAliases,
     access: &'a modules::AccessMap,
     names: HashMap<String, Local>,
+    function_places: HashMap<String, Local>,
+    function_initializers: Vec<Op>,
     locals: Vec<Ty>,
     parameters: usize,
     /// None at module scope; Some(None) for a unit-returning function.
@@ -2563,6 +2578,9 @@ impl Lower<'_> {
                     && !self.aliases.contains_key(name)
                 {
                     return self.replace_field(args, &e.at, ops).map(Some);
+                }
+                if name == "BoxedCallable" {
+                    return self.boxed_callable(args, &e.at, ops).map(Some);
                 }
                 if name == "Box" {
                     let [content] = args.as_slice() else {
@@ -3358,6 +3376,8 @@ fn lower_function(
         aliases,
         access,
         names: HashMap::new(),
+        function_places: HashMap::new(),
+        function_initializers: Vec::new(),
         locals: Vec::new(),
         parameters: sig.inputs.len(),
         return_type: Some(if yield_type.is_some() {
@@ -3441,6 +3461,9 @@ fn lower_function(
     if yield_type.is_none() {
         mark_tail_calls(&mut body);
     }
+    // A declaration's borrowed address has one immutable slot per function.
+    // Initialize it at entry so a first borrow inside a branch dominates later uses.
+    body.splice(0..0, std::mem::take(&mut lower.function_initializers));
     lower
         .generics
         .tail_candidates

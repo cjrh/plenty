@@ -11,6 +11,95 @@ fn runs(source: &str, expected: &str) {
 }
 
 #[test]
+fn named_workers_move_owned_inputs_and_keep_borrowed_loans_scoped() {
+    runs(
+        r#"
+class Item:
+    value: i64
+    def __del__(self) -> ():
+        print(self.value).unwrap()
+def worker(item: Item, values: list[i64], output: &mut i64) -> list[i64]:
+    *output = item.value + len(values)
+    values
+def apply[F: Callable[[], i64]](job: F) -> i64:
+    job()
+def main() -> Result[(), Failure]:
+    mut output = 0
+    with spawn(worker, Item(7), [1, 2]?, &mut output)? as task:
+        print(task.join())?
+    print(output)?
+    number = 42
+    job = def [number]() -> i64:
+        number
+    with spawn(apply, job)? as task:
+        print(task.join())?
+    Ok(())
+"#,
+        "7\n[1, 2]\n9\n42\n",
+    );
+    let error = support::check_source(
+        r#"
+def worker(values: list[i64]) -> i64:
+    len(values)
+values = [1].unwrap()
+with spawn(worker, values).unwrap():
+    pass
+print(values).unwrap()
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("moved"), "{error}");
+    let error = support::check_source(
+        r#"
+def worker(values: list[i64], output: &mut i64) -> ():
+    *output = len(values)
+mut output = 0
+with spawn(worker, [1].unwrap(), &mut output).unwrap():
+    print(output).unwrap()
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("conflicting borrow"), "{error}");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_named_start_drops_each_moved_argument_once_without_running_worker() {
+    runs(r#"
+class Item:
+    label: str
+    def __del__(self) -> ():
+        print(self.label).unwrap()
+def worker(item: Item, values: list[Item], count: &mut i64) -> ():
+    *count = *count + 1
+    print("unexpected worker").unwrap()
+def attempt(count: &mut i64) -> Result[(), ThreadError]:
+    with spawn(worker, Item("item"), [Item("nested")].unwrap(), count)?:
+        pass
+    Ok(())
+def apply[F: Callable[[], i64]](job: F) -> i64:
+    job()
+def attempt_closure() -> Result[(), ThreadError]:
+    item = Item("capture")
+    job = def [item]() -> i64:
+        len(item.label)
+    with spawn(apply, job)?:
+        pass
+    Ok(())
+def main() -> Result[(), Failure]:
+    mut count = 0
+    print("__test_fail_thread_starts__")?
+    print(str.repr(attempt(&mut count))?)?
+    print(str.repr(attempt_closure())?)?
+    print("__test_restore_thread_starts__")?
+    print(count)?
+    Ok(())
+"#, "__test_fail_thread_starts__\nnested\nitem\nResult[(), ThreadError].Err(ThreadError.System(11))\ncapture\nResult[(), ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n0\n");
+}
+
+#[test]
 fn named_workers_join_once_and_transfer_owned_results() {
     runs(
         r#"
@@ -246,18 +335,6 @@ def main() -> Result[(), Failure]:
     Ok(())
 "#,
             "indirect callable effects",
-        ),
-        (
-            r#"
-def worker(data: list[i64]) -> i64:
-    len(data)
-def main() -> Result[(), Failure]:
-    data = [1]?
-    with spawn(worker, data)?:
-        pass
-    Ok(())
-"#,
-            "failed start preserves your job",
         ),
         (
             r#"

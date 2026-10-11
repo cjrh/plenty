@@ -1,9 +1,21 @@
 # Ordered parallel mapping
 
-`pool.map(function, inputs) -> Result[list[U], PoolMapError]` requires a named
-one-argument function `(T) -> U`, where U is non-unit and owned storable data.
+`pool.map(worker, inputs) -> Result[list[U], PoolMapError]` accepts a statically
+named function or a concrete reusable immutable closure `(T) -> U`, where U
+is non-unit and owned storable data.
 It consumes an owned `list[T]` or copies an integer `range[T]` normally. Generic
 worker types are inferred. Ordinary [worker restrictions](index.md) apply.
+
+A closure moves into the operation and must wholly own its captures. One
+environment is shared by all jobs and remains pinned until every accepted job
+finishes, including on empty input, allocation failure, worker error, and
+shutdown. It drops once on the owning thread before the map call returns.
+Captures are neither copied per input nor given separate heap environments.
+Mutable and one-shot closures cannot be shared across jobs; borrowed closures
+belong in scoped `spawn`. Concrete closures passed through an owned generic
+`F: Callable[[T], U]` parameter remain eligible. Indirect code-address `Callable`
+values lack worker-effect evidence and are rejected, even if initialized from a
+named function; pass that function directly instead.
 
 The result preserves input order regardless of completion order. Mapping is
 eager: output capacity is reserved before execution, and at most
@@ -18,7 +30,7 @@ effects remain visible. Allocation failure leaves the pool usable. A closed pool
 returns Shutdown, including for empty input. Worker Result values remain ordinary
 list elements.
 
-Borrowed inputs, generators, multiple iterables, closure mapping, and streaming
+Borrowed inputs, generators, multiple iterables, and streaming
 output are unsupported.
 
 ## Fallible workers

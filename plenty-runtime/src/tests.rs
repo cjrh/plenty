@@ -2542,3 +2542,83 @@ fn failed_box_allocation_drops_the_value_it_would_own() {
         assert_eq!(RECURSIVE_DROPS.with(std::cell::Cell::get), 2);
     }
 }
+
+static CALLABLE_ENVIRONMENT: Type = Type {
+    affine: true,
+    inline_bytes: 32,
+    variants: &[Variant {
+        name: "captures",
+        fields: &[&GUARD],
+    }],
+    ..scalar(b'H')
+};
+static CONCRETE_CALLABLE_BOX: Type = Type {
+    affine: true,
+    key: Some(&CALLABLE_ENVIRONMENT),
+    ..scalar(b'O')
+};
+static ERASED_CALLABLE: Type = Type {
+    affine: true,
+    ..scalar(b'J')
+};
+
+#[test]
+fn callable_boxes_preserve_adapter_concrete_descriptor_and_relocated_captures() {
+    trace();
+    // SAFETY: the environment has its static descriptor and one owned guard.
+    // Opcode 128 transfers it into the box; the erased descriptor releases the
+    // heap header, whose concrete descriptor supplies the capture drop layout.
+    unsafe {
+        let owned = guard(42);
+        let mut environment = [&CALLABLE_ENVIRONMENT as *const Type as u128, owned];
+        let adapter = 0x1234_u128;
+        let result = collection(
+            128,
+            environment.as_mut_ptr() as u128,
+            adapter,
+            0,
+            &CONCRETE_CALLABLE_BOX,
+        );
+        assert_eq!(result >> 64, 0);
+        let boxed = result as u64 as *mut u128;
+        let prefix = boxed.cast::<u64>();
+        assert_eq!(
+            prefix.add(2).read(),
+            &CONCRETE_CALLABLE_BOX as *const Type as u64
+        );
+        assert_eq!(prefix.add(3).read(), adapter as u64);
+        let relocated = boxed.add(2).read() as *mut u128;
+        assert_eq!(relocated, boxed.add(3));
+        assert_eq!(
+            relocated.read(),
+            &CALLABLE_ENVIRONMENT as *const Type as u128
+        );
+        assert_eq!(relocated.add(1).read(), owned);
+        crate::aggregates::release(boxed as u128, &ERASED_CALLABLE);
+        assert_eq!(trace(), [42]);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn failed_callable_box_drops_the_concrete_environment_once() {
+    trace();
+    // The drop observer itself must not allocate while failure injection is on.
+    TRACE.with(|trace| trace.borrow_mut().reserve(1));
+    // SAFETY: allocation failure leaves the inline environment available for
+    // opcode 128 to destroy; no box or adapter becomes visible to the caller.
+    unsafe {
+        let mut environment = [&CALLABLE_ENVIRONMENT as *const Type as u128, guard(43)];
+        crate::accounting::fail_after(Some(0));
+        let result = collection(
+            128,
+            environment.as_mut_ptr() as u128,
+            0x1234,
+            0,
+            &CONCRETE_CALLABLE_BOX,
+        );
+        crate::accounting::fail_after(None);
+        assert_eq!(result >> 64 & 1, 1);
+        assert_eq!(trace(), [43]);
+    }
+}
