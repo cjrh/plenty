@@ -204,7 +204,8 @@ Completed cleanup includes:
   (issue #27; local PR #38).
 - Checked integer conversion with `T.try_from` and static rejection of unsigned
   negation (issue #39; local PR #44).
-- Range-checked bare numeric casts and `T.wrapping_from` (issue #65).
+- Range-checked bare numeric casts and `T.wrapping_from` (issue #65; local
+  PR #52).
 - Generic instance body errors reported at the use that required the instance,
   with a note at the body (issue #40; local PR #45).
 - Uniform references from borrowed iteration and dictionary items (issue #30;
@@ -213,6 +214,10 @@ Completed cleanup includes:
 - Integer bitwise operators, checked shifts, and explicit wrapping arithmetic
   (issue #33; local PR #51), and reproducible native artifacts with a fixed CPU
   baseline and deterministic archives (issue #58; local PR #50).
+- Runtime trap reports with `file:line:column`, the file relative to the source
+  root, and the index and length for bounds errors (issue #37; local PR #56).
+- Targeted diagnostics for Python habits such as `**`, keyword arguments, and
+  mixed integer/float arithmetic (issue #38; local PR #53).
 
 Continue addressing open issues in severity order. Join/deadlock diagnostics
 (issue #12) remain open; B22 records the completed concurrency API consistency
@@ -220,10 +225,8 @@ work (issue #28). Claims and current ownership belong in `issues.db`; these
 references do not assign work.
 `Failure` still keeps no details; storing a cause in it belongs to B14.
 
-Runtime traps now report their source location (issue #37), and Python habits
-get targeted diagnostics (issue #38). Mutation through an
-ordinary method's bare `self` now names the explicit mutable receiver annotation
-(issue #42). Receiver shorthand semantics are unchanged; `mut` by-value
+Mutation through an ordinary method's bare `self` now names the explicit mutable
+receiver annotation (issue #42). Receiver shorthand semantics are unchanged; `mut` by-value
 parameters remain a separate candidate. B35's inline storage removed the
 mutable-enum restriction (issue #41); regression tests cover it.
 
