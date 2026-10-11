@@ -4,7 +4,24 @@ mod support;
 use rstest::rstest;
 use std::process::{Command, Output};
 
-const TRAP: &str = "error: integer cast out of range\n";
+const TRAP: &str = ": integer cast out of range\n";
+
+/// A trap report without its `line:column` position, which
+/// `test_trap_locations` covers.
+fn message(output: &Output) -> String {
+    let error = String::from_utf8_lossy(&output.stderr);
+    let Some((position, message)) = error
+        .strip_prefix("error: ")
+        .and_then(|rest| rest.split_at_checked(rest.find(": ")?))
+    else {
+        return error.into_owned();
+    };
+    assert!(
+        position.split(':').all(|n| n.parse::<u32>().is_ok()),
+        "{error}"
+    );
+    message.to_owned()
+}
 
 const INTEGERS: [(&str, i128, i128); 8] = [
     ("i8", i8::MIN as i128, i8::MAX as i128),
@@ -33,7 +50,7 @@ fn assert_output(source: &str, expected: &str) {
 
 fn assert_trap(output: &Output, context: &str) {
     assert_eq!(output.status.code(), Some(1), "{context}");
-    assert_eq!(String::from_utf8_lossy(&output.stderr), TRAP, "{context}");
+    assert_eq!(message(output), TRAP, "{context}");
     assert!(output.stdout.is_empty(), "{context}");
 }
 
@@ -125,7 +142,7 @@ fn a_trap_follows_output_already_printed() {
     let output = support::run("print('before').unwrap()\nx = 300\nprint(u8(x)).unwrap()");
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
-    assert_eq!(String::from_utf8_lossy(&output.stderr), TRAP);
+    assert_eq!(message(&output), TRAP);
 }
 
 /// Every source/target pair at both ends of both ranges and one step outside

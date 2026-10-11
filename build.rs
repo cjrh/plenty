@@ -46,6 +46,28 @@ fn build_runtime(out: &std::path::Path, application: bool) {
         "-o",
     ]);
     rustc.arg(&archive);
+    // Precompiled standard-library objects remain toolchain inputs.
+    for (path, replacement) in [
+        (
+            PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()),
+            "/plenty",
+        ),
+        (out.to_path_buf(), "/plenty-build"),
+    ] {
+        rustc.arg(format!(
+            "--remap-path-prefix={}={replacement}",
+            path.display()
+        ));
+    }
+    let sysroot = Command::new(std::env::var_os("RUSTC").unwrap())
+        .args(["--print", "sysroot"])
+        .output()
+        .expect("query rustc sysroot");
+    assert!(sysroot.status.success(), "querying rustc sysroot failed");
+    rustc.arg(format!(
+        "--remap-path-prefix={}=/rust-toolchain",
+        String::from_utf8(sysroot.stdout).unwrap().trim()
+    ));
     if application {
         rustc.args(["--cfg", "plenty_runtime_embedded"]);
     }

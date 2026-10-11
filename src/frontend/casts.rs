@@ -4,13 +4,15 @@
 use super::*;
 
 impl Lower<'_> {
-    /// Emit the bare cast of `operand`, which has just been lowered. A
-    /// literal operand is rejected here when it does not fit; any other
+    /// Emit the bare cast at `cast` of `operand`, which has just been lowered.
+    /// A literal operand is rejected here when it does not fit; any other
     /// operand is checked when the program runs.
     pub(super) fn checked_cast(
+        &self,
         source: &Ty,
         target: &Ty,
         operand: &Expr,
+        cast: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         let at = &operand.at;
@@ -24,6 +26,7 @@ impl Lower<'_> {
             _ => false,
         };
         if !literal {
+            self.mark(cast, ops);
             ops.push(Op::CheckedCast(target.clone()));
             return Ok(());
         }

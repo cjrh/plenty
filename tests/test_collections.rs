@@ -206,7 +206,7 @@ fn runtime_errors(#[case] source: &str, #[case] diagnostic: &str) {
 
 #[test]
 fn large_builders_and_hash_tables() {
-    let output = support::run("xs = [x for x in range(10_000)].unwrap()\nd = {x: x + 1 for x in &xs}.unwrap()\ns = set(copy(xs).unwrap()).unwrap()\nprint(len(xs)).unwrap()\nprint(d[9999]).unwrap()\nprint(9999 in s).unwrap()");
+    let output = support::run("xs = [x for x in range(10_000)].unwrap()\nd = {*x: x + 1 for x in &xs}.unwrap()\ns = set(copy(xs).unwrap()).unwrap()\nprint(len(xs)).unwrap()\nprint(d[9999]).unwrap()\nprint(9999 in s).unwrap()");
     assert!(
         output.status.success(),
         "{}",

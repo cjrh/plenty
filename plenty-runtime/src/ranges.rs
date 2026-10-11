@@ -12,9 +12,21 @@ pub(crate) struct Range {
 const _: () = assert!(size_of::<Range>() == 32);
 
 impl Range {
+    #[cfg(test)]
     pub fn new(start: u64, stop: u64, step: i64, signed: bool) -> Self {
+        Self::new_at(start, stop, step, signed, std::ptr::null())
+    }
+
+    /// `site` locates the `range(...)` call in a trap for invalid parameters.
+    pub fn new_at(
+        start: u64,
+        stop: u64,
+        step: i64,
+        signed: bool,
+        site: *const crate::Site,
+    ) -> Self {
         if step == 0 {
-            crate::fail("range step cannot be zero");
+            crate::fail_at(site, format_args!("range step cannot be zero"));
         }
         let number = |n: u64| if signed { n as i64 as i128 } else { n as i128 };
         let distance = if step > 0 {
@@ -29,7 +41,7 @@ impl Range {
             (distance + magnitude - 1) / magnitude
         };
         if len > i64::MAX as i128 {
-            crate::fail("range length exceeds i64");
+            crate::fail_at(site, format_args!("range length exceeds i64"));
         }
         Self {
             start,

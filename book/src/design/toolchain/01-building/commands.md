@@ -13,7 +13,7 @@
 | `plenty --verify-interface LIBRARY INTERFACE` | Verify a generated contract and compatibility symbol |
 | `plenty --runtime-interface FILE --library-name NAME -o OUT.plentyi` | Generate a typed runtime loader from checked export source, without loading a library or invoking native tools |
 | `plenty --emit-runtime DIR` | Extract `libplenty_runtime.a`, `link-args.txt`, and `target.txt` |
-| `plenty --print-target` | Print the packaged runtime's target |
+| `plenty --print-target` | Print the packaged runtime's target and CPU baseline |
 
 With no arguments, `plenty` displays help. `--module-root DIR` selects the source
 root for file commands. Library builds do not require `main`; their exported

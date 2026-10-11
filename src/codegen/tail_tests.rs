@@ -30,6 +30,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
             sig: sig.clone(),
             body: Rc::from([]),
             locals: Rc::from([]),
+            source: None,
         },
     );
     let empty = module
@@ -61,6 +62,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         return_storage: Some(incoming[1]),
         return_types: &sig.outputs,
         collection_scratch: None,
+        position: Default::default(),
     };
     lower.lower_tail_call("callee").unwrap();
     assert!(lower.terminated);

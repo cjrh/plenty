@@ -60,7 +60,7 @@ impl Lowerer<'_, '_> {
             })
         };
         if let Some(out_of_range) = out_of_range {
-            self.trap_if(out_of_range, TrapKind::CastRange);
+            self.trap_if(out_of_range, TrapKind::CastRange)?;
         }
         let converted = self.cast(value, source, target.clone());
         self.stack.push((converted, target.clone()));

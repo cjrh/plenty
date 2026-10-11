@@ -438,6 +438,7 @@ impl Lower<'_> {
             }
             let operation = CollectionOp::ElementRef(collection, mutable);
             let output = operation.signature().1;
+            self.mark(&e.at, ops);
             ops.push(Op::Collection(operation));
             return Ok((output, loan));
         }
@@ -731,9 +732,12 @@ impl Lower<'_> {
                     Ty::List(_) | Ty::Str | Ty::Range(_) => (Ty::I64, ty.element().unwrap()),
                     _ => return Err(e.at.error("indexing requires list, dict, str, or range")),
                 };
-                let actual = self.expr_expected(index, Some(key.clone()), ops)?;
-                self.same(actual, Some(key), &index.at)?;
+                let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
+                self.same(Some(actual), Some(key), &index.at)?;
+                self.mark(&e.at, ops);
                 ops.push(Op::Collection(CollectionOp::Get(ty)));
+                let mut loans = loans;
+                loans.extend(reads);
                 Ok((value, loans))
             }
             _ => {
