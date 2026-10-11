@@ -34,7 +34,8 @@ No public allocator switching or custom-memory-manager API is exposed.
 
 `value.unwrap()` extracts a success payload without allocation, moving it
 when owned. `Err` or `Nothing` deliberately traps. Invalid indexing, absent
-dictionary keys in indexed access, division by zero, and invalid range
-parameters are also fatal runtime errors; optional lookups provide recoverable
+dictionary keys in indexed access, integer overflow, division by zero, a
+numeric cast to an integer type that cannot represent the value, and invalid
+range parameters are also fatal runtime errors; optional lookups provide recoverable
 absence where supported. Traps terminate the process without unwinding language
 scopes. They are not caught by Result propagation or resource scopes.

@@ -10,6 +10,7 @@ use crate::collection::CollectionOp;
 use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 mod callables;
+mod casts;
 mod channels;
 mod classes;
 mod closures;
@@ -2829,7 +2830,7 @@ impl Lower<'_> {
                     if !source.is_numeric() {
                         return Err(e.at.error("numeric casts require a number"));
                     }
-                    ops.push(Op::Cast(target.clone()));
+                    Self::checked_cast(&source, &target, &args[0], ops)?;
                     Some(target)
                 } else if name == "contains" {
                     if args.len() != 2 {

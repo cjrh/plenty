@@ -61,6 +61,7 @@ use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 
 use crate::lexer;
+mod casts;
 mod channels;
 mod closures;
 mod collections;
@@ -449,6 +450,10 @@ struct Runtime {
     /// to stderr and `exit(1)`s. Called from the zero-check branch of
     /// the `Div` lowering.
     trap_div_zero: FuncId,
+    /// `plenty_trap_cast_range() -> !` — prints `error: integer cast out of
+    /// range` to stderr and `exit(1)`s. Called from the range-check branch
+    /// of a bare numeric cast.
+    trap_cast_range: FuncId,
     /// `plenty_readline() -> *const u8` — read one newline-terminated
     /// line from stdin, strip its newline, validate UTF-8, and return an owned
     /// counted string. NULL is internal EOF, never a language string.
@@ -582,6 +587,7 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         str_eq: two_args_one_return(module, "plenty_str_eq", PTR_TY, PTR_TY, types::I8)?,
         trap_overflow: nullary(module, "plenty_trap_overflow")?,
         trap_div_zero: nullary(module, "plenty_trap_div_zero")?,
+        trap_cast_range: nullary(module, "plenty_trap_cast_range")?,
         readline: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
@@ -1067,6 +1073,7 @@ enum ArithKind {
 enum TrapKind {
     Overflow,
     DivZero,
+    CastRange,
 }
 
 struct Lowerer<'a, 'b> {
@@ -1372,6 +1379,7 @@ impl Lowerer<'_, '_> {
                 let cast = self.cast(v, src, target.clone());
                 self.stack.push((cast, target.clone()));
             }
+            Op::CheckedCast(target) => self.lower_checked_cast(target)?,
             Op::TryCast(target) => self.lower_try_cast(target)?,
             Op::Display => self.lower_display()?,
             Op::Clear => self.release_stack(),
@@ -1650,6 +1658,7 @@ impl Lowerer<'_, '_> {
         let helper = match kind {
             TrapKind::Overflow => self.runtime.trap_overflow,
             TrapKind::DivZero => self.runtime.trap_div_zero,
+            TrapKind::CastRange => self.runtime.trap_cast_range,
         };
         let local = self.module.declare_func_in_func(helper, self.bcx.func);
         self.bcx.ins().call(local, &[]);
