@@ -21,7 +21,7 @@ and supports all list element types. Last-element removal is constant-time;
 other positions shift subsequent elements.
 
 `get` observes the list and index once in source order. It supports only
-non-affine values, including immutable enums; retained results survive replacement
+non-affine values, including copyable enums; retained results survive replacement
 or destruction of the list. Use `pop` or explicit references for affine elements.
 There is no default argument.
 

@@ -391,3 +391,208 @@ print(str.repr(value).unwrap()).unwrap()
         "Result[(), i64].Ok(())\n",
     );
 }
+
+// Issue #41: before inline storage (B35), an enum whose payloads were all
+// immutable shared heap storage, so `match &mut` rejected it. Every enum now
+// owns its payload inline, whatever the payload types.
+#[test]
+fn mutable_matches_write_scalar_mixed_and_owned_payload_enums() {
+    runs(
+        r#"
+class Counter:
+    count: i64
+enum Size:
+    Width(i64)
+    Height(i64)
+enum Shape:
+    Circle(i64)
+    Named(str)
+    Points(list[i64])
+enum Holder:
+    One(Counter)
+    Many(list[Counter])
+def grow(shape: &mut Shape) -> ():
+    match shape:
+        case Shape.Circle(radius):
+            *radius = *radius * 2
+        case Shape.Named(name):
+            *name = "a replacement long enough to allocate"
+        case Shape.Points(points):
+            points.append(9).unwrap()
+def raise(holder: &mut Holder) -> ():
+    match holder:
+        case Holder.One(counter):
+            counter.count = counter.count + 41
+        case Holder.Many(counters):
+            counters[0].count = 6
+def count(holder: &Holder) -> i64:
+    match holder:
+        case Holder.One(counter):
+            counter.count
+        case Holder.Many(counters):
+            counters[0].count
+mut size = Size.Height(3)
+match &mut size:
+    case Size.Width(width):
+        *width = 0
+    case Size.Height(height):
+        *height = *height + 1
+print(size).unwrap()
+mut circle = Shape.Circle(3)
+mut named = Shape.Named("an original long enough to allocate")
+mut points = Shape.Points([1, 2].unwrap())
+grow(&mut circle)
+grow(&mut named)
+grow(&mut points)
+print(circle).unwrap()
+print(named).unwrap()
+print(points).unwrap()
+mut one = Holder.One(Counter(1))
+mut many = Holder.Many([Counter(5)].unwrap())
+raise(&mut one)
+raise(&mut many)
+print(count(&one)).unwrap()
+print(count(&many)).unwrap()
+"#,
+        "Size.Height(4)\nShape.Circle(6)\nShape.Named(\"a replacement long enough to allocate\")\nShape.Points([1, 2, 9])\n42\n6\n",
+    );
+}
+
+#[test]
+fn mutable_matches_write_generic_enum_payloads() {
+    runs(
+        r#"
+enum Maybe[T]:
+    Just(T)
+    Empty
+def bump(value: &mut Maybe[i64]) -> ():
+    match value:
+        case Maybe[i64].Just(number):
+            *number = *number + 1
+        case Maybe[i64].Empty:
+            pass
+mut number = Maybe[i64].Just(1)
+number_copy = number
+mut text = Maybe[str].Just("a")
+text_copy = text
+mut items = Maybe[list[i64]].Just([1].unwrap())
+mut empty = Maybe[i64].Empty
+bump(&mut number)
+bump(&mut empty)
+match &mut text:
+    case Maybe[str].Just(value):
+        *value = "b"
+    case Maybe[str].Empty:
+        pass
+match &mut items:
+    case Maybe[list[i64]].Just(value):
+        value.append(2).unwrap()
+    case Maybe[list[i64]].Empty:
+        pass
+print(number).unwrap()
+print(number_copy).unwrap()
+print(text).unwrap()
+print(text_copy).unwrap()
+print(items).unwrap()
+print(empty).unwrap()
+"#,
+        "Maybe[i64].Just(2)\nMaybe[i64].Just(1)\nMaybe[str].Just(\"b\")\nMaybe[str].Just(\"a\")\nMaybe[list[i64]].Just([1, 2])\nMaybe[i64].Empty\n",
+    );
+}
+
+// Each holder below received a copy of a copyable enum. Writing through
+// `match &mut` on one holder must reach no other: this is what shared enum
+// storage could not guarantee (issue #41).
+#[test]
+fn mutable_matches_of_copyable_enums_leave_other_holders_unchanged() {
+    runs(
+        r#"
+enum Shape:
+    Circle(i64)
+    Named(str)
+enum Slot:
+    Filled(Shape)
+    Vacant
+class Drawing:
+    shape: Shape
+def store(shape: &mut Shape, radius: i64) -> ():
+    match shape:
+        case Shape.Circle(current):
+            *current = radius
+        case Shape.Named(name):
+            *name = "a replacement long enough to allocate"
+def widened(shape: Shape) -> Shape:
+    mut local = shape
+    store(&mut local, 6)
+    local
+original = Shape.Circle(1)
+mut copied = original
+mut shapes = [original, Shape.Named("an original long enough to allocate")].unwrap()
+mut table: dict[str, Shape] = {"a": original}.unwrap()
+mut drawing = Drawing(original)
+mut slot = Slot.Filled(original)
+slot_copy = slot
+show = def [original]() -> Shape:
+    original
+store(&mut copied, 2)
+store(&mut shapes[0], 3)
+store(&mut table["a"], 4)
+store(&mut drawing.shape, 5)
+argument = widened(original)
+match &mut slot:
+    case Slot.Filled(shape):
+        store(shape, 7)
+    case Slot.Vacant:
+        pass
+mut name = shapes.get(1).unwrap()
+store(&mut name, 0)
+mut element = shapes.get(0).unwrap()
+store(&mut element, 8)
+mut part = shapes.slice(0, 1).unwrap()
+store(&mut part[0], 10)
+for shape in &mut shapes:
+    store(shape, 9)
+print(original).unwrap()
+print(show()).unwrap()
+print(copied).unwrap()
+print(table).unwrap()
+print(drawing.shape).unwrap()
+print(argument).unwrap()
+print(slot_copy).unwrap()
+print(slot).unwrap()
+print(name).unwrap()
+print(element).unwrap()
+print(part).unwrap()
+print(shapes).unwrap()
+"#,
+        "Shape.Circle(1)\nShape.Circle(1)\nShape.Circle(2)\n{\"a\": Shape.Circle(4)}\nShape.Circle(5)\nShape.Circle(6)\nSlot.Filled(Shape.Circle(1))\nSlot.Filled(Shape.Circle(7))\nShape.Named(\"a replacement long enough to allocate\")\nShape.Circle(8)\n[Shape.Circle(10)]\n[Shape.Circle(9), Shape.Named(\"a replacement long enough to allocate\")]\n",
+    );
+}
+
+// Copies of a scalar enum are independent inline values, so neither the copy
+// nor the write behind `match &mut` may allocate to unshare storage.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn mutable_matches_of_copied_scalar_enums_do_not_allocate() {
+    runs(
+        r#"
+enum Shape:
+    Circle(i64)
+    Square(i64)
+mut shape = Shape.Circle(3)
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+other = shape
+match &mut shape:
+    case Shape.Circle(radius):
+        *radius = *radius + 1
+    case Shape.Square(side):
+        *side = 0
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(shape).unwrap()
+print(other).unwrap()
+"#,
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\nShape.Circle(4)\nShape.Circle(3)\n",
+    );
+}

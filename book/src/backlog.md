@@ -211,8 +211,8 @@ current ownership belong in `issues.db`; these references do not assign work.
 Other cleanup findings include source locations for runtime traps (issue #37),
 targeted diagnostics for Python habits (issue #38), and receiver/parameter
 mutability consistency (issue #42). Generic diagnostics belong to B29
-(issue #40). Reassess the mutable-enum restriction in issue #41 against B35's
-inline storage before choosing a fix; it remains open in the register.
+(issue #40). B35's inline storage removed the mutable-enum restriction
+(issue #41); regression tests cover it.
 
 The newer package-tooling agreement (issue #45) belongs to B17. The std catalogue
 and finder prerequisites (issues #49, #60, and #61) are recorded under B38/B12.
@@ -230,7 +230,7 @@ ownership remain in the shared `issues.db`.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
-| B11 | Broader borrowing | Borrowed enum matching and payload loans complete. A `mut` reference binding is reassigned only through itself (issue #1). Remaining: stored references, relationships among multiple reference parameters, more precise collection loans, retargeting a reference binding to another borrow of the same owner, and field-precise loans through `mut` reference bindings. Related open concerns: borrowed iteration's value/reference rule (issue #30, also B12) and mutable matching of copyable enum payloads (issue #41; reassess after B35). B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/language/05-ownership/04-returned-references.md). |
+| B11 | Broader borrowing | Borrowed enum matching and payload loans complete. A `mut` reference binding is reassigned only through itself (issue #1). Remaining: stored references, relationships among multiple reference parameters, more precise collection loans, retargeting a reference binding to another borrow of the same owner, and field-precise loans through `mut` reference bindings. Related open concern: borrowed iteration's value/reference rule (issue #30, also B12). Mutable matching of copyable enum payloads (issue #41) is complete through B35. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/language/05-ownership/04-returned-references.md). |
 | B12 | Practical I/O and iteration | Text-file iteration is implemented. Remaining: explicit binary buffers and read/write, buffering, and reusable iterator/view protocols. Define a consistent borrowed-iteration rule (issue #30, also B11); iteration helpers such as `enumerate` and `zip` are part of issue #35 (also B38). Lossless platform paths and binary argument/I/O transport are concrete gaps (issue #61); coordinate their representation with B38's filesystem work. Follow familiar Python conventions where they fit ownership and Result-based errors. |
 | B13 | Public allocator control | Global/default and per-container selection, allocator state/lifetimes, and buffer provenance. Internal object allocator identity already exists. Consider bounded/inline-capacity storage separately. [Memory design](proposals/memory-parallelism-and-simd.md). |
 | B14 | Typed error composition | Preserve details across multiple error types through explicit unions/conversions. `Failure` already supplies deliberate erasure; it does not replace recoverable typed errors. Option/Result conveniences and explicit conversion from Option to Result are related gaps in issue #35 (also B38). |

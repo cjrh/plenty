@@ -31,7 +31,7 @@ up a stored `Nothing` returns `Some(Nothing)`. Use the
 default argument.
 
 `get` leaves the dictionary and key available and does not allocate. It
-supports numbers, booleans, strings, and immutable enums. It cannot return
+supports numbers, booleans, strings, and enums of such values. It cannot return
 mutable collections or classes: use `pop` to take ownership or
 `&dictionary[key]` to borrow an existing value. Optional borrowed lookup is not
 implemented.
@@ -65,6 +65,6 @@ elements, use `pop` to transfer ownership, `copy(items[index])?` to duplicate
 one, or `&items[index]` to borrow it. Ordinary indexing still traps when the
 index is out of range.
 
-Both forms of `get` leave their source unchanged. Numbers and booleans copy;
-strings and immutable enums share storage. The returned value remains valid
+Both forms of `get` leave their source unchanged. Numbers, booleans, and
+enums copy; strings share immutable storage. The returned value remains valid
 if the source is updated or dropped.

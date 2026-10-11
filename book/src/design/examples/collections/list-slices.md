@@ -27,9 +27,9 @@ Both bounds must be `i64`. Slice syntax such as `items[1:3]`, omitted bounds,
 and steps are not implemented yet. Even an empty result can fail to allocate
 its list header; use `?` or `match` to handle `AllocError`.
 
-Strings and immutable enums in the slice share their immutable storage and
-outlive the original list. For owned elements such as nested lists or classes,
-the receiver must be an owned temporary. Use
+Strings in the slice share their immutable storage and copyable enums copy
+inline; both outlive the original list. For owned elements such as nested
+lists or classes, the receiver must be an owned temporary. Use
 `copy(items)?.slice(start, stop)` to preserve the original, or call the
 method on a list returned by a function to transfer selected elements. Unselected
 elements of that temporary are dropped after the call. If allocation fails,
