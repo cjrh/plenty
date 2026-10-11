@@ -1829,6 +1829,7 @@ fn named_type(name: &str) -> Type {
         "range" => Ty::Range(Rc::new(Ty::I64)),
         "AllocError" => crate::sum::alloc_error(),
         "ParseError" => crate::sum::parse_error(),
+        "RangeError" => crate::sum::range_error(),
         "DataError" => crate::sum::data_error(),
         "IoError" => crate::sum::io_error(),
         "Failure" => crate::sum::failure(),

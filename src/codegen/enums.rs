@@ -443,7 +443,7 @@ impl Lowerer<'_, '_> {
         else {
             return Err("AOT: checked cast requires integer types".into());
         };
-        let Ty::Enum(error) = crate::sum::parse_error() else {
+        let Ty::Enum(error) = crate::sum::range_error() else {
             unreachable!()
         };
         let Ty::Enum(result) = crate::sum::result(target.clone(), Ty::Enum(error.clone())) else {
@@ -491,7 +491,7 @@ impl Lowerer<'_, '_> {
             .variants
             .iter()
             .position(|variant| variant.name == "OutOfRange")
-            .ok_or("AOT: ParseError has no OutOfRange variant")?;
+            .ok_or("AOT: RangeError has no OutOfRange variant")?;
         self.lower_enum(&EnumOp::New(error, out_of_range))?;
         self.lower_enum(&EnumOp::New(result, 1))?;
         let (failed, _) = self.stack.pop().ok_or("AOT: missing checked cast error")?;

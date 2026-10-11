@@ -30,7 +30,8 @@ def main() -> Result[(), IoError]:
 `i64(small)` is safe because every `u8` value fits in an `i64`. When the target
 cannot hold every value of the source, use `try_from`. It checks the range and
 returns a `Result`: `Ok` with the converted value, or
-`Err(ParseError.OutOfRange)` when the value does not fit.
+`Err(RangeError.OutOfRange)` when the value does not fit. `RangeError` has only
+this one variant; parsing text uses the separate `ParseError` type.
 
 ```plenty
 def main() -> Result[(), IoError]:

@@ -12,7 +12,7 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
 
 Parameters can be numeric scalars, owned exported classes, or shared/exclusive
 references to either. Returns can be numeric, unit, or `Result[T, E]`, where T is
-numeric/unit and E is numeric, `AllocError`, `ParseError`, or `Failure`.
+numeric/unit and E is numeric, `AllocError`, `ParseError`, `RangeError`, or `Failure`.
 `Result[Class, AllocError]` factories use [owned handles](owned-exports.md).
 Bool, other managed objects, raw pointers, returned references, generic exports,
 and other aggregate results are unsupported; bodies can use ordinary features.
@@ -50,6 +50,7 @@ Builtin errors use `uint32_t *out_error`:
 | --- | --- |
 | AllocError | OutOfMemory = 0; CapacityOverflow = 1 |
 | ParseError | Invalid = 0; OutOfRange = 1 |
+| RangeError | OutOfRange = 0 |
 | Failure | Unspecified = 0 |
 
 Status and error code are distinct: code zero still means failure when status is

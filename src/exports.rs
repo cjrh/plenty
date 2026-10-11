@@ -46,14 +46,19 @@ pub(crate) fn check_signature(
                 })
         })
     {
-        return Err("C exports support numeric scalar or owned class parameters and their borrows; returns must be numeric scalar, (), Result[scalar or (), scalar/AllocError/ParseError/Failure], or Result[Class, AllocError]");
+        return Err("C exports support numeric scalar or owned class parameters and their borrows; returns must be numeric scalar, (), Result[scalar or (), scalar/AllocError/ParseError/RangeError/Failure], or Result[Class, AllocError]");
     }
     Ok(())
 }
 
 pub(crate) fn error_variants(ty: &Ty) -> Option<&[crate::sum::Variant]> {
     match ty {
-        Ty::Enum(t) if matches!(t.name.as_str(), "AllocError" | "ParseError" | "Failure") => {
+        Ty::Enum(t)
+            if matches!(
+                t.name.as_str(),
+                "AllocError" | "ParseError" | "RangeError" | "Failure"
+            ) =>
+        {
             Some(&t.local().variants)
         }
         _ => None,
