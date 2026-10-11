@@ -4,7 +4,7 @@
 use crate::op::Ty;
 use std::collections::{HashMap, VecDeque};
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
     pub affine: bool,
     pub copyable: bool,
@@ -20,10 +20,6 @@ pub struct Facts {
 }
 
 impl Ty {
-    #[expect(
-        clippy::mutable_key_type,
-        reason = "nominal identities exclude definition cells"
-    )]
     pub fn facts(&self) -> Facts {
         if !matches!(
             self,
@@ -62,11 +58,68 @@ impl Ty {
         let cached = match self {
             Self::Class(t) => t.cached_facts(),
             Self::Enum(t) => t.cached_facts(),
+            Self::Dict(k, v) => return Self::owner_facts(&[k, v]),
+            Self::List(t) | Self::Set(t) | Self::Box(t) => return Self::owner_facts(&[t]),
             _ => None,
         };
         if let Some(facts) = cached {
             return facts;
         }
+        let facts = self.walk();
+        if facts.complete {
+            match self {
+                Self::Class(t) => t.cache_facts(facts),
+                Self::Enum(t) => t.cache_facts(facts),
+                _ => {}
+            }
+        }
+        facts
+    }
+    /// Facts of a collection or box, combined from those of its contents
+    /// instead of walking the graph again; nominal contents answer from their
+    /// cache. This equals a walk from the owner: each fact is a union over
+    /// reachable nodes or a property of the cycles they reach, and the owner
+    /// adds one node that reaches a cycle only through its contents.
+    fn owner_facts(contents: &[&Self]) -> Facts {
+        let mut facts = Facts {
+            affine: true,
+            copyable: true,
+            complete: true,
+            reflexive: true,
+            ..Facts::default()
+        };
+        for ty in contents {
+            let part = match ty {
+                Self::Class(_)
+                | Self::Enum(_)
+                | Self::List(_)
+                | Self::Set(_)
+                | Self::Dict(..)
+                | Self::Box(_) => ty.facts(),
+                // A walk weighs a reachable leaf and never treats a task as a
+                // resource, so its one-node walk differs from `facts`.
+                _ => ty.walk(),
+            };
+            facts.copyable &= part.copyable;
+            facts.destructor |= part.destructor;
+            facts.recursive |= part.recursive;
+            facts.infinite |= part.infinite;
+            facts.complete &= part.complete;
+            facts.depth = facts.depth.max(part.depth);
+            facts.reflexive &= part.reflexive;
+            facts.closure |= part.closure;
+            facts.concurrent_handle |= part.concurrent_handle;
+        }
+        // An owner that reaches a cycle is a heap boundary, which a walk cuts
+        // before measuring depth.
+        facts.depth = if facts.recursive { 1 } else { 1 + facts.depth };
+        facts
+    }
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "nominal identities exclude definition cells"
+    )]
+    fn walk(&self) -> Facts {
         let mut facts = Facts {
             copyable: true,
             complete: true,
@@ -232,16 +285,315 @@ impl Ty {
         // for unbounded recursive values until an iterative implementation exists.
         facts.copyable &= !facts.recursive;
         facts.affine |= facts.recursive;
-        if facts.complete {
-            match self {
-                Self::Class(t) => t.cache_facts(facts),
-                Self::Enum(t) => t.cache_facts(facts),
-                _ => {}
-            }
-        }
         facts
     }
     pub fn recursive_data(&self) -> bool {
         self.facts().recursive
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nominal::Types;
+    use crate::record::ClassType;
+    use crate::sum::{option, EnumType, Variant};
+    use std::cell::OnceCell;
+    use std::rc::Rc;
+
+    fn list(t: &Ty) -> Ty {
+        Ty::List(Rc::new(t.clone()))
+    }
+    fn set(t: &Ty) -> Ty {
+        Ty::Set(Rc::new(t.clone()))
+    }
+    fn boxed(t: &Ty) -> Ty {
+        Ty::Box(Rc::new(t.clone()))
+    }
+    fn dict(k: &Ty, v: &Ty) -> Ty {
+        Ty::Dict(Rc::new(k.clone()), Rc::new(v.clone()))
+    }
+    fn class(name: &str, fields: Vec<Ty>, destructor: bool) -> ClassType {
+        ClassType {
+            name: name.into(),
+            fields: fields
+                .into_iter()
+                .enumerate()
+                .map(|(i, t)| (format!("f{i}"), t))
+                .collect(),
+            destructor: destructor.then(|| "__del__".into()),
+            fallible_init: false,
+            bytes: OnceCell::new(),
+            managed: OnceCell::new(),
+        }
+    }
+    fn enumeration(name: &str, variants: Vec<Vec<Ty>>) -> EnumType {
+        EnumType {
+            facts: OnceCell::new(),
+            restricted_storage: false,
+            name: name.into(),
+            variants: variants
+                .into_iter()
+                .enumerate()
+                .map(|(i, fields)| Variant {
+                    name: format!("V{i}"),
+                    fields,
+                })
+                .collect(),
+            managed: true,
+            managed_fields: OnceCell::new(),
+            inline_range: false,
+            payload_bytes: OnceCell::new(),
+            storage: OnceCell::new(),
+        }
+    }
+
+    fn leaves() -> Vec<Ty> {
+        let signature = crate::op::CallableSig {
+            inputs: vec![Ty::I64],
+            output: Some(Ty::Bool),
+        };
+        let closure = crate::closure::ClosureType::new(
+            "environment".into(),
+            None,
+            signature.clone(),
+            vec![("captured".into(), list(&Ty::I64))],
+            vec![false],
+            false,
+        )
+        .unwrap();
+        vec![
+            Ty::I64,
+            Ty::F64,
+            Ty::Str,
+            Ty::Bool,
+            Ty::Unit,
+            Ty::File,
+            Ty::Executor,
+            Ty::CancellationToken,
+            Ty::ForeignPtr("handle".into()),
+            Ty::Range(Rc::new(Ty::I64)),
+            Ty::Ref(Rc::new(Ty::I64), false),
+            Ty::Channel(Rc::new(Ty::I64), true),
+            Ty::Future(Rc::new(Ty::I64)),
+            Ty::Callable(Rc::new(signature)),
+            Ty::Closure(Rc::new(closure)),
+            Ty::Generator(Rc::new(crate::generator::GeneratorType {
+                element: list(&Ty::I64),
+                name: Some("frame".into()),
+                slots: OnceCell::new(),
+                bytes: OnceCell::new(),
+            })),
+            Ty::Task(Rc::new(crate::threading::Task {
+                adapter: "adapter".into(),
+                worker: "worker".into(),
+                closure: None,
+                inputs: vec![],
+                output: Ty::I64,
+            })),
+        ]
+    }
+
+    /// Plain, destructor-bearing, recursive, mutually recursive, infinite, and
+    /// incomplete declarations. `Pending` is reserved but never defined.
+    fn nominals(owner: &Rc<Types>) -> Vec<Ty> {
+        let leaf = leaves();
+        let point = owner.class("Point");
+        point.define(class("Point", vec![Ty::I64, Ty::I64], false));
+        let point = Ty::Class(point);
+        let measure = owner.class("Measure");
+        measure.define(class("Measure", vec![Ty::F64], false));
+        let resource = owner.class("Resource");
+        resource.define(class("Resource", vec![Ty::Str], true));
+        let worker = owner.class("Worker");
+        worker.define(class("Worker", leaf, false));
+        let outer = owner.class("Outer");
+        outer.define(class(
+            "Outer",
+            vec![point.clone(), list(&dict(&Ty::Str, &point))],
+            false,
+        ));
+        let node = owner.class("Node");
+        node.define(class(
+            "Node",
+            vec![list(&option(Ty::Class(node.clone())))],
+            false,
+        ));
+        let chain = owner.class("Chain");
+        chain.define(class(
+            "Chain",
+            vec![option(boxed(&Ty::Class(chain.clone())))],
+            false,
+        ));
+        let tree = owner.class("Tree");
+        tree.define(class("Tree", vec![set(&Ty::Class(tree.clone()))], true));
+        let (left, right) = (owner.class("Left"), owner.class("Right"));
+        left.define(class("Left", vec![list(&Ty::Class(right.clone()))], false));
+        right.define(class(
+            "Right",
+            vec![dict(&Ty::Str, &Ty::Class(left.clone()))],
+            false,
+        ));
+        let inline = owner.class("Inline");
+        inline.define(class(
+            "Inline",
+            vec![option(Ty::Class(inline.clone()))],
+            false,
+        ));
+        let pending = Ty::Class(owner.class("Pending"));
+        let partial = owner.class("Partial");
+        partial.define(class("Partial", vec![list(&pending)], false));
+        let shape = owner.enumeration("Shape");
+        shape.define(enumeration(
+            "Shape",
+            vec![vec![], vec![Ty::F64], vec![list(&point)]],
+        ));
+        let expression = owner.enumeration("Expression");
+        let operand = boxed(&Ty::Enum(expression.clone()));
+        expression.define(enumeration(
+            "Expression",
+            vec![vec![Ty::I64], vec![operand.clone(), operand]],
+        ));
+        vec![
+            option(point.clone()),
+            option(Ty::Class(node.clone())),
+            point,
+            Ty::Class(measure),
+            Ty::Class(resource),
+            Ty::Class(worker),
+            Ty::Class(outer),
+            Ty::Class(node),
+            Ty::Class(chain),
+            Ty::Class(tree),
+            Ty::Class(left),
+            Ty::Class(right),
+            Ty::Class(inline),
+            pending,
+            Ty::Class(partial),
+            Ty::Enum(shape),
+            Ty::Enum(expression),
+        ]
+    }
+
+    /// Each type under every owner kind, and as a dict key and value beside
+    /// other types, so combined facts come from two different graphs.
+    fn owners(types: &[Ty], strides: &[usize]) -> Vec<Ty> {
+        let mut out = Vec::new();
+        for (i, t) in types.iter().enumerate() {
+            out.extend([list(t), set(t), boxed(t)]);
+            for stride in strides {
+                out.push(dict(t, &types[(i + stride) % types.len()]));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn owner_facts_equal_a_walk_from_the_owner() {
+        let owner = Rc::new(Types::default());
+        let nominal = nominals(&owner);
+        for ty in &nominal {
+            assert_eq!(ty.facts(), ty.walk(), "{ty:?}");
+        }
+        let mut level = leaves();
+        level.extend(nominal);
+        let every_pair: Vec<usize> = (0..level.len()).collect();
+        // Three levels reach shapes such as list[dict[str, set[Node]]].
+        for strides in [&every_pair[..], &[1, 5], &[3]] {
+            level = owners(&level, strides);
+            for ty in &level {
+                assert_eq!(ty.facts(), ty.walk(), "{ty:?}");
+            }
+        }
+        assert!(level.len() > 10_000);
+    }
+
+    #[test]
+    fn nested_and_recursive_owner_facts() {
+        let owner = Rc::new(Types::default());
+        let nominal = nominals(&owner);
+        let find = |name: &str| {
+            nominal
+                .iter()
+                .find(|t| format!("{t:?}") == format!("Class({name})"))
+                .unwrap()
+        };
+        let plain = Facts {
+            affine: true,
+            copyable: true,
+            complete: true,
+            reflexive: true,
+            ..Facts::default()
+        };
+        assert_eq!(list(&Ty::I64).facts(), Facts { depth: 1, ..plain });
+        assert_eq!(
+            set(&Ty::F64).facts(),
+            Facts {
+                depth: 1,
+                reflexive: false,
+                ..plain
+            }
+        );
+        assert_eq!(
+            dict(&Ty::Str, &list(&list(find("Point")))).facts(),
+            Facts { depth: 4, ..plain }
+        );
+        assert_eq!(
+            list(&dict(&Ty::Str, find("Resource"))).facts(),
+            Facts {
+                depth: 3,
+                copyable: false,
+                destructor: true,
+                ..plain
+            }
+        );
+        // A recursive owner is a heap boundary: its depth is its own slot.
+        let recursive = Facts {
+            depth: 1,
+            copyable: false,
+            recursive: true,
+            ..plain
+        };
+        assert_eq!(list(find("Node")).facts(), recursive);
+        assert_eq!(boxed(&set(find("Chain"))).facts(), recursive);
+        assert_eq!(dict(find("Point"), find("Left")).facts(), recursive);
+        assert_eq!(dict(&Ty::Str, find("Right")).facts(), recursive);
+        assert_eq!(
+            list(find("Tree")).facts(),
+            Facts {
+                destructor: true,
+                ..recursive
+            }
+        );
+        assert_eq!(
+            list(find("Inline")).facts(),
+            Facts {
+                infinite: true,
+                ..recursive
+            }
+        );
+        assert_eq!(
+            list(find("Partial")).facts(),
+            Facts {
+                depth: 3,
+                complete: false,
+                ..plain
+            }
+        );
+    }
+
+    #[test]
+    fn owner_facts_follow_later_definitions() {
+        let owner = Rc::new(Types::default());
+        let (left, right) = (owner.class("Left"), owner.class("Right"));
+        left.define(class("Left", vec![list(&Ty::Class(right.clone()))], false));
+        let ty = dict(&Ty::Str, &list(&Ty::Class(left.clone())));
+        let before = ty.facts();
+        assert!(!before.complete && !before.recursive && before.copyable);
+        assert_eq!(before, ty.walk());
+        right.define(class("Right", vec![set(&Ty::Class(left.clone()))], true));
+        let after = ty.facts();
+        assert!(after.complete && after.recursive && after.destructor && !after.copyable);
+        assert_eq!(after, ty.walk());
     }
 }
