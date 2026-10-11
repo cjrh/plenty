@@ -776,7 +776,7 @@ pub(super) fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) 
                     substitute_expr(e, substitutions)?;
                 }
             }
-            Statement::SetIndex { target, value } => {
+            Statement::SetIndex { target, value } | Statement::Augment { target, value, .. } => {
                 substitute_expr(value, substitutions)?;
                 substitute_expr(target, substitutions)?;
             }

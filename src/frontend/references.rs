@@ -340,6 +340,7 @@ impl Lower<'_> {
     ) -> Result<()> {
         match &ungroup(e).kind {
             Expression::Member(base, _) => self.assignment_indices(base, slots, ops),
+            Expression::Unary(op, base) if op == "*" => self.assignment_indices(base, slots, ops),
             Expression::Index(base, index) => {
                 self.assignment_indices(base, slots, ops)?;
                 let key = match self.place_type(base) {

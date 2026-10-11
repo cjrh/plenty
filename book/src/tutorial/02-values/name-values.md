@@ -34,7 +34,7 @@ Use `mut` when a value needs to change. Write it once, at the declaration:
 ```plenty
 def main() -> Result[(), IoError]:
     mut score: i64 = 10
-    score = score + 5
+    score += 5
     print(score)?
     Ok(())
 ```
@@ -45,3 +45,8 @@ def main() -> Result[(), IoError]:
 
 A mutable binding keeps its original type. `score: i64` states the type
 explicitly; without the annotation, this integer literal also infers `i64`.
+
+`score += 5` adds to the current score. Numeric values also support `-=`, `*=`,
+`/=`, `//=`, and `%=`. Use `//=` for integer division and `/=` for float division;
+`%=` requires integers. These updates require an existing writable destination
+and keep its type. Strings and collections use their explicit operations.

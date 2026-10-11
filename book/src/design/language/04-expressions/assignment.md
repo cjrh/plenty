@@ -32,6 +32,32 @@ Whole-instance assignment through `*reference = instance` is rejected for class
 references, including class-valued field references. Replace the owning binding
 or a named field instead.
 
+## Augmented assignment
+
+`target += value`, `-=`, `*=`, `/=`, `//=`, and `%=` update an existing numeric
+destination. The destination can be a mutable binding, field, collection element,
+or exclusive reference, including nested paths. The right side takes the
+destination's numeric type. Integer division uses `//=`, float division uses
+`/=`, and `%=` currently accepts integers. Strings and collections do not
+support augmented assignment; string concatenation remains fallible and explicit.
+
+Unlike ordinary assignment, augmented assignment evaluates its target before
+the right side:
+
+1. Evaluate each target index once, from root to leaf, saving its value.
+2. Read the destination's current scalar value.
+3. Evaluate the right side and apply the arithmetic operation.
+4. Write back to the same destination using the saved indices.
+
+A shared loan protects the destination during right-side evaluation. The right
+side may observe it (`count += count`), but cannot move, replace, or resize its
+owner. Collection loans conservatively cover the whole collection. Index
+expressions may mutate the owner before the destination is read. If an index or
+the right side propagates an error, the update performs no write. Missing keys
+and invalid indices trap as in ordinary indexed assignment. The update itself
+allocates nothing, introduces no binding, and cannot initialize an unread
+constructor field.
+
 ## Several targets
 
 `target, target = value, value` assigns to two or more targets at once:
