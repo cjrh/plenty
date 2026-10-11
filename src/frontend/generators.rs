@@ -97,6 +97,7 @@ impl Lower<'_> {
         register_signature(&f, self.aliases, self.sigs, self.returned_fields)?;
         self.generics.frames.insert(key, symbol.clone());
         self.generics.functions.insert(symbol.clone(), f.clone());
+        self.generics.inherit_requirement(name, &symbol);
         self.generics.pending.push_back(f);
         self.ensure_concrete_output(&symbol, at)?;
         Ok(symbol)

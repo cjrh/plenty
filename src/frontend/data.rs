@@ -1,5 +1,6 @@
 //! Demand-driven concrete data types. Specializations share nominal identities.
 use super::*;
+use crate::ownership::Instantiation;
 use std::cell::{Cell, RefCell};
 use std::ops::{Deref, DerefMut};
 
@@ -23,6 +24,12 @@ pub(super) struct DataTypes {
     depth: Cell<usize>,
     /// The instance being defined, whose fields request further instances.
     requirer: RefCell<Option<Rc<Requirer>>>,
+    /// What instances created now are attributed to. Without one, an
+    /// instance is required by the type application that names it.
+    requiring: RefCell<Option<Requiring>>,
+    /// The use that first required each generic class instance, by concrete
+    /// name, for the diagnostics of its methods.
+    required: RefCell<HashMap<String, Rc<Instantiation>>>,
     /// Signature-shape probes use placeholder arguments, not real instances.
     shapes_only: bool,
     /// The shape-only tables, created by the first probe and shared by the rest.
@@ -35,6 +42,37 @@ struct DefinitionJob {
     at: Token,
     depth: usize,
     requirer: Option<Rc<Requirer>>,
+    required: Rc<Instantiation>,
+}
+
+/// The reason data instances are being created, when it is not the type
+/// application itself: a type written in a generic declaration is at the
+/// declaration, but the instance belongs to the use that supplied the type
+/// arguments.
+#[derive(Clone)]
+pub(super) enum Requiring {
+    /// Code or types of this generic instance.
+    Instance(Rc<Instantiation>),
+    /// A generic use in ordinary code whose instance is not known yet.
+    Use(Token),
+}
+
+impl DataTypes {
+    /// Replaces the current attribution and returns the previous one, which
+    /// the caller restores.
+    pub(super) fn attribute(&self, to: Option<Requiring>) -> Option<Requiring> {
+        self.requiring.replace(to)
+    }
+
+    /// Like `attribute`, but an enclosing attribution keeps its claim: inside
+    /// a generic instance, the use in ordinary code is the one to report.
+    pub(super) fn attribute_within(&self, to: impl FnOnce() -> Requiring) -> Option<Requiring> {
+        let outer = self.requiring.borrow().clone();
+        if outer.is_none() {
+            *self.requiring.borrow_mut() = Some(to());
+        }
+        outer
+    }
 }
 
 /// One link in the chain of instances that required the current one. Walked
@@ -352,6 +390,23 @@ impl TypeAliases {
             .named
             .borrow_mut()
             .insert(concrete_name, ty.clone());
+        let instance: Rc<str> = ty.to_string().into();
+        let required = Rc::new(match &*self.data.requiring.borrow() {
+            Some(Requiring::Instance(outer)) => Instantiation {
+                instance,
+                ..(**outer).clone()
+            },
+            Some(Requiring::Use(at)) => Instantiation {
+                at: at.location().into(),
+                requested: instance.clone(),
+                instance,
+            },
+            None => Instantiation {
+                at: application.at.location().into(),
+                requested: instance.clone(),
+                instance,
+            },
+        });
         self.data
             .pending_types
             .borrow_mut()
@@ -361,6 +416,7 @@ impl TypeAliases {
                 at: application.at.clone(),
                 depth: self.data.depth.get() + 1,
                 requirer: self.data.requirer.borrow().clone(),
+                required,
             });
         if !self.data.deferred.get() {
             self.finish_types()?;
@@ -400,6 +456,7 @@ impl TypeAliases {
 
     pub(super) fn finish_types(&self) -> Result<()> {
         self.data.deferred.set(true);
+        let attributed = self.data.requiring.borrow().clone();
         let result = (|| {
             loop {
                 let next = self.data.pending_types.borrow_mut().pop_front();
@@ -409,11 +466,14 @@ impl TypeAliases {
                     at,
                     depth,
                     requirer,
+                    required,
                 }) = next
                 else {
                     break;
                 };
                 self.data.depth.set(depth);
+                // Instances named by this one's fields and methods have the same cause.
+                *self.data.requiring.borrow_mut() = Some(Requiring::Instance(required.clone()));
                 let ty = self.data.instances.borrow()[&(name.clone(), actual.clone())].clone();
                 let concrete_name = ty.identity_name();
                 // Diagnostics show the display name, not the linking identity.
@@ -495,6 +555,10 @@ impl TypeAliases {
                     _ => unreachable!(),
                 }
                 if let Some(class) = class.filter(|_| !params.is_empty()) {
+                    self.data
+                        .required
+                        .borrow_mut()
+                        .insert(class.name.clone(), required);
                     self.data.pending.borrow_mut().push(class);
                 }
             }
@@ -520,6 +584,7 @@ impl TypeAliases {
         self.data.deferred.set(false);
         self.data.depth.set(0);
         *self.data.requirer.borrow_mut() = None;
+        *self.data.requiring.borrow_mut() = attributed;
         result
     }
 
@@ -590,7 +655,17 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
 impl generics::Engine {
     pub(super) fn expand_data(&mut self, aliases: &TypeAliases) -> Result<Vec<Function>> {
         let pending = std::mem::take(&mut *aliases.data.pending.borrow_mut());
-        let functions = classes::expand(pending, aliases)?;
+        let mut functions = Vec::new();
+        for class in pending {
+            let required = aliases.data.required.borrow().get(&class.name).cloned();
+            let methods = classes::expand(vec![class], aliases)?;
+            if let Some(required) = required {
+                for method in &methods {
+                    self.required.insert(method.name.clone(), required.clone());
+                }
+            }
+            functions.extend(methods);
+        }
         for f in &functions {
             if !f.type_params.is_empty() {
                 self.validate_template(f, aliases)?;

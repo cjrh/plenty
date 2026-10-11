@@ -1745,10 +1745,11 @@ fn step(
         Op::DefineFn(name, f) => {
             check_body(name, f, sigs).map_err(|e| -> Box<dyn std::error::Error> {
                 // An ownership error that knows its own position already names
-                // the file; the header is only a fallback.
+                // the file; the header is only a fallback. One in a generic
+                // instance is positioned at the use that required the instance.
                 let located = e
                     .downcast_ref::<crate::ownership::Error>()
-                    .is_some_and(|e| e.primary.is_some());
+                    .is_some_and(|e| e.primary.is_some() || e.required.is_some());
                 match &f.location {
                     Some(at) if !located => format!("{at}: {e}").into(),
                     _ => e,

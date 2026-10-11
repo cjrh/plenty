@@ -249,7 +249,13 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
                         generics.diagnostic_name(name)
                     )
                 };
-                return Err(candidate.at.error(format!("recursive call to `{}`{cycle} is in tail position but cannot be a tail call: {reason}", generics.diagnostic_name(&candidate.callee))));
+                let message = format!("recursive call to `{}`{cycle} is in tail position but cannot be a tail call: {reason}", generics.diagnostic_name(&candidate.callee));
+                return Err(match generics.required.get(*name) {
+                    Some(required) => required
+                        .report(&format!("{}: ", candidate.at.location()), &message)
+                        .into(),
+                    None => candidate.at.error(message),
+                });
             }
         }
     }
