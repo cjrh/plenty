@@ -38,8 +38,10 @@ returns a `Result` instead of stopping the program.
 keeps the low bits and never fails.
 
 Unary minus requires a signed integer or a float; an unsigned operand is a
-compile-time error. A sign written directly before a literal is part of the
-literal, which must fit its type: `-3u8` is out of range, and `-0u8` is zero.
+compile-time error, including a sign directly before a literal. Both `-3u8`
+and `-0u8` report unsigned negation, as does `value: u8 = -0` when the literal
+gets its type from context. Signed minimum literals such as `-128i8` remain
+valid, and floating-point negative zero is preserved.
 
 Integer arithmetic overflow and division by zero are runtime errors that
 [report their source position](../08-errors/02-allocation-and-traps.md). `//` floors

@@ -183,7 +183,7 @@ fn checked_conversions_cover_every_width_and_signedness() {
     "Result[i64, RangeError].Ok(-5)\nResult[i64, RangeError].Err(RangeError.OutOfRange)\n-3\n-3\n-3\n"
 )]
 #[case(
-    "a = -128i8\nb = 5i64\nc = 1.5\nprint(-(a + 1i8)).unwrap()\nprint(-b).unwrap()\nprint(-c).unwrap()\nzero: u8 = -0\nprint(zero).unwrap()\nprint(-0u8).unwrap()",
+    "a = -128i8\nb = 5i64\nc = 1.5\nprint(-(a + 1i8)).unwrap()\nprint(-b).unwrap()\nprint(-c).unwrap()\nzero: u8 = 0\nprint(zero).unwrap()\nprint(0u8).unwrap()",
     "127\n-5\n-1.5\n0\n0\n"
 )]
 fn checked_conversions_and_signed_negation(#[case] source: &str, #[case] expected: &str) {
@@ -229,8 +229,8 @@ fn checked_conversions_and_signed_negation(#[case] source: &str, #[case] expecte
     "type Count = u8\nx: Count = 3\ny = -x",
     "unary minus is not defined for unsigned type u8"
 )]
-#[case("y = -3u8", "integer literal out of range for u8")]
-#[case("y: u8 = -3", "integer literal out of range for u8")]
+#[case("y = -3u8", "unary minus is not defined for unsigned type u8")]
+#[case("y: u8 = -3", "unary minus is not defined for unsigned type u8")]
 fn conversion_and_negation_diagnostics(#[case] source: &str, #[case] expected: &str) {
     diagnostics(source, expected);
 }

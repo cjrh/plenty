@@ -102,6 +102,17 @@ unary minus is not defined for unsigned type u8
 
 Convert first: `-i16(small)` is `-7`.
 
+The same rule applies to literals, including zero:
+
+```plenty-error
+def main() -> ():
+    zero: u8 = -0
+```
+
+```error
+unary minus is not defined for unsigned type u8
+```
+
 `+`, `-`, and `*` have their usual arithmetic precedence. `//` divides integers
 and rounds down, including for negative values:
 

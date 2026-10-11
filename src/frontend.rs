@@ -1983,8 +1983,7 @@ fn numeric_suffix(text: &str) -> bool {
 }
 /// Negating an unsigned value overflows for every operand except zero, so
 /// the operator is rejected by type instead of trapping when it runs. A sign
-/// written directly before a literal belongs to the literal, whose own range
-/// check already covers it.
+/// written directly before a literal is subject to the same type rule.
 fn reject_unsigned_negation(ty: &Ty, at: &Token) -> Result<()> {
     let example = match ty {
         Ty::U8 => "-i16(value)",
@@ -3550,11 +3549,6 @@ fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
     if digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
         return Err(at.error("invalid integer separator"));
     }
-    let magnitude = digits
-        .replace('_', "")
-        .parse::<i128>()
-        .map_err(|_| at.error("integer literal out of range"))?;
-    let number = if negative { -magnitude } else { magnitude };
     let ty = if suffix.is_empty() {
         Ty::I64
     } else {
@@ -3562,6 +3556,14 @@ fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
             .filter(|t| t.is_int())
             .ok_or_else(|| at.error("invalid integer suffix"))?
     };
+    if negative {
+        reject_unsigned_negation(&ty, at)?;
+    }
+    let magnitude = digits
+        .replace('_', "")
+        .parse::<i128>()
+        .map_err(|_| at.error("integer literal out of range"))?;
+    let number = if negative { -magnitude } else { magnitude };
     let (min, max) = ty.int_range().unwrap();
     if number < min || number >= max {
         return Err(at.error(format!("integer literal out of range for {ty}")));
