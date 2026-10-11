@@ -59,10 +59,28 @@ It requires exclusive access and one of these element types:
 
 Every other element type, including `bool`, classes, enums, and collections, is
 a compile-time error. Elements that compare equal are indistinguishable, so the
-result is fully determined. There is no key function, comparison function,
-descending order, or `sorted` expression; `reverse()` after `sort()` gives
-descending order, and a list of `(key, value)` tuples sorts by key. Sorting takes
-O(n log n) comparisons.
+result is fully determined. `items.sort(True)` orders descending; an omitted or
+`False` argument orders ascending. Sorting takes O(n log n) comparisons.
+
+`items.sort_by_key(key) -> ()` accepts any element type. The named function or
+reusable shared-call closure takes `&T` for the element type `T` and returns an
+integer, float, string, or tuple of those. `items.sort_by_key(key, True)` orders
+descending. The list is exclusively borrowed for the operation; callbacks
+cannot also borrow it through a capture. Keys use the same total order as
+`sort`, including signed zero and NaN placement. This is an unstable heapsort:
+equal-key elements may change relative order. It allocates no buffer and
+recomputes keys during O(n log n) comparisons, so the callback must give
+consistent keys and remains responsible for its own explicit allocations.
+One-shot and mutable-call closures, fallible keys, reference-valued keys, and
+anonymous expressions passed directly as keys are unsupported; bind a closure
+first. Elements are moved by row exchange, with no copying or early destruction.
+
+`sorted(items) -> Result[list[T], AllocError]` observes a list and explicitly
+copies it before sorting by natural order. `sorted(items, True)` gives a
+descending copy. The source survives either result; the element type must
+support copying and natural ordering. For key ordering of a copy, use
+`mut result = copy(items)?` followed by `result.sort_by_key(key)`.
+User-defined comparison functions and class ordering protocols are unsupported.
 
 `items.extend(other) -> Result[(), AllocError]` consumes a same-typed owned list
 on both outcomes. It reserves the entire additional count before transfer.

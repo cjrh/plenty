@@ -27,6 +27,7 @@ mod generics;
 mod modules;
 mod protocols;
 mod references;
+mod sorting;
 mod tail_calls;
 mod threads;
 
@@ -1880,6 +1881,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "dict"
                 | "set"
                 | "len"
+                | "sorted"
                 | "range"
                 | "Ok"
                 | "Err"
@@ -2890,6 +2892,9 @@ impl Lower<'_> {
                 }
                 if matches!(name.as_str(), "copy" | "drop") {
                     return self.copy_or_drop(name, args, &e.at, ops);
+                }
+                if name == "sorted" {
+                    return self.sorted(args, &e.at, ops);
                 }
                 if name == "replace"
                     && !self.sigs.contains_key(name)

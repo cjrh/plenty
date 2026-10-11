@@ -1,6 +1,6 @@
 # Sort and reorder a list
 
-`sort()` puts a list in ascending order. `reverse()` then gives descending order.
+`sort()` puts a list in ascending order. `sort(True)` gives descending order.
 Both change the list in place, need a `mut` owner, and allocate nothing, so
 neither takes `?`.
 
@@ -9,7 +9,7 @@ def main() -> Result[(), Failure]:
     mut scores = [72, 95, 58, 81]?
     scores.sort()
     print(scores)?
-    scores.reverse()
+    scores.sort(True)
     print(scores)?
     mut names = ["pear", "fig", "apple"]?
     names.sort()
@@ -41,7 +41,7 @@ def main() -> Result[(), Failure]:
 Bea
 ```
 
-Other element types have no order, and sorting them is rejected:
+Other element types need a [key function](key-sorting.md); natural sorting rejects them:
 
 ```plenty-error
 def main() -> Result[(), Failure]:
