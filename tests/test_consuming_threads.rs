@@ -44,6 +44,37 @@ fn consuming_submission_rejects_moved_jobs_borrowed_environments_and_effects() {
     }
 }
 
+#[test]
+fn spawn_error_has_only_the_unavailable_variant() {
+    let error = support::check_source(
+        r#"
+def attempt[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F]]:
+    with spawn(job)? as task:
+        return Ok(task.join())
+def run[F: OnceCallable[[], i64]](job: F) -> i64:
+    match attempt(job):
+        case Ok(value):
+            value
+        case Err(error):
+            match error:
+                case SpawnError[F].Unavailable(job):
+                    job()
+                case SpawnError[F].PermissionDenied(job):
+                    job()
+n = 1
+job = def once [n]() -> i64:
+    n
+print(run(job)).unwrap()
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("unknown variant `PermissionDenied`"),
+        "{error}"
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_owned_start_returns_the_unmodified_job_without_allocating() {
@@ -60,8 +91,6 @@ def retry[F: OnceCallable[[], i64]](job: F) -> i64:
                 case SpawnError[F].Unavailable(job):
                     print("__test_restore_thread_starts__").unwrap()
                     attempt(job).unwrap()
-                case SpawnError[F].PermissionDenied(job):
-                    job()
 span = range(10, 20)
 values = [span].unwrap()
 job = def once [values]() -> i64:
