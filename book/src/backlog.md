@@ -10,7 +10,13 @@ works today, the [reference](design/index.md) for its exact contract, and the
 [proposals](proposals/index.md) for design rationale and alternatives. A proposal's
 stages describe technical dependencies, not a second priority list.
 
-## Next batch
+## Current position
+
+Audited against local `main` at `5ab56b7` on 2026-10-11, including merged local
+PRs and the shared issues register. B22's committed batch is complete. Work has
+continued through B34 cleanup, B35 inline storage, and the initial sorting and
+assignment operations. **B34 remains the current review phase**; completed
+cleanup slices do not mean every recorded defect or design concern is resolved.
 
 The initial toolchain and C boundary batch (B01–B07) is complete, including typed
 runtime loading with resident code, recoverable LoadError values, and ownership
@@ -56,7 +62,7 @@ See the [implemented contract](design/language/03-types/recursive-data.md) for p
 B11's borrowed enum matching slice is complete. Shared matches preserve owners;
 mutable matches support inline sums and affine enum payloads. Payload loans protect
 variants, support single-origin returns, and allocate nothing, including nested
-`Option`/`Result` projections. Copyable heap enum storage remains immutable.
+`Option`/`Result` projections. Copyable enum storage remains immutable.
 See the [runnable lesson](tutorial/06-data/08-borrowed-matching.md) and
 [implemented contract](design/language/05-ownership/05-borrowed-matching.md).
 
@@ -75,7 +81,7 @@ Zero-capacity rendezvous, broader iterator/closure mapping, streaming results,
 richer certified effects/types, and automatic parallelization (B24) are explicitly
 deferred beyond this batch. Arbitrary-size and send-side selection are also
 deferred; the initial receive pair keeps heterogeneous messages statically typed.
-**Next: B34, cleanup and taking stock**, before starting unrelated feature work.
+**Continue B34, cleanup and taking stock**, before starting unrelated feature work.
 The concurrency extensions above, including B24 research, are explicitly deferred;
 they do not postpone this review.
 Broader stored-reference work remains under B11.
@@ -163,29 +169,55 @@ and a sensible learning sequence. Keep runnable lessons, reference contracts, an
 implementation aligned, and validate the book and regression suite after cleanup.
 Record deliberate deferrals here rather than creating another work queue.
 
-Current cleanup slice: **issue #15**, reject implicitly discarded Results and
-direct Result arguments to `print`, with propagation advice and updated examples.
-Completed: **issue #16**, report an `Err` returned by `main` on standard
-error, and give `IoError` distinct variants for failures without an OS code.
+Completed cleanup includes:
+
+- Explicit handling of Result expressions (issue #15), reporting `main` errors
+  and distinct `IoError` variants (issue #16), and complete entry-point and
+  positional `open` diagnostics/documentation (issues #62 and #63).
+- Inline classes, tuples, and enums (B35, issue #17); safe owned-field
+  replacement, box method access, and heap-child destruction order (issues #4,
+  #47, and #46).
+- Reference cursors, signature-directed shared borrowing, precise tuple loans,
+  and clearer borrow diagnostics (issues #1, #29, #51, #11, and #50).
+- Checked tail-call transfers and cleanup, reference forwarding, and an explicit
+  stack-overflow diagnostic (issues #3, #7, #8, #9, and #2).
+- Linear checking in declarations and parallel native function emission (issues
+  #53 and #55), runtime tests in CI, and thread-local allocation
+  test markers (issues #48 and #14).
+- Reorganized tutorial and reference, with verified proposal status blocks
+  (issues #43 and #44; local PR #24).
+- In-place sorting, element swapping, and assignment to several targets
+  (issue #31); further ordering operations are B37.
+
+Continue addressing open issues in severity order. **Issue #24**, the callable
+surface's overlapping annotations, remains high severity despite the earlier
+B31 review and the newer tutorial structure. Concurrency API consistency and
+join/deadlock diagnostics (issues #28 and #12) also remain open. Claims and
+current ownership belong in `issues.db`; these references do not assign work.
 `Failure` still keeps no details; storing a cause in it belongs to B14.
+
+The newer package-tooling agreement (issue #45) belongs to B17. The std catalogue
+and finder prerequisites (issues #49, #60, and #61) are recorded under B38/B12.
+They are future work, not shipped facilities or a reason to skip B34. The finder
+experiment filters supplied paths; it does not enumerate directories.
 
 ## Work items
 
-The order above selects the next slices. This table is the catalog of open items,
-including later candidates; its row order does not set priority. Detailed syntax
-is still open.
+The current phase above selects the next work. This table catalogs remaining
+work, including deferred extensions to completed batches; its row order does
+not set priority. Detailed syntax is still open unless an agreement is cited.
 
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
 | B11 | Broader borrowing | Borrowed enum matching and payload loans complete. A `mut` reference binding is reassigned only through itself (issue #1). Remaining: stored references, relationships among multiple reference parameters, more precise collection loans, retargeting a reference binding to another borrow of the same owner, and field-precise loans through `mut` reference bindings. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/language/05-ownership/04-returned-references.md). |
-| B12 | Practical I/O and iteration | Fallible file iteration, explicit binary buffers and read/write, buffering, and reusable iterator/view protocols. Follow familiar Python conventions where they fit ownership and Result-based errors. |
+| B12 | Practical I/O and iteration | Text-file iteration is implemented. Remaining: explicit binary buffers and read/write, buffering, and reusable iterator/view protocols. Lossless platform paths and binary argument/I/O transport are concrete gaps (issue #61); coordinate their representation with B38's filesystem work. Follow familiar Python conventions where they fit ownership and Result-based errors. |
 | B13 | Public allocator control | Global/default and per-container selection, allocator state/lifetimes, and buffer provenance. Internal object allocator identity already exists. Consider bounded/inline-capacity storage separately. [Memory design](proposals/memory-parallelism-and-simd.md). |
 | B14 | Typed error composition | Preserve details across multiple error types through explicit unions/conversions. `Failure` already supplies deliberate erasure; it does not replace recoverable typed errors. |
 | B15 | Enum-pattern shorthand | Infer a user-defined enum's qualifier from the matched value, so arms need not repeat it. Define ambiguity and name-resolution rules. Catch-all `case _:` is already implemented. |
-| B16 | Additional inference and value conveniences | Consider expected-result inference, partial explicit type arguments, and contextual literals across generic arguments. Now that tuples are inline, decide whether copyable tuples may be borrowed mutably, and whether scalar-only classes copy rather than move (issue #17). Standalone unit bindings/parameters/storage, nested unpacking, and slice syntax/steps also need concrete use cases and contracts. These remain candidates, not automatic extensions of today's inference rules. |
-| B17 | Modules and packaging | Package/dependency configuration, separately cached module objects, re-exports, and import-cycle policy. Preserve absolute imports, visibility, and deterministic name resolution. [Module design](proposals/entrypoints-modules-and-tutorials.md). |
+| B16 | Additional inference and value conveniences | Consider expected-result inference, partial explicit type arguments, and contextual literals across generic arguments. B35 completed inline storage (issue #17); classes still move, and copyable tuple storage still rejects mutable borrows. Changing those ownership rules is a separate candidate. Standalone unit bindings/parameters/storage, nested unpacking, and slice syntax/steps also need concrete use cases and contracts. These remain candidates, not automatic extensions of today's inference rules. |
+| B17 | Modules, project tooling, and packaging | File imports and visibility are implemented; project tooling is not. The agreed direction in issue #45 separates the network-free `plentyc` compiler from the `plenty` project tool, reserves `std`, and adds a manifest, Git/path dependencies with repository subdirectories, import aliases, a committed lockfile, and debug/release profiles. Define reproducible artifacts (issue #58), separately cached module objects, re-exports, and import-cycle policy. Preserve deterministic name resolution and standalone compilation. Coordinate std distribution with B38. [Module design](proposals/entrypoints-modules-and-tutorials.md); issue #45 owns the newer package agreement. |
 | B18 | Windows and additional targets | Target-specific runtime support, linker-driver conventions, object/executable naming, and native CI. Depends on target validation and packaging work; changing the linker alone is insufficient. |
-| B19 | Measured codegen and storage improvements | Benchmark dense-match dispatch before adding jump tables. Inline record fields use 16-byte slots and copies go through a runtime call (issue #17); measure natural field packing and inline copies. Investigate packed numeric buffers, code size, and compilation/link latency: checking is linear in declarations (issue #53), and native emission compiles functions on every core without the verifier in release builds (issue #55). What remains in emission is building IR on one thread and superlinear register allocation for one very large function (issue #56); the compiler also holds about 7.5 KB per source line (issue #54), and checking many small functions is mildly superlinear (issue #57). |
+| B19 | Measured codegen and storage improvements | Benchmark dense-match dispatch before adding jump tables. B35 completed inline storage; measure natural field packing and inline copies beyond the current 16-byte slots and runtime copy calls. Remaining concerns include full-row relocation during tail `list.pop()` (issue #52), packed numeric buffers, code size, and compilation/link latency. Linear declaration checking (issue #53) and parallel native function emission without release verification (issue #55) are complete. Parsing/checking and IR construction remain serial (issue #59); very large functions have superlinear register allocation (issue #56), compiler peak memory is about 7.5 KB per source line (issue #54), and checking many small functions is mildly superlinear (issue #57). |
 | B20 | Optional GCC backend | Evaluate the proposed backend with a small feasibility experiment before committing to another backend or common IR. Cranelift remains the current backend. [GCC proposal](proposals/codegen-gcc.md). |
 | B21 | Documentation authoring | Evaluate independently runnable literate lesson sources that generate mdBook pages if they improve authoring. Current Markdown lessons are already executable and tested; do not create another manually maintained copy. [Documentation design](proposals/entrypoints-modules-and-tutorials.md). |
 | B22 | Threads, channels, and parallel operations | Committed batch complete: eligibility/effect checks, scoped native threads, consuming jobs, bounded channels, executors, explicit fallible mapping/tree reduction, cancellation tokens, timed waits, and receive-pair selection. Broader mapping, richer effects, rendezvous, and broader selection are deferred beyond B34. Preserve fallible submission and deterministic shutdown. [Threads](design/facilities/03-concurrency/threads.md); [channels](design/facilities/03-concurrency/channels.md); [executor](design/facilities/03-concurrency/executors.md); [parallel operations](design/facilities/03-concurrency/parallel-map.md); [cancellation](design/facilities/03-concurrency/cancellation.md); [timed waits and selection](design/facilities/03-concurrency/timed-selection.md). |
@@ -194,11 +226,12 @@ is still open.
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError, which reports allocation of the boxed handle. See [owned exports](design/facilities/04-interop/owned-exports.md). |
 | B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/facilities/04-interop/loading.md). |
 | B29 | Further generic constraints | Callable bounds on data are implemented. Consider protocol bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Preserve explicit lookup and bounded specialization. See [generic data](design/language/07-generics/data.md) and [parameterized protocols](design/language/07-generics/protocols.md). |
-| B32 | Broader callback storage | Owned concrete reusable/consuming environments and their worker eligibility are implemented. Remaining: heterogeneous erased environments and generator-containing environments in heap owners. Escaping borrowed storage depends on B11. See scope above. |
+| B32 | Broader callback storage | Owned concrete reusable/consuming environments and their worker eligibility are implemented. Remaining: heterogeneous erased environments (issue #25) and generator-containing environments in heap owners. Escaping borrowed storage depends on B11. See scope above. |
 | B33 | Deep operations on recursive values | Recursive source storage is implemented under B10. Replace native recursive copy/format traversals with iterative fallible work storage before enabling them; select an explicit bounded-memory contract for structural equality and membership without adding hidden allocation failure. Preserve failure cleanup, shared-string ownership, and float/NaN semantics. [Design rationale](proposals/recursive-data.md). |
-| B34 | Post-concurrency cleanup and review | Required after the thread/parallel/concurrency batch and before unrelated feature work. Audit code and docs, track findings in `issues.db`, fix in severity order, simplify implementation, and improve book structure and concise, precise writing. See scope above. |
-| B36 | Keyword arguments, defaults, and static unpacking | Nothing is implemented. Proposed: keyword and keyword-only arguments, constant defaults, `/` and `*` markers, keyword constructors, and `*`/`**` unpacking at calls, in displays, and in tuple bindings. Every form must resolve at compile time to one positional call, with no runtime arity or key check and no hidden allocation. Keyword arguments and defaults are frontend-only and come first; `*args` and sequence patterns depend on a borrowed sequence view (B12). Decide whether `first, *rest = tuple` is accepted now that tuples are inline. [Design](proposals/keyword-arguments-and-unpacking.md). |
-| B37 | Ordering beyond `sort()` | `list.sort()` orders integers, floats, `str`, and tuples of those in place; `swap` and assignment to several targets exchange elements (issue #31). Remaining (issue #64): sorting by a key function, descending order, and a `sorted` expression. Decide stability, how a key reads an element it does not own, and whether key storage makes the operation fallible. Define `<` on `str` (issue #22) and on tuples to match `sort`, then let a class opt in to ordering. Preserve no hidden allocation. |
+| B34 | Post-concurrency cleanup and review | Current phase, partly complete. Result handling, ownership/tail-call fixes, performance improvements, test reliability, and book restructuring have landed. Continue auditing code and docs and resolving open issues in severity order, including the high-severity callable concern (issue #24). See scope above; the completed documentation reorganization does not close all review findings. |
+| B36 | Keyword arguments, defaults, and static unpacking | Keyword/default/variadic arguments and starred unpacking are unimplemented; ordinary tuple bindings and assignment to several targets already work. Proposed: keyword and keyword-only arguments, constant defaults, `/` and `*` markers, keyword constructors, and `*`/`**` unpacking at calls, in displays, and in tuple bindings. Call binding and tuple arities must resolve at compile time, with no runtime arity/key check or hidden allocation; collection displays retain explicit fallible allocation. Keyword arguments and defaults are frontend-only and come first; `*args` and sequence patterns depend on a borrowed sequence view (B12). Decide whether `first, *rest = tuple` is accepted now that tuples are inline. [Design](proposals/keyword-arguments-and-unpacking.md). |
+| B37 | Ordering beyond `sort()` | `list.sort()` orders integers, floats, `str`, and tuples of those in place; `swap` and assignment to several targets are complete (issue #31). `reverse()` after `sort()` already gives descending order. Remaining (issue #64): key-function sorting, a direct descending-order option, and a `sorted` expression. Decide stability, how a key reads an element it does not own, and whether key storage makes the operation fallible. Define `<` on `str` (issue #22) and on tuples to match `sort`, then let a class opt in to ordering. Preserve no hidden allocation. |
+| B38 | Standard library and filesystem foundations | The catalogue in issue #49 proposes coherent `std` module families and a production-grade HTTP server, with ordinary library code in Plenty. It is not implemented, and its individual APIs need contracts and acceptance checks. Start by identifying prerequisites: byte buffers and lossless platform paths/transport (B12, issue #61), directory enumeration and file-type metadata (issue #60), and standard-library distribution/package boundaries (B17, issue #45). Networking/HTTP needs explicit ownership, concurrency, partial-I/O, cancellation, and resource limits. The finder experiment supplies evidence about gaps, not a filesystem implementation. |
 
 ## Reconciled completed work
 
@@ -208,12 +241,12 @@ active list.
 
 | Previous item | Resolution |
 | --- | --- |
-| B35: Inline values | Classes, tuples, and enums store their fields inline, so construction never allocates and needs no `?` (issue #17). Recursive types use `Box[T]`, which converts to its content wherever the content's type is required; recursion without a heap boundary is rejected. C export handles box their instance. See [classes](design/language/03-types/classes.md) and [recursive data](design/language/03-types/recursive-data.md). |
+| B35: Inline values | Classes, tuples, and enums store their fields inline; their storage construction allocates nothing and needs no `?` (issue #17). Argument expressions and custom initializers retain their own failures, so a fallible initializer still makes its constructor return Result. Recursive types use `Box[T]`, which converts to its content wherever the content's type is required; recursion without a heap boundary is rejected. C export handles box their instance. See [classes](design/language/03-types/classes.md) and [recursive data](design/language/03-types/recursive-data.md). |
 | B10: Recursive source types | Self/mutual recursive classes and enums, aliases, and finite generic instances reach themselves through boxes and collections (originally heap records; see B35). Finite compiler graphs avoid type-table leaks; native source tests drop 100,000-node class and enum chains without allocation on a 256 KiB stack. Runnable lessons, module visibility, and C/Plenty library consumers cover the initial subset. Borrowed matching is B11; automatic deep operations are B33. |
 | B09: Initial generic data types and richer protocols | Concrete generic classes/enums, IntType data bounds, function/constructor inference, inferred/explicit generic methods, parameterized structural contracts, and protocol-driven inference are implemented. Native allocation-failure/drop checks and specialization reuse/limits cover the initial subset. Extensions are B29; recursive storage was completed under B10. |
 | B08: Function values and multiline closures | Thin functions, reusable/consuming concrete environments, explicit captures, factories, signature inference, `Callable`/`OnceCallable` constraints, inline sums, captured generator frames, and checked lifecycle cleanup are implemented without implicit allocation. B31 reviewed the surface and simplified its teaching path; captured-environment storage remains B32 and stored/escaping borrows remain B11. See [closures](design/language/06-functions/03-closures.md) and [consuming closures](design/language/06-functions/04-consuming-and-stored-closures.md). |
 | B30: Nested assignment | Existing list/dictionary/field slots update without enclosing copies or allocations. RHS and saved indices precede address resolution; tests cover resizing, aliases, failure cleanup, and owner replacement. |
-| B31: Callable simplicity audit | Retained concepts have explicit use-case rationale; the tutorial teaches inferred local closures and one reusable generic callback interface before advanced factory/consuming annotations. Ordinary generic records demonstrate stateful registries without another callable type. |
+| B31: Callable simplicity audit | The initial review recorded use-case rationale and a simpler teaching path; ordinary generic records demonstrate stateful registries without another callable type. The later callable-surface concern remains open as issue #24 under B34; completing this review did not settle it. |
 | B07: Initial runtime library loading | CLI/API generation emits self-contained typed loaders; exact discovery metadata and all symbols are checked before returning a table. Scalar/borrow/Result adapters and owned factories/transfers preserve signatures, destruction, and instance provenance. Allocation-free LoadError, injected failures, private-address checks, and the executable library tutorial cover the initial resident implementation. [Runtime reference](design/facilities/04-interop/loading.md). |
 | B06: Initial C library exports | Static/shared packaging, scalar and Result adapters, owned factories, matching destruction, shared/mutable and consuming handles, precise C contracts, embedded/extractable interfaces, SHA-256 link guards, explicit binary verification, and staged publication are implemented. Native callers and injected failures validate cleanup. [Library reference](design/facilities/04-interop/exports.md). |
 | B05: Ownership-aware C adapters | Scalar/pointer borrows and explicit UTF-8/C-string adapters integrate with normal borrowing. Private opaque pointers in classes provide owned handles and matching destruction; C fixtures verify partial acquisition, allocation errors, and conditional/unconditional transfer. Mutable/returned byte buffers remain outside this subset. See [adapters](design/facilities/04-interop/borrowing-text.md). |
