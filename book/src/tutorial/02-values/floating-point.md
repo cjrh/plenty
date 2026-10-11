@@ -23,9 +23,10 @@ def main() -> Result[(), IoError]:
 -2
 ```
 
-Float-to-integer casts discard the fractional part toward zero and clamp results
-outside the integer's range; NaN converts to zero. Integer-to-float casts and
-`f64` to `f32` casts may round. There is no implicit widening or narrowing:
+Float-to-integer casts discard the fractional part toward zero. The result must
+fit the integer type: `u8(255.9)` is `255`, while a `300.7`, an infinity, or NaN
+held in a variable stops the program with `error: integer cast out of range`.
+Integer-to-float casts and `f64` to `f32` casts may round. There is no implicit widening or narrowing:
 
 ```plenty-error
 def main() -> ():

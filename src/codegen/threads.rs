@@ -47,6 +47,7 @@ pub(super) fn emit_adapters(
             return_storage: None,
             return_types: &[],
             collection_scratch: None,
+            position: Default::default(),
         };
         for (i, ty) in task.inputs.iter().enumerate() {
             let packed = lower.bcx.ins().load(

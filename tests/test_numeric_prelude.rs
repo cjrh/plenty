@@ -16,7 +16,6 @@ fn decimal_forms_unit_payloads_and_prelude_shadowing() {
 )]
 #[case("print(16777216f32 + 1f32).unwrap()\nprint(16777216f64 + 1f64).unwrap()\nprint(f64(5) / 2.0).unwrap()\nprint(i32(-2.9)).unwrap()\nprint(f32(2.5)).unwrap()", "16777216.0\n16777217.0\n2.5\n-2\n2.5\n")]
 #[case("z = 0.0\nn = z / z\nprint(n == n).unwrap()\nprint(n != n).unwrap()\nprint(n < z).unwrap()\nprint(n <= z).unwrap()\nprint(n > z).unwrap()\nprint(n >= z).unwrap()\nprint(1.0 / z).unwrap()\nprint(1.0 / -z).unwrap()\nprint(-0.0 == z).unwrap()", "False\nTrue\nFalse\nFalse\nFalse\nFalse\ninf\n-inf\nTrue\n")]
-#[case("print(i8(1000.0)).unwrap()\nprint(i8(-1000.0)).unwrap()\nprint(u8(-10.0)).unwrap()\nprint(u8(1000.0)).unwrap()\nprint(i16(1e9)).unwrap()\nprint(u16(1e9)).unwrap()\nprint(i64(1e100)).unwrap()\nprint(u64(1e100)).unwrap()\nprint(i32(0.0 / 0.0)).unwrap()", "127\n-128\n0\n255\n32767\n65535\n9223372036854775807\n18446744073709551615\n0\n")]
 #[case("type Real = f32\ndef half(x: Real) -> Real:\n    x / 2f32\ndef change(x: &mut Real) -> ():\n    *x = half(*x)\nmut x = 6f32\nchange(&mut x)\nprint(x).unwrap()\nprint(half(x)).unwrap()", "3.0\n1.5\n")]
 #[case("def count(n: i64, x: f64) -> f64:\n    if n == 0:\n        x\n    else:\n        count(n - 1, x + 0.5)\nprint(count(10000, 0.0)).unwrap()", "5000.0\n")]
 #[case("class Point:\n    x: f32\n    y: f64\n    def shift(self: &mut Point) -> ():\n        self.x = self.x + 1f32\nmut p = Point(1.5f32, 2.5)\np.shift()\nprint(p).unwrap()\nprint(p.x).unwrap()\nprint(copy(p).unwrap() == p).unwrap()", "Point(x=2.5, y=2.5)\n2.5\nTrue\n")]
@@ -168,7 +167,7 @@ fn checked_conversions_cover_every_width_and_signedness() {
 
 #[rstest]
 #[case(
-    "x = 300\nprint(str.repr(u8.try_from(x)).unwrap()).unwrap()\nprint(u8(x)).unwrap()\nprint(u8.try_from(44).unwrap()).unwrap()",
+    "x = 300\nprint(str.repr(u8.try_from(x)).unwrap()).unwrap()\nprint(u8.wrapping_from(x)).unwrap()\nprint(u8.try_from(44).unwrap()).unwrap()",
     "Result[u8, ParseError].Err(ParseError.OutOfRange)\n44\n44\n"
 )]
 #[case(
@@ -176,7 +175,7 @@ fn checked_conversions_cover_every_width_and_signedness() {
     "Result[u8, ParseError].Ok(7)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[u8, ParseError].Err(ParseError.Invalid)\n"
 )]
 #[case(
-    "match i8.try_from(200u8):\n    case Ok(value):\n        print(value).unwrap()\n    case Err(error):\n        print(error == ParseError.OutOfRange).unwrap()\nxs = [1, 300, -1].unwrap()\nfor x in &xs:\n    print(str.repr(u8.try_from(x)).unwrap()).unwrap()",
+    "match i8.try_from(200u8):\n    case Ok(value):\n        print(value).unwrap()\n    case Err(error):\n        print(error == ParseError.OutOfRange).unwrap()\nxs = [1, 300, -1].unwrap()\nfor x in &xs:\n    print(str.repr(u8.try_from(*x)).unwrap()).unwrap()",
     "True\nResult[u8, ParseError].Ok(1)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\n"
 )]
 #[case(

@@ -225,7 +225,7 @@ def code(error: LoadError) -> i64:
 def main() -> Result[(), Failure]:
     errors = [LoadError.OutOfMemory, LoadError.CapacityOverflow, LoadError.InvalidPath, LoadError.OpenFailed, LoadError.InvalidSymbol, LoadError.MissingSymbol, LoadError.IncompatibleContract]?
     for error in &errors:
-        print(code(error))?
+        print(code(*error))?
     left: Result[Option[LoadError], LoadError] = Ok(Some(LoadError.InvalidPath))
     right: Result[Option[LoadError], LoadError] = Ok(Some(LoadError.IncompatibleContract))
     print(left == right)?

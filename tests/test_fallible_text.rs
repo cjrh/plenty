@@ -345,7 +345,10 @@ print("__test_end_no_allocations__").unwrap()
     "collection type does not match its annotation"
 )]
 #[case("print((1).concat(\"a\")).unwrap()", "expected str")]
-#[case("print(\"a\".split()).unwrap()", "split requires one argument")]
+#[case(
+    "print(\"a\".split()).unwrap()",
+    "print cannot print a Result directly"
+)]
 #[case("print(\"a\".split(\",\", 1)).unwrap()", "split requires one argument")]
 #[case("print(\"a\".split(1)).unwrap()", "expected str")]
 #[case("print((1).split(\",\")).unwrap()", "expected str")]

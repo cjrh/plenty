@@ -3,7 +3,7 @@ def even_squares(limit: i64) -> Result[list[i64], AllocError]:
 
 def main() -> Result[(), Failure]:
     squares = even_squares(10)?
-    by_value: dict[i64, i64] = {n: n * n for n in &squares}?
+    by_value: dict[i64, i64] = {*n: n * n for n in &squares}?
     unique = set(copy(squares)?)?
 
     print(squares)?

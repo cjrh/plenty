@@ -79,6 +79,7 @@ pub enum CollectionOp {
     HashIterFirst(Ty),
     HashIterNext(Ty),
     HashIterGet(Ty),
+    HashIterKeyRef(Ty),
     IterTake(Ty),
     Contains(Ty),
     Range(Ty),
@@ -109,6 +110,14 @@ pub enum CollectionOp {
     TextTryRemoveSuffix,
     TextIsAscii,
     TextIsSpace,
+    TextIsDigit,
+    TextIsAlpha,
+    TextTryLower,
+    TextTryUpper,
+    TextTrySplitWhitespace,
+    TextOrd,
+    TextChr,
+    TextCompare,
 }
 
 impl Ty {
@@ -260,11 +269,20 @@ impl CollectionOp {
                 crate::sum::option(t.element().expect("generator element")),
             ),
             TextByteLen => (vec![Ty::Str], Ty::I64),
-            TextIsAscii | TextIsSpace => (vec![Ty::Str], Ty::Bool),
+            TextIsAscii | TextIsSpace | TextIsDigit | TextIsAlpha => (vec![Ty::Str], Ty::Bool),
+            TextCompare => (vec![Ty::Str, Ty::Str], Ty::I64),
+            TextOrd => (
+                vec![Ty::Str],
+                crate::sum::result(Ty::U32, crate::sum::parse_error()),
+            ),
+            TextChr => (
+                vec![Ty::U32],
+                crate::sum::result(Ty::Str, crate::sum::parse_error()),
+            ),
             TextStartsWith | TextEndsWith => (vec![Ty::Str, Ty::Str], Ty::Bool),
             TextFind | TextRFind => (vec![Ty::Str, Ty::Str], crate::sum::option(Ty::I64)),
             TextCount => (vec![Ty::Str, Ty::Str], Ty::I64),
-            TextTryStrip | TextTryLStrip | TextTryRStrip => (
+            TextTryStrip | TextTryLStrip | TextTryRStrip | TextTryLower | TextTryUpper => (
                 vec![Ty::Str],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
@@ -284,6 +302,10 @@ impl CollectionOp {
                     Ty::List(std::rc::Rc::new(Ty::Str)),
                     crate::sum::alloc_error(),
                 ),
+            ),
+            TextTrySplitWhitespace => (
+                vec![Ty::Str],
+                crate::sum::result(Ty::List(Rc::new(Ty::Str)), crate::sum::alloc_error()),
             ),
             TextTrySplitLines => (
                 vec![Ty::Str, Ty::Bool],
@@ -373,6 +395,10 @@ impl CollectionOp {
                 t.element().unwrap(),
             ),
             HashIterNext(t) => (vec![t.clone(), Ty::I64], Ty::I64),
+            HashIterKeyRef(t) => (
+                vec![Ty::Ref(Rc::new(t.clone()), false), Ty::I64],
+                Ty::Ref(Rc::new(t.element().unwrap()), false),
+            ),
             IterGet(t) | IterTake(t) | HashIterGet(t) => {
                 (vec![t.clone(), Ty::I64], t.element().unwrap())
             }
@@ -405,6 +431,21 @@ impl CollectionOp {
             ),
         }
     }
+    /// Whether the runtime can trap in this operation, which then takes the
+    /// source position to report. Iteration reads stay in bounds by
+    /// construction.
+    pub fn traps(&self) -> bool {
+        matches!(
+            self,
+            Self::Get(_)
+                | Self::ElementRef(..)
+                | Self::ListSwap(_)
+                | Self::Range(_)
+                | Self::TextIndex
+                | Self::TextTrySplit
+        )
+    }
+
     pub fn opcode(&self) -> i64 {
         match self {
             Self::WriteStdout => 80,
@@ -479,6 +520,7 @@ impl CollectionOp {
             Self::HashIterFirst(_) => 123,
             Self::HashIterNext(_) => 124,
             Self::HashIterGet(_) => 125,
+            Self::HashIterKeyRef(_) => 140,
             Self::IterTake(_) => 15,
             Self::Contains(_) => 7,
             Self::Range(_) => 10,
@@ -496,6 +538,14 @@ impl CollectionOp {
             Self::TextTryConcat => 34,
             Self::TextTryJoin => 35,
             Self::TextTrySplit => 36,
+            Self::TextTrySplitWhitespace => 129,
+            Self::TextOrd => 130,
+            Self::TextChr => 131,
+            Self::TextCompare => 132,
+            Self::TextIsDigit => 133,
+            Self::TextIsAlpha => 134,
+            Self::TextTryLower => 135,
+            Self::TextTryUpper => 136,
             Self::TextTrySplitLines => 107,
             Self::TextGet => 37,
             Self::TextTrySlice => 46,

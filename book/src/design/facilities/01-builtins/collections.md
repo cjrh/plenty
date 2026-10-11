@@ -14,7 +14,8 @@ nothing. Collections have no identity test.
 `len(collection) -> i64`, `in`, and `not in` observe collections. Dictionary
 membership tests keys. Indexed reads use `i64` list indices (including negative
 indices) or the dictionary's key type; missing keys and out-of-bounds indices
-trap with exit status one. An index is one expression evaluated once; multiple
+[trap](../../language/08-errors/02-allocation-and-traps.md) with exit status
+one, reporting the source position. An index is one expression evaluated once; multiple
 comma-separated indices are rejected.
 
 Collections move on assignment, owned calls, and returns. Independent duplication
