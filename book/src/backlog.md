@@ -191,11 +191,12 @@ Completed cleanup includes:
   (issues #43 and #44; local PR #24).
 - In-place sorting, element swapping, and assignment to several targets
   (issue #31); further ordering operations are B37.
+- Callable mismatch guidance, closure source locations, and a shorter generic
+  callback teaching path (issue #24; local PR #33). `Callable` and `Closure`
+  retain their distinct representations and ownership rules.
 
-Continue addressing open issues in severity order. **Issue #24**, the callable
-surface's overlapping annotations, remains high severity despite the earlier
-B31 review and the newer tutorial structure. Concurrency API consistency and
-join/deadlock diagnostics (issues #28 and #12) also remain open. Claims and
+Continue addressing open issues in severity order. Concurrency API consistency
+and join/deadlock diagnostics (issues #28 and #12) remain open. Claims and
 current ownership belong in `issues.db`; these references do not assign work.
 `Failure` still keeps no details; storing a cause in it belongs to B14.
 
