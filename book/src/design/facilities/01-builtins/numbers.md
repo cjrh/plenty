@@ -23,13 +23,19 @@ zero survives. Separators and hexadecimal forms are invalid.
 
 ## Checked conversion
 
-`T.try_from(value) -> Result[T, ParseError]` is defined for every integer type
+`T.try_from(value) -> Result[T, RangeError]` is defined for every integer type
 `T` and takes one value of any integer type. It returns `Ok` with the same
-mathematical value when `T` can represent it and `Err(ParseError.OutOfRange)`
-otherwise, the error `T.parse` reports for a number outside `T`'s range. It
-never returns `ParseError.Invalid`, allocates nothing, and does not call the
+mathematical value when `T` can represent it and `Err(RangeError.OutOfRange)`
+otherwise. `RangeError` has just that one variant, so an exhaustive error match
+needs one arm. Conversion allocates nothing and does not call the
 runtime. Float and non-numeric arguments are compile-time errors, as is
 `try_from` on a float type; float conversions use casts.
+
+Parsing still returns `ParseError`, which distinguishes malformed text from
+an out-of-range number. `?` requires identical error types unless the caller
+deliberately erases details with `Failure`. A function that parses and then
+narrows can explicitly match the conversion error and return
+`Err(ParseError.OutOfRange)`; there is no implicit error conversion.
 
 ## Wrapping conversion
 

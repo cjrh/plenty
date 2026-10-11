@@ -420,6 +420,18 @@ pub fn parse_error() -> Ty {
     ty.variants[1].name = "OutOfRange".into();
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
+
+/// Integer conversion checks only representability, so matching its error
+/// needs no arm for malformed text.
+pub fn range_error() -> Ty {
+    let Ty::Enum(template) = failure() else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = "RangeError".into();
+    ty.variants[0].name = "OutOfRange".into();
+    Ty::Enum(crate::nominal::Nominal::new(ty))
+}
 #[derive(Clone, Debug)]
 pub struct Variant {
     pub name: String,

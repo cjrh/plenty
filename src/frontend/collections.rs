@@ -1519,7 +1519,7 @@ impl Lower<'_> {
                     return Err(args[0].at.error("try_from requires an integer value"));
                 }
                 ops.push(Op::TryCast(ty.clone()));
-                return Ok(Some(crate::sum::result(ty, crate::sum::parse_error())));
+                return Ok(Some(crate::sum::result(ty, crate::sum::range_error())));
             }
             if name == "wrapping_from" && !matches!(ty, Ty::Enum(_)) {
                 return self.wrapping_from(ty, args, &base.at, ops).map(Some);

@@ -63,7 +63,7 @@ print("__test_restore_allocations__").unwrap()
 print(str.repr(a).unwrap()).unwrap()
 print(str.repr(b).unwrap()).unwrap()
 print(str.repr(c).unwrap()).unwrap()
-"#, "Result[u8, ParseError].Err(ParseError.OutOfRange)\nResult[i16, ParseError].Ok(300)\nResult[i64, ParseError].Err(ParseError.OutOfRange)");
+"#, "Result[u8, RangeError].Err(RangeError.OutOfRange)\nResult[i16, RangeError].Ok(300)\nResult[i64, RangeError].Err(RangeError.OutOfRange)");
 }
 
 #[test]
