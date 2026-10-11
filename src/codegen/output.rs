@@ -28,12 +28,55 @@ const BATCH_INSTRUCTIONS: usize = 1 << 16;
 /// Rust's 2 MiB default for spawned threads would be a smaller limit.
 const HELPER_STACK_BYTES: usize = 8 << 20;
 
+/// Branch arguments in one function above which Cranelift's single-pass
+/// register allocator compiles it. The backtracking allocator re-sorts a block
+/// parameter's whole live-range list for each branch argument merged into it,
+/// and rescans the branch arguments for each value live into a block, so its
+/// time grows with the square of this count (issue #56). The single-pass
+/// allocator is linear but emits larger, slower code, so the limit is far above
+/// what hand-written functions reach. The count is a property of the function
+/// alone: the choice cannot depend on batching or on the worker count.
+const SINGLE_PASS_BRANCH_ARGUMENTS: usize = 2048;
+
+/// One target, once per register allocator.
+#[derive(Clone)]
+pub(super) struct Targets {
+    /// Backtracking allocator, used for the module and ordinary functions.
+    pub ordinary: OwnedTargetIsa,
+    /// Single-pass allocator, for functions over
+    /// [`SINGLE_PASS_BRANCH_ARGUMENTS`].
+    pub single_pass: OwnedTargetIsa,
+}
+
+impl Targets {
+    fn for_function(&self, func: &Function) -> &dyn TargetIsa {
+        if branch_arguments(func) > SINGLE_PASS_BRANCH_ARGUMENTS {
+            &*self.single_pass
+        } else {
+            &*self.ordinary
+        }
+    }
+}
+
+/// Values passed to block parameters, summed over every branch in `func`.
+fn branch_arguments(func: &Function) -> usize {
+    func.layout
+        .blocks()
+        .filter_map(|block| func.layout.last_inst(block))
+        .flat_map(|branch| {
+            func.dfg.insts[branch]
+                .branch_destination(&func.dfg.jump_tables, &func.dfg.exception_tables)
+        })
+        .map(|destination| destination.len(&func.dfg.value_lists))
+        .sum()
+}
+
 pub(super) struct Output {
     pub module: ObjectModule,
     /// Scratch storage for building one function; `finalize` empties it for
     /// the next.
     pub builder: FunctionBuilderContext,
-    isa: OwnedTargetIsa,
+    targets: Targets,
     pending: Vec<(FuncId, Function)>,
     pending_instructions: usize,
     compiling: Option<Batch>,
@@ -56,16 +99,16 @@ struct Batch {
 }
 
 impl Output {
-    pub(super) fn new(isa: OwnedTargetIsa, workers: usize) -> Result<Self> {
+    pub(super) fn new(targets: Targets, workers: usize) -> Result<Self> {
         let builder = ObjectBuilder::new(
-            isa.clone(),
+            targets.ordinary.clone(),
             "plenty",
             cranelift_module::default_libcall_names(),
         )?;
         Ok(Self {
             module: ObjectModule::new(builder),
             builder: FunctionBuilderContext::new(),
-            isa,
+            targets,
             pending: Vec::new(),
             pending_instructions: 0,
             compiling: None,
@@ -97,7 +140,7 @@ impl Output {
         self.define_compiled()?;
         self.pending_instructions = 0;
         let functions = std::mem::take(&mut self.pending);
-        self.compiling = Some(Batch::start(&self.isa, functions, self.workers));
+        self.compiling = Some(Batch::start(&self.targets, functions, self.workers));
         Ok(())
     }
 
@@ -105,7 +148,7 @@ impl Output {
         let Some(batch) = self.compiling.take() else {
             return Ok(());
         };
-        for (id, code) in batch.finish(&*self.isa) {
+        for (id, code) in batch.finish(&self.targets) {
             let code = code.map_err(|error| {
                 let declaration = self.module.declarations().get_function_decl(id);
                 format!("compiling `{}`: {error}", declaration.linkage_name(id))
@@ -118,17 +161,17 @@ impl Output {
 }
 
 impl Batch {
-    fn start(isa: &OwnedTargetIsa, functions: Vec<(FuncId, Function)>, workers: usize) -> Self {
+    fn start(targets: &Targets, functions: Vec<(FuncId, Function)>, workers: usize) -> Self {
         // The calling thread is the remaining worker: it drains the queue in
         // `finish`, so a helper that cannot be spawned only costs speed.
         let helpers = workers.min(functions.len()).saturating_sub(1);
         let queue = Arc::new(Mutex::new(functions.into_iter().enumerate()));
         let helpers = (0..helpers)
             .filter_map(|_| {
-                let (queue, isa) = (Arc::clone(&queue), Arc::clone(isa));
+                let (queue, targets) = (Arc::clone(&queue), targets.clone());
                 std::thread::Builder::new()
                     .stack_size(HELPER_STACK_BYTES)
-                    .spawn(move || drain(&queue, &*isa))
+                    .spawn(move || drain(&queue, &targets))
                     .ok()
             })
             .collect();
@@ -137,8 +180,8 @@ impl Batch {
 
     /// Wait for every function, returning the results in the order the
     /// functions were queued whichever thread compiled them.
-    fn finish(self, isa: &dyn TargetIsa) -> Vec<(FuncId, Compiled)> {
-        let mut done = drain(&self.queue, isa);
+    fn finish(self, targets: &Targets) -> Vec<(FuncId, Compiled)> {
+        let mut done = drain(&self.queue, targets);
         for helper in self.helpers {
             done.extend(
                 helper
@@ -151,7 +194,7 @@ impl Batch {
     }
 }
 
-fn drain(queue: &Queue, isa: &dyn TargetIsa) -> Vec<(usize, FuncId, Compiled)> {
+fn drain(queue: &Queue, targets: &Targets) -> Vec<(usize, FuncId, Compiled)> {
     let mut context = Context::new();
     let mut done = Vec::new();
     loop {
@@ -161,6 +204,7 @@ fn drain(queue: &Queue, isa: &dyn TargetIsa) -> Vec<(usize, FuncId, Compiled)> {
         let Some((index, (id, func))) = next else {
             break done;
         };
+        let isa = targets.for_function(&func);
         done.push((index, id, compile(&mut context, isa, id, func)));
     }
 }
@@ -189,7 +233,81 @@ fn compile(context: &mut Context, isa: &dyn TargetIsa, id: FuncId, func: Functio
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::value::Heap;
+    use cranelift_codegen::ir::condcodes::IntCC;
+    use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature, UserFuncName};
+    use cranelift_frontend::FunctionBuilder;
+
+    fn targets() -> Targets {
+        Targets {
+            ordinary: super::super::host_isa().unwrap(),
+            single_pass: super::super::target_isa("single_pass").unwrap(),
+        }
+    }
+
+    /// `y = x`, then `count` times `if y > i: y = y + 3`. Each conditional
+    /// passes `y` to its merge block from both arms: two branch arguments.
+    fn conditional_assignments(targets: &Targets, count: usize) -> Function {
+        let mut signature = Signature::new(targets.ordinary.default_call_conv());
+        signature.params.push(AbiParam::new(types::I64));
+        signature.returns.push(AbiParam::new(types::I64));
+        let mut func = Function::with_name_signature(UserFuncName::default(), signature);
+        let mut context = FunctionBuilderContext::new();
+        let mut builder = FunctionBuilder::new(&mut func, &mut context);
+        let entry = builder.create_block();
+        builder.append_block_params_for_function_params(entry);
+        builder.switch_to_block(entry);
+        let mut y = builder.block_params(entry)[0];
+        for i in 0..count {
+            let (assign, merge) = (builder.create_block(), builder.create_block());
+            let merged = builder.append_block_param(merge, types::I64);
+            let above = builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThan, y, i as i64);
+            builder.ins().brif(above, assign, &[], merge, &[y.into()]);
+            builder.switch_to_block(assign);
+            let assigned = builder.ins().iadd_imm(y, 3);
+            builder.ins().jump(merge, &[assigned.into()]);
+            builder.switch_to_block(merge);
+            y = merged;
+        }
+        builder.ins().return_(&[y]);
+        builder.seal_all_blocks();
+        builder.finalize();
+        func
+    }
+
+    fn machine_code(isa: &dyn TargetIsa, func: &Function) -> Vec<u8> {
+        compile(&mut Context::new(), isa, FuncId::from_u32(0), func.clone())
+            .unwrap()
+            .bytes
+    }
+
+    /// What a batch produces for `func`, through the same path as a program.
+    fn batch_machine_code(targets: &Targets, func: &Function) -> Vec<u8> {
+        let functions = vec![(FuncId::from_u32(0), func.clone())];
+        let mut compiled = Batch::start(targets, functions, 1).finish(targets);
+        compiled.pop().unwrap().1.unwrap().bytes
+    }
+
+    /// The backtracking allocator's time is quadratic in a function's branch
+    /// arguments (issue #56), so a function over the limit must not reach it,
+    /// and a function at the limit must keep the better code.
+    #[test]
+    fn branch_arguments_choose_the_register_allocator() {
+        let targets = targets();
+        let at_limit = conditional_assignments(&targets, SINGLE_PASS_BRANCH_ARGUMENTS / 2);
+        assert_eq!(branch_arguments(&at_limit), SINGLE_PASS_BRANCH_ARGUMENTS);
+        let ordinary = machine_code(&*targets.ordinary, &at_limit);
+        assert!(ordinary != machine_code(&*targets.single_pass, &at_limit));
+        assert!(batch_machine_code(&targets, &at_limit) == ordinary);
+
+        let over_limit = conditional_assignments(&targets, SINGLE_PASS_BRANCH_ARGUMENTS / 2 + 1);
+        let single_pass = machine_code(&*targets.single_pass, &over_limit);
+        assert!(single_pass != machine_code(&*targets.ordinary, &over_limit));
+        assert!(batch_machine_code(&targets, &over_limit) == single_pass);
+    }
 
     /// Enough declarations to span several batches of `BATCH_INSTRUCTIONS`.
     const UNITS: usize = 400;
@@ -220,6 +338,13 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
     #[test]
     fn object_does_not_depend_on_worker_count() {
         let mut source: String = (0..UNITS).map(unit).collect();
+        // One function over `SINGLE_PASS_BRANCH_ARGUMENTS`, so both register
+        // allocators contribute to the object.
+        source.push_str("def large(x: i64) -> i64:\n    mut y = x\n");
+        for i in 0..SINGLE_PASS_BRANCH_ARGUMENTS / 2 + 100 {
+            source.push_str(&format!("    if y > {i}:\n        y = y + 3\n"));
+        }
+        source.push_str("    y\n\n");
         source.push_str("def main() -> ():\n    pass\n");
         let mut heap = Heap::default();
         let program = crate::frontend::compile(&source, &mut heap).unwrap();

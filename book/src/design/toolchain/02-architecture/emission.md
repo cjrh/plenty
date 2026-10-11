@@ -15,9 +15,22 @@ object in build order, preserving byte-for-byte output across core counts. There
 is no worker-count flag. Tests compare one, two, and eight workers.
 
 Cranelift's verifier checks compiler-generated IR, not source programs. It runs
-in debug compiler builds, including tests; release builds omit it. The compiler
-uses Cranelift's ordinary register allocator. A measured single-pass alternative
-reduced emission CPU time but increased code size and slowed native workloads.
+in debug compiler builds, including tests; release builds omit it.
+
+The compiler uses Cranelift's backtracking register allocator. Its time grows
+with the square of a function's branch arguments, the values its branches pass
+to block parameters: two for each variable assigned in a conditional arm, for
+example. A function with more than 2,048 branch arguments is compiled with
+Cranelift's single-pass allocator instead, whose time is linear (issue #56).
+The largest function in the test suite has 156. Generated code reaches the
+limit: about a thousand conditional assignments, two thousand `match` arms, or
+a thousand-element collection literal in one function. In measurement such a
+function's machine code was 60% to 135% larger and took 1.1 to 3.6 times the
+CPU cycles to run. Applied to whole programs, the single-pass allocator reduced
+emission CPU time but increased code size and slowed native workloads, so no
+other function uses it. The choice depends on the function alone, so it is the
+same for every core count. `tests/test_large_functions.rs` runs functions over
+the limit.
 
 ## Measuring compilation
 

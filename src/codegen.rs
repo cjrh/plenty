@@ -299,7 +299,11 @@ fn object_bytes(
 ) -> Result<Vec<u8>> {
     let prepared = crate::tail_abi::prepare(ops);
     let ops = prepared.as_slice();
-    let mut out = Output::new(host_isa()?, workers)?;
+    let targets = output::Targets {
+        ordinary: host_isa()?,
+        single_pass: target_isa("single_pass")?,
+    };
+    let mut out = Output::new(targets, workers)?;
 
     let mut runtime = declare_runtime(&mut out.module)?;
 
@@ -367,8 +371,16 @@ fn object_bytes(
 /// Build the target's baseline ISA without inspecting the running CPU.
 /// On x86-64 this is the original SSE2 baseline, not host-specific extensions.
 fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
+    target_isa("backtracking")
+}
+
+/// [`host_isa`] with the named Cranelift `regalloc_algorithm`.
+fn target_isa(
+    regalloc_algorithm: &str,
+) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::validate_target(None)?;
     let mut flags = settings::builder();
+    flags.set("regalloc_algorithm", regalloc_algorithm)?;
     // `is_pic` so the object can be linked into a position-independent
     // executable, which is what every modern Linux/macOS toolchain
     // produces by default.
