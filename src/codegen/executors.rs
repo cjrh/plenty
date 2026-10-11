@@ -54,6 +54,7 @@ pub(super) fn emit_adapters(
             return_storage: None,
             return_types: &[],
             collection_scratch: None,
+            position: Default::default(),
         };
         let packed = lower
             .bcx

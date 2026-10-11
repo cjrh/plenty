@@ -2090,6 +2090,12 @@ impl Lower<'_> {
             _ => ops.push(Op::Site(site)),
         }
     }
+    /// Attribute a runtime trap in the integer operation pushed next to `at`.
+    fn mark_arithmetic(&self, op: &str, ty: &Ty, at: &Token, ops: &mut Vec<Op>) {
+        if !ty.is_float() && matches!(op, "+" | "-" | "*" | "//" | "%" | "<<" | ">>") {
+            self.mark(at, ops);
+        }
+    }
     fn numeric_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
             Expression::Constructor(ty, _) => ty
@@ -2147,6 +2153,7 @@ impl Lower<'_> {
         let (b, other_loans) = self.observe_expected(right, Some(ty.clone()), ops)?;
         self.same(Some(b), Some(ty.clone()), &right.at)?;
         loans.extend(other_loans);
+        self.mark_arithmetic(op, &ty, at, ops);
         let output = Self::numeric_operation(op, ty, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(output)
@@ -2565,6 +2572,7 @@ impl Lower<'_> {
                     }
                     ops.extend(body);
                     if op == "-" {
+                        self.mark(&e.at, ops);
                         ops.push(Op::Sub);
                     }
                 }
@@ -2693,6 +2701,7 @@ impl Lower<'_> {
                         Self::end_reads(loans, ops);
                         return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
                     }
+                    self.mark_arithmetic(op, &a, &e.at, ops);
                     ops.push(match op.as_str() {
                         "+" => Op::Add,
                         "-" => Op::Sub,
@@ -3761,6 +3770,11 @@ fn lower_body(
             .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
         origins: Rc::new(crate::ownership::Origins {
             source: f.at.source.clone(),
+            trap_file: f
+                .at
+                .source
+                .as_ref()
+                .map(|source| lower.generics.trap_file(source)),
             names: lower.slot_names,
             required: lower.generics.required.get(&f.name).cloned(),
         }),
@@ -3779,6 +3793,7 @@ fn lower_body(
 fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let modules::Resolved {
         source_paths,
+        source_root,
         mut functions,
         declarations,
         enums,
@@ -3799,6 +3814,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         &aliases,
     )?);
     let mut generics = generics::prepare(functions, &aliases, protocols)?;
+    generics.source_root = source_root;
     while !generics.expand_data(&aliases)?.is_empty() {}
     let mut sigs = HashMap::new();
     let mut returned_fields = HashMap::new();

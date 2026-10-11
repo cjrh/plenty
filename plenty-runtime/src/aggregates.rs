@@ -431,8 +431,17 @@ pub(crate) unsafe fn channel_new(
         }
     }
 }
-pub(crate) fn index(index: i64, len: usize) -> usize {
-    checked_index(index, len).unwrap_or_else(|| crate::fail("index out of bounds"))
+pub(crate) fn index(index: i64, len: usize, site: *const crate::Site) -> usize {
+    checked_index(index, len).unwrap_or_else(|| out_of_bounds(index, len, site))
+}
+
+/// Reports the index as written, before negative-index normalization.
+#[cold]
+pub(crate) fn out_of_bounds(index: i64, len: usize, site: *const crate::Site) -> ! {
+    crate::fail_at(
+        site,
+        format_args!("index out of bounds: index {index}, length {len}"),
+    )
 }
 
 /// Python-style forward slice bounds, without overflow at extreme signed inputs.
@@ -928,11 +937,15 @@ unsafe fn try_split(
     text: *const Text,
     separator: *const Text,
     ty: &'static Type,
+    site: *const crate::Site,
 ) -> Result<u128, AllocError> {
     unsafe {
         let separator = strings::utf8(&separator);
         if separator.is_empty() {
-            crate::fail("string split requires a nonempty separator");
+            crate::fail_at(
+                site,
+                format_args!("string split requires a nonempty separator"),
+            );
         }
         let pieces = strings::utf8(&text).split(separator);
         try_text_pieces(pieces, ty)
@@ -1268,12 +1281,16 @@ pub(crate) unsafe extern "C" fn plenty_list_len(owner: *const u8) -> u64 {
 /// Returns the low 64 payload bits of an integer, float, or boolean list row.
 /// No pointer into the buffer escapes, including across later growing mutations.
 #[no_mangle]
-pub(crate) unsafe extern "C" fn plenty_list_scalar_get(owner: *const u8, i: i64) -> u64 {
+pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
+    owner: *const u8,
+    i: i64,
+    site: *const crate::Site,
+) -> u64 {
     // SAFETY: generated callers supply a live list of scalars. Bounds and
     // negative indices use the same normalization as the generic dispatcher.
     unsafe {
         let collection = &*owner.cast::<Collection>();
-        let i = index(i, collection.entries.len());
+        let i = index(i, collection.entries.len(), site);
         collection.entries.get(i).key as u64
     }
 }
@@ -1283,18 +1300,22 @@ pub(crate) unsafe extern "C" fn plenty_collection(
     op: i64,
     args: *const u128,
     descriptor: *const Type,
-    out: *mut u128,
+    site: *const crate::Site,
 ) {
     // SAFETY: generated code supplies three aligned inputs and an output slot
-    // followed by 32 bytes of scratch range storage.
+    // followed by 32 bytes of scratch range storage. The output's fixed
+    // position leaves the fourth argument free for the trap site, which is
+    // null for operations that cannot trap.
     unsafe {
+        let out = args.add(3).cast_mut();
         if op == 10 {
             let range = out.add(1).cast::<Range>();
-            range.write(Range::new(
+            range.write(Range::new_at(
                 *args as u64,
                 *args.add(1) as u64,
                 *args.add(2) as i64,
                 (*descriptor).key().kind <= b'4',
+                site,
             ));
             out.write(range as u128);
             return;
@@ -1305,22 +1326,36 @@ pub(crate) unsafe extern "C" fn plenty_collection(
             out.write(wrap(out.read(), ready as u64));
             return;
         }
-        out.write(collection(
+        out.write(collection_at(
             op,
             *args,
             *args.add(1),
             *args.add(2),
             descriptor,
+            site,
         ));
     }
 }
 
+#[cfg(test)]
 pub(crate) unsafe fn collection(
     op: i64,
     a: u128,
     b: u128,
     value: u128,
     descriptor: *const Type,
+) -> u128 {
+    unsafe { collection_at(op, a, b, value, descriptor, std::ptr::null()) }
+}
+
+/// `site` locates the operation in a trap; null prints the message alone.
+pub(crate) unsafe fn collection_at(
+    op: i64,
+    a: u128,
+    b: u128,
+    value: u128,
+    descriptor: *const Type,
+    site: *const crate::Site,
 ) -> u128 {
     // SAFETY: the independent compiler checker supplies each opcode's declared
     // types and arity. No general Rust reference is returned to generated code.
@@ -1330,7 +1365,7 @@ pub(crate) unsafe fn collection(
             match op {
                 4 | 6 => {
                     let range = &*(a as *const Range);
-                    return range.at(index(b as i64, range.len as usize), signed);
+                    return range.at(index(b as i64, range.len as usize, site), signed);
                 }
                 5 => return (*(a as *const Range)).len as u128,
                 7 => return (*(b as *const Range)).contains(a, signed) as u128,
@@ -1349,7 +1384,7 @@ pub(crate) unsafe fn collection(
                 5 => strings::scalar_len(text) as u128,
                 12 => strings::byte_len(text) as u128,
                 13 => strings::at_byte(text, b as usize) as u128,
-                4 | 6 => strings::at(text, b as i64) as u128,
+                4 | 6 => strings::at(text, b as i64, site) as u128,
                 7 => strings::plenty_contains(b as *const Text, text) as u128,
                 _ => crate::fail("invalid string operation"),
             };
@@ -1359,15 +1394,18 @@ pub(crate) unsafe fn collection(
                 let owner = *(a as *const u128);
                 let c = &mut *(owner as *mut Collection);
                 let position = if c.ty().kind == b'L' {
-                    index(b as i64, c.entries.len())
+                    index(b as i64, c.entries.len(), site)
                 } else {
                     c.find(b).unwrap_or_else(|| {
-                        crate::fail("dictionary key not found; use insert to add a new key")
+                        crate::fail_at(
+                            site,
+                            format_args!("dictionary key not found; use insert to add a new key"),
+                        )
                     })
                 };
                 c.entries.slot(position, c.ty().kind != b'L') as u128
             }
-            114 => strings::at(a as *const Text, b as i64) as u128,
+            114 => strings::at(a as *const Text, b as i64, site) as u128,
             115 | 116 => {
                 let a_text = a as *const Text;
                 if op == 115 {
@@ -1624,7 +1662,7 @@ pub(crate) unsafe fn collection(
                 let c = &mut *(a as *mut Collection);
                 let len = c.entries.len();
                 c.entries
-                    .swap(index(b as i64, len), index(value as i64, len));
+                    .swap(index(b as i64, len, site), index(value as i64, len, site));
                 plenty_retain(a as *mut Header);
                 a
             }
@@ -1761,7 +1799,7 @@ pub(crate) unsafe fn collection(
             36 => {
                 // The compiler supplies Result[list[str], AllocError] metadata.
                 let ty = (*descriptor).variants[0].fields[0];
-                match try_split(a as *const Text, b as *const Text, ty) {
+                match try_split(a as *const Text, b as *const Text, ty, site) {
                     Ok(list) => wrap(list, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
@@ -1825,13 +1863,16 @@ pub(crate) unsafe fn collection(
             3 => {
                 let c = &mut *(a as *mut Collection);
                 if c.ty().kind == b'L' {
-                    let i = index(b as i64, c.len());
+                    let i = index(b as i64, c.len(), site);
                     retain(value, c.ty().key());
                     release(c.entries.get(i).key, c.ty().key());
                     c.entries.set(i, false, value);
                 } else {
                     let i = c.find(b).unwrap_or_else(|| {
-                        crate::fail("dictionary key not found; use insert to add keys")
+                        crate::fail_at(
+                            site,
+                            format_args!("dictionary key not found; use insert to add keys"),
+                        )
                     });
                     retain(value, c.ty().value());
                     release(c.entries.get(i).value, c.ty().value());
@@ -1896,13 +1937,13 @@ pub(crate) unsafe fn collection(
             4 | 6 => {
                 let c = &*(a as *const Collection);
                 if op == 4 && c.ty().kind == b'D' {
-                    let i = c
-                        .find(b)
-                        .unwrap_or_else(|| crate::fail("dictionary key not found"));
+                    let i = c.find(b).unwrap_or_else(|| {
+                        crate::fail_at(site, format_args!("dictionary key not found"))
+                    });
                     retain(c.entries.get(i).value, c.ty().value());
                     c.entries.get(i).value
                 } else {
-                    c.at(index(b as i64, c.len()))
+                    c.at(index(b as i64, c.len(), site))
                 }
             }
             5 => (*(a as *const Collection)).len() as u128,
@@ -1911,7 +1952,7 @@ pub(crate) unsafe fn collection(
                 if c.ty().kind != b'L' {
                     crate::fail("owned iteration requires a list");
                 }
-                let i = index(b as i64, c.len());
+                let i = index(b as i64, c.len(), site);
                 {
                     let value = c.entries.get(i).key;
                     c.entries.set(i, false, 0);

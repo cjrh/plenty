@@ -1922,7 +1922,7 @@ fn strings_keep_lengths_utf8_and_nul_bytes() {
         assert_eq!(strings::byte_len(joined), 7);
         assert_eq!(strings::scalar_len(joined), 3);
         assert_eq!(plenty_contains(joined, b), 1);
-        let last = strings::at(joined, -1);
+        let last = strings::at(joined, -1, std::ptr::null());
         assert_eq!(plenty_str_eq(last, b), 1);
         for p in [a, b, joined, last] {
             plenty_release(p.cast());

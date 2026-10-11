@@ -306,8 +306,12 @@ pub(crate) extern "C" fn plenty_readline() -> *mut Text {
     new(&line)
 }
 
-pub(crate) unsafe fn at(text: *const Text, index: i64) -> *mut Text {
-    unsafe { scalar(text, index) }.unwrap_or_else(|| crate::fail("index out of bounds"))
+pub(crate) unsafe fn at(text: *const Text, index: i64, site: *const crate::Site) -> *mut Text {
+    unsafe {
+        scalar(text, index).unwrap_or_else(|| {
+            crate::aggregates::out_of_bounds(index, scalar_len(text) as usize, site)
+        })
+    }
 }
 
 /// Borrow a live UTF-8 string. A scalar is at most four UTF-8 bytes, so the

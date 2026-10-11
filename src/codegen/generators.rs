@@ -128,6 +128,7 @@ pub(super) fn emit_generator(
             return_storage: None,
             return_types: &[],
             collection_scratch: None,
+            position: sites::Position::in_file(decl.source.clone()),
             generator: Some(GeneratorContext {
                 frame,
                 out,

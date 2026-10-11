@@ -112,6 +112,7 @@ impl Lower<'_> {
         // but prevents replacing or resizing the owner behind the saved path.
         let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
         self.same(actual, Some(ty.clone()), &value.at)?;
+        self.mark_arithmetic(op, &ty, &target.at, ops);
         Self::numeric_operation(op, ty.clone(), &target.at, ops)?;
         let result = self.slot(ty.clone(), &target.at)?;
         ops.push(Op::StoreLocal(result));
@@ -1214,6 +1215,7 @@ impl Lower<'_> {
                 let (_, loan) = self.borrow(base, false, ops)?;
                 let (got, mut reads) = self.observe_expected(index, Some(Ty::I64), ops)?;
                 self.same(Some(got), Some(Ty::I64), &index.at)?;
+                self.mark(&e.at, ops);
                 ops.push(Op::Collection(CollectionOp::ListScalarGetRef(ty)));
                 reads.push(loan);
                 Self::end_reads(reads, ops);
@@ -1263,6 +1265,7 @@ impl Lower<'_> {
         let (got, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
         self.same(Some(got), Some(key), &index.at)?;
         Self::end_reads(reads, ops);
+        self.mark(&e.at, ops);
         if ty == Ty::Str {
             ops.push(Op::Collection(CollectionOp::TextIndex));
             Self::end_reads(loans, ops);
@@ -1311,6 +1314,7 @@ impl Lower<'_> {
         }
         let operation = crate::sum::EnumOp::Unwrap(t);
         let result = operation.signature().unwrap().1;
+        self.mark(&base.at, ops);
         ops.push(Op::Enum(operation));
         if result == Ty::Unit {
             ops.push(Op::Drop);
@@ -1794,6 +1798,9 @@ impl Lower<'_> {
                 argument_loans.extend(loans);
             }
             let (_, result) = operation.signature();
+            if operation.traps() {
+                self.mark(&base.at, ops);
+            }
             ops.push(Op::Collection(operation));
             Self::end_reads(argument_loans, ops);
             Self::end_reads(loans, ops);
@@ -2036,6 +2043,7 @@ impl Lower<'_> {
         }
         let loan = self.mutation_place(base, ops)?;
         ops.extend(slots.into_iter().map(Op::MoveLocal));
+        self.mark(&base.at, ops);
         ops.push(Op::Collection(CollectionOp::ListSwap(ty)));
         ops.push(Op::Drop);
         ops.push(Op::UseLoan(loan));
@@ -2169,6 +2177,7 @@ impl Lower<'_> {
         if args.len() < 3 {
             ops.push(Op::PushInt(Value::I64(1)));
         }
+        self.mark(at, ops);
         ops.push(Op::Collection(CollectionOp::Range(element.clone())));
         Ok(Ty::Range(Rc::new(element)))
     }
