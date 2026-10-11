@@ -21,6 +21,8 @@ pub(super) struct DataTypes {
     pending_types: RefCell<std::collections::VecDeque<DefinitionJob>>,
     deferred: Cell<bool>,
     depth: Cell<usize>,
+    /// The instance being defined, whose fields request further instances.
+    requirer: RefCell<Option<Rc<Requirer>>>,
     /// Signature-shape probes use placeholder arguments, not real instances.
     shapes_only: bool,
     /// The shape-only tables, created by the first probe and shared by the rest.
@@ -32,6 +34,17 @@ struct DefinitionJob {
     actual: Vec<Ty>,
     at: Token,
     depth: usize,
+    requirer: Option<Rc<Requirer>>,
+}
+
+/// One link in the chain of instances that required the current one. Walked
+/// only to explain an expansion that reaches a specialization limit.
+struct Requirer {
+    declaration: String,
+    instance: String,
+    /// The type application that requested this instance.
+    at: Token,
+    parent: Option<Rc<Requirer>>,
 }
 
 impl Deref for TypeAliases {
@@ -282,12 +295,16 @@ impl TypeAliases {
                 .count()
                 >= 256
         {
-            return Err(application
-                .at
-                .error("generic data specialization limit of 256 exceeded"));
+            return Err(self.expansion().unwrap_or_else(|| {
+                application
+                    .at
+                    .error("generic data specialization limit of 256 exceeded")
+            }));
         }
         if self.data.depth.get() >= 64 {
-            return Err(application.at.error("recursive generic data type or type nesting exceeds the implementation limit of 64"));
+            return Err(self.expansion().unwrap_or_else(|| {
+                application.at.error("recursive generic data type or type nesting exceeds the implementation limit of 64")
+            }));
         }
         let concrete_name = if actual.is_empty() {
             name.clone()
@@ -328,11 +345,42 @@ impl TypeAliases {
                 actual,
                 at: application.at.clone(),
                 depth: self.data.depth.get() + 1,
+                requirer: self.data.requirer.borrow().clone(),
             });
         if !self.data.deferred.get() {
             self.finish_types()?;
         }
         Ok(ty)
+    }
+
+    /// Explains a specialization limit reached by endless expansion: one
+    /// declaration required again and again with growing type arguments.
+    /// Finite nesting that is merely deep keeps the limit's own message.
+    fn expansion(&self) -> Option<Box<dyn std::error::Error>> {
+        let mut chain = Vec::new();
+        let mut link = self.data.requirer.borrow().clone();
+        while let Some(requirer) = link {
+            link = requirer.parent.clone();
+            chain.push(requirer);
+        }
+        chain.reverse();
+        chain.iter().find_map(|first| {
+            let instances: Vec<&Rc<Requirer>> = chain
+                .iter()
+                .filter(|r| r.declaration == first.declaration)
+                .take(3)
+                .collect();
+            let [a, b, c] = instances[..] else {
+                return None;
+            };
+            let (x, y, z) = (&a.instance, &b.instance, &c.instance);
+            (x.len() < y.len() && y.len() < z.len()).then(|| {
+                b.at.error(format!(
+                    "generic type `{}` expands without end: `{x}` requires `{y}`, which requires `{z}`; a recursive use must not grow its type arguments",
+                    first.declaration
+                ))
+            })
+        })
     }
 
     pub(super) fn finish_types(&self) -> Result<()> {
@@ -345,6 +393,7 @@ impl TypeAliases {
                     actual,
                     at,
                     depth,
+                    requirer,
                 }) = next
                 else {
                     break;
@@ -352,6 +401,12 @@ impl TypeAliases {
                 self.data.depth.set(depth);
                 let ty = self.data.instances.borrow()[&(name.clone(), actual.clone())].clone();
                 let concrete_name = ty.to_string();
+                *self.data.requirer.borrow_mut() = Some(Rc::new(Requirer {
+                    declaration: name.clone(),
+                    instance: concrete_name.clone(),
+                    at: at.clone(),
+                    parent: requirer,
+                }));
                 let params = if let Some(e) = self.data.enums.get(&name) {
                     &e.type_params
                 } else {
@@ -448,6 +503,7 @@ impl TypeAliases {
         })();
         self.data.deferred.set(false);
         self.data.depth.set(0);
+        *self.data.requirer.borrow_mut() = None;
         result
     }
 

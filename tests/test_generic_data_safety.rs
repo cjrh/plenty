@@ -199,3 +199,52 @@ fn data_specialization_and_recursive_layouts_have_bounded_diagnostics() {
     .to_string();
     assert!(error.contains("recursive"), "{error}");
 }
+
+#[test]
+fn endless_generic_expansion_names_the_growing_instances() {
+    for (declarations, start, expected) in [
+        (
+            "class Node[T]:\n    value: T\n    next: Option[Node[list[T]]]\n",
+            "Node[i64]",
+            "3:18: generic type `Node` expands without end: `Node[i64]` requires `Node[list[i64]]`, which requires `Node[list[list[i64]]]`; a recursive use must not grow its type arguments",
+        ),
+        (
+            "enum Tree[T]:\n    Leaf(T)\n    Branch(Box[Tree[list[T]]])\n",
+            "Tree[u8]",
+            "`Tree[u8]` requires `Tree[list[u8]]`, which requires `Tree[list[list[u8]]]`",
+        ),
+        (
+            "class A[T]:\n    b: Option[B[list[T]]]\nclass B[T]:\n    a: Option[A[T]]\n",
+            "A[str]",
+            "`A[str]` requires `A[list[str]]`, which requires `A[list[list[str]]]`",
+        ),
+        // Two growing fields reach the 256-instance limit before 64 levels.
+        (
+            "class Node[T]:\n    a: Option[Node[list[T]]]\n    b: Option[Node[Box[T]]]\n",
+            "Node[i64]",
+            "generic type `Node` expands without end: `Node[i64]` requires `Node[list[i64]]`",
+        ),
+        // A sibling field reaches the limit first; the growing field is named.
+        (
+            "class Leaf[T]:\n    v: T\nclass Node[T]:\n    a: Leaf[T]\n    next: Option[Node[list[T]]]\n",
+            "Node[i64]",
+            "5:18: generic type `Node` expands without end",
+        ),
+    ] {
+        let source = format!("{declarations}type Bad = {start}\ndef main() -> ():\n    pass\n");
+        let error = check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn deep_finite_generic_nesting_keeps_the_limit_message() {
+    let mut source = String::from("class G0[T]:\n    v: T\n");
+    for n in 1..70 {
+        source.push_str(&format!("class G{n}[T]:\n    v: G{}[T]\n", n - 1));
+    }
+    source.push_str("type Deep = G69[i64]\ndef main() -> ():\n    pass\n");
+    let error = check_source(&source).unwrap_err().to_string();
+    assert!(error.contains("implementation limit of 64"), "{error}");
+    assert!(!error.contains("expands without end"), "{error}");
+}
