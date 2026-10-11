@@ -81,7 +81,7 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("if 1:\n    pass", "expected bool")]
 #[case("1 and 2", "expected bool")]
 #[case("True + False", "does not accept bool")]
-#[case("'a' < 'b'", "does not accept str")]
+#[case("'a' - 'b'", "does not accept str")]
 #[case("1 < 2 < 3", "chained comparisons")]
 #[case("1 / 2", "use `//`")]
 #[case("True + 1", "expected bool, got i64")]

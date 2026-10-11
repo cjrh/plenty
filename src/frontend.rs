@@ -1848,6 +1848,8 @@ pub(crate) fn builtin(name: &str) -> bool {
         || matches!(
             name,
             "print"
+                | "ord"
+                | "chr"
                 | "spawn"
                 | "Future"
                 | "SubmitError"
@@ -2660,7 +2662,8 @@ impl Lower<'_> {
                     Some(Ty::Bool)
                 } else {
                     if !a.is_numeric()
-                        && !(matches!(op.as_str(), "==" | "!=") || (op == "+" && a == Ty::Str))
+                        && !(matches!(op.as_str(), "==" | "!=")
+                            || (a == Ty::Str && (op == "+" || is_comparison(op))))
                     {
                         return Err(e.at.error(format!(
                             "operator `{op}` does not accept {}",
@@ -2725,6 +2728,26 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if matches!(name.as_str(), "ord" | "chr")
+                    && !self.names.contains_key(name)
+                    && !self.sigs.contains_key(name)
+                {
+                    let [argument] = args.as_slice() else {
+                        return Err(e.at.error(format!("{name} takes one argument")));
+                    };
+                    let operation = if name == "ord" {
+                        CollectionOp::TextOrd
+                    } else {
+                        CollectionOp::TextChr
+                    };
+                    let (inputs, output) = operation.signature();
+                    let (actual, loans) =
+                        self.observe_expected(argument, Some(inputs[0].clone()), ops)?;
+                    self.same(Some(actual), Some(inputs[0].clone()), &argument.at)?;
+                    ops.push(Op::Collection(operation));
+                    Self::end_reads(loans, ops);
+                    return Ok(Some(output));
+                }
                 if name == "CancellationToken" {
                     return self.control_new(args, &e.at, ops);
                 }

@@ -1699,6 +1699,19 @@ impl Lowerer<'_, '_> {
     /// Lower numeric ordering with IEEE float or signedness-aware integer comparisons.
     fn int_cmp(&mut self, signed: IntCC, unsigned: IntCC) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
+        if ty == Ty::Str {
+            let order = self.collection_call(
+                crate::collection::CollectionOp::TextCompare.opcode(),
+                &[a, b],
+                None,
+            )?;
+            let order = self.bcx.ins().ireduce(types::I64, order);
+            let value = self.bcx.ins().icmp_imm(signed, order, 0);
+            self.release(a, &ty);
+            self.release(b, &ty);
+            self.stack.push((value, Ty::Bool));
+            return Ok(());
+        }
         if ty.is_float() {
             let cc = match signed {
                 IntCC::SignedLessThan => FloatCC::LessThan,
