@@ -504,6 +504,19 @@ impl Lower<'_> {
         self.mark(&e.at, ops);
         let (ty, root, parent) = if let Ty::Ref(ty, writable) = &local.ty {
             if mutable && !writable {
+                if self.bare_self_receiver
+                    && local.slot == 0
+                    && matches!(&ungroup(e).kind, Expression::Name(name) if name == "self")
+                {
+                    let hint = if matches!(&**ty, Ty::Class(class) if class.name.contains('[')) {
+                        "declare an explicit mutable receiver (`self: &mut ...`) using the class's type parameters".into()
+                    } else {
+                        format!("declare `self: &mut {ty}` to mutate the receiver")
+                    };
+                    return Err(e.at.error(format!(
+                        "cannot borrow shared reference as mutable; bare `self` is read-only in ordinary methods; {hint}"
+                    )));
+                }
                 return Err(e.at.error("cannot borrow shared reference as mutable"));
             }
             let parent = *self

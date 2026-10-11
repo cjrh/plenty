@@ -36,6 +36,26 @@ Ordinary methods borrow `self` read-only by default: `self` is shorthand for
 `self: &Point` here. A method that changes fields declares `self: &mut Point`.
 Calling it requires a `mut` binding or an exclusive reference.
 
+If you forget the receiver annotation, the error names the required signature:
+
+```plenty-error
+class Counter:
+    value: i64
+    def increment(self) -> ():
+        self.value = self.value + 1
+
+def main() -> ():
+    pass
+```
+
+```error
+declare `self: &mut Counter`
+```
+
+Change the parameter to `self: &mut Counter`, as in `shift` above.
+The lifecycle methods `__init__` and `__del__` give bare `self` exclusive
+access automatically.
+
 Instances store their fields inline: `Point(3, 4)` needs no allocation or `?`.
 Copying list fields can still fail to allocate.
 
