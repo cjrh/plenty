@@ -2077,6 +2077,12 @@ impl Lower<'_> {
             _ => ops.push(Op::Site(site)),
         }
     }
+    /// Attribute a runtime trap in the integer operation pushed next to `at`.
+    fn mark_arithmetic(&self, op: &str, ty: &Ty, at: &Token, ops: &mut Vec<Op>) {
+        if !ty.is_float() && matches!(op, "+" | "-" | "*" | "//" | "%") {
+            self.mark(at, ops);
+        }
+    }
     fn numeric_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
             Expression::Constructor(ty, _) => ty
@@ -2128,6 +2134,7 @@ impl Lower<'_> {
         self.same(a, Some(ty.clone()), &left.at)?;
         let b = self.expr_expected(right, Some(ty.clone()), ops)?;
         self.same(b, Some(ty.clone()), &right.at)?;
+        self.mark_arithmetic(op, &ty, at, ops);
         Self::numeric_operation(op, ty, at, ops)
     }
     fn numeric_operation(op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
@@ -2531,6 +2538,7 @@ impl Lower<'_> {
                     }
                     ops.extend(body);
                     if op == "-" {
+                        self.mark(&e.at, ops);
                         ops.push(Op::Sub);
                     }
                 }
@@ -2654,6 +2662,7 @@ impl Lower<'_> {
                         Self::end_reads(loans, ops);
                         return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
                     }
+                    self.mark_arithmetic(op, &a, &e.at, ops);
                     ops.push(match op.as_str() {
                         "+" => Op::Add,
                         "-" => Op::Sub,

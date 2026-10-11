@@ -438,6 +438,7 @@ impl Lower<'_> {
             }
             let operation = CollectionOp::ElementRef(collection, mutable);
             let output = operation.signature().1;
+            self.mark(&e.at, ops);
             ops.push(Op::Collection(operation));
             return Ok((output, loan));
         }
@@ -733,6 +734,7 @@ impl Lower<'_> {
                 };
                 let actual = self.expr_expected(index, Some(key.clone()), ops)?;
                 self.same(actual, Some(key), &index.at)?;
+                self.mark(&e.at, ops);
                 ops.push(Op::Collection(CollectionOp::Get(ty)));
                 Ok((value, loans))
             }

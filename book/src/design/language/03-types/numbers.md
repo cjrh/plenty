@@ -26,7 +26,8 @@ Unary minus requires a signed integer or a float; an unsigned operand is a
 compile-time error. A sign written directly before a literal is part of the
 literal, which must fit its type: `-3u8` is out of range, and `-0u8` is zero.
 
-Integer arithmetic overflow and division by zero are runtime errors. `//` floors
+Integer arithmetic overflow and division by zero are runtime errors that
+[report their source position](../08-errors/02-allocation-and-traps.md). `//` floors
 signed quotients, including negative operands; `%` is integer-only. `/` accepts
 matching-width floats. Float arithmetic follows IEEE behavior for rounding,
 signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infinity.

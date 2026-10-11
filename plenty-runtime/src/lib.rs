@@ -41,6 +41,52 @@ fn fail(message: &str) -> ! {
     std::process::exit(1)
 }
 
+/// Source position of an operation that can trap. The compiler emits these
+/// records as read-only data in the program's object and passes a pointer to
+/// the helper that may trap; see "Traps" in the errors reference.
+///
+/// `file` is the distance in bytes from this record to the file's name, a
+/// `u32` length followed by that many UTF-8 bytes, or zero without a file. A
+/// relative offset keeps the table free of relocations.
+#[repr(C)]
+pub(crate) struct Site {
+    line: u32,
+    column: u32,
+    file: u32,
+}
+
+/// Traps with `error: file:line:column: message`. A null site prints the bare
+/// message: synthesized operations and the token front end have no position.
+///
+/// The message is formatted straight to standard error, so a trap never
+/// allocates.
+fn fail_at(site: *const Site, message: std::fmt::Arguments) -> ! {
+    io::flush();
+    // SAFETY: a non-null site is a record in the compiler's site table, whose
+    // file offset, when nonzero, leads to a length-prefixed UTF-8 name in the
+    // same data object.
+    unsafe {
+        match site.as_ref() {
+            None => eprintln!("error: {message}"),
+            Some(at) if at.file == 0 => {
+                eprintln!("error: {}:{}: {message}", at.line, at.column)
+            }
+            Some(at) => {
+                let name = site.cast::<u8>().add(at.file as usize);
+                let len = name.cast::<u32>().read_unaligned() as usize;
+                let name = std::slice::from_raw_parts(name.add(4), len);
+                eprintln!(
+                    "error: {}:{}:{}: {message}",
+                    std::str::from_utf8_unchecked(name),
+                    at.line,
+                    at.column
+                )
+            }
+        }
+    }
+    std::process::exit(1)
+}
+
 // Cargo tests provide their own entry point. The compiler's packaged archive
 // instead exports the system entry point and calls the Cranelift object.
 #[cfg(plenty_runtime_embedded)]

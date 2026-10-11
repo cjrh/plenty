@@ -314,15 +314,16 @@ fn collection(
             (i * 16) as i32,
         );
     }
-    let out = b.ins().iadd_imm(args, 48);
     let code = b.ins().iconst(types::I64, opcode);
+    // Adapter operations cannot trap, so they pass no trap site.
+    let site = b.ins().iconst(PTR_TY, 0);
     let f = module.declare_func_in_func(runtime.collection, b.func);
-    b.ins().call(f, &[code, args, descriptor, out]);
+    b.ins().call(f, &[code, args, descriptor, site]);
     Ok(b.ins().load(
         types::I128,
         cranelift_codegen::ir::MemFlags::trusted(),
-        out,
-        0,
+        args,
+        48,
     ))
 }
 

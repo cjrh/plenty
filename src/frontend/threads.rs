@@ -159,6 +159,7 @@ impl Lower<'_> {
                 cleanup: cleanup.into(),
             });
         } else {
+            self.mark(&call.at, ops);
             ops.push(Op::Enum(crate::sum::EnumOp::Unwrap(source)));
         }
         ops.push(Op::Drop);

@@ -8,6 +8,17 @@ impl Lowerer<'_, '_> {
         values: &[cranelift_codegen::ir::Value],
         ty: Option<&Ty>,
     ) -> Result<cranelift_codegen::ir::Value> {
+        self.collection_call_at(opcode, values, ty, None)
+    }
+
+    /// `site` is the trap site of an operation that can trap.
+    fn collection_call_at(
+        &mut self,
+        opcode: i64,
+        values: &[cranelift_codegen::ir::Value],
+        ty: Option<&Ty>,
+        site: Option<cranelift_codegen::ir::Value>,
+    ) -> Result<cranelift_codegen::ir::Value> {
         let zero = self.bcx.ins().iconst(types::I64, 0);
         let code = self.bcx.ins().iconst(types::I64, opcode);
         let descriptor = if let Some(ty) = ty {
@@ -45,16 +56,19 @@ impl Lowerer<'_, '_> {
                 (i * 16) as i32,
             );
         }
-        let out = self.bcx.ins().iadd_imm(args, 48);
         let f = self
             .module
             .declare_func_in_func(self.runtime.collection, self.bcx.func);
-        self.bcx.ins().call(f, &[code, args, descriptor, out]);
+        // The runtime writes the result after the three inputs, which leaves
+        // the fourth argument for the trap site.
+        self.bcx
+            .ins()
+            .call(f, &[code, args, descriptor, site.unwrap_or(zero)]);
         Ok(self.bcx.ins().load(
             types::I128,
             cranelift_codegen::ir::MemFlags::trusted(),
-            out,
-            0,
+            args,
+            48,
         ))
     }
 
@@ -85,7 +99,15 @@ impl Lowerer<'_, '_> {
                 receiver
             };
             let mut args = vec![owner];
-            args.extend(index);
+            if let Some(index) = index {
+                // Iteration stays inside the list, so only indexing names a site.
+                let site = if matches!(operation, CollectionOp::IterGet(_)) {
+                    self.bcx.ins().iconst(PTR_TY, 0)
+                } else {
+                    self.trap_site()?
+                };
+                args.extend([index, site]);
+            }
             let function = self.module.declare_func_in_func(helper, self.bcx.func);
             let call = self.bcx.ins().call(function, &args);
             let result = self.bcx.inst_results(call)[0];
@@ -146,7 +168,12 @@ impl Lowerer<'_, '_> {
                 arguments.push(self.inline_storage(ty.inline_bytes()));
             }
         }
-        let result = self.collection_call(operation.opcode(), &arguments, descriptor)?;
+        let site = if operation.traps() {
+            Some(self.trap_site()?)
+        } else {
+            None
+        };
+        let result = self.collection_call_at(operation.opcode(), &arguments, descriptor, site)?;
         let result = self.unpack(result, &output);
         // An affine element read is a retained view into the borrowed
         // collection. Copying its storage would split the instance in two.

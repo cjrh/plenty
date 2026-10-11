@@ -86,4 +86,6 @@ def main() -> Result[(), IoError]:
 -3
 ```
 
-Integer division by zero is a runtime error. Use `/` for floating-point division.
+Integer division by zero is a runtime error. The program stops and reports where
+it happened: `error: /home/ada/main.plenty:2:11: division by zero` names the
+file, line, and column. Use `/` for floating-point division.

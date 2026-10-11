@@ -405,6 +405,21 @@ impl CollectionOp {
             ),
         }
     }
+    /// Whether the runtime can trap in this operation, which then takes the
+    /// source position to report. Iteration reads stay in bounds by
+    /// construction.
+    pub fn traps(&self) -> bool {
+        matches!(
+            self,
+            Self::Get(_)
+                | Self::ElementRef(..)
+                | Self::ListSwap(_)
+                | Self::Range(_)
+                | Self::TextIndex
+                | Self::TextTrySplit
+        )
+    }
+
     pub fn opcode(&self) -> i64 {
         match self {
             Self::WriteStdout => 80,
