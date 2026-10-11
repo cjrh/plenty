@@ -111,7 +111,7 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("if True:\n\tpass", "use spaces")]
 #[case("1 2 +", "expected the end of the statement")]
 #[case("128i8", "out of range")]
-#[case("-1u8", "out of range")]
+#[case("-1u8", "unary minus is not defined for unsigned type u8")]
 #[case("1__0", "invalid integer separator")]
 #[case("def main() -> ():\n    'hello", "unterminated string")]
 #[case("'\\q'", "unsupported escape")]

@@ -168,7 +168,10 @@ fn numeric_context_preserves_typed_variable_and_range_errors() {
         "expected &u8, got &i64",
     );
     reject("def f(n: &u8) -> ():\n    pass\nf(256)\n", "out of range");
-    reject("def f(n: &u8) -> ():\n    pass\nf(-1)\n", "out of range");
+    reject(
+        "def f(n: &u8) -> ():\n    pass\nf(-1)\n",
+        "unary minus is not defined for unsigned type u8",
+    );
     run("xs = [1u8, 2u8].unwrap()\nprint(xs.count(1)).unwrap()\nprint(xs.find(&2)).unwrap()\nd = {1u8: 9}.unwrap()\nprint(d.get(1)).unwrap()\n", "1\nOption[i64].Some(1)\nOption[i64].Some(9)\n");
 }
 

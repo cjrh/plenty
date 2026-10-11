@@ -42,7 +42,7 @@ def main() -> ():
     assert_eq!(out.stdout, b"0\na\n0\n");
     for (argument, expected) in [
         ("n", "expected u64, got i64"),
-        ("-1", "out of range"),
+        ("-1", "unary minus is not defined for unsigned type u64"),
         ("18446744073709551616", "out of range"),
     ] {
         let source = format!("def main() -> ():\n    mut f = open(\"unused\").unwrap()\n    n = 0\n    f.seek({argument}).unwrap()\n    pass\n");
