@@ -2091,7 +2091,7 @@ impl Lower<'_> {
     /// found there but no longer in `names` left scope with its block.
     fn unknown_binding(&self, name: &str) -> String {
         let hint = if self.slot_names.iter().flatten().any(|n| &**n == name) {
-            format!("; a binding declared inside a block ends with that block; declare `mut {name}` before the block and assign it inside")
+            format!("; a binding declared inside a block ends with that block; bind `mut {name}` to a value before the block and assign it inside")
         } else {
             String::new()
         };

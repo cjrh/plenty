@@ -7,7 +7,7 @@ forward. Duplicate declarations and redefinitions are rejected.
 Function parameters and local bindings occupy lexical scopes. A declaration in
 a branch does not escape that branch: using the name afterwards is an unknown
 binding, and the diagnostic says that the earlier binding ended with its block.
-Declare a `mut` local before the block and assign it inside instead. Assigning an existing mutable local changes
+Bind a `mut` local to a value before the block and assign it inside instead. Assigning an existing mutable local changes
 that local across a branch join. Pattern bindings belong to their arm and may
 shadow outer bindings. A new binding cannot read itself in its initializer.
 

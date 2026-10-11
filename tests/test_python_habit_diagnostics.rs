@@ -263,7 +263,7 @@ fn mut_payload_binding_names_the_working_spellings() {
 #[test]
 fn a_binding_that_left_scope_explains_block_scope() {
     let hint = |name: &str| {
-        format!("unknown binding `{name}`; a binding declared inside a block ends with that block; declare `mut {name}` before the block and assign it inside")
+        format!("unknown binding `{name}`; a binding declared inside a block ends with that block; bind `mut {name}` to a value before the block and assign it inside")
     };
     for (body, position, name) in [
         (
