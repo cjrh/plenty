@@ -16,12 +16,12 @@ fn output(source: &str) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-const POWER: &str = "exponentiation with `**` is not supported; multiply explicitly, as in `x * x`";
+const POWER: &str = "exponentiation with `**` is not supported; use `base.pow(exponent)`";
 const REPETITION: &str = "lists do not support `*` repetition; build the list with a comprehension, such as `[value for _ in range(count)]?`";
 const LITERAL_PATTERN: &str = "literal patterns are not supported; `match` selects enum variants, so compare other values with an `if`/`elif` chain";
 
 #[test]
-fn power_operator_names_explicit_multiplication() {
+fn power_operator_names_the_pow_method() {
     for (expression, column) in [
         ("n ** 2", 11),
         ("n**2", 10),

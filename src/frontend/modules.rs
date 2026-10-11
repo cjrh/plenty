@@ -1193,7 +1193,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             }
             continue;
         }
-        if t.name.as_deref() == Some("IntType") && t.args.is_empty() {
+        if generics::numeric_bound(t).is_some() && t.args.is_empty() {
             continue;
         }
         if let Some(name) = t.name.as_ref().filter(|n| access.protocols.contains(*n)) {

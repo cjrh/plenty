@@ -561,6 +561,7 @@ pub enum Op {
     /// Defensive trap after an exhaustive finite-domain match.
     Unreachable,
     Collection(crate::collection::CollectionOp),
+    Numeric(crate::numeric::NumericOp),
     /// The condition leaves bool; a continuing body preserves the operand stack.
     Loop {
         condition: Rc<[Op]>,
@@ -1723,6 +1724,7 @@ fn step(
             }
             stack.push(ty);
         }
+        Op::Numeric(operation) => operation.check(stack)?,
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;
             if a != b {

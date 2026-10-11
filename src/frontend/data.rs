@@ -508,8 +508,13 @@ impl TypeAliases {
                                     self,
                                     &at,
                                 )?;
-                            } else if !ty.is_int() {
-                                return Err(at.error(format!("{ty} does not satisfy IntType")));
+                            } else if generics::numeric_bound(bound)
+                                .is_some_and(|satisfies| !satisfies(ty))
+                            {
+                                return Err(at.error(format!(
+                                    "{ty} does not satisfy {}",
+                                    bound.name.as_deref().unwrap()
+                                )));
                             }
                         }
                     }
@@ -642,11 +647,11 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
         return Err(at.error("a data parameter cannot shadow its declaration name"));
     }
     for bound in params.iter().filter_map(|(_, b)| b.as_ref()) {
-        if !(bound.name.as_deref() == Some("IntType") && bound.args.is_empty()
+        if !(generics::numeric_bound(bound).is_some() && bound.args.is_empty()
             || generics::callable_bound(bound) && !bound.args.is_empty())
         {
             return Err(bound.at.error(
-                "generic data constraints currently require IntType, Callable, or OnceCallable",
+                "generic data constraints currently require IntType, FloatType, Callable, or OnceCallable",
             ));
         }
     }

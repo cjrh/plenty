@@ -50,7 +50,7 @@ class Holder:
     point: Point
     def set(self: &mut Holder, point: Point) -> ():
         self.point = point
-def sum(point: Point) -> i64:
+def total(point: Point) -> i64:
     point.x + point.y
 def tail(b: Box[Point]) -> Point:
     b
@@ -60,7 +60,7 @@ def wrapped(b: Box[Point]) -> Option[Point]:
     Some(b)
 def boxed(x: i64) -> Box[Point]:
     Box(Point(x, x)).unwrap()
-print(sum(boxed(1))).unwrap()
+print(total(boxed(1))).unwrap()
 print(tail(boxed(2))).unwrap()
 print(early(boxed(3))).unwrap()
 print(wrapped(boxed(4))).unwrap()
@@ -78,7 +78,7 @@ points[0] = boxed(11)
 print(points).unwrap()
 pair: (Point, i64) = (boxed(12), 1)
 print(pair).unwrap()
-print(sum(Box(boxed(13)).unwrap())).unwrap()
+print(total(Box(boxed(13)).unwrap())).unwrap()
 kept: Box[Point] = boxed(14)
 moved = kept
 print(moved).unwrap()

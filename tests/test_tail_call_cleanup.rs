@@ -169,12 +169,12 @@ def fail(stop: bool) -> Result[i64, Failure]:
     if stop:
         return Err(Failure.Unspecified)
     Ok(2)
-def sum(g: Guard, a: i64, b: i64) -> Result[i64, Failure]:
+def add(g: Guard, a: i64, b: i64) -> Result[i64, Failure]:
     print("sum").unwrap()
     Ok(a + b)
 def caller(stop: bool) -> Result[i64, Failure]:
     local = Guard("local")
-    sum(make("moved"), note("left", 1), fail(stop)?)
+    add(make("moved"), note("left", 1), fail(stop)?)
 match caller({stop}):
     case Ok(value):
         print(value).unwrap()

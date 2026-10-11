@@ -183,7 +183,7 @@ fn cursor_advances_through_enum_payloads() {
 enum Chain:
     End
     Link(i64, Box[Chain])
-def sum(chain: &Chain) -> i64:
+def chain_total(chain: &Chain) -> i64:
     mut result = 0
     mut cur = chain
     while True:
@@ -196,7 +196,7 @@ def sum(chain: &Chain) -> i64:
     result
 def main() -> Result[(), Failure]:
     chain = Chain.Link(3, Box(Chain.Link(7, Box(Chain.End)?))?)
-    print(sum(&chain))?
+    print(chain_total(&chain))?
     Ok(())
 "#,
         "10\n",

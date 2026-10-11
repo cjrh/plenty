@@ -19,7 +19,7 @@ The built-in prelude is available without an import. It provides primitive and
 container type names, standard sums and variants (`Option`, `Result`, `Some`,
 `Nothing`, `Ok`, `Err`), callable and generator types, and facility names for
 files, errors, threads, channels, executors, and cancellation. Built-in operations
-include `copy`, `drop`, `len`, `range`, text I/O, worker submission, and channel
+include `copy`, `drop`, `len`, `range`, `abs`, `min`, `max`, `sum`, text I/O, worker submission, and channel
 construction and selection. Their contracts appear under
 [facilities](../../facilities/index.md) and the relevant language section.
 Top-level declarations cannot redefine built-ins. Locals can shadow expression

@@ -21,6 +21,7 @@ mod lexer;
 mod library;
 mod library_metadata;
 mod nominal;
+mod numeric;
 mod op;
 mod ownership;
 mod record;

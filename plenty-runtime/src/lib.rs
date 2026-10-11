@@ -22,6 +22,7 @@ mod files;
 mod generators;
 mod io;
 mod libraries;
+mod math;
 mod memory;
 mod numbers;
 mod open_modes;

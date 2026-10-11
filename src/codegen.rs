@@ -73,6 +73,7 @@ mod foreign;
 mod generators;
 mod inline;
 mod metadata;
+mod numeric;
 mod output;
 mod references;
 mod sites;
@@ -1371,6 +1372,7 @@ impl Lowerer<'_, '_> {
             Op::FloorDiv => self.lower_div(true)?,
             Op::Modulo => self.lower_modulo()?,
             Op::Integer(kind) => self.lower_integer(*kind)?,
+            Op::Numeric(operation) => self.lower_numeric(operation)?,
             Op::Eq => self.lower_eq()?,
             Op::Lt => self.int_cmp(IntCC::SignedLessThan, IntCC::UnsignedLessThan)?,
             Op::Gt => self.int_cmp(IntCC::SignedGreaterThan, IntCC::UnsignedGreaterThan)?,
