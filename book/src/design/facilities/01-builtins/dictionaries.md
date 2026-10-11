@@ -39,8 +39,8 @@ transfer: two allocations when nonempty, one for an empty owner.
 
 `dictionary.items()` is a borrowed loop/comprehension view rather than a stored
 iterator and creates no item tuples or snapshot buffers. Shared views load
-keys and copyable values, borrowing affine values; mutable views lend mutable
-values while keys remain immutable. Its loop loans follow the
+shared references to both keys and values, including scalars and strings;
+mutable views lend mutable values while keys remain shared references. Its loop loans follow the
 [iteration rules](../../language/09-iteration/index.md).
 
 ## Transferring an update

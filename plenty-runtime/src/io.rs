@@ -180,6 +180,10 @@ pub(crate) extern "C" fn plenty_trap_unwrap(site: *const crate::Site, option: u6
     let variant = if option != 0 { "Nothing" } else { "Err" };
     crate::fail_at(site, format_args!("unwrap on {variant}"))
 }
+#[no_mangle]
+pub(crate) extern "C" fn plenty_trap_shift(site: *const crate::Site) -> ! {
+    crate::fail_at(site, format_args!("shift count outside integer width"))
+}
 
 #[cfg(test)]
 mod tests {

@@ -9,7 +9,24 @@ native emission unless a target is explicitly requested.
 `--linker PATH` selects a `cc`-compatible driver; the default is `cc` on `PATH`.
 Repeat `--link-arg ARG` to pass individual arguments after program/runtime inputs
 and before the runtime's native dependencies. Static-library builds use
-`--archiver PATH`, defaulting to `ar`.
+`--archiver PATH`, defaulting to `ar`; it must support deterministic `rcsD` mode.
+
+## Reproducible artifacts
+
+Generated code uses the original x86-64/SSE2 baseline, regardless of the
+compiler machine's CPU extensions. `--print-target` reports this baseline.
+With the same compiler binary, source tree, module contents, and options,
+application objects and extracted runtime artifacts are independent of source
+directory, output name, time, user, and code-generation worker count. Static
+archives use deterministic member timestamps, owner IDs, and modes.
+
+Executables and shared libraries additionally depend on the linker driver,
+its options, startup objects, and native libraries. Determinism is checked with
+the local GNU toolchain; other linker implementations are separate inputs.
+Rebuilding the compiler also depends on rustc and its precompiled standard
+library. Runtime compilation remaps project, output, and sysroot source paths;
+it cannot rewrite paths already compiled into the Rust standard library.
+Changing the compiler or any of these toolchain inputs can change output bytes.
 
 Paths and arguments are passed directly, without a shell, expansion, or word
 splitting. There is no `CC` environment override. The linker driver must accept

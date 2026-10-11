@@ -47,20 +47,24 @@ with status one. The line gives the position of the failing operation in the
 form of a compile-time diagnostic, `error: file:line:column: message`:
 
 ```text
-error: /home/ada/shop/main.plenty:7:11: index out of bounds: index 5, length 3
+error: main.plenty:7:11: index out of bounds: index 5, length 3
 ```
 
 The position is the start of the expression that trapped: the left operand of an
 arithmetic operator, the indexed collection, the receiver of `unwrap` or
 `split`, or the `range` call. A trap in an imported function or a generic
 instance reports the position in the function's body, in the file that defines
-it, not the call or instantiation. The file is the absolute path of the source,
-as in compile-time diagnostics. Reporting a trap allocates nothing.
+it, not the call or instantiation. The file is relative to the
+[source root](../02-source/modules.md), `tools/geometry.plenty` for the
+module `tools.geometry`, so an executable does not depend on the directory it
+was built in. Compile-time diagnostics print the full path. Reporting a trap
+allocates nothing.
 
 | Trap | Message |
 |---|---|
 | Integer overflow in `+`, `-`, `*`, `//`, or negation | `integer overflow` |
 | `//` or `%` by zero | `division by zero` |
+| Shift count negative or not below the integer width | `shift count outside integer width` |
 | `unwrap()` on `Nothing` or `Err` | `unwrap on Nothing`, `unwrap on Err` |
 | List, text, or range index out of range | `index out of bounds: index I, length N` |
 | Absent dictionary key | `dictionary key not found`; indexed assignment adds `; use insert to add a new key` |

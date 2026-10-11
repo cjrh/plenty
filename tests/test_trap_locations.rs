@@ -2,9 +2,8 @@
 use rstest::rstest;
 use std::process::Command;
 
-/// Compile `files` with `main.plenty` as the entry and return what the
-/// program wrote to standard error, with the temporary directory removed
-/// from the reported path.
+/// Compile `files` with `main.plenty` as the entry and its directory as the
+/// source root, and return what the program wrote to standard error.
 fn trap(files: &[(&str, &str)]) -> String {
     let dir = tempfile::tempdir().unwrap();
     for (path, source) in files {
@@ -15,10 +14,7 @@ fn trap(files: &[(&str, &str)]) -> String {
     plenty::compile_file_to_executable(&source, &program, Some(dir.path())).unwrap();
     let output = Command::new(&program).output().unwrap();
     assert_eq!(output.status.code(), Some(1), "{:?}", output.status);
-    let error = String::from_utf8(output.stderr).unwrap();
-    let directory = format!("{}/", dir.path().canonicalize().unwrap().display());
-    assert!(error.contains(&directory), "{error}");
-    error.replace(&directory, "")
+    String::from_utf8(output.stderr).unwrap()
 }
 
 fn main_trap(body: &str) -> String {
@@ -49,6 +45,14 @@ fn main_trap(body: &str) -> String {
 #[case::nested_operand(
     "    zero = 0\n    print(1 + 2 * (7 // zero))?\n",
     "3:20: division by zero"
+)]
+#[case::shift_left(
+    "    count = 64\n    print(1 << count)?\n",
+    "3:11: shift count outside integer width"
+)]
+#[case::shift_right(
+    "    count = -1\n    print(8 >> count)?\n",
+    "3:11: shift count outside integer width"
 )]
 fn arithmetic_traps_name_the_expression(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(main_trap(body), format!("error: main.plenty:{expected}\n"));
@@ -138,8 +142,36 @@ fn output_before_a_trap_is_flushed() {
     let output = Command::new(&program).output().unwrap();
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(output.stdout, b"before\n");
-    assert!(
-        String::from_utf8_lossy(&output.stderr).ends_with("main.plenty:4:11: division by zero\n")
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "error: main.plenty:4:11: division by zero\n"
+    );
+}
+
+/// Generated code is independent of the source directory (see "Reproducible
+/// artifacts" in the linking reference), so a report cannot carry an absolute
+/// path.
+#[test]
+fn a_trap_names_its_file_relative_to_the_source_root() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("app/tools")).unwrap();
+    std::fs::write(
+        dir.path().join("app/tools/numbers.plenty"),
+        "pub def half(total: i64, parts: i64) -> i64:\n    total // parts\n",
+    )
+    .unwrap();
+    let source = dir.path().join("app/main.plenty");
+    std::fs::write(
+        &source,
+        "import app.tools.numbers\ndef main() -> Result[(), Failure]:\n    zero = 0\n    print(app.tools.numbers.half(8, zero))?\n    Ok(())\n",
+    )
+    .unwrap();
+    let program = dir.path().join("program");
+    plenty::compile_file_to_executable(&source, &program, Some(dir.path())).unwrap();
+    let output = Command::new(&program).output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "error: app/tools/numbers.plenty:2:5: division by zero\n"
     );
 }
 

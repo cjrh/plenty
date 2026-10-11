@@ -25,3 +25,35 @@ counts once; this is not a byte count or a count of visible grapheme clusters.
 
 Strings are immutable. A `mut` binding allows replacing a string, rather than
 editing its bytes.
+
+Compare strings in Unicode scalar order, inspect ASCII characters, or convert
+a single character to its code point:
+
+```plenty
+def main() -> Result[(), Failure]:
+    print("apple" < "pear")?
+    print("abc".isalpha())?
+    print("123".isdigit())?
+    print(ord("é")?)?
+    print(chr(233)?)?
+    print("Hello".lower()?)?
+    print("Straße".upper()?)?
+    print("  one\t two\n".split()?)?
+    Ok(())
+```
+
+```output
+True
+True
+True
+233
+é
+hello
+STRASSE
+["one", "two"]
+```
+
+`ord` requires exactly one Unicode scalar; `chr` takes a `u32` code point and
+rejects surrogates and values outside Unicode. Both return `Result` and allocate
+nothing. Case conversion and splitting return fallible, independently owned
+results. The ASCII predicates return false for empty or non-ASCII text.

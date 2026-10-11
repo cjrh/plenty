@@ -38,6 +38,7 @@ pub(super) struct AccessMap {
 
 pub(super) struct Resolved {
     pub(super) source_paths: Vec<PathBuf>,
+    pub(super) source_root: Option<PathBuf>,
     pub(super) functions: Vec<Function>,
     pub(super) declarations: Vec<TypeAlias>,
     pub(super) enums: Vec<enums::EnumDecl>,
@@ -386,6 +387,7 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
     let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
     result.source_paths = loader.loaded.into_keys().collect();
     result.source_paths.sort();
+    result.source_root = Some(loader.root);
     Ok(result)
 }
 
@@ -827,6 +829,7 @@ fn resolve(
         .collect();
     let mut result = Resolved {
         source_paths: vec![],
+        source_root: None,
         protocols: vec![],
         functions: vec![],
         declarations: vec![],

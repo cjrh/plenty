@@ -8,7 +8,7 @@ class Point:
     x: i64
 mut points = {"a": Point(1), "b": Point(2)}.unwrap()
 for key, point in points.items():
-    print((key, point.x)).unwrap()
+    print((*key, point.x)).unwrap()
 for key, point in (&mut points).items():
     point.x = point.x + 10
 print([point.x for key, point in points.items() if key == "b"].unwrap()).unwrap()
@@ -16,7 +16,7 @@ print(points).unwrap()
 mut counts = {"a": 1, "b": 2}.unwrap()
 for key, value in &mut counts.items():
     *value = *value * 2
-print([(k, v) for k, v in counts.items()].unwrap()).unwrap()
+print([(*k, *v) for k, v in counts.items()].unwrap()).unwrap()
 x = 99
 print([x + y for x, y in [(1, 2), (3, 4)].unwrap()].unwrap()).unwrap()
 for x, y in [(5, 6)].unwrap():

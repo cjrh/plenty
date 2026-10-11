@@ -64,7 +64,7 @@ List `get` has the same element restrictions as dictionary `get`. For owned
 elements, use `pop` to transfer ownership, `copy(items[index])?` to duplicate
 one, or `&items[index]` to borrow it. Ordinary indexing still traps when the
 index is out of range. The report gives the source position, the index, and the
-length: `error: /home/ada/main.plenty:3:11: index out of bounds: index 5, length 3`.
+length: `error: main.plenty:3:11: index out of bounds: index 5, length 3`.
 
 Both forms of `get` leave their source unchanged. Numbers, booleans, and
 enums copy; strings share immutable storage. The returned value remains valid

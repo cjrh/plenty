@@ -228,7 +228,7 @@ print(data).unwrap()
 print(data.keys().unwrap()).unwrap()
 print(data.values().unwrap()).unwrap()
 print(copy(data).unwrap() == data).unwrap()
-print([k for k in &data].unwrap()).unwrap()
+print([*k for k in &data].unwrap()).unwrap()
 for key, value in data.items():
     print(key).unwrap()
     print(value).unwrap()

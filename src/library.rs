@@ -146,7 +146,7 @@ pub fn compile_file_to_library(
             // the native linker extract only required members, without a main.
             std::fs::write(&built, RUNTIME)?;
             let result = Command::new(&options.archiver)
-                .arg("rcs")
+                .arg("rcsD")
                 .arg(&built)
                 .arg(&object)
                 .output()

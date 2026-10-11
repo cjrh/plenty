@@ -126,7 +126,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
     "conflicting borrow"
 )]
 #[case(
-    "mut a = [1].unwrap()\nfor x in &a:\n    a.append(x).unwrap()",
+    "mut a = [1].unwrap()\nfor x in &a:\n    a.append(*x).unwrap()",
     "conflicting borrow"
 )]
 #[case(
@@ -212,7 +212,7 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
 )]
 #[case::loop_over_borrow(
     "",
-    "    mut a = [1]?\n    for x in &a:\n        a.append(x)?\n",
+    "    mut a = [1]?\n    for x in &a:\n        a.append(*x)?\n",
     "4:9: conflicting borrow: cannot modify or exclusively borrow `a` while it is borrowed
   3:15: note: the shared borrow of `a` starts here
   3:15: note: the borrow is used again here on the next loop iteration"

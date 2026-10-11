@@ -51,11 +51,13 @@ remain the system's limits, and core-file policy follows the system.
 An operation that can [trap](../../language/08-errors/02-allocation-and-traps.md)
 passes its runtime helper a pointer to its source position. Positions are
 twelve-byte records (line, column, and the offset to a length-prefixed file
-name) in one read-only table per object, deduplicated by position. The table is
+name) in one read-only table per object, deduplicated by position. File names
+are relative to the source root, which keeps objects
+[independent of the source directory](../01-building/linking.md). The table is
 a local symbol with no relocations, so each Plenty library in a program keeps
 its own.
 
-Inline checks (integer overflow, division by zero, `unwrap`) compute the pointer
+Inline checks (integer overflow, division by zero, shift counts, `unwrap`) compute the pointer
 in their cold trap block, so the passing path gains nothing. Collection helpers
 that check an index, key, range parameter, or separator take it as an argument:
 one address computation per call. The collection dispatcher writes its result at

@@ -78,7 +78,7 @@ mod sites;
 #[cfg(test)]
 mod tail_tests;
 mod threads;
-use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
+use crate::op::{self, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
 use output::Output;
@@ -363,9 +363,8 @@ fn object_bytes(
     out.finish()
 }
 
-/// Build an `ISA` for the host target. Cranelift's `native` crate
-/// inspects the running CPU's features so emitted code can take
-/// advantage of what's available without us having to enumerate it.
+/// Build the target's baseline ISA without inspecting the running CPU.
+/// On x86-64 this is the original SSE2 baseline, not host-specific extensions.
 fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::validate_target(None)?;
     let mut flags = settings::builder();
@@ -396,7 +395,8 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
             "false"
         },
     )?;
-    let isa_builder = cranelift_native::builder().map_err(|e| -> Box<dyn Error> { e.into() })?;
+    let isa_builder = cranelift_native::builder_with_options(false)
+        .map_err(|e| -> Box<dyn Error> { e.into() })?;
     let isa = isa_builder.finish(settings::Flags::new(flags))?;
     if isa.triple().to_string() != crate::native_target() || isa.pointer_type() != PTR_TY {
         return Err(
@@ -449,6 +449,9 @@ struct Runtime {
     /// with the site's position to stderr and `exit(1)`s. The lowerer calls
     /// this from the overflow branch of every checked arithmetic op.
     trap_overflow: FuncId,
+    /// `plenty_trap_shift(site) -> !` — prints `error: shift count outside
+    /// integer width` with the site's position to stderr and `exit(1)`s.
+    trap_shift: FuncId,
     /// `plenty_trap_div_zero(site) -> !` — prints `error: division by zero`
     /// with the site's position to stderr and `exit(1)`s. Called from the
     /// zero-check branch of the `Div` lowering.
@@ -595,6 +598,7 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         concat: two_args_one_return(module, "plenty_concat", PTR_TY, PTR_TY, PTR_TY)?,
         str_eq: two_args_one_return(module, "plenty_str_eq", PTR_TY, PTR_TY, types::I8)?,
         trap_overflow: one_arg(module, "plenty_trap_overflow", PTR_TY)?,
+        trap_shift: one_arg(module, "plenty_trap_shift", PTR_TY)?,
         trap_div_zero: one_arg(module, "plenty_trap_div_zero", PTR_TY)?,
         trap_unwrap: {
             let mut sig = module.make_signature();
@@ -703,7 +707,8 @@ struct UserFn {
     sig: Rc<FnSig>,
     body: Rc<[Op]>,
     locals: Rc<[Ty]>,
-    /// File that defines the body, for trap positions.
+    /// File that defines the body, relative to the source root, for trap
+    /// positions.
     source: Option<Rc<str>>,
 }
 
@@ -779,7 +784,7 @@ fn collect_user_fns(
                         sig: Rc::clone(&f.sig),
                         body: Rc::clone(&f.body),
                         locals: Rc::clone(&f.locals),
-                        source: f.origins.source.clone(),
+                        source: f.origins.trap_file.clone(),
                     },
                 );
                 collect_user_fns(&f.body, module, out)?;
@@ -1092,6 +1097,7 @@ enum ArithKind {
 enum TrapKind {
     Overflow,
     DivZero,
+    Shift,
     /// `unwrap()` on `Nothing` when `option`, otherwise on `Err`.
     Unwrap {
         option: bool,
@@ -1357,6 +1363,7 @@ impl Lowerer<'_, '_> {
             Op::Div => self.lower_div(false)?,
             Op::FloorDiv => self.lower_div(true)?,
             Op::Modulo => self.lower_modulo()?,
+            Op::Integer(kind) => self.lower_integer(*kind)?,
             Op::Eq => self.lower_eq()?,
             Op::Lt => self.int_cmp(IntCC::SignedLessThan, IntCC::UnsignedLessThan)?,
             Op::Gt => self.int_cmp(IntCC::SignedGreaterThan, IntCC::UnsignedGreaterThan)?,
@@ -1581,6 +1588,39 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    fn lower_integer(&mut self, kind: IntegerOp) -> Result<()> {
+        if kind == IntegerOp::Not {
+            let (value, ty) = self.stack.pop().ok_or("empty bitwise complement")?;
+            let result = self.bcx.ins().bnot(value);
+            self.stack.push((result, ty));
+            return Ok(());
+        }
+        let (a, b, ty) = self.pop_pair()?;
+        if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
+            // Unsigned comparison rejects negative signed counts as well.
+            let width = clif_type(ty.clone()).bits();
+            let invalid =
+                self.bcx
+                    .ins()
+                    .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, b, i64::from(width));
+            self.trap_if(invalid, TrapKind::Shift)?;
+        }
+        let result = match kind {
+            IntegerOp::And => self.bcx.ins().band(a, b),
+            IntegerOp::Or => self.bcx.ins().bor(a, b),
+            IntegerOp::Xor => self.bcx.ins().bxor(a, b),
+            IntegerOp::ShiftLeft => self.bcx.ins().ishl(a, b),
+            IntegerOp::ShiftRight if is_signed(ty.clone()) => self.bcx.ins().sshr(a, b),
+            IntegerOp::ShiftRight => self.bcx.ins().ushr(a, b),
+            IntegerOp::WrappingAdd => self.bcx.ins().iadd(a, b),
+            IntegerOp::WrappingSub => self.bcx.ins().isub(a, b),
+            IntegerOp::WrappingMul => self.bcx.ins().imul(a, b),
+            IntegerOp::Not => unreachable!(),
+        };
+        self.stack.push((result, ty));
+        Ok(())
+    }
+
     /// Check divisor zero and signed INT_MIN/-1 before emitting division,
     /// so both failures produce runtime diagnostics instead of hardware traps.
     fn lower_div(&mut self, floor: bool) -> Result<()> {
@@ -1686,6 +1726,7 @@ impl Lowerer<'_, '_> {
         let (helper, arguments) = match kind {
             TrapKind::Overflow => (self.runtime.trap_overflow, vec![site]),
             TrapKind::DivZero => (self.runtime.trap_div_zero, vec![site]),
+            TrapKind::Shift => (self.runtime.trap_shift, vec![site]),
             TrapKind::Unwrap { option } => {
                 let option = self.bcx.ins().iconst(types::I64, i64::from(option));
                 (self.runtime.trap_unwrap, vec![site, option])
@@ -1704,6 +1745,19 @@ impl Lowerer<'_, '_> {
     /// Lower numeric ordering with IEEE float or signedness-aware integer comparisons.
     fn int_cmp(&mut self, signed: IntCC, unsigned: IntCC) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
+        if ty == Ty::Str {
+            let order = self.collection_call(
+                crate::collection::CollectionOp::TextCompare.opcode(),
+                &[a, b],
+                None,
+            )?;
+            let order = self.bcx.ins().ireduce(types::I64, order);
+            let value = self.bcx.ins().icmp_imm(signed, order, 0);
+            self.release(a, &ty);
+            self.release(b, &ty);
+            self.stack.push((value, Ty::Bool));
+            return Ok(());
+        }
         if ty.is_float() {
             let cc = match signed {
                 IntCC::SignedLessThan => FloatCC::LessThan,

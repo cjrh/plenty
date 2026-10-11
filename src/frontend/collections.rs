@@ -750,12 +750,8 @@ impl Lower<'_> {
         let Ty::Dict(key, value) = &ty else {
             return Err(base.at.error("items requires a dictionary"));
         };
-        let by_ref = mutable || value.affine();
-        let value_ty = if by_ref {
-            Ty::Ref(value.clone(), mutable)
-        } else {
-            (**value).clone()
-        };
+        let value_ty = Ty::Ref(value.clone(), mutable);
+        let key_ty = Ty::Ref(key.clone(), false);
         let (_, loan) = self.borrow(base, mutable, ops)?;
         self.loans[loan].precise = false;
         for op in ops.iter_mut() {
@@ -768,7 +764,7 @@ impl Lower<'_> {
         ops.push(Op::ReadRef(ty.clone()));
         let source = self.slot(ty.clone(), &base.at)?;
         let index = self.slot(Ty::I64, &base.at)?;
-        let key_slot = self.slot((**key).clone(), &base.at)?;
+        let key_slot = self.slot(key_ty.clone(), &base.at)?;
         let value_slot = self.slot(value_ty.clone(), &base.at)?;
         ops.extend([
             Op::StoreLocal(source),
@@ -777,31 +773,23 @@ impl Lower<'_> {
             Op::StoreLocal(index),
         ]);
         let mut body = vec![
-            Op::LoadLocal(source),
+            Op::BorrowLocal(source, false),
             Op::LoadLocal(index),
-            Op::Collection(CollectionOp::HashIterGet(ty.clone())),
+            Op::Collection(CollectionOp::HashIterKeyRef(ty.clone())),
             Op::StoreLocal(key_slot),
         ];
-        body.push(if by_ref {
-            Op::BorrowLocal(source, mutable)
-        } else {
-            Op::LoadLocal(source)
-        });
+        body.push(Op::BorrowLocal(source, mutable));
         body.extend([
             Op::LoadLocal(key_slot),
-            Op::Collection(if by_ref {
-                CollectionOp::ElementRef(ty.clone(), mutable)
-            } else {
-                CollectionOp::Get(ty.clone())
-            }),
+            Op::ReadRef((**key).clone()),
+            Op::Collection(CollectionOp::ElementRef(ty.clone(), mutable)),
             Op::StoreLocal(value_slot),
             Op::UseLoan(loan),
         ]);
-        if by_ref {
-            self.reference_locals.insert(value_slot, loan);
-        }
+        self.reference_locals.insert(key_slot, loan);
+        self.reference_locals.insert(value_slot, loan);
         for (name, slot, ty) in [
-            (&names[0], key_slot, (**key).clone()),
+            (&names[0], key_slot, key_ty),
             (&names[1], value_slot, value_ty.clone()),
         ] {
             if name != "_" {
@@ -903,21 +891,33 @@ impl Lower<'_> {
             ops.push(Op::ReadRef((*ty).clone()));
             ((*ty).clone(), vec![loan])
         } else if borrowed {
-            self.observe(iterable, ops)?
+            let base = match &iterable.kind {
+                Expression::Unary(_, base) => &**base,
+                _ => iterable,
+            };
+            let (reference, loan) = self.shared_argument(base, None, ops)?;
+            let Ty::Ref(ty, _) = reference else {
+                unreachable!()
+            };
+            ops.push(Op::ReadRef((*ty).clone()));
+            ((*ty).clone(), vec![loan])
         } else {
             (self.value(iterable, ops)?, vec![])
         };
         if borrowed && matches!(ty, Ty::Generator(_)) {
             return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
         }
-        let references = borrowed
-            && matches!(ty, Ty::List(_))
-            && (mutable || ty.element().is_some_and(|t| t.affine()));
+        let references = borrowed && matches!(ty, Ty::List(_) | Ty::Dict(..) | Ty::Set(_));
+        if mutable && !matches!(ty, Ty::List(_)) {
+            return Err(iterable.at.error(
+                "mutable iteration requires a list; use items for mutable dictionary values",
+            ));
+        }
         if borrowed && !references && ty.element().is_some_and(|t| t.affine()) {
             return Err(iterable.at.error("borrowed iteration of owned elements is not supported; iterate an owned collection or copy it"));
         }
         let mut plan = if references {
-            self.borrowed_list_iteration(ty.clone(), mutable, &iterable.at, ops)?
+            self.borrowed_collection_iteration(ty.clone(), mutable, &iterable.at, ops)?
         } else {
             self.iteration_on_stack(ty.clone(), &iterable.at, ops)?
         };
@@ -932,6 +932,20 @@ impl Lower<'_> {
                 }
             }
             self.reference_locals.insert(plan.target, loan);
+        } else if borrowed {
+            // Text scalars and range elements are computed values. Their shared
+            // reference points to an iteration-local slot, not into the source.
+            let value_slot = plan.target;
+            let reference_slot =
+                self.slot(Ty::Ref(Rc::new(ty.element().unwrap()), false), &iterable.at)?;
+            let loan = self.new_loan(value_slot, false, None, &mut plan.body);
+            plan.body.extend([
+                Op::BorrowLocal(value_slot, false),
+                Op::StoreLocal(reference_slot),
+            ]);
+            self.reference_locals.insert(reference_slot, loan);
+            plan.target = reference_slot;
+            plan.step.push(Op::DropLocal(value_slot));
         }
         self.finish_temporaries(temporary_start, ops);
         plan.condition
@@ -941,7 +955,7 @@ impl Lower<'_> {
             name.clone(),
             Local {
                 slot: plan.target,
-                ty: if references {
+                ty: if borrowed {
                     Ty::Ref(Rc::new(ty.element().unwrap()), mutable)
                 } else {
                     ty.element().unwrap()
@@ -966,7 +980,7 @@ impl Lower<'_> {
         Ok(plan)
     }
 
-    fn borrowed_list_iteration(
+    fn borrowed_collection_iteration(
         &mut self,
         ty: Ty,
         mutable: bool,
@@ -982,18 +996,41 @@ impl Lower<'_> {
             Op::StoreLocal(index),
         ]);
         let mut step = Vec::new();
-        increment(index, &mut step);
-        Ok(Iteration {
-            condition: vec![
+        let hashed = matches!(ty, Ty::Dict(..) | Ty::Set(_));
+        if hashed {
+            ops.extend([
+                Op::LoadLocal(source),
+                Op::Collection(CollectionOp::HashIterFirst(ty.clone())),
+                Op::StoreLocal(index),
+            ]);
+            step.extend([
+                Op::LoadLocal(source),
                 Op::LoadLocal(index),
-                Op::BorrowLocal(source, false),
-                Op::Collection(CollectionOp::ListLenRef(ty.clone())),
-                Op::Lt,
-            ],
+                Op::Collection(CollectionOp::HashIterNext(ty.clone())),
+                Op::StoreLocal(index),
+            ]);
+        } else {
+            increment(index, &mut step);
+        }
+        Ok(Iteration {
+            condition: if hashed {
+                vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne]
+            } else {
+                vec![
+                    Op::LoadLocal(index),
+                    Op::BorrowLocal(source, false),
+                    Op::Collection(CollectionOp::ListLenRef(ty.clone())),
+                    Op::Lt,
+                ]
+            },
             body: vec![
                 Op::BorrowLocal(source, mutable),
                 Op::LoadLocal(index),
-                Op::Collection(CollectionOp::ElementRef(ty, mutable)),
+                Op::Collection(if hashed {
+                    CollectionOp::HashIterKeyRef(ty)
+                } else {
+                    CollectionOp::ElementRef(ty, mutable)
+                }),
                 Op::StoreLocal(target),
             ],
             step,
@@ -1176,11 +1213,12 @@ impl Lower<'_> {
             let value = ty.element().unwrap();
             if value.is_numeric() || value == Ty::Bool {
                 let (_, loan) = self.borrow(base, false, ops)?;
-                let got = self.expr_expected(index, Some(Ty::I64), ops)?;
-                self.same(got, Some(Ty::I64), &index.at)?;
+                let (got, mut reads) = self.observe_expected(index, Some(Ty::I64), ops)?;
+                self.same(Some(got), Some(Ty::I64), &index.at)?;
                 self.mark(&e.at, ops);
                 ops.push(Op::Collection(CollectionOp::ListScalarGetRef(ty)));
-                Self::end_reads(vec![loan], ops);
+                reads.push(loan);
+                Self::end_reads(reads, ops);
                 return Ok(value);
             }
         }
@@ -1224,8 +1262,9 @@ impl Lower<'_> {
                 .at
                 .error("cannot move out of indexed storage; use copy(collection[index])"));
         }
-        let got = self.expr_expected(index, Some(key.clone()), ops)?;
-        self.same(got, Some(key), &index.at)?;
+        let (got, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
+        self.same(Some(got), Some(key), &index.at)?;
+        Self::end_reads(reads, ops);
         self.mark(&e.at, ops);
         if ty == Ty::Str {
             ops.push(Op::Collection(CollectionOp::TextIndex));
@@ -1292,6 +1331,23 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if matches!(name, "wrapping_add" | "wrapping_sub" | "wrapping_mul") {
+            if args.len() != 1 {
+                return Err(base.at.error("wrapping arithmetic takes one argument"));
+            }
+            let ty = self.value(base, ops)?;
+            if !ty.is_int() {
+                return Err(base.at.error("wrapping arithmetic requires integers"));
+            }
+            let argument = self.expr_expected(&args[0], Some(ty.clone()), ops)?;
+            self.same(argument, Some(ty.clone()), &args[0].at)?;
+            ops.push(Op::Integer(match name {
+                "wrapping_add" => IntegerOp::WrappingAdd,
+                "wrapping_sub" => IntegerOp::WrappingSub,
+                _ => IntegerOp::WrappingMul,
+            }));
+            return Ok(Some(ty));
+        }
         if matches!(self.place_type(base), Some(Ty::Task(_))) {
             return self.join_thread(base, name, args, ops);
         }
@@ -1562,6 +1618,29 @@ impl Lower<'_> {
                 "clear requires a mutable list, dictionary, or set binding or class field",
             ));
         }
+        if name == "split" && args.is_empty() {
+            self.same(Some(ty), Some(Ty::Str), &base.at)?;
+            let operation = CollectionOp::TextTrySplitWhitespace;
+            let result = operation.signature().1;
+            ops.push(Op::Collection(operation));
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
+        if matches!(name, "lower" | "upper") {
+            self.same(Some(ty), Some(Ty::Str), &base.at)?;
+            if !args.is_empty() {
+                return Err(base.at.error(format!("{name} takes no arguments")));
+            }
+            let operation = if name == "lower" {
+                CollectionOp::TextTryLower
+            } else {
+                CollectionOp::TextTryUpper
+            };
+            let result = operation.signature().1;
+            ops.push(Op::Collection(operation));
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
         if name == "splitlines" {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if args.len() > 1 {
@@ -1582,15 +1661,16 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if matches!(name, "isascii" | "isspace") {
+        if matches!(name, "isascii" | "isspace" | "isdigit" | "isalpha") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
             }
-            ops.push(Op::Collection(if name == "isascii" {
-                CollectionOp::TextIsAscii
-            } else {
-                CollectionOp::TextIsSpace
+            ops.push(Op::Collection(match name {
+                "isascii" => CollectionOp::TextIsAscii,
+                "isspace" => CollectionOp::TextIsSpace,
+                "isdigit" => CollectionOp::TextIsDigit,
+                _ => CollectionOp::TextIsAlpha,
             }));
             Self::end_reads(loans, ops);
             return Ok(Some(Ty::Bool));
