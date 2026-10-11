@@ -2,7 +2,8 @@
 
 Lists use the [common collection rules](collections.md). Growth through
 `append`, `reserve`, and `extend` is recoverable; indexed replacement allocates
-nothing and traps on a missing index.
+nothing and traps on a missing index. Lists have no `*` repetition; a
+comprehension such as `[0.0 for _ in range(count)]?` builds repeated elements.
 
 ## Lookup and removal
 

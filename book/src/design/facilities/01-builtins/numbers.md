@@ -36,7 +36,8 @@ runtime. Float and non-numeric arguments are compile-time errors, as is
 `str.from(number_or_bool) -> Result[str, AllocError]` observes one scalar.
 Integers use decimal; floats use shortest round-trip debug formatting, including
 a decimal point for whole finite values, `-0.0`, `inf`, `-inf`, and `NaN`;
-booleans use `True` and `False`.
+booleans use `True` and `False`. `str(value)` is not a cast; its diagnostic
+names `str.from`.
 
 Formatting uses bounded temporary storage and fallible output construction;
 [small text results](text.md) require no heap allocation. Aggregate formatting

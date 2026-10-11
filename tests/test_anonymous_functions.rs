@@ -239,7 +239,7 @@ fn inline_closures_keep_the_block_form_diagnostics() {
         ),
         (
             "    apply(def(x: i64) -> i64: x * 2.5, 4)",
-            "expected i64, got f64",
+            "cannot combine i64 with f64; convert with `f64(x)`",
         ),
         (
             "    apply(def(x: i64, y: i64) -> i64: x * y, 4)",

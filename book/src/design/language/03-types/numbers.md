@@ -6,7 +6,9 @@ such as `.5` and `1.` are accepted. Literals must fit their selected width.
 
 Annotations, parameters, returns, and typed arithmetic operands guide
 unsuffixed literals within an expression. Already typed values and suffixed
-literals must match exactly; no numeric widening occurs. Ordinary generic calls
+literals must match exactly; no numeric widening occurs. Operands of different
+numeric types are rejected with the cast that reconciles them, for example
+``cannot combine i64 with f64; convert with `f64(n)` ``. Ordinary generic calls
 have [argument inference rules](../07-generics/inference.md) that do not infer
 one argument's literal width from another.
 

@@ -23,11 +23,16 @@ type, and every continuing path must produce that result. The
 [branch and return rules](../04-expressions/branches.md) define how continuing
 paths join and unreachable statements are rejected.
 
+A string literal that begins a body is the function's documentation, not its
+final expression. A `str` function whose body is only that string is rejected
+with this explanation; write `return "text"` to return the string.
+
 Calls evaluate the callee once, then arguments once from left to right.
 Parameter types supply expected types, including numeric literal context.
 Owned arguments copy or move; reference arguments follow
 [borrowing](../05-ownership/02-borrowing.md). A later argument's `?` cleans up
-already evaluated arguments without entering the callee.
+already evaluated arguments without entering the callee. Arguments are
+positional: `name=value` in a call is rejected as a keyword argument.
 
 A method's first parameter is `self`. Bare `self` means `&Class` in ordinary
 methods and `&mut Class` in `__init__` and `__del__`. Mutating ordinary methods

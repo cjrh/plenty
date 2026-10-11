@@ -196,6 +196,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                     args: vec![],
                 },
                 doc: String::new(),
+                doc_at: None,
                 body,
             });
         }
@@ -268,6 +269,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 inputs: constructor_inputs.clone(),
                 output,
                 doc: String::new(),
+                doc_at: None,
                 body: vec![
                     statement(
                         at,
