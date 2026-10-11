@@ -755,10 +755,35 @@ enum Clause {
 
 struct Parser {
     tokens: Vec<Token>,
+    /// Whether each token lies inside `()`, `[]`, or `{}`. The lexer drops
+    /// layout tokens there, so the parser cannot recover this from `tokens`.
+    in_brackets: Vec<bool>,
     pos: usize,
     type_depth: usize,
 }
 impl Parser {
+    fn new(tokens: Vec<Token>) -> Self {
+        let mut depth = 0usize;
+        let in_brackets = tokens
+            .iter()
+            .map(|token| {
+                if [")", "]", "}"].iter().any(|close| token.is(close)) {
+                    depth = depth.saturating_sub(1);
+                }
+                let inside = depth > 0;
+                if ["(", "[", "{"].iter().any(|open| token.is(open)) {
+                    depth += 1;
+                }
+                inside
+            })
+            .collect();
+        Parser {
+            tokens,
+            in_brackets,
+            pos: 0,
+            type_depth: 0,
+        }
+    }
     fn peek(&self) -> &Token {
         &self.tokens[self.pos]
     }
@@ -1125,6 +1150,33 @@ impl Parser {
                 body: vec![],
             });
         }
+        if anonymous && self.in_brackets[self.pos] {
+            let body = self.inline_body()?;
+            return Ok(Function {
+                once,
+                captures,
+                foreign: None,
+                export: None,
+                type_params,
+                name,
+                at,
+                inputs,
+                output,
+                doc: String::new(),
+                body,
+            });
+        }
+        if anonymous
+            && self.peek().is(":")
+            && self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| t.kind != Kind::Newline)
+        {
+            return Err(self.tokens[self.pos + 1].error(
+                "outside brackets an anonymous function needs an indented body on the next line; the one-expression body is only for brackets",
+            ));
+        }
         let mut body = self.suite()?;
         let doc = if matches!(
             body.first(),
@@ -1164,6 +1216,48 @@ impl Parser {
             doc,
             body,
         })
+    }
+    /// The body of an anonymous function written inside brackets: one
+    /// expression, parsed as the tail expression of an indented body so both
+    /// forms share every later rule. Brackets suspend layout, so statements
+    /// cannot be delimited here.
+    fn inline_body(&mut self) -> Result<Vec<Stmt>> {
+        const BIND_FIRST: &str = "inside brackets an anonymous function body is one expression; bind a function with statements to a name first";
+        self.expect(":")?;
+        let at = self.peek().clone();
+        if at.is("return") {
+            return Err(at.error(
+                "inside brackets an anonymous function body is one expression, and its value is returned; remove `return`",
+            ));
+        }
+        let keyword = [
+            "mut", "pass", "if", "while", "for", "with", "match", "yield", "break", "continue",
+        ]
+        .iter()
+        .any(|keyword| at.is(keyword));
+        let binding = matches!(at.kind, Kind::Word(_))
+            && self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| t.is("=") || t.is(":"));
+        if keyword || binding {
+            return Err(at.error(BIND_FIRST));
+        }
+        let value = self.expr(0)?;
+        let after = self.peek();
+        // A complete expression inside brackets is followed by one of these.
+        // Anything else on a later line starts a second statement; on the
+        // same line the enclosing construct reports what it expected.
+        let ends = [",", ")", "]", "}", ":", "for"]
+            .iter()
+            .any(|end| after.is(end));
+        if after.is("=") || !ends && after.line > self.tokens[self.pos - 1].line {
+            return Err(after.error(BIND_FIRST));
+        }
+        Ok(vec![Stmt {
+            at,
+            kind: Statement::Expr(value),
+        }])
     }
     fn suite(&mut self) -> Result<Vec<Stmt>> {
         self.expect(":")?;
@@ -1421,9 +1515,9 @@ impl Parser {
                 return Err(self.peek().error("nested named functions are not supported; assign an anonymous def expression instead"));
             }
             if min != 0 {
-                return Err(self
-                    .peek()
-                    .error("a multiline anonymous function must be a complete expression"));
+                return Err(self.peek().error(
+                    "an anonymous function must be a complete expression; wrap it in parentheses to use it as an operand",
+                ));
             }
             let at = self.peek().clone();
             let function = self.function_header(None, false, false, true)?;
@@ -1438,6 +1532,13 @@ impl Parser {
             Kind::Text(s) => Expression::Text(s.clone()),
             Kind::Word(s) if s == "True" || s == "False" => Expression::Bool(s == "True"),
             Kind::Word(s) if s == "not" => Expression::Unary(s.clone(), Box::new(self.expr(3)?)),
+            Kind::Word(s) if s == "lambda" => {
+                return Err(at.error(if self.in_brackets[self.pos - 1] {
+                    "`lambda` is not supported; write an anonymous function as `def(name: T) -> U: expression`"
+                } else {
+                    "`lambda` is not supported; write an anonymous function as `def(name: T) -> U:` with an indented body"
+                }));
+            }
             Kind::Word(s) if s == "try" => {
                 return Err(at.error("collection literals already return Result; remove `try` and use postfix `?` to propagate errors"));
             }
@@ -1776,6 +1877,7 @@ pub(crate) fn reserved(name: &str) -> bool {
             | "async"
             | "await"
             | "class"
+            | "lambda"
             | "trait"
             | "protocol"
             | "break"

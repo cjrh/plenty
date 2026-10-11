@@ -126,21 +126,19 @@ pub fn thread_error() -> Ty {
 }
 
 /// A failed consuming start returns the complete job, without allocating an
-/// error object. The native default-attributes path distinguishes resource
-/// failure from permission denial; borrowed starts retain their raw OS code.
+/// error object. Every native start failure is `Unavailable`: the caller can
+/// only retry or run the job itself, so the OS code is not kept. Borrowed
+/// starts retain their raw OS code.
 pub fn spawn_error(job: Ty) -> Ty {
     let Ty::Enum(template) = option(job.clone()) else {
         unreachable!()
     };
     let mut ty = (*template.get()).clone();
     ty.name = format!("SpawnError[{job}]");
-    ty.variants = ["Unavailable", "PermissionDenied"]
-        .into_iter()
-        .map(|name| Variant {
-            name: name.into(),
-            fields: vec![job.clone()],
-        })
-        .collect();
+    ty.variants = vec![Variant {
+        name: "Unavailable".into(),
+        fields: vec![job.clone()],
+    }];
     structural(ty, format!("SpawnError[{}]", job.identity_name()))
 }
 
@@ -164,8 +162,13 @@ pub fn send_error(value: Ty) -> Ty {
     };
     let mut ty = (*template.get()).clone();
     ty.name = format!("SendError[{value}]");
-    ty.variants[0].name = "Full".into();
-    ty.variants[1].name = "Disconnected".into();
+    ty.variants = ["Full", "Disconnected"]
+        .into_iter()
+        .map(|name| Variant {
+            name: name.into(),
+            fields: vec![value.clone()],
+        })
+        .collect();
     structural(ty, format!("SendError[{}]", value.identity_name()))
 }
 

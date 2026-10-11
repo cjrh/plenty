@@ -45,6 +45,13 @@ start error code. The worker has not run and cannot have changed borrowed inputs
 already evaluated argument expressions keep their effects. Errors may be retained
 in a typed Result or erased into `Failure`.
 
+Every nonzero `pthread_create` status is a start failure; none terminates the
+process. The usual code is `EAGAIN` (11), for a thread or memory limit. The
+runtime passes no thread attributes, so other codes come only from the
+environment: a seccomp filter that denies `clone` surfaces its own code, such as
+`EPERM` (1). [Consuming starts](jobs.md) report all of them as
+`SpawnError[F].Unavailable(job)`.
+
 Moved named arguments are consumed even if startup fails: their owners drop
 exactly once on the parent thread, in reverse argument order. On success they
 belong to the worker. Use an [owned closure job](jobs.md) when startup failure

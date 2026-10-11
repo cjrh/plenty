@@ -109,7 +109,7 @@
         - [Walk recursive data with a reference](tutorial/09-generics/recursive-borrowing.md)
     - [10. Functions as values (optional)](tutorial/10-functions/index.md)
         - [Pass functions as values](tutorial/10-functions/named-callbacks.md)
-        - [Multiline anonymous functions](tutorial/10-functions/anonymous-functions.md)
+        - [Anonymous functions](tutorial/10-functions/anonymous-functions.md)
         - [Capture data and private state](tutorial/10-functions/owned-captures.md)
         - [Accept functions and closures through one API](tutorial/10-functions/generic-callback-apis.md)
         - [Borrow in a closure](tutorial/10-functions/borrowed-captures.md)

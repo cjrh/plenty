@@ -152,11 +152,11 @@ impl Lowerer<'_, '_> {
                     // storage. On failure it becomes the residual owner; on
                     // success only the worker owns its relocated copy.
                     let payload = self.pack(arguments[0].0, job);
-                    let denied = self.bcx.ins().icmp_imm(IntCC::Equal, status, 1); // EPERM
-                    let denied = self.bcx.ins().uextend(types::I128, denied);
-                    let denied = self.bcx.ins().ishl_imm(denied, 64);
+                    // Every nonzero status is `Unavailable`. EAGAIN is the
+                    // usual one; a seccomp filter can make clone fail with
+                    // another code such as EPERM, and the job must still
+                    // come back.
                     let error = self.wrap_sum(payload, 0);
-                    let error = self.bcx.ins().bor(error, denied);
                     let error = self.wrap_sum(error, 1);
                     let zero = self.bcx.ins().iconst(types::I64, 0);
                     let zero = self.bcx.ins().uextend(types::I128, zero);

@@ -5,7 +5,7 @@ later. The first lessons need only the core path; generic signatures and records
 also use [type parameters and constraints](../09-generics/index.md).
 
 - [Pass functions as values](named-callbacks.md)
-- [Multiline anonymous functions](anonymous-functions.md)
+- [Anonymous functions](anonymous-functions.md)
 - [Capture data and private state](owned-captures.md)
 - [Accept functions and closures through one API](generic-callback-apis.md)
 - [Borrow in a closure](borrowed-captures.md)

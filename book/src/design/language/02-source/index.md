@@ -10,8 +10,8 @@ one-based line and column positions.
 
 Plenty uses `def`, `True`, `False`, `and`, `or`, `not`, and `pass`. Strings accept
 single, double, or triple quotes; triple quotes permit physical newlines. The
-first standalone string in a function is its documentation. Use `return "text"`
-when that first string should be the returned value.
+first standalone string in an indented function body is its documentation. Use
+`return "text"` when that first string should be the returned value.
 
 Module scope contains functions, classes, enums, protocols, type aliases, and
 imports. Executable statements and bindings belong inside functions; there are

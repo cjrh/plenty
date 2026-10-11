@@ -6,9 +6,7 @@ the worker also moves those inputs into its result.
 ```plenty
 def main() -> Result[(), Failure]:
     values = [3, 4]?
-    job = def once [values]() -> list[i64]:
-        values
-    with spawn(job)? as task:
+    with spawn(def once [values]() -> list[i64]: values)? as task:
         print(task.join())?
     Ok(())
 ```
@@ -17,8 +15,9 @@ def main() -> Result[(), Failure]:
 [3, 4]
 ```
 
-If thread creation fails, its error retains the complete job. Recover it to
-retry or run it locally, as this helper does:
+If thread creation fails, the error is `SpawnError[F].Unavailable(job)`, which
+retains the complete job. Recover it to retry or run it locally, as this helper
+does:
 
 ```plenty
 def attempt[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F]]:
@@ -32,8 +31,6 @@ def run[F: OnceCallable[[], i64]](job: F) -> i64:
         case Err(error):
             match error:
                 case SpawnError[F].Unavailable(job):
-                    job()
-                case SpawnError[F].PermissionDenied(job):
                     job()
 
 def main() -> Result[(), Failure]:
