@@ -69,6 +69,23 @@ impl Parser {
             let pattern = if self.eat("_") {
                 None
             } else {
+                let literal = match &self.peek().kind {
+                    Kind::Text(_) | Kind::Number(_) => true,
+                    Kind::Word(word) => word == "True" || word == "False",
+                    Kind::Symbol(sign) => {
+                        sign == "-"
+                            && self
+                                .tokens
+                                .get(self.pos + 1)
+                                .is_some_and(|t| matches!(t.kind, Kind::Number(_)))
+                    }
+                    _ => false,
+                };
+                if literal {
+                    return Err(self.peek().error(
+                        "literal patterns are not supported; `match` selects enum variants, so compare other values with an `if`/`elif` chain",
+                    ));
+                }
                 let mut ty = self.ty()?;
                 let (owner, variant) = if self.eat(".") {
                     (Some(ty), self.name()?)
@@ -85,6 +102,11 @@ impl Parser {
                 let bindings = if self.eat("(") {
                     let mut bindings = Vec::new();
                     while !self.eat(")") {
+                        if self.peek().is("mut") {
+                            return Err(self.peek().error(
+                                "payload bindings cannot be declared `mut`; bind the payload and move it into a mutable local in the arm, as in `mut local = payload`, or match `&mut value` to change it in place",
+                            ));
+                        }
                         bindings.push(self.name()?);
                         if self.eat(")") {
                             break;
@@ -398,14 +420,14 @@ impl Lower<'_> {
             Ty::Enum(t) => (t.clone(), None),
             Ty::Ref(inner, mutable) => {
                 let Ty::Enum(t) = &**inner else {
-                    return Err(value.at.error("match requires an enum value or reference"));
+                    return Err(value.at.error(NOT_AN_ENUM));
                 };
                 (
                     t.clone(),
                     Some((self.reference_origin(value, ops)?, *mutable)),
                 )
             }
-            _ => return Err(value.at.error("match requires an enum value or reference")),
+            _ => return Err(value.at.error(NOT_AN_ENUM)),
         };
         let source = self.slot(ty, &value.at)?;
         ops.push(Op::StoreLocal(source));
@@ -591,6 +613,9 @@ impl Lower<'_> {
         Ok(joined.map_or(BlockResult::Exits, BlockResult::Continues))
     }
 }
+
+const NOT_AN_ENUM: &str =
+    "match requires an enum value or reference; compare other values with an `if`/`elif` chain";
 
 pub(super) fn prelude_variant(name: &str) -> bool {
     matches!(name, "Ok" | "Err" | "Some" | "Nothing")

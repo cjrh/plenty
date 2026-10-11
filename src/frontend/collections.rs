@@ -11,6 +11,17 @@ impl Parser {
     pub(super) fn arguments(&mut self) -> Result<Vec<Expr>> {
         let mut args = Vec::new();
         while !self.eat(")") {
+            // `=` is not an expression operator, so `name =` here can only be
+            // a keyword argument.
+            if let (Kind::Word(name), Some(next)) =
+                (&self.peek().kind, self.tokens.get(self.pos + 1))
+            {
+                if next.is("=") {
+                    return Err(self.peek().error(format!(
+                        "keyword arguments are not supported; pass the value by position, without `{name}=`"
+                    )));
+                }
+            }
             args.push(self.expr(0)?);
             if self.eat(")") {
                 break;
@@ -572,7 +583,14 @@ impl Lower<'_> {
         )?;
         self.names = saved;
         let ty = ty.ok_or_else(|| {
-            e.at.error("empty collection needs a Result type annotation")
+            let (annotation, display) = if kind == "list" {
+                ("list[i64]", "[]")
+            } else {
+                ("dict[str, i64]", "{}")
+            };
+            e.at.error(format!(
+                "empty collection needs a type; annotate the binding, as in `name: {annotation} = {display}?`, or use a typed constructor, as in `{annotation}()?`"
+            ))
         })?;
         if ty.layout_depth() >= 64 {
             return Err(e

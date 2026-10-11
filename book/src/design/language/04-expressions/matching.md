@@ -22,7 +22,13 @@ standard `Some`, `Nothing`, `Ok`, and `Err` patterns use the scrutinee's type.
 
 Coverage must be exhaustive. Duplicate variants, redundant wildcards, incorrect
 payload arity, and wrong enum identities are errors. Nested patterns, guards,
-OR patterns, and scalar matching are unsupported.
+OR patterns, and scalar matching are unsupported. A literal pattern such as
+`case "text":` or `case 1:`, or a scrutinee that is not an enum, is rejected
+with advice to use an `if`/`elif` chain.
+
+Payload bindings cannot be declared `mut`. To change an owned payload, move it
+into a mutable local inside the arm (`mut local = payload`); to change it in
+place, match `&mut value`.
 
 Continuing arms must agree on their result type. Arms ending in `return`, `break`,
 or `continue` contribute no join value. A function-tail match supplies the final

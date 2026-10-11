@@ -309,7 +309,7 @@ impl Lower<'_> {
         match &e.kind {
             Expression::Group(e) => self.named_place(e),
             Expression::Name(name) => {
-                let local = self.names.get(name).cloned().ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
+                let local = self.names.get(name).cloned().ok_or_else(|| e.at.error(self.unknown_binding(name)))?;
                 if local.ty == Ty::Unit {
                     return Err(e.at.error("expected a value, got ()"));
                 }

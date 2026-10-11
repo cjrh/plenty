@@ -41,9 +41,9 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 }
 
 #[rstest]
-#[case("print(1.0f64 + 1i64).unwrap()", "expected f64, got i64")]
+#[case("print(1.0f64 + 1i64).unwrap()", "cannot combine f64 with i64")]
 #[case("x: f32 = 1.0f64", "expected f32, got f64")]
-#[case("print(1f32 + 1f64).unwrap()", "expected f32, got f64")]
+#[case("print(1f32 + 1f64).unwrap()", "cannot combine f32 with f64")]
 #[case("print(1 / 2).unwrap()", "use `//`")]
 #[case("print(1.0 // 2.0).unwrap()", "require integers")]
 #[case("print(1.0 % 2.0).unwrap()", "require integers")]

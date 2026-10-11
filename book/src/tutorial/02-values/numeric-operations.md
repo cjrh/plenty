@@ -9,7 +9,7 @@ def main() -> ():
 ```
 
 ```error
-expected u8, got i64
+cannot combine u8 with i64; convert with `i64(small)`
 ```
 
 Choose a matching literal or explicitly convert a value:

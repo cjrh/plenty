@@ -410,6 +410,8 @@ struct Function {
     inputs: Vec<(String, TypeRef)>,
     output: TypeRef,
     doc: String,
+    /// Where the docstring was written, for diagnostics about a body that is only a docstring.
+    doc_at: Option<Token>,
     body: Vec<Stmt>,
 }
 
@@ -1203,6 +1205,7 @@ impl Parser {
                 inputs,
                 output,
                 doc: String::new(),
+                doc_at: None,
                 body: vec![],
             });
         }
@@ -1219,6 +1222,7 @@ impl Parser {
                 inputs,
                 output,
                 doc: String::new(),
+                doc_at: None,
                 body,
             });
         }
@@ -1234,7 +1238,7 @@ impl Parser {
             ));
         }
         let mut body = self.suite()?;
-        let doc = if matches!(
+        let (doc, doc_at) = if matches!(
             body.first(),
             Some(Stmt {
                 kind: Statement::Expr(Expr {
@@ -1248,16 +1252,16 @@ impl Parser {
                 kind:
                     Statement::Expr(Expr {
                         kind: Expression::Text(s),
-                        ..
+                        at,
                     }),
                 ..
             } = body.remove(0)
             else {
                 unreachable!()
             };
-            s
+            (s, Some(at))
         } else {
-            String::new()
+            (String::new(), None)
         };
         Ok(Function {
             once,
@@ -1270,6 +1274,7 @@ impl Parser {
             inputs,
             output,
             doc,
+            doc_at,
             body,
         })
     }
@@ -1649,15 +1654,7 @@ impl Parser {
                         Expression::Constructor(ty, self.arguments()?)
                     }
                 } else if self.eat("(") {
-                    let mut args = Vec::new();
-                    while !self.eat(")") {
-                        args.push(self.expr(0)?);
-                        if self.eat(")") {
-                            break;
-                        }
-                        self.expect(",")?;
-                    }
-                    Expression::Call(s.clone(), args)
+                    Expression::Call(s.clone(), self.arguments()?)
                 } else {
                     Expression::Name(s.clone())
                 }
@@ -1790,7 +1787,20 @@ impl Parser {
             if not_in {
                 self.take();
             }
-            let right = self.expr(prec + 1)?;
+            // `a ** b` parses as `a * (*b)`, which is valid when `b` is a
+            // reference. Mark the dereference so that its failure reports
+            // the missing operator rather than a dereference.
+            let power = op == "*"
+                && self.peek().is("*")
+                && self.peek().line == token.line
+                && self.peek().column == token.column + 1;
+            let mut right = self.expr(prec + 1)?;
+            if power && matches!(&right.kind, Expression::Unary(op, _) if op == "*") {
+                right.at = Token {
+                    kind: Kind::Symbol("**".into()),
+                    ..token.clone()
+                };
+            }
             let at = left.at.clone();
             left = Expr {
                 at,
@@ -2091,6 +2101,16 @@ impl Lower<'_> {
             _ => ops.push(Op::Site(site)),
         }
     }
+    /// `slot_names` keeps every binding this function has made, so a name
+    /// found there but no longer in `names` left scope with its block.
+    fn unknown_binding(&self, name: &str) -> String {
+        let hint = if self.slot_names.iter().flatten().any(|n| &**n == name) {
+            format!("; a binding declared inside a block ends with that block; bind `mut {name}` to a value before the block and assign it inside")
+        } else {
+            String::new()
+        };
+        format!("unknown binding `{name}`{hint}")
+    }
     /// Attribute a runtime trap in the integer operation pushed next to `at`.
     fn mark_arithmetic(&self, op: &str, ty: &Ty, at: &Token, ops: &mut Vec<Op>) {
         if !ty.is_float() && matches!(op, "+" | "-" | "*" | "//" | "%" | "<<" | ">>") {
@@ -2150,14 +2170,34 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let (a, mut loans) = self.observe_expected(left, Some(ty.clone()), ops)?;
+        if a.is_numeric() && a != ty && self.fixes_numeric_type(right, &ty) {
+            return Err(mixed_numeric(left, &a, right, &ty));
+        }
+        if op == "*" && matches!(a, Ty::List(_)) {
+            return Err(left.at.error(LIST_REPETITION));
+        }
         self.same(Some(a), Some(ty.clone()), &left.at)?;
         let (b, other_loans) = self.observe_expected(right, Some(ty.clone()), ops)?;
+        if b.is_numeric() && b != ty && self.fixes_numeric_type(left, &ty) {
+            return Err(mixed_numeric(left, &ty, right, &b));
+        }
+        if op == "*" && matches!(b, Ty::List(_)) {
+            return Err(right.at.error(LIST_REPETITION));
+        }
         self.same(Some(b), Some(ty.clone()), &right.at)?;
         loans.extend(other_loans);
         self.mark_arithmetic(op, &ty, at, ops);
         let output = Self::numeric_operation(op, ty, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(output)
+    }
+    /// Whether `e` has the numeric type `ty` by itself. When `ty` instead came
+    /// from an annotation, a mismatching operand disagrees with that context
+    /// and not with the other operand.
+    fn fixes_numeric_type(&self, e: &Expr, ty: &Ty) -> bool {
+        self.numeric_hint(e).as_ref() == Some(ty)
+            || (ty.is_float()
+                && matches!(&ungroup(e).kind, Expression::Number(n) if n.contains(['.', 'e', 'E'])))
     }
     fn numeric_operation(op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
         if let Some(kind) = IntegerOp::binary(op) {
@@ -2478,7 +2518,7 @@ impl Lower<'_> {
                 let local = self
                     .names
                     .get(name)
-                    .ok_or_else(|| e.at.error(format!("unknown binding `{name}`")))?;
+                    .ok_or_else(|| e.at.error(self.unknown_binding(name)))?;
                 if matches!(local.ty, Ty::Task(_)) {
                     return Err(e.at.error("scoped tasks cannot escape or be copied; use task.join() inside its with block"));
                 }
@@ -2520,6 +2560,11 @@ impl Lower<'_> {
                             return Ok(Some((*content).clone()));
                         }
                         Ty::Ref(ty, _) => ty,
+                        // The parser marks a `*` written directly after a
+                        // multiplication `*`; see the binary operator loop.
+                        _ if e.at.is("**") => {
+                            return Err(e.at.error("exponentiation with `**` is not supported; multiply explicitly, as in `x * x`"))
+                        }
                         _ => {
                             return Err(value.at.error("dereference requires a reference or a Box"))
                         }
@@ -2617,6 +2662,11 @@ impl Lower<'_> {
                 Some(Ty::Bool)
             }
             Expression::Binary(op, left, right) => {
+                if op == "*" {
+                    if let Some(display) = [left, right].into_iter().find_map(|e| list_display(e)) {
+                        return Err(display.at.error(LIST_REPETITION));
+                    }
+                }
                 if op != "and" && op != "or" {
                     if let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right))
                     {
@@ -2642,6 +2692,20 @@ impl Lower<'_> {
                         return Err(e.at.error("closures do not support binary operators"));
                     }
                     return Err(e.at.error("generators do not support binary operators"));
+                }
+                if a.is_numeric() && b.is_numeric() && a != b {
+                    return Err(mixed_numeric(left, &a, right, &b));
+                }
+                if op == "*" {
+                    match (&a, &b) {
+                        (Ty::List(_), other) if other.is_int() => {
+                            return Err(left.at.error(LIST_REPETITION))
+                        }
+                        (other, Ty::List(_)) if other.is_int() => {
+                            return Err(right.at.error(LIST_REPETITION))
+                        }
+                        _ => {}
+                    }
                 }
                 self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
                 if matches!(op.as_str(), "==" | "!=") && a.facts().closure {
@@ -2888,9 +2952,13 @@ impl Lower<'_> {
                     if let Some(target) = target.as_ref().filter(|t| t.is_collection()) {
                         return self.construct(target.clone(), args, &e.at, ops).map(Some);
                     }
-                    let target = target
-                        .filter(|ty| ty.is_numeric())
-                        .ok_or_else(|| e.at.error("only numeric types support cast syntax"))?;
+                    let target = target.filter(|ty| ty.is_numeric()).ok_or_else(|| {
+                        e.at.error(if lookup_type(name, self.aliases) == Some(Some(Ty::Str)) {
+                            "only numeric types support cast syntax; format a number or boolean as text with `str.from(value)?`"
+                        } else {
+                            "only numeric types support cast syntax"
+                        })
+                    })?;
                     if args.len() != 1 {
                         return Err(e.at.error("numeric casts take one argument"));
                     }
@@ -3354,6 +3422,38 @@ impl Lower<'_> {
     }
 }
 
+const LIST_REPETITION: &str = "lists do not support `*` repetition; build the list with a comprehension, such as `[value for _ in range(count)]?`";
+
+/// The list display that `e` is, possibly parenthesized or followed by `?`.
+fn list_display(e: &Expr) -> Option<&Expr> {
+    match &e.kind {
+        Expression::Group(inner) | Expression::Try(inner) => list_display(inner),
+        Expression::Collection { kind, .. } if kind == "list" => Some(e),
+        _ => None,
+    }
+}
+
+/// Arithmetic never converts between numeric types. The suggested cast widens
+/// where one operand's type holds the other's values: to the float of an
+/// integer/float pair, otherwise to the wider type.
+fn mixed_numeric(left: &Expr, a: &Ty, right: &Expr, b: &Ty) -> Box<dyn Error> {
+    let bits = |ty: &Ty| ty.to_string()[1..].parse::<u32>().unwrap_or(0);
+    let convert_left = if a.is_float() == b.is_float() {
+        bits(a) < bits(b)
+    } else {
+        b.is_float()
+    };
+    let (operand, target) = if convert_left { (left, b) } else { (right, a) };
+    let spelled = match &ungroup(operand).kind {
+        Expression::Name(name) => name.as_str(),
+        Expression::Number(text) => text.as_str(),
+        _ => "...",
+    };
+    operand.at.error(format!(
+        "cannot combine {a} with {b}; convert with `{target}({spelled})`"
+    ))
+}
+
 fn ungroup(mut e: &Expr) -> &Expr {
     while let Expression::Group(inner) = &e.kind {
         e = inner;
@@ -3721,6 +3821,15 @@ fn lower_body(
         }
     }
     if let BlockResult::Continues(output) = lower.block(&f.body, &mut body, yield_type.is_none())? {
+        if let Some(doc_at) = f
+            .doc_at
+            .as_ref()
+            .filter(|_| f.body.is_empty() && lower.return_type == Some(Some(Ty::Str)))
+        {
+            return Err(doc_at.error(
+                "expected str, got (); a string at the beginning of a function is its documentation; write `return` before it to return the text",
+            ));
+        }
         lower.refine_return(output, &f.at)?;
     }
     if yield_type.is_none() {

@@ -194,7 +194,7 @@ impl Lower<'_> {
         let local = self
             .names
             .get(name)
-            .ok_or_else(|| at.error(format!("unknown binding `{name}`")))?
+            .ok_or_else(|| at.error(self.unknown_binding(name)))?
             .clone();
         if let Ty::Ref(inner, true) = &local.ty {
             let Ty::Generator(element) = inner.as_ref() else {

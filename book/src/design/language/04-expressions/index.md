@@ -21,7 +21,9 @@ Operator precedence, from highest to lowest:
 | Conditional | `value_if_true if condition else value_if_false` |
 
 Arithmetic operators associate left to right. Parentheses override precedence.
-Chained comparisons are rejected. [Numeric rules](../03-types/numbers.md) specify
+Chained comparisons are rejected. There is no exponentiation operator: `a ** b`
+reads as `a * (*b)`, and when `b` cannot be dereferenced the diagnostic says
+that `**` is unsupported and to multiply explicitly. [Numeric rules](../03-types/numbers.md) specify
 type matching, casts, overflow, and float behavior. Membership follows the
 container's [facilities contract](../../facilities/index.md).
 
