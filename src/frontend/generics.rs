@@ -892,9 +892,18 @@ pub(super) fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) 
                 substitute_expr(value, substitutions)?;
                 substitute_expr(target, substitutions)?;
             }
-            Statement::If { condition, yes, no } => {
+            Statement::If {
+                condition,
+                yes,
+                elifs,
+                no,
+            } => {
                 substitute_expr(condition, substitutions)?;
                 substitute_block(yes, substitutions)?;
+                for elif in elifs {
+                    substitute_expr(&mut elif.condition, substitutions)?;
+                    substitute_block(&mut elif.body, substitutions)?;
+                }
                 substitute_block(no, substitutions)?;
             }
             Statement::While { condition, body } => {

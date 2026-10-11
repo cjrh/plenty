@@ -1,5 +1,6 @@
 //! Checking time must grow linearly with the number of declarations. Each
-//! shape below once copied a whole-program table per declaration (issue #53).
+//! declaration shape below once copied a whole-program table per declaration
+//! (issue #53). The arms of one `if` must cost the same each (issue #70).
 
 use std::time::{Duration, Instant};
 
@@ -25,9 +26,13 @@ fn program(units: usize, unit: impl Fn(usize) -> String) -> String {
 /// declarations; linear checking takes four. Eight separates the two with
 /// room for measurement noise on either side.
 fn assert_linear(shape: &str, unit: impl Fn(usize) -> String) {
+    assert_linear_sources(shape, |units| program(units, &unit));
+}
+
+fn assert_linear_sources(shape: &str, source: impl Fn(usize) -> String) {
     const UNITS: usize = 1500;
-    let small = fastest(&program(UNITS, &unit));
-    let large = fastest(&program(UNITS * 4, &unit));
+    let small = fastest(&source(UNITS));
+    let large = fastest(&source(UNITS * 4));
     assert!(
         large < small * 8,
         "{shape}: {UNITS} units took {small:?}, {} took {large:?}",
@@ -53,5 +58,17 @@ fn checking_functions_is_linear() {
 fn checking_protocols_is_linear() {
     assert_linear("protocols", |i| {
         format!("protocol Readable{i}:\n    def read(self) -> i64:\n        pass\n\n")
+    });
+}
+
+#[test]
+fn checking_elif_arms_is_linear() {
+    assert_linear_sources("elif arms", |arms| {
+        let mut source = String::from("def pick(x: i64) -> i64:\n    if x == 0:\n        0\n");
+        for i in 1..arms {
+            source.push_str(&format!("    elif x == {i}:\n        {i}\n"));
+        }
+        source.push_str("    else:\n        -1\ndef main() -> ():\n    pass\n");
+        source
     });
 }

@@ -170,6 +170,19 @@ fn expression_endings(
                 expression_endings(&arm.body, site, endings);
             }
         }
+        Some(Op::If {
+            then,
+            elifs,
+            otherwise,
+        }) => {
+            expression_endings(then, site, endings);
+            let mut site = site;
+            for arm in elifs.iter() {
+                site = crate::ownership::site_after(&arm.condition, site);
+                expression_endings(&arm.body, site, endings);
+            }
+            expression_endings(otherwise, site, endings);
+        }
         _ => {}
     }
 }
@@ -284,6 +297,20 @@ fn tail_sites(
             Op::Loop { condition, body } => {
                 tail_sites(condition, site, sites);
                 tail_sites(body, site, sites);
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                tail_sites(then, site, sites);
+                let mut site = site;
+                for arm in elifs.iter() {
+                    tail_sites(&arm.condition, site, sites);
+                    site = crate::ownership::site_after(&arm.condition, site);
+                    tail_sites(&arm.body, site, sites);
+                }
+                tail_sites(otherwise, site, sites);
             }
             Op::Try { cleanup, .. } => tail_sites(cleanup, site, sites),
             _ => {}

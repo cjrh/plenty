@@ -510,15 +510,27 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         }
                         return Ok(None);
                     }
-                    Statement::If { condition, yes, no } => {
+                    Statement::If {
+                        condition,
+                        yes,
+                        elifs,
+                        no,
+                    } => {
                         self.expr(condition, &set)?;
-                        let a = self.block(yes, set.clone())?;
-                        let b = self.block(no, set.clone())?;
-                        match (a, b) {
-                            (Some(a), Some(b)) => set = a.intersection(&b).cloned().collect(),
-                            (Some(a), None) | (None, Some(a)) => set = a,
-                            (None, None) => return Ok(None),
+                        let mut continuing = Vec::new();
+                        continuing.extend(self.block(yes, set.clone())?);
+                        for elif in elifs {
+                            self.expr(&elif.condition, &set)?;
+                            continuing.extend(self.block(&elif.body, set.clone())?);
                         }
+                        continuing.extend(self.block(no, set.clone())?);
+                        let Some(mut merged) = continuing.pop() else {
+                            return Ok(None);
+                        };
+                        for s in continuing {
+                            merged.retain(|n| s.contains(n));
+                        }
+                        set = merged;
                     }
                     Statement::While { condition, body } => {
                         self.expr(condition, &set)?;

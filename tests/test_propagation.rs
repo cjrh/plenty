@@ -147,25 +147,31 @@ fn all_sixty_four_tag_bits_survive_calls_and_unwrapping() {
         text.push_str(&format!("type T{n} = Option[T{}]\n", n - 1));
         text
     });
-    let present = format!(
-        "{}18446744073709551615u64{}",
-        "Some(".repeat(64),
-        ")".repeat(64)
-    );
-    let absent = format!("{}Nothing{}", "Some(".repeat(63), ")".repeat(63));
+    // Each value is built and unwrapped in two halves: one expression of 64
+    // nested calls would exceed the nesting limit.
+    let wrap = |inner: &str, layers: usize| {
+        format!("{}{inner}{}", "Some(".repeat(layers), ")".repeat(layers))
+    };
+    let half = "?".repeat(32);
     native(
         &format!(
             r#"
 {aliases}
 def unroll(value: {ty}) -> Option[u64]:
-    Some(value{})
+    inner: T32 = value{half}
+    Some(inner{half})
 def main() -> ():
-    a: {ty} = {present}
-    b: {ty} = {absent}
+    present: T32 = {}
+    a: {ty} = {}
+    absent: T32 = {}
+    b: {ty} = {}
     print(unroll(a)).unwrap()
     print(unroll(b)).unwrap()
 "#,
-            "?".repeat(64)
+            wrap("18446744073709551615u64", 32),
+            wrap("present", 32),
+            wrap("Nothing", 31),
+            wrap("absent", 32),
         ),
         "Option[u64].Some(18446744073709551615)\nOption[u64].Nothing\n",
     );

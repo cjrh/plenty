@@ -253,6 +253,18 @@ fn merge(states: &[State], into: &mut State) {
     }
 }
 
+/// The marker in force once `ops` have run, which a body following them
+/// inherits. Markers inside nested bodies do not reach their parent sequence.
+pub(crate) fn site_after(ops: &[Op], inherited: Option<Site>) -> Option<Site> {
+    ops.iter()
+        .rev()
+        .find_map(|op| match op {
+            Op::Site(site) => Some(*site),
+            _ => None,
+        })
+        .or(inherited)
+}
+
 #[derive(Default)]
 struct Node {
     op: Option<Op>,
@@ -300,6 +312,38 @@ fn graph(
                 nodes.push(Node {
                     op: None,
                     successors,
+                    site,
+                });
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                // (marker entering the condition, marker entering the body)
+                let mut entering = site;
+                let markers: Vec<_> = elifs
+                    .iter()
+                    .map(|arm| {
+                        let before = entering;
+                        entering = site_after(&arm.condition, before);
+                        (before, entering)
+                    })
+                    .collect();
+                let mut fall = graph(otherwise, entering, next, targets, nodes);
+                for (arm, (before, after)) in elifs.iter().zip(markers).rev() {
+                    let body = graph(&arm.body, after, next, targets, nodes);
+                    nodes.push(Node {
+                        op: None,
+                        successors: vec![body, fall],
+                        site: after,
+                    });
+                    fall = graph(&arm.condition, before, nodes.len() - 1, targets, nodes);
+                }
+                let then = graph(then, site, next, targets, nodes);
+                nodes.push(Node {
+                    op: None,
+                    successors: vec![then, fall],
                     site,
                 });
             }
@@ -483,6 +527,37 @@ impl Checker<'_> {
                     }
                     merge(&continuing, state);
                 }
+                Op::If {
+                    then,
+                    elifs,
+                    otherwise,
+                } => {
+                    let mut continuing = Vec::new();
+                    let mut next = state.clone();
+                    if self.sequence(then, &mut next, loops, site)? {
+                        continuing.push(next);
+                    }
+                    // `state` follows the path on which every condition so far
+                    // was false, the only one that reaches the next condition.
+                    let mut entering = site;
+                    for arm in elifs.iter() {
+                        if !self.sequence(&arm.condition, state, loops, entering)? {
+                            break;
+                        }
+                        entering = site_after(&arm.condition, entering);
+                        let mut next = state.clone();
+                        if self.sequence(&arm.body, &mut next, loops, entering)? {
+                            continuing.push(next);
+                        }
+                    }
+                    if self.sequence(otherwise, state, loops, entering)? {
+                        continuing.push(state.clone());
+                    }
+                    if continuing.is_empty() {
+                        return Ok(false);
+                    }
+                    merge(&continuing, state);
+                }
                 Op::Loop { condition, body } => {
                     let entry = state.clone();
                     self.sequence(condition, state, &mut Vec::new(), site)?;
@@ -533,6 +608,17 @@ impl Checker<'_> {
                 Op::Loan(_) => true,
                 Op::Match(arms) => arms.iter().any(|arm| has_loans(&arm.body)),
                 Op::Loop { condition, body } => has_loans(condition) || has_loans(body),
+                Op::If {
+                    then,
+                    elifs,
+                    otherwise,
+                } => {
+                    has_loans(then)
+                        || has_loans(otherwise)
+                        || elifs
+                            .iter()
+                            .any(|arm| has_loans(&arm.condition) || has_loans(&arm.body))
+                }
                 _ => false,
             })
         }

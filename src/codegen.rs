@@ -80,7 +80,7 @@ mod sites;
 #[cfg(test)]
 mod tail_tests;
 mod threads;
-use crate::op::{self, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
+use crate::op::{self, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
 use output::Output;
@@ -730,6 +730,18 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
                     collect_str_ids(&arm.body, out, seen);
                 }
             }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                collect_str_ids(then, out, seen);
+                for arm in elifs.iter() {
+                    collect_str_ids(&arm.condition, out, seen);
+                    collect_str_ids(&arm.body, out, seen);
+                }
+                collect_str_ids(otherwise, out, seen);
+            }
             Op::DefineFn(_, f) => collect_str_ids(&f.body, out, seen),
             _ => {}
         }
@@ -834,6 +846,18 @@ fn collect_user_fns(
                     collect_user_fns(&arm.body, module, out)?;
                 }
             }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                collect_user_fns(then, module, out)?;
+                for arm in elifs.iter() {
+                    collect_user_fns(&arm.condition, module, out)?;
+                    collect_user_fns(&arm.body, module, out)?;
+                }
+                collect_user_fns(otherwise, module, out)?;
+            }
             _ => {}
         }
     }
@@ -852,6 +876,17 @@ fn needs_local_addresses(ops: &[Op]) -> bool {
         Op::Match(arms) => arms.iter().any(|a| needs_local_addresses(&a.body)),
         Op::Loop { condition, body } => {
             needs_local_addresses(condition) || needs_local_addresses(body)
+        }
+        Op::If {
+            then,
+            elifs,
+            otherwise,
+        } => {
+            needs_local_addresses(then)
+                || needs_local_addresses(otherwise)
+                || elifs.iter().any(|arm| {
+                    needs_local_addresses(&arm.condition) || needs_local_addresses(&arm.body)
+                })
         }
         _ => false,
     })
@@ -1514,6 +1549,11 @@ impl Lowerer<'_, '_> {
             // itself has no runtime effect.
             Op::DefineFn(_, _) => {}
             Op::Match(arms) => self.lower_match(arms)?,
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => self.lower_if(then, elifs, otherwise)?,
             Op::ReadLine => self.lower_readline()?,
             Op::Contains => self.lower_contains()?,
             Op::PrintLn => self.lower_println()?,
@@ -2262,6 +2302,92 @@ impl Lowerer<'_, '_> {
         {
             return Err("internal tail-call ABI invariant: native argument layout mismatch".into());
         }
+        Ok(())
+    }
+
+    /// Lower `Op::If`: a block per body, each later condition evaluated in the
+    /// block the previous `brif` falls into, and one join block as for
+    /// `Op::Match`. A loop over the arms, so a long `elif` chain costs no
+    /// native stack (issue #70).
+    fn lower_if(&mut self, then: &[Op], elifs: &[ElifArm], otherwise: &[Op]) -> Result<()> {
+        let (mut test, _) = self.stack.pop().ok_or("AOT: stack underflow on if")?;
+        // Every body and every later condition starts from this stack.
+        let entry_stack = self.stack.clone();
+        let join_block = self.bcx.create_block();
+        let mut join_param_types: Option<Vec<Ty>> = None;
+        let conditions = elifs.iter().map(|arm| Some(&arm.condition)).chain([None]);
+        let bodies = std::iter::once(then).chain(elifs.iter().map(|arm| &*arm.body));
+        for (body, next_condition) in bodies.zip(conditions) {
+            let (taken, fall) = (self.bcx.create_block(), self.bcx.create_block());
+            self.bcx.ins().brif(test, taken, &[], fall, &[]);
+            self.bcx.switch_to_block(taken);
+            self.bcx.seal_block(taken);
+            self.lower_branch(body, &entry_stack, join_block, &mut join_param_types)?;
+            self.bcx.switch_to_block(fall);
+            self.bcx.seal_block(fall);
+            self.stack = entry_stack.clone();
+            self.terminated = false;
+            let Some(condition) = next_condition else {
+                break;
+            };
+            for op in condition.iter() {
+                self.lower(op)?;
+            }
+            test = self.stack.pop().ok_or("AOT: stack underflow on elif")?.0;
+        }
+        self.lower_branch(otherwise, &entry_stack, join_block, &mut join_param_types)?;
+
+        self.bcx.switch_to_block(join_block);
+        self.bcx.seal_block(join_block);
+        match join_param_types {
+            Some(types) => {
+                let params = self.bcx.block_params(join_block).to_vec();
+                self.stack = params.into_iter().zip(types).collect();
+                self.terminated = false;
+            }
+            None => {
+                // Every branch exited the function; the join is unreachable.
+                self.bcx.ins().trap(TrapCode::unwrap_user(2));
+                self.terminated = true;
+            }
+        }
+        Ok(())
+    }
+
+    /// Lower one body of an `if` in the current block. A body that continues
+    /// jumps to `join` carrying its whole stack; the first such body fixes the
+    /// join's parameter types, which the checker made every other one match.
+    fn lower_branch(
+        &mut self,
+        body: &[Op],
+        entry_stack: &[StackEntry],
+        join: Block,
+        join_param_types: &mut Option<Vec<Ty>>,
+    ) -> Result<()> {
+        self.stack = entry_stack.to_vec();
+        self.terminated = false;
+        for op in body {
+            if self.terminated {
+                return Ok(());
+            }
+            self.lower(op)?;
+        }
+        if self.terminated {
+            return Ok(());
+        }
+        if join_param_types.is_none() {
+            let types: Vec<Ty> = self.stack.iter().map(|(_, t)| t.clone()).collect();
+            for ty in &types {
+                self.bcx.append_block_param(join, clif_type(ty.clone()));
+            }
+            *join_param_types = Some(types);
+        }
+        let args: Vec<BlockArg> = self
+            .stack
+            .iter()
+            .map(|(v, _)| BlockArg::Value(*v))
+            .collect();
+        self.bcx.ins().jump(join, &args);
         Ok(())
     }
 

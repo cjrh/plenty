@@ -337,9 +337,10 @@ fn deep_inline_projection_preserves_ancestor_tags() {
     ));
     // Unwrapping all layers also verifies that writing the scalar preserved
     // every enclosing Some tag, including the tag at bit 127.
+    // Two statements: one chain of 64 calls would exceed the nesting limit.
     source.push_str(&format!(
-        "print(value{}).unwrap()\n",
-        ".unwrap()".repeat(depth)
+        "half = value{0}\nprint(half{0}).unwrap()\n",
+        ".unwrap()".repeat(depth / 2)
     ));
     runs(&source, "99\n");
 }

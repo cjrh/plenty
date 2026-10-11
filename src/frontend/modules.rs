@@ -535,9 +535,18 @@ impl Scope {
                         self.expr(value, locals)?;
                     }
                 },
-                Statement::If { condition, yes, no } => {
+                Statement::If {
+                    condition,
+                    yes,
+                    elifs,
+                    no,
+                } => {
                     self.expr(condition, locals)?;
                     self.block(yes, &mut locals.clone())?;
+                    for elif in elifs {
+                        self.expr(&mut elif.condition, locals)?;
+                        self.block(&mut elif.body, &mut locals.clone())?;
+                    }
                     self.block(no, &mut locals.clone())?;
                 }
                 Statement::While { condition, body } => {

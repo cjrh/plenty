@@ -8,7 +8,8 @@ Without `as`, an unused owned result drops before the body. Entry is an
 ordinary call: it does not implicitly unwrap a Result. Perform fallible
 acquisition with `?` in the manager expression.
 
-Comma-separated managers nest left to right. Each acquisition and entry
+Comma-separated managers nest left to right, each one a level of
+[nesting](../04-expressions/index.md#nesting). Each acquisition and entry
 completes before evaluating the next expression, which can use earlier entry
 bindings. If a later acquisition propagates failure, only already entered
 managers exit.
