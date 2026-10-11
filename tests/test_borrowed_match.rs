@@ -467,9 +467,9 @@ enum Maybe[T]:
     Empty
 def bump(value: &mut Maybe[i64]) -> ():
     match value:
-        case Maybe[i64].Just(number):
+        case Maybe.Just(number):
             *number = *number + 1
-        case Maybe[i64].Empty:
+        case Maybe.Empty:
             pass
 mut number = Maybe[i64].Just(1)
 number_copy = number
@@ -480,14 +480,14 @@ mut empty = Maybe[i64].Empty
 bump(&mut number)
 bump(&mut empty)
 match &mut text:
-    case Maybe[str].Just(value):
+    case Maybe.Just(value):
         *value = "b"
-    case Maybe[str].Empty:
+    case Maybe.Empty:
         pass
 match &mut items:
-    case Maybe[list[i64]].Just(value):
+    case Maybe.Just(value):
         value.append(2).unwrap()
-    case Maybe[list[i64]].Empty:
+    case Maybe.Empty:
         pass
 print(number).unwrap()
 print(number_copy).unwrap()

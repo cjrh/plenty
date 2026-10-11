@@ -87,13 +87,13 @@ def full[F: OnceCallable[[], i64]](pool: &ThreadPoolExecutor, job: F) -> i64:
             future.result().unwrap()
         case Err(error):
             match error:
-                case SubmitError[F].Full(job):
+                case SubmitError.Full(job):
                     job()
-                case SubmitError[F].Shutdown(job):
+                case SubmitError.Shutdown(job):
                     -1
-                case SubmitError[F].OutOfMemory(job):
+                case SubmitError.OutOfMemory(job):
                     -2
-                case SubmitError[F].CapacityOverflow(job):
+                case SubmitError.CapacityOverflow(job):
                     -3
 ready, started = channel[i64](1).unwrap()
 signal, gate = channel[i64](1).unwrap()
@@ -223,13 +223,13 @@ def fallback[F: OnceCallable[[], i64]](pool: &ThreadPoolExecutor, job: F) -> i64
             future.result().unwrap()
         case Err(error):
             match error:
-                case SubmitError[F].OutOfMemory(job):
+                case SubmitError.OutOfMemory(job):
                     job()
-                case SubmitError[F].CapacityOverflow(job):
+                case SubmitError.CapacityOverflow(job):
                     job()
-                case SubmitError[F].Shutdown(job):
+                case SubmitError.Shutdown(job):
                     job()
-                case SubmitError[F].Full(job):
+                case SubmitError.Full(job):
                     job()
 with ThreadPoolExecutor(1, 1).unwrap() as pool:
     values = [range(20, 24)].unwrap()

@@ -197,16 +197,16 @@ def pack[F](callback: F) -> Result[Job[F], AllocError]:
     Ok(Job[F].Run(callback))
 def invoke[F](job: &mut Job[F]) -> i64:
     match &mut job:
-        case Job[F].Run(callback):
+        case Job.Run(callback):
             callback()
-        case Job[F].Empty:
+        case Job.Empty:
             0
 def consume[F](job: Job[F]) -> i64:
     match job:
-        case Job[F].Run(callback):
+        case Job.Run(callback):
             mut owned = callback
             owned()
-        case Job[F].Empty:
+        case Job.Empty:
             0
 mut job = pack(make(10)).unwrap()
 print(invoke(&mut job)).unwrap()
@@ -267,9 +267,9 @@ def choose[A, B](a: A, b: B, left: bool) -> Result[Choice[A, B], AllocError]:
         Ok(Choice[A, B].Right(b))
 def invoke[A, B](job: &Choice[A, B]) -> i64:
     match &job:
-        case Choice[A, B].Left(callback):
+        case Choice.Left(callback):
             callback()
-        case Choice[A, B].Right(callback):
+        case Choice.Right(callback):
             callback()
 jobs = [choose(add(10), ranged(20), True).unwrap(), choose(add(30), ranged(40), False).unwrap()].unwrap()
 for job in &jobs:
@@ -289,7 +289,7 @@ def package[F](callback: F) -> Result[Job[F], AllocError]:
     Ok(Job[F].Run(callback))
 def consume[F](job: Job[F]) -> list[i64]:
     match job:
-        case Job[F].Run(callback):
+        case Job.Run(callback):
             callback()
 def make(n: i64) -> Result[OnceClosure[[], list[i64]], AllocError]:
     values = [n]?

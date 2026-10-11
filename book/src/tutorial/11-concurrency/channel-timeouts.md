@@ -9,12 +9,10 @@ def main() -> Result[(), Failure]:
     match receiver.recv_timeout(0):
         case Ok(value):
             print(value)?
-        case Err(error):
-            match error:
-                case RecvTimeoutError.TimedOut:
-                    print("nothing yet")?
-                case RecvTimeoutError.Disconnected:
-                    print("senders finished")?
+        case Err(RecvTimeoutError.TimedOut):
+            print("nothing yet")?
+        case Err(RecvTimeoutError.Disconnected):
+            print("senders finished")?
     sender.send_timeout(42, 0)?
     print(receiver.recv_timeout(0)?)?
     Ok(())

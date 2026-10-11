@@ -13,9 +13,9 @@ def package[F: Callable[[], i64]](callback: F) -> Job[F]:
 
 def invoke[F: Callable[[], i64]](job: &Job[F]) -> i64:
     match &job:
-        case Job[F].Run(callback):
+        case Job.Run(callback):
             callback()
-        case Job[F].Empty:
+        case Job.Empty:
             0
 
 def main() -> Result[(), Failure]:

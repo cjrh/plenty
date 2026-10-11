@@ -14,12 +14,10 @@ def main() -> Result[(), IoError]:
     match answers():
         case Ok(values):
             print(values)?
-        case Err(error):
-            match error:
-                case AllocError.OutOfMemory:
-                    print("not enough memory")?
-                case AllocError.CapacityOverflow:
-                    print("requested capacity is too large")?
+        case Err(AllocError.OutOfMemory):
+            print("not enough memory")?
+        case Err(AllocError.CapacityOverflow):
+            print("requested capacity is too large")?
     Ok(())
 ```
 

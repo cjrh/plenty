@@ -11,16 +11,13 @@ def run_or_submit[F: OnceCallable[[], i64]](
     match pool.submit_nowait(job):
         case Ok(future):
             future.result()
-        case Err(error):
-            match error:
-                case SubmitError[F].Full(job):
-                    Ok(job())
-                case SubmitError[F].Shutdown(job):
-                    Ok(job())
-                case SubmitError[F].OutOfMemory(job):
-                    Ok(job())
-                case SubmitError[F].CapacityOverflow(job):
-                    Ok(job())
+        case Err(
+            SubmitError.Full(job)
+            | SubmitError.Shutdown(job)
+            | SubmitError.OutOfMemory(job)
+            | SubmitError.CapacityOverflow(job)
+        ):
+            Ok(job())
 
 def main() -> Result[(), Failure]:
     with ThreadPoolExecutor(1, 1)? as pool:

@@ -17,8 +17,10 @@ explicit initializer's signature: `Cell(7u8)` selects `u8`, while `Cell(7)` sele
 `i64`. Output-only or phantom parameters need explicit arguments; a result
 annotation does not influence argument inference.
 
-Enum qualifiers require explicit arguments: `Choice[u8].Value(7)` constructs a
-concrete instance and `case Choice[u8].Value(value):` matches it. Aliases can name
+A constructor's enum qualifier requires explicit arguments:
+`Choice[u8].Value(7)` constructs a concrete instance. A
+[pattern](../04-expressions/matching.md) takes none, because the matched value
+supplies them: `case Choice.Value(value):` matches it. Aliases can name
 complete instances. Different arguments produce different nominal identities
 even when a parameter is absent from every payload.
 

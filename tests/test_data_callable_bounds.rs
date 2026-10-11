@@ -16,7 +16,7 @@ def package[T, F: OnceCallable[[], T]](callback: F) -> Result[Job[T, F], AllocEr
     Ok(Job[T, F].Run(callback))
 def consume[T, F: OnceCallable[[], T]](job: Job[T, F]) -> T:
     match job:
-        case Job[T, F].Run(callback):
+        case Job.Run(callback):
             mut owned = callback
             owned()
 mut first = Handler(named)

@@ -17,9 +17,9 @@ def total(chain: Chain[i64]) -> i64:
     mut answer = 0
     while True:
         match remaining:
-            case Chain[i64].Empty:
+            case Chain.Empty:
                 break
-            case Chain[i64].Link(value, rest):
+            case Chain.Link(value, rest):
                 answer = answer + value
                 remaining = rest
     answer

@@ -5,14 +5,17 @@ it. Named payload bindings have type `&T`, even for scalar or unit payloads.
 `match &mut value`, or matching an existing `&mut E`, binds `&mut T` payloads.
 `_` creates no binding and moves no borrowed payload. The scrutinee evaluates
 once; patterns, coverage, and arm scope follow ordinary
-[matching](../04-expressions/index.md).
+[matching](../04-expressions/index.md). A binding inside a nested pattern is a
+reference to that inner payload, through boxes as well, and a name bound by
+`p | q` refers to the payload of whichever alternative matched.
 
 Mutable matching supports standard sums and user enums, both copyable and affine.
 Mutating a copyable enum's inline payload leaves independent copies unchanged.
 Matching and its payload borrows allocate nothing.
 
 Payload loans descend from the scrutinee loan and protect the active variant
-against conflicting access, replacement, movement, or destruction. Disjoint
+against conflicting access, replacement, movement, or destruction. A nested
+binding's loan also protects each enclosing variant. Disjoint
 payload fields can be borrowed mutably together; precise class-field origins
 remain precise, while collection and imprecise returned origins protect their
 whole target. Reading a discriminant conflicts with an existing exclusive loan

@@ -26,6 +26,7 @@ mod generators;
 mod generics;
 mod modules;
 mod numeric;
+mod patterns;
 mod protocols;
 mod references;
 mod sorting;

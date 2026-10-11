@@ -12,12 +12,16 @@ enum Choice[T: IntType]:
 def main() -> Result[(), Failure]:
     selected = Choice[u8].Value(7)
     match selected:
-        case Choice[u8].Empty:
+        case Choice.Empty:
             print("empty")?
-        case Choice[u8].Value(value):
+        case Choice.Value(value):
             print(value)?
     Ok(())
 ```
 ```output
 7
 ```
+
+A constructor names the instance, as in `Choice[u8].Value(7)`. A pattern names
+only the enum, as in `case Choice.Value(value)`: the matched value already
+fixes `T`, so a pattern takes no type arguments.

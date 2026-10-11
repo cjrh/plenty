@@ -512,10 +512,8 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         self.expr(value, &set)?;
                         let mut continuing = Vec::new();
                         for case in cases {
-                            if let Some((_, _, Some(names))) = &case.pattern {
-                                for n in names {
-                                    self.binding(n, &stmt.at)?;
-                                }
+                            for n in case.pattern.bindings() {
+                                self.binding(n, &stmt.at)?;
                             }
                             if let Some(s) = self.block(&case.body, set.clone())? {
                                 continuing.push(s);

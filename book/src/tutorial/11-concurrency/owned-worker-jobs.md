@@ -28,10 +28,8 @@ def run[F: OnceCallable[[], i64]](job: F) -> i64:
     match attempt(job):
         case Ok(value):
             value
-        case Err(error):
-            match error:
-                case SpawnError[F].Unavailable(job):
-                    job()
+        case Err(SpawnError.Unavailable(job)):
+            job()
 
 def main() -> Result[(), Failure]:
     n = 42

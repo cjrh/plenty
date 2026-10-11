@@ -495,10 +495,10 @@ fn matched_payload_is_owned_by_its_binding() {
         &format!(
             r#"{RESOURCE}
 match Option[Resource].Some(Resource("payload")):
-    case Option[Resource].Some(r):
+    case Some(r):
         drop(r)
         print("after drop").unwrap()
-    case Option[Resource].Nothing:
+    case Nothing:
         pass
 print("after match").unwrap()
 "#
@@ -547,10 +547,10 @@ class Crate:
     value: i64
     def __init__(self, option: Option[i64]) -> ():
         match option:
-            case Option[i64].Some(x):
+            case Some(x):
                 self.value = x
                 return
-            case Option[i64].Nothing:
+            case Nothing:
                 self.value = 0
 print(Crate(Option[i64].Some(7))).unwrap()
 print(Crate(Option[i64].Nothing)).unwrap()
