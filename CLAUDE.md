@@ -72,10 +72,10 @@ issue ownership, discussion, and PR review state live in the database.
 
 | Command | Use |
 |---|---|
-| `cargo test --workspace` | Run compiler and runtime tests, without the allocation-accounting tests |
-| `cargo test --workspace --all-features` | Full suite, as CI runs it: adds the `runtime-checks` and `allocation-checks` tests |
-| `cargo test --test test_tutorial` | Check the tutorial lessons |
-| `cargo clippy --workspace --all-targets -- -D warnings` | Lint compiler and runtime |
+| `cargo test --locked --workspace` | Run compiler and runtime tests, without the allocation-accounting tests |
+| `cargo test --locked --workspace --all-features` | Full suite, as CI runs it: adds the `runtime-checks` and `allocation-checks` tests |
+| `cargo test --locked --test test_tutorial` | Check the tutorial lessons |
+| `cargo clippy --locked --workspace --all-targets -- -D warnings` | Lint compiler and runtime |
 | `cargo run -- FILE` | Compile and run a Plenty program (needs `cc`) |
 | `cargo run -- --check FILE` | Type-check without linking or running |
 | `cargo run -- --compile FILE -o OUT` | Produce a native executable |
@@ -85,6 +85,13 @@ issue ownership, discussion, and PR review state live in the database.
 | `mdbook serve book --open` | Read the docs in a browser |
 
 Running with no arguments prints all options.
+
+The workspace `Cargo.lock` is tracked so worktrees use the same dependency
+versions. Preserve it and use `--locked` for validation. Dependency updates are
+deliberate changes using `cargo update`; include the resulting lockfile diff in
+the PR. When Cranelift or regalloc2 changes, rerun object-identity checks and
+affected performance comparisons. See the
+[development workflow](book/src/development/workflow.md#dependency-versions).
 
 Use explicit worktree directories for commands. Shell directory changes and
 environment variables may not persist between tool calls. For summarized test

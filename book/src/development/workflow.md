@@ -14,6 +14,19 @@ mutation, ownership, borrowing, and cleanup. Allocating operations need failure
 and partial-state cleanup checks. Use runtime allocation checks, sanitizers, or
 Miri where they exercise the changed boundary.
 
+## Dependency versions
+
+The compiler executable and runtime share a tracked workspace `Cargo.lock`.
+Fresh checkouts and worktrees use its dependency versions; CI builds and tests
+with `--locked` so a stale or missing lockfile fails instead of resolving a new
+dependency graph. Use `--locked` for local validation too.
+
+Update dependencies deliberately with `cargo update`, and review the resulting
+lockfile changes with the code that needs them. Changes to Cranelift or regalloc2
+require rerunning object-identity checks and affected compiler performance
+comparisons. Record the dependency versions with benchmark results so results
+from different dependency graphs are not compared as if only Plenty changed.
+
 ## Runnable documentation
 
 `tests/test_tutorial.rs` reads tutorial and `design/examples/` pages in
@@ -30,7 +43,7 @@ program or an executable lesson.
 After documentation moves, run:
 
 ```sh
-cargo test --test test_tutorial
+cargo test --locked --test test_tutorial
 mdbook build book
 python3 -B scripts/check_links.py book/src
 ```
