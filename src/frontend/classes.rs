@@ -96,10 +96,8 @@ impl ClassDecl {
                 let ty = t
                     .resolve(aliases)?
                     .ok_or_else(|| t.at.error("class fields cannot be unit"))?;
-                if !ty.heap_storable() {
-                    return Err(t
-                        .at
-                        .error("references and generators cannot be stored in class fields"));
+                if let Some(barrier) = ty.storage_barrier() {
+                    return Err(t.at.error(barrier.message("class fields")));
                 }
                 Ok((n.clone(), ty))
             })
