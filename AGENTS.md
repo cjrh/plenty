@@ -15,6 +15,7 @@
 # Project conventions
 
 - Docs are an mdBook in `book/src/`. `SUMMARY.md` lists every page in reading order.
+- Shared development commands and probe guidance are in `CLAUDE.md` and `book/src/development/workflow.md`, for both Codex and Claude. After doc edits, run `python3 -B scripts/check_links.py book/src [SUBDIR_OR_FILE]` to check local Markdown link targets.
 - Track future work and priorities only in `book/src/backlog.md`. Root `BACKLOG.md` is a link to that page. Issue ownership, comments, and PR review status belong in the shared `issues.db`. Reference pages describe implemented behavior and limits; proposals record rationale and alternatives, not competing work queues.
 - Always aim to keep the reference (`book/src/design/`) up to date with the latest design decisions and architectural changes.
 - ...and likewise, always aim to keep the implementation up to date with the latest design decisions in the reference.

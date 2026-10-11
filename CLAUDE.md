@@ -74,15 +74,40 @@ issue ownership, discussion, and PR review state live in the database.
 |---|---|
 | `cargo test --workspace` | Run compiler and runtime tests, without the allocation-accounting tests |
 | `cargo test --workspace --all-features` | Full suite, as CI runs it: adds the `runtime-checks` and `allocation-checks` tests |
-| `cargo test --workspace 2>&1 \| grep "test result"` | Summary only; preserve the test exit status when scripting |
 | `cargo test --test test_tutorial` | Check the tutorial lessons |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lint compiler and runtime |
 | `cargo run -- FILE` | Compile and run a Plenty program (needs `cc`) |
 | `cargo run -- --check FILE` | Type-check without linking or running |
 | `cargo run -- --compile FILE -o OUT` | Produce a native executable |
+| `target/release/plenty FILE` | Run probes with a compiler already built by `cargo build --release` in this worktree; rebuild after compiler/runtime changes |
+| `python3 -B scripts/check_links.py book/src [SUBDIR_OR_FILE]` | Check local Markdown link targets across the book, or only e.g. `proposals`; no remote or heading-anchor checks |
+| `python3 -B -m unittest discover -s scripts -p 'test_*.py'` | Check shared workflow helpers |
 | `mdbook serve book --open` | Read the docs in a browser |
 
 Running with no arguments prints all options.
+
+Use explicit worktree directories for commands. Shell directory changes and
+environment variables may not persist between tool calls. For summarized test
+output, use the available output-filtering tools or capture a log while retaining
+the original process exit status; a successful `grep` does not prove tests passed.
+
+### Quick reproductions
+
+Executable statements belong in `main`; a bare top-level snippet is not a program.
+For probes involving printing or allocation, use a fallible entry point:
+
+```text
+def main() -> Result[(), Failure]:
+    xs = [1, 2, 3]?
+    print(xs)?
+    Ok(())
+```
+
+For an infallible body, use `def main() -> ():`. List/dict/set literals return a
+`Result` and need handling, as does `print`. The test helper in
+`tests/support/mod.rs` wraps fragments for fixtures; the public compiler expects
+a complete program. See [the shared development workflow](book/src/development/workflow.md)
+for documentation checks.
 
 ## Keeping things aligned
 
@@ -93,7 +118,10 @@ A learner-visible language change updates, in the same change:
 - the tutorial lessons that teach the feature,
 - the backlog entry, if its scope changed or it completed.
 
-Tutorial code fences are executable tests, so stale lessons fail the suite.
+Tutorial and `design/examples/` code fences are executable tests, so stale
+lessons fail the suite. Proposal fences are not executed; use `text` for
+illustrative syntax and verify claims about implemented behavior separately.
+Run the local link checker after documentation edits, especially moves.
 
 ## Project conventions
 
@@ -302,6 +330,11 @@ example Python's `sqlite3` module, than through shell-quoted SQL. Search before
 adding to avoid duplicates. Never delete an issue. To close one, set `status`
 to `closed` and `resolution` in the same statement; leave `details` as the
 record of the problem.
+
+FTS searches cover title, details, and resolution. To narrow noisy results, use
+`issues_fts MATCH 'title : "verifier"'` with the same join as the search example.
+Also search the full text before adding an issue: a title-only search can miss
+an existing report with different wording.
 
 ```sh
 sqlite3 -cmd ".timeout 5000" "$PLENTY_ISSUES_DB" "UPDATE issues SET status = 'closed',
