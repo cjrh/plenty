@@ -79,6 +79,7 @@ impl Lower<'_> {
         let closure = Rc::new(
             ClosureType::new(
                 function.name.clone(),
+                Some(at.location().into()),
                 signature,
                 captures,
                 function.captures.iter().map(|c| c.mutable).collect(),

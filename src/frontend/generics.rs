@@ -31,7 +31,18 @@ pub(super) fn check_callable_bound(
             expected
                 .to_string()
                 .replacen("Callable", bound.name.as_deref().unwrap(), 1);
-        return Err(at.error(format!("{ty} does not satisfy {requirement}")));
+        let hint = if callables::signature(ty) == Some(expected.as_ref())
+            && matches!(ty, Ty::Closure(t) if t.once)
+        {
+            if matches!(ty, Ty::Closure(t) if t.borrowed) {
+                "; a one-shot closure with borrowed captures can only be consumed locally".into()
+            } else {
+                format!("; a one-shot closure is consumed by its call; use `F: {}` with an owned `F` parameter for a consuming callback API", expected.to_string().replacen("Callable", "OnceCallable", 1))
+            }
+        } else {
+            String::new()
+        };
+        return Err(at.error(format!("{ty} does not satisfy {requirement}{hint}")));
     }
     Ok(())
 }
@@ -202,7 +213,8 @@ fn infer(
 ) -> Result<()> {
     if let Some(expected) = &pattern.concrete {
         if crate::generator::refine(expected, actual).is_none() {
-            return Err(at.error(format!("expected {expected}, got {actual}")));
+            let hint = callables::mismatch_hint(expected, actual).unwrap_or_default();
+            return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
         }
         return Ok(());
     }
@@ -228,7 +240,8 @@ fn infer(
     if !mentions_parameter(pattern, template) {
         let expected = pattern.resolve(aliases)?.unwrap_or(Ty::Unit);
         if crate::generator::refine(&expected, actual).is_none() {
-            return Err(at.error(format!("expected {expected}, got {actual}")));
+            let hint = callables::mismatch_hint(&expected, actual).unwrap_or_default();
+            return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
         }
         return Ok(());
     }

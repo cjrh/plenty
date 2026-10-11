@@ -8,16 +8,20 @@ should keep it:
 def apply[T, F: Callable[[T], T]](f: &F, value: T) -> T:
     f(value)
 
-def make[T: IntType](offset: T) -> Closure[[T], T]:
-    def [offset](value: T) -> T:
-        offset + value
+def double(value: i64) -> i64:
+    value * 2
 
 def main() -> Result[(), Failure]:
-    add = make(2u8)
+    function = double
+    offset = 2u8
+    add = def [offset](value: u8) -> u8:
+        offset + value
+    print(apply(&function, 3))?
     print(apply(&add, 3u8))?
     Ok(())
 ```
 ```output
+6
 5
 ```
 
@@ -25,6 +29,29 @@ def main() -> Result[(), Failure]:
 agree on `T`; conflicting type evidence is an error. Use `&mut F` for a callback
 that changes its captured state. Borrowed captures stay protected throughout
 the call.
+
+A concrete parameter such as `f: Callable[[i64], i64]` holds only a function's
+code address. The constraint `F: Callable[[i64], i64]` instead checks whether
+the actual type can be called with that signature; its captured state remains
+inline. Adding `&` to the concrete `Callable` type does not make it accept
+closures. `Closure[...]` describes a concrete environment, chiefly when
+[returning one from a factory](returning-closures.md).
+
+Passing captured state to a code-only parameter explains the mismatch and
+suggests the generic form:
+
+```plenty-error
+def apply(f: Callable[[i64], i64], value: i64) -> i64:
+    f(value)
+def main() -> ():
+    offset = 3
+    add = def [offset](value: i64) -> i64:
+        value + offset
+    apply(add, 4)
+```
+```error
+for a generic callback API, use `F: Callable[[i64], i64]` with `callback: &F`
+```
 
 ## Let the callback determine a separate result type
 

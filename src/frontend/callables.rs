@@ -10,6 +10,37 @@ pub(super) fn signature(ty: &Ty) -> Option<&CallableSig> {
     }
 }
 
+/// Explain representation mismatches without suggesting a bound that cannot
+/// accept the actual call signature or invocation mode.
+pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
+    let (expected, actual) = match (expected, actual) {
+        (Ty::Ref(expected, em), Ty::Ref(actual, am)) if em == am => {
+            return mismatch_hint(expected, actual);
+        }
+        (Ty::Callable(expected), Ty::Closure(actual)) => (expected, actual),
+        _ => return None,
+    };
+    let explanation =
+        "; a Callable value stores only a code address and cannot hold a closure environment";
+    if expected.as_ref() != &actual.signature {
+        return Some(format!("{explanation}; the call signatures also differ"));
+    }
+    if actual.once && actual.borrowed {
+        return Some(format!(
+            "{explanation}; a one-shot closure with borrowed captures can only be consumed locally"
+        ));
+    }
+    let (bound, parameter) = if actual.once {
+        ("OnceCallable", "F")
+    } else if actual.mutable {
+        ("Callable", "&mut F")
+    } else {
+        ("Callable", "&F")
+    };
+    let requirement = expected.to_string().replacen("Callable", bound, 1);
+    Some(format!("{explanation}; for a generic callback API, use `F: {requirement}` with `callback: {parameter}`"))
+}
+
 fn output(ty: &Ty) -> Type {
     match ty {
         Ty::Callable(sig) => sig.output.clone(),

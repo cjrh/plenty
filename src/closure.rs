@@ -3,10 +3,13 @@
 use crate::op::{CallableSig, Ty};
 use std::cell::OnceCell;
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct ClosureType {
     pub name: String,
+    /// Diagnostic origin only; nominal identity and linking still use `name`.
+    pub location: Option<Rc<str>>,
     pub signature: CallableSig,
     pub captures: Vec<(String, Ty)>,
     pub writable: Vec<bool>,
@@ -40,6 +43,7 @@ impl Hash for ClosureType {
 impl ClosureType {
     pub fn new(
         name: String,
+        location: Option<Rc<str>>,
         signature: CallableSig,
         captures: Vec<(String, Ty)>,
         writable: Vec<bool>,
@@ -68,6 +72,7 @@ impl ClosureType {
         let mutable = writable.iter().any(|m| *m);
         Ok(Self {
             name,
+            location,
             signature,
             captures,
             writable,

@@ -312,7 +312,7 @@ impl Lower<'_> {
             }
             types.push(actual);
         }
-        if types.iter().map(|t| t.to_string().len()).sum::<usize>() > 16_384
+        if types.iter().map(|t| t.identity_name().len()).sum::<usize>() > 16_384
             || types.iter().any(|t| t.layout_depth() >= 64)
         {
             return Err(at.error("tuple exceeds the implementation type nesting limit"));

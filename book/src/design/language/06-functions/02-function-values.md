@@ -2,6 +2,10 @@
 
 A named function can be assigned, stored, passed, and returned. Its type is
 `Callable[[parameter types], result]`; parameter names do not affect identity.
+This value holds only a code address. A captured closure also needs an inline
+environment, so a concrete `Callable` parameter cannot accept one. To accept
+both, use `F: Callable[[parameter types], result]` and a parameter of type `&F`
+or `&mut F`; see [generic functions](../07-generics/index.md).
 `Callable[[], T]` takes no arguments, and `Callable[[T], ()]` returns unit.
 Aliases may name these signatures. Function values are copyable, display as
 `<function>`, and compare native code addresses rather than behavior. They
