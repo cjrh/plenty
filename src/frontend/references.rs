@@ -385,9 +385,6 @@ impl Lower<'_> {
                         .get(index)
                         .cloned()
                         .ok_or_else(|| e.at.error("tuple index out of bounds"))?;
-                    if mutable && !collection.affine() {
-                        return Err(e.at.error("copyable tuple storage is immutable"));
-                    }
                     let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
                     if self.loans[loan].precise {
                         self.loans[loan].fields.push(index);

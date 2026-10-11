@@ -4,10 +4,16 @@
 without a comma group an expression, and empty `()` is unit. Annotations accept
 `tuple[A, B]` or `(A, B)`.
 
-Tuples are immutable structural products. Construction allocates nothing;
+Tuples are structural products with fixed component types. Construction allocates nothing;
 component expressions retain their own allocation and error contracts. Tuples
 containing owned components move, while copyable tuples copy their components.
 Resolved owned closures can be stored; references and generators cannot.
+
+A `mut` tuple binding permits mutable component borrows regardless of whether
+its components are copyable. A copied tuple has independent inline storage;
+changing the original does not change the copy. Components can be changed
+through `&mut pair[0]` or a mutable payload match. Direct indexed assignment
+(`pair[0] = value`) remains unsupported; assign through the reference instead.
 
 `pair[0]` selects a component. Indices must be nonnegative integer literals within
 the tuple's arity. Owned components may be observed or explicitly copied; moving
