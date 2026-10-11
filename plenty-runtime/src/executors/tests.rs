@@ -14,7 +14,7 @@ static NUMBER: Type = Type {
     drop: None,
 };
 
-unsafe extern "C" fn square(input: *const u128, out: *mut u128) {
+unsafe extern "C" fn square(input: *const u128, out: *mut u128, _: *const u128) {
     unsafe {
         out.write(*input * *input);
     }
@@ -65,7 +65,7 @@ struct Gate {
     started: AtomicBool,
     open: AtomicBool,
 }
-unsafe extern "C" fn gated(input: *const u128, out: *mut u128) {
+unsafe extern "C" fn gated(input: *const u128, out: *mut u128, _: *const u128) {
     unsafe {
         let gate = &*(*input as *const Gate);
         gate.started.store(true, Ordering::Release);
@@ -146,6 +146,7 @@ fn cell_moves_inline_result_before_releasing_storage() {
             input: &NUMBER,
             output: &RANGE,
             entry: square,
+            shared: std::ptr::null(),
             data: job.add(1).cast(),
             words,
             phase: Mutex::new(Phase::Ready),
@@ -175,6 +176,7 @@ fn timed_wait_preserves_pending_cancelled_and_completed_futures() {
             input: &NUMBER,
             output: &NUMBER,
             entry: square,
+            shared: std::ptr::null(),
             data: job.add(1).cast(),
             words,
             phase: Mutex::new(Phase::Pending),
@@ -198,6 +200,7 @@ fn timed_wait_preserves_pending_cancelled_and_completed_futures() {
             input: &NUMBER,
             output: &NUMBER,
             entry: square,
+            shared: std::ptr::null(),
             data: job.add(1).cast(),
             words,
             phase: Mutex::new(Phase::Running),
@@ -294,7 +297,7 @@ fn pair_jobs_relocate_both_inline_captures_and_result() {
         }],
         drop: None,
     };
-    unsafe extern "C" fn combine(input: *const u128, out: *mut u128) {
+    unsafe extern "C" fn combine(input: *const u128, out: *mut u128, _: *const u128) {
         unsafe {
             let environment = *input as *const u128;
             let mut left = *(*environment.add(1) as *const ranges::Range);

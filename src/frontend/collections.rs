@@ -1260,7 +1260,7 @@ impl Lower<'_> {
         };
         if matches!(
             self.place_type(&field),
-            Some(Ty::Callable(_) | Ty::Closure(_))
+            Some(Ty::Callable(_) | Ty::BoxedCallable(_) | Ty::Closure(_))
         ) {
             return self.call_value(&field, args, ops);
         }

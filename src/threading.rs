@@ -14,6 +14,7 @@ pub struct Task {
 
 impl Task {
     pub fn owned_job(&self) -> Option<&Ty> {
+        self.closure.as_ref()?;
         self.inputs.first().filter(|t| matches!(t, Ty::Closure(_)))
     }
     pub fn start_result(&self) -> Ty {
@@ -76,7 +77,10 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
                 roots.push((
                     format!("executor worker `{}`", job.worker),
                     vec![job.worker.clone()],
-                    vec![job.input.clone(), job.output.clone()],
+                    std::iter::once(job.input.clone())
+                        .chain(std::iter::once(job.output.clone()))
+                        .chain(job.shared.iter().map(|t| Ty::Closure(t.clone())))
+                        .collect(),
                 ));
             }
         }
@@ -131,6 +135,9 @@ fn check_type(
         }
         Ty::Callable(_) => {
             return Err("indirect callable effects are not certified for worker threads".into())
+        }
+        Ty::BoxedCallable(_) => {
+            return Err("boxed callable captures and effects are not certified for worker threads".into())
         }
         Ty::Generator(_) => {
             return Err("generator worker eligibility is not implemented yet".into())

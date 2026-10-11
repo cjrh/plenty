@@ -93,11 +93,13 @@ impl Drop for Pending {
     }
 }
 
+#[expect(clippy::too_many_arguments, reason = "internal checked map ABI")]
 pub(crate) unsafe fn run(
     pool: *mut Pool,
     source: u128,
     input: &'static Type,
     entry: executors::Entry,
+    shared: *const u128,
     worker_output: &'static Type,
     result_type: &'static Type,
     out: *mut u128,
@@ -135,13 +137,13 @@ pub(crate) unsafe fn run(
                     } else {
                         (*(source as *const Collection)).entries.get(next).key
                     };
-                    let job = match executors::submit(
+                    let job = match executors::submit_shared(
                         pool,
                         value,
                         input.key.unwrap(),
                         worker_output,
                         entry,
-                        false,
+                        shared,
                     ) {
                         Ok(job) => job,
                         Err(tag) => {

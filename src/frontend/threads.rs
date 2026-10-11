@@ -48,9 +48,6 @@ impl Lower<'_> {
                     .iter()
                     .map(|(_, t)| t.clone())
                     .collect();
-                if inputs.iter().any(Ty::affine) {
-                    return Err(call.at.error("named workers borrow mutable owners; pass & or &mut, or capture the inputs in an owned closure for spawn(job), so a failed start preserves your job"));
-                }
                 let loans: Vec<_> = ops[index..]
                     .iter()
                     .filter_map(|op| match op {

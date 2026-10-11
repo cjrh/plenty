@@ -21,6 +21,137 @@ fn runs(source: &str, expected: &str) {
 }
 
 #[test]
+fn maps_share_owned_immutable_closures_including_generic_callable_workers() {
+    runs(r#"
+class Capture:
+    values: list[i64]
+    def __del__(self) -> ():
+        print("capture dropped").unwrap()
+def mapped[F: Callable[[i64], i64]](pool: &ThreadPoolExecutor, worker: F) -> Result[list[i64], PoolMapError]:
+    pool.map(worker, range(4))
+def fallible[F: Callable[[i64], Result[i64, str]]](pool: &ThreadPoolExecutor, worker: F) -> Result[list[i64], ParallelError[str]]:
+    pool.map_result(worker, range(3))
+def main() -> Result[(), Failure]:
+    with ThreadPoolExecutor(3, 1)? as pool:
+        capture = Capture([2, 3]?)
+        scale = def [capture](n: i64) -> i64:
+            n * len(capture.values)
+        print(mapped(&pool, scale)?)?
+        label = "error"
+        work = def [label](n: i64) -> Result[i64, str]:
+            if n == 1:
+                Err(label)
+            else:
+                Ok(n)
+        print(str.repr(fallible(&pool, work))?)?
+        offset = 10
+        shift = def [offset](n: i64) -> i64:
+            n + offset
+        print(pool.map(shift, range(3))?)?
+    Ok(())
+"#, "capture dropped\n[0, 2, 4, 6]\nResult[list[i64], ParallelError[str]].Err(ParallelError[str].Worker(\"error\"))\n[10, 11, 12]\n");
+}
+
+#[test]
+fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
+    for (worker, diagnostic) in [
+        ("job = def once [value](n: i64) -> i64:\n    n + value\n", "reusable immutable closure"),
+        ("mut job = def [mut value](n: i64) -> i64:\n    value = value + n\n    value\n", "reusable immutable closure"),
+        ("job = def [&value](n: i64) -> i64:\n    n + value\n", "must own their captures"),
+        ("job = def [value](n: i64) -> i64:\n    f = open(\"unused\", \"r\").unwrap()\n    n + value\n", "File has no cross-thread"),
+        ("def identity(n: i64) -> i64:\n    n\njob = identity\n", "lack worker eligibility evidence"),
+        ("job = def [value](n: &i64) -> i64:\n    *n + value\n", "one owned input"),
+    ] {
+        let source = format!("value = 2\n{worker}with ThreadPoolExecutor(2, 1).unwrap() as pool:\n    drop(pool.map(job, range(3)))\n");
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(diagnostic), "{source}\n{error}");
+    }
+}
+
+#[test]
+fn fallible_map_drains_shared_callback_before_destroying_its_capture() {
+    runs(
+        r#"
+class Capture:
+    sender: Sender[i64]
+    def __del__(self) -> ():
+        self.sender.send(99).unwrap()
+def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](16)?
+    with ThreadPoolExecutor(3, 1)? as pool:
+        capture = Capture(sender)
+        work = def [capture](n: i64) -> Result[i64, i64]:
+            capture.sender.send(n).unwrap()
+            Err(n)
+        match pool.map_result(work, range(8)):
+            case Err(error):
+                match error:
+                    case ParallelError[i64].Worker(value):
+                        print(value)?
+                    case _:
+                        print(-1)?
+            case Ok(values):
+                print(values)?
+        mut observed = 0
+        while True:
+            n = receiver.recv()?
+            if n == 99:
+                break
+            observed = observed + 1
+        print(observed > 0)?
+        print(str.repr(receiver.recv_nowait())?)?
+    Ok(())
+"#,
+        "0\nTrue\nResult[i64, RecvError].Err(RecvError.Disconnected)\n",
+    );
+}
+
+#[test]
+fn map_evaluates_the_callback_before_its_input_and_moves_inline_input_values() {
+    runs(
+        r#"
+def callback() -> Closure[[range[i64]], range[i64]]:
+    print("callback").unwrap()
+    offset = 1
+    def [offset](value: range[i64]) -> range[i64]:
+        range(len(value) + offset)
+def inputs() -> list[range[i64]]:
+    print("inputs").unwrap()
+    [range(3), range(4, 6)].unwrap()
+with ThreadPoolExecutor(2, 1).unwrap() as pool:
+    print(pool.map(callback(), inputs()).unwrap()).unwrap()
+"#,
+        "callback\ninputs\n[range(0, 4, 1), range(0, 3, 1)]\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn map_failure_and_shutdown_drop_shared_captures_once_and_drain_jobs() {
+    for budget in 0..8 {
+        runs(&format!(r#"
+class Capture:
+    message: str
+    def __del__(self) -> ():
+        print(self.message).unwrap()
+with ThreadPoolExecutor(2, 1).unwrap() as pool:
+    capture = Capture("dropped")
+    work = def [capture](n: i64) -> i64:
+        n + len(capture.message)
+    print("__test_fail_allocations_after_{budget}__").unwrap()
+    result = pool.map(work, range(8))
+    print("__test_restore_allocations__").unwrap()
+    drop(result)
+    shutdown_capture = Capture("shutdown capture")
+    shutdown_work = def [shutdown_capture](n: i64) -> i64:
+        n
+    pool.shutdown()
+    drop(pool.map(shutdown_work, range(0)))
+"#), &format!("__test_fail_allocations_after_{budget}__\ndropped\n__test_restore_allocations__\nshutdown capture\n"));
+    }
+}
+
+#[test]
 fn fallible_map_preserves_order_and_concrete_error() {
     runs(r#"
 def square[T: IntType](n: T) -> Result[T, str]:

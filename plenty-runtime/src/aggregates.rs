@@ -59,6 +59,7 @@ impl Type {
                     | b'Z'
                     | b'K'
                     | b'O'
+                    | b'J'
             )
     }
     fn key(&self) -> &Type {
@@ -1205,6 +1206,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'v' => out.extend_from_slice(b"()"),
             b'c' => out.extend_from_slice(b"<function>"),
             b'H' => out.extend_from_slice(b"<closure>"),
+            b'J' => out.extend_from_slice(b"<boxed callable>"),
             b'X' => out.extend_from_slice(b"<sender>"),
             b'Y' => out.extend_from_slice(b"<receiver>"),
             b'P' => out.extend_from_slice(b"<executor>"),
@@ -1917,6 +1919,18 @@ pub(crate) unsafe fn collection(
                 Ok(boxed) => wrap(boxed as u128, 0),
                 Err(error) => {
                     // A failed box drops the value it would have owned.
+                    release(a, (*descriptor).key());
+                    wrap(wrap(0, error as u64), 1)
+                }
+            },
+            // A callable box retains its concrete content descriptor for drops.
+            // The generated shared-call adapter occupies the box's padding word.
+            128 => match try_box_new(&*descriptor, a) {
+                Ok(boxed) => {
+                    (*boxed).padding = b as u64;
+                    wrap(boxed as u128, 0)
+                }
+                Err(error) => {
                     release(a, (*descriptor).key());
                     wrap(wrap(0, error as u64), 1)
                 }

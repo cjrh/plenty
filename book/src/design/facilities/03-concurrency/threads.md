@@ -31,9 +31,9 @@ Argument loans and borrowed capture dependencies last until the end of the
 exclusive loans prohibit conflicting access, moves, or drops. Ordinary field
 disjointness and enum-payload rules apply. `yield` inside a task scope is rejected.
 
-Mutable named arguments enter through `&T` or `&mut T`; copyable immutable
-arguments use ordinary semantics. By-value affine named arguments require an
-owned closure so a failed start can return one complete job. Borrowing callbacks
+Scoped work may borrow or own its inputs. Named arguments use ordinary call
+semantics: `&T` and `&mut T` borrow, copyable values copy, and affine values move
+into the worker. Pool work must own its inputs instead. Borrowing callbacks
 from a collection protects the collection through scope exit; separate tuple
 slots can have disjoint loans. All workers satisfy the
 [shared eligibility rules](index.md).
@@ -51,6 +51,11 @@ runtime passes no thread attributes, so other codes come only from the
 environment: a seccomp filter that denies `clone` surfaces its own code, such as
 `EPERM` (1). [Consuming starts](jobs.md) report all of them as
 `SpawnError[F].Unavailable(job)`.
+
+Moved named arguments are consumed even if startup fails: their owners drop
+exactly once on the parent thread, in reverse argument order. On success they
+belong to the worker. Use an [owned closure job](jobs.md) when startup failure
+must return all inputs together for retry; its `SpawnError[F]` retains the job.
 
 Task bookkeeping and error handling allocate no Plenty heap storage; native thread
 stacks and OS bookkeeping still require resources. The current runtime supports
