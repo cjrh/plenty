@@ -492,6 +492,32 @@ impl fmt::Display for CallableSig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegerOp {
+    And,
+    Or,
+    Xor,
+    Not,
+    ShiftLeft,
+    ShiftRight,
+    WrappingAdd,
+    WrappingSub,
+    WrappingMul,
+}
+
+impl IntegerOp {
+    pub(crate) fn binary(operator: &str) -> Option<Self> {
+        Some(match operator {
+            "&" => Self::And,
+            "|" => Self::Or,
+            "^" => Self::Xor,
+            "<<" => Self::ShiftLeft,
+            ">>" => Self::ShiftRight,
+            _ => return None,
+        })
+    }
+}
+
 /// A typed operation lowered into native code.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
@@ -564,6 +590,8 @@ pub enum Op {
     /// Integer division rounded toward negative infinity (modern `//`).
     FloorDiv,
     Modulo,
+    /// Integer operations that never use implicit overflow checking.
+    Integer(IntegerOp),
     /// Pop two values; push `true` if they are equal, `false` otherwise.
     /// Polymorphic over Int/Str/Bool (§11.8); mixed-type pairs are rejected
     /// by the type checker, never reached at runtime by a compiled source.
@@ -1677,6 +1705,16 @@ fn step(
                 return Err("floor division and modulo require integers".into());
             }
             arith(stack, "// or %")?;
+        }
+        Op::Integer(kind) => {
+            let ty = stack.pop().ok_or("integer operation stack underflow")?;
+            if !ty.is_int() {
+                return Err("bitwise and wrapping operations require integers".into());
+            }
+            if *kind != IntegerOp::Not && stack.pop().as_ref() != Some(&ty) {
+                return Err("integer operations require same-typed operands".into());
+            }
+            stack.push(ty);
         }
         Op::Eq => {
             let (a, b) = pop2(stack, "=")?;

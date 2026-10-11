@@ -263,6 +263,11 @@ ownership remain in the shared `issues.db`.
 
 ## Reconciled completed work
 
+Integer bitwise operators, checked shift counts, and explicit wrapping
+add/subtract/multiply are implemented for issue #33. The numeric reference and
+tutorial describe their precedence and width rules; this closes that B38
+language prerequisite once its local PR is merged.
+
 These old backlog entries are closed, not additional tasks. The linked reference
 pages own the current details; this table records why they disappeared from the
 active list.
