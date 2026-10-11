@@ -117,11 +117,7 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
     for token in &mut tokens {
         token.source = origin.clone();
     }
-    let mut parser = Parser {
-        tokens,
-        pos: 0,
-        type_depth: 0,
-    };
+    let mut parser = Parser::new(tokens);
     let mut module = Module {
         name,
         ..Module::default()

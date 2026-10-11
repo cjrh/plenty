@@ -25,6 +25,24 @@ def main() -> Result[(), Failure]:
 5
 ```
 
+A short callback can be written in the call. An anonymous function needs
+parentheses to be the operand of `&`:
+
+```plenty
+def apply[T, F: Callable[[T], T]](f: &F, value: T) -> T:
+    f(value)
+
+def main() -> Result[(), Failure]:
+    offset = 2
+    print(apply(&(def [offset](value: i64) -> i64: offset + value), 3))?
+    print(apply(&(def(value: i64) -> i64: value * value), 3))?
+    Ok(())
+```
+```output
+5
+9
+```
+
 `F` preserves the callback's concrete environment type. Both arguments must
 agree on `T`; conflicting type evidence is an error. Use `&mut F` for a callback
 that changes its captured state. Borrowed captures stay protected throughout

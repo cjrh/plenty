@@ -38,9 +38,7 @@ You can submit a closure to move several values into a job explicitly:
 def main() -> Result[(), Failure]:
     with ThreadPoolExecutor(2, 2)? as pool:
         values = [3, 6, 9]?
-        job = def once [values]() -> list[i64]:
-            values
-        future = pool.submit(job)?
+        future = pool.submit(def once [values]() -> list[i64]: values)?
         print(future.result()?)?
     Ok(())
 ```
