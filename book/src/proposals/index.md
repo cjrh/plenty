@@ -33,7 +33,7 @@ were last reconciled with the compiler on 2026-10-10.
 | [Runtime allocation audit](allocation-audit.md) | [Allocation and traps](../design/language/08-errors/02-allocation-and-traps.md) | B13 |
 | [References, ownership, and explicit copying](references-and-copying.md) | [Ownership](../design/language/05-ownership/index.md) | B11 |
 | [One immutable `str` with explicit lengths](strings.md) | [Text](../design/facilities/01-builtins/text.md) | B12, B27 |
-| [Sum types and enums](sum-types.md) | [Enums](../design/language/03-types/enums.md), [matching](../design/language/04-expressions/matching.md) | B15, B19, B33 |
+| [Sum types and enums](sum-types.md) | [Enums](../design/language/03-types/enums.md), [matching](../design/language/04-expressions/matching.md) | B19, B33 |
 | [Generics, structural protocols, context managers, and error propagation](protocols-generics-and-context-managers.md) | [Generics](../design/language/07-generics/index.md), [resource scopes](../design/language/08-errors/03-resource-scopes.md) | B11, B14, B29 |
 | [Native owned generators](generators.md) | [Generators](../design/language/09-iteration/03-generators.md) | Unscheduled |
 | [Allocation-free generator frames and ranges](allocation-free-generators.md) | [Generators](../design/language/09-iteration/03-generators.md), [ranges](../design/facilities/01-builtins/ranges.md) | B12 |

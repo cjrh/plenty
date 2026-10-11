@@ -17,9 +17,11 @@
 > [matching](../design/language/04-expressions/matching.md). The examples'
 > module-scope statements are no longer accepted.
 >
-> **Remaining:** qualifier omission (B15); jump-table
-> dispatch (B19); deep operations on recursive enums (B33). Guards, enum
-> methods, enums as dictionary keys or set elements, and `match` as an
+> Omitting a user-defined enum's qualifier was declined: a bare name is always
+> a binding and a qualified name is always a variant.
+>
+> **Remaining:** jump-table dispatch (B19); deep operations on recursive enums
+> (B33). Guards, enum methods, enums as dictionary keys or set elements, and `match` as an
 > expression are unscheduled.
 
 ## Contract
