@@ -304,10 +304,8 @@ impl Lower<'_> {
             if let Some(expected) = expected {
                 self.same(Some(actual.clone()), Some(expected), &value.at)?;
             }
-            if !actual.heap_storable() {
-                return Err(value
-                    .at
-                    .error("references and generators cannot be stored in tuples"));
+            if let Some(barrier) = actual.storage_barrier() {
+                return Err(value.at.error(barrier.message("tuples")));
             }
             if actual == Ty::Unit {
                 ops.push(Op::PushUnit);
@@ -662,10 +660,13 @@ impl Lower<'_> {
                     if let Some(expected) = ty {
                         self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
                     }
-                    if inferred.element().is_some_and(|t| !t.heap_storable())
-                        || matches!(&inferred, Ty::Dict(_, v) if !v.heap_storable())
-                    {
-                        return Err(key.at.error("generators cannot be stored in collections"));
+                    // Keys are hashable scalars or text, which are always storable.
+                    let barrier = match &inferred {
+                        Ty::Dict(_, t) | Ty::List(t) | Ty::Set(t) => t.storage_barrier(),
+                        _ => None,
+                    };
+                    if let Some(barrier) = barrier {
+                        return Err(key.at.error(barrier.message("collections")));
                     }
                     *ty = Some(inferred.clone());
                     if let Some(pending) = pending {

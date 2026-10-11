@@ -258,10 +258,8 @@ impl TypeAliases {
                 let ty = t
                     .resolve(self)?
                     .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))?;
-                if !ty.heap_storable() {
-                    return Err(t.at.error(
-                        "generic data arguments cannot contain references, generators, or borrowed/unresolved closure environments",
-                    ));
+                if let Some(barrier) = ty.storage_barrier() {
+                    return Err(t.at.error(barrier.message("generic data")));
                 }
                 Ok(ty)
             })
@@ -460,10 +458,8 @@ impl TypeAliases {
                     .iter()
                     .map(|t| Ok(t.resolve(self)?.unwrap_or(Ty::Unit)))
                     .collect::<Result<Vec<_>>>()?;
-                if fields.iter().any(|t| !t.heap_storable()) {
-                    return Err(declaration.at.error(
-                        "references, generators, and borrowed/unresolved closures cannot be stored in enum payloads",
-                    ));
+                if let Some(barrier) = fields.iter().find_map(Ty::storage_barrier) {
+                    return Err(declaration.at.error(barrier.message("enum payloads")));
                 }
                 Ok(crate::sum::Variant {
                     name: name.clone(),

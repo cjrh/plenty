@@ -58,6 +58,37 @@ pub enum Ty {
     Ref(Rc<Ty>, bool),
 }
 
+/// Why a type cannot enter heap storage; see `Ty::storage_barrier`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StorageBarrier {
+    Reference,
+    Generator,
+    ScopedTask,
+    /// A `Closure`/`OnceClosure` annotation that no producer has resolved.
+    UnresolvedClosure,
+    BorrowedClosure,
+    GeneratorClosure,
+}
+
+impl StorageBarrier {
+    /// The diagnostic for storing the rejected type in `place`, e.g. "collections".
+    pub fn message(self, place: &str) -> String {
+        let subject = match self {
+            Self::Reference => "references",
+            Self::Generator => "generators",
+            Self::ScopedTask => "scoped tasks",
+            Self::BorrowedClosure => "closures with borrowed captures",
+            Self::GeneratorClosure => "closures that capture generators",
+            Self::UnresolvedClosure => {
+                return format!(
+                    "a closure signature does not name a concrete environment, so it cannot be stored in {place}; let the type be inferred from the stored closure or use a generic parameter bounded by Callable"
+                )
+            }
+        };
+        format!("{subject} cannot be stored in {place}")
+    }
+}
+
 impl Ty {
     /// Range payloads also occur inside standard sums. Tags remain in the
     /// ordinary 128-bit representation; slot_bytes includes owner-local payloads.
@@ -127,17 +158,26 @@ impl Ty {
     /// Heap owners can embed a resolved, wholly owned environment.
     /// Keep this separate from inline-layout facts used by Option and Result.
     pub fn heap_storable(&self) -> bool {
+        self.storage_barrier().is_none()
+    }
+    /// The first reason a heap owner cannot embed this type.
+    pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {
-            Self::Closure(t) => {
-                !t.name.is_empty() && !t.borrowed && !self.contains_generator_frame()
+            Self::Ref(..) => Some(StorageBarrier::Reference),
+            Self::Generator(_) => Some(StorageBarrier::Generator),
+            Self::Task(_) => Some(StorageBarrier::ScopedTask),
+            Self::Closure(t) if t.name.is_empty() => Some(StorageBarrier::UnresolvedClosure),
+            Self::Closure(t) if t.borrowed => Some(StorageBarrier::BorrowedClosure),
+            Self::Closure(_) if self.contains_generator_frame() => {
+                Some(StorageBarrier::GeneratorClosure)
             }
             Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
                 .get()
                 .variants
                 .iter()
                 .flat_map(|v| &v.fields)
-                .all(Self::heap_storable),
-            _ => !self.restricted_storage(),
+                .find_map(Self::storage_barrier),
+            _ => None,
         }
     }
     pub fn contains_generator_frame(&self) -> bool {

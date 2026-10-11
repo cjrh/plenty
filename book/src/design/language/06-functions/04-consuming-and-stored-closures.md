@@ -35,8 +35,10 @@ including through standard sum wrappers. A signature annotation alone does not
 resolve a storage layout. Different tuple slots or enum variants may hold
 different producers; a list's elements share one concrete producer type.
 Borrowed captures and environments containing generators cannot enter heap
-storage. Classes and enums themselves are inline; their construction adds no
-environment allocation. Collection construction and growth remain fallible.
+storage. A rejection names its cause: an unresolved signature, a borrowed
+capture, a captured generator, a reference, or a generator. Classes and enums
+themselves are inline; their construction adds no environment allocation.
+Collection construction and growth remain fallible.
 
 Calling a stored reusable callback borrows its field or element, exclusively
 for mutable captures. A live indexed callback loan protects the collection
