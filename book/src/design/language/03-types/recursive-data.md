@@ -13,7 +13,9 @@ class Node[T]:
 
 Finite concrete generic instances can recur, including mutual instances with
 different arguments. Alias-only cycles remain invalid. Endless type expansion,
-such as a `Node[T]` containing a `Node[list[T]]`, is rejected when specialized.
+such as a `Node[T]` containing a `Node[list[T]]`, is rejected when specialized;
+the diagnostic names the first three instances and points at the type
+application that grows. Finite nesting deeper than 64 levels reports that limit.
 These limits concern type descriptions rather than the number of nodes in a
 runtime chain or tree.
 
