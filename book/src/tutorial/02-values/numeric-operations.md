@@ -169,3 +169,33 @@ Use `wrapping_add`, `wrapping_sub`, or `wrapping_mul` when a calculation
 deliberately wraps at the integer width, as in a hash or a random-number
 generator. Ordinary arithmetic still traps on overflow. Parenthesize mixed
 bitwise expressions when that makes the intended grouping easier to read.
+
+`pow` raises a number to a power, and each integer type names its limits as
+`MIN` and `MAX`. As with the operators, the number and its exponent must have
+one type, and the result has that type:
+
+```plenty
+def main() -> Result[(), IoError]:
+    change = -7
+    small = 200u8
+    print(change.pow(2))?
+    print((2).pow(10))?
+    print(u8.MAX - small)?
+    print(i64.MIN)?
+    Ok(())
+```
+
+```output
+49
+1024
+55
+-9223372036854775808
+```
+
+There is no `**` operator. An integer literal receiver needs parentheses, as in
+`(2).pow(10)`.
+
+A result that does not fit is the same runtime error as arithmetic overflow:
+`small.pow(2)` stops the program with `integer overflow`. An integer power with
+a negative exponent stops with `negative integer exponent`; convert to a float
+for that.

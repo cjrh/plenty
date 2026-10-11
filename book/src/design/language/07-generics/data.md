@@ -35,7 +35,7 @@ generic method calls; returned references retain their ordinary named-receiver
 and lifetime restrictions. Brackets beginning with a local binding index a
 callable field instead, as in `table.callbacks[index](argument)`.
 
-Data parameters accept `IntType`, `Callable`, and `OnceCallable` constraints;
+Data parameters accept `IntType`, `FloatType`, `Callable`, and `OnceCallable` constraints;
 protocol bounds on data are unsupported. Callable signatures may mention other
 data parameters and contribute constructor inference evidence. Explicit instances
 and aliases are checked too; unused declaration bounds still require valid

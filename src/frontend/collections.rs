@@ -1584,6 +1584,11 @@ impl Lower<'_> {
         } else {
             self.observe_method_receiver(base, ops)?
         };
+        if ty.is_numeric() && numeric::method(name) {
+            return self
+                .numeric_method(base, name, args, (ty, loans), ops)
+                .map(Some);
+        }
         if name == "is_null" && matches!(ty, Ty::ForeignPtr(_)) {
             if !args.is_empty() {
                 return Err(base.at.error("is_null takes no arguments"));

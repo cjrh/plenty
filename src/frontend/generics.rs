@@ -7,6 +7,16 @@ pub(super) fn callable_bound(bound: &TypeRef) -> bool {
     matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable"))
 }
 
+/// The test a type must pass to satisfy the built-in numeric constraint
+/// `bound` names.
+pub(super) fn numeric_bound(bound: &TypeRef) -> Option<fn(&Ty) -> bool> {
+    match bound.name.as_deref() {
+        Some("IntType") => Some(Ty::is_int),
+        Some("FloatType") => Some(Ty::is_float),
+        _ => None,
+    }
+}
+
 pub(super) fn callable_pattern(bound: &TypeRef) -> TypeRef {
     let mut pattern = bound.clone();
     pattern.name = Some("Callable".into());
@@ -695,14 +705,14 @@ impl Engine {
                         protocol.type_params.len()
                     )));
                 }
-            } else if (bound.name.as_deref() != Some("IntType")
+            } else if (numeric_bound(bound).is_none()
                 && !bound
                     .name
                     .as_ref()
                     .is_some_and(|n| self.protocols.contains_key(n)))
                 || !bound.args.is_empty()
             {
-                return Err(bound.at.error("generic constraints require IntType, Callable, OnceCallable, or a declared protocol"));
+                return Err(bound.at.error("generic constraints require IntType, FloatType, Callable, OnceCallable, or a declared protocol"));
             }
         }
         Ok(())
@@ -777,9 +787,12 @@ impl Engine {
                 ));
             }
             if let Some(bound) = bound {
-                if bound.name.as_deref() == Some("IntType") {
-                    if !ty.is_int() {
-                        return Err(at.error(format!("{ty} does not satisfy IntType")));
+                if let Some(satisfies) = numeric_bound(bound) {
+                    if !satisfies(ty) {
+                        return Err(at.error(format!(
+                            "{ty} does not satisfy {}",
+                            bound.name.as_deref().unwrap()
+                        )));
                     }
                 } else if callable_bound(bound) {
                     check_callable_bound(bound, ty, &replacements, aliases, at)?;

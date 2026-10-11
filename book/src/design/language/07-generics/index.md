@@ -15,10 +15,12 @@ checked for each used concrete instance. Calls remain statically dispatched;
 generic syntax adds no runtime type lookup or allocation.
 The toolchain documents [specialization limits and caching](../../toolchain/02-architecture/emission.md).
 
-Functions and methods accept unconstrained parameters, `IntType`, structural
-protocol constraints, and callable constraints. `IntType` accepts the eight
-fixed-width integer types, including aliases; it is a constraint rather than a
-value type. Callable capabilities follow [functions](../06-functions/index.md).
+Functions and methods accept unconstrained parameters, `IntType`, `FloatType`,
+structural protocol constraints, and callable constraints. `IntType` accepts the
+eight fixed-width integer types and `FloatType` accepts `f32` and `f64`,
+including aliases; each is a constraint rather than a value type. No constraint
+admits both integers and floats; an unconstrained parameter does, because a
+body is checked for each instance. Callable capabilities follow [functions](../06-functions/index.md).
 
 [Argument inference](inference.md) determines parameters from inputs or a complete
 explicit argument list. [Generic data and methods](data.md) retain nominal

@@ -60,3 +60,35 @@ True
 
 Floats support `+`, `-`, `*`, `/`, unary signs, and comparisons.
 `//` and `%` currently require integers. Floats cannot be dictionary keys or set elements. Float literals that overflow their declared width are compile errors.
+
+Math functions are methods on a float, and each float type provides the
+constants `PI` and `E`:
+
+```plenty
+def main() -> Result[(), IoError]:
+    radius = 2.0
+    print(f64.PI * radius.pow(2.0))?
+    print((9.0).sqrt())?
+    print(f64.E.log())?
+    print((0.0).cos())?
+    print((2.5).floor())?
+    print((2.5).ceil())?
+    print((7.5).fmod(2.0))?
+    Ok(())
+```
+
+```output
+12.566370614359172
+3.0
+1.0
+1.0
+2.0
+3.0
+1.5
+```
+
+`log` is the natural logarithm, `sin` and `cos` take radians, and `exp` raises
+e to a power. `floor` and `ceil` return floats; cast the result for an integer,
+as in `i64(x.floor())`. `fmod` is the float remainder. These methods never stop
+the program: `(-1.0).sqrt()` is NaN. An integer needs a cast first, as in
+`f64(n).sqrt()`.

@@ -51,6 +51,51 @@ arguments are compile-time errors, as is `wrapping_from` on a float type.
 The bare cast `T(value)` is the form that
 [requires the value to fit](../../language/03-types/numbers.md).
 
+## Limits and constants
+
+`T.MIN` and `T.MAX` are the smallest and largest values of an integer type `T`.
+`T.PI` and `T.E` are the values of a float type `T` nearest to π and e. Each is
+a value of type `T`, so `u8.MAX - small` needs no cast. A float type has no
+`MIN` or `MAX`, and an integer type has no `PI` or `E`. The names are
+upper-case; any other name after a numeric type is a compile-time error that
+lists these four.
+
+## Powers
+
+`base.pow(exponent)` is defined on every numeric type and takes one exponent of
+the receiver's type. There is no `**` operator.
+
+For integers the result is exact. A result outside the type is the
+`integer overflow` runtime error, and a negative exponent is the runtime error
+`negative integer exponent`. `x.pow(0)` is `1` for every `x`, including zero.
+Convert to a float for a fractional or negative power.
+
+For floats `pow` is the platform math library's `pow`: `(2.0).pow(0.5)` is the
+square root of two, and a negative base with a fractional exponent gives NaN.
+
+An integer literal receiver needs parentheses, as in `(2).pow(10)`, because
+`2.` begins a float literal. A suffixed literal does not: `2u8.pow(7)`.
+
+## Float functions
+
+These methods are defined on `f32` and `f64` and return the receiver's type.
+None fails or allocates; results outside a function's domain are NaN or an
+infinity, following IEEE 754 and the platform math library.
+
+| Method | Result |
+|---|---|
+| `x.sqrt()` | Square root; NaN for a negative `x` |
+| `x.exp()` | e to the power `x` |
+| `x.log()` | Natural logarithm; `-inf` for zero, NaN for a negative `x` |
+| `x.sin()`, `x.cos()` | Sine and cosine of `x` radians |
+| `x.floor()`, `x.ceil()` | Nearest whole value at or below, at or above `x`; still a float |
+| `x.pow(y)` | `x` to the power `y` |
+| `x.fmod(y)` | Remainder of `x / y` with the sign of `x`; NaN when `y` is zero |
+
+An integer receiver is a compile-time error naming the float cast. `%` remains
+integer-only; `fmod` is the float remainder. `floor` and `ceil` return floats,
+and the cast `i64(x.floor())` produces the integer.
+
 ## Formatting
 
 `str.from(number_or_bool) -> Result[str, AllocError]` observes one scalar.

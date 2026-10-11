@@ -38,5 +38,5 @@ requirements, and method-local requirement parameters are unsupported. A generic
 implementation method cannot satisfy a monomorphic requirement.
 
 Generic bodies are checked per concrete instance. Requirements express the
-minimum interface rather than a separately checked abstract body. `IntType`
-remains a separate built-in numeric constraint.
+minimum interface rather than a separately checked abstract body. `IntType` and
+`FloatType` remain separate built-in numeric constraints.

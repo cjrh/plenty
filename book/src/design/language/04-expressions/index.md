@@ -23,7 +23,8 @@ Operator precedence, from highest to lowest:
 Arithmetic operators associate left to right. Parentheses override precedence.
 Chained comparisons are rejected. There is no exponentiation operator: `a ** b`
 reads as `a * (*b)`, and when `b` cannot be dereferenced the diagnostic says
-that `**` is unsupported and to multiply explicitly. [Numeric rules](../03-types/numbers.md) specify
+that `**` is unsupported and names
+[`base.pow(exponent)`](../../facilities/01-builtins/numbers.md#powers). [Numeric rules](../03-types/numbers.md) specify
 type matching, casts, overflow, and float behavior. Membership follows the
 container's [facilities contract](../../facilities/index.md).
 

@@ -62,6 +62,13 @@ Prefix `&` and `&mut` still create borrows.
 integer types and compute modulo two to the integer width. They allocate
 nothing. Ordinary `+`, `-`, and `*` keep their overflow checks.
 
+The [numeric facilities](../../facilities/01-builtins/numbers.md#limits-and-constants)
+provide the type constants `T.MIN`, `T.MAX`, `T.PI`, and `T.E`; `pow` on every
+numeric type; and the float methods `sqrt`, `exp`, `log`, `sin`, `cos`,
+`floor`, `ceil`, and `fmod`. A two-operand method requires one type, as the
+operators do, and an integer result outside its type is the same overflow
+error.
+
 Comparisons require matching types; ordering accepts integers, floats, and
 [strings](../../facilities/01-builtins/text.md). NaN is
 unequal to every value, including itself, and all ordered comparisons with it are

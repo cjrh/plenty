@@ -6,7 +6,8 @@ method names. Their contracts complement the language rules for
 [ownership](../../language/05-ownership/index.md), and
 [iteration](../../language/09-iteration/index.md).
 
-- [Numbers](numbers.md): parsing, checked integer conversion, and scalar
+- [Numbers](numbers.md): parsing, checked integer conversion, limits and
+  constants, powers, float functions, and scalar
   formatting.
 - [Formatting](formatting.md): representations and printed values.
 - [Tuples](tuples.md): fixed products and component access.

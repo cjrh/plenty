@@ -25,6 +25,7 @@ mod foreign;
 mod generators;
 mod generics;
 mod modules;
+mod numeric;
 mod protocols;
 mod references;
 mod sorting;
@@ -1908,6 +1909,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "OnceCallable"
                 | "tuple"
                 | "IntType"
+                | "FloatType"
                 | "next"
                 | "copy"
                 | "drop"
@@ -2141,13 +2143,16 @@ impl Lower<'_> {
                 .get(n)
                 .map(|l| l.ty.clone())
                 .filter(Ty::is_numeric),
-            Expression::Member(..) | Expression::Index(..) => {
-                self.place_type(e).filter(Ty::is_numeric)
-            }
+            Expression::Member(..) | Expression::Index(..) => self
+                .place_type(e)
+                .filter(Ty::is_numeric)
+                .or_else(|| self.numeric_builtin_hint(e)),
             Expression::Call(..)
             | Expression::Invoke(..)
             | Expression::Method(..)
-            | Expression::GenericMethod(..) => self.expression_type_hint(e).filter(Ty::is_numeric),
+            | Expression::GenericMethod(..) => self
+                .numeric_builtin_hint(e)
+                .or_else(|| self.expression_type_hint(e).filter(Ty::is_numeric)),
             Expression::Unary(op, inner) if op == "+" || op == "-" || op == "~" => {
                 self.numeric_hint(inner)
             }
@@ -2442,6 +2447,9 @@ impl Lower<'_> {
             }
             Expression::Member(base, name) => {
                 if let Some(ty) = self.qualified_type(base)? {
+                    if ty.is_numeric() {
+                        return self.numeric_constant(ty, name, &e.at, ops).map(Some);
+                    }
                     self.variant(ty, name, None, &e.at, ops)?
                 } else {
                     let (ty, loans) = self.field(e, ops)?;
@@ -2564,9 +2572,9 @@ impl Lower<'_> {
                         Ty::Ref(ty, _) => ty,
                         // The parser marks a `*` written directly after a
                         // multiplication `*`; see the binary operator loop.
-                        _ if e.at.is("**") => {
-                            return Err(e.at.error("exponentiation with `**` is not supported; multiply explicitly, as in `x * x`"))
-                        }
+                        _ if e.at.is("**") => return Err(e.at.error(
+                            "exponentiation with `**` is not supported; use `base.pow(exponent)`",
+                        )),
                         _ => {
                             return Err(value.at.error("dereference requires a reference or a Box"))
                         }
