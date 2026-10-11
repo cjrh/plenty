@@ -1846,6 +1846,8 @@ struct Lower<'a> {
     aliases: &'a TypeAliases,
     access: &'a modules::AccessMap,
     names: HashMap<String, Local>,
+    function_places: HashMap<String, Local>,
+    function_initializers: Vec<Op>,
     locals: Vec<Ty>,
     parameters: usize,
     /// None at module scope; Some(None) for a unit-returning function.
@@ -3374,6 +3376,8 @@ fn lower_function(
         aliases,
         access,
         names: HashMap::new(),
+        function_places: HashMap::new(),
+        function_initializers: Vec::new(),
         locals: Vec::new(),
         parameters: sig.inputs.len(),
         return_type: Some(if yield_type.is_some() {
@@ -3457,6 +3461,9 @@ fn lower_function(
     if yield_type.is_none() {
         mark_tail_calls(&mut body);
     }
+    // A declaration's borrowed address has one immutable slot per function.
+    // Initialize it at entry so a first borrow inside a branch dominates later uses.
+    body.splice(0..0, std::mem::take(&mut lower.function_initializers));
     lower
         .generics
         .tail_candidates
