@@ -1,4 +1,4 @@
-//! Monomorphic worker callbacks behind the runtime's two-pointer C ABI.
+//! Monomorphic worker callbacks with input, output, and shared-environment slots.
 use super::*;
 use crate::executor::ExecutorOp;
 use cranelift_codegen::ir::MemFlags;
@@ -22,9 +22,11 @@ pub(super) fn emit_adapters(
     for (name, job) in jobs {
         let module = &mut out.module;
         let mut signature = module.make_signature();
-        signature
-            .params
-            .extend([AbiParam::new(PTR_TY), AbiParam::new(PTR_TY)]);
+        signature.params.extend([
+            AbiParam::new(PTR_TY),
+            AbiParam::new(PTR_TY),
+            AbiParam::new(PTR_TY),
+        ]);
         let id = module.declare_function(&name, Linkage::Local, &signature)?;
         runtime.thread_adapters.borrow_mut().insert(name, id);
         let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
@@ -35,6 +37,7 @@ pub(super) fn emit_adapters(
         bcx.seal_block(entry);
         let input = bcx.block_params(entry)[0];
         let output = bcx.block_params(entry)[1];
+        let shared = bcx.block_params(entry)[2];
         let mut lower = Lowerer {
             bcx: &mut bcx,
             module,
@@ -57,7 +60,15 @@ pub(super) fn emit_adapters(
             .ins()
             .load(types::I128, MemFlags::trusted(), input, 0);
         let value = lower.unpack(packed, &job.input);
-        if let Some(closure) = &job.closure {
+        if let Some(closure) = &job.shared {
+            let reference = lower.bcx.ins().uextend(types::I128, shared);
+            lower.stack.push((
+                reference,
+                Ty::Ref(Rc::new(Ty::Closure(closure.clone())), false),
+            ));
+            lower.stack.push((value, job.input.clone()));
+            lower.lower_closure_call(closure)?;
+        } else if let Some(closure) = &job.closure {
             if closure.once {
                 lower.stack.push((value, job.input.clone()));
             } else {
@@ -97,7 +108,7 @@ impl Lowerer<'_, '_> {
             values.push(self.pack(value, input));
         }
         values.reverse();
-        let args = self.inline_storage((inputs.len() + 3) * 16);
+        let args = self.inline_storage((inputs.len() + 5) * 16);
         for (i, value) in values.iter().enumerate() {
             self.bcx
                 .ins()
@@ -108,12 +119,26 @@ impl Lowerer<'_, '_> {
             let callback = self.module.declare_func_in_func(id, self.bcx.func);
             let callback = self.bcx.ins().func_addr(PTR_TY, callback);
             let callback = self.bcx.ins().uextend(types::I128, callback);
-            self.bcx.ins().store(
-                MemFlags::trusted(),
-                callback,
-                args,
-                (inputs.len() * 16) as i32,
-            );
+            self.bcx
+                .ins()
+                .store(MemFlags::trusted(), callback, args, 32);
+        }
+        if let ExecutorOp::Map(job, _, _) = operation {
+            let shared = if job.shared.is_some() {
+                self.bcx.ins().iadd_imm(args, 80)
+            } else {
+                self.bcx.ins().iconst(PTR_TY, 0)
+            };
+            if job.shared.is_some() {
+                self.bcx
+                    .ins()
+                    .store(MemFlags::trusted(), values[1], args, 80);
+                self.bcx
+                    .ins()
+                    .store(MemFlags::trusted(), values[2], args, 16);
+            }
+            let shared = self.bcx.ins().uextend(types::I128, shared);
+            self.bcx.ins().store(MemFlags::trusted(), shared, args, 96);
         }
         if let ExecutorOp::Map(job, input, _) | ExecutorOp::Reduce(job, input) = operation {
             let id = metadata::declare(self.module, self.runtime, input)?;
@@ -154,6 +179,11 @@ impl Lowerer<'_, '_> {
         let value = self.unpack(value, &output);
         if !matches!(operation, ExecutorOp::New) {
             self.release(values[0], &inputs[0]);
+        }
+        if let ExecutorOp::Map(job, _, _) = operation {
+            if job.shared.is_some() {
+                self.release(values[1], &inputs[1]);
+            }
         }
         self.stack.push((value, output));
         Ok(())

@@ -13,7 +13,7 @@ use std::sync::{Condvar, Mutex, MutexGuard};
 #[cfg(test)]
 mod tests;
 
-pub(crate) type Entry = unsafe extern "C" fn(*const u128, *mut u128);
+pub(crate) type Entry = unsafe extern "C" fn(*const u128, *mut u128, *const u128);
 
 #[repr(C)]
 struct Worker {
@@ -60,6 +60,9 @@ pub(crate) struct Job {
     input: &'static Type,
     output: &'static Type,
     entry: Entry,
+    // Borrowed only by synchronous map jobs. The caller drains them before
+    // releasing its one immutable environment; ordinary submissions use null.
+    shared: *const u128,
     data: *mut u128,
     words: usize,
     phase: Mutex<Phase>,
@@ -177,7 +180,7 @@ unsafe extern "C" fn run_worker(argument: *mut c_void) -> *mut c_void {
                 let data = (*job).data;
                 // Separate output storage keeps input environments alive until
                 // the adapter finishes, including reusable-closure cleanup.
-                ((*job).entry)(data, data.add((*job).input.slot_words()));
+                ((*job).entry)(data, data.add((*job).input.slot_words()), (*job).shared);
                 *lock(&(*job).phase) = Phase::Ready;
                 (*job).completed.notify_all();
             }
@@ -240,7 +243,32 @@ pub(crate) unsafe fn submit(
     nowait: bool,
 ) -> Result<*mut Job, u64> {
     unsafe {
-        submit_initialized(pointer, input, output, entry, nowait, |slot| {
+        submit_initialized(
+            pointer,
+            input,
+            output,
+            entry,
+            std::ptr::null(),
+            nowait,
+            |slot| {
+                ranges::store(slot, value, input);
+            },
+        )
+    }
+}
+
+/// A synchronous map borrows one shared environment through every job's wait.
+pub(crate) unsafe fn submit_shared(
+    pointer: *mut Pool,
+    value: u128,
+    input: &'static Type,
+    output: &'static Type,
+    entry: Entry,
+    shared: *const u128,
+) -> Result<*mut Job, u64> {
+    // SAFETY: the map caller keeps shared storage alive until Pending drains.
+    unsafe {
+        submit_initialized(pointer, input, output, entry, shared, false, |slot| {
             ranges::store(slot, value, input);
         })
     }
@@ -256,16 +284,24 @@ pub(crate) unsafe fn submit_pair(
     entry: Entry,
 ) -> Result<*mut Job, u64> {
     unsafe {
-        submit_initialized(pointer, input, output, entry, false, |slot| {
-            let environment = slot.add(1);
-            environment.write(input as *const Type as u128);
-            let mut capture = environment.add(1);
-            for (value, ty) in values.into_iter().zip(input.variants[0].fields) {
-                ranges::store(capture, value, ty);
-                capture = capture.add(ty.slot_words());
-            }
-            slot.write(environment as u128);
-        })
+        submit_initialized(
+            pointer,
+            input,
+            output,
+            entry,
+            std::ptr::null(),
+            false,
+            |slot| {
+                let environment = slot.add(1);
+                environment.write(input as *const Type as u128);
+                let mut capture = environment.add(1);
+                for (value, ty) in values.into_iter().zip(input.variants[0].fields) {
+                    ranges::store(capture, value, ty);
+                    capture = capture.add(ty.slot_words());
+                }
+                slot.write(environment as u128);
+            },
+        )
     }
 }
 
@@ -276,6 +312,7 @@ unsafe fn submit_initialized(
     input: &'static Type,
     output: &'static Type,
     entry: Entry,
+    shared: *const u128,
     nowait: bool,
     initialize: impl FnOnce(*mut u128),
 ) -> Result<*mut Job, u64> {
@@ -301,6 +338,7 @@ unsafe fn submit_initialized(
             input,
             output,
             entry,
+            shared,
             data: job.add(1).cast(),
             words,
             phase: Mutex::new(Phase::Pending),
@@ -471,6 +509,7 @@ pub(crate) unsafe extern "C" fn plenty_executor(
                     *args.add(1),
                     input,
                     entry,
+                    *args.add(6) as *const u128,
                     worker_output,
                     &*descriptor,
                     out,
