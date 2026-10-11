@@ -276,7 +276,7 @@ impl TypeAliases {
         let mut class_declarations = HashMap::new();
         for c in classes {
             validate_parameters(&c.name, &c.type_params, &c.at)?;
-            class_declarations.insert(c.name.clone(), c.clone());
+            class_declarations.insert(c.name.clone(), c.template());
         }
         let data = DataTypes {
             enums: Rc::new(enum_declarations),
@@ -675,8 +675,7 @@ impl generics::Engine {
             }
             self.methods
                 .insert(f.name.clone(), protocols::signature(f, aliases)?);
-            self.functions.insert(f.name.clone(), f.clone());
-            self.pending.push_back(f.clone());
+            self.declare(f.clone());
         }
         Ok(functions
             .into_iter()

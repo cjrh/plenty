@@ -110,7 +110,11 @@ impl Lower<'_> {
             let actual = self.expr_expected(timeout, Some(Ty::U64), ops)?;
             self.same(actual, Some(Ty::U64), &timeout.at)?;
         }
-        let op = ChannelOp::Select(messages.remove(0), messages.remove(0), mode);
+        let op = ChannelOp::Select(
+            Box::new(messages.remove(0)),
+            Box::new(messages.remove(0)),
+            mode,
+        );
         let output = op.signature().1;
         ops.push(Op::Channel(op));
         Self::end_reads(loans, ops);

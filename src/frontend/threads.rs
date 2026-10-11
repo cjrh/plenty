@@ -154,8 +154,8 @@ impl Lower<'_> {
             let mut cleanup = Vec::new();
             self.cleanup(0, &mut cleanup);
             ops.push(Op::Try {
-                source,
-                target,
+                source: Box::new(source),
+                target: Box::new(target),
                 cleanup: cleanup.into(),
             });
         } else {

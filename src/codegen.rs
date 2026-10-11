@@ -157,7 +157,7 @@ pub fn compile_source_to_executable_with_options(
     crate::validate_target(options.target.as_deref())?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
-    compile_ops_to_executable(&program.ops, &heap, output, program.returns_status, options)
+    compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
 }
 
 /// Compile a file and its absolute imports. The source root defaults to the
@@ -176,7 +176,7 @@ pub fn compile_file_to_executable_with_options(
     crate::validate_target(options.target.as_deref())?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
-    compile_ops_to_executable(&program.ops, &heap, output, program.returns_status, options)
+    compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
 }
 
 /// Historical stack syntax, retained for backend regression tests.
@@ -198,17 +198,17 @@ pub fn compile_legacy_source_to_executable_with_options(
     let toks = lexer::lex(source)?;
     let mut heap = Heap::default();
     let ops = op::compile(&toks, &mut heap)?;
-    compile_ops_to_executable(&ops, &heap, output, false, options)
+    compile_ops_to_executable(ops, &heap, output, false, options)
 }
 
 fn compile_ops_to_executable(
-    ops: &[Op],
+    ops: Vec<Op>,
     heap: &Heap,
     output: &Path,
     returns_status: bool,
     options: &crate::CompileOptions,
 ) -> Result<()> {
-    op::check(ops)?;
+    op::check(&ops)?;
 
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
@@ -232,7 +232,7 @@ pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
     op::check(&program.ops)?;
-    compile_to_object(&program.ops, &heap, output, program.returns_status)
+    compile_to_object(program.ops, &heap, output, program.returns_status)
 }
 
 /// Emit an application object, resolving absolute Plenty imports.
@@ -241,7 +241,7 @@ pub fn compile_file_to_object(path: &Path, output: &Path, root: Option<&Path>) -
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
     op::check(&program.ops)?;
-    compile_to_object(&program.ops, &heap, output, program.returns_status)
+    compile_to_object(program.ops, &heap, output, program.returns_status)
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -254,8 +254,17 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// Link the object with the packaged `plenty-runtime` archive to produce an
 /// executable. With `returns_status`, the final `i32` operand is the process
 /// status; unit entrypoints and legacy programs return zero on completion.
-fn compile_to_object(ops: &[Op], heap: &Heap, output: &Path, returns_status: bool) -> Result<()> {
-    emit_object(ops, heap, output, Some(returns_status), &[], None)
+fn compile_to_object(ops: Vec<Op>, heap: &Heap, output: &Path, returns_status: bool) -> Result<()> {
+    let module = object_module(&ops, heap, Some(returns_status), &[], None, workers())?;
+    // Serializing reads the module alone and holds the object twice, as
+    // sections and as file bytes. Release the program first (issue #54).
+    drop(ops);
+    std::fs::write(output, module.finish()?)?;
+    Ok(())
+}
+
+fn workers() -> usize {
+    std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
 }
 
 pub(crate) fn emit_library_object(
@@ -282,8 +291,7 @@ fn emit_object(
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
 ) -> Result<()> {
-    let workers = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
-    let bytes = object_bytes(ops, heap, entry, exports, interface, workers)?;
+    let bytes = object_bytes(ops, heap, entry, exports, interface, workers())?;
     std::fs::write(output, bytes)?;
     Ok(())
 }
@@ -297,8 +305,21 @@ fn object_bytes(
     interface: Option<&crate::exports::Interface>,
     workers: usize,
 ) -> Result<Vec<u8>> {
+    object_module(ops, heap, entry, exports, interface, workers)?.finish()
+}
+
+/// Every definition of the object, not yet serialized. Nothing in the result
+/// refers to `ops`.
+fn object_module(
+    ops: &[Op],
+    heap: &Heap,
+    entry: Option<bool>,
+    exports: &[crate::exports::Export],
+    interface: Option<&crate::exports::Interface>,
+    workers: usize,
+) -> Result<Output> {
     let prepared = crate::tail_abi::prepare(ops);
-    let ops = prepared.as_slice();
+    let ops = &*prepared;
     let mut out = Output::new(host_isa()?, workers)?;
 
     let mut runtime = declare_runtime(&mut out.module)?;
@@ -361,7 +382,7 @@ fn object_bytes(
     }
     exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
     runtime.sites.borrow().define(&mut out.module)?;
-    out.finish()
+    Ok(out)
 }
 
 /// Build the target's baseline ISA without inspecting the running CPU.

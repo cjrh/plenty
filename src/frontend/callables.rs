@@ -146,7 +146,7 @@ impl Lower<'_> {
             self.sigs.insert(adapter.clone(), adapted.clone());
             self.generics.compiled.push(Op::DefineFn(
                 adapter.clone(),
-                CompiledFn {
+                Box::new(CompiledFn {
                     location: Some(at.location().into()),
                     origins: Rc::default(),
                     generator: None,
@@ -154,14 +154,14 @@ impl Lower<'_> {
                     doc: "".into(),
                     body: body.into(),
                     locals: Rc::default(),
-                },
+                }),
             ));
         }
         let output = crate::sum::result(
             Ty::BoxedCallable(signature.clone()),
             crate::sum::alloc_error(),
         );
-        ops.push(Op::BoxedCallableNew(source, adapter, signature));
+        ops.push(Op::BoxedCallableNew(Box::new(source), adapter, signature));
         Ok(output)
     }
 
