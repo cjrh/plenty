@@ -35,13 +35,14 @@ state, though both synchronize access to the queue.
 If you need only part of a stream, the receiver guard handles shutdown:
 
 ```plenty
+def produce(sender: Sender[i64]) -> Result[(), Failure]:
+    for n in range(10, 100):
+        sender.send(n * n)?
+    Ok(())
+
 def first_square() -> Result[i64, Failure]:
     sender, receiver = channel[i64](1)?
-    producer = def once [sender]() -> Result[(), Failure]:
-        for n in range(10, 100):
-            sender.send(n * n)?
-        Ok(())
-    with spawn(producer)?, receiver as inbox:
+    with spawn(produce, sender)?, receiver as inbox:
         return Ok(inbox.recv()?)
 
 def main() -> Result[(), Failure]:

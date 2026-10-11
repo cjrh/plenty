@@ -29,3 +29,8 @@ An application Result remains nested: a worker returning `Result[T, E]` yields
 next handles application failure. Retrieval, cancellation, status, and error
 transport allocate nothing. Timed observation does not cancel or consume work;
 see [timeout rules](timed-selection.md).
+
+Scoped `Task.join()` returns `T` directly because scoped tasks cannot be
+cancelled. `Future.result()` needs its outer `Result` to report cancellation;
+for an application Result, `(future.result()?)?` deliberately handles two
+different failure layers.
