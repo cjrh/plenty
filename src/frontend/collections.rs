@@ -1381,6 +1381,22 @@ impl Lower<'_> {
                 Self::end_reads(loans, ops);
                 return Ok(Some(result));
             }
+            if ty.is_numeric() && name == "try_from" {
+                if !ty.is_int() {
+                    return Err(base
+                        .at
+                        .error("try_from is defined for integer types; use a cast for floats"));
+                }
+                if args.len() != 1 {
+                    return Err(base.at.error("try_from takes one integer argument"));
+                }
+                let source = self.value(&args[0], ops)?;
+                if !source.is_int() {
+                    return Err(args[0].at.error("try_from requires an integer value"));
+                }
+                ops.push(Op::TryCast(ty.clone()));
+                return Ok(Some(crate::sum::result(ty, crate::sum::parse_error())));
+            }
             if matches!(ty, Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _)) {
                 return self.fallible_constructor(ty, name, args, &base.at, ops);
             }

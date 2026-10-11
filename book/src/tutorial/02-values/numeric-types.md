@@ -32,4 +32,5 @@ def main() -> Result[(), IoError]:
 ```
 
 An annotation guides an unsuffixed literal, so `small: u8 = 200` works.
-It does not convert an already typed initializer: use an explicit cast for that.
+It does not convert an already typed initializer:
+[convert the value explicitly](numeric-operations.md) for that.
