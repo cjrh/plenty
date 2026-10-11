@@ -666,8 +666,15 @@ pub enum Op {
     /// and zero-extends unsigned ones; narrowing truncates; equal-width
     /// signedness change reinterprets the bit pattern. Casts that would
     /// silently change a value's mathematical meaning are still allowed —
-    /// that is the whole point of an explicit cast word.
+    /// that is the whole point of an explicit cast word. `T.wrapping_from`
+    /// lowers to this op; the bare cast `T(x)` lowers to `CheckedCast`.
     Cast(Ty),
+    /// Pop a number; push it converted to the target numeric type. A value
+    /// the target integer type cannot represent traps: an out-of-range
+    /// integer, or a float that is NaN or out of range once truncated toward
+    /// zero. Conversions to a float type, and integer conversions that
+    /// preserve every source value, emit no check.
+    CheckedCast(Ty),
     /// Pop an integer of any width; push `Result[target, ParseError]`: `Ok`
     /// with the value at the target integer width when it is in range, and
     /// `Err(ParseError.OutOfRange)` otherwise. Unlike `Cast`, it never
@@ -1934,6 +1941,16 @@ fn step(
             if !top.is_numeric() || !target.is_numeric() {
                 return Err(format!(
                     "cast `:as-{target}` requires numeric source and target types, got {top}"
+                )
+                .into());
+            }
+            stack.push(target.clone());
+        }
+        Op::CheckedCast(target) => {
+            let top = stack.pop().ok_or("stack underflow on cast")?;
+            if !top.is_numeric() || !target.is_numeric() {
+                return Err(format!(
+                    "cast to {target} requires numeric source and target types, got {top}"
                 )
                 .into());
             }

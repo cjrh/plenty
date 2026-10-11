@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[case("-128i8 // 3i8", "i8", "-43\n")]
 #[case("18446744073709551615u64 // 2u64", "u64", "9223372036854775807\n")]
 #[case("-9223372036854775808", "i64", "-9223372036854775808\n")]
-#[case("i8(257)", "i8", "1\n")]
+#[case("i8.wrapping_from(257)", "i8", "1\n")]
 #[case("i64(-2i8)", "i64", "-2\n")]
 #[case("not 1 == 2 and True", "bool", "True\n")]
 #[case("True or False and False", "bool", "True\n")]
@@ -239,6 +239,7 @@ fn run_command_matches_explicit_compilation(#[case] source: &str, #[case] expect
 #[case("print(127i8 + 1i8).unwrap()", "integer overflow")]
 #[case("print(-128i8 // -1i8).unwrap()", "integer overflow")]
 #[case("print(1 // 0).unwrap()", "division by zero")]
+#[case("x = 300\nprint(u8(x)).unwrap()", "integer cast out of range")]
 fn runtime_errors_agree(#[case] source: &str, #[case] expected: &str) {
     let artifact = Artifact::new(source);
     let run_output = artifact.run_file();

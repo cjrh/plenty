@@ -54,6 +54,14 @@ fn main_trap(body: &str) -> String {
     "    count = -1\n    print(8 >> count)?\n",
     "3:11: shift count outside integer width"
 )]
+#[case::cast(
+    "    wide = 300\n    print(u8(wide))?\n",
+    "3:11: integer cast out of range"
+)]
+#[case::float_cast(
+    "    wide = 1e30\n    total = 1 + i64(wide)\n    print(total)?\n",
+    "3:17: integer cast out of range"
+)]
 fn arithmetic_traps_name_the_expression(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(main_trap(body), format!("error: main.plenty:{expected}\n"));
 }

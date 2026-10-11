@@ -184,6 +184,10 @@ pub(crate) extern "C" fn plenty_trap_unwrap(site: *const crate::Site, option: u6
 pub(crate) extern "C" fn plenty_trap_shift(site: *const crate::Site) -> ! {
     crate::fail_at(site, format_args!("shift count outside integer width"))
 }
+#[no_mangle]
+pub(crate) extern "C" fn plenty_trap_cast_range(site: *const crate::Site) -> ! {
+    crate::fail_at(site, format_args!("integer cast out of range"))
+}
 
 #[cfg(test)]
 mod tests {

@@ -34,8 +34,9 @@ No public allocator switching or custom-memory-manager API is exposed.
 
 `value.unwrap()` extracts a success payload without allocation, moving it
 when owned. `Err` or `Nothing` deliberately traps. Invalid indexing, absent
-dictionary keys in indexed access, integer overflow, division by zero, invalid
-range parameters, and an empty `split` separator are also fatal runtime errors;
+dictionary keys in indexed access, integer overflow, division by zero, a
+numeric cast to an integer type that cannot represent the value, invalid range
+parameters, and an empty `split` separator are also fatal runtime errors;
 optional lookups provide recoverable absence where supported. Traps terminate
 the process without unwinding language scopes. They are not caught by Result
 propagation or resource scopes.
@@ -51,8 +52,8 @@ error: main.plenty:7:11: index out of bounds: index 5, length 3
 ```
 
 The position is the start of the expression that trapped: the left operand of an
-arithmetic operator, the indexed collection, the receiver of `unwrap` or
-`split`, or the `range` call. A trap in an imported function or a generic
+arithmetic operator, the type name of a cast, the indexed collection, the
+receiver of `unwrap` or `split`, or the `range` call. A trap in an imported function or a generic
 instance reports the position in the function's body, in the file that defines
 it, not the call or instantiation. The file is relative to the
 [source root](../02-source/modules.md), `tools/geometry.plenty` for the
@@ -65,6 +66,7 @@ allocates nothing.
 | Integer overflow in `+`, `-`, `*`, `//`, or negation | `integer overflow` |
 | `//` or `%` by zero | `division by zero` |
 | Shift count negative or not below the integer width | `shift count outside integer width` |
+| Numeric cast to an integer type that cannot represent the value | `integer cast out of range` |
 | `unwrap()` on `Nothing` or `Err` | `unwrap on Nothing`, `unwrap on Err` |
 | List, text, or range index out of range | `index out of bounds: index I, length N` |
 | Absent dictionary key | `dictionary key not found`; indexed assignment adds `; use insert to add a new key` |

@@ -229,7 +229,8 @@ fn artifacts_are_reproducible_across_processes_and_paths() {
     for index in 0..3 {
         let dir = temp.path().join(format!("build-{index}"));
         std::fs::create_dir(&dir).unwrap();
-        let source = dir.join(format!("source-{index}.plenty"));
+        // The file name is part of the source tree: trap reports print it.
+        let source = dir.join("source.plenty");
         std::fs::write(
             &source,
             "import helper\nexport def answer(x: i64) -> i64 = \"fixture_answer\":\n    helper.shift(x)\ndef main() -> i32:\n    i32(answer(4))\n",

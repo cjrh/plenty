@@ -48,11 +48,43 @@ def main() -> Result[(), IoError]:
 would for a `wide` of `300`. [Absence and failure](../03-absence/index.md) shows
 how to handle the error instead.
 
-A cast never fails, so it can discard data instead: narrowing discards high
-bits, so `u8(300)` produces `44`. Widening sign-extends signed inputs and
-zero-extends unsigned inputs; same-width signed/unsigned casts reinterpret the
-bits. Casts do not validate a value's range. Cast only when the value is known
-to fit or when discarding bits is the intent.
+A cast to an integer type requires the value to fit. A literal that does not
+fit is rejected when the program is compiled:
+
+```plenty-error
+def main() -> ():
+    small = u8(300)
+```
+
+```error
+300 is out of range for u8; u8.wrapping_from keeps the low bits
+```
+
+A value known only when the program runs is checked then. With `wide = 300`,
+`u8(wide)` stops the program with `error: integer cast out of range`, as
+arithmetic overflow does. The same applies to a negative value cast to an
+unsigned type, such as `u64(-1)`, and to an unsigned value above the signed
+maximum, such as `i8(200u8)`. Cast when the value is known to fit, and use
+`try_from` when it might not.
+
+When discarding the high bits is the intent, say so with `wrapping_from`, which
+never fails:
+
+```plenty
+def main() -> Result[(), IoError]:
+    wide = 300
+    negative = -1
+    print(u8.wrapping_from(wide))?
+    print(u64.wrapping_from(negative))?
+    print(i8.wrapping_from(200u8))?
+    Ok(())
+```
+
+```output
+44
+18446744073709551615
+-56
+```
 
 Integer arithmetic overflow is a runtime error. An unsigned type has no negative
 values, so unary minus requires a signed integer or a float:

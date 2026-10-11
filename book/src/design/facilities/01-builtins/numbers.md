@@ -31,6 +31,20 @@ never returns `ParseError.Invalid`, allocates nothing, and does not call the
 runtime. Float and non-numeric arguments are compile-time errors, as is
 `try_from` on a float type; float conversions use casts.
 
+## Wrapping conversion
+
+`T.wrapping_from(value) -> T` is defined for every integer type `T` and takes
+one value of any integer type. It keeps the low bits of the value's
+two's-complement representation, sign-extending a narrower signed value first,
+so the result is the value modulo 2 to the power of `T`'s width:
+`u8.wrapping_from(300)` is `44`, `u64.wrapping_from(-1)` is
+`18446744073709551615`, and `i8.wrapping_from(200u8)` is `-56`. It never fails,
+allocates nothing, and does not call the runtime. Float and non-numeric
+arguments are compile-time errors, as is `wrapping_from` on a float type.
+
+The bare cast `T(value)` is the form that
+[requires the value to fit](../../language/03-types/numbers.md).
+
 ## Formatting
 
 `str.from(number_or_bool) -> Result[str, AllocError]` observes one scalar.

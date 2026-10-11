@@ -1503,6 +1503,9 @@ impl Lower<'_> {
                 ops.push(Op::TryCast(ty.clone()));
                 return Ok(Some(crate::sum::result(ty, crate::sum::parse_error())));
             }
+            if name == "wrapping_from" && !matches!(ty, Ty::Enum(_)) {
+                return self.wrapping_from(ty, args, &base.at, ops).map(Some);
+            }
             if matches!(ty, Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _)) {
                 return self.fallible_constructor(ty, name, args, &base.at, ops);
             }
@@ -2265,7 +2268,7 @@ impl Lower<'_> {
             if !source.is_numeric() {
                 return Err(at.error("numeric casts require a number"));
             }
-            ops.push(Op::Cast(ty.clone()));
+            self.checked_cast(&source, &ty, &args[0], at, ops)?;
             return Ok(ty);
         }
         if let Ty::Range(element) = &ty {
