@@ -198,7 +198,7 @@ fn generic_enum_instances_remain_nominal_and_owned() {
         ),
         (
             "value: Choice[&i64] = Choice[&i64].Empty",
-            "cannot contain references",
+            "references cannot be stored in generic data",
         ),
         (
             "value = Choice[list[i64]].Value([1].unwrap())\n    drop(value)\n    drop(value)",

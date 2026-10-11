@@ -444,10 +444,8 @@ impl TypeRef {
                 .iter()
                 .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<Vec<_>>>()?;
-            if fields.iter().any(|t| !t.heap_storable()) {
-                return Err(self
-                    .at
-                    .error("references and generators cannot be stored in tuples"));
+            if let Some(barrier) = fields.iter().find_map(Ty::storage_barrier) {
+                return Err(self.at.error(barrier.message("tuples")));
             }
             if fields
                 .iter()
@@ -501,10 +499,8 @@ impl TypeRef {
             let content = self.args[0]
                 .resolve(aliases)?
                 .ok_or_else(|| self.at.error("a box cannot hold unit"))?;
-            if !content.heap_storable() {
-                return Err(self
-                    .at
-                    .error("references and generators cannot be stored in a box"));
+            if let Some(barrier) = content.storage_barrier() {
+                return Err(self.at.error(barrier.message("a box")));
             }
             return Ok(Some(Ty::Box(Rc::new(content))));
         }
@@ -601,8 +597,8 @@ impl TypeRef {
                         .ok_or_else(|| t.at.error("collection elements cannot be unit"))
                 })
                 .collect::<Result<_>>()?;
-            if args.iter().any(|t| !t.heap_storable()) {
-                return Err(self.at.error("generators cannot be stored in collections"));
+            if let Some(barrier) = args.iter().find_map(Ty::storage_barrier) {
+                return Err(self.at.error(barrier.message("collections")));
             }
             return Ok(Some(match name.as_str() {
                 "list" => Ty::List(Rc::new(args[0].clone())),
@@ -2573,10 +2569,8 @@ impl Lower<'_> {
                         return Err(e.at.error("Box takes one value"));
                     };
                     let ty = self.value(content, ops)?;
-                    if !ty.heap_storable() {
-                        return Err(content
-                            .at
-                            .error("references and generators cannot be stored in a box"));
+                    if let Some(barrier) = ty.storage_barrier() {
+                        return Err(content.at.error(barrier.message("a box")));
                     }
                     let operation = crate::boxed::BoxOp::New(ty);
                     let output = operation.signature().1;
