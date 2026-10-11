@@ -94,6 +94,8 @@ impl Lower<'_> {
             self.generics
                 .functions
                 .insert(function.name.clone(), function.clone());
+            self.generics
+                .inherit_requirement(&self.function_name, &function.name);
             self.generics.pending.push_back(function);
         }
         self.closure_loans

@@ -214,7 +214,8 @@ impl Lower<'_> {
             }
             Expression::Invoke(callee, _) => output(&self.expression_type_hint(callee)?),
             Expression::GenericCall(name, types, _) => {
-                self.generics.explicit_output(name, types, self.aliases)
+                self.generics
+                    .explicit_output(name, types, self.aliases, &e.at)
             }
             Expression::GenericMethod(base, name, types, _) => {
                 let Ty::Class(class) = self.place_type(base)? else {
@@ -224,6 +225,7 @@ impl Lower<'_> {
                     &crate::record::method(&class.name, name),
                     types,
                     self.aliases,
+                    &e.at,
                 )
             }
             Expression::Method(base, name, _) => {
