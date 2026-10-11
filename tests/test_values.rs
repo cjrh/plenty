@@ -79,6 +79,10 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
     "unreachable case"
 )]
 #[case(
+    "enum E:\n    A\nmatch E.A:\n    case E.A:\n        pass\n    case E.B:\n        pass",
+    "unknown variant `B`"
+)]
+#[case(
     "enum E:\n    A\nenum F:\n    A\nmatch E.A:\n    case F.A:\n        pass",
     "expected E, got F"
 )]

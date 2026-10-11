@@ -22,6 +22,13 @@ type, and the packaged runtime target. Current layouts depend on 64-bit pointers
 offsets. Layout assertions and native tests protect these boundaries; selecting
 a linker does not validate a new platform.
 
+Boxed callable owners reuse the heap box prefix: a destruction header, concrete
+content descriptor at byte 16, shared-call adapter address at byte 24, and typed
+content slot at byte 32. Collection helper opcode 128 consumes an environment,
+allocates its box, and returns `Result`; failure drops the concrete content.
+Erased descriptors use kind `J` for managed ownership and opaque formatting, while
+the heap prefix retains the concrete box descriptor for relocation and cleanup.
+
 ## Stack overflow
 
 An executable exhausting its stack reports `error: stack overflow` on standard

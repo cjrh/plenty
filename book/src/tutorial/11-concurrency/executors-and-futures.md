@@ -29,8 +29,27 @@ waits for accepted jobs and joins every worker, including on early return or
 propagated error.
 
 `map` returns a list in input order. It accepts an owned list or an integer range
-and a named function, keeping a bounded window of jobs outstanding. Job and
+and a named function or owned reusable immutable closure, keeping a bounded
+window of jobs outstanding. Job and
 result storage can fail to allocate.
+
+```plenty
+def main() -> Result[(), Failure]:
+    with ThreadPoolExecutor(2, 2)? as pool:
+        factor = 3
+        scale = def [factor](value: i64) -> i64:
+            value * factor
+        print(pool.map(scale, range(4))?)?
+    Ok(())
+```
+
+```output
+[0, 3, 6, 9]
+```
+
+Mapping consumes `scale` and shares its one immutable environment until all jobs
+finish. Mutable, one-shot, or borrowed closures cannot be shared this way.
+`map_result` accepts the same workers when they return `Result[T, E]`.
 
 You can submit a closure to move several values into a job explicitly:
 

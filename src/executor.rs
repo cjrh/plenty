@@ -9,6 +9,8 @@ pub struct Job {
     pub input: Ty,
     pub output: Ty,
     pub closure: Option<Rc<crate::closure::ClosureType>>,
+    /// One caller-owned immutable environment shared until the map drains.
+    pub shared: Option<Rc<crate::closure::ClosureType>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -39,7 +41,10 @@ impl ExecutorOp {
                 ),
             ),
             Self::Map(job, input, fallible) => (
-                vec![Ty::Executor, input.clone()],
+                std::iter::once(Ty::Executor)
+                    .chain(job.shared.iter().map(|t| Ty::Closure(t.clone())))
+                    .chain(std::iter::once(input.clone()))
+                    .collect(),
                 if *fallible {
                     let Ty::Enum(result) = &job.output else {
                         unreachable!()

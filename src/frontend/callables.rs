@@ -4,7 +4,7 @@ use crate::op::CallableSig;
 
 pub(super) fn signature(ty: &Ty) -> Option<&CallableSig> {
     match ty {
-        Ty::Callable(sig) => Some(sig),
+        Ty::Callable(sig) | Ty::BoxedCallable(sig) => Some(sig),
         Ty::Closure(t) => Some(&t.signature),
         _ => None,
     }
@@ -43,7 +43,7 @@ pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
 
 fn output(ty: &Ty) -> Type {
     match ty {
-        Ty::Callable(sig) => sig.output.clone(),
+        Ty::Callable(sig) | Ty::BoxedCallable(sig) => sig.output.clone(),
         Ty::Closure(t) => t.signature.output.clone(),
         Ty::Ref(t, _) => output(t),
         _ => None,
@@ -85,6 +85,109 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
 }
 
 impl Lower<'_> {
+    pub(super) fn boxed_callable(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let [callback] = args else {
+            return Err(at.error("BoxedCallable takes one owned callback"));
+        };
+        let source = self.value(callback, ops)?;
+        if let Some(barrier) = source.storage_barrier() {
+            return Err(callback.at.error(barrier.message("a BoxedCallable")));
+        }
+        let signature = match &source {
+            Ty::Callable(sig) => sig.clone(),
+            Ty::Closure(t) if t.once => return Err(at.error("BoxedCallable requires a reusable callback; one-shot closures cannot be erased yet")),
+            Ty::Closure(t) if t.mutable => return Err(at.error("BoxedCallable requires a shared-call callback; mutable closures cannot be erased yet")),
+            Ty::Closure(t) => Rc::new(t.signature.clone()),
+            _ => return Err(at.error("BoxedCallable requires an owned Callable or closure")),
+        };
+        if matches!(signature.output, Some(Ty::Ref(..))) {
+            return Err(at.error("BoxedCallable callbacks cannot return references yet"));
+        }
+        if signature.inputs.len() >= 256 {
+            return Err(
+                at.error("BoxedCallable supports at most 255 parameters plus its environment slot")
+            );
+        }
+        let adapter = format!(
+            "__plenty_boxed_callable_{}_{}_{}",
+            self.function_name, at.line, at.column
+        );
+        if !self.sigs.contains_key(&adapter) {
+            let mut adapted = signature.function();
+            adapted.inputs.insert(
+                0,
+                (
+                    "environment".into(),
+                    Ty::Ref(Rc::new(source.clone()), false),
+                ),
+            );
+            let adapted = Rc::new(adapted);
+            let mut body = vec![Op::LoadLocal(0)];
+            if matches!(source, Ty::Callable(_)) {
+                body.push(Op::ReadRef(source.clone()));
+            }
+            body.extend(signature.inputs.iter().enumerate().map(|(i, t)| {
+                if t.affine() {
+                    Op::MoveLocal((i + 1) as u8)
+                } else {
+                    Op::LoadLocal((i + 1) as u8)
+                }
+            }));
+            body.push(match &source {
+                Ty::Closure(t) => Op::ClosureCall(t.clone()),
+                _ => Op::CallIndirect(signature.clone()),
+            });
+            body.push(Op::Return);
+            self.sigs.insert(adapter.clone(), adapted.clone());
+            self.generics.compiled.push(Op::DefineFn(
+                adapter.clone(),
+                CompiledFn {
+                    location: Some(at.location().into()),
+                    origins: Rc::default(),
+                    generator: None,
+                    sig: adapted,
+                    doc: "".into(),
+                    body: body.into(),
+                    locals: Rc::default(),
+                },
+            ));
+        }
+        let output = crate::sum::result(
+            Ty::BoxedCallable(signature.clone()),
+            crate::sum::alloc_error(),
+        );
+        ops.push(Op::BoxedCallableNew(source, adapter, signature));
+        Ok(output)
+    }
+
+    fn boxed_callable_arguments(
+        &mut self,
+        args: &[Expr],
+        signature: Rc<CallableSig>,
+        loan: usize,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if args.len() != signature.inputs.len() {
+            return Err(at.error(format!(
+                "boxed callable expects {} arguments, got {}",
+                signature.inputs.len(),
+                args.len()
+            )));
+        }
+        let function = signature.function();
+        let loans = self.call_arguments(args, &function.inputs, ops)?;
+        ops.push(Op::BoxedCallableCall(signature.clone()));
+        Self::end_reads(loans, ops);
+        ops.push(Op::UseLoan(loan));
+        Ok(signature.output.clone())
+    }
+
     /// Read already-known signatures without evaluating or specializing expressions.
     pub(super) fn expression_type_hint(&self, e: &Expr) -> Type {
         match &ungroup(e).kind {
@@ -214,6 +317,10 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if let Some(Ty::BoxedCallable(sig)) = self.place_type(callee) {
+            let (_, loan) = self.borrow(callee, false, ops)?;
+            return self.boxed_callable_arguments(args, sig, loan, &callee.at, ops);
+        }
         if let Some(Ty::Closure(closure)) = self.place_type(callee) {
             return self.call_closure(callee, args, closure, ops);
         }
@@ -226,6 +333,14 @@ impl Lower<'_> {
         };
         if let Ty::Closure(closure) = ty {
             return self.call_temporary_closure(&callee.at, args, closure, ops);
+        }
+        if let Ty::BoxedCallable(sig) = ty {
+            let slot = self.slot(Ty::BoxedCallable(sig.clone()), &callee.at)?;
+            ops.push(Op::StoreLocal(slot));
+            self.expression_temps.push(slot);
+            let loan = self.new_loan(slot, false, None, ops);
+            ops.push(Op::BorrowLocal(slot, false));
+            return self.boxed_callable_arguments(args, sig, loan, &callee.at, ops);
         }
         let Ty::Callable(sig) = ty else {
             if let Expression::Name(name) = &ungroup(callee).kind {

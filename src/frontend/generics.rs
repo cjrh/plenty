@@ -139,7 +139,7 @@ type Substitution = HashMap<String, TypeRef>;
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
     let (name, children): (Option<String>, Vec<&Ty>) = match ty {
         Ty::Unit => (None, vec![]),
-        Ty::Closure(_) => {
+        Ty::Closure(_) | Ty::BoxedCallable(_) => {
             return TypeRef {
                 at: at.clone(),
                 concrete: Some(ty.clone()),
@@ -268,6 +268,12 @@ fn infer(
             )
         }
         (Some("Callable"), Ty::Callable(sig)) => Some(
+            sig.inputs
+                .iter()
+                .chain(std::iter::once(sig.output.as_ref().unwrap_or(&Ty::Unit)))
+                .collect(),
+        ),
+        (Some("BoxedCallable"), Ty::BoxedCallable(sig)) => Some(
             sig.inputs
                 .iter()
                 .chain(std::iter::once(sig.output.as_ref().unwrap_or(&Ty::Unit)))
