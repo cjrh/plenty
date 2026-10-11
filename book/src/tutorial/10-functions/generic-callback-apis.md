@@ -12,11 +12,10 @@ def double(value: i64) -> i64:
     value * 2
 
 def main() -> Result[(), Failure]:
-    function = double
     offset = 2u8
     add = def [offset](value: u8) -> u8:
         offset + value
-    print(apply(&function, 3))?
+    print(apply(&double, 3))?
     print(apply(&add, 3u8))?
     Ok(())
 ```
@@ -29,6 +28,10 @@ def main() -> Result[(), Failure]:
 agree on `T`; conflicting type evidence is an error. Use `&mut F` for a callback
 that changes its captured state. Borrowed captures stay protected throughout
 the call.
+
+Borrow a named function directly with `&double`; a separate binding is optional.
+Its code address is immutable. For `&mut F`, first assign the function to a
+`mut` binding, just as for another value that needs exclusive access.
 
 A concrete parameter such as `f: Callable[[i64], i64]` holds only a function's
 code address. The constraint `F: Callable[[i64], i64]` instead checks whether
@@ -69,11 +72,10 @@ def double(value: i64) -> i64:
     value * 2
 
 def main() -> Result[(), Failure]:
-    function = double
     offset = 7
     add = def [offset](value: i64) -> i64:
         offset + value
-    print(apply(&function, 10))?
+    print(apply(&double, 10))?
     print(apply(&add, 10))?
     Ok(())
 ```

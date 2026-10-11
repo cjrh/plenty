@@ -200,8 +200,8 @@ and join/deadlock diagnostics (issues #28 and #12) remain open. Claims and
 current ownership belong in `issues.db`; these references do not assign work.
 `Failure` still keeps no details; storing a cause in it belongs to B14.
 
-Other cleanup findings include direct
-borrowing of named functions and inline anonymous functions (issues #26 and #27),
+Other cleanup findings include consistent direct borrowing of named functions
+and its tutorial examples (issue #26), borrowing inline anonymous functions (issue #27),
 source locations for runtime traps (issue #37), targeted diagnostics for Python
 habits (issue #38), and receiver/parameter mutability consistency (issue #42).
 Generic diagnostics belong to B29 (issue #40), and type-facts computation
