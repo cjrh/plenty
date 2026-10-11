@@ -3,6 +3,13 @@ use crate::op::Ty;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+/// Structural sums keep concrete producer symbols in nominal identity while
+/// their display spelling describes the same payloads using source origins.
+fn structural(mut ty: EnumType, identity: String) -> Ty {
+    let display_name = std::mem::replace(&mut ty.name, identity);
+    Ty::Enum(crate::nominal::Nominal::new(ty).with_display_name(display_name))
+}
+
 #[derive(Clone, Debug)]
 pub struct EnumType {
     pub facts: std::cell::OnceCell<crate::type_facts::Facts>,
@@ -134,7 +141,7 @@ pub fn spawn_error(job: Ty) -> Ty {
             fields: vec![job.clone()],
         })
         .collect();
-    Ty::Enum(crate::nominal::Nominal::new(ty))
+    structural(ty, format!("SpawnError[{}]", job.identity_name()))
 }
 
 pub fn channel_error() -> Ty {
@@ -159,7 +166,7 @@ pub fn send_error(value: Ty) -> Ty {
     ty.name = format!("SendError[{value}]");
     ty.variants[0].name = "Full".into();
     ty.variants[1].name = "Disconnected".into();
-    Ty::Enum(crate::nominal::Nominal::new(ty))
+    structural(ty, format!("SendError[{}]", value.identity_name()))
 }
 
 pub fn recv_error() -> Ty {
@@ -181,7 +188,7 @@ pub fn send_timeout_error(value: Ty) -> Ty {
     ty.name = format!("SendTimeoutError[{value}]");
     ty.variants[0].name = "Disconnected".into();
     ty.variants[1].name = "TimedOut".into();
-    Ty::Enum(crate::nominal::Nominal::new(ty))
+    structural(ty, format!("SendTimeoutError[{}]", value.identity_name()))
 }
 
 pub fn recv_timeout_error() -> Ty {
@@ -204,7 +211,14 @@ pub fn selected(first: Ty, second: Ty) -> Ty {
     ty.name = format!("Selected[{first}, {second}]");
     ty.variants[0].name = "First".into();
     ty.variants[1].name = "Second".into();
-    Ty::Enum(crate::nominal::Nominal::new(ty))
+    structural(
+        ty,
+        format!(
+            "Selected[{}, {}]",
+            first.identity_name(),
+            second.identity_name()
+        ),
+    )
 }
 
 pub fn select_error() -> Ty {
@@ -256,7 +270,7 @@ pub fn submit_error(job: Ty) -> Ty {
             fields: vec![job.clone()],
         })
         .collect();
-    Ty::Enum(crate::nominal::Nominal::new(ty))
+    structural(ty, format!("SubmitError[{}]", job.identity_name()))
 }
 
 pub fn future_error() -> Ty {
@@ -285,6 +299,7 @@ pub fn pool_map_error() -> Ty {
 
 /// Preserve a worker's concrete error without allocating an error wrapper.
 pub fn parallel_error(error: Ty) -> Ty {
+    let identity = format!("ParallelError[{}]", error.identity_name());
     let Ty::Enum(template) = result(error.clone(), alloc_error()) else {
         unreachable!()
     };
@@ -304,7 +319,7 @@ pub fn parallel_error(error: Ty) -> Ty {
             fields: vec![error],
         },
     ];
-    Ty::Enum(crate::nominal::Nominal::new(ty))
+    structural(ty, identity)
 }
 
 /// Loader failures are fieldless markers with a three-bit inline discriminant.
@@ -410,72 +425,91 @@ pub struct Variant {
 
 /// Structural products are single-variant inline enums.
 pub fn tuple(fields: Vec<Ty>) -> Ty {
-    Ty::Enum(crate::nominal::Nominal::new(EnumType {
-        name: format!(
-            "tuple[{}]",
-            fields
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        facts: std::cell::OnceCell::new(),
-        restricted_storage: fields.iter().any(|t| !t.heap_storable()),
-        managed: true,
-        inline_range: false,
-        payload_bytes: std::cell::OnceCell::new(),
-        storage: std::cell::OnceCell::new(),
-        managed_fields: std::cell::OnceCell::new(),
-        variants: vec![Variant {
-            name: String::new(),
-            fields,
-        }],
-    }))
+    let identity = format!(
+        "tuple[{}]",
+        fields
+            .iter()
+            .map(Ty::identity_name)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    structural(
+        EnumType {
+            name: format!(
+                "tuple[{}]",
+                fields
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            facts: std::cell::OnceCell::new(),
+            restricted_storage: fields.iter().any(|t| !t.heap_storable()),
+            managed: true,
+            inline_range: false,
+            payload_bytes: std::cell::OnceCell::new(),
+            storage: std::cell::OnceCell::new(),
+            managed_fields: std::cell::OnceCell::new(),
+            variants: vec![Variant {
+                name: String::new(),
+                fields,
+            }],
+        },
+        identity,
+    )
 }
 
 pub fn option(element: Ty) -> Ty {
-    Ty::Enum(crate::nominal::Nominal::new(EnumType {
-        restricted_storage: element.restricted_storage(),
-        name: format!("Option[{element}]"),
-        facts: std::cell::OnceCell::new(),
-        managed: element.managed(),
-        inline_range: element.has_inline_range(),
-        payload_bytes: std::cell::OnceCell::new(),
-        storage: std::cell::OnceCell::new(),
-        managed_fields: std::cell::OnceCell::new(),
-        variants: vec![
-            Variant {
-                name: "Nothing".into(),
-                fields: vec![],
-            },
-            Variant {
-                name: "Some".into(),
-                fields: vec![element],
-            },
-        ],
-    }))
+    let identity = format!("Option[{}]", element.identity_name());
+    structural(
+        EnumType {
+            restricted_storage: element.restricted_storage(),
+            name: format!("Option[{element}]"),
+            facts: std::cell::OnceCell::new(),
+            managed: element.managed(),
+            inline_range: element.has_inline_range(),
+            payload_bytes: std::cell::OnceCell::new(),
+            storage: std::cell::OnceCell::new(),
+            managed_fields: std::cell::OnceCell::new(),
+            variants: vec![
+                Variant {
+                    name: "Nothing".into(),
+                    fields: vec![],
+                },
+                Variant {
+                    name: "Some".into(),
+                    fields: vec![element],
+                },
+            ],
+        },
+        identity,
+    )
 }
 pub fn result(ok: Ty, error: Ty) -> Ty {
-    Ty::Enum(crate::nominal::Nominal::new(EnumType {
-        restricted_storage: ok.restricted_storage() || error.restricted_storage(),
-        name: format!("Result[{ok}, {error}]"),
-        facts: std::cell::OnceCell::new(),
-        managed: ok.managed() || error.managed(),
-        inline_range: ok.has_inline_range() || error.has_inline_range(),
-        payload_bytes: std::cell::OnceCell::new(),
-        storage: std::cell::OnceCell::new(),
-        managed_fields: std::cell::OnceCell::new(),
-        variants: vec![
-            Variant {
-                name: "Ok".into(),
-                fields: vec![ok],
-            },
-            Variant {
-                name: "Err".into(),
-                fields: vec![error],
-            },
-        ],
-    }))
+    let identity = format!("Result[{}, {}]", ok.identity_name(), error.identity_name());
+    structural(
+        EnumType {
+            restricted_storage: ok.restricted_storage() || error.restricted_storage(),
+            name: format!("Result[{ok}, {error}]"),
+            facts: std::cell::OnceCell::new(),
+            managed: ok.managed() || error.managed(),
+            inline_range: ok.has_inline_range() || error.has_inline_range(),
+            payload_bytes: std::cell::OnceCell::new(),
+            storage: std::cell::OnceCell::new(),
+            managed_fields: std::cell::OnceCell::new(),
+            variants: vec![
+                Variant {
+                    name: "Ok".into(),
+                    fields: vec![ok],
+                },
+                Variant {
+                    name: "Err".into(),
+                    fields: vec![error],
+                },
+            ],
+        },
+        identity,
+    )
 }
 
 #[derive(Clone, Debug, PartialEq)]
