@@ -132,6 +132,9 @@ fn check_type(
         Ty::Callable(_) => {
             return Err("indirect callable effects are not certified for worker threads".into())
         }
+        Ty::BoxedCallable(_) => {
+            return Err("boxed callable captures and effects are not certified for worker threads".into())
+        }
         Ty::Generator(_) => {
             return Err("generator worker eligibility is not implemented yet".into())
         }

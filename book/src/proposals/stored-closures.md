@@ -10,7 +10,11 @@
 > collection owner allocates. Environments that contain generators cannot enter
 > heap storage.
 >
-> **Remaining:** heterogeneous erased environments and generator-containing
+> **Shared-call erasure implemented:** explicit fallible
+> [BoxedCallable](../design/language/06-functions/05-boxed-callables.md) addresses
+> heterogeneous shared-call storage (issue #25).
+>
+> **Remaining:** mutable/consuming erased modes and generator-containing
 > environments in heap owners (B32); escaping borrowed captures (B11).
 
 A registry needs an owner for callback state, a call signature, and a cleanup
@@ -31,8 +35,13 @@ Owned boxing would give heterogeneous registries a fixed-size element but requir
 fallible allocation, a call/drop table, and an explicit ownership-transfer contract
 on failed construction. Bounded inline erasure avoids that allocation but exposes
 a size/alignment budget, rejects oversized environments, and reserves that budget
-for every entry. Neither cost is justified for a homogeneous registry. Keep both
-as alternatives for a demonstrated heterogeneous-storage use case.
+for every entry. Neither cost is justified for a homogeneous registry. Issue #25's
+heterogeneous handler registry and branch-return factory supply the use case for
+explicit boxing. `BoxedCallable` leaves concrete storage allocation-free and gives
+heterogeneous shared-call owners one fallible allocation, a generated adapter,
+and the existing concrete drop descriptor. Failed construction drops the consumed
+callback. Broader invocation modes and bounded inline erasure remain separate
+contracts; erased captures and effects are conservatively ineligible for workers.
 
 Stored environments must own their captures. Borrowed captures cannot escape into
 heap storage until stored-reference relationships are specified. Invocation follows

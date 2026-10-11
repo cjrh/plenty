@@ -35,3 +35,5 @@ protects the dictionary against replacement, removal, and growth.
 The callback itself cannot be a dictionary key or a set element: closures do not
 define equality or hashing. The dictionary's value type preserves its concrete
 factory identity, rather than accepting every callback with the same signature.
+The next lesson uses [explicit boxing](boxed-callbacks.md) to store different
+shared-call environments behind one signature.

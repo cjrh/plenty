@@ -93,8 +93,11 @@ Named function values already support basic callback registries: a
 and `callbacks[index](value)` calls the selected function. These are indirect
 calls with a fixed signature. Concrete owned environments now also fit in classes,
 tuples, lists, dictionaries, and user enums; see
-[stored closures](design/language/06-functions/04-consuming-and-stored-closures.md). Different arbitrary environments
-still cannot be erased behind one callable signature. See also
+[stored closures](design/language/06-functions/04-consuming-and-stored-closures.md).
+Explicit fallible [BoxedCallable](design/language/06-functions/05-boxed-callables.md)
+now erases different owned shared-call environments behind one signature (issue #25).
+Mutable, consuming, borrowed, generator-containing, and worker-bound erased modes
+remain unsupported. See also
 [function values](design/language/06-functions/02-function-values.md).
 Explicit state beside a named callback also supports stateful registries today;
 the [runnable lesson](tutorial/10-functions/explicit-state-callbacks.md) and native tests
@@ -114,8 +117,9 @@ The completed B32 batch comprised these ten reviewable tasks:
 10. **Complete:** integrate stored environments with scoped-thread eligibility, borrowing, and allocation-free callback result transfer.
 
 The [storage decision](proposals/stored-closures.md) preserves concrete identities
-and ordinary fallible container construction. Heterogeneous erased callbacks and
-escaping borrowed environments remain separate B32/B11 work. Generator-containing
+and ordinary fallible container construction. Shared-call erasure now uses explicit
+fallible boxes; broader erased modes and escaping borrowed environments remain
+separate B32/B11 work. Generator-containing
 environments remain excluded from heap storage pending layout/lifecycle support.
 
 ### Scope of follow-on work
@@ -241,7 +245,7 @@ ownership remain in the shared `issues.db`.
 | B27 | Expanded C representations | Export text/byte buffers and borrowed views, broader typed errors and recoverable returned ownership, and explicit class-method adapters. Keep allocator provenance, output initialization, and error-path transfer visible. Initial class factories support AllocError, which reports allocation of the boxed handle. See [owned exports](design/facilities/04-interop/owned-exports.md). |
 | B28 | Broader library loading and lifecycle | Generate runtime loaders directly from extracted contracts without original export source; improve error detail and binding tooling for third-party C libraries. Unloading, retained/foreign-thread callbacks, C record layout, and header-assisted bindings need separate contracts. Current loaders keep mappings resident and require their creating thread. [Runtime loading](design/facilities/04-interop/loading.md). |
 | B29 | Further generic constraints | Callable bounds on data are implemented. Consider protocol bounds on data declarations, generic methods satisfying protocol requirements, combined bounds, and protocol composition when concrete library APIs need them. Generic aliases and enum constructor inference also remain candidates. Related diagnostic: report instantiation failures at the call site with body context (issue #40). Preserve explicit lookup and bounded specialization. See [generic data](design/language/07-generics/data.md) and [parameterized protocols](design/language/07-generics/protocols.md). |
-| B32 | Broader callback storage | Owned concrete reusable/consuming environments and their worker eligibility are implemented. Remaining: heterogeneous erased environments (issue #25) and generator-containing environments in heap owners. Escaping borrowed storage depends on B11. See scope above. |
+| B32 | Broader callback storage | Owned concrete reusable/consuming environments and their worker eligibility are implemented. Explicit fallible shared-call erasure is implemented (issue #25). Remaining: mutable/consuming erased modes and generator-containing environments in heap owners. Escaping borrowed storage depends on B11. See scope above. |
 | B33 | Deep operations on recursive values | Recursive source storage is implemented under B10. Replace native recursive copy/format traversals with iterative fallible work storage before enabling them; select an explicit bounded-memory contract for structural equality and membership without adding hidden allocation failure. Preserve failure cleanup, shared-string ownership, and float/NaN semantics. [Design rationale](proposals/recursive-data.md). |
 | B34 | Post-concurrency cleanup and review | Current phase, partly complete. Result handling, ownership/tail-call fixes, performance improvements, test reliability, and book restructuring have landed. Callable diagnostics now explain code-only parameters and generic callback ownership, identify closures by source location, and retain distinct `Callable`/`Closure` representations (issue #24). Continue auditing code and docs and resolving open issues in severity order. Related callable findings are borrowing named functions (issue #26) and inline anonymous functions (issue #27). Runtime trap locations (issue #37), Python-habit diagnostics (issue #38), and receiver/parameter mutability (issue #42) also remain open. Concurrency findings are linked under B22; generic diagnostics under B29. See scope above; the completed documentation reorganization does not close all review findings. |
 | B36 | Keyword arguments, defaults, and static unpacking | Keyword/default/variadic arguments and starred unpacking are unimplemented; ordinary tuple bindings and assignment to several targets already work. Proposed: keyword and keyword-only arguments, constant defaults, `/` and `*` markers, keyword constructors, and `*`/`**` unpacking at calls, in displays, and in tuple bindings. Call binding and tuple arities must resolve at compile time, with no runtime arity/key check or hidden allocation; collection displays retain explicit fallible allocation. Keyword arguments and defaults are frontend-only and come first; `*args` and sequence patterns depend on a borrowed sequence view (B12). Decide whether `first, *rest = tuple` is accepted now that tuples are inline. [Design](proposals/keyword-arguments-and-unpacking.md). |

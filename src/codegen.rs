@@ -1260,6 +1260,10 @@ impl Lowerer<'_, '_> {
             Op::Collection(operation) => self.lower_collection(operation)?,
             Op::ClosureNew(t) => self.lower_closure_new(t)?,
             Op::ClosureCall(t) => self.lower_closure_call(t)?,
+            Op::BoxedCallableNew(source, adapter, sig) => {
+                self.lower_boxed_callable_new(source, adapter, sig)?
+            }
+            Op::BoxedCallableCall(sig) => self.lower_boxed_callable_call(sig)?,
             Op::Class(operation) => self.lower_class(operation)?,
             Op::Enum(operation) => self.lower_enum(operation)?,
             Op::Split(t, tag) => self.lower_split(t, *tag)?,

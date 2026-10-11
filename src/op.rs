@@ -29,6 +29,8 @@ pub enum Ty {
     Future(Rc<Ty>),
     Closure(Rc<crate::closure::ClosureType>),
     Callable(Rc<CallableSig>),
+    /// Explicitly allocated, owned shared-call environment with structural identity.
+    BoxedCallable(Rc<CallableSig>),
     I8,
     I16,
     I32,
@@ -112,7 +114,7 @@ impl Ty {
     pub fn layout_depth(&self) -> usize {
         match self {
             Self::Closure(t) => t.depth,
-            Ty::Callable(sig) => {
+            Ty::Callable(sig) | Ty::BoxedCallable(sig) => {
                 1 + sig
                     .inputs
                     .iter()
@@ -140,6 +142,7 @@ impl Ty {
                 | Self::Executor
                 | Self::Future(_)
                 | Self::Closure(_)
+                | Self::BoxedCallable(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
                 | Self::Generator(_)
@@ -247,6 +250,7 @@ impl Ty {
             self,
             Self::Str
                 | Self::Closure(_)
+                | Self::BoxedCallable(_)
                 | Self::File
                 | Self::Channel(..)
                 | Self::CancellationToken
@@ -306,6 +310,7 @@ impl Ty {
                 }
             }
             Ty::Callable(t) => t.identity_name(),
+            Ty::BoxedCallable(t) => t.identity_name().replacen("Callable", "BoxedCallable", 1),
             Ty::Enum(t) => t.name.clone(),
             Ty::Class(t) => t.name.clone(),
             Ty::List(t) => format!("list[{}]", t.identity_name()),
@@ -359,6 +364,9 @@ impl fmt::Display for Ty {
                 };
             }
             Ty::Callable(sig) => return write!(f, "{sig}"),
+            Ty::BoxedCallable(sig) => {
+                return f.write_str(&sig.to_string().replacen("Callable", "BoxedCallable", 1))
+            }
             Ty::I8 => "i8",
             Ty::I16 => "i16",
             Ty::I32 => "i32",
@@ -493,6 +501,8 @@ pub enum Op {
     Executor(crate::executor::ExecutorOp),
     ClosureNew(Rc<crate::closure::ClosureType>),
     ClosureCall(Rc<crate::closure::ClosureType>),
+    BoxedCallableNew(Ty, String, Rc<CallableSig>),
+    BoxedCallableCall(Rc<CallableSig>),
     FunctionAddress(String, Rc<CallableSig>),
     CallIndirect(Rc<CallableSig>),
     TailCallIndirect(Rc<CallableSig>),
@@ -1789,6 +1799,55 @@ fn step(
                 return Err("closure call environment ownership mismatch".into());
             }
             stack.extend(t.signature.output.iter().cloned());
+        }
+        Op::BoxedCallableNew(source, adapter, signature) => {
+            if signature.inputs.len() >= 256 || matches!(signature.output, Some(Ty::Ref(..))) {
+                return Err("invalid boxed callable signature".into());
+            }
+            let expected = match source {
+                Ty::Callable(sig) => sig.as_ref(),
+                Ty::Closure(t) if !t.once && !t.mutable && source.storage_barrier().is_none() => {
+                    &t.signature
+                }
+                _ => return Err("invalid boxed callable environment".into()),
+            };
+            if expected != signature.as_ref() || stack.pop().as_ref() != Some(source) {
+                return Err("boxed callable construction signature mismatch".into());
+            }
+            let mut adapted = signature.function();
+            adapted.inputs.insert(
+                0,
+                (
+                    "environment".into(),
+                    Ty::Ref(Rc::new(source.clone()), false),
+                ),
+            );
+            if sigs.get(adapter).map(Rc::as_ref) != Some(&adapted) {
+                return Err("boxed callable adapter signature mismatch".into());
+            }
+            stack.push(crate::sum::result(
+                Ty::BoxedCallable(signature.clone()),
+                crate::sum::alloc_error(),
+            ));
+        }
+        Op::BoxedCallableCall(signature) => {
+            if matches!(signature.output, Some(Ty::Ref(..))) {
+                return Err("boxed callable cannot return references".into());
+            }
+            for expected in signature.inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(expected) {
+                    return Err("boxed callable argument mismatch".into());
+                }
+            }
+            if stack.pop()
+                != Some(Ty::Ref(
+                    Rc::new(Ty::BoxedCallable(signature.clone())),
+                    false,
+                ))
+            {
+                return Err("boxed callable requires a shared owner borrow".into());
+            }
+            stack.extend(signature.output.iter().cloned());
         }
         Op::FunctionAddress(name, signature) => {
             let actual = sigs.get(name).ok_or("undefined function value")?;

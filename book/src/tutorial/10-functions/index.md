@@ -16,6 +16,7 @@ also use [type parameters and constraints](../09-generics/index.md).
 - [Store owned closures](callback-records.md)
 - [Keep callbacks in tuples and lists](callback-collections.md)
 - [Name stored callbacks](named-callback-registry.md)
+- [Store different captured callbacks](boxed-callbacks.md)
 - [Put a callback in an enum](callback-enums.md)
 - [Consume a capture](consuming-captures.md)
 - [Consume a callback](consuming-callback-apis.md)

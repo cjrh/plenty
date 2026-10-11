@@ -404,7 +404,10 @@ impl TypeRef {
         if aliases.data.contains(name) {
             return aliases.instantiate(self).map(Some);
         }
-        if matches!(name.as_str(), "Callable" | "Closure" | "OnceClosure") {
+        if matches!(
+            name.as_str(),
+            "Callable" | "BoxedCallable" | "Closure" | "OnceClosure"
+        ) {
             let (output, inputs) = self.args.split_last().ok_or_else(|| {
                 self.at
                     .error("use Callable[[parameter types], return type]")
@@ -420,6 +423,11 @@ impl TypeRef {
                 output: output.resolve(aliases)?,
             };
             callables::validate(&signature, &self.at)?;
+            if name == "BoxedCallable" && matches!(signature.output, Some(Ty::Ref(..))) {
+                return Err(self
+                    .at
+                    .error("BoxedCallable callbacks cannot return references yet"));
+            }
             if matches!(name.as_str(), "Closure" | "OnceClosure") {
                 return Ok(Some(Ty::Closure(Rc::new(
                     crate::closure::ClosureType::new(
@@ -433,7 +441,11 @@ impl TypeRef {
                     .map_err(|message| self.at.error(message))?,
                 ))));
             }
-            return Ok(Some(Ty::Callable(Rc::new(signature))));
+            return Ok(Some(if name == "BoxedCallable" {
+                Ty::BoxedCallable(Rc::new(signature))
+            } else {
+                Ty::Callable(Rc::new(signature))
+            }));
         }
         if name == "tuple" {
             if self.args.is_empty() {
@@ -839,7 +851,7 @@ impl Parser {
                 }
                 if matches!(
                     name.as_str(),
-                    "Callable" | "Closure" | "OnceClosure" | "OnceCallable"
+                    "Callable" | "BoxedCallable" | "Closure" | "OnceClosure" | "OnceCallable"
                 ) {
                     self.expect("[")?;
                     self.expect("[")?;
@@ -1706,6 +1718,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "select_recv_timeout"
                 | "Generator"
                 | "Callable"
+                | "BoxedCallable"
                 | "Closure"
                 | "OnceClosure"
                 | "OnceCallable"
@@ -2563,6 +2576,9 @@ impl Lower<'_> {
                     && !self.aliases.contains_key(name)
                 {
                     return self.replace_field(args, &e.at, ops).map(Some);
+                }
+                if name == "BoxedCallable" {
+                    return self.boxed_callable(args, &e.at, ops).map(Some);
                 }
                 if name == "Box" {
                     let [content] = args.as_slice() else {
