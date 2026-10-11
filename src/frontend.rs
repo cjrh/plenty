@@ -1932,6 +1932,23 @@ fn numeric_suffix(text: &str) -> bool {
     .iter()
     .any(|suffix| text.ends_with(suffix))
 }
+/// Negating an unsigned value overflows for every operand except zero, so
+/// the operator is rejected by type instead of trapping when it runs. A sign
+/// written directly before a literal belongs to the literal, whose own range
+/// check already covers it.
+fn reject_unsigned_negation(ty: &Ty, at: &Token) -> Result<()> {
+    let example = match ty {
+        Ty::U8 => "-i16(value)",
+        Ty::U16 => "-i32(value)",
+        Ty::U32 => "-i64(value)",
+        // No signed type holds every u64, so the conversion must be checked.
+        Ty::U64 => "-i64.try_from(value)?",
+        _ => return Ok(()),
+    };
+    Err(at.error(format!(
+        "unary minus is not defined for unsigned type {ty}; convert to a signed type first, for example {example}"
+    )))
+}
 fn binary(t: &Token) -> Option<(String, u8)> {
     let s = match &t.kind {
         Kind::Word(s) | Kind::Symbol(s) => s,
@@ -2479,6 +2496,7 @@ impl Lower<'_> {
                         return Ok(Some(ty));
                     }
                     if op == "-" {
+                        reject_unsigned_negation(&ty, &e.at)?;
                         ops.push(Op::PushInt(integer(&format!("0{ty}"), false, &e.at)?));
                     }
                     ops.extend(body);

@@ -112,6 +112,130 @@ fn casts_cover_every_integer_width_and_float_width() {
     native(&source, &expected);
 }
 
+const INTEGERS: [(&str, i128, i128); 8] = [
+    ("i8", i8::MIN as i128, i8::MAX as i128),
+    ("i16", i16::MIN as i128, i16::MAX as i128),
+    ("i32", i32::MIN as i128, i32::MAX as i128),
+    ("i64", i64::MIN as i128, i64::MAX as i128),
+    ("u8", 0, u8::MAX as i128),
+    ("u16", 0, u16::MAX as i128),
+    ("u32", 0, u32::MAX as i128),
+    ("u64", 0, u64::MAX as i128),
+];
+
+/// Every source/target pair at both ends of both ranges and one step outside
+/// the target's, so each bound is tried from the side that fits and the side
+/// that does not.
+#[test]
+fn checked_conversions_cover_every_width_and_signedness() {
+    let mut source = String::new();
+    let mut expected = String::new();
+    for (from, from_min, from_max) in INTEGERS {
+        // Values arrive through a parameter so the check runs on a register
+        // of the source width, not on a literal.
+        for (to, _, _) in INTEGERS {
+            source.push_str(&format!(
+                "def {from}_to_{to}(value: {from}) -> Result[{to}, ParseError]:\n    {to}.try_from(value)\n"
+            ));
+        }
+        for (to, to_min, to_max) in INTEGERS {
+            let mut values = vec![
+                from_min,
+                from_max,
+                0,
+                to_min - 1,
+                to_min,
+                to_max,
+                to_max + 1,
+            ];
+            values.retain(|value| (from_min..=from_max).contains(value));
+            values.sort_unstable();
+            values.dedup();
+            for value in values {
+                source.push_str(&format!(
+                    "print(str.repr({from}_to_{to}({value}{from})).unwrap()).unwrap()\n"
+                ));
+                expected.push_str(&if (to_min..=to_max).contains(&value) {
+                    format!("Result[{to}, ParseError].Ok({value})\n")
+                } else {
+                    format!("Result[{to}, ParseError].Err(ParseError.OutOfRange)\n")
+                });
+            }
+        }
+    }
+    native(&source, &expected);
+}
+
+#[rstest]
+#[case(
+    "x = 300\nprint(str.repr(u8.try_from(x)).unwrap()).unwrap()\nprint(u8(x)).unwrap()\nprint(u8.try_from(44).unwrap()).unwrap()",
+    "Result[u8, ParseError].Err(ParseError.OutOfRange)\n44\n44\n"
+)]
+#[case(
+    "type Count = u8\ndef narrow(text: &str) -> Result[Count, ParseError]:\n    wide = i64.parse(text)?\n    Ok(Count.try_from(wide)?)\nfor text in ['7', '700', 'x'].unwrap():\n    print(str.repr(narrow(&text)).unwrap()).unwrap()",
+    "Result[u8, ParseError].Ok(7)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[u8, ParseError].Err(ParseError.Invalid)\n"
+)]
+#[case(
+    "match i8.try_from(200u8):\n    case Ok(value):\n        print(value).unwrap()\n    case Err(error):\n        print(error == ParseError.OutOfRange).unwrap()\nxs = [1, 300, -1].unwrap()\nfor x in &xs:\n    print(str.repr(u8.try_from(x)).unwrap()).unwrap()",
+    "True\nResult[u8, ParseError].Ok(1)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\n"
+)]
+#[case(
+    "def negate(value: u64) -> Result[i64, ParseError]:\n    Ok(-i64.try_from(value)?)\nprint(str.repr(negate(5u64)).unwrap()).unwrap()\nprint(str.repr(negate(18446744073709551615u64)).unwrap()).unwrap()\na = 3u8\nb = 3u16\nc = 3u32\nprint(-i16(a)).unwrap()\nprint(-i32(b)).unwrap()\nprint(-i64(c)).unwrap()",
+    "Result[i64, ParseError].Ok(-5)\nResult[i64, ParseError].Err(ParseError.OutOfRange)\n-3\n-3\n-3\n"
+)]
+#[case(
+    "a = -128i8\nb = 5i64\nc = 1.5\nprint(-(a + 1i8)).unwrap()\nprint(-b).unwrap()\nprint(-c).unwrap()\nzero: u8 = -0\nprint(zero).unwrap()\nprint(-0u8).unwrap()",
+    "127\n-5\n-1.5\n0\n0\n"
+)]
+fn checked_conversions_and_signed_negation(#[case] source: &str, #[case] expected: &str) {
+    native(source, expected);
+}
+
+#[rstest]
+#[case("x = u8.try_from()", "try_from takes one integer argument")]
+#[case("x = u8.try_from(1, 2)", "try_from takes one integer argument")]
+#[case("x = u8.try_from(1.5)", "try_from requires an integer value")]
+#[case("x = u8.try_from('1')", "try_from requires an integer value")]
+#[case("x = u8.try_from(True)", "try_from requires an integer value")]
+#[case("x = f64.try_from(1)", "try_from is defined for integer types")]
+#[case("x: u8 = u8.try_from(300)", "expected u8, got Result[u8, ParseError]")]
+#[case(
+    "def f() -> Result[u8, IoError]:\n    Ok(u8.try_from(300)?)",
+    "`?` requires identical Result error types"
+)]
+#[case("x = 3u8\ny = -x", "unary minus is not defined for unsigned type u8; convert to a signed type first, for example -i16(value)")]
+#[case(
+    "x = 3u16\ny = -x",
+    "for unsigned type u16; convert to a signed type first, for example -i32(value)"
+)]
+#[case(
+    "x = 3u32\ny = -x",
+    "for unsigned type u32; convert to a signed type first, for example -i64(value)"
+)]
+#[case(
+    "x = 3u64\ny = -x",
+    "for unsigned type u64; convert to a signed type first, for example -i64.try_from(value)?"
+)]
+#[case("y = -(3u8)", "unary minus is not defined for unsigned type u8")]
+#[case("y = -u8(3)", "unary minus is not defined for unsigned type u8")]
+#[case(
+    "x = 0u8\ny: u8 = -x",
+    "unary minus is not defined for unsigned type u8"
+)]
+#[case(
+    "x = 3u8\ny = 1u8 + -x",
+    "unary minus is not defined for unsigned type u8"
+)]
+#[case(
+    "type Count = u8\nx: Count = 3\ny = -x",
+    "unary minus is not defined for unsigned type u8"
+)]
+#[case("y = -3u8", "integer literal out of range for u8")]
+#[case("y: u8 = -3", "integer literal out of range for u8")]
+fn conversion_and_negation_diagnostics(#[case] source: &str, #[case] expected: &str) {
+    diagnostics(source, expected);
+}
+
 #[test]
 fn float_enum_trees_compare_structurally() {
     let mut source = String::from("enum E0:\n    Value(f64)\nx0 = E0.Value(2.5)\n");

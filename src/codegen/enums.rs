@@ -425,6 +425,75 @@ impl Lowerer<'_, '_> {
         self.stack.push((payload, ty));
         Ok(())
     }
+
+    /// Both outcomes are built from registers and one is selected, so a
+    /// checked conversion neither branches nor calls the runtime.
+    pub(super) fn lower_try_cast(&mut self, target: &Ty) -> Result<()> {
+        let (value, source) = self
+            .stack
+            .pop()
+            .ok_or("AOT: stack underflow on checked cast")?;
+        let (Some((source_min, source_end)), Some((target_min, target_end))) =
+            (source.int_range(), target.int_range())
+        else {
+            return Err("AOT: checked cast requires integer types".into());
+        };
+        let Ty::Enum(error) = crate::sum::parse_error() else {
+            unreachable!()
+        };
+        let Ty::Enum(result) = crate::sum::result(target.clone(), Ty::Enum(error.clone())) else {
+            unreachable!()
+        };
+        // A bound the source type cannot cross needs no comparison. One that
+        // it can cross lies inside the source range, so it is representable
+        // as a constant of the source type.
+        let width = clif_type(source.clone());
+        let signed = is_signed(source.clone());
+        let mut fits = None;
+        if source_min < target_min {
+            let min = self.bcx.ins().iconst(width, target_min as i64);
+            fits = Some(
+                self.bcx
+                    .ins()
+                    .icmp(IntCC::SignedGreaterThanOrEqual, value, min),
+            );
+        }
+        if source_end > target_end {
+            let max = self.bcx.ins().iconst(width, (target_end - 1) as i64);
+            let below = self.bcx.ins().icmp(
+                if signed {
+                    IntCC::SignedLessThanOrEqual
+                } else {
+                    IntCC::UnsignedLessThanOrEqual
+                },
+                value,
+                max,
+            );
+            fits = Some(match fits {
+                Some(above) => self.bcx.ins().band(above, below),
+                None => below,
+            });
+        }
+        let converted = self.cast(value, source, target.clone());
+        self.stack.push((converted, target.clone()));
+        self.lower_enum(&EnumOp::New(result.clone(), 0))?;
+        let Some(fits) = fits else {
+            return Ok(());
+        };
+        let (ok, output) = self.stack.pop().ok_or("AOT: missing checked cast result")?;
+        let out_of_range = error
+            .get()
+            .variants
+            .iter()
+            .position(|variant| variant.name == "OutOfRange")
+            .ok_or("AOT: ParseError has no OutOfRange variant")?;
+        self.lower_enum(&EnumOp::New(error, out_of_range))?;
+        self.lower_enum(&EnumOp::New(result, 1))?;
+        let (failed, _) = self.stack.pop().ok_or("AOT: missing checked cast error")?;
+        let chosen = self.bcx.ins().select(fits, ok, failed);
+        self.stack.push((chosen, output));
+        Ok(())
+    }
 }
 
 impl Lowerer<'_, '_> {

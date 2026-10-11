@@ -50,6 +50,22 @@ print(str.repr(c).unwrap()).unwrap()
 "#, "Result[i64, ParseError].Ok(42)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[i32, ParseError].Err(ParseError.Invalid)");
 }
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn checked_conversions_allocate_nothing() {
+    native(r#"
+wide = 300
+print("__test_fail_allocations_after_0__").unwrap()
+a = u8.try_from(wide)
+b = i16.try_from(wide)
+c = i64.try_from(18446744073709551615u64)
+print("__test_restore_allocations__").unwrap()
+print(str.repr(a).unwrap()).unwrap()
+print(str.repr(b).unwrap()).unwrap()
+print(str.repr(c).unwrap()).unwrap()
+"#, "Result[u8, ParseError].Err(ParseError.OutOfRange)\nResult[i16, ParseError].Ok(300)\nResult[i64, ParseError].Err(ParseError.OutOfRange)");
+}
+
 #[test]
 fn parsing_checks_arity_and_type() {
     for source in ["i64.parse()", "i64.parse(1)", "i64.parse(\"1\", \"2\")"] {

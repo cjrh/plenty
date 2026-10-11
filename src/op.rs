@@ -640,6 +640,11 @@ pub enum Op {
     /// silently change a value's mathematical meaning are still allowed —
     /// that is the whole point of an explicit cast word.
     Cast(Ty),
+    /// Pop an integer of any width; push `Result[target, ParseError]`: `Ok`
+    /// with the value at the target integer width when it is in range, and
+    /// `Err(ParseError.OutOfRange)` otherwise. Unlike `Cast`, it never
+    /// changes the value's mathematical meaning.
+    TryCast(Ty),
     /// Read one newline-terminated line from stdin into the heap and push
     /// (line, got-line?). On EOF, line is the empty string and the Bool
     /// is `false`; the user is expected to discriminate via `match` on
@@ -1895,6 +1900,19 @@ fn step(
                 .into());
             }
             stack.push(target.clone());
+        }
+        Op::TryCast(target) => {
+            let top = stack.pop().ok_or("stack underflow on checked cast")?;
+            if !top.is_int() || !target.is_int() {
+                return Err(format!(
+                    "checked cast to {target} requires integer source and target types, got {top}"
+                )
+                .into());
+            }
+            stack.push(crate::sum::result(
+                target.clone(),
+                crate::sum::parse_error(),
+            ));
         }
         Op::ReadLine => {
             stack.push(Ty::Str);
