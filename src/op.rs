@@ -1969,8 +1969,10 @@ fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
 /// Stack effect for numeric ordering: same-typed numbers in, Bool out.
 fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if !a.is_numeric() || a != b {
-        return Err(format!("`{op_label}` requires same-typed numbers, got ({a} {b})").into());
+    if !(a.is_numeric() || a == Ty::Str) || a != b {
+        return Err(
+            format!("`{op_label}` requires same-typed numbers or strings, got ({a} {b})").into(),
+        );
     }
     stack.push(Ty::Bool);
     Ok(())

@@ -1713,6 +1713,51 @@ pub(crate) unsafe fn collection(
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
+            129 => {
+                let ty = (*descriptor).variants[0].fields[0];
+                let text = a as *const Text;
+                match try_text_pieces(strings::utf8(&text).split_whitespace(), ty) {
+                    Ok(list) => wrap(list, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
+            }
+            130 => {
+                let text = a as *const Text;
+                let mut characters = strings::utf8(&text).chars();
+                match (characters.next(), characters.next()) {
+                    (Some(character), None) => wrap(character as u128, 0),
+                    _ => wrap(wrap(0, 0), 1),
+                }
+            }
+            131 => match strings::from_codepoint(a as u32) {
+                Some(text) => wrap(text as u128, 0),
+                None => wrap(wrap(0, 1), 1),
+            },
+            132 => {
+                let a = a as *const Text;
+                let b = b as *const Text;
+                match strings::utf8(&a).cmp(strings::utf8(&b)) {
+                    std::cmp::Ordering::Less => (-1i64) as u128,
+                    std::cmp::Ordering::Equal => 0,
+                    std::cmp::Ordering::Greater => 1,
+                }
+            }
+            133 | 134 => {
+                let text = a as *const Text;
+                let source = strings::utf8(&text);
+                (!source.is_empty()
+                    && source.bytes().all(|byte| {
+                        if op == 133 {
+                            byte.is_ascii_digit()
+                        } else {
+                            byte.is_ascii_alphabetic()
+                        }
+                    })) as u128
+            }
+            135 | 136 => match strings::try_case(a as *const Text, op == 136) {
+                Ok(text) => wrap(text as u128, 0),
+                Err(error) => wrap(wrap(0, error as u64), 1),
+            },
             36 => {
                 // The compiler supplies Result[list[str], AllocError] metadata.
                 let ty = (*descriptor).variants[0].fields[0];

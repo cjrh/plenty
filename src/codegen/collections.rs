@@ -129,6 +129,7 @@ impl Lowerer<'_, '_> {
             CollectionOp::TryCopy(ty) => Some(ty),
             CollectionOp::TryNew(ty) | CollectionOp::ListTrySlice(ty) => Some(ty),
             CollectionOp::TextTrySplit
+            | CollectionOp::TextTrySplitWhitespace
             | CollectionOp::TextTrySplitLines
             | CollectionOp::TryKeys(_)
             | CollectionOp::TryValues(_) => Some(&output),

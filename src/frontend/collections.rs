@@ -1558,6 +1558,29 @@ impl Lower<'_> {
                 "clear requires a mutable list, dictionary, or set binding or class field",
             ));
         }
+        if name == "split" && args.is_empty() {
+            self.same(Some(ty), Some(Ty::Str), &base.at)?;
+            let operation = CollectionOp::TextTrySplitWhitespace;
+            let result = operation.signature().1;
+            ops.push(Op::Collection(operation));
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
+        if matches!(name, "lower" | "upper") {
+            self.same(Some(ty), Some(Ty::Str), &base.at)?;
+            if !args.is_empty() {
+                return Err(base.at.error(format!("{name} takes no arguments")));
+            }
+            let operation = if name == "lower" {
+                CollectionOp::TextTryLower
+            } else {
+                CollectionOp::TextTryUpper
+            };
+            let result = operation.signature().1;
+            ops.push(Op::Collection(operation));
+            Self::end_reads(loans, ops);
+            return Ok(Some(result));
+        }
         if name == "splitlines" {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if args.len() > 1 {
@@ -1578,15 +1601,16 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if matches!(name, "isascii" | "isspace") {
+        if matches!(name, "isascii" | "isspace" | "isdigit" | "isalpha") {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
             }
-            ops.push(Op::Collection(if name == "isascii" {
-                CollectionOp::TextIsAscii
-            } else {
-                CollectionOp::TextIsSpace
+            ops.push(Op::Collection(match name {
+                "isascii" => CollectionOp::TextIsAscii,
+                "isspace" => CollectionOp::TextIsSpace,
+                "isdigit" => CollectionOp::TextIsDigit,
+                _ => CollectionOp::TextIsAlpha,
             }));
             Self::end_reads(loans, ops);
             return Ok(Some(Ty::Bool));

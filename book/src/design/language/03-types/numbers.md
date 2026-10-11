@@ -31,7 +31,8 @@ signed quotients, including negative operands; `%` is integer-only. `/` accepts
 matching-width floats. Float arithmetic follows IEEE behavior for rounding,
 signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infinity.
 
-Comparisons require matching types; ordering accepts integers and floats. NaN is
+Comparisons require matching types; ordering accepts integers, floats, and
+[strings](../../facilities/01-builtins/text.md). NaN is
 unequal to every value, including itself, and all ordered comparisons with it are
 false. These rules also apply to structural equality and membership. Floats cannot
 be dictionary keys or set elements.
