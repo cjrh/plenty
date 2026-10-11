@@ -194,6 +194,7 @@ impl Lower<'_> {
         let closure = Rc::new(
             crate::closure::ClosureType::new(
                 worker,
+                Some(at.location().into()),
                 crate::op::CallableSig {
                     inputs: vec![],
                     output,
@@ -308,6 +309,7 @@ impl Lower<'_> {
             let closure = Rc::new(
                 crate::closure::ClosureType::new(
                     worker.clone(),
+                    Some(at.location().into()),
                     crate::op::CallableSig {
                         inputs: vec![],
                         output: Some(output.clone()),

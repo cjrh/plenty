@@ -68,12 +68,16 @@ impl Token {
     }
 
     fn error(&self, message: impl std::fmt::Display) -> Box<dyn Error> {
+        format!("{}: {message}", self.location()).into()
+    }
+
+    fn location(&self) -> String {
         let source = self
             .source
             .as_ref()
             .map(|s| format!("{s}:"))
             .unwrap_or_default();
-        format!("{source}{}:{}: {message}", self.line, self.column).into()
+        format!("{source}{}:{}", self.line, self.column)
     }
 }
 
@@ -420,6 +424,7 @@ impl TypeRef {
                 return Ok(Some(Ty::Closure(Rc::new(
                     crate::closure::ClosureType::new(
                         String::new(),
+                        None,
                         signature,
                         vec![],
                         vec![],
@@ -444,7 +449,12 @@ impl TypeRef {
                     .at
                     .error("references and generators cannot be stored in tuples"));
             }
-            if fields.iter().map(|t| t.to_string().len()).sum::<usize>() > 16_384 {
+            if fields
+                .iter()
+                .map(|t| t.identity_name().len())
+                .sum::<usize>()
+                > 16_384
+            {
                 return Err(self
                     .at
                     .error("concrete type name exceeds the implementation limit"));
@@ -548,7 +558,7 @@ impl TypeRef {
                 .iter()
                 .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<Vec<_>>>()?;
-            if args.iter().map(|t| t.to_string().len()).sum::<usize>() > 16_384 {
+            if args.iter().map(|t| t.identity_name().len()).sum::<usize>() > 16_384 {
                 return Err(self
                     .at
                     .error("concrete type name exceeds the implementation limit"));
@@ -2002,15 +2012,19 @@ impl Lower<'_> {
                 success == expected
                     || matches!((&expected, &success), (Some(a), Some(b)) if crate::generator::refine(a, b).is_some())
             });
+            let hint = if can_propagate {
+                "; use `?` to propagate the error or match the result explicitly".into()
+            } else {
+                expected
+                    .as_ref()
+                    .zip(got.as_ref())
+                    .and_then(|(expected, got)| callables::mismatch_hint(expected, got))
+                    .unwrap_or_default()
+            };
             Err(at.error(format!(
-                "expected {}, got {}{}",
+                "expected {}, got {}{hint}",
                 type_name(expected),
                 type_name(got),
-                if can_propagate {
-                    "; use `?` to propagate the error or match the result explicitly"
-                } else {
-                    ""
-                }
             )))
         }
     }

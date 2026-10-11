@@ -313,7 +313,7 @@ impl TypeAliases {
                 "{name}[{}]",
                 actual
                     .iter()
-                    .map(ToString::to_string)
+                    .map(Ty::identity_name)
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -327,6 +327,23 @@ impl TypeAliases {
             Ty::Enum(self.data.definitions.enumeration(&concrete_name))
         } else {
             Ty::Class(self.data.definitions.class(&concrete_name))
+        };
+        let display_name = if actual.is_empty() {
+            name.clone()
+        } else {
+            format!(
+                "{name}[{}]",
+                actual
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let ty = match ty {
+            Ty::Enum(t) => Ty::Enum(t.with_display_name(display_name)),
+            Ty::Class(t) => Ty::Class(t.with_display_name(display_name)),
+            _ => unreachable!(),
         };
         self.data
             .arguments
@@ -400,10 +417,11 @@ impl TypeAliases {
                 };
                 self.data.depth.set(depth);
                 let ty = self.data.instances.borrow()[&(name.clone(), actual.clone())].clone();
-                let concrete_name = ty.to_string();
+                let concrete_name = ty.identity_name();
+                // Diagnostics show the display name, not the linking identity.
                 *self.data.requirer.borrow_mut() = Some(Rc::new(Requirer {
                     declaration: name.clone(),
-                    instance: concrete_name.clone(),
+                    instance: ty.to_string(),
                     at: at.clone(),
                     parent: requirer,
                 }));
