@@ -30,7 +30,8 @@ def main() -> Result[(), IoError]:
 `i64(small)` is safe because every `u8` value fits in an `i64`. When the target
 cannot hold every value of the source, use `try_from`. It checks the range and
 returns a `Result`: `Ok` with the converted value, or
-`Err(ParseError.OutOfRange)` when the value does not fit.
+`Err(RangeError.OutOfRange)` when the value does not fit. `RangeError` has only
+this one variant; parsing text uses the separate `ParseError` type.
 
 ```plenty
 def main() -> Result[(), IoError]:
@@ -100,6 +101,17 @@ unary minus is not defined for unsigned type u8
 ```
 
 Convert first: `-i16(small)` is `-7`.
+
+The same rule applies to literals, including zero:
+
+```plenty-error
+def main() -> ():
+    zero: u8 = -0
+```
+
+```error
+unary minus is not defined for unsigned type u8
+```
 
 `+`, `-`, and `*` have their usual arithmetic precedence. `//` divides integers
 and rounds down, including for negative values:

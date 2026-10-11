@@ -134,7 +134,7 @@ fn checked_conversions_cover_every_width_and_signedness() {
         // of the source width, not on a literal.
         for (to, _, _) in INTEGERS {
             source.push_str(&format!(
-                "def {from}_to_{to}(value: {from}) -> Result[{to}, ParseError]:\n    {to}.try_from(value)\n"
+                "def {from}_to_{to}(value: {from}) -> Result[{to}, RangeError]:\n    {to}.try_from(value)\n"
             ));
         }
         for (to, to_min, to_max) in INTEGERS {
@@ -155,9 +155,9 @@ fn checked_conversions_cover_every_width_and_signedness() {
                     "print(str.repr({from}_to_{to}({value}{from})).unwrap()).unwrap()\n"
                 ));
                 expected.push_str(&if (to_min..=to_max).contains(&value) {
-                    format!("Result[{to}, ParseError].Ok({value})\n")
+                    format!("Result[{to}, RangeError].Ok({value})\n")
                 } else {
-                    format!("Result[{to}, ParseError].Err(ParseError.OutOfRange)\n")
+                    format!("Result[{to}, RangeError].Err(RangeError.OutOfRange)\n")
                 });
             }
         }
@@ -168,22 +168,22 @@ fn checked_conversions_cover_every_width_and_signedness() {
 #[rstest]
 #[case(
     "x = 300\nprint(str.repr(u8.try_from(x)).unwrap()).unwrap()\nprint(u8.wrapping_from(x)).unwrap()\nprint(u8.try_from(44).unwrap()).unwrap()",
-    "Result[u8, ParseError].Err(ParseError.OutOfRange)\n44\n44\n"
+    "Result[u8, RangeError].Err(RangeError.OutOfRange)\n44\n44\n"
 )]
 #[case(
-    "type Count = u8\ndef narrow(text: &str) -> Result[Count, ParseError]:\n    wide = i64.parse(text)?\n    Ok(Count.try_from(wide)?)\nfor text in ['7', '700', 'x'].unwrap():\n    print(str.repr(narrow(&text)).unwrap()).unwrap()",
+    "type Count = u8\ndef narrow(text: &str) -> Result[Count, ParseError]:\n    wide = i64.parse(text)?\n    match Count.try_from(wide):\n        case Ok(value):\n            Ok(value)\n        case Err(error):\n            match error:\n                case RangeError.OutOfRange:\n                    Err(ParseError.OutOfRange)\nfor text in ['7', '700', 'x'].unwrap():\n    print(str.repr(narrow(&text)).unwrap()).unwrap()",
     "Result[u8, ParseError].Ok(7)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[u8, ParseError].Err(ParseError.Invalid)\n"
 )]
 #[case(
-    "match i8.try_from(200u8):\n    case Ok(value):\n        print(value).unwrap()\n    case Err(error):\n        print(error == ParseError.OutOfRange).unwrap()\nxs = [1, 300, -1].unwrap()\nfor x in &xs:\n    print(str.repr(u8.try_from(*x)).unwrap()).unwrap()",
-    "True\nResult[u8, ParseError].Ok(1)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\nResult[u8, ParseError].Err(ParseError.OutOfRange)\n"
+    "match i8.try_from(200u8):\n    case Ok(value):\n        print(value).unwrap()\n    case Err(error):\n        print(error == RangeError.OutOfRange).unwrap()\nxs = [1, 300, -1].unwrap()\nfor x in &xs:\n    print(str.repr(u8.try_from(*x)).unwrap()).unwrap()",
+    "True\nResult[u8, RangeError].Ok(1)\nResult[u8, RangeError].Err(RangeError.OutOfRange)\nResult[u8, RangeError].Err(RangeError.OutOfRange)\n"
 )]
 #[case(
-    "def negate(value: u64) -> Result[i64, ParseError]:\n    Ok(-i64.try_from(value)?)\nprint(str.repr(negate(5u64)).unwrap()).unwrap()\nprint(str.repr(negate(18446744073709551615u64)).unwrap()).unwrap()\na = 3u8\nb = 3u16\nc = 3u32\nprint(-i16(a)).unwrap()\nprint(-i32(b)).unwrap()\nprint(-i64(c)).unwrap()",
-    "Result[i64, ParseError].Ok(-5)\nResult[i64, ParseError].Err(ParseError.OutOfRange)\n-3\n-3\n-3\n"
+    "def negate(value: u64) -> Result[i64, RangeError]:\n    Ok(-i64.try_from(value)?)\nprint(str.repr(negate(5u64)).unwrap()).unwrap()\nprint(str.repr(negate(18446744073709551615u64)).unwrap()).unwrap()\na = 3u8\nb = 3u16\nc = 3u32\nprint(-i16(a)).unwrap()\nprint(-i32(b)).unwrap()\nprint(-i64(c)).unwrap()",
+    "Result[i64, RangeError].Ok(-5)\nResult[i64, RangeError].Err(RangeError.OutOfRange)\n-3\n-3\n-3\n"
 )]
 #[case(
-    "a = -128i8\nb = 5i64\nc = 1.5\nprint(-(a + 1i8)).unwrap()\nprint(-b).unwrap()\nprint(-c).unwrap()\nzero: u8 = -0\nprint(zero).unwrap()\nprint(-0u8).unwrap()",
+    "a = -128i8\nb = 5i64\nc = 1.5\nprint(-(a + 1i8)).unwrap()\nprint(-b).unwrap()\nprint(-c).unwrap()\nzero: u8 = 0\nprint(zero).unwrap()\nprint(0u8).unwrap()",
     "127\n-5\n-1.5\n0\n0\n"
 )]
 fn checked_conversions_and_signed_negation(#[case] source: &str, #[case] expected: &str) {
@@ -197,7 +197,7 @@ fn checked_conversions_and_signed_negation(#[case] source: &str, #[case] expecte
 #[case("x = u8.try_from('1')", "try_from requires an integer value")]
 #[case("x = u8.try_from(True)", "try_from requires an integer value")]
 #[case("x = f64.try_from(1)", "try_from is defined for integer types")]
-#[case("x: u8 = u8.try_from(300)", "expected u8, got Result[u8, ParseError]")]
+#[case("x: u8 = u8.try_from(300)", "expected u8, got Result[u8, RangeError]")]
 #[case(
     "def f() -> Result[u8, IoError]:\n    Ok(u8.try_from(300)?)",
     "`?` requires identical Result error types"
@@ -229,8 +229,8 @@ fn checked_conversions_and_signed_negation(#[case] source: &str, #[case] expecte
     "type Count = u8\nx: Count = 3\ny = -x",
     "unary minus is not defined for unsigned type u8"
 )]
-#[case("y = -3u8", "integer literal out of range for u8")]
-#[case("y: u8 = -3", "integer literal out of range for u8")]
+#[case("y = -3u8", "unary minus is not defined for unsigned type u8")]
+#[case("y: u8 = -3", "unary minus is not defined for unsigned type u8")]
 fn conversion_and_negation_diagnostics(#[case] source: &str, #[case] expected: &str) {
     diagnostics(source, expected);
 }

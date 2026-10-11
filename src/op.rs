@@ -675,9 +675,9 @@ pub enum Op {
     /// zero. Conversions to a float type, and integer conversions that
     /// preserve every source value, emit no check.
     CheckedCast(Ty),
-    /// Pop an integer of any width; push `Result[target, ParseError]`: `Ok`
+    /// Pop an integer of any width; push `Result[target, RangeError]`: `Ok`
     /// with the value at the target integer width when it is in range, and
-    /// `Err(ParseError.OutOfRange)` otherwise. Unlike `Cast`, it never
+    /// `Err(RangeError.OutOfRange)` otherwise. Unlike `Cast`, it never
     /// changes the value's mathematical meaning.
     TryCast(Ty),
     /// Read one newline-terminated line from stdin into the heap and push
@@ -1967,7 +1967,7 @@ fn step(
             }
             stack.push(crate::sum::result(
                 target.clone(),
-                crate::sum::parse_error(),
+                crate::sum::range_error(),
             ));
         }
         Op::ReadLine => {

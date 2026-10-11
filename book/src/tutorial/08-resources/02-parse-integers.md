@@ -20,13 +20,19 @@ Result[i64, ParseError].Err(ParseError.Invalid)
 
 Functions returning the same error type can propagate parsing failures with `?`.
 [`try_from`](../02-values/numeric-operations.md) reports a value that does not
-fit with the same `ParseError.OutOfRange`, so one function can parse a wide
-integer, calculate, and narrow the result:
+fit with `RangeError.OutOfRange`. Match it explicitly to combine parsing,
+calculation, and narrowing in a function returning `ParseError`:
 
 ```plenty
 def shade(percent: &str) -> Result[u8, ParseError]:
     scaled = i64.parse(percent)? * 255 // 100
-    Ok(u8.try_from(scaled)?)
+    match u8.try_from(scaled):
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case RangeError.OutOfRange:
+                    Err(ParseError.OutOfRange)
 
 def main() -> Result[(), Failure]:
     print(str.repr(shade("50"))?)?

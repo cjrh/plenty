@@ -1295,7 +1295,7 @@ impl Lower<'_> {
         Ok(value)
     }
 
-    fn mutation_place(&mut self, base: &Expr, ops: &mut Vec<Op>) -> Result<usize> {
+    pub(super) fn mutation_place(&mut self, base: &Expr, ops: &mut Vec<Op>) -> Result<usize> {
         let (reference, loan) = self.borrow(base, true, ops)?;
         let reference = self.unbox_reference(reference, ops);
         let Ty::Ref(ty, _) = reference else {
@@ -1520,7 +1520,7 @@ impl Lower<'_> {
                     return Err(args[0].at.error("try_from requires an integer value"));
                 }
                 ops.push(Op::TryCast(ty.clone()));
-                return Ok(Some(crate::sum::result(ty, crate::sum::parse_error())));
+                return Ok(Some(crate::sum::result(ty, crate::sum::range_error())));
             }
             if name == "wrapping_from" && !matches!(ty, Ty::Enum(_)) {
                 return self.wrapping_from(ty, args, &base.at, ops).map(Some);
@@ -1550,7 +1550,10 @@ impl Lower<'_> {
             return self.collection_unit_mutation(base, name, args, ops);
         }
         if name == "sort" && matches!(collection, Some(Ty::List(_))) {
-            return self.collection_unit_mutation(base, name, args, ops);
+            return self.list_sort(base, args, ops);
+        }
+        if name == "sort_by_key" && matches!(collection, Some(Ty::List(_))) {
+            return self.list_sort_by_key(base, args, ops);
         }
         if name == "swap" && matches!(collection, Some(Ty::List(_))) {
             return self.list_swap(base, args, ops);
@@ -1615,7 +1618,7 @@ impl Lower<'_> {
                 .at
                 .error("reverse requires a mutable list binding or class field"));
         }
-        if matches!(name, "sort" | "swap") && matches!(ty, Ty::List(_)) {
+        if matches!(name, "sort" | "sort_by_key" | "swap") && matches!(ty, Ty::List(_)) {
             return Err(base.at.error(format!(
                 "{name} requires a mutable list binding or class field"
             )));
@@ -2019,15 +2022,6 @@ impl Lower<'_> {
         let ty = classes::unbox(self.place_type(base).expect("collection place"));
         let operation = match (name, &ty) {
             ("reverse", _) => CollectionOp::ListReverse(ty),
-            ("sort", Ty::List(element)) => {
-                if !Self::sortable(element) {
-                    return Err(base.at.error(format!(
-                        "sort does not order {element} elements; it orders integers, floats, \
-                         str, and tuples of those"
-                    )));
-                }
-                CollectionOp::ListSort(ty)
-            }
             _ => CollectionOp::Clear(ty),
         };
         let loan = self.mutation_place(base, ops)?;
@@ -2039,7 +2033,7 @@ impl Lower<'_> {
 
     /// Whether the runtime's total order covers `ty`. Tuples order by their
     /// components from left to right.
-    fn sortable(ty: &Ty) -> bool {
+    pub(super) fn sortable(ty: &Ty) -> bool {
         match ty {
             Ty::Str => true,
             Ty::Enum(t) if t.tuple() => t.get().variants[0].fields.iter().all(Self::sortable),

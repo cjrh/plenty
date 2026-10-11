@@ -339,6 +339,8 @@ export def allocation(x: i32) -> Result[(), AllocError] = "calc_allocation":
         Err(AllocError.CapacityOverflow)
 export def parse() -> Result[i64, ParseError] = "calc_parse":
     Err(ParseError.OutOfRange)
+export def narrow(value: i64) -> Result[u8, RangeError] = "calc_narrow":
+    u8.try_from(value)
 export def failed() -> Result[(), Failure] = "calc_failed":
     Err(Failure.Unspecified)
 "#;
@@ -369,6 +371,10 @@ int main(void) {
     assert(calc_allocation(2, &code) == 1 && code == 1);
     int64_t unused = 42;
     assert(calc_parse(&unused, &code) == 1 && code == 1 && unused == 42);
+    uint8_t small = 99;
+    code = 88;
+    assert(calc_narrow(7, &small, &code) == 0 && small == 7 && code == 88);
+    assert(calc_narrow(300, &small, &code) == 1 && small == 7 && code == 0);
     assert(calc_failed(&code) == 1 && code == 0);
     return 0;
 }
