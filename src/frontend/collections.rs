@@ -49,20 +49,25 @@ impl Parser {
             }
             entries.push((first, value));
             if self.peek().is("for") {
+                let mut element = self.deepest;
                 loop {
+                    let keyword = self.pos;
                     if self.eat("for") {
                         let mut name = vec![self.name()?];
                         while self.eat(",") {
                             name.push(self.name()?);
                         }
                         self.expect("in")?;
-                        clauses.push(Clause::For(name, self.expr(1)?));
+                        let iterable = self.clause(keyword, clauses.len(), &mut element)?;
+                        clauses.push(Clause::For(name, iterable));
                     } else if self.eat("if") {
-                        clauses.push(Clause::If(self.expr(1)?));
+                        let condition = self.clause(keyword, clauses.len(), &mut element)?;
+                        clauses.push(Clause::If(condition));
                     } else {
                         break;
                     }
                 }
+                self.deepest = self.deepest.max(element);
                 self.expect(close)?;
             } else {
                 while !self.eat(close) {

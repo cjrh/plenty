@@ -7,7 +7,7 @@ restrictions live with their contracts.
 |---|---|
 | Source and modules | [Declarations, imports, visibility, and entrypoints](../../language/02-source/index.md); one source root, no import cycles or re-exports |
 | Types and data | [Types](../../language/03-types/index.md); fixed layouts and recursive data through heap boundaries |
-| Expressions | [Operators, assignment, and control flow](../../language/04-expressions/index.md) |
+| Expressions | [Operators, assignment, and control flow](../../language/04-expressions/index.md); blocks and expressions [nest to 64 levels](../../language/04-expressions/index.md#nesting) |
 | Ownership | [Moves, checked borrows, returned references, and cleanup](../../language/05-ownership/index.md); general stored references unsupported |
 | Functions | [Named functions and concrete closures](../../language/06-functions/index.md); explicit fallible [shared-call erasure](../../language/06-functions/05-boxed-callables.md) |
 | Generics | [Concrete specialization and structural protocols](../../language/07-generics/index.md); no dynamic protocol dispatch |

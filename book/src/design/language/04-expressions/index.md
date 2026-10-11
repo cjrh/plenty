@@ -32,3 +32,25 @@ Suites and conditionals have [value and exit rules](branches.md). Enums support
 [exhaustive matching](matching.md); [loops](loops.md) provide repeated execution.
 Postfix `?` follows [error propagation](../08-errors/index.md), and resource scopes
 follow [cleanup](../05-ownership/index.md).
+
+## Nesting
+
+Blocks and expressions nest to at most 64 levels in total. A function body is
+level 1. A suite is one level below the statement that owns it, and so are that
+statement's expressions. An operand, argument, index, or element is one level
+below the expression that holds it, and parentheses add a level around what
+they enclose.
+
+Operators group to the left, so `a + b + c` is `(a + b) + c`: every binary
+operator, call, member access, index, or `?` in a chain puts everything before
+it one level deeper. A statement in a function body can chain 62 of them. Each
+manager of a [`with`](../08-errors/03-resource-scopes.md) statement is one
+level around the managers after it and the body, and each `for` or `if` clause
+of a comprehension is one level around the clauses after it and the element.
+The `elif` arms of an `if` are [not nested](branches.md).
+
+Deeper source is rejected at the token that reaches level 65, with
+`block and expression nesting exceeds the implementation limit of 64`. Bind an
+intermediate value to a name, group a long chain with parentheses, or move
+inner blocks into a function. [Types](../03-types/recursive-data.md) and
+[patterns](matching.md) have their own limits of 64.

@@ -424,6 +424,19 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 validate_ops(body)?;
                 Vec::new()
             }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                validate_ops(then)?;
+                for arm in elifs.iter() {
+                    validate_ops(&arm.condition)?;
+                    validate_ops(&arm.body)?;
+                }
+                validate_ops(otherwise)?;
+                Vec::new()
+            }
             _ => Vec::new(),
         };
         for ty in types {

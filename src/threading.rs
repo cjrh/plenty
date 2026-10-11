@@ -287,6 +287,16 @@ pub fn walk<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
                 Op::DefineFn(_, f) => pending.push(&f.body),
                 Op::Match(arms) => pending.extend(arms.iter().map(|arm| arm.body.as_ref())),
                 Op::Loop { condition, body } => pending.extend([condition.as_ref(), body.as_ref()]),
+                Op::If {
+                    then,
+                    elifs,
+                    otherwise,
+                } => {
+                    pending.extend([then.as_ref(), otherwise.as_ref()]);
+                    for arm in elifs.iter() {
+                        pending.extend([arm.condition.as_ref(), arm.body.as_ref()]);
+                    }
+                }
                 Op::Try { cleanup, .. } => pending.push(cleanup),
                 _ => {}
             }

@@ -29,6 +29,13 @@ only continuing branches, validates transfers against signatures or loop entry
 stacks, and rejects operations after guaranteed exits. Loops lower to headers,
 bodies, and exits; the `for` increment precedes each `continue`.
 
+An `if` statement lowers to one operation that holds its `elif` arms as a list,
+each with its own condition, so no pass recurses once per arm and a chain costs
+linear time. Every pass does recurse once per level of block or expression
+nesting, as do the clone and drop of the syntax tree. The parser therefore
+[bounds that depth to 64](../../language/04-expressions/index.md#nesting) and
+later passes rely on it instead of checking again.
+
 Ownership checking tracks definite slot availability through branches and loop
 backedges. Borrow checking flattens typed access facts into a separate source-level
 CFG with branch successors, early exits, loop edges, and stable binding-place IDs.

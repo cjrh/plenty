@@ -3,7 +3,9 @@ use super::*;
 pub(super) fn yields(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| match &stmt.kind {
         Statement::Yield(_) => true,
-        Statement::If { yes, no, .. } => yields(yes) || yields(no),
+        Statement::If { yes, elifs, no, .. } => {
+            yields(yes) || elifs.iter().any(|elif| yields(&elif.body)) || yields(no)
+        }
         Statement::For { body, .. }
         | Statement::While { body, .. }
         | Statement::With { body, .. } => yields(body),

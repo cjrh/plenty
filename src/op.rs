@@ -569,6 +569,15 @@ pub enum Op {
         condition: Rc<[Op]>,
         body: Rc<[Op]>,
     },
+    /// An `if` statement. Pops the bool left by the first condition; a later
+    /// condition runs only when every earlier one was false. The `elif` arms
+    /// are a list rather than nested `otherwise` bodies, so that no pass
+    /// recurses once per arm (issue #70).
+    If {
+        then: Rc<[Op]>,
+        elifs: Rc<[ElifArm]>,
+        otherwise: Rc<[Op]>,
+    },
     /// Push an integer literal onto the stack. The payload is always an
     /// integer `Value`; retaining its width makes suffixed literals direct.
     PushInt(Value),
@@ -701,6 +710,13 @@ pub enum Op {
     /// Pop one value of any type and render it without a newline. The
     /// rendering matches one entry in the `.` stack display.
     Print,
+}
+
+/// One `elif` of an [`Op::If`]. `condition` adds a bool to the stack it found.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ElifArm {
+    pub condition: Rc<[Op]>,
+    pub body: Rc<[Op]>,
 }
 
 /// One arm of a [`Op::Match`]. The pattern is matched against the popped
@@ -1350,6 +1366,22 @@ pub(crate) fn mark_tail_calls(body: &mut [Op]) {
                 .collect();
             *arms = new_arms.into();
         }
+        Op::If {
+            then,
+            elifs,
+            otherwise,
+        } => {
+            let mark = |body: &mut Rc<[Op]>| {
+                let mut ops = body.to_vec();
+                mark_tail_calls(&mut ops);
+                *body = ops.into();
+            };
+            mark(then);
+            for arm in Rc::make_mut(elifs) {
+                mark(&mut arm.body);
+            }
+            mark(otherwise);
+        }
         _ => {}
     }
 }
@@ -1431,6 +1463,18 @@ fn collect_sigs(ops: &[Op], out: &mut HashMap<String, Rc<FnSig>>) {
                 for arm in arms.iter() {
                     collect_sigs(&arm.body, out);
                 }
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                collect_sigs(then, out);
+                for arm in elifs.iter() {
+                    collect_sigs(&arm.condition, out);
+                    collect_sigs(&arm.body, out);
+                }
+                collect_sigs(otherwise, out);
             }
             _ => {}
         }
@@ -1940,6 +1984,72 @@ fn step(
         }
         Op::Match(arms) => {
             return check_match(arms, stack, locals, sigs, returns, loop_stack, yield_ty)
+        }
+        Op::If {
+            then,
+            elifs,
+            otherwise,
+        } => {
+            if stack.pop() != Some(Ty::Bool) {
+                return Err("`if` condition must produce bool".into());
+            }
+            let snapshot = stack.clone();
+            for arm in elifs.iter() {
+                let mut cond = snapshot.clone();
+                if check_sequence(
+                    &arm.condition,
+                    &mut cond,
+                    locals,
+                    sigs,
+                    returns,
+                    loop_stack,
+                    yield_ty,
+                )? != Flow::Continues
+                    || cond.pop() != Some(Ty::Bool)
+                    || cond != snapshot
+                {
+                    return Err("`elif` condition must produce bool".into());
+                }
+            }
+            // Bodies join as match arms do: every continuing one leaves the
+            // same stack.
+            let bodies = std::iter::once(then)
+                .chain(elifs.iter().map(|arm| &arm.body))
+                .chain(std::iter::once(otherwise));
+            let mut joined: Option<Vec<Ty>> = None;
+            for (i, body) in bodies.enumerate() {
+                let mut branch = snapshot.clone();
+                if check_sequence(
+                    body,
+                    &mut branch,
+                    locals,
+                    sigs,
+                    returns,
+                    loop_stack,
+                    yield_ty,
+                )? == Flow::Exits
+                {
+                    continue;
+                }
+                match &joined {
+                    None => joined = Some(branch),
+                    Some(expected) if &branch != expected => {
+                        return Err(format!(
+                            "`if` branch {i} leaves [{}], but the first continuing branch \
+                             leaves [{}] (every continuing branch must produce the same \
+                             stack effect)",
+                            fmt_types(&branch),
+                            fmt_types(expected),
+                        )
+                        .into());
+                    }
+                    Some(_) => {}
+                }
+            }
+            let Some(joined) = joined else {
+                return Ok(Flow::Exits);
+            };
+            *stack = joined;
         }
         Op::Cast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;

@@ -1,6 +1,6 @@
 //! Checked native tail transfers. Lifetime checking precedes this pass: the ABI
 //! describes representations, not whether a reference outlives the current frame.
-use crate::op::{CompiledFn, FnSig, MatchArm, Op, Ty};
+use crate::op::{CompiledFn, ElifArm, FnSig, MatchArm, Op, Ty};
 use cranelift_codegen::ir::{types, Type};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -137,6 +137,18 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
                     collect(condition, sigs);
                     collect(body, sigs);
                 }
+                Op::If {
+                    then,
+                    elifs,
+                    otherwise,
+                } => {
+                    collect(then, sigs);
+                    for arm in elifs.iter() {
+                        collect(&arm.condition, sigs);
+                        collect(&arm.body, sigs);
+                    }
+                    collect(otherwise, sigs);
+                }
                 _ => {}
             }
         }
@@ -189,6 +201,26 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
                     let condition = shared(condition, caller, sigs, &mut changed);
                     let body = shared(nested, caller, sigs, &mut changed);
                     changed.then_some(Op::Loop { condition, body })
+                }
+                Op::If {
+                    then,
+                    elifs,
+                    otherwise,
+                } => {
+                    let then = shared(then, caller, sigs, &mut changed);
+                    let elifs = elifs
+                        .iter()
+                        .map(|arm| ElifArm {
+                            condition: shared(&arm.condition, caller, sigs, &mut changed),
+                            body: shared(&arm.body, caller, sigs, &mut changed),
+                        })
+                        .collect();
+                    let otherwise = shared(otherwise, caller, sigs, &mut changed);
+                    changed.then_some(Op::If {
+                        then,
+                        elifs,
+                        otherwise,
+                    })
                 }
                 _ => None,
             };

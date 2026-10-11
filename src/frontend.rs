@@ -7,7 +7,9 @@ use std::error::Error;
 use std::rc::Rc;
 
 use crate::collection::CollectionOp;
-use crate::op::{mark_tail_calls, CompiledFn, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
+use crate::op::{
+    mark_tail_calls, CompiledFn, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty,
+};
 use crate::value::{Heap, Value};
 mod callables;
 mod casts;
@@ -730,6 +732,9 @@ enum Statement {
     If {
         condition: Expr,
         yes: Vec<Stmt>,
+        // A list, not an `if` nested in `no`: a pass that recursed once per
+        // arm overflowed the stack on a long chain (issue #70).
+        elifs: Vec<Elif>,
         no: Vec<Stmt>,
     },
     Pass,
@@ -753,6 +758,13 @@ enum Statement {
         op: String,
         value: Expr,
     },
+}
+
+#[derive(Clone)]
+struct Elif {
+    at: Token,
+    condition: Expr,
+    body: Vec<Stmt>,
 }
 
 #[derive(Clone)]
@@ -813,6 +825,12 @@ enum Clause {
     If(Expr),
 }
 
+/// Indented blocks and expressions nest to this many levels in total. Every
+/// pass over the tree, and the tree's own clone and drop, recurses once per
+/// level, so an unbounded depth overflows the compiler's stack (issue #70).
+const MAX_NESTING: usize = 64;
+const NESTING: &str = "block and expression nesting exceeds the implementation limit of 64";
+
 struct Parser {
     tokens: Vec<Token>,
     /// Whether each token lies inside `()`, `[]`, or `{}`. The lexer drops
@@ -820,6 +838,12 @@ struct Parser {
     in_brackets: Vec<bool>,
     pos: usize,
     type_depth: usize,
+    /// Blocks and expressions open around the one being parsed.
+    depth: usize,
+    /// Level of the deepest node in the expression being parsed. An operator
+    /// parsed after its left operand moves that operand down a level, so the
+    /// depth of the calls into `expr` alone does not bound the tree.
+    deepest: usize,
 }
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
@@ -842,7 +866,52 @@ impl Parser {
             in_brackets,
             pos: 0,
             type_depth: 0,
+            depth: 0,
+            deepest: 0,
         }
+    }
+    /// Parse a block or an expression one level below the current one.
+    fn nested<T>(&mut self, parse: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
+        let around = self.deepest;
+        self.depth += 1;
+        self.deepest = self.depth;
+        let result = if self.depth > MAX_NESTING {
+            Err(self.peek().error(NESTING))
+        } else {
+            parse(self)
+        };
+        self.depth -= 1;
+        // A failed parse may be a discarded reading (`index_reading`), which
+        // must not count against the expression around it.
+        self.deepest = if result.is_ok() {
+            self.deepest.max(around)
+        } else {
+            around
+        };
+        result
+    }
+    /// The expression parsed so far becomes an operand of the operator just
+    /// taken: `a + b + c` is `(a + b) + c`, one level per operator.
+    fn deepen(&mut self) -> Result<()> {
+        self.deepest += 1;
+        if self.deepest > MAX_NESTING {
+            return Err(self.tokens[self.pos - 1].error(NESTING));
+        }
+        Ok(())
+    }
+    /// Parse the expression of the comprehension clause whose keyword is token
+    /// `keyword` and which follows `outer` others. A clause is a level around
+    /// the clauses after it and around the element, whose deepest node is at
+    /// level `element`.
+    fn clause(&mut self, keyword: usize, outer: usize, element: &mut usize) -> Result<Expr> {
+        *element += 1;
+        if *element > MAX_NESTING {
+            return Err(self.tokens[keyword].error(NESTING));
+        }
+        self.depth += outer;
+        let expression = self.expr(1);
+        self.depth -= outer;
+        expression
     }
     fn peek(&self) -> &Token {
         &self.tokens[self.pos]
@@ -988,11 +1057,15 @@ impl Parser {
     /// one, where it stays. Returns None when the contents are not one expression.
     fn index_reading(&mut self, start: usize, base: &Expr) -> Option<Expr> {
         let end = std::mem::replace(&mut self.pos, start + 1);
+        let deepest = self.deepest;
         let index = self
             .expr(0)
             .ok()
             .filter(|_| self.eat("]") && self.pos == end);
         self.pos = end;
+        if index.is_none() {
+            self.deepest = deepest;
+        }
         Some(Expr {
             at: base.at.clone(),
             kind: Expression::Index(Box::new(base.clone()), Box::new(index?)),
@@ -1326,6 +1399,9 @@ impl Parser {
         }])
     }
     fn suite(&mut self) -> Result<Vec<Stmt>> {
+        self.nested(Self::suite_inner)
+    }
+    fn suite_inner(&mut self) -> Result<Vec<Stmt>> {
         self.expect(":")?;
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented block")?;
@@ -1344,19 +1420,34 @@ impl Parser {
         Ok(body)
     }
     fn conditional_statement(&mut self) -> Result<Stmt> {
-        let at = self.take(); // if or elif
+        let at = self.take(); // if
         let condition = self.expr(0)?;
         let yes = self.suite()?;
+        let mut elifs = Vec::new();
+        while self.peek().is("elif") {
+            let at = self.take();
+            let condition = self.expr(0)?;
+            let body = self.suite()?;
+            elifs.push(Elif {
+                at,
+                condition,
+                body,
+            });
+        }
+        elifs.shrink_to_fit();
         let no = if self.eat("else") {
             self.suite()?
-        } else if self.peek().is("elif") {
-            vec![self.conditional_statement()?]
         } else {
             Vec::new()
         };
         Ok(Stmt {
             at,
-            kind: Statement::If { condition, yes, no },
+            kind: Statement::If {
+                condition,
+                yes,
+                elifs,
+                no,
+            },
         })
     }
     fn statement(&mut self) -> Result<Stmt> {
@@ -1375,7 +1466,12 @@ impl Parser {
                     break;
                 }
             }
-            let mut body = self.suite()?;
+            // Each further manager is a `with` nested in the previous one.
+            let inner = managers.len() - 1;
+            self.depth += inner;
+            let body = self.suite();
+            self.depth -= inner;
+            let mut body = body?;
             for (manager, name) in managers.into_iter().rev() {
                 body = vec![Stmt {
                     at: at.clone(),
@@ -1588,6 +1684,9 @@ impl Parser {
         Ok(Expression::Tuple(values))
     }
     fn expr(&mut self, min: u8) -> Result<Expr> {
+        self.nested(|parser| parser.expr_inner(min))
+    }
+    fn expr_inner(&mut self, min: u8) -> Result<Expr> {
         if self.peek().is("def") {
             if self
                 .tokens
@@ -1673,6 +1772,7 @@ impl Parser {
         let mut left = Expr { at, kind };
         loop {
             if self.eat("(") {
+                self.deepen()?;
                 let args = self.arguments()?;
                 left = Expr {
                     at: left.at.clone(),
@@ -1685,6 +1785,8 @@ impl Parser {
                 if let Expression::Member(base, name) = &left.kind {
                     if let Ok(types) = self.type_arguments() {
                         if self.peek().is("(") {
+                            // The index reading holds `left` as its base.
+                            self.deepen()?;
                             let index = self.index_reading(saved, &left);
                             self.take();
                             let args = self.arguments()?;
@@ -1705,6 +1807,7 @@ impl Parser {
                 }
                 if let Some(name) = path(&left) {
                     if let Ok(types) = self.type_arguments() {
+                        self.deepen()?;
                         let index = self.index_reading(saved, &left);
                         let generic = if self.eat("(") {
                             Expression::GenericCall(name, types, self.arguments()?)
@@ -1719,6 +1822,7 @@ impl Parser {
             }
             if self.peek().is("?") {
                 let at = self.take();
+                self.deepen()?;
                 left = Expr {
                     at,
                     kind: Expression::Try(Box::new(left)),
@@ -1726,6 +1830,7 @@ impl Parser {
                 continue;
             }
             if self.eat("[") {
+                self.deepen()?;
                 let index = self.expr(0)?;
                 self.expect("]")?;
                 left = Expr {
@@ -1735,6 +1840,7 @@ impl Parser {
                 continue;
             }
             if self.eat(".") {
+                self.deepen()?;
                 let name = if self.eat("from") {
                     "from".into()
                 } else {
@@ -1756,6 +1862,7 @@ impl Parser {
                 continue;
             }
             if min == 0 && self.eat("if") {
+                self.deepen()?;
                 let condition = self.expr(1)?;
                 self.expect("else")?;
                 let no = self.expr(0)?;
@@ -1796,6 +1903,7 @@ impl Parser {
             if not_in {
                 self.take();
             }
+            self.deepen()?;
             // `a ** b` parses as `a * (*b)`, which is valid when `b` is a
             // reference. Mark the dereference so that its failure reports
             // the missing operator rather than a dereference.
@@ -3388,28 +3496,75 @@ impl Lower<'_> {
                     ops.push(Op::StoreLocal(slot));
                     None
                 }
-                Statement::If { condition, yes, no } => {
+                Statement::If {
+                    condition,
+                    yes,
+                    elifs,
+                    no,
+                } => {
                     let cond = self.expr(condition, ops)?;
                     self.same(cond, Some(Ty::Bool), &condition.at)?;
                     self.finish_temporaries(temporary_start, ops);
                     let saved = self.names.clone();
-                    let (mut a, mut b) = (Vec::new(), Vec::new());
-                    let yes_result = self.block(yes, &mut a, last)?;
-                    self.names = saved.clone();
-                    let no_result = self.block(no, &mut b, last)?;
-                    self.names = saved;
-                    ops.push(branch(a, b));
-                    match (yes_result, no_result) {
-                        (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
-                            self.same(other, ty.clone(), &stmt.at)?;
-                            ty
-                        }
-                        (BlockResult::Continues(ty), BlockResult::Exits)
-                        | (BlockResult::Exits, BlockResult::Continues(ty)) => ty,
-                        (BlockResult::Exits, BlockResult::Exits) => {
-                            return exited_block(body, i);
-                        }
+                    let mut then = Vec::new();
+                    let yes_result = self.block(yes, &mut then, last)?;
+                    let elif_start = self.locals.len();
+                    let mut arms = Vec::with_capacity(elifs.len());
+                    let mut results = Vec::with_capacity(elifs.len());
+                    for elif in elifs {
+                        self.names = saved.clone();
+                        let (mut test, mut arm) = (Vec::new(), Vec::new());
+                        let temporary_start = self.expression_temps.len();
+                        self.mark(&elif.at, &mut test);
+                        let cond = self.expr(&elif.condition, &mut test)?;
+                        self.same(cond, Some(Ty::Bool), &elif.condition.at)?;
+                        self.finish_temporaries(temporary_start, &mut test);
+                        results.push(self.block(&elif.body, &mut arm, last)?);
+                        arms.push(ElifArm {
+                            condition: test.into(),
+                            body: arm.into(),
+                        });
                     }
+                    self.names = saved.clone();
+                    let mut otherwise = Vec::new();
+                    let mut result = self.block(no, &mut otherwise, last)?;
+                    self.names = saved;
+                    ops.push(Op::If {
+                        then: then.into(),
+                        elifs: arms.into(),
+                        otherwise: otherwise.into(),
+                    });
+                    // Each branch joins what follows it, as `elif` did when it
+                    // was an `if` nested in `else`: a disagreement is reported
+                    // at the last `if` or `elif` whose branch differs.
+                    let branches = elifs
+                        .iter()
+                        .map(|elif| &elif.at)
+                        .zip(results)
+                        .rev()
+                        .chain([(&stmt.at, yes_result)]);
+                    for (at, branch) in branches {
+                        result = match (branch, result) {
+                            (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
+                                self.same(other, ty.clone(), at)?;
+                                BlockResult::Continues(ty)
+                            }
+                            (BlockResult::Continues(ty), BlockResult::Exits)
+                            | (BlockResult::Exits, BlockResult::Continues(ty)) => {
+                                BlockResult::Continues(ty)
+                            }
+                            (BlockResult::Exits, BlockResult::Exits) => BlockResult::Exits,
+                        };
+                    }
+                    let BlockResult::Continues(ty) = result else {
+                        return exited_block(body, i);
+                    };
+                    if !last && !elifs.is_empty() {
+                        // The scope of what the `elif` arms and `else` declare
+                        // ends with the statement.
+                        self.cleanup(elif_start, ops);
+                    }
+                    ty
                 }
             };
             if !last {

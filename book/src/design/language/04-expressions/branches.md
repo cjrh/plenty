@@ -12,6 +12,10 @@ type. An `if` without `else` can only produce unit. The inline conditional uses
 `value_if_true if condition else value_if_false`; only its selected value is
 evaluated.
 
+An `if` takes any number of `elif` arms. The arms are alternatives at one level,
+tested in order; they do not count toward the
+[nesting limit](index.md#nesting). An `if` written inside an `else` suite does.
+
 ```python
 def clamp_low(value: i64, minimum: i64) -> i64:
     if value < minimum:

@@ -2,7 +2,8 @@
 
 List, set, and dictionary comprehensions return
 `Result[collection, AllocError]`. Multiple `for` and `if` clauses nest from
-left to right. Each iterable evaluates when its enclosing iteration reaches
+left to right, each one a level of
+[nesting](../04-expressions/index.md#nesting). Each iterable evaluates when its enclosing iteration reaches
 it; filters run before the result expression. Dictionary keys evaluate before
 their values. Iteration uses the same consuming or borrowed contracts as
 [loops](01-iterables.md).
