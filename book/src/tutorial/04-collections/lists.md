@@ -36,7 +36,7 @@ Collections can nest. Update an inner list directly through its indices:
 ```plenty
 def main() -> Result[(), Failure]:
     mut rows = [[1, 2]?, [3]?]?
-    rows[0][-1] = 9
+    rows[0][-1] += 7
     print(rows)?
     Ok(())
 ```
@@ -46,6 +46,10 @@ def main() -> Result[(), Failure]:
 ```
 
 Nested assignment does not copy or allocate the containing lists.
+Numeric elements support augmented assignment such as `+=` too. Each target
+index runs once before the right side, which may read the list but cannot change
+or resize it during the update. A failed right-side result leaves the element
+unchanged.
 Indices can be expressions, including elements of another list:
 
 ```plenty

@@ -464,6 +464,10 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         self.binding(name, &stmt.at)?;
                         self.expr(value, &set)?;
                     }
+                    Statement::Augment { target, value, .. } => {
+                        self.expr(target, &set)?;
+                        self.expr(value, &set)?;
+                    }
                     Statement::Expr(e) => self.expr(e, &set)?,
                     Statement::Return(e) => {
                         if let Some(e) = e {

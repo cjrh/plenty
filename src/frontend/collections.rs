@@ -78,6 +78,52 @@ impl Parser {
 }
 
 impl Lower<'_> {
+    pub(super) fn augment(
+        &mut self,
+        target: &Expr,
+        op: &str,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let ty = self.place_type(target).ok_or_else(|| {
+            target.at.error("augmented assignment requires an existing writable binding, field, or collection element")
+        })?;
+        if !ty.is_numeric() {
+            return Err(target
+                .at
+                .error("augmented assignment currently requires a numeric destination"));
+        }
+        let mut indices = Vec::new();
+        self.assignment_indices(target, &mut indices, ops)?;
+        // ElementRef consumes its key. Hashable keys are copyable, so the read
+        // and write can use separate slots without reevaluating an index.
+        let mut read_indices = Vec::new();
+        for index in &indices {
+            let key = self.locals[*index as usize - self.parameters].clone();
+            let slot = self.slot(key, &target.at)?;
+            ops.push(Op::LoadLocal(*index));
+            ops.push(Op::StoreLocal(slot));
+            read_indices.push(slot);
+        }
+        let (_, read) =
+            self.borrow_with_indices(target, false, &mut Some(read_indices.iter()), ops)?;
+        ops.push(Op::ReadRef(ty.clone()));
+        // Keep the shared loan through RHS evaluation: it permits observation
+        // but prevents replacing or resizing the owner behind the saved path.
+        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
+        self.same(actual, Some(ty.clone()), &value.at)?;
+        Self::numeric_operation(op, ty.clone(), &target.at, ops)?;
+        let result = self.slot(ty.clone(), &target.at)?;
+        ops.push(Op::StoreLocal(result));
+        ops.push(Op::UseLoan(read));
+        let (_, write) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
+        ops.push(Op::MoveLocal(result));
+        ops.push(Op::Swap);
+        ops.push(Op::WriteRef(ty));
+        ops.push(Op::UseLoan(write));
+        Ok(())
+    }
+
     pub(super) fn unpack_tuple(
         &mut self,
         names: &[String],

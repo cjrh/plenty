@@ -327,6 +327,13 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                         column += 1;
                     }
                 }
+                if matches!(symbol.as_str(), "+" | "-" | "*" | "/" | "//" | "%")
+                    && chars.get(pos + 1) == Some(&'=')
+                {
+                    symbol.push('=');
+                    pos += 1;
+                    column += 1;
+                }
                 if matches!(c, '(' | '[' | '{') {
                     parens += 1;
                     delimiters.push(c);
@@ -726,6 +733,11 @@ enum Statement {
     },
     SetIndex {
         target: Expr,
+        value: Expr,
+    },
+    Augment {
+        target: Expr,
+        op: String,
         value: Expr,
     },
 }
@@ -1493,6 +1505,18 @@ impl Parser {
                         target,
                         value: self.expr(0)?,
                     }
+                } else if matches!(&self.peek().kind, Kind::Symbol(s)
+                    if matches!(s.as_str(), "+=" | "-=" | "*=" | "/=" | "//=" | "%="))
+                {
+                    let operator = self.take();
+                    let Kind::Symbol(symbol) = operator.kind else {
+                        unreachable!()
+                    };
+                    Statement::Augment {
+                        target,
+                        op: symbol.trim_end_matches('=').into(),
+                        value: self.expr(0)?,
+                    }
                 } else {
                     Statement::Expr(target)
                 }
@@ -2101,6 +2125,9 @@ impl Lower<'_> {
         self.same(a, Some(ty.clone()), &left.at)?;
         let b = self.expr_expected(right, Some(ty.clone()), ops)?;
         self.same(b, Some(ty.clone()), &right.at)?;
+        Self::numeric_operation(op, ty, at, ops)
+    }
+    fn numeric_operation(op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
         if op == "/" && !ty.is_float() {
             return Err(at.error("use `//` for integer division; `/` requires floats"));
         }
@@ -3115,6 +3142,10 @@ impl Lower<'_> {
                     } else {
                         self.set_index(target, value, ops)?;
                     }
+                    None
+                }
+                Statement::Augment { target, op, value } => {
+                    self.augment(target, op, value, ops)?;
                     None
                 }
                 Statement::Unpack {
