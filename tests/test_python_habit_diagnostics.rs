@@ -18,7 +18,6 @@ fn output(source: &str) -> String {
 
 const POWER: &str = "exponentiation with `**` is not supported; use `base.pow(exponent)`";
 const REPETITION: &str = "lists do not support `*` repetition; build the list with a comprehension, such as `[value for _ in range(count)]?`";
-const LITERAL_PATTERN: &str = "literal patterns are not supported; `match` selects enum variants, so compare other values with an `if`/`elif` chain";
 
 #[test]
 fn power_operator_names_the_pow_method() {
@@ -208,34 +207,31 @@ fn empty_display_names_the_annotation_and_the_typed_constructor() {
 }
 
 #[test]
-fn literal_patterns_name_the_conditional_chain() {
-    for (value, pattern) in [
-        ("\"cpy\"", "\"cpy\""),
-        ("3", "1"),
-        ("3", "-1"),
-        ("2.5", "2.5"),
-        ("True", "True"),
-        ("True", "False"),
-    ] {
+fn float_patterns_name_the_conditional_chain() {
+    for pattern in ["2.5", "-2.5", "1e3", "2f64"] {
         let source = format!(
-            "def main() -> ():\n    s = {value}\n    match s:\n        case {pattern}:\n            pass\n        case _:\n            pass\n"
+            "def main() -> ():\n    s = 2.5\n    match s:\n        case {pattern}:\n            pass\n        case _:\n            pass\n"
         );
         assert_eq!(
             diagnostic(&source),
-            format!("4:14: {LITERAL_PATTERN}"),
+            "4:14: a pattern cannot be a float; compare floats with an `if`/`elif` chain",
             "{pattern}"
         );
     }
 }
 
 #[test]
-fn matching_a_non_enum_names_the_conditional_chain() {
-    assert_eq!(
-        diagnostic(
-            "def main() -> ():\n    s = \"cpy\"\n    match s:\n        case _:\n            pass\n"
-        ),
-        "3:11: match requires an enum value or reference; compare other values with an `if`/`elif` chain"
-    );
+fn matching_an_unsupported_type_names_the_conditional_chain() {
+    for value in ["2.5", "[1, 2]?", "{1: 2}?"] {
+        let source = format!(
+            "def main() -> Result[(), Failure]:\n    s = {value}\n    match s:\n        case _:\n            pass\n    Ok(())\n"
+        );
+        assert_eq!(
+            diagnostic(&source),
+            "3:11: match requires an enum, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain",
+            "{value}"
+        );
+    }
 }
 
 #[test]

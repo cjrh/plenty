@@ -5,7 +5,7 @@
 pub struct StrId(u32);
 
 /// A sized integer literal. Runtime values are represented by native code.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Value {
     I8(i8),
     I16(i16),
