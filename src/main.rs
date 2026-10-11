@@ -194,7 +194,7 @@ fn run() -> Result<ExitCode, Box<dyn Error>> {
             )?;
         }
         [flag] if flag == "--print-target" && !legacy && root.is_none() && !link_options => {
-            println!("{}", plenty::native_target());
+            println!("{} (CPU baseline: x86-64/SSE2)", plenty::native_target());
         }
         [flag, directory] if flag == "--emit-runtime" && !legacy && root.is_none() => {
             plenty::emit_runtime(Path::new(directory))?;

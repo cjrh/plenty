@@ -122,7 +122,7 @@ fn unsupported_target_fails_before_source_or_codegen() {
     );
     assert_eq!(
         String::from_utf8(result.stdout).unwrap().trim(),
-        plenty::native_target()
+        format!("{} (CPU baseline: x86-64/SSE2)", plenty::native_target())
     );
     plenty::validate_target(Some(plenty::native_target())).unwrap();
 }
@@ -220,4 +220,64 @@ fn cli_emits_objects_with_imports_without_any_toolchain_on_path() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("main"), "{error}");
+}
+
+#[test]
+fn artifacts_are_reproducible_across_processes_and_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut snapshots = Vec::new();
+    for index in 0..3 {
+        let dir = temp.path().join(format!("build-{index}"));
+        std::fs::create_dir(&dir).unwrap();
+        let source = dir.join(format!("source-{index}.plenty"));
+        std::fs::write(
+            &source,
+            "import helper\nexport def answer(x: i64) -> i64 = \"fixture_answer\":\n    helper.shift(x)\ndef main() -> i32:\n    i32(answer(4))\n",
+        ).unwrap();
+        std::fs::write(
+            dir.join("helper.plenty"),
+            "pub def shift(x: i64) -> i64:\n    x * 9\n",
+        )
+        .unwrap();
+        let mut artifacts = Vec::new();
+        for (mode, name) in [
+            ("--emit-object", "app.o"),
+            ("--compile", "app"),
+            ("--static-library", "fixture.a"),
+            ("--shared-library", "fixture.so"),
+        ] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_plenty"));
+            command
+                .current_dir(&dir)
+                .arg(mode)
+                .arg(&source)
+                .arg("-o")
+                .arg(dir.join(name));
+            if mode.ends_with("library") {
+                command.args(["--library-name", "fixture"]);
+            }
+            success(command.output().unwrap());
+            artifacts.push(std::fs::read(dir.join(name)).unwrap());
+        }
+        for name in ["fixture.h", "fixture.plentyi", "fixture.link-args.txt"] {
+            artifacts.push(std::fs::read(dir.join(name)).unwrap());
+        }
+        let runtime = dir.join("runtime");
+        success(
+            Command::new(env!("CARGO_BIN_EXE_plenty"))
+                .arg("--emit-runtime")
+                .arg(&runtime)
+                .output()
+                .unwrap(),
+        );
+        for name in ["libplenty_runtime.a", "link-args.txt", "target.txt"] {
+            artifacts.push(std::fs::read(runtime.join(name)).unwrap());
+        }
+        snapshots.push(artifacts);
+    }
+    for snapshot in &snapshots[1..] {
+        for (index, (first, next)) in snapshots[0].iter().zip(snapshot).enumerate() {
+            assert_eq!(first, next, "artifact {index} differs");
+        }
+    }
 }
