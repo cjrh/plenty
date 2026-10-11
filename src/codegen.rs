@@ -77,7 +77,7 @@ mod references;
 #[cfg(test)]
 mod tail_tests;
 mod threads;
-use crate::op::{self, FnSig, MatchArm, Op, Pattern, Ty};
+use crate::op::{self, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
 use output::Output;
@@ -445,6 +445,7 @@ struct Runtime {
     /// to stderr and `exit(1)`s. The lowerer calls this from the
     /// overflow branch of every checked arithmetic op.
     trap_overflow: FuncId,
+    trap_shift: FuncId,
     /// `plenty_trap_div_zero() -> !` — prints `error: division by zero`
     /// to stderr and `exit(1)`s. Called from the zero-check branch of
     /// the `Div` lowering.
@@ -581,6 +582,7 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         concat: two_args_one_return(module, "plenty_concat", PTR_TY, PTR_TY, PTR_TY)?,
         str_eq: two_args_one_return(module, "plenty_str_eq", PTR_TY, PTR_TY, types::I8)?,
         trap_overflow: nullary(module, "plenty_trap_overflow")?,
+        trap_shift: nullary(module, "plenty_trap_shift")?,
         trap_div_zero: nullary(module, "plenty_trap_div_zero")?,
         readline: {
             let mut sig = module.make_signature();
@@ -1060,13 +1062,12 @@ enum ArithKind {
     Mul,
 }
 
-/// Which shared trap block to branch into on a failed check. The two
-/// kinds map one-to-one to the two runtime helpers and the two
-/// runtime arithmetic diagnostics.
+/// Runtime diagnostic to invoke on a failed arithmetic check.
 #[derive(Clone, Copy)]
 enum TrapKind {
     Overflow,
     DivZero,
+    Shift,
 }
 
 struct Lowerer<'a, 'b> {
@@ -1326,6 +1327,7 @@ impl Lowerer<'_, '_> {
             Op::Div => self.lower_div(false)?,
             Op::FloorDiv => self.lower_div(true)?,
             Op::Modulo => self.lower_modulo()?,
+            Op::Integer(kind) => self.lower_integer(*kind)?,
             Op::Eq => self.lower_eq()?,
             Op::Lt => self.int_cmp(IntCC::SignedLessThan, IntCC::UnsignedLessThan)?,
             Op::Gt => self.int_cmp(IntCC::SignedGreaterThan, IntCC::UnsignedGreaterThan)?,
@@ -1550,6 +1552,39 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    fn lower_integer(&mut self, kind: IntegerOp) -> Result<()> {
+        if kind == IntegerOp::Not {
+            let (value, ty) = self.stack.pop().ok_or("empty bitwise complement")?;
+            let result = self.bcx.ins().bnot(value);
+            self.stack.push((result, ty));
+            return Ok(());
+        }
+        let (a, b, ty) = self.pop_pair()?;
+        if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
+            // Unsigned comparison rejects negative signed counts as well.
+            let width = clif_type(ty.clone()).bits();
+            let invalid =
+                self.bcx
+                    .ins()
+                    .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, b, i64::from(width));
+            self.trap_if(invalid, TrapKind::Shift);
+        }
+        let result = match kind {
+            IntegerOp::And => self.bcx.ins().band(a, b),
+            IntegerOp::Or => self.bcx.ins().bor(a, b),
+            IntegerOp::Xor => self.bcx.ins().bxor(a, b),
+            IntegerOp::ShiftLeft => self.bcx.ins().ishl(a, b),
+            IntegerOp::ShiftRight if is_signed(ty.clone()) => self.bcx.ins().sshr(a, b),
+            IntegerOp::ShiftRight => self.bcx.ins().ushr(a, b),
+            IntegerOp::WrappingAdd => self.bcx.ins().iadd(a, b),
+            IntegerOp::WrappingSub => self.bcx.ins().isub(a, b),
+            IntegerOp::WrappingMul => self.bcx.ins().imul(a, b),
+            IntegerOp::Not => unreachable!(),
+        };
+        self.stack.push((result, ty));
+        Ok(())
+    }
+
     /// Check divisor zero and signed INT_MIN/-1 before emitting division,
     /// so both failures produce runtime diagnostics instead of hardware traps.
     fn lower_div(&mut self, floor: bool) -> Result<()> {
@@ -1650,6 +1685,7 @@ impl Lowerer<'_, '_> {
         let helper = match kind {
             TrapKind::Overflow => self.runtime.trap_overflow,
             TrapKind::DivZero => self.runtime.trap_div_zero,
+            TrapKind::Shift => self.runtime.trap_shift,
         };
         let local = self.module.declare_func_in_func(helper, self.bcx.func);
         self.bcx.ins().call(local, &[]);

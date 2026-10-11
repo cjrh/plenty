@@ -173,6 +173,10 @@ pub(crate) extern "C" fn plenty_trap_overflow() -> ! {
 pub(crate) extern "C" fn plenty_trap_div_zero() -> ! {
     crate::fail("division by zero")
 }
+#[no_mangle]
+pub(crate) extern "C" fn plenty_trap_shift() -> ! {
+    crate::fail("shift count outside integer width")
+}
 
 #[cfg(test)]
 mod tests {

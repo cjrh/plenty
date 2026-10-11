@@ -7,7 +7,7 @@ use std::error::Error;
 use std::rc::Rc;
 
 use crate::collection::CollectionOp;
-use crate::op::{mark_tail_calls, CompiledFn, FnSig, MatchArm, Op, Pattern, Ty};
+use crate::op::{mark_tail_calls, CompiledFn, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, Value};
 mod callables;
 mod channels;
@@ -315,12 +315,19 @@ fn lex(source: &str) -> Result<Vec<Token>> {
                 });
             }
             '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ',' | '+' | '-' | '*' | '%' | '/'
-            | '=' | '!' | '<' | '>' | '&' | '?' => {
+            | '=' | '!' | '<' | '>' | '&' | '|' | '^' | '~' | '?' => {
                 let mut symbol = c.to_string();
                 if let Some(next) = chars.get(pos + 1) {
                     if matches!(
                         (c, *next),
-                        ('-', '>') | ('=', '=') | ('!', '=') | ('<', '=') | ('>', '=') | ('/', '/')
+                        ('-', '>')
+                            | ('=', '=')
+                            | ('!', '=')
+                            | ('<', '=')
+                            | ('>', '=')
+                            | ('/', '/')
+                            | ('<', '<')
+                            | ('>', '>')
                     ) {
                         symbol.push(*next);
                         pos += 1;
@@ -1604,10 +1611,10 @@ impl Parser {
             }
             Kind::Symbol(s) if s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
-                Expression::Unary(op.into(), Box::new(self.expr(7)?))
+                Expression::Unary(op.into(), Box::new(self.expr(10)?))
             }
-            Kind::Symbol(s) if s == "-" || s == "+" || s == "*" => {
-                Expression::Unary(s.clone(), Box::new(self.expr(7)?))
+            Kind::Symbol(s) if s == "-" || s == "+" || s == "*" || s == "~" => {
+                Expression::Unary(s.clone(), Box::new(self.expr(10)?))
             }
             Kind::Symbol(s) if s == "(" => self.parenthesized()?,
             Kind::Symbol(s) if s == "[" || s == "{" => self.collection_display(s)?,
@@ -1984,8 +1991,12 @@ fn binary(t: &Token) -> Option<(String, u8)> {
         "or" => 1,
         "and" => 2,
         "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not in" => 3,
-        "+" | "-" => 4,
-        "*" | "%" | "/" | "//" => 5,
+        "|" => 4,
+        "^" => 5,
+        "&" => 6,
+        "<<" | ">>" => 7,
+        "+" | "-" => 8,
+        "*" | "%" | "/" | "//" => 9,
         _ => return None,
     };
     Some((s.clone(), precedence))
@@ -2106,9 +2117,14 @@ impl Lower<'_> {
             | Expression::Invoke(..)
             | Expression::Method(..)
             | Expression::GenericMethod(..) => self.expression_type_hint(e).filter(Ty::is_numeric),
-            Expression::Unary(op, inner) if op == "+" || op == "-" => self.numeric_hint(inner),
+            Expression::Unary(op, inner) if op == "+" || op == "-" || op == "~" => {
+                self.numeric_hint(inner)
+            }
             Expression::Binary(op, a, b)
-                if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%") =>
+                if matches!(
+                    op.as_str(),
+                    "+" | "-" | "*" | "/" | "//" | "%" | "&" | "|" | "^" | "<<" | ">>"
+                ) =>
             {
                 self.numeric_hint(a).or_else(|| self.numeric_hint(b))
             }
@@ -2131,6 +2147,13 @@ impl Lower<'_> {
         Self::numeric_operation(op, ty, at, ops)
     }
     fn numeric_operation(op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
+        if let Some(kind) = IntegerOp::binary(op) {
+            if !ty.is_int() {
+                return Err(at.error("bitwise operations require integers"));
+            }
+            ops.push(Op::Integer(kind));
+            return Ok(ty);
+        }
         if op == "/" && !ty.is_float() {
             return Err(at.error("use `//` for integer division; `/` requires floats"));
         }
@@ -2510,7 +2533,13 @@ impl Lower<'_> {
                 }
                 let mut body = Vec::new();
                 let ty = self.value(value, &mut body)?;
-                if op == "not" {
+                if op == "~" {
+                    if !ty.is_int() {
+                        return Err(e.at.error("bitwise complement requires an integer"));
+                    }
+                    ops.extend(body);
+                    ops.push(Op::Integer(IntegerOp::Not));
+                } else if op == "not" {
                     self.same(Some(ty.clone()), Some(Ty::Bool), &e.at)?;
                     ops.extend(body);
                     ops.push(Op::Not);
@@ -2649,6 +2678,14 @@ impl Lower<'_> {
                             .error("floor division and modulo currently require integers"));
                     }
                     ops.extend(rhs);
+                    if let Some(kind) = IntegerOp::binary(op) {
+                        if !a.is_int() {
+                            return Err(e.at.error("bitwise operations require integers"));
+                        }
+                        ops.push(Op::Integer(kind));
+                        Self::end_reads(loans, ops);
+                        return Ok(Some(a));
+                    }
                     if op == "+" && a == Ty::Str {
                         ops.push(Op::Collection(CollectionOp::TextTryConcat));
                         Self::end_reads(loans, ops);

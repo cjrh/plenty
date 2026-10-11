@@ -31,6 +31,19 @@ signed quotients, including negative operands; `%` is integer-only. `/` accepts
 matching-width floats. Float arithmetic follows IEEE behavior for rounding,
 signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infinity.
 
+Integers support bitwise `&`, `|`, `^`, and unary `~`, and shifts `<<` and `>>`.
+Operands must have the same integer type; a typed left operand guides an
+unsuffixed count literal. Counts must be nonnegative and less than the integer
+width; invalid counts trap before shifting. Left shifts discard high bits.
+Signed right shifts extend the sign bit; unsigned right shifts fill with zero.
+From lower to higher precedence: `|`, `^`, `&`, shifts, addition/subtraction,
+multiplication/division/modulo, unary operators. Comparisons bind below `|`.
+Prefix `&` and `&mut` still create borrows.
+
+`value.wrapping_add(other)`, `wrapping_sub`, and `wrapping_mul` require matching
+integer types and compute modulo two to the integer width. They allocate
+nothing. Ordinary `+`, `-`, and `*` keep their overflow checks.
+
 Comparisons require matching types; ordering accepts integers and floats. NaN is
 unequal to every value, including itself, and all ordered comparisons with it are
 false. These rules also apply to structural equality and membership. Floats cannot
