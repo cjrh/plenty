@@ -11,9 +11,9 @@ def main() -> Result[(), Failure]:
     commands.send("stop")?
     numbers.send(42)?
     match select_recv(control, data)?:
-        case Selected[str, i64].First(command):
+        case Selected.First(command):
             print(command)?
-        case Selected[str, i64].Second(number):
+        case Selected.Second(number):
             print(number)?
     print(data.recv()?)?
     Ok(())

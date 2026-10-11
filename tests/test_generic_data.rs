@@ -86,7 +86,7 @@ def key[K, V](pair: &Pair[K, V]) -> K:
     pair.key
 def unpack[T](choice: Choice[T]) -> T:
     match choice:
-        case Choice[T].Value(value):
+        case Choice.Value(value):
             value
 def same[T](left: &Pair[T, T], right: T) -> T:
     right
@@ -169,9 +169,9 @@ enum Envelope:
 def main() -> Result[(), Failure]:
     value = ByteChoice.Value(7)
     match value:
-        case Choice[u8].Empty:
+        case Choice.Empty:
             print(0)?
-        case Choice[u8].Value(n):
+        case Choice.Value(n):
             print(n)?
     nested = Envelope.Item(Choice[list[i64]].Value([2, 4]?))
     print(nested)?

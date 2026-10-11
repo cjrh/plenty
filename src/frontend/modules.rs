@@ -559,15 +559,10 @@ impl Scope {
                     self.expr(value, locals)?;
                     for case in cases {
                         let mut inner = locals.clone();
-                        if let Some((ty, _, bindings)) = &mut case.pattern {
-                            if let Some(ty) = ty {
-                                self.ty(ty)?;
-                            }
-                            if let Some(bindings) = bindings {
-                                self.fresh_capture_binding(bindings.iter(), &stmt.at)?;
-                                inner.extend(bindings.iter().cloned());
-                            }
-                        }
+                        case.pattern.qualifiers_mut(&mut |ty| self.ty(ty))?;
+                        let bindings = case.pattern.bindings();
+                        self.fresh_capture_binding(bindings.iter().copied(), &stmt.at)?;
+                        inner.extend(bindings.into_iter().cloned());
                         self.block(&mut case.body, &mut inner)?;
                     }
                 }

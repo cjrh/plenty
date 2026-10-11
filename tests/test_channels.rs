@@ -31,9 +31,9 @@ match sender.send_nowait([3].unwrap()):
         print("wrong").unwrap()
     case Err(error):
         match error:
-            case SendError[list[i64]].Full(value):
+            case SendError.Full(value):
                 print(value).unwrap()
-            case SendError[list[i64]].Disconnected(value):
+            case SendError.Disconnected(value):
                 print("wrong").unwrap()
 print(receiver.recv().unwrap()).unwrap()
 sender.send([4].unwrap()).unwrap()
@@ -213,9 +213,9 @@ def exercise[F: OnceCallable[[], i64]](first: F, second: F) -> i64:
             pass
         case Err(error):
             match error:
-                case SendError[F].Full(job):
+                case SendError.Full(job):
                     answer = job()
-                case SendError[F].Disconnected(job):
+                case SendError.Disconnected(job):
                     answer = job()
     job = receiver.recv().unwrap()
     drop(sender)

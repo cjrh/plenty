@@ -56,6 +56,43 @@ A final match produces the function's result; cases can also return early or
 break/continue a loop. Separately declared enums remain distinct types, even
 with identical variants.
 
+A payload position can hold another pattern instead of a name, so one case
+reaches into an enum stored inside an enum. `|` joins patterns that share an
+arm; every alternative must bind the same names:
+
+```plenty
+enum Shape:
+    Dot
+    Circle(i64)
+    Rect(i64, i64)
+
+enum Slot:
+    Empty
+    Full(Shape)
+
+def width(slot: Slot) -> i64:
+    match slot:
+        case Slot.Full(Shape.Circle(size) | Shape.Rect(size, _)):
+            size
+        case Slot.Full(Shape.Dot) | Slot.Empty:
+            0
+
+def main() -> Result[(), Failure]:
+    print(width(Slot.Full(Shape.Rect(3, 4))))?
+    print(width(Slot.Full(Shape.Circle(5))))?
+    print(width(Slot.Empty))?
+    Ok(())
+```
+
+```output
+3
+5
+0
+```
+
+Coverage is checked through the nested patterns: leaving out
+`Slot.Full(Shape.Dot)` is an error that names it.
+
 Payloads can contain strings, collections, and other enums. Matching an enum
 with mutable payloads consumes it and transfers those payloads; use
 `match copy(value)?` to preserve the owner.

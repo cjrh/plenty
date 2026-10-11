@@ -859,9 +859,8 @@ pub(super) fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) 
             Statement::Match { value, cases } => {
                 substitute_expr(value, substitutions)?;
                 for case in cases {
-                    if let Some((Some(t), _, _)) = &mut case.pattern {
-                        substitute(t, substitutions)?;
-                    }
+                    case.pattern
+                        .qualifiers_mut(&mut |t| substitute(t, substitutions))?;
                     substitute_block(&mut case.body, substitutions)?;
                 }
             }

@@ -25,6 +25,7 @@ mod foreign;
 mod generators;
 mod generics;
 mod modules;
+mod patterns;
 mod protocols;
 mod references;
 mod tail_calls;

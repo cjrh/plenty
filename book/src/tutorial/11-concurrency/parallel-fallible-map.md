@@ -16,14 +16,12 @@ def main() -> Result[(), Failure]:
         match pool.map_result(square, [3, -1, -2]?):
             case Ok(values):
                 print(values)?
-            case Err(error):
-                match error:
-                    case ParallelError[str].Worker(message):
-                        print(message)?
-                    case ParallelError[str].Allocation(error):
-                        print(error)?
-                    case ParallelError[str].Shutdown:
-                        print("pool is closed")?
+            case Err(ParallelError.Worker(message)):
+                print(message)?
+            case Err(ParallelError.Allocation(error)):
+                print(error)?
+            case Err(ParallelError.Shutdown):
+                print("pool is closed")?
     Ok(())
 ```
 

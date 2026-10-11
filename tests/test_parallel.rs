@@ -86,7 +86,7 @@ def main() -> Result[(), Failure]:
         match pool.map_result(work, range(8)):
             case Err(error):
                 match error:
-                    case ParallelError[i64].Worker(value):
+                    case ParallelError.Worker(value):
                         print(value)?
                     case _:
                         print(-1)?
@@ -163,7 +163,7 @@ def fail(n: i64) -> Result[i64, range[i64]]:
         Ok(n)
 def inspect[E](error: ParallelError[E]) -> E:
     match error:
-        case ParallelError[E].Worker(value):
+        case ParallelError.Worker(value):
             value
         case _:
             fail_unreachable()
@@ -212,7 +212,7 @@ def main() -> Result[(), Failure]:
         match pool.map_result(work, inputs):
             case Err(error):
                 match error:
-                    case ParallelError[Input].Worker(value):
+                    case ParallelError.Worker(value):
                         print(value.index)?
                     case _:
                         print(-1)?

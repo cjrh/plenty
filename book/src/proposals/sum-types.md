@@ -12,12 +12,14 @@
 > a collection. An owned `match` moves an affine scrutinee, and
 > [borrowed matching](../design/language/05-ownership/05-borrowed-matching.md)
 > exists. Scalar patterns are not exposed. Generic enums and `Variant.new(...)`
-> were added. The examples' module-scope statements are no longer accepted.
+> were added. Patterns nest, combine with `|`, and take no type arguments; see
+> [matching](../design/language/04-expressions/matching.md). The examples'
+> module-scope statements are no longer accepted.
 >
-> **Remaining:** qualifier shorthand in patterns (B15); jump-table dispatch
-> (B19); deep operations on recursive enums (B33). Guards, OR patterns, nested
-> patterns, enum methods, enums as dictionary keys or set elements, and `match`
-> as an expression are unscheduled.
+> **Remaining:** qualifier omission and literal patterns (B15); jump-table
+> dispatch (B19); deep operations on recursive enums (B33). Guards, enum
+> methods, enums as dictionary keys or set elements, and `match` as an
+> expression are unscheduled.
 
 ## Contract
 

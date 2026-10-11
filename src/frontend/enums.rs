@@ -10,8 +10,8 @@ pub(super) struct EnumDecl {
 }
 #[derive(Clone)]
 pub(super) struct Case {
-    at: Token,
-    pub(super) pattern: Option<(Option<TypeRef>, String, Option<Vec<String>>)>,
+    pub(super) at: Token,
+    pub(super) pattern: patterns::Pat,
     pub(super) body: Vec<Stmt>,
 }
 
@@ -66,59 +66,7 @@ impl Parser {
         let mut cases = Vec::new();
         while self.peek().is("case") {
             let at = self.take();
-            let pattern = if self.eat("_") {
-                None
-            } else {
-                let literal = match &self.peek().kind {
-                    Kind::Text(_) | Kind::Number(_) => true,
-                    Kind::Word(word) => word == "True" || word == "False",
-                    Kind::Symbol(sign) => {
-                        sign == "-"
-                            && self
-                                .tokens
-                                .get(self.pos + 1)
-                                .is_some_and(|t| matches!(t.kind, Kind::Number(_)))
-                    }
-                    _ => false,
-                };
-                if literal {
-                    return Err(self.peek().error(
-                        "literal patterns are not supported; `match` selects enum variants, so compare other values with an `if`/`elif` chain",
-                    ));
-                }
-                let mut ty = self.ty()?;
-                let (owner, variant) = if self.eat(".") {
-                    (Some(ty), self.name()?)
-                } else if ty.args.is_empty() && ty.name.as_ref().is_some_and(|n| n.contains('.')) {
-                    let name = ty.name.take().unwrap();
-                    let (owner, variant) = name.rsplit_once('.').unwrap();
-                    ty.name = Some(owner.into());
-                    (Some(ty), variant.into())
-                } else if ty.args.is_empty() && ty.name.as_deref().is_some_and(prelude_variant) {
-                    (None, ty.name.unwrap())
-                } else {
-                    return Err(at.error("qualify user-defined variants with their enum type"));
-                };
-                let bindings = if self.eat("(") {
-                    let mut bindings = Vec::new();
-                    while !self.eat(")") {
-                        if self.peek().is("mut") {
-                            return Err(self.peek().error(
-                                "payload bindings cannot be declared `mut`; bind the payload and move it into a mutable local in the arm, as in `mut local = payload`, or match `&mut value` to change it in place",
-                            ));
-                        }
-                        bindings.push(self.name()?);
-                        if self.eat(")") {
-                            break;
-                        }
-                        self.expect(",")?;
-                    }
-                    Some(bindings)
-                } else {
-                    None
-                };
-                Some((owner, variant, bindings))
-            };
+            let pattern = self.pattern(0)?;
             let body = self.suite()?;
             cases.push(Case { at, pattern, body });
         }
@@ -432,185 +380,8 @@ impl Lower<'_> {
         let source = self.slot(ty, &value.at)?;
         ops.push(Op::StoreLocal(source));
         self.finish_temporaries(temporary_start, ops);
-        ops.push(Op::LoadLocal(source));
-        if let Some((loan, mutable)) = borrowed {
-            ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
-            ops.push(Op::Enum(EnumOp::TagRef(t.clone(), mutable)));
-            ops.push(Op::UseLoan(loan));
-        } else {
-            ops.push(Op::Enum(EnumOp::Tag(t.clone())));
-        }
-        let saved = self.names.clone();
-        let mut covered = HashSet::new();
-        let mut wildcard = false;
-        let mut arms = Vec::new();
-        let mut joined: Option<Type> = None;
-        for case in cases {
-            // A case naming a variant the enum lacks reports that instead, so a
-            // patterned case is checked once its variant has resolved.
-            let exhausted = wildcard || covered.len() == t.get().variants.len();
-            if exhausted && case.pattern.is_none() {
-                return Err(case.at.error("unreachable case"));
-            }
-            self.names = saved.clone();
-            let case_start = self.locals.len();
-            let mut body = Vec::new();
-            let pattern = if let Some((owner, name, bindings)) = &case.pattern {
-                if let Some(owner) = owner {
-                    self.same(
-                        owner.resolve(self.aliases)?,
-                        Some(Ty::Enum(t.clone())),
-                        &owner.at,
-                    )?;
-                } else if !prelude_owner(name, &Ty::Enum(t.clone())) {
-                    return Err(case.at.error(format!(
-                        "`{name}` matches only {} values; qualify user-defined variants",
-                        prelude_family(name)
-                    )));
-                }
-                let tag = t
-                    .get()
-                    .variants
-                    .iter()
-                    .position(|v| &v.name == name)
-                    .ok_or_else(|| case.at.error(format!("unknown variant `{name}`")))?;
-                if exhausted {
-                    return Err(case.at.error("unreachable case"));
-                }
-                if !covered.insert(tag) {
-                    return Err(case.at.error("duplicate variant case"));
-                }
-                let fields = &t.get().variants[tag].fields;
-                if bindings.as_ref().map_or(0, Vec::len) != fields.len()
-                    || (fields.is_empty() && bindings.is_some())
-                {
-                    return Err(case.at.error(format!("case `{name}` requires {} payload bindings (no parentheses for nullary variants)", fields.len())));
-                }
-                let mut bound = HashSet::new();
-                // A consuming match moves every field of a multi-field variant
-                // out at once; unbound positions are dropped immediately.
-                let split = borrowed.is_none() && fields.len() > 1;
-                let mut split_slots = vec![None; fields.len()];
-                for (field, (name, ty)) in bindings
-                    .as_deref()
-                    .unwrap_or(&[])
-                    .iter()
-                    .zip(fields)
-                    .enumerate()
-                {
-                    if name == "_" {
-                        continue;
-                    }
-                    if !bound.insert(name) {
-                        return Err(case.at.error("duplicate payload binding"));
-                    }
-                    let binding_ty = if let Some((_, mutable)) = borrowed {
-                        Ty::Ref(Rc::new(ty.clone()), mutable)
-                    } else {
-                        ty.clone()
-                    };
-                    let slot = self.slot(binding_ty.clone(), &case.at)?;
-                    self.bind(
-                        name.clone(),
-                        Local {
-                            slot,
-                            ty: binding_ty,
-                            mutable: false,
-                        },
-                    );
-                    if let Some((parent, mutable)) = borrowed {
-                        let loan = self.new_loan(
-                            self.loans[parent].root,
-                            mutable,
-                            Some(parent),
-                            &mut body,
-                        );
-                        // A payload loan protects its enclosing variant from
-                        // replacement, while sibling fields remain disjoint.
-                        if self.loans[loan].precise {
-                            self.loans[loan].fields.push(field);
-                            if let Some(Op::Loan(fact)) = body.last_mut() {
-                                *fact = self.loans[loan].clone();
-                            }
-                        }
-                        self.reference_locals.insert(slot, loan);
-                        body.extend([
-                            Op::LoadLocal(source),
-                            Op::Enum(EnumOp::FieldRef(t.clone(), tag, field, mutable)),
-                            Op::StoreLocal(slot),
-                        ]);
-                    } else if split {
-                        split_slots[field] = Some(slot);
-                    } else {
-                        body.extend([
-                            Op::MoveLocal(source),
-                            Op::Enum(if ty.affine() {
-                                EnumOp::Take(t.clone(), tag, field)
-                            } else {
-                                EnumOp::Field(t.clone(), tag, field)
-                            }),
-                            Op::StoreLocal(slot),
-                        ]);
-                    }
-                }
-                if split {
-                    body.extend([Op::MoveLocal(source), Op::Split(t.clone(), tag)]);
-                    body.extend(
-                        split_slots
-                            .iter()
-                            .rev()
-                            .map(|slot| slot.map_or(Op::Drop, Op::StoreLocal)),
-                    );
-                }
-                Pattern::Int {
-                    value: Value::I64(tag as i64),
-                    explicit_ty: true,
-                }
-            } else {
-                wildcard = true;
-                Pattern::Wildcard
-            };
-            if let BlockResult::Continues(ty) = self.block(&case.body, &mut body, tail)? {
-                if !tail {
-                    self.cleanup(case_start, &mut body);
-                }
-                if let Some(expected) = &joined {
-                    self.same(ty.clone(), expected.clone(), &case.at)?;
-                } else {
-                    joined = Some(ty);
-                }
-            }
-            arms.push(MatchArm {
-                pattern,
-                body: body.into(),
-            });
-        }
-        self.names = saved;
-        if !wildcard && covered.len() != t.get().variants.len() {
-            let missing = t
-                .get()
-                .variants
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| !covered.contains(i))
-                .map(|(_, v)| format!("{}.{}", t.name, v.name))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(value
-                .at
-                .error(format!("non-exhaustive match; missing {missing}")));
-        }
-        if !wildcard {
-            arms.push(MatchArm {
-                pattern: Pattern::Wildcard,
-                body: vec![Op::Unreachable].into(),
-            });
-        }
-        ops.push(Op::Match(arms.into()));
-        if !tail && joined.is_some() {
-            ops.push(Op::DropLocal(source));
-        }
-        Ok(joined.map_or(BlockResult::Exits, BlockResult::Continues))
+        let subject = patterns::Subject { source, borrowed };
+        self.match_patterns(value, cases, &t, subject, tail, ops)
     }
 }
 
@@ -620,13 +391,13 @@ const NOT_AN_ENUM: &str =
 pub(super) fn prelude_variant(name: &str) -> bool {
     matches!(name, "Ok" | "Err" | "Some" | "Nothing")
 }
-fn prelude_family(name: &str) -> &'static str {
+pub(super) fn prelude_family(name: &str) -> &'static str {
     if matches!(name, "Some" | "Nothing") {
         "Option"
     } else {
         "Result"
     }
 }
-fn prelude_owner(name: &str, ty: &Ty) -> bool {
+pub(super) fn prelude_owner(name: &str, ty: &Ty) -> bool {
     matches!(ty, Ty::Enum(t) if t.name.starts_with(&format!("{}[", prelude_family(name))))
 }

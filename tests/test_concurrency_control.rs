@@ -116,9 +116,9 @@ match sender.send_timeout([2, 3].unwrap(), 1):
         print("wrong").unwrap()
     case Err(error):
         match error:
-            case SendTimeoutError[list[i64]].TimedOut(value):
+            case SendTimeoutError.TimedOut(value):
                 print(value).unwrap()
-            case SendTimeoutError[list[i64]].Disconnected(value):
+            case SendTimeoutError.Disconnected(value):
                 print("wrong").unwrap()
 print(receiver.recv_timeout(0).unwrap()).unwrap()
 sender.send_timeout([4].unwrap(), 0).unwrap()
@@ -156,11 +156,11 @@ fn selection_transfers_one_typed_message_and_ignores_a_drained_disconnected_peer
         r#"
 def describe(value: Selected[i64, str]) -> str:
     match value:
-        case Selected[i64, str].First(n):
+        case Selected.First(n):
             if n == 7:
                 return "number"
             "wrong"
-        case Selected[i64, str].Second(text):
+        case Selected.Second(text):
             text
 left, first = channel[i64](2).unwrap()
 right, second = channel[str](1).unwrap()
@@ -190,17 +190,17 @@ job = def once [right]() -> Result[(), Failure]:
     Ok(())
 with spawn(job).unwrap() as task:
     match select_recv_timeout(&first, &second, 10000).unwrap():
-        case Selected[range[i64], list[i64]].First(_):
+        case Selected.First(_):
             print("wrong").unwrap()
-        case Selected[range[i64], list[i64]].Second(values):
+        case Selected.Second(values):
             print(values).unwrap()
     task.join().unwrap()
 alias = first.share()
 left.send(range(10, 13)).unwrap()
 match select_recv(&first, &alias).unwrap():
-    case Selected[range[i64], range[i64]].First(values):
+    case Selected.First(values):
         print(values[2]).unwrap()
-    case Selected[range[i64], range[i64]].Second(_):
+    case Selected.Second(_):
         print("wrong").unwrap()
 print(str.repr(first.recv_nowait()).unwrap()).unwrap()
 "#,
@@ -215,9 +215,9 @@ fn cancellation_and_selection_have_no_per_operation_allocation() {
         r#"
 def selected_number(value: Selected[range[i64], i64]) -> i64:
     match value:
-        case Selected[range[i64], i64].First(values):
+        case Selected.First(values):
             values[2]
-        case Selected[range[i64], i64].Second(value):
+        case Selected.Second(value):
             value
 print("__test_fail_allocations_after_0__").unwrap()
 failed = CancellationToken()
@@ -259,15 +259,15 @@ def receive[A, B](first: &Receiver[A], second: &Receiver[B]) -> Result[Selected[
     select_recv_nowait(first, second)
 def which[A, B](value: Selected[A, B]) -> i64:
     match value:
-        case Selected[A, B].First(_):
+        case Selected.First(_):
             1
-        case Selected[A, B].Second(_):
+        case Selected.Second(_):
             2
 def recover[T](error: SendTimeoutError[T]) -> T:
     match error:
-        case SendTimeoutError[T].Disconnected(value):
+        case SendTimeoutError.Disconnected(value):
             value
-        case SendTimeoutError[T].TimedOut(value):
+        case SendTimeoutError.TimedOut(value):
             value
 left, first = channel[range[i64]](1).unwrap()
 right, second = channel[str](1).unwrap()

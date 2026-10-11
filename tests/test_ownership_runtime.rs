@@ -97,9 +97,9 @@ def main() -> ():
         for item in [Buffer([("first" + " data").unwrap()].unwrap()), Buffer([("second" + " data").unwrap()].unwrap())].unwrap():
             drop(item)
         match Option[Buffer].Some(Buffer([("matched" + " data").unwrap()].unwrap())):
-            case Option[Buffer].Some(value):
+            case Some(value):
                 drop(value)
-            case Option[Buffer].Nothing:
+            case Nothing:
                 pass
 "#,
     )

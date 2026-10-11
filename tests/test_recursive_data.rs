@@ -84,9 +84,9 @@ for n in range(1000):
 mut total = 0
 while True:
     match chain:
-        case Chain[i64].End:
+        case Chain.End:
             break
-        case Chain[i64].Link(value, rest):
+        case Chain.Link(value, rest):
             total = total + value
             chain = rest
 print(total).unwrap()

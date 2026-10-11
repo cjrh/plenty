@@ -19,8 +19,9 @@ unit, and resolved owned closures. References and generator-containing values
 cannot be user enum payloads. Standard `Option`/`Result` wrappers can contain
 generators, including through nested standard wrappers.
 
-Constructors and patterns can qualify variants with an enum name, transparent
-alias, or explicit generic instance. Public enums expose every variant.
+Constructors can qualify variants with an enum name, transparent alias, or
+explicit generic instance; patterns use the enum name or an alias and never
+type arguments. Public enums expose every variant.
 Enums with permitted element types can be list elements or dictionary values;
 they are not dictionary keys or set elements.
 

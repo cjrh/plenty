@@ -57,9 +57,9 @@ def run[F: OnceCallable[[], i64]](job: F) -> i64:
             value
         case Err(error):
             match error:
-                case SpawnError[F].Unavailable(job):
+                case SpawnError.Unavailable(job):
                     job()
-                case SpawnError[F].PermissionDenied(job):
+                case SpawnError.PermissionDenied(job):
                     job()
 n = 1
 job = def once [n]() -> i64:
@@ -88,7 +88,7 @@ def retry[F: OnceCallable[[], i64]](job: F) -> i64:
             value
         case Err(error):
             match error:
-                case SpawnError[F].Unavailable(job):
+                case SpawnError.Unavailable(job):
                     print("__test_restore_thread_starts__").unwrap()
                     attempt(job).unwrap()
 span = range(10, 20)

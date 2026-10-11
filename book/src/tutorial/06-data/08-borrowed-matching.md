@@ -39,13 +39,9 @@ its enclosing variants:
 def main() -> Result[(), Failure]:
     mut nested: Option[Result[i64, str]] = Some(Ok(4))
     match &mut nested:
-        case Some(result):
-            match result:
-                case Ok(number):
-                    *number = *number + 1
-                case Err(_):
-                    pass
-        case Nothing:
+        case Some(Ok(number)):
+            *number = *number + 1
+        case Some(Err(_)) | Nothing:
             pass
     print(nested)?
     Ok(())

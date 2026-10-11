@@ -10,13 +10,11 @@ def main() -> Result[(), Failure]:
     match sender.send_nowait([20, 30]?):
         case Ok(_):
             pass
-        case Err(error):
-            match error:
-                case SendError[list[i64]].Full(message):
-                    print(receiver.recv()?)?
-                    sender.send(message)?
-                case SendError[list[i64]].Disconnected(message):
-                    print(message)?
+        case Err(SendError.Full(message)):
+            print(receiver.recv()?)?
+            sender.send(message)?
+        case Err(SendError.Disconnected(message)):
+            print(message)?
     print(receiver.recv()?)?
     drop(sender)
     print(str.repr(receiver.recv())?)?

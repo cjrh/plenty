@@ -47,7 +47,7 @@ fn channel_message_types_preserve_module_visibility_and_generic_inference() {
 fn generic_data_imports_keep_methods_and_constructors_visible() {
     run(&[
         ("data.plenty", "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n"),
-        ("main.plenty", "import data\nfrom data import Cell as Crate\ndef main() -> Result[(), Failure]:\n    box = Crate(7u8)\n    print(data.read(&box))?\n    item = data.Choice[u8].Value(9)\n    match item:\n        case data.Choice[u8].Value(value):\n            print(value)?\n    Ok(())\n"),
+        ("main.plenty", "import data\nfrom data import Cell as Crate\ndef main() -> Result[(), Failure]:\n    box = Crate(7u8)\n    print(data.read(&box))?\n    item = data.Choice[u8].Value(9)\n    match item:\n        case data.Choice.Value(value):\n            print(value)?\n    Ok(())\n"),
     ], "main.plenty", "7\n9\n");
 }
 
@@ -87,9 +87,9 @@ fn recursive_enum_instances_keep_identity_through_import_aliases() {
 from forest import Tree as Expr
 def total(tree: Expr[i64]) -> i64:
     match tree:
-        case Expr[i64].Leaf(value):
+        case Expr.Leaf(value):
             value
-        case Expr[i64].Branch(left, right):
+        case Expr.Branch(left, right):
             total(*left) + total(*right)
 def main() -> Result[(), Failure]:
     tree = Expr[i64].Branch(Box(Expr[i64].Leaf(3))?, Box(Expr[i64].Leaf(7))?)
