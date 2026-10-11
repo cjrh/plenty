@@ -28,6 +28,7 @@ impl Parser {
             }
             self.expect(",")?;
         }
+        args.shrink_to_fit();
         Ok(args)
     }
 
@@ -1407,7 +1408,7 @@ impl Lower<'_> {
                         .generics
                         .functions
                         .get(function)
-                        .is_some_and(|f| generators::yields(&f.body))
+                        .is_some_and(|f| f.yields)
                 {
                     return self.call_named(function, args, &base.at, ops);
                 }

@@ -1,7 +1,8 @@
 //! Checked native tail transfers. Lifetime checking precedes this pass: the ABI
 //! describes representations, not whether a reference outlives the current frame.
-use crate::op::{CompiledFn, FnSig, Op, Ty};
+use crate::op::{CompiledFn, FnSig, MatchArm, Op, Ty};
 use cranelift_codegen::ir::{types, Type};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
@@ -115,7 +116,11 @@ pub(crate) fn classify(caller: &FnSig, callee: &FnSig) -> Result<TailCallPlan, T
 
 /// Make ordinary fallbacks explicit before native lowering. This runs after the
 /// original operation/loan check, so cleanup insertion cannot hide a loan use.
-pub(crate) fn prepare(ops: &[Op]) -> Vec<Op> {
+///
+/// Most bodies need no fallback. Those are shared with `ops`, not copied, and
+/// a program without any fallback is returned borrowed: a full copy of every
+/// body was a quarter of the compiler's peak memory (issue #54).
+pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
     fn collect(ops: &[Op], sigs: &mut HashMap<String, Rc<FnSig>>) {
         for op in ops {
             match op {
@@ -136,29 +141,58 @@ pub(crate) fn prepare(ops: &[Op]) -> Vec<Op> {
             }
         }
     }
-    fn body(ops: &[Op], caller: Option<&CompiledFn>, sigs: &HashMap<String, Rc<FnSig>>) -> Vec<Op> {
-        let mut result = Vec::new();
-        for op in ops {
-            let mut op = op.clone();
-            match &mut op {
-                Op::DefineFn(_, f) => {
-                    f.body = body(&f.body, Some(f), sigs).into();
-                }
+    /// The rewritten nested body, or the shared original when nothing changed.
+    fn shared(
+        nested: &Rc<[Op]>,
+        caller: Option<&CompiledFn>,
+        sigs: &HashMap<String, Rc<FnSig>>,
+        changed: &mut bool,
+    ) -> Rc<[Op]> {
+        match body(nested, caller, sigs) {
+            Some(rewritten) => {
+                *changed = true;
+                rewritten.into()
+            }
+            None => Rc::clone(nested),
+        }
+    }
+    /// `None` means that no operation in `ops` changes. The result starts as a
+    /// copy of the operations before the first change.
+    fn body(
+        ops: &[Op],
+        caller: Option<&CompiledFn>,
+        sigs: &HashMap<String, Rc<FnSig>>,
+    ) -> Option<Vec<Op>> {
+        let mut result: Option<Vec<Op>> = None;
+        for (index, op) in ops.iter().enumerate() {
+            let mut changed = false;
+            let nested = match op {
+                Op::DefineFn(name, f) => body(&f.body, Some(f), sigs).map(|rewritten| {
+                    let mut f = f.clone();
+                    f.body = rewritten.into();
+                    Op::DefineFn(name.clone(), f)
+                }),
                 Op::Match(arms) => {
-                    for arm in Rc::make_mut(arms) {
-                        arm.body = body(&arm.body, caller, sigs).into();
-                    }
+                    let rewritten: Rc<[MatchArm]> = arms
+                        .iter()
+                        .map(|arm| MatchArm {
+                            pattern: arm.pattern,
+                            body: shared(&arm.body, caller, sigs, &mut changed),
+                        })
+                        .collect();
+                    changed.then_some(Op::Match(rewritten))
                 }
                 Op::Loop {
                     condition,
                     body: nested,
                 } => {
-                    *condition = body(condition, caller, sigs).into();
-                    *nested = body(nested, caller, sigs).into();
+                    let condition = shared(condition, caller, sigs, &mut changed);
+                    let body = shared(nested, caller, sigs, &mut changed);
+                    changed.then_some(Op::Loop { condition, body })
                 }
-                _ => {}
-            }
-            let callee = match &op {
+                _ => None,
+            };
+            let callee = match op {
                 Op::TailCall(name) => sigs.get(name).cloned(),
                 Op::TailCallIndirect(sig) => Some(Rc::new(sig.function())),
                 _ => None,
@@ -167,10 +201,15 @@ pub(crate) fn prepare(ops: &[Op]) -> Vec<Op> {
                 // ABI compatibility alone cannot authorize removing a frame
                 // that an argument might borrow. Only the frontend's fact
                 // does: without it, a reference may point at a caller local.
-                let forwards = matches!(result.last(), Some(Op::ForwardsReferences));
+                let previous = match &result {
+                    Some(result) => result.last(),
+                    None => index.checked_sub(1).map(|previous| &ops[previous]),
+                };
+                let forwards = matches!(previous, Some(Op::ForwardsReferences));
                 let borrowed =
                     !forwards && callee.inputs.iter().any(|(_, ty)| ty.contains_reference());
                 if classify(&caller.sig, &callee).is_err() || borrowed {
+                    let result = result.get_or_insert_with(|| ops[..index].to_vec());
                     if !borrowed {
                         // Keep the fact next to its call, after the cleanup.
                         if forwards {
@@ -183,21 +222,28 @@ pub(crate) fn prepare(ops: &[Op]) -> Vec<Op> {
                         }
                     }
                     result.push(match op {
-                        Op::TailCall(name) => Op::Call(name),
-                        Op::TailCallIndirect(sig) => Op::CallIndirect(sig),
+                        Op::TailCall(name) => Op::Call(name.clone()),
+                        Op::TailCallIndirect(sig) => Op::CallIndirect(sig.clone()),
                         _ => unreachable!(),
                     });
                     result.push(Op::Return);
                     continue;
                 }
             }
-            result.push(op);
+            if let Some(op) = nested {
+                result.get_or_insert_with(|| ops[..index].to_vec()).push(op);
+            } else if let Some(result) = &mut result {
+                result.push(op.clone());
+            }
         }
         result
     }
     let mut sigs = HashMap::new();
     collect(ops, &mut sigs);
-    body(ops, None, &sigs)
+    match body(ops, None, &sigs) {
+        Some(rewritten) => Cow::Owned(rewritten),
+        None => Cow::Borrowed(ops),
+    }
 }
 
 #[cfg(test)]
@@ -342,5 +388,32 @@ mod tests {
         let forwards = body(&prepare(&unproven), "forwards");
         assert!(matches!(forwards[..], [.., Op::Call(_), Op::Return]));
         assert!(!forwards.iter().any(|op| matches!(op, Op::DropLocal(_))));
+    }
+
+    /// Copying every body here was a quarter of the compiler's peak memory
+    /// (issue #54).
+    #[test]
+    fn only_a_body_with_a_fallback_is_copied() {
+        let source = "def consume(r: range[i64]) -> i64:\n    len(r)\ndef fallback(r: range[i64]) -> i64:\n    consume(r)\ndef result(n: i64) -> range[i64]:\n    result(n)\ndef main() -> ():\n    pass\n";
+        let mut heap = crate::value::Heap::default();
+        let program = crate::frontend::compile(source, &mut heap).unwrap();
+        let body = |ops: &[Op], name: &str| {
+            ops.iter()
+                .find_map(|op| match op {
+                    Op::DefineFn(n, f) if n == name => Some(f.body.clone()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let prepared = prepare(&program.ops);
+        for (name, shared) in [("result", true), ("consume", true), ("fallback", false)] {
+            assert_eq!(
+                Rc::ptr_eq(&body(&prepared, name), &body(&program.ops, name)),
+                shared,
+                "{name}"
+            );
+        }
+        let program = crate::frontend::compile("def main() -> ():\n    pass\n", &mut heap).unwrap();
+        assert!(matches!(prepare(&program.ops), Cow::Borrowed(_)));
     }
 }

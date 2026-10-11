@@ -92,11 +92,8 @@ impl Lower<'_> {
         if !self.sigs.contains_key(&function.name) {
             register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
             self.generics
-                .functions
-                .insert(function.name.clone(), function.clone());
-            self.generics
                 .inherit_requirement(&self.function_name, &function.name);
-            self.generics.pending.push_back(function);
+            self.generics.declare(function);
         }
         self.closure_loans
             .insert(closure.name.clone(), loans.clone());

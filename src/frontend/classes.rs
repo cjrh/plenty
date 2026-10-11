@@ -12,6 +12,33 @@ pub(super) struct ClassDecl {
     pub(super) public_members: HashSet<String>,
 }
 
+impl ClassDecl {
+    /// The copy kept in the type tables. Only a generic class is instantiated
+    /// from it. A concrete class is resolved from its method headers, and its
+    /// methods are lowered from the declaration itself, so keeping the bodies
+    /// would hold a second copy of them for the whole compilation (issue #54).
+    pub(super) fn template(&self) -> Self {
+        if !self.type_params.is_empty() {
+            return self.clone();
+        }
+        Self {
+            at: self.at.clone(),
+            name: self.name.clone(),
+            type_params: Vec::new(),
+            fields: self.fields.clone(),
+            methods: self
+                .methods
+                .iter()
+                .map(|method| Function {
+                    body: Vec::new(),
+                    ..method.clone()
+                })
+                .collect(),
+            public_members: self.public_members.clone(),
+        }
+    }
+}
+
 impl Parser {
     pub(super) fn class_decl(&mut self) -> Result<ClassDecl> {
         let at = self.take();

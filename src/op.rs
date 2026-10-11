@@ -527,15 +527,15 @@ pub enum Op {
     Executor(crate::executor::ExecutorOp),
     ClosureNew(Rc<crate::closure::ClosureType>),
     ClosureCall(Rc<crate::closure::ClosureType>),
-    BoxedCallableNew(Ty, String, Rc<CallableSig>),
+    BoxedCallableNew(Box<Ty>, String, Rc<CallableSig>),
     BoxedCallableCall(Rc<CallableSig>),
     FunctionAddress(String, Rc<CallableSig>),
     CallIndirect(Rc<CallableSig>),
     TailCallIndirect(Rc<CallableSig>),
     /// Unwrap a standard sum or return its residual, releasing pending operands.
     Try {
-        source: crate::nominal::Nominal<crate::sum::EnumType>,
-        target: crate::nominal::Nominal<crate::sum::EnumType>,
+        source: Box<crate::nominal::Nominal<crate::sum::EnumType>>,
+        target: Box<crate::nominal::Nominal<crate::sum::EnumType>>,
         cleanup: Rc<[Op]>,
     },
     Class(crate::record::ClassOp),
@@ -626,7 +626,7 @@ pub enum Op {
     /// Define a function: bind `name` to an already-compiled body and docstring.
     ///
     /// This declaration emits a native function without affecting operand values.
-    DefineFn(String, CompiledFn),
+    DefineFn(String, Box<CompiledFn>),
     /// Invoke a user-defined function by name. Non-tail position.
     Call(String),
     ForeignCall {
@@ -890,7 +890,7 @@ impl Compiler<'_, '_> {
         mark_tail_calls(&mut body);
         Ok(Op::DefineFn(
             name,
-            CompiledFn {
+            Box::new(CompiledFn {
                 location: None,
                 origins: Rc::default(),
                 sig,
@@ -898,7 +898,7 @@ impl Compiler<'_, '_> {
                 generator: None,
                 body: body.into(),
                 locals: Rc::from([]),
-            },
+            }),
         ))
     }
 
@@ -1522,8 +1522,8 @@ fn step(
                     && !target.discards_error()
                     && source.get().variants[1].fields != target.get().variants[1].fields)
                 || yield_ty.is_some()
-                || returns != Some(&[Ty::Enum(target.clone())][..])
-                || stack.pop() != Some(Ty::Enum(source.clone()))
+                || returns != Some(&[Ty::Enum((**target).clone())][..])
+                || stack.pop() != Some(Ty::Enum((**source).clone()))
             {
                 return Err("invalid Result/Option propagation".into());
             }
@@ -1857,6 +1857,7 @@ fn step(
             if signature.inputs.len() >= 256 || matches!(signature.output, Some(Ty::Ref(..))) {
                 return Err("invalid boxed callable signature".into());
             }
+            let source: &Ty = source;
             let expected = match source {
                 Ty::Callable(sig) => sig.as_ref(),
                 Ty::Closure(t) if !t.once && !t.mutable && source.storage_barrier().is_none() => {
@@ -2330,5 +2331,13 @@ def main() -> ():
             &body[..],
             [.., Op::ForwardsReferences, Op::TailCall(_)]
         ));
+    }
+
+    /// Every lowered operation stays live until its function is emitted, so
+    /// the largest variant sets the size of all of them (issue #54). Box a
+    /// payload that would raise this bound.
+    #[test]
+    fn operations_stay_small() {
+        assert!(std::mem::size_of::<Op>() <= 96);
     }
 }

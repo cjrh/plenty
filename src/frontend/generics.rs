@@ -119,8 +119,7 @@ pub(super) fn prepare(
             )));
         }
         if f.type_params.is_empty() {
-            engine.functions.insert(f.name.clone(), f.clone());
-            engine.pending.push_back(f);
+            engine.declare(f);
         } else {
             if f.name == "main" {
                 return Err(f.at.error("main cannot have type parameters"));
@@ -137,8 +136,8 @@ pub(super) struct Engine {
     pub(super) methods: HashMap<String, (Vec<Ty>, Type)>,
     pub(super) templates: HashMap<String, Rc<Function>>,
     cache: HashMap<(String, Vec<Ty>), String>,
-    pub(super) pending: VecDeque<Function>,
-    pub(super) functions: HashMap<String, Function>,
+    pub(super) pending: VecDeque<Rc<Function>>,
+    pub(super) functions: HashMap<String, Declared>,
     pub(super) compiled: Vec<Op>,
     pub(super) tail_candidates: HashMap<String, Vec<tail_calls::Candidate>>,
     pub(super) active: HashSet<String>,
@@ -150,7 +149,47 @@ pub(super) struct Engine {
     pub(super) source_root: Option<std::path::PathBuf>,
 }
 
+/// What later calls need from a concrete function after it joined the queue.
+pub(super) struct Declared {
+    /// Whether `f.new(...)` builds a generator frame.
+    pub(super) yields: bool,
+    /// The declaration, shared with `pending`. A generator factory is lowered
+    /// ahead of the queue, or copied under a frame symbol, through this handle.
+    /// It is `None` once the function is lowered: its syntax tree is released
+    /// then, not at the end of the program (issue #54).
+    pub(super) function: Option<Rc<Function>>,
+}
+
 impl Engine {
+    /// Adds a concrete function to the table without queueing it.
+    pub(super) fn record(&mut self, f: &Rc<Function>) {
+        self.functions.insert(
+            f.name.clone(),
+            Declared {
+                yields: generators::yields(&f.body),
+                function: Some(Rc::clone(f)),
+            },
+        );
+    }
+
+    /// Adds a concrete function to the table and to the lowering queue.
+    pub(super) fn declare(&mut self, f: Function) {
+        let f = Rc::new(f);
+        self.record(&f);
+        self.pending.push_back(f);
+    }
+
+    /// Releases a lowered function's syntax tree. A function with a generator
+    /// parameter stays: each frame specialization copies its declaration.
+    pub(super) fn release(&mut self, name: &str, sig: &FnSig) {
+        if sig.inputs.iter().any(|(_, t)| t.unresolved_generator()) {
+            return;
+        }
+        if let Some(declared) = self.functions.get_mut(name) {
+            declared.function = None;
+        }
+    }
+
     /// `source` relative to the source root; unchanged without a root.
     pub(super) fn trap_file(&self, source: &Rc<str>) -> Rc<str> {
         self.source_root
@@ -461,7 +500,8 @@ impl Lower<'_> {
             let registered = register_signature(&f, self.aliases, self.sigs, self.returned_fields);
             self.aliases.data.attribute(outer);
             registered?;
-            self.generics.functions.insert(f.name.clone(), f.clone());
+            let f = Rc::new(f);
+            self.generics.record(&f);
             if !self.sigs[&f.name]
                 .inputs
                 .iter()
@@ -918,7 +958,7 @@ fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
                 substitute_expr(arg, substitutions)?;
             }
             if let Some(t) = substitutions.get(name) {
-                e.kind = Expression::Constructor(t.clone(), std::mem::take(args));
+                e.kind = Expression::Constructor(Box::new(t.clone()), std::mem::take(args));
             }
         }
         Expression::Type(t) => substitute(t, substitutions)?,
@@ -970,7 +1010,7 @@ fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
         }
         Expression::Name(n) => {
             if let Some(t) = substitutions.get(n) {
-                e.kind = Expression::Type(t.clone());
+                e.kind = Expression::Type(Box::new(t.clone()));
             }
         }
         Expression::Number(_)
@@ -1042,5 +1082,14 @@ mod tests {
             )
             .count();
         assert_eq!(instances, 1);
+    }
+
+    /// The whole syntax tree is live when lowering starts, and statements hold
+    /// their expressions inline (issue #54). Box a payload that would raise
+    /// these bounds.
+    #[test]
+    fn syntax_nodes_stay_small() {
+        assert!(std::mem::size_of::<Expr>() <= 144);
+        assert!(std::mem::size_of::<Stmt>() <= 424);
     }
 }

@@ -39,12 +39,15 @@ impl Lower<'_> {
                     "recursive generator factory cannot infer a finite concrete return layout",
                 ));
             }
-            let f = self
+            let declared = self
                 .generics
                 .functions
                 .get(name)
-                .cloned()
                 .ok_or_else(|| at.error("missing generator factory body"))?;
+            // A released declaration is already lowered.
+            let Some(f) = declared.function.clone() else {
+                return Ok(());
+            };
             lower_function(
                 f,
                 self.heap,
@@ -88,7 +91,12 @@ impl Lower<'_> {
                 "generator specialization limit of 256 exceeded; check for expanding recursion",
             ));
         }
-        let mut f = self.generics.functions[name].clone();
+        let mut f = Function::clone(
+            self.generics.functions[name]
+                .function
+                .as_ref()
+                .expect("a function with a generator parameter keeps its declaration"),
+        );
         let symbol = format!("__plenty_frame_call_{}", self.generics.frames.len());
         f.name = symbol.clone();
         for ((_, pattern), ty) in f.inputs.iter_mut().zip(&actual) {
@@ -96,9 +104,8 @@ impl Lower<'_> {
         }
         register_signature(&f, self.aliases, self.sigs, self.returned_fields)?;
         self.generics.frames.insert(key, symbol.clone());
-        self.generics.functions.insert(symbol.clone(), f.clone());
         self.generics.inherit_requirement(name, &symbol);
-        self.generics.pending.push_back(f);
+        self.generics.declare(f);
         self.ensure_concrete_output(&symbol, at)?;
         Ok(symbol)
     }

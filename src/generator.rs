@@ -406,7 +406,7 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 cleanup,
             } => {
                 validate_ops(cleanup)?;
-                vec![Ty::Enum(source.clone()), Ty::Enum(target.clone())]
+                vec![Ty::Enum((**source).clone()), Ty::Enum((**target).clone())]
             }
             Op::ReadRef(t)
             | Op::Reborrow(t)

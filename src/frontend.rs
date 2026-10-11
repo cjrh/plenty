@@ -769,7 +769,8 @@ enum Expression {
     Try(Box<Expr>),
     ClassNew(crate::nominal::Nominal<crate::record::ClassType>),
     ClassReady(crate::nominal::Nominal<crate::record::ClassType>, Box<Expr>),
-    Type(TypeRef),
+    // Boxed: a type reference inline would more than double every expression node.
+    Type(Box<TypeRef>),
     Member(Box<Expr>, String),
     Number(String),
     Text(String),
@@ -791,7 +792,7 @@ enum Expression {
         generic: Box<Expr>,
         index: Box<Expr>,
     },
-    Constructor(TypeRef, Vec<Expr>),
+    Constructor(Box<TypeRef>, Vec<Expr>),
     Unit,
     Group(Box<Expr>),
     Name(String),
@@ -979,6 +980,7 @@ impl Parser {
                 self.expect(",")?;
             }
         }
+        args.shrink_to_fit();
         Ok(args)
     }
     /// Reparses brackets already accepted as type arguments as `base[index]`.
@@ -1335,6 +1337,10 @@ impl Parser {
         if body.is_empty() {
             return Err(self.peek().error("empty block; use `pass`"));
         }
+        // A growing vector reserves at least four statements, which is over
+        // 2 KB for a one-line body. The whole tree is live when lowering
+        // starts, so the unused capacity counts against peak memory (issue #54).
+        body.shrink_to_fit();
         Ok(body)
     }
     fn conditional_statement(&mut self) -> Result<Stmt> {
@@ -1644,17 +1650,17 @@ impl Parser {
                 ) && self.peek().is("[")
                 {
                     self.pos -= 1;
-                    Expression::Type(self.ty()?)
+                    Expression::Type(Box::new(self.ty()?))
                 } else if matches!(s.as_str(), "list" | "dict" | "set" | "range" | "channel")
                     && self.peek().is("[")
                 {
                     self.pos -= 1;
                     let ty = self.ty()?;
                     if self.peek().is(".") {
-                        Expression::Type(ty)
+                        Expression::Type(Box::new(ty))
                     } else {
                         self.expect("(")?;
-                        Expression::Constructor(ty, self.arguments()?)
+                        Expression::Constructor(Box::new(ty), self.arguments()?)
                     }
                 } else if self.eat("(") {
                     Expression::Call(s.clone(), self.arguments()?)
@@ -2371,8 +2377,8 @@ impl Lower<'_> {
             self.cleanup(0, &mut cleanup);
         }
         ops.push(Op::Try {
-            source,
-            target,
+            source: Box::new(source),
+            target: Box::new(target),
             cleanup: cleanup.into(),
         });
         if payload == Ty::Unit {
@@ -2393,11 +2399,8 @@ impl Lower<'_> {
                 let name = function.name.clone();
                 register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
                 self.generics
-                    .functions
-                    .insert(name.clone(), function.clone());
-                self.generics
                     .inherit_requirement(&self.function_name, &name);
-                self.generics.pending.push_back(function);
+                self.generics.declare(function);
                 Some(self.function_value(&name, &e.at, ops)?)
             }
             Expression::GenericValue(name, types) => {
@@ -3682,7 +3685,7 @@ fn register_signature(
 /// at the use that first required the instance, with the body position in a
 /// note: see `ownership::Instantiation`.
 fn lower_function(
-    f: Function,
+    f: Rc<Function>,
     heap: &mut Heap,
     sigs: &mut HashMap<String, Rc<FnSig>>,
     generics: &mut generics::Engine,
@@ -3715,7 +3718,7 @@ fn lower_function(
 }
 
 fn lower_body(
-    f: Function,
+    f: Rc<Function>,
     heap: &mut Heap,
     sigs: &mut HashMap<String, Rc<FnSig>>,
     generics: &mut generics::Engine,
@@ -3743,9 +3746,10 @@ fn lower_body(
             .collect::<Vec<_>>();
         generics.active.remove(&f.name);
         generics.completed.insert(f.name.clone());
+        generics.release(&f.name, &sig);
         generics.compiled.push(Op::DefineFn(
-            f.name,
-            CompiledFn {
+            f.name.clone(),
+            Box::new(CompiledFn {
                 location: None,
                 origins: Rc::default(),
                 generator: None,
@@ -3753,7 +3757,7 @@ fn lower_body(
                 doc: "".into(),
                 body: body.into(),
                 locals: locals.into(),
-            },
+            }),
         ));
         return Ok(());
     }
@@ -3907,13 +3911,16 @@ fn lower_body(
         }),
         generator: yield_type,
         sig,
-        doc: f.doc.into(),
+        doc: f.doc.as_str().into(),
         body: body.into(),
         locals: lower.locals.into(),
     };
     generics.active.remove(&f.name);
     generics.completed.insert(f.name.clone());
-    generics.compiled.push(Op::DefineFn(f.name, compiled));
+    generics.release(&f.name, &compiled.sig);
+    generics
+        .compiled
+        .push(Op::DefineFn(f.name.clone(), Box::new(compiled)));
     Ok(())
 }
 
@@ -3948,7 +3955,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     for f in &generics.pending {
         register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;
     }
-    foreign::check_symbols(generics.pending.iter(), &sigs)?;
+    foreign::check_symbols(generics.pending.iter().map(Rc::as_ref), &sigs)?;
     let mut exports = Vec::new();
     let mut symbols = HashSet::new();
     let imported_symbols: HashSet<_> = generics

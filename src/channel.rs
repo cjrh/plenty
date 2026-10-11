@@ -9,7 +9,7 @@ pub enum ChannelOp {
     Recv(Ty, bool),
     SendTimeout(Ty),
     RecvTimeout(Ty),
-    Select(Ty, Ty, SelectMode),
+    Select(Box<Ty>, Box<Ty>, SelectMode),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,8 +50,8 @@ impl ChannelOp {
             ),
             Self::Select(first, second, mode) => {
                 let mut inputs = vec![
-                    Ty::Channel(Rc::new(first.clone()), false),
-                    Ty::Channel(Rc::new(second.clone()), false),
+                    Ty::Channel(Rc::new(Ty::clone(first)), false),
+                    Ty::Channel(Rc::new(Ty::clone(second)), false),
                 ];
                 if *mode == SelectMode::Timeout {
                     inputs.push(Ty::U64);
@@ -59,7 +59,7 @@ impl ChannelOp {
                 (
                     inputs,
                     crate::sum::result(
-                        crate::sum::selected(first.clone(), second.clone()),
+                        crate::sum::selected(Ty::clone(first), Ty::clone(second)),
                         crate::sum::select_error(),
                     ),
                 )

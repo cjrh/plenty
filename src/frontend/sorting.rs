@@ -110,7 +110,7 @@ impl Lower<'_> {
             self.sigs.insert(compare_name.clone(), sig.clone());
             self.generics.compiled.push(Op::DefineFn(
                 compare_name.clone(),
-                CompiledFn {
+                Box::new(CompiledFn {
                     location: None,
                     origins: Rc::default(),
                     generator: None,
@@ -124,7 +124,7 @@ impl Lower<'_> {
                         Op::Return,
                     ]
                     .into(),
-                },
+                }),
             ));
         }
         self.sorting_helper("__plenty_key_sort", KEY_SORT)?;
