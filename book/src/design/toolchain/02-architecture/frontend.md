@@ -39,7 +39,9 @@ whole-program alias analysis or per-call inspection of function bodies.
 Native lowering still consumes structured operations. Cranelift SSA variables
 represent slots; stores define variables and sealed joins reconcile paths.
 Source spans and marker operations carry diagnostic provenance without changing
-move or loan rules.
+move or loan rules. A generic instance also records the use that first required
+it, so that lowering and ownership errors in its body are
+[reported at that use](../../language/07-generics/index.md#diagnostics-from-instances).
 
 ## Embedding APIs
 

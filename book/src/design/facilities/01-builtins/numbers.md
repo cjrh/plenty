@@ -21,6 +21,16 @@ Float parsing accepts ASCII decimal/exponent forms and case-insensitive `inf`,
 width. Finite overflow returns `OutOfRange`; underflow may round to zero. Signed
 zero survives. Separators and hexadecimal forms are invalid.
 
+## Checked conversion
+
+`T.try_from(value) -> Result[T, ParseError]` is defined for every integer type
+`T` and takes one value of any integer type. It returns `Ok` with the same
+mathematical value when `T` can represent it and `Err(ParseError.OutOfRange)`
+otherwise, the error `T.parse` reports for a number outside `T`'s range. It
+never returns `ParseError.Invalid`, allocates nothing, and does not call the
+runtime. Float and non-numeric arguments are compile-time errors, as is
+`try_from` on a float type; float conversions use casts.
+
 ## Formatting
 
 `str.from(number_or_bool) -> Result[str, AllocError]` observes one scalar.

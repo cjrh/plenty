@@ -212,3 +212,53 @@ fn generic_enum_instances_remain_nominal_and_owned() {
         assert!(error.contains(expected), "{error}");
     }
 }
+
+#[test]
+fn class_instance_method_errors_are_reported_at_the_requiring_use() {
+    let cell = "class Cell[T]:
+    value: T
+    def get(self) -> T:
+        self.value
+";
+    let note = "\n  4:9: note: in instantiation `Cell[list[i64]]`: cannot move out of a field; \
+        use copy(value.field).unwrap(), &value.field (or &mut value.field), or \
+        replace(value.field, replacement) on a mutable owner";
+    // All methods of an instance are checked when the instance is first
+    // required, whether or not the failing one is called.
+    for (code, at) in [
+        ("def main() -> Result[(), Failure]:\n    a = Cell(1)\n    b = Cell([1, 2]?)\n    Ok(())\n", "8:9"),
+        ("def main() -> Result[(), Failure]:\n    b = Cell[list[i64]]([1, 2]?)\n    b.get()\n    Ok(())\n", "7:9"),
+        ("def size(cell: &Cell[list[i64]]) -> i64:\n    1\n\ndef main() -> ():\n    pass\n", "6:17"),
+    ] {
+        let error = plenty::check_source(&format!("{cell}\n{code}"))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            format!("{at}: cannot instantiate `Cell[list[i64]]`: its definition is rejected{note}")
+        );
+    }
+    // An instance required by another declaration is attributed to the use
+    // that required the outer one.
+    let error = plenty::check_source(&format!(
+        "{cell}
+class Pair[T]:
+    left: Cell[T]
+    right: Cell[T]
+
+def wrap[T](left: T, right: T) -> Pair[T]:
+    Pair(Cell(left), Cell(right))
+
+def main() -> Result[(), Failure]:
+    a = wrap(1, 2)
+    b = wrap([1]?, [2]?)
+    Ok(())
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert_eq!(
+        error,
+        format!("15:9: cannot instantiate `wrap[list[i64]]`: its definition is rejected{note}")
+    );
+}

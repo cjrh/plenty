@@ -1,5 +1,6 @@
 //! Cached monomorphization shared by explicit and inferred calls during lowering.
 use super::*;
+use crate::ownership::Instantiation;
 use std::collections::VecDeque;
 
 pub(super) fn callable_bound(bound: &TypeRef) -> bool {
@@ -96,6 +97,7 @@ pub(super) fn prepare(
         active: HashSet::new(),
         completed: HashSet::new(),
         frames: HashMap::new(),
+        required: HashMap::new(),
     };
     let mut names = HashSet::new();
     for f in functions {
@@ -131,6 +133,9 @@ pub(super) struct Engine {
     pub(super) active: HashSet<String>,
     pub(super) completed: HashSet<String>,
     pub(super) frames: HashMap<(String, Vec<Ty>), String>,
+    /// The use that first required each generic instance, by function symbol.
+    /// Functions of ordinary code have no entry.
+    pub(super) required: HashMap<String, Rc<Instantiation>>,
 }
 
 type Substitution = HashMap<String, TypeRef>;
@@ -407,7 +412,30 @@ impl Lower<'_> {
             self.generics
                 .instantiate(name, actual, at, self.aliases, self.access)?;
         if let Some(f) = function {
-            register_signature(&f, self.aliases, self.sigs, self.returned_fields)?;
+            let instance = self.generics.diagnostic_name(&symbol);
+            let instance: Rc<str> = crate::record::method_display(&instance).into();
+            let required = Rc::new(match self.generics.required.get(&self.function_name) {
+                Some(outer) => Instantiation {
+                    instance,
+                    ..(**outer).clone()
+                },
+                None => Instantiation {
+                    at: at.location().into(),
+                    requested: instance.clone(),
+                    instance,
+                },
+            });
+            self.generics
+                .required
+                .insert(symbol.clone(), required.clone());
+            // The signature can name data instances that only this instance uses.
+            let outer = self
+                .aliases
+                .data
+                .attribute_within(|| data::Requiring::Instance(required.clone()));
+            let registered = register_signature(&f, self.aliases, self.sigs, self.returned_fields);
+            self.aliases.data.attribute(outer);
+            registered?;
             self.generics.functions.insert(f.name.clone(), f.clone());
             if !self.sigs[&f.name]
                 .inputs
@@ -536,6 +564,14 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
 }
 
 impl Engine {
+    /// Code lifted out of `parent`, or copied from it, is checked on behalf of
+    /// the same use.
+    pub(super) fn inherit_requirement(&mut self, parent: &str, child: &str) {
+        if let Some(required) = self.required.get(parent).cloned() {
+            self.required.insert(child.into(), required);
+        }
+    }
+
     pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
         self.cache
             .iter()
@@ -662,6 +698,7 @@ impl Engine {
         name: &str,
         types: &[TypeRef],
         aliases: &TypeAliases,
+        at: &Token,
     ) -> Type {
         let template = self.templates.get(name)?;
         if types.len() != template.type_params.len() {
@@ -675,7 +712,14 @@ impl Engine {
             .collect();
         let mut output = template.output.clone();
         substitute(&mut output, &replacements).ok()?;
-        output.resolve(aliases).ok().flatten()
+        // The template's output is written at its declaration, but a data
+        // instance it names for these arguments is required by this use.
+        let outer = aliases
+            .data
+            .attribute_within(|| data::Requiring::Use(at.clone()));
+        let output = output.resolve(aliases).ok().flatten();
+        aliases.data.attribute(outer);
+        output
     }
 
     pub(super) fn instantiate(

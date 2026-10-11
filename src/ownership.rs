@@ -26,6 +26,47 @@ pub struct Origins {
     /// reused, so a name stays valid after its scope ends. Compiler
     /// temporaries have none.
     pub names: Vec<Option<Rc<str>>>,
+    /// Present when the function is a generic instance.
+    pub required: Option<Rc<Instantiation>>,
+}
+
+/// The use that first required a generic instance. A body is checked once per
+/// instance, so an error in it belongs to that use: the body may be imported
+/// code the reader never wrote. The body position becomes a note.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Instantiation {
+    /// `source:line:column` of the use in code that is not itself an instance.
+    pub at: Rc<str>,
+    /// The instance that use asked for.
+    pub requested: Rc<str>,
+    /// The instance whose body is checked. It differs from `requested` when a
+    /// generic body requires further instances; the links between are omitted
+    /// to keep the diagnostic at two locations.
+    pub instance: Rc<str>,
+}
+
+impl Instantiation {
+    /// Render a body diagnostic at the requiring use. `body` is the body
+    /// position including its `: ` separator, or empty when there is none.
+    pub fn report(&self, body: &str, message: &str) -> String {
+        format!(
+            "{}: cannot instantiate `{}`: its definition is rejected\n  \
+             {body}note: in instantiation `{}`: {message}",
+            self.at,
+            short(&self.requested),
+            short(&self.instance)
+        )
+    }
+}
+
+/// Expanding recursion nests type arguments up to the implementation limits.
+/// The start of such a name identifies it; the rest would bury the message.
+fn short(name: &str) -> std::borrow::Cow<'_, str> {
+    const LIMIT: usize = 96;
+    match name.char_indices().nth(LIMIT) {
+        Some((end, _)) => format!("{}...", &name[..end]).into(),
+        None => name.into(),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -55,6 +96,7 @@ pub struct Error {
     pub primary: Option<Site>,
     pub notes: Vec<(Site, String)>,
     pub source: Option<Rc<str>>,
+    pub required: Option<Rc<Instantiation>>,
 }
 
 impl Error {
@@ -70,9 +112,10 @@ impl Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(site) = self.primary {
-            f.write_str(&self.location(site))?;
-        }
+        let location = self
+            .primary
+            .map(|site| self.location(site))
+            .unwrap_or_default();
         let binding = match &self.place {
             Some(place) => format!("binding `{place}`"),
             None => "temporary value".into(),
@@ -81,22 +124,20 @@ impl fmt::Display for Error {
             Some(place) => format!("`{place}`"),
             None => "a temporary value".into(),
         };
-        match &self.kind {
-            Kind::Moved(true) => write!(f, "use of moved {binding}")?,
-            Kind::Moved(false) => write!(f, "use of possibly moved {binding}")?,
-            Kind::Unavailable => write!(f, "use of moved or uninitialized {binding}")?,
-            Kind::MovedInLoop => write!(
-                f,
+        let message = match &self.kind {
+            Kind::Moved(true) => format!("use of moved {binding}"),
+            Kind::Moved(false) => format!("use of possibly moved {binding}"),
+            Kind::Unavailable => format!("use of moved or uninitialized {binding}"),
+            Kind::MovedInLoop => format!(
                 "{place} is moved in a loop, so the next iteration would use a moved value; \
                  reinitialize it before continuing"
-            )?,
+            ),
             Kind::Conflict {
                 action,
                 through,
                 borrowed,
                 exclusive,
-            } => write!(
-                f,
+            } => format!(
                 "conflicting borrow: cannot {action} {place}{} while {} is {}borrowed",
                 through
                     .as_ref()
@@ -107,10 +148,14 @@ impl fmt::Display for Error {
                     None => "it".into(),
                 },
                 if *exclusive { "exclusively " } else { "" }
-            )?,
+            ),
             Kind::LiveAcrossYield => {
-                write!(f, "a borrow of {place} cannot remain live across yield")?
+                format!("a borrow of {place} cannot remain live across yield")
             }
+        };
+        match &self.required {
+            Some(required) => f.write_str(&required.report(&location, &message))?,
+            None => write!(f, "{location}{message}")?,
         }
         for (site, note) in &self.notes {
             write!(f, "\n  {}note: {note}", self.location(*site))?;
@@ -302,6 +347,7 @@ impl Checker<'_> {
             primary,
             notes: Vec::new(),
             source: self.origins.source.clone(),
+            required: self.origins.required.clone(),
         })
     }
 

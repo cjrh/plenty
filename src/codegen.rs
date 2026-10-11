@@ -1372,6 +1372,7 @@ impl Lowerer<'_, '_> {
                 let cast = self.cast(v, src, target.clone());
                 self.stack.push((cast, target.clone()));
             }
+            Op::TryCast(target) => self.lower_try_cast(target)?,
             Op::Display => self.lower_display()?,
             Op::Clear => self.release_stack(),
             Op::LoadLocal(i) => self.lower_load_local(*i)?,
