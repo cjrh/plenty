@@ -7,14 +7,11 @@ excluded. Wrap affine named arguments in an owned closure to form one recoverabl
 job. The [scoped-thread lifetime and join rules](threads.md) still apply.
 
 The start expression has result `Result[(), SpawnError[F]]`, where `F` is the
-concrete job type:
+concrete job type. Its one variant, `SpawnError[F].Unavailable(job)`, returns
+the complete unstarted job after any
+[native start failure](threads.md#start-failures).
 
-| Error | Owned value returned |
-| --- | --- |
-| `SpawnError[F].Unavailable(job)` | Complete unstarted job after resource/start failure |
-| `SpawnError[F].PermissionDenied(job)` | Complete unstarted job after native permission denial |
-
-These portable categories do not retain a native code. Returning, matching,
+The error does not retain the native code. Returning, matching,
 dropping, and retrying the error and job allocate nothing. Capture expressions
 have already run, but the worker has not. Erasing the error into `Failure`
 deliberately drops the recovered job.

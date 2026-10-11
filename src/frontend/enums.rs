@@ -424,7 +424,10 @@ impl Lower<'_> {
         let mut arms = Vec::new();
         let mut joined: Option<Type> = None;
         for case in cases {
-            if wildcard || covered.len() == t.get().variants.len() {
+            // A case naming a variant the enum lacks reports that instead, so a
+            // patterned case is checked once its variant has resolved.
+            let exhausted = wildcard || covered.len() == t.get().variants.len();
+            if exhausted && case.pattern.is_none() {
                 return Err(case.at.error("unreachable case"));
             }
             self.names = saved.clone();
@@ -449,6 +452,9 @@ impl Lower<'_> {
                     .iter()
                     .position(|v| &v.name == name)
                     .ok_or_else(|| case.at.error(format!("unknown variant `{name}`")))?;
+                if exhausted {
+                    return Err(case.at.error("unreachable case"));
+                }
                 if !covered.insert(tag) {
                     return Err(case.at.error("duplicate variant case"));
                 }
