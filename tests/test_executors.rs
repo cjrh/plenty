@@ -97,9 +97,9 @@ def full[F: OnceCallable[[], i64]](pool: &ThreadPoolExecutor, job: F) -> i64:
                     -3
 ready, started = channel[i64](1).unwrap()
 signal, gate = channel[i64](1).unwrap()
-with ThreadPoolExecutor(1, 1).unwrap() as pool:
+with ThreadPoolExecutor(1, 1).unwrap() as pool, started as inbox:
     running = pool.submit(block, ready, gate).unwrap()
-    started.recv().unwrap()
+    inbox.recv().unwrap()
     print(running.done()).unwrap()
     print(running.cancel()).unwrap()
     pending = pool.submit(value).unwrap()
@@ -308,24 +308,27 @@ def leave(sender: &Sender[i64], mode: i64) -> Result[(), Failure]:
         failed: Result[(), Failure] = Err(Failure.Unspecified)
         failed?
     Ok(())
+def count(receiver: Receiver[i64]) -> i64:
+    mut count = 0
+    while True:
+        match receiver.recv():
+            case Ok(_):
+                count = count + 1
+            case Err(_):
+                break
+    count
 sender, receiver = channel[i64](8).unwrap()
-leave(&sender, 0).unwrap()
-drop(leave(&sender, 1))
-for n in range(3):
-    with ThreadPoolExecutor(1, 1).unwrap() as pool:
-        pool.submit(work, Guard(sender.share())).unwrap()
-        if n == 0:
-            continue
-        break
-drop(sender)
-mut count = 0
-while True:
-    match receiver.recv():
-        case Ok(_):
-            count = count + 1
-        case Err(_):
+with spawn(count, receiver).unwrap() as counter:
+    leave(&sender, 0).unwrap()
+    drop(leave(&sender, 1))
+    for n in range(3):
+        with ThreadPoolExecutor(1, 1).unwrap() as pool:
+            pool.submit(work, Guard(sender.share())).unwrap()
+            if n == 0:
+                continue
             break
-print(count).unwrap()
+    drop(sender)
+    print(counter.join()).unwrap()
 "#,
         "4\n",
     );
@@ -369,5 +372,305 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
             &source,
             &format!("__test_fail_allocations_after_{budget}__\n__test_restore_allocations__\n"),
         );
+    }
+}
+
+/// A job that sends until the queue disconnects; `main` starts on line 8.
+const PRODUCE: &str = "def produce(sender: Sender[i64]) -> ():
+    for n in range(10000):
+        match sender.send(n):
+            case Ok(_):
+                pass
+            case Err(_):
+                return
+";
+
+/// The diagnostic for a shutdown that a surviving receiver could block forever.
+fn blocked_shutdown(body: &str) -> String {
+    let error = support::check_source(&format!("{PRODUCE}{body}"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("could block the job's send"), "{error}");
+    error
+}
+
+fn accepted(body: &str) {
+    support::check_source(&format!("{PRODUCE}{body}")).unwrap_or_else(|e| panic!("{body}\n{e}"));
+}
+
+#[test]
+fn receiver_outside_the_pool_block_cannot_reach_the_shutdown() {
+    // Issue #74: without the check this program hangs when the pool shuts down.
+    let error = blocked_shutdown(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(def once [sender]() -> (): produce(sender))?
+        print(receiver.recv()?)?
+    Ok(())
+",
+    );
+    assert_eq!(
+        error,
+        "10:5: leaving its scope shuts down this pool after a job that holds `Sender[i64]` was \
+         submitted, while `receiver` still holds `Receiver[i64]`: a full queue could block the \
+         job's send, and the shutdown, forever\n  \
+         9:5: note: `receiver` holds `Receiver[i64]`; drop it before the pool shuts down, or \
+         guard it directly after the pool: `with ThreadPoolExecutor(...)? as pool, receiver as \
+         inbox:`\n  \
+         11:30: note: the job is submitted here\n  \
+         12:15: note: `?` leaves the pool's scope here"
+    );
+}
+
+#[test]
+fn receiver_guard_order_decides_whether_it_outlives_the_shutdown() {
+    runs(
+        &format!(
+            "{PRODUCE}def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
+        future = pool.submit(produce, sender)?
+        print(inbox.recv()?)?
+    print(\"done\")?
+    Ok(())
+"
+        ),
+        "0\ndone\n",
+    );
+    // Contexts exit in reverse order: this guard outlives the pool.
+    let error = blocked_shutdown(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with receiver as inbox, ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        print(inbox.recv()?)?
+    Ok(())
+",
+    );
+    assert!(
+        error.contains("note: `receiver` holds `Receiver[i64]`"),
+        "{error}"
+    );
+    // A guard inside the pool's block ends before the pool does.
+    runs(
+        &format!(
+            "{PRODUCE}def main() -> Result[(), Failure]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        sender, receiver = channel[i64](1)?
+        with receiver as inbox:
+            future = pool.submit(produce, sender)?
+            print(inbox.recv()?)?
+    print(\"done\")?
+    Ok(())
+"
+        ),
+        "0\ndone\n",
+    );
+}
+
+#[test]
+fn every_way_a_pool_shuts_down_is_checked_for_surviving_receivers() {
+    // The end of a block names no exit.
+    let error = blocked_shutdown(
+        "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(produce, sender).unwrap()
+",
+    );
+    assert!(
+        error.starts_with("10:10: leaving its scope shuts down this pool"),
+        "{error}"
+    );
+    assert!(
+        !error.contains("leaves") && !error.contains("returns"),
+        "{error}"
+    );
+
+    // Locals are released last declared first, so this pool outlives nothing.
+    let error = blocked_shutdown(
+        "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    pool = ThreadPoolExecutor(1, 1).unwrap()
+    future = pool.submit(produce, sender).unwrap()
+",
+    );
+    assert!(
+        error.starts_with("10:5: leaving its scope shuts down this pool"),
+        "{error}"
+    );
+
+    for (exit, note) in [
+        ("return Ok(())", "14:17: note: the function returns here"),
+        ("break", "14:17: note: `break` leaves the pool's scope here"),
+        (
+            "continue",
+            "14:17: note: `continue` leaves the pool's scope here",
+        ),
+        ("print(n)?", "14:23: note: `?` leaves the pool's scope here"),
+    ] {
+        let error = blocked_shutdown(&format!(
+            "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    for n in range(2):
+        with ThreadPoolExecutor(1, 1)? as pool:
+            future = pool.submit(produce, sender.share())?
+            if n == 0:
+                {exit}
+    drop(receiver)
+    Ok(())
+"
+        ));
+        assert!(
+            error.starts_with("11:9: leaving its scope shuts down this pool"),
+            "{error}"
+        );
+        assert!(error.contains(note), "{error}");
+    }
+
+    for (shutdown, at) in [
+        ("pool.shutdown()", "13:5"),
+        ("pool.shutdown(True)", "13:5"),
+        ("drop(pool)", "13:10"),
+        ("pool = ThreadPoolExecutor(1, 1)?", "13:5"),
+    ] {
+        let error = blocked_shutdown(&format!(
+            "def main() -> Result[(), Failure]:
+    mut pool = ThreadPoolExecutor(1, 1)?
+    sender, receiver = channel[i64](1)?
+    future = pool.submit(produce, sender)?
+    print(receiver.recv()?)?
+    {shutdown}
+    drop(receiver)
+    Ok(())
+"
+        ));
+        assert_eq!(
+            error,
+            format!(
+                "{at}: this shuts down a pool after a job that holds `Sender[i64]` was \
+                 submitted, while `receiver` still holds `Receiver[i64]`: a full queue could \
+                 block the job's send, and the shutdown, forever\n  \
+                 10:5: note: `receiver` holds `Receiver[i64]`; drop it, or end its `with` \
+                 block, before shutting the pool down\n  \
+                 11:35: note: the job is submitted here"
+            )
+        );
+    }
+
+    // A temporary pool shuts down at the end of its statement.
+    let error = blocked_shutdown(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    future = ThreadPoolExecutor(1, 1)?.submit(produce, sender)?
+    print(receiver.recv()?)?
+    Ok(())
+",
+    );
+    assert!(
+        error.starts_with("10:5: leaving its scope shuts down this pool"),
+        "{error}"
+    );
+}
+
+#[test]
+fn shutdown_of_a_borrowed_pool_counts_receivers_the_caller_keeps() {
+    let error = blocked_shutdown(
+        "def run(pool: &ThreadPoolExecutor, inbox: &Receiver[i64], sender: Sender[i64]) -> Result[(), Failure]:
+    future = pool.submit(produce, sender)?
+    pool.shutdown()
+    Ok(())
+",
+    );
+    assert!(
+        error.contains(
+            "note: `inbox` holds `Receiver[i64]`; its owner outlives this call, so take the \
+             receiver by value"
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_job_submitted_in_one_iteration_is_seen_by_a_shutdown_in_the_next() {
+    let error = blocked_shutdown(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    mut pool = ThreadPoolExecutor(1, 1)?
+    for n in range(3):
+        pool.shutdown()
+        pool = ThreadPoolExecutor(1, 1)?
+        future = pool.submit(produce, sender.share())?
+    drop(receiver)
+    Ok(())
+",
+    );
+    assert!(error.starts_with("12:9: this shuts down a pool"), "{error}");
+    assert!(
+        error.contains("14:39: note: the job is submitted here"),
+        "{error}"
+    );
+}
+
+#[test]
+fn shutdowns_without_a_matching_live_receiver_are_accepted() {
+    for body in [
+        // The pool is declared first, so the receiver is released before it.
+        "def main() -> Result[(), Failure]:
+    pool = ThreadPoolExecutor(1, 1)?
+    sender, receiver = channel[i64](1)?
+    future = pool.submit(produce, sender)?
+    print(receiver.recv()?)?
+    Ok(())
+",
+        // The receiver is dropped on every path that reaches the shutdown.
+        "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(produce, sender).unwrap()
+        drop(receiver)
+",
+        // A `submit(...)?` that fails has not moved its job into the pool.
+        "def main() -> Result[(), Failure]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        sender, receiver = channel[i64](1)?
+        future = pool.submit(produce, sender)?
+        drop(receiver)
+    Ok(())
+",
+        // The job is submitted after the earlier pool has shut down.
+        "def one() -> i64:
+    1
+def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as setup:
+        ready = setup.submit(one)?
+    with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
+        future = pool.submit(produce, sender)?
+    Ok(())
+",
+        // The live receiver carries a different message type.
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    texts, lines = channel[str](1)?
+    with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
+        future = pool.submit(produce, sender)?
+    drop(texts)
+    Ok(())
+",
+        // The job holds the receiver and the parent the sender.
+        "def consume(inbox: Receiver[i64]) -> ():
+    pass
+def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(consume, receiver)?
+        pool.shutdown()
+    drop(sender)
+    Ok(())
+",
+    ] {
+        accepted(body);
     }
 }

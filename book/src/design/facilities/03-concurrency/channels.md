@@ -88,6 +88,9 @@ The diagnostic reports the join or the `with` statement, each binding that holds
 a matching receiver, the early exit that reaches the join, and, for an explicit
 join, where the task starts.
 
+Pool shutdown waits for submitted jobs the same way and follows the same rule.
+See [shutdown and live receivers](executors.md#shutdown-and-live-receivers).
+
 ### What the rule does not decide
 
 Endpoints are matched by message type, not by queue, and the compiler does not
@@ -104,7 +107,6 @@ count messages. These safe programs are rejected:
 The rule is not a deadlock-freedom guarantee. It does not cover:
 
 - a worker waiting to *receive* while the joining function keeps a sender;
-- executor jobs, whose pool shutdown waits the same way;
 - a receiver captured by a `Callable` or boxed callable held by the joining
   function, whose captures have no type;
 - receivers held by the function's callers through bindings it was not passed;

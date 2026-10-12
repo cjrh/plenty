@@ -13,9 +13,9 @@ def work(stop: CancellationToken, ready: Sender[i64]) -> i64:
 def main() -> Result[(), Failure]:
     stop = CancellationToken()?
     ready, started = channel[i64](1)?
-    with ThreadPoolExecutor(1, 1)? as pool:
+    with ThreadPoolExecutor(1, 1)? as pool, started as inbox:
         future = pool.submit(work, stop.share(), ready)?
-        started.recv()?
+        inbox.recv()?
         stop.cancel()
         print(future.result()?)?
     print(stop.is_cancelled())?
@@ -26,6 +26,31 @@ def main() -> Result[(), Failure]:
 42
 True
 ```
+
+`started` is guarded directly after the pool, so it drops before the pool shuts
+down. Shutdown waits for submitted jobs, and a job waiting to send is released
+only when the last receiver drops. Plenty rejects a shutdown reached while a
+receiver for a submitted job's sender is still alive:
+
+```plenty-error
+def report(ready: Sender[i64]) -> ():
+    ready.send(1).unwrap()
+
+def main() -> Result[(), Failure]:
+    ready, started = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(report, ready)?
+        started.recv()?
+    Ok(())
+```
+
+```error
+leaving its scope shuts down this pool after a job that holds `Sender[i64]` was submitted, while `started` still holds `Receiver[i64]`
+```
+
+As with [task joins](channels-and-shutdown.md), the compiler compares message
+types rather than counting messages, so it asks for the guard even though this
+job's one send always fits the queue.
 
 Check `stop.is_cancelled()` between work units and return an appropriate result.
 Cancellation does not interrupt instructions or skip cleanup.
