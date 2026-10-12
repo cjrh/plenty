@@ -133,6 +133,8 @@ impl Lower<'_> {
                 .error("thread task exceeds native stack-layout limit"));
         }
         let slot = self.slot(Ty::Task(task.clone()), &call.at)?;
+        // The start, and a failed start's exit, belong to the call, not its last argument.
+        self.mark(&call.at, ops);
         ops.push(Op::Thread(ThreadOp::Start(task.clone(), slot)));
         let Ty::Enum(source) = task.start_result() else {
             unreachable!()
@@ -159,7 +161,6 @@ impl Lower<'_> {
                 cleanup: cleanup.into(),
             });
         } else {
-            self.mark(&call.at, ops);
             ops.push(Op::Enum(crate::sum::EnumOp::Unwrap(source)));
         }
         ops.push(Op::Drop);

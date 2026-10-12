@@ -36,17 +36,82 @@ Endpoints are owned context managers. `with receiver as inbox:` moves the handle
 into the scope, lends `&Receiver[T]`, and drops that owner on every normal exit.
 Other shared handles remain independent owners.
 
-For a producer whose output might only be partly consumed, place the receiver
-guard after its task manager:
+Workers must handle disconnection and terminate.
+
+## Joins and live receivers
+
+A worker waiting for queue space is released only by a receive or by the drop of
+the last receiver. A join that waits for such a worker while the joining
+function keeps a receiver alive, and does not receive, never returns. The
+compiler therefore rejects a join that could wait this way:
+
+> A scoped task whose worker can hold `Sender[T]` cannot be joined while a live
+> binding of the joining function can hold `Receiver[T]`.
+
+The rule applies to `task.join()` and to the automatic join on every exit from
+the task's `with` block: its end, `return`, `?`, `break`, `continue`, and the
+failed start of a later task in the same statement. A task that `task.join()`
+has consumed on every path is not joined again at exit.
+
+A worker *can hold* a sender that is an argument or capture, a field or element
+of one, behind a reference, or a message of a channel it holds. A binding
+*can hold* a receiver the same way, except that a local reference is ignored
+because its owner is checked instead. A `&Receiver[T]` parameter, or a parameter
+that refers to a value holding one, always counts: its owner outlives the call.
+
+Place the receiver guard directly after the task manager. Contexts exit in
+reverse order, so every exit drops the receiver before joining the producer:
 
 ```text
-with spawn(producer)? as task, receiver as inbox:
+with spawn(producer)?, receiver as inbox:
     ...
 ```
 
-Exit then disconnects the receiver before joining the producer. Otherwise drain
-its output or explicitly drop the last receiver before joining. Workers must
-handle disconnection and terminate.
+To claim the producer's result, end the guard before joining:
+
+```text
+with spawn(producer)? as task:
+    with receiver as inbox:
+        ...
+    result = task.join()
+```
+
+`drop(receiver)` before the join also satisfies the rule, but only on paths that
+reach it: an earlier `?` in the block still leaves with the receiver alive.
+Moving the receiver into another worker or function likewise ends the binding.
+Several producers that start with `?` cannot share one guard in the same
+statement, because a failed later start joins the earlier ones before the guard
+exists. Give the receiver to a consuming worker, or start the later producers in
+a function that takes the receiver by value.
+
+The diagnostic reports the join or the `with` statement, each binding that holds
+a matching receiver, the early exit that reaches the join, and, for an explicit
+join, where the task starts.
+
+### What the rule does not decide
+
+Endpoints are matched by message type, not by queue, and the compiler does not
+count messages. These safe programs are rejected:
+
+- the parent receives everything the worker sends, or drains to disconnection,
+  through a receiver that is still alive at the join;
+- the live receiver belongs to a different queue of the same message type;
+- the worker sends only with `send_nowait` or `send_timeout`, or its sends
+  always fit the queue's capacity;
+- another thread also receives from the queue;
+- the receiver's caller-side owner would have received.
+
+The rule is not a deadlock-freedom guarantee. It does not cover:
+
+- a worker waiting to *receive* while the joining function keeps a sender;
+- executor jobs, whose pool shutdown waits the same way;
+- a receiver captured by a `Callable` or boxed callable held by the joining
+  function, whose captures have no type;
+- receivers held by the function's callers through bindings it was not passed;
+- a worker blocked for any other reason.
+
+Dropping or guarding the receiver removes the rejection without changing what
+the program sends.
 
 ## Messages
 

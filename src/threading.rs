@@ -187,26 +187,60 @@ fn receiver_cycle(message: &Ty, receiver: &Ty) -> bool {
         if &ty == receiver {
             return true;
         }
-        if !seen.insert(ty.clone()) {
-            continue;
-        }
-        match ty {
-            Ty::Channel(t, _) | Ty::List(t) | Ty::Set(t) | Ty::Ref(t, _) | Ty::Box(t) => {
-                pending.push((*t).clone())
-            }
-            Ty::Dict(k, v) => pending.extend([(*k).clone(), (*v).clone()]),
-            Ty::Class(t) => pending.extend(t.get().fields.iter().map(|(_, t)| t.clone())),
-            Ty::Enum(t) => pending.extend(
-                t.get()
-                    .variants
-                    .iter()
-                    .flat_map(|v| v.fields.iter().cloned()),
-            ),
-            Ty::Closure(t) => pending.extend(t.captures.iter().map(|(_, t)| t.clone())),
-            _ => {}
+        if seen.insert(ty.clone()) {
+            contained(&ty, &mut pending);
         }
     }
     false
+}
+
+/// The types a value of `ty` stores, queues, captures, or refers to.
+fn contained(ty: &Ty, pending: &mut Vec<Ty>) {
+    match ty {
+        Ty::Channel(t, _)
+        | Ty::Future(t)
+        | Ty::List(t)
+        | Ty::Set(t)
+        | Ty::Ref(t, _)
+        | Ty::Box(t) => pending.push((**t).clone()),
+        Ty::Dict(k, v) => pending.extend([(**k).clone(), (**v).clone()]),
+        Ty::Class(t) => pending.extend(t.get().fields.iter().map(|(_, t)| t.clone())),
+        Ty::Enum(t) => pending.extend(
+            t.get()
+                .variants
+                .iter()
+                .flat_map(|v| v.fields.iter().cloned()),
+        ),
+        Ty::Closure(t) => pending.extend(t.captures.iter().map(|(_, t)| t.clone())),
+        Ty::Generator(t) => pending.extend(t.slots.get().into_iter().flatten().cloned()),
+        _ => {}
+    }
+}
+
+/// Message types of the senders (or receivers) that a value of one of `roots`
+/// can hold: directly, in aggregates, captures, and queued messages, and behind
+/// references when `borrowed`. This bounds capabilities by type. It does not
+/// identify queues, and it cannot see into an erased callable.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "nominal identities exclude definition cells"
+)]
+pub fn endpoints(roots: impl IntoIterator<Item = Ty>, sender: bool, borrowed: bool) -> Vec<Ty> {
+    let mut pending: Vec<_> = roots.into_iter().collect();
+    let mut seen = HashSet::new();
+    let mut found = Vec::new();
+    while let Some(ty) = pending.pop() {
+        if matches!(ty, Ty::Ref(..)) && !borrowed || !seen.insert(ty.clone()) {
+            continue;
+        }
+        if let Ty::Channel(message, side) = &ty {
+            if *side == sender && !found.contains(&**message) {
+                found.push((**message).clone());
+            }
+        }
+        contained(&ty, &mut pending);
+    }
+    found
 }
 
 fn inspect(

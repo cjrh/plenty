@@ -2202,12 +2202,16 @@ fn site(at: &Token, scope_end: bool) -> crate::ownership::Site {
 
 impl Lower<'_> {
     fn bind(&mut self, name: String, local: Local) -> Option<Local> {
-        let slot = local.slot as usize;
+        self.name_slot(local.slot, &name);
+        self.names.insert(name, local)
+    }
+    /// Give a slot the source name that ownership diagnostics report for it.
+    fn name_slot(&mut self, slot: u8, name: &str) {
+        let slot = slot as usize;
         if self.slot_names.len() <= slot {
             self.slot_names.resize(slot + 1, None);
         }
-        self.slot_names[slot] = Some(name.as_str().into());
-        self.names.insert(name, local)
+        self.slot_names[slot] = Some(name.into());
     }
     /// Attribute the operations that follow to `at` in ownership diagnostics.
     /// Markers go before an expression's operations, never after them: several

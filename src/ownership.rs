@@ -1,5 +1,6 @@
 //! Definite ownership and last-use loans over an explicit access control-flow graph.
 use crate::op::{Op, Ty};
+use crate::threading::{endpoints, Task, ThreadOp};
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 use std::rc::Rc;
@@ -87,6 +88,13 @@ pub enum Kind {
         exclusive: bool,
     },
     LiveAcrossYield,
+    /// A join that a worker waiting to send could keep waiting forever.
+    BlockedJoin {
+        /// Message type of the worker's sender and the surviving receiver.
+        message: String,
+        /// The join belongs to a `with` block exit, not an explicit `join()`.
+        automatic: bool,
+    },
 }
 
 /// A rejected operation, the place it touches, and the related source sites.
@@ -155,6 +163,20 @@ impl fmt::Display for Error {
             Kind::LiveAcrossYield => {
                 format!("a borrow of {place} cannot remain live across yield")
             }
+            Kind::BlockedJoin { message, automatic } => format!(
+                "{} a task whose worker holds `Sender[{message}]` while {} still holds \
+                 `Receiver[{message}]`: a full queue could block the worker's send, and \
+                 this join, forever",
+                if *automatic {
+                    "leaving this `with` block joins"
+                } else {
+                    "this join waits for"
+                },
+                match &self.place {
+                    Some(place) => format!("`{place}`"),
+                    None => "an unnamed value".into(),
+                }
+            ),
         };
         match &self.required {
             Some(required) => f.write_str(&required.report(&location, &message))?,
@@ -209,12 +231,19 @@ struct Loop {
 }
 
 struct Checker<'a> {
+    body: &'a [Op],
     locals: &'a [Ty],
+    parameters: usize,
     origins: &'a Origins,
 }
 
 pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) -> Result<()> {
-    let checker = Checker { locals, origins };
+    let checker = Checker {
+        body: ops,
+        locals,
+        parameters,
+        origins,
+    };
     let mut state = (0..locals.len())
         .map(|i| {
             if i < parameters {
@@ -251,6 +280,40 @@ fn merge(states: &[State], into: &mut State) {
             })
             .unwrap_or(Slot::Unset);
     }
+}
+
+/// The statement whose inline cleanup `rest` continues, when it leaves the
+/// block early. Cleanup at the end of a block is followed by other source or
+/// by nothing.
+fn early_exit(rest: &[Op], written: Option<Site>) -> Option<&'static str> {
+    let moved_on = rest
+        .iter()
+        .any(|op| matches!(op, Op::Site(site) if !site.scope_end && Some(*site) != written));
+    match rest.last() {
+        _ if moved_on => None,
+        Some(Op::Return) => Some("`return`"),
+        Some(Op::Break) => Some("`break`"),
+        Some(Op::Continue) => Some("`continue`"),
+        _ => None,
+    }
+}
+
+/// Name the early exit that reaches a rejected automatic join. The join is
+/// reported at its `with` statement, which need not be near the exit.
+fn leaving(mut error: Box<Error>, at: Option<Site>, exit: Option<&str>) -> Box<Error> {
+    let automatic = matches!(
+        error.kind,
+        Kind::BlockedJoin {
+            automatic: true,
+            ..
+        }
+    );
+    if let (true, Some(at), Some(exit)) = (automatic, at, exit) {
+        error
+            .notes
+            .push((at, format!("{exit} leaves the block here")));
+    }
+    error
 }
 
 /// The marker in force once `ops` have run, which a body following them
@@ -459,6 +522,102 @@ impl Checker<'_> {
         }
     }
 
+    /// Where a slot first receives its value. Computed only to render a note.
+    fn bound(&self, slot: usize) -> Option<Site> {
+        let mut nodes = vec![Node::default()];
+        graph(self.body, None, 0, None, &mut nodes);
+        nodes
+            .iter()
+            .filter(|node| match &node.op {
+                Some(Op::StoreLocal(i) | Op::Thread(ThreadOp::Start(_, i))) => *i as usize == slot,
+                _ => false,
+            })
+            .filter_map(|node| node.site)
+            .min_by_key(|site| (site.line, site.column))
+    }
+
+    /// A worker waiting for queue space is released only when the last
+    /// receiver drops. Reject a join reached while this function still keeps
+    /// one alive for a message type the worker can send. Endpoints are matched
+    /// by type, so this neither identifies queues nor proves a join completes.
+    fn join(&self, task: &Task, state: &State, site: Option<Site>, automatic: bool) -> Result<()> {
+        let sends = endpoints(task.inputs.iter().cloned(), true, true);
+        if sends.is_empty() {
+            return Ok(());
+        }
+        let mut error: Option<Box<Error>> = None;
+        for (slot, owned) in state.iter().enumerate() {
+            let partly = match owned {
+                Slot::Owned => false,
+                Slot::Moved {
+                    definite: false, ..
+                } => true,
+                _ => continue,
+            };
+            // A borrowed parameter's owner is alive for the whole call.
+            let parameter = slot < self.parameters;
+            let Some(message) = endpoints([self.locals[slot].clone()], false, parameter)
+                .into_iter()
+                .find(|message| sends.contains(message))
+            else {
+                continue;
+            };
+            let place = self.place(slot as u8, &[], false);
+            let name = match &place {
+                Some(place) => format!("`{place}`"),
+                None => "this value".into(),
+            };
+            let at = self.bound(slot);
+            let first = error.is_none();
+            let error = error.get_or_insert_with(|| {
+                self.error(
+                    Kind::BlockedJoin {
+                        message: message.to_string(),
+                        automatic,
+                    },
+                    place.clone(),
+                    site,
+                )
+            });
+            let holds = format!(
+                "{name} {}holds `Receiver[{message}]`{}",
+                if first { "" } else { "also " },
+                if partly { " on some paths" } else { "" }
+            );
+            let advice = if matches!(self.locals[slot], Ty::Ref(..)) {
+                "its owner outlives this call, so take the receiver by value".into()
+            } else if !automatic {
+                "drop it, or end its `with` block, before joining".to_owned()
+            } else {
+                match &place {
+                    Some(place) => format!(
+                        "drop it before leaving the block, or guard it directly after the \
+                         task: `with spawn(...)?, {place} as inbox:`"
+                    ),
+                    None => "end its scope before leaving the block".into(),
+                }
+            };
+            if let Some(at) = at.or(site) {
+                error.notes.push((at, format!("{holds}; {advice}")));
+            }
+        }
+        let Some(mut error) = error else {
+            return Ok(());
+        };
+        // An automatic join is reported at the `with` statement that starts the task.
+        if !automatic {
+            let started = self
+                .locals
+                .iter()
+                .position(|ty| matches!(ty, Ty::Task(other) if **other == *task))
+                .and_then(|slot| self.bound(slot));
+            if let Some(at) = started {
+                error.notes.push((at, "the task starts here".into()));
+            }
+        }
+        Err(error)
+    }
+
     fn backedge(&self, state: &State, entry: &State, site: Option<Site>) -> Result<()> {
         for (i, slot) in state.iter().enumerate() {
             if entry[i] == Slot::Owned && *slot != Slot::Owned {
@@ -483,17 +642,30 @@ impl Checker<'_> {
         loops: &mut Vec<Loop>,
         mut site: Option<Site>,
     ) -> Result<bool> {
-        for op in ops {
+        // The last position the programmer wrote, as opposed to a scope end.
+        let mut written = site.filter(|site| !site.scope_end);
+        for (index, op) in ops.iter().enumerate() {
             match op {
-                Op::Site(at) => site = Some(*at),
-                Op::Thread(crate::threading::ThreadOp::Start(_, slot)) => {
-                    state[*slot as usize] = Slot::Owned
+                Op::Site(at) => {
+                    site = Some(*at);
+                    if !at.scope_end {
+                        written = site;
+                    }
                 }
-                Op::Thread(crate::threading::ThreadOp::Finish(_, slot)) => {
+                Op::Thread(ThreadOp::Start(_, slot)) => state[*slot as usize] = Slot::Owned,
+                Op::Thread(ThreadOp::Join(task)) => self.join(task, state, site, false)?,
+                Op::Thread(ThreadOp::Finish(task, slot)) => {
+                    // A task joined explicitly on every path is not waited for again.
+                    if !matches!(state[*slot as usize], Slot::Moved { definite: true, .. }) {
+                        self.join(task, state, site, true).map_err(|error| {
+                            leaving(error, written, early_exit(&ops[index + 1..], written))
+                        })?;
+                    }
                     state[*slot as usize] = Slot::Unset
                 }
                 Op::Try { cleanup, .. } => {
-                    self.sequence(cleanup, &mut state.clone(), &mut Vec::new(), site)?;
+                    self.sequence(cleanup, &mut state.clone(), &mut Vec::new(), site)
+                        .map_err(|error| leaving(error, site, Some("`?`")))?;
                 }
                 Op::MoveLocal(i) | Op::Next(i) => {
                     if state.get(*i as usize) != Some(&Slot::Owned) {

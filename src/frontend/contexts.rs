@@ -46,6 +46,10 @@ impl Lower<'_> {
             // Placing it after a task manager disconnects its peers before join.
             let slot = self.slot(ty.clone(), &manager.at)?;
             ops.push(Op::StoreLocal(slot));
+            // The guard is the moved binding's new owner; diagnostics keep its name.
+            if let Expression::Name(source) = &ungroup(manager).kind {
+                self.name_slot(slot, source);
+            }
             if let Some(name) = name {
                 if self.names.contains_key(name) {
                     return Err(manager.at.error(format!("duplicate binding `{name}`")));

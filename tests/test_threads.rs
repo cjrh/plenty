@@ -557,3 +557,82 @@ def main() -> Result[(), Failure]:
         "6\n",
     );
 }
+
+#[test]
+fn joins_reject_receivers_that_could_leave_a_sending_worker_blocked() {
+    // Issue #12. A sender reaches the worker as an argument, a capture, a
+    // field, a borrow, or a queued message; `main` starts on line 8.
+    let workers = "class Outbox:
+    sender: Sender[i64]
+def owned(sender: Sender[i64]) -> ():
+    sender.send(1).unwrap()
+    sender.send(2).unwrap()
+def lend(sender: &Sender[i64]) -> ():
+    owned(sender.share())
+";
+    for start in [
+        "spawn(owned, sender)",
+        "spawn(def once [sender]() -> (): owned(sender))",
+        "spawn(def once [outbox]() -> (): owned(outbox.sender.share()))",
+        "spawn(lend, &sender)",
+        "spawn(def once [replies]() -> (): owned(replies.recv().unwrap()))",
+    ] {
+        let source = format!(
+            "{workers}def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    outbox = Outbox(sender.share())
+    paths, replies = channel[Sender[i64]](1).unwrap()
+    paths.send(sender.share()).unwrap()
+    with {start}.unwrap():
+        pass
+"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.starts_with("13:10: leaving this `with` block joins a task whose worker holds `Sender[i64]` while `receiver` still holds `Receiver[i64]`"),
+            "{start}: {error}"
+        );
+    }
+    let joined = |body: &str| {
+        support::check_source(&format!(
+            "{workers}def idle() -> ():
+    pass
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+{body}"
+        ))
+    };
+    // A worker without a sender never waits for this receiver.
+    joined("    with spawn(idle).unwrap() as task:\n        task.join()\n    drop(sender)\n")
+        .unwrap();
+    // A task joined on every path is not joined again when the block ends.
+    joined("    with spawn(owned, sender).unwrap() as task:\n        drop(receiver)\n        task.join()\n").unwrap();
+    // Joined on one path only: the end of the block still joins on the other.
+    let error = joined(
+        "    with spawn(owned, sender).unwrap() as task:
+        if len(\"x\") == 1:
+            drop(receiver)
+            task.join()
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.starts_with("12:10: leaving this `with` block joins")
+            && error.contains("`receiver` holds `Receiver[i64]` on some paths"),
+        "{error}"
+    );
+    // An inner task is joined first, while the outer block's receiver is alive.
+    let error = joined(
+        "    with spawn(idle).unwrap(), receiver as inbox:
+        with spawn(owned, sender).unwrap():
+            pass
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.starts_with("13:14: leaving this `with` block joins"),
+        "{error}"
+    );
+}
