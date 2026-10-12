@@ -37,7 +37,8 @@ the limit.
 `examples/compile_bench.rs` generates units containing a protocol, class, enum,
 and three functions. It reports median checking time, optionally full AOT/linking,
 and a fourfold-input scaling ratio. `tests/test_compile_scaling.rs` guards against
-superlinear checking of classes, functions, and protocols.
+superlinear checking of classes, functions, protocols, enum variants, and
+`match` cases.
 
 For the 2026-10-10 release measurement on an AMD Ryzen 7 7840HS, x86_64 Linux,
 16 hardware threads: 4,000 units / 156,003 lines checked in 1.61 s and 16,000
