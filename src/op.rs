@@ -1450,6 +1450,11 @@ fn check_with(ops: &[Op], workers: usize) -> Result<()> {
     Ok(())
 }
 
+/// Every function's signature by name. Keys and signatures borrow from the
+/// program: a second owned table costs a name copy and a reference-count
+/// write per function, each a cache miss in a large program (issue #57).
+type Sigs<'a> = HashMap<&'a str, &'a FnSig>;
+
 /// Only paths that continue participate in a branch's stack-shape join.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Flow {
@@ -1461,7 +1466,7 @@ fn check_sequence(
     ops: &[Op],
     stack: &mut Vec<Ty>,
     locals: &[Ty],
-    sigs: &HashMap<String, Arc<FnSig>>,
+    sigs: &Sigs,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
     yield_ty: Option<&Ty>,
@@ -1497,11 +1502,11 @@ fn check_return(stack: &[Ty], returns: Option<&[Ty]>) -> Result<Flow> {
 /// caught at runtime as an "undefined function" error, which is fine —
 /// the checker's job is to catch *type* mismatches, not to police call
 /// ordering.
-fn collect_sigs(ops: &[Op], out: &mut HashMap<String, Arc<FnSig>>) {
+fn collect_sigs<'a>(ops: &'a [Op], out: &mut Sigs<'a>) {
     for op in ops {
         match op {
             Op::DefineFn(name, f) => {
-                out.insert(name.clone(), Arc::clone(&f.sig));
+                out.insert(name, &f.sig);
                 collect_sigs(&f.body, out);
             }
             Op::Loop { condition, body } => {
@@ -1539,7 +1544,7 @@ fn step(
     op: &Op,
     stack: &mut Vec<Ty>,
     locals: &[Ty],
-    sigs: &HashMap<String, Arc<FnSig>>,
+    sigs: &Sigs,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
     yield_ty: Option<&Ty>,
@@ -1907,7 +1912,7 @@ fn step(
                     .collect(),
                 outputs: t.signature.output.iter().cloned().collect(),
             };
-            let actual = sigs.get(&t.name).ok_or("undefined closure body")?;
+            let actual = sigs.get(t.name.as_str()).ok_or("undefined closure body")?;
             if actual
                 .inputs
                 .iter()
@@ -1958,7 +1963,7 @@ fn step(
                     Ty::Ref(Arc::new(source.clone()), false),
                 ),
             );
-            if sigs.get(adapter).map(Arc::as_ref) != Some(&adapted) {
+            if sigs.get(adapter.as_str()).copied() != Some(&adapted) {
                 return Err("boxed callable adapter signature mismatch".into());
             }
             stack.push(crate::sum::result(
@@ -1986,7 +1991,7 @@ fn step(
             stack.extend(signature.output.iter().cloned());
         }
         Op::FunctionAddress(name, signature) => {
-            let actual = sigs.get(name).ok_or("undefined function value")?;
+            let actual = sigs.get(name.as_str()).ok_or("undefined function value")?;
             if actual.outputs.len() > 1 || CallableSig::from_function(actual) != **signature {
                 return Err("function value signature mismatch".into());
             }
@@ -2187,7 +2192,7 @@ fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
 /// Stack effect for a `Call(name)`: verify the top of the stack matches
 /// the function's declared inputs in declaration order, then replace them
 /// with the declared outputs.
-fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Arc<FnSig>>) -> Result<()> {
+fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &Sigs) -> Result<()> {
     let sig = sigs
         .get(name)
         .ok_or_else(|| format!("call to undefined function `{name}`"))?;
@@ -2228,7 +2233,7 @@ fn check_match(
     arms: &[MatchArm],
     stack: &mut Vec<Ty>,
     locals: &[Ty],
-    sigs: &HashMap<String, Arc<FnSig>>,
+    sigs: &Sigs,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
     yield_ty: Option<&Ty>,
@@ -2351,7 +2356,7 @@ fn check_match(
 }
 
 /// Check one function definition, naming its file in the error.
-fn check_function(name: &str, f: &CompiledFn, sigs: &HashMap<String, Arc<FnSig>>) -> Result<()> {
+fn check_function(name: &str, f: &CompiledFn, sigs: &Sigs) -> Result<()> {
     check_body(name, f, sigs).map_err(|e| -> Box<dyn std::error::Error> {
         // An ownership error that knows its own position already names
         // the file; the header is only a fallback. One in a generic
@@ -2373,7 +2378,7 @@ fn check_function(name: &str, f: &CompiledFn, sigs: &HashMap<String, Arc<FnSig>>
 /// inputs become the body's `locals` for `LoadLocal` to resolve against.
 /// At end of body the abstract stack must equal the declared outputs
 /// exactly; anything else is a type error.
-fn check_body(fn_name: &str, f: &CompiledFn, sigs: &HashMap<String, Arc<FnSig>>) -> Result<()> {
+fn check_body(fn_name: &str, f: &CompiledFn, sigs: &Sigs) -> Result<()> {
     let (sig, body, yield_ty) = (&*f.sig, &*f.body, f.generator.as_ref());
     let locals: Vec<Ty> = sig
         .inputs
