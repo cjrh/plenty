@@ -383,14 +383,15 @@ def produce(sender: Sender[i64]) -> Result[(), Failure]:
 
 def main() -> Result[(), Failure]:
     sender, receiver = channel[i64](2)?
-    with spawn(def once [sender]() -> Result[(), Failure]: produce(sender))? as task, receiver as inbox:
+    with spawn(def once [sender]() -> Result[(), Failure]: produce(sender))? as task:
         mut total = 0
-        while True:
-            match inbox.recv():
-                case Ok(value):
-                    total = total + value
-                case Err(_):
-                    break
+        with receiver as inbox:
+            while True:
+                match inbox.recv():
+                    case Ok(value):
+                        total = total + value
+                    case Err(_):
+                        break
         task.join()?
         print(total)?
     values = [1, 2, 3]?

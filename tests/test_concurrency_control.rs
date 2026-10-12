@@ -144,6 +144,7 @@ job = def once [sender]() -> Result[(), SendTimeoutError[range[i64]]]:
 with spawn(job).unwrap() as task:
     print(receiver.recv_timeout(10000).unwrap()[2]).unwrap()
     print(receiver.recv_timeout(10000).unwrap()[2]).unwrap()
+    drop(receiver)
     task.join().unwrap()
 "#,
         "2\n7\n",
@@ -194,6 +195,7 @@ with spawn(job).unwrap() as task:
             print("wrong").unwrap()
         case Selected.Second(values):
             print(values).unwrap()
+    drop(second)
     task.join().unwrap()
 alias = first.share()
 left.send(range(10, 13)).unwrap()

@@ -301,6 +301,8 @@ with spawn(producer).unwrap() as task:
     started.recv().unwrap()
     first = receiver.recv().unwrap()
     second = receiver.recv().unwrap()
+    drop(started)
+    drop(receiver)
     task.join()
     print(first + second).unwrap()
 "#, "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n3\n");
@@ -317,8 +319,8 @@ def exercise[F: OnceCallable[[], i64]](callback: F) -> i64:
     producer = def once [sender, callback]() -> ():
         sender.send(callback).unwrap()
         pass
-    with spawn(producer).unwrap() as task:
-        received = receiver.recv().unwrap()
+    with spawn(producer).unwrap(), receiver as inbox:
+        received = inbox.recv().unwrap()
         return received()
 span = range(30, 40)
 callback = def once [span]() -> i64:
@@ -404,14 +406,12 @@ fn endpoint_guard_shuts_down_an_earlier_producer_when_a_later_start_fails() {
     runs(r#"
 def attempt() -> Result[(), Failure]:
     sender, receiver = channel[i64](1)?
-    other = sender.share()
     first = def once [sender]() -> Result[(), Failure]:
         for n in range(10000):
             sender.send(n)?
         Ok(())
-    second = def once [other]() -> Result[(), Failure]:
-        other.send(42)?
-        Ok(())
+    second = def once () -> ():
+        pass
     with spawn(first)? as a, receiver as inbox, spawn(second)? as b:
         pass
     Ok(())
@@ -442,4 +442,396 @@ def main() -> Result[(), Failure]:
 "#,
         "done\n",
     );
+}
+
+/// A worker that sends until the queue disconnects; `main` starts on line 8.
+const PRODUCE: &str = "def produce(sender: Sender[i64]) -> ():
+    for n in range(10000):
+        match sender.send(n):
+            case Ok(_):
+                pass
+            case Err(_):
+                return
+";
+
+/// The diagnostic for a join that a surviving receiver could block forever.
+fn blocked_join(body: &str) -> String {
+    let error = support::check_source(&format!("{PRODUCE}{body}"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("could block the worker's send"), "{error}");
+    error
+}
+
+#[test]
+fn receiver_outside_the_task_block_cannot_reach_the_automatic_join() {
+    // Issue #12: without the check this program hangs in the automatic join.
+    let error = blocked_join(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with spawn(produce, sender)?:
+        print(receiver.recv()?)?
+    Ok(())
+",
+    );
+    assert_eq!(
+        error,
+        "10:10: leaving this `with` block joins a task whose worker holds `Sender[i64]` while \
+         `receiver` still holds `Receiver[i64]`: a full queue could block the worker's send, and \
+         this join, forever\n  \
+         9:5: note: `receiver` holds `Receiver[i64]`; drop it before leaving the block, or guard \
+         it directly after the task: `with spawn(...)?, receiver as inbox:`\n  \
+         11:15: note: `?` leaves the block here"
+    );
+}
+
+#[test]
+fn receiver_guard_order_decides_whether_it_outlives_the_join() {
+    runs(
+        &format!(
+            "{PRODUCE}def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with spawn(produce, sender)?, receiver as inbox:
+        print(inbox.recv()?)?
+    print(\"done\")?
+    Ok(())
+"
+        ),
+        "0\ndone\n",
+    );
+    // Contexts exit in reverse order: this guard outlives the task.
+    let error = blocked_join(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with receiver as inbox, spawn(produce, sender)?:
+        print(inbox.recv()?)?
+    Ok(())
+",
+    );
+    assert!(
+        error.starts_with("10:29: leaving this `with` block"),
+        "{error}"
+    );
+    assert!(
+        error.contains("10:10: note: `receiver` holds `Receiver[i64]`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn every_exit_from_a_task_block_is_checked_for_surviving_receivers() {
+    // Falling off the end of the block names no exit.
+    let error = blocked_join(
+        "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with spawn(produce, sender).unwrap():
+        pass
+",
+    );
+    assert!(!error.contains("leaves the block here"), "{error}");
+    for (exit, line) in [("return Ok(())", 13), ("break", 13), ("continue", 13)] {
+        let keyword = exit.split(' ').next().unwrap();
+        let error = blocked_join(&format!(
+            "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1).unwrap()
+    for i in range(1):
+        with spawn(produce, sender.share()).unwrap():
+            drop(receiver.share())
+            {exit}
+    Ok(())
+"
+        ));
+        assert!(
+            error.contains(&format!(
+                "{line}:13: note: `{keyword}` leaves the block here"
+            )),
+            "{error}"
+        );
+    }
+    // The receiver is gone at the end of the block, but not when `?` leaves it.
+    let error = blocked_join(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with spawn(produce, sender)? as task:
+        print(receiver.recv()?)?
+        drop(receiver)
+        task.join()
+    Ok(())
+",
+    );
+    assert!(
+        error.contains("11:15: note: `?` leaves the block here"),
+        "{error}"
+    );
+    // A later start that fails leaves before the receiver is guarded.
+    let error = blocked_join(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    other = sender.share()
+    with spawn(produce, sender)?, spawn(produce, other)?, receiver as inbox:
+        print(inbox.recv()?)?
+    Ok(())
+",
+    );
+    assert!(
+        error.contains("11:35: note: `?` leaves the block here"),
+        "{error}"
+    );
+}
+
+#[test]
+fn every_surviving_owner_of_a_matching_receiver_is_reported() {
+    // A shared handle outside the guard keeps the queue connected.
+    let error = blocked_join(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    spare = receiver.share()
+    with spawn(produce, sender)?, receiver as inbox:
+        print(inbox.recv()?)?
+    Ok(())
+",
+    );
+    assert!(error.contains("while `spare` still holds"), "{error}");
+    assert!(
+        error.contains("10:5: note: `spare` holds `Receiver[i64]`"),
+        "{error}"
+    );
+    let error = blocked_join(
+        "class Hub:
+    inbox: Receiver[i64]
+def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    spare = receiver.share()
+    hub = Hub(receiver.share())
+    handles = [receiver.share()]?
+    reader = def once [receiver]() -> ():
+        pass
+    with spawn(produce, sender).unwrap():
+        pass
+    Ok(())
+",
+    );
+    assert!(
+        error.contains("note: `spare` holds `Receiver[i64]`"),
+        "{error}"
+    );
+    for owner in ["hub", "handles", "reader"] {
+        assert!(
+            error.contains(&format!("note: `{owner}` also holds `Receiver[i64]`")),
+            "{error}"
+        );
+    }
+    // A drop on one branch leaves the receiver alive on the other.
+    let error = blocked_join(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    early = len(\"x\") == 1
+    with spawn(produce, sender).unwrap():
+        if early:
+            drop(receiver)
+    Ok(())
+",
+    );
+    assert!(
+        error.contains("`receiver` holds `Receiver[i64]` on some paths"),
+        "{error}"
+    );
+    // A borrowed receiver belongs to a caller, which this function cannot end.
+    for body in [
+        "def run(sender: Sender[i64], inbox: &Receiver[i64]) -> ():
+    with spawn(produce, sender).unwrap():
+        pass
+",
+        "class Hub:
+    receiver: Receiver[i64]
+    def run(self, sender: Sender[i64]) -> ():
+        with spawn(produce, sender).unwrap():
+            pass
+",
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    job = def once [sender, &receiver]() -> ():
+        with spawn(produce, sender).unwrap():
+            pass
+    job()
+    Ok(())
+",
+    ] {
+        let error = blocked_join(body);
+        assert!(
+            error.contains("its owner outlives this call, so take the receiver by value"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn explicit_joins_wait_only_after_matching_receivers_are_gone() {
+    // Draining to disconnection does not make the guard's handle disappear.
+    let error = blocked_join(
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with spawn(produce, sender)? as task, receiver as inbox:
+        print(inbox.recv()?)?
+        task.join()
+    Ok(())
+",
+    );
+    assert_eq!(
+        error,
+        "12:9: this join waits for a task whose worker holds `Sender[i64]` while `receiver` \
+         still holds `Receiver[i64]`: a full queue could block the worker's send, and this join, \
+         forever\n  \
+         10:43: note: `receiver` holds `Receiver[i64]`; drop it, or end its `with` block, before \
+         joining\n  \
+         10:10: note: the task starts here"
+    );
+    runs(
+        &format!(
+            "{PRODUCE}def count(sender: Sender[i64]) -> i64:
+    produce(sender)
+    7
+def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with spawn(count, sender)? as task:
+        with receiver as inbox:
+            print(inbox.recv()?)?
+        print(task.join())?
+    left, right = channel[i64](1)?
+    with spawn(count, left).unwrap() as task:
+        print(right.recv().unwrap()).unwrap()
+        drop(right)
+        print(task.join()).unwrap()
+    partial, last = channel[i64](1)?
+    with spawn(count, partial)? as task:
+        with last as inbox:
+            print(inbox.recv()?)?
+        if len(\"x\") == 1:
+            print(task.join())?
+    Ok(())
+"
+        ),
+        "0\n7\n0\n7\n0\n7\n",
+    );
+}
+
+#[test]
+fn nested_task_blocks_check_each_join_against_live_receivers() {
+    let error = blocked_join(
+        "def idle() -> ():
+    pass
+def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with spawn(idle)?:
+        with spawn(produce, sender)?:
+            print(receiver.recv()?)?
+    Ok(())
+",
+    );
+    assert!(
+        error.starts_with("13:14: leaving this `with` block"),
+        "{error}"
+    );
+    // The outer producer is joined after the inner guard has dropped the receiver.
+    runs(
+        &format!(
+            "{PRODUCE}def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    other = sender.share()
+    with spawn(produce, sender)?:
+        with spawn(produce, other).unwrap(), receiver as inbox:
+            print(inbox.recv()?)?
+    print(\"done\")?
+    Ok(())
+"
+        ),
+        "0\ndone\n",
+    );
+}
+
+#[test]
+fn joins_without_a_matching_live_receiver_are_accepted() {
+    runs(
+        &format!(
+            "{PRODUCE}def consume(receiver: Receiver[i64]) -> i64:
+    mut count = 0
+    while True:
+        match receiver.recv():
+            case Ok(_):
+                count = count + 1
+            case Err(_):
+                return count
+    count
+def idle(n: i64) -> i64:
+    n + 1
+def drain(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), Failure]:
+    with spawn(produce, sender)?, receiver as inbox:
+        print(inbox.recv()?)?
+    Ok(())
+def main() -> Result[(), Failure]:
+    # A receiver for another message type cannot release this worker.
+    sender, receiver = channel[i64](1)?
+    names, labels = channel[str](1)?
+    with spawn(produce, sender)?, receiver as inbox:
+        print(inbox.recv()?)?
+    names.send(\"label\")?
+    print(labels.recv()?)?
+    # This worker holds no sender.
+    with spawn(idle, 1)? as task:
+        names.send(\"idle\")?
+        print(task.join())?
+    # The receiver belongs to another worker, which ends at disconnection.
+    first, queued = channel[i64](1)?
+    second = first.share()
+    with spawn(consume, queued)? as consumer, spawn(produce, first)?, spawn(produce, second)?:
+        print(consumer.join())?
+    # A helper that owns the receiver ends it before the outer join.
+    outer, handed = channel[i64](1)?
+    inner = outer.share()
+    with spawn(produce, outer)?:
+        drain(inner, handed)?
+    Ok(())
+"
+        ),
+        "0\nlabel\n2\n20000\n0\n",
+    );
+}
+
+#[test]
+fn receivers_are_matched_by_message_type_not_by_queue() {
+    // None of these programs can hang. The rule matches endpoints by message
+    // type and does not follow how many messages a worker sends, so it rejects
+    // them; the reference lists them as its known false positives.
+    for body in [
+        // An independent queue of the same message type.
+        "def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    unrelated, other = channel[i64](1)?
+    with spawn(produce, sender)?, receiver as inbox:
+        print(inbox.recv()?)?
+    Ok(())
+",
+        // The parent receives everything the worker sends.
+        "def once_only(sender: Sender[i64]) -> ():
+    sender.send(1).unwrap()
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with spawn(once_only, sender).unwrap():
+        receiver.recv().unwrap()
+",
+        // The worker never waits for queue space.
+        "def attempt(sender: Sender[i64]) -> ():
+    match sender.send_nowait(1):
+        case Ok(_):
+            pass
+        case Err(_):
+            pass
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with spawn(attempt, sender).unwrap():
+        pass
+",
+    ] {
+        blocked_join(body);
+    }
 }
