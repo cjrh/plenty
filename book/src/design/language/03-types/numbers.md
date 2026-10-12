@@ -61,6 +61,8 @@ Prefix `&` and `&mut` still create borrows.
 `value.wrapping_add(other)`, `wrapping_sub`, and `wrapping_mul` require matching
 integer types and compute modulo two to the integer width. They allocate
 nothing. Ordinary `+`, `-`, and `*` keep their overflow checks.
+These built-ins are selected for integer receivers; classes may define methods
+with the same names and their own signatures.
 
 The [numeric facilities](../../facilities/01-builtins/numbers.md#limits-and-constants)
 provide the type constants `T.MIN`, `T.MAX`, `T.PI`, and `T.E`; `pow` on every
