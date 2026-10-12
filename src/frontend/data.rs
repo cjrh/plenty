@@ -632,6 +632,7 @@ impl TypeAliases {
                 managed: true,
                 inline_range: false,
                 payload_bytes: std::cell::OnceCell::new(),
+                by_name: std::cell::OnceCell::new(),
                 storage: std::cell::OnceCell::new(),
                 managed_fields: std::cell::OnceCell::new(),
             },

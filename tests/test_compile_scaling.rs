@@ -61,6 +61,50 @@ fn checking_protocols_is_linear() {
     });
 }
 
+/// `enum Kind` with one variant per unit, followed by `rest`.
+fn kinds(variants: usize, rest: &str) -> String {
+    let mut source = String::from("enum Kind:\n");
+    for i in 0..variants {
+        source.push_str(&format!("    V{i}\n"));
+    }
+    source.push_str(rest);
+    source.push_str("def main() -> ():\n    pass\n");
+    source
+}
+
+// A large enum must cost the same per variant to declare, to construct, and
+// to match with one case per variant (issue #71): each once searched or
+// filtered every variant or every case again.
+
+#[test]
+fn checking_enum_variants_is_linear() {
+    assert_linear_sources("enum variants", |variants| kinds(variants * 4, ""));
+}
+
+#[test]
+fn checking_variant_constructions_is_linear() {
+    assert_linear_sources("variant constructions", |variants| {
+        let mut uses = String::from("def tag(k: Kind) -> i64:\n    0\ndef total() -> i64:\n");
+        uses.push_str("    mut t = 0\n");
+        for i in 0..variants * 2 {
+            uses.push_str(&format!("    t = t + tag(Kind.V{i})\n"));
+        }
+        uses.push_str("    t\n");
+        kinds(variants * 2, &uses)
+    });
+}
+
+#[test]
+fn checking_match_cases_is_linear() {
+    assert_linear_sources("match cases", |variants| {
+        let mut pick = String::from("def pick(k: Kind) -> i64:\n    match k:\n");
+        for i in 0..variants {
+            pick.push_str(&format!("        case Kind.V{i}:\n            {i}\n"));
+        }
+        kinds(variants, &pick)
+    });
+}
+
 #[test]
 fn checking_elif_arms_is_linear() {
     assert_linear_sources("elif arms", |arms| {

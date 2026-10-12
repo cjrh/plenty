@@ -1425,12 +1425,10 @@ impl Lower<'_> {
                             .at
                             .error("type nesting exceeds the implementation limit of 64"));
                     }
-                    let nullary = t
-                        .get()
-                        .variants
-                        .iter()
-                        .find(|v| v.name == *variant)
-                        .is_some_and(|v| v.fields.is_empty());
+                    let definition = t.get();
+                    let nullary = definition
+                        .tag(variant)
+                        .is_some_and(|tag| definition.variants[tag].fields.is_empty());
                     let result = self.variant(
                         Ty::Enum(t.clone()),
                         variant,

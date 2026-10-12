@@ -24,9 +24,10 @@ impl Parser {
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented enum declaration")?;
         let mut variants = Vec::new();
+        let mut declared = HashSet::new();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
             let variant = self.name()?;
-            if variants.iter().any(|(name, _)| name == &variant) {
+            if !declared.insert(variant.clone()) {
                 return Err(self.peek().error(format!("duplicate variant `{variant}`")));
             }
             let mut fields = Vec::new();
@@ -300,9 +301,7 @@ impl Lower<'_> {
         };
         let tag = t
             .get()
-            .variants
-            .iter()
-            .position(|v| v.name == name)
+            .tag(name)
             .ok_or_else(|| at.error(format!("unknown variant `{}.{name}`", t.name)))?;
         let fields = t.get().variants[tag].fields.clone();
         if fields.is_empty() && args.is_some() {
