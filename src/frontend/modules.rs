@@ -194,24 +194,65 @@ impl Parser {
     }
 }
 
+/// Items buffered behind the one being parsed. The parser reads no further
+/// than the first token of the next item, where it reports a missing block.
+const LOOKAHEAD: usize = 1;
+
 fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Token)> {
-    let mut tokens = lex(source).map_err(|e| -> Box<dyn Error> {
+    if let Some(parsed) = parse_buffered(source, path, name.clone(), LOOKAHEAD)? {
+        return Ok(parsed);
+    }
+    let parsed = parse_buffered(source, path, name, usize::MAX)?;
+    Ok(parsed.expect("a parser holding the whole module has every token"))
+}
+
+/// Parses a module while holding the tokens of only `lookahead` items past
+/// the one being parsed, and the syntax tree. Returns None when the parser
+/// asked for a later token: the module must then be parsed with all of them.
+fn parse_buffered(
+    source: &str,
+    path: Option<&Path>,
+    name: String,
+    lookahead: usize,
+) -> Result<Option<(Module, Token)>> {
+    let located = |e: Box<dyn Error>| -> Box<dyn Error> {
         match path {
             Some(p) => format!("{}:{e}", p.display()).into(),
             None => e,
         }
-    })?;
-    let origin = path.map(|p| Rc::<str>::from(p.to_string_lossy().as_ref()));
-    for token in &mut tokens {
-        token.source = origin.clone();
+    };
+    let mut lexer = Lexer::new(source);
+    let mut parser = Parser::new(path.map(|p| Rc::<str>::from(p.to_string_lossy().as_ref())));
+    let parsed = parse_items(&mut parser, &mut lexer, path, name, lookahead, &located);
+    if parser.starved.get() {
+        return Ok(None);
     }
-    let mut parser = Parser::new(tokens);
+    if parsed.is_err() {
+        // A lexical error anywhere in the module is reported before any
+        // syntax error, as it is when all the tokens are lexed first.
+        lexer.rest().map_err(located)?;
+    }
+    parsed.map(Some)
+}
+
+fn parse_items(
+    parser: &mut Parser,
+    lexer: &mut Lexer,
+    path: Option<&Path>,
+    name: String,
+    lookahead: usize,
+    located: &dyn Fn(Box<dyn Error>) -> Box<dyn Error>,
+) -> Result<(Module, Token)> {
     let mut module = Module {
         name,
         ..Module::default()
     };
     let mut declared = HashSet::new();
-    while parser.peek().kind != Kind::Eof {
+    loop {
+        parser.fill(lexer, lookahead).map_err(located)?;
+        if parser.peek().kind == Kind::Eof {
+            break;
+        }
         let public = parser.eat("pub");
         let at = parser.peek().clone();
         let name = if parser.peek().is("extern") || parser.peek().is("opaque") {
@@ -1392,4 +1433,116 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a parse produced, as far as two parses of one module can differ.
+    /// None when the parser asked for a token it was not holding.
+    fn outcome(source: &str, lookahead: usize) -> Option<std::result::Result<Vec<String>, String>> {
+        match parse_buffered(source, None, "m".into(), lookahead) {
+            Ok(None) => None,
+            Ok(Some((module, _))) => Some(Ok(module
+                .functions
+                .iter()
+                .map(|f| format!("{}/{}/{}", f.name, f.inputs.len(), f.body.len()))
+                .chain(module.classes.iter().map(|c| c.name.clone()))
+                .chain(module.enums.iter().map(|e| e.name.clone()))
+                .collect())),
+            Err(e) => Some(Err(e.to_string())),
+        }
+    }
+
+    /// Plenty files and the book's code fences under `dir`. Fences in other
+    /// languages are kept: they are modules that fail to parse.
+    fn sources(dir: &Path, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let extension = path.extension().and_then(|e| e.to_str());
+            if path.is_dir() {
+                sources(&path, out);
+            } else if matches!(extension, Some("plenty" | "plentyi")) {
+                out.push(std::fs::read_to_string(path).unwrap());
+            } else if extension == Some("md") {
+                let text = std::fs::read_to_string(path).unwrap();
+                let mut fence: Option<String> = None;
+                for line in text.lines() {
+                    let delimiter = line.trim_start().starts_with("```");
+                    match &mut fence {
+                        Some(code) if delimiter => {
+                            out.push(std::mem::take(code));
+                            fence = None;
+                        }
+                        Some(code) => {
+                            code.push_str(line);
+                            code.push('\n');
+                        }
+                        None if delimiter => fence = Some(String::new()),
+                        None => {}
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parsing_item_by_item_matches_parsing_with_every_token() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut modules = Vec::new();
+        for dir in ["examples", "stdlib", "tests", "book/src"] {
+            sources(&root.join(dir), &mut modules);
+        }
+        assert!(modules.len() > 500, "found {} modules", modules.len());
+        for module in &modules {
+            // A module cut off after a line is one that ends inside an item.
+            let lines: Vec<usize> = module.match_indices('\n').map(|(i, _)| i + 1).collect();
+            let step = lines.len() / 40 + 1;
+            for &cut in lines.iter().step_by(step).chain([&module.len()]) {
+                let source = &module[..cut];
+                let whole = outcome(source, usize::MAX).expect("every token is held");
+                // A module that needed more than LOOKAHEAD would be parsed
+                // twice and hold all its tokens: issue #54.
+                assert_eq!(outcome(source, LOOKAHEAD), Some(whole.clone()), "{source}");
+                if let Some(narrow) = outcome(source, 0) {
+                    assert_eq!(narrow, whole, "{source}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_missing_block_is_reported_at_the_next_item() {
+        let source = "def f() -> i64:\ndef g() -> i64:\n    1\n";
+        assert_eq!(outcome(source, 0), None);
+        let whole = outcome(source, usize::MAX).unwrap();
+        assert_eq!(whole, Err("2:1: expected an indented block".into()));
+        assert_eq!(outcome(source, LOOKAHEAD), Some(whole));
+    }
+
+    #[test]
+    fn a_lexical_error_precedes_an_earlier_syntax_error() {
+        let source = "def f( -> i64:\n    1\n\ndef g() -> i64:\n    $\n";
+        let whole = outcome(source, usize::MAX).unwrap();
+        assert_eq!(whole, Err("5:5: unexpected character `$`".into()));
+        assert_eq!(outcome(source, LOOKAHEAD), Some(whole));
+    }
+
+    #[test]
+    fn an_item_ends_at_the_left_margin_outside_brackets() {
+        let source = "def f(\na: i64,\n) -> i64:\n    a + (\n1\n)\n# note\n\n    # note\ndef g() -> i64:\n    2";
+        let mut lexer = Lexer::new(source);
+        let mut items = Vec::new();
+        while !lexer.done {
+            let mut tokens = VecDeque::new();
+            lexer.item(&mut tokens).unwrap();
+            items.push(tokens.len());
+        }
+        assert_eq!(items.len(), 2, "{items:?}");
+        assert_eq!(
+            outcome(source, LOOKAHEAD),
+            Some(Ok(vec!["f/1/1".into(), "g/0/1".into()]))
+        );
+    }
 }

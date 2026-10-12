@@ -2,7 +2,8 @@
 //!
 //! Signatures are collected before bodies. Inference is local, expressions
 //! have zero (unit) or one result, and no backend participates in inference.
-use std::collections::{HashMap, HashSet};
+use std::cell::Cell;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::rc::Rc;
 
@@ -121,286 +122,323 @@ impl Token {
     }
 }
 
-fn lex(source: &str) -> Result<Vec<Token>> {
-    let chars: Vec<char> = source.chars().collect();
-    let (mut pos, mut line, mut column) = (0, 1, 1);
-    let mut line_start = true;
-    let mut indents = vec![0];
-    let mut parens = 0usize;
-    let mut delimiters = Vec::new();
-    let mut out = Vec::new();
-    while pos < chars.len() {
-        if line_start {
-            let mut spaces = 0;
-            while chars.get(pos) == Some(&' ') {
-                spaces += 1;
-                pos += 1;
-                column += 1;
+/// Lexes a module one top-level item at a time. The parser releases an item's
+/// tokens once it has the item's tree, so a module's tokens never all exist
+/// beside its syntax tree (issue #54).
+struct Lexer<'a> {
+    source: &'a str,
+    /// Byte offset of the next character.
+    pos: usize,
+    line: usize,
+    column: usize,
+    line_start: bool,
+    indents: Vec<usize>,
+    delimiters: Vec<u8>,
+    /// Whether the last token leaves a logical line for a line break to end.
+    open: bool,
+    /// No tokens remain: the module ended or has a lexical error.
+    done: bool,
+}
+
+impl<'a> Lexer<'a> {
+    fn new(source: &'a str) -> Self {
+        Lexer {
+            source,
+            pos: 0,
+            line: 1,
+            column: 1,
+            line_start: true,
+            indents: vec![0],
+            delimiters: Vec::new(),
+            open: false,
+            done: false,
+        }
+    }
+
+    /// Appends the next top-level item's tokens: everything up to the next
+    /// line that starts at the left margin outside brackets, or to the end of
+    /// the module, where `Eof` is the last token.
+    fn item(&mut self, out: &mut VecDeque<Token>) -> Result<()> {
+        let lexed = self.lex_item(out);
+        self.done |= lexed.is_err();
+        lexed
+    }
+
+    /// Lexes the rest of the module for its errors alone.
+    fn rest(&mut self) -> Result<()> {
+        let mut tokens = VecDeque::new();
+        while !self.done {
+            tokens.clear();
+            self.item(&mut tokens)?;
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, out: &mut VecDeque<Token>, kind: Kind, line: usize, column: usize) {
+        self.open = !matches!(kind, Kind::Newline | Kind::Dedent);
+        out.push_back(Token {
+            kind,
+            line,
+            column,
+            source: None,
+        });
+    }
+
+    fn lex_item(&mut self, out: &mut VecDeque<Token>) -> Result<()> {
+        // Every character with a meaning outside strings and comments is
+        // ASCII, and no byte of a longer UTF-8 sequence is, so the bytes are
+        // compared directly. Columns count characters.
+        let source = self.source;
+        let bytes = source.as_bytes();
+        let before = out.len();
+        while self.pos < bytes.len() {
+            if self.line_start {
+                let mut spaces = 0;
+                while bytes.get(self.pos) == Some(&b' ') {
+                    spaces += 1;
+                    self.pos += 1;
+                    self.column += 1;
+                }
+                let (line, column) = (self.line, self.column);
+                if bytes.get(self.pos) == Some(&b'\t') {
+                    return Err(
+                        format!("{line}:{column}: use spaces, not tabs, for indentation").into(),
+                    );
+                }
+                let code = self.delimiters.is_empty()
+                    && !matches!(bytes.get(self.pos), None | Some(b'\n' | b'\r' | b'#'));
+                if code {
+                    let last = *self.indents.last().unwrap();
+                    if spaces > last {
+                        self.indents.push(spaces);
+                        self.push(out, Kind::Indent, line, column);
+                    } else {
+                        while spaces < *self.indents.last().unwrap() {
+                            self.indents.pop();
+                            self.push(out, Kind::Dedent, line, column);
+                        }
+                        if spaces != *self.indents.last().unwrap() {
+                            return Err(format!(
+                                "{line}:{column}: indentation does not match an outer block"
+                            )
+                            .into());
+                        }
+                    }
+                }
+                self.line_start = false;
+                if self.pos == bytes.len() {
+                    break;
+                }
+                if code && spaces == 0 && out.len() > before {
+                    return Ok(());
+                }
             }
-            if chars.get(pos) == Some(&'\t') {
-                return Err(
-                    format!("{line}:{column}: use spaces, not tabs, for indentation").into(),
-                );
-            }
-            if parens == 0 && !matches!(chars.get(pos), None | Some('\n' | '\r' | '#')) {
-                let last = *indents.last().unwrap();
-                if spaces > last {
-                    indents.push(spaces);
-                    out.push(Token {
-                        kind: Kind::Indent,
+            let (line, column) = (self.line, self.column);
+            let start = Token {
+                kind: Kind::Eof,
+                line,
+                column,
+                source: None,
+            };
+            let c = bytes[self.pos];
+            match c {
+                b' ' | b'\r' => {
+                    self.pos += 1;
+                    self.column += 1;
+                }
+                b'\t' => return Err(start.error("tabs are not supported; use spaces")),
+                b'\n' => {
+                    if self.delimiters.is_empty() && self.open {
+                        self.push(out, Kind::Newline, line, column);
+                    }
+                    self.pos += 1;
+                    self.line += 1;
+                    self.column = 1;
+                    self.line_start = true;
+                }
+                b'#' => {
+                    let end = bytes[self.pos..]
+                        .iter()
+                        .position(|&b| b == b'\n')
+                        .map_or(bytes.len(), |length| self.pos + length);
+                    self.column += source[self.pos..end].chars().count();
+                    self.pos = end;
+                }
+                b'\'' | b'"' => {
+                    let quote = c as char;
+                    let closes = |pos: usize| bytes.get(pos) == Some(&c);
+                    let triple = closes(self.pos + 1) && closes(self.pos + 2);
+                    let width = if triple { 3 } else { 1 };
+                    self.pos += width;
+                    self.column += width;
+                    let mut text = String::new();
+                    loop {
+                        let ch = source[self.pos..]
+                            .chars()
+                            .next()
+                            .ok_or_else(|| start.error("unterminated string"))?;
+                        if ch == quote
+                            && (!triple || (closes(self.pos + 1) && closes(self.pos + 2)))
+                        {
+                            self.pos += width;
+                            self.column += width;
+                            break;
+                        }
+                        if ch == '\n' && !triple {
+                            return Err(start.error("newline in a quoted string"));
+                        }
+                        self.pos += ch.len_utf8();
+                        self.column += 1;
+                        if ch == '\\' {
+                            let escaped = source[self.pos..]
+                                .chars()
+                                .next()
+                                .ok_or_else(|| start.error("unterminated escape"))?;
+                            self.pos += escaped.len_utf8();
+                            self.column += 1;
+                            text.push(match escaped {
+                                '0' => '\0',
+                                'n' => '\n',
+                                'r' => '\r',
+                                't' => '\t',
+                                '\\' => '\\',
+                                '\'' => '\'',
+                                '"' => '"',
+                                _ => {
+                                    return Err(
+                                        start.error(format!("unsupported escape \\{escaped}"))
+                                    )
+                                }
+                            });
+                        } else {
+                            if ch == '\n' {
+                                self.line += 1;
+                                self.column = 1;
+                            }
+                            text.push(ch);
+                        }
+                    }
+                    self.push(out, Kind::Text(text), line, column);
+                }
+                c if c.is_ascii_alphabetic() || c == b'_' => {
+                    let begin = self.pos;
+                    while bytes
+                        .get(self.pos)
+                        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+                    {
+                        self.pos += 1;
+                    }
+                    self.column += self.pos - begin;
+                    self.push(
+                        out,
+                        Kind::Word(source[begin..self.pos].into()),
                         line,
                         column,
-                        source: None,
-                    });
-                } else {
-                    while spaces < *indents.last().unwrap() {
-                        indents.pop();
-                        out.push(Token {
-                            kind: Kind::Dedent,
-                            line,
-                            column,
-                            source: None,
-                        });
-                    }
-                    if spaces != *indents.last().unwrap() {
-                        return Err(format!(
-                            "{line}:{column}: indentation does not match an outer block"
-                        )
-                        .into());
-                    }
+                    );
                 }
-            }
-            line_start = false;
-            if pos == chars.len() {
-                break;
-            }
-        }
-        let start = Token {
-            kind: Kind::Eof,
-            line,
-            column,
-            source: None,
-        };
-        let c = chars[pos];
-        match c {
-            ' ' | '\r' => {
-                pos += 1;
-                column += 1;
-            }
-            '\t' => return Err(start.error("tabs are not supported; use spaces")),
-            '\n' => {
-                if parens == 0
-                    && out
-                        .last()
-                        .is_some_and(|t| !matches!(t.kind, Kind::Newline | Kind::Dedent))
+                c if c.is_ascii_digit()
+                    || (c == b'.' && bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit)) =>
                 {
-                    out.push(Token {
-                        kind: Kind::Newline,
-                        ..start
-                    });
-                }
-                pos += 1;
-                line += 1;
-                column = 1;
-                line_start = true;
-            }
-            '#' => {
-                while pos < chars.len() && chars[pos] != '\n' {
-                    pos += 1;
-                    column += 1;
-                }
-            }
-            '\'' | '"' => {
-                let triple = chars.get(pos + 1) == Some(&c) && chars.get(pos + 2) == Some(&c);
-                let width = if triple { 3 } else { 1 };
-                pos += width;
-                column += width;
-                let mut text = String::new();
-                loop {
-                    let ch = *chars
-                        .get(pos)
-                        .ok_or_else(|| start.error("unterminated string"))?;
-                    if ch == c
-                        && (!triple
-                            || (chars.get(pos + 1) == Some(&c) && chars.get(pos + 2) == Some(&c)))
-                    {
-                        pos += width;
-                        column += width;
-                        break;
-                    }
-                    if ch == '\n' && !triple {
-                        return Err(start.error("newline in a quoted string"));
-                    }
-                    pos += 1;
-                    column += 1;
-                    if ch == '\\' {
-                        let escaped = *chars
-                            .get(pos)
-                            .ok_or_else(|| start.error("unterminated escape"))?;
-                        pos += 1;
-                        column += 1;
-                        text.push(match escaped {
-                            '0' => '\0',
-                            'n' => '\n',
-                            'r' => '\r',
-                            't' => '\t',
-                            '\\' => '\\',
-                            '\'' => '\'',
-                            '"' => '"',
-                            _ => return Err(start.error(format!("unsupported escape \\{escaped}"))),
-                        });
-                    } else {
-                        if ch == '\n' {
-                            line += 1;
-                            column = 1;
+                    let begin = self.pos;
+                    let mut pos = self.pos;
+                    let digits = |pos: &mut usize| {
+                        while bytes
+                            .get(*pos)
+                            .is_some_and(|c| c.is_ascii_digit() || *c == b'_')
+                        {
+                            *pos += 1;
                         }
-                        text.push(ch);
-                    }
-                }
-                out.push(Token {
-                    kind: Kind::Text(text),
-                    ..start
-                });
-            }
-            c if c.is_ascii_alphabetic() || c == '_' => {
-                let begin = pos;
-                while chars
-                    .get(pos)
-                    .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
-                {
-                    pos += 1;
-                    column += 1;
-                }
-                out.push(Token {
-                    kind: Kind::Word(chars[begin..pos].iter().collect()),
-                    ..start
-                });
-            }
-            c if c.is_ascii_digit()
-                || (c == '.' && chars.get(pos + 1).is_some_and(char::is_ascii_digit)) =>
-            {
-                let begin = pos;
-                while chars
-                    .get(pos)
-                    .is_some_and(|c| c.is_ascii_digit() || *c == '_')
-                {
-                    pos += 1;
-                }
-                if chars.get(pos) == Some(&'.') {
-                    pos += 1;
-                    while chars
-                        .get(pos)
-                        .is_some_and(|c| c.is_ascii_digit() || *c == '_')
-                    {
-                        pos += 1;
-                    }
-                }
-                if matches!(chars.get(pos), Some('e' | 'E')) {
-                    pos += 1;
-                    if matches!(chars.get(pos), Some('+' | '-')) {
-                        pos += 1;
-                    }
-                    while chars
-                        .get(pos)
-                        .is_some_and(|c| c.is_ascii_digit() || *c == '_')
-                    {
-                        pos += 1;
-                    }
-                }
-                // Keep a suffix (including malformed suffixes) in the same token.
-                while chars
-                    .get(pos)
-                    .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
-                {
-                    pos += 1;
-                }
-                column += pos - begin;
-                out.push(Token {
-                    kind: Kind::Number(chars[begin..pos].iter().collect()),
-                    ..start
-                });
-            }
-            '(' | ')' | '[' | ']' | '{' | '}' | '.' | ':' | ',' | '+' | '-' | '*' | '%' | '/'
-            | '=' | '!' | '<' | '>' | '&' | '|' | '^' | '~' | '?' => {
-                let mut symbol = c.to_string();
-                if let Some(next) = chars.get(pos + 1) {
-                    if matches!(
-                        (c, *next),
-                        ('-', '>')
-                            | ('=', '=')
-                            | ('!', '=')
-                            | ('<', '=')
-                            | ('>', '=')
-                            | ('/', '/')
-                            | ('<', '<')
-                            | ('>', '>')
-                    ) {
-                        symbol.push(*next);
-                        pos += 1;
-                        column += 1;
-                    }
-                }
-                if matches!(symbol.as_str(), "+" | "-" | "*" | "/" | "//" | "%")
-                    && chars.get(pos + 1) == Some(&'=')
-                {
-                    symbol.push('=');
-                    pos += 1;
-                    column += 1;
-                }
-                if matches!(c, '(' | '[' | '{') {
-                    parens += 1;
-                    delimiters.push(c);
-                }
-                if matches!(c, ')' | ']' | '}') {
-                    let expected = match c {
-                        ')' => '(',
-                        ']' => '[',
-                        _ => '{',
                     };
-                    if delimiters.pop() != Some(expected) {
-                        return Err(start.error(format!("unmatched or mismatched `{c}`")));
+                    digits(&mut pos);
+                    if bytes.get(pos) == Some(&b'.') {
+                        pos += 1;
+                        digits(&mut pos);
                     }
-                    parens -= 1;
+                    if matches!(bytes.get(pos), Some(b'e' | b'E')) {
+                        pos += 1;
+                        if matches!(bytes.get(pos), Some(b'+' | b'-')) {
+                            pos += 1;
+                        }
+                        digits(&mut pos);
+                    }
+                    // Keep a suffix (including malformed suffixes) in the same token.
+                    while bytes
+                        .get(pos)
+                        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+                    {
+                        pos += 1;
+                    }
+                    self.pos = pos;
+                    self.column += pos - begin;
+                    self.push(out, Kind::Number(source[begin..pos].into()), line, column);
                 }
-                pos += 1;
-                column += 1;
-                out.push(Token {
-                    kind: Kind::Symbol(symbol),
-                    ..start
-                });
+                b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'.' | b':' | b',' | b'+' | b'-'
+                | b'*' | b'%' | b'/' | b'=' | b'!' | b'<' | b'>' | b'&' | b'|' | b'^' | b'~'
+                | b'?' => {
+                    let mut symbol = (c as char).to_string();
+                    if let Some(next) = bytes.get(self.pos + 1) {
+                        if matches!(
+                            (c, *next),
+                            (b'-', b'>')
+                                | (b'=', b'=')
+                                | (b'!', b'=')
+                                | (b'<', b'=')
+                                | (b'>', b'=')
+                                | (b'/', b'/')
+                                | (b'<', b'<')
+                                | (b'>', b'>')
+                        ) {
+                            symbol.push(*next as char);
+                            self.pos += 1;
+                            self.column += 1;
+                        }
+                    }
+                    if matches!(symbol.as_str(), "+" | "-" | "*" | "/" | "//" | "%")
+                        && bytes.get(self.pos + 1) == Some(&b'=')
+                    {
+                        symbol.push('=');
+                        self.pos += 1;
+                        self.column += 1;
+                    }
+                    if matches!(c, b'(' | b'[' | b'{') {
+                        self.delimiters.push(c);
+                    }
+                    if matches!(c, b')' | b']' | b'}') {
+                        let expected = match c {
+                            b')' => b'(',
+                            b']' => b'[',
+                            _ => b'{',
+                        };
+                        if self.delimiters.pop() != Some(expected) {
+                            return Err(
+                                start.error(format!("unmatched or mismatched `{}`", c as char))
+                            );
+                        }
+                    }
+                    self.pos += 1;
+                    self.column += 1;
+                    self.push(out, Kind::Symbol(symbol), line, column);
+                }
+                _ => {
+                    let c = source[self.pos..].chars().next().unwrap();
+                    return Err(start.error(format!("unexpected character `{c}`")));
+                }
             }
-            _ => return Err(start.error(format!("unexpected character `{c}`"))),
         }
+        let (line, column) = (self.line, self.column);
+        if !self.delimiters.is_empty() {
+            return Err(format!("{line}:{column}: unclosed parenthesis").into());
+        }
+        if self.open {
+            self.push(out, Kind::Newline, line, column);
+        }
+        for _ in 1..self.indents.len() {
+            self.push(out, Kind::Dedent, line, column);
+        }
+        self.push(out, Kind::Eof, line, column);
+        self.done = true;
+        Ok(())
     }
-    if parens != 0 {
-        return Err(format!("{line}:{column}: unclosed parenthesis").into());
-    }
-    if out
-        .last()
-        .is_some_and(|t| !matches!(t.kind, Kind::Newline | Kind::Dedent))
-    {
-        out.push(Token {
-            kind: Kind::Newline,
-            line,
-            column,
-            source: None,
-        });
-    }
-    for _ in 1..indents.len() {
-        out.push(Token {
-            kind: Kind::Dedent,
-            line,
-            column,
-            source: None,
-        });
-    }
-    out.push(Token {
-        kind: Kind::Eof,
-        line,
-        column,
-        source: None,
-    });
-    Ok(out)
 }
 
 #[derive(Clone)]
@@ -832,11 +870,25 @@ const MAX_NESTING: usize = 64;
 const NESTING: &str = "block and expression nesting exceeds the implementation limit of 64";
 
 struct Parser {
-    tokens: Vec<Token>,
+    /// The item being parsed and the items buffered after it, behind the
+    /// last token of the item before.
+    tokens: VecDeque<Token>,
     /// Whether each token lies inside `()`, `[]`, or `{}`. The lexer drops
     /// layout tokens there, so the parser cannot recover this from `tokens`.
-    in_brackets: Vec<bool>,
+    in_brackets: VecDeque<bool>,
     pos: usize,
+    /// Tokens released ahead of `tokens`.
+    released: usize,
+    /// The token counts, from the start of the module, at which the buffered
+    /// items end.
+    items: VecDeque<usize>,
+    /// Whether `tokens` reaches the end of the module.
+    complete: bool,
+    /// Set when the parser asks for a token past the buffered items. What it
+    /// then parsed is not what the whole module holds.
+    starved: Cell<bool>,
+    /// Stands in for a token past the buffered items.
+    end: Token,
     type_depth: usize,
     /// Blocks and expressions open around the one being parsed.
     depth: usize,
@@ -846,29 +898,67 @@ struct Parser {
     deepest: usize,
 }
 impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
-        let mut depth = 0usize;
-        let in_brackets = tokens
-            .iter()
-            .map(|token| {
-                if [")", "]", "}"].iter().any(|close| token.is(close)) {
-                    depth = depth.saturating_sub(1);
-                }
-                let inside = depth > 0;
-                if ["(", "[", "{"].iter().any(|open| token.is(open)) {
-                    depth += 1;
-                }
-                inside
-            })
-            .collect();
+    /// A parser for a module whose tokens name `origin` as their source file.
+    fn new(origin: Option<Rc<str>>) -> Self {
         Parser {
-            tokens,
-            in_brackets,
+            tokens: VecDeque::new(),
+            in_brackets: VecDeque::new(),
             pos: 0,
+            released: 0,
+            items: VecDeque::new(),
+            complete: false,
+            starved: Cell::new(false),
+            end: Token {
+                kind: Kind::Eof,
+                line: 0,
+                column: 0,
+                source: origin,
+            },
             type_depth: 0,
             depth: 0,
             deepest: 0,
         }
+    }
+    /// Releases the tokens of the items already parsed and buffers the next
+    /// item with `lookahead` items after it. Call between top-level items.
+    fn fill(&mut self, lexer: &mut Lexer, lookahead: usize) -> Result<()> {
+        // The token before `pos` tells how the last statement ended.
+        let parsed = self.pos.saturating_sub(1);
+        self.tokens.drain(..parsed);
+        self.in_brackets.drain(..parsed);
+        self.pos -= parsed;
+        self.released += parsed;
+        let next = self.released + self.pos;
+        while self.items.front().is_some_and(|&end| end <= next) {
+            self.items.pop_front();
+        }
+        while self.items.len() <= lookahead && !lexer.done {
+            let lexed = self.tokens.len();
+            lexer.item(&mut self.tokens)?;
+            // An item ends outside brackets, so each starts at depth zero.
+            let mut depth = 0usize;
+            for token in self.tokens.range_mut(lexed..) {
+                token.source = self.end.source.clone();
+                if [")", "]", "}"].iter().any(|close| token.is(close)) {
+                    depth = depth.saturating_sub(1);
+                }
+                self.in_brackets.push_back(depth > 0);
+                if ["(", "[", "{"].iter().any(|open| token.is(open)) {
+                    depth += 1;
+                }
+            }
+            self.items.push_back(self.released + self.tokens.len());
+        }
+        self.complete = lexer.done;
+        Ok(())
+    }
+    /// Token `index` of the buffer, or None past the end of the module.
+    fn token(&self, index: usize) -> Option<&Token> {
+        let token = self.tokens.get(index);
+        if token.is_none() && !self.complete {
+            self.starved.set(true);
+        }
+        token
     }
     /// Parse a block or an expression one level below the current one.
     fn nested<T>(&mut self, parse: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
@@ -914,7 +1004,7 @@ impl Parser {
         expression
     }
     fn peek(&self) -> &Token {
-        &self.tokens[self.pos]
+        self.token(self.pos).unwrap_or(&self.end)
     }
     fn take(&mut self) -> Token {
         let t = self.peek().clone();
@@ -1307,8 +1397,7 @@ impl Parser {
         if anonymous
             && self.peek().is(":")
             && self
-                .tokens
-                .get(self.pos + 1)
+                .token(self.pos + 1)
                 .is_some_and(|t| t.kind != Kind::Newline)
         {
             return Err(self.tokens[self.pos + 1].error(
@@ -1376,8 +1465,7 @@ impl Parser {
         .any(|keyword| at.is(keyword));
         let binding = matches!(at.kind, Kind::Word(_))
             && self
-                .tokens
-                .get(self.pos + 1)
+                .token(self.pos + 1)
                 .is_some_and(|t| t.is("=") || t.is(":"));
         if keyword || binding {
             return Err(at.error(BIND_FIRST));
@@ -1551,8 +1639,7 @@ impl Parser {
             let assignment = mutable
                 || matches!(&self.peek().kind, Kind::Word(_))
                     && self
-                        .tokens
-                        .get(self.pos + 1)
+                        .token(self.pos + 1)
                         .is_some_and(|t| t.is("=") || t.is(":"));
             if assignment {
                 let name = self.name()?;
@@ -1689,8 +1776,7 @@ impl Parser {
     fn expr_inner(&mut self, min: u8) -> Result<Expr> {
         if self.peek().is("def") {
             if self
-                .tokens
-                .get(self.pos + 1)
+                .token(self.pos + 1)
                 .is_some_and(|t| !t.is("(") && !t.is("[") && !t.is("once"))
             {
                 return Err(self.peek().error("nested named functions are not supported; assign an anonymous def expression instead"));
@@ -1878,7 +1964,7 @@ impl Parser {
                 continue;
             }
             let not_in =
-                self.peek().is("not") && self.tokens.get(self.pos + 1).is_some_and(|t| t.is("in"));
+                self.peek().is("not") && self.token(self.pos + 1).is_some_and(|t| t.is("in"));
             let token = if not_in {
                 Token {
                     kind: Kind::Word("not in".into()),

@@ -16,9 +16,7 @@ impl Parser {
         while !self.eat(")") {
             // `=` is not an expression operator, so `name =` here can only be
             // a keyword argument.
-            if let (Kind::Word(name), Some(next)) =
-                (&self.peek().kind, self.tokens.get(self.pos + 1))
-            {
+            if let (Kind::Word(name), Some(next)) = (&self.peek().kind, self.token(self.pos + 1)) {
                 if next.is("=") {
                     return Err(self.peek().error(format!(
                         "keyword arguments are not supported; pass the value by position, without `{name}=`"

@@ -28,7 +28,6 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
             resume: None,
             id,
             sig: sig.clone(),
-            body: Rc::from([]),
             locals: Rc::from([]),
             source: None,
         },
