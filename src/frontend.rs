@@ -2062,6 +2062,7 @@ pub(crate) fn reserved(name: &str) -> bool {
             | "try"
             | "with"
             | "type"
+            | "const"
             | "return"
             | "if"
             | "elif"

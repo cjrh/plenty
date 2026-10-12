@@ -13,8 +13,9 @@ single, double, or triple quotes; triple quotes permit physical newlines. The
 first standalone string in an indented function body is its documentation. Use
 `return "text"` when that first string should be the returned value.
 
-Module scope contains functions, classes, enums, protocols, type aliases, and
-imports. Executable statements and bindings belong inside functions; there are
+Module scope contains functions, classes, enums, protocols, type aliases,
+[numeric constants](modules.md#numeric-constants), and imports. Executable
+statements and mutable bindings belong inside functions; there are
 no global variables. Named functions belong at module scope or in classes.
 Anonymous functions can appear in function bodies; see
 [functions](../06-functions/index.md).

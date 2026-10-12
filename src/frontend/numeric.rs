@@ -39,6 +39,7 @@ fn float_method(name: &str) -> Option<NumericOp> {
         "trunc" => NumericOp::Float(FloatOp::Trunc),
         "fabs" => NumericOp::Float(FloatOp::Abs),
         "copysign" => NumericOp::Float(FloatOp::Copysign),
+        "round" => NumericOp::Float(FloatOp::Round),
         _ => return None,
     })
 }

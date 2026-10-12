@@ -168,7 +168,7 @@ fn float_methods_follow_the_platform_math_library() {
 #[test]
 fn extended_float_primitives_preserve_f32_and_generic_types() {
     assert_lines(
-        "def sign[T: FloatType](magnitude: T, source: T) -> T:\n    magnitude.copysign(source)\n",
+        "def sign[T: FloatType](magnitude: T, source: T) -> T:\n    magnitude.copysign(source)\ndef rounded[T: FloatType](x: T) -> T:\n    x.round()\n",
         "",
         &[
             ("f32.TAU", "6.2831855"),
@@ -197,6 +197,8 @@ fn extended_float_primitives_preserve_f32_and_generic_types() {
             ("(-0.0f32).fabs()", "0.0"),
             ("sign(1.0f32, -0.0f32)", "-1.0"),
             ("sign(1.0, -0.0)", "-1.0"),
+            ("rounded(2.5f32)", "2.0"),
+            ("rounded(3.5)", "4.0"),
         ],
     );
 }
@@ -242,6 +244,11 @@ fn integer_pow_is_exact_within_the_type() {
     "3:9: fmod requires a float, got i64; convert with `f64(...)`"
 )]
 #[case("    x = 2.0\n    y = x.sqrt(1.0)\n", "3:9: sqrt takes no arguments")]
+#[case(
+    "    x = (2).round()\n",
+    "2:9: round requires a float, got i64; convert with `f64(...)`"
+)]
+#[case("    x = 2.0\n    y = x.round(1.0)\n", "3:9: round takes no arguments")]
 #[case(
     "    x = 2.0\n    y = x.pow()\n",
     "3:9: pow takes one argument of the receiver's type"

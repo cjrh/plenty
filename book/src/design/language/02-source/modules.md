@@ -28,3 +28,23 @@ dependencies preserve the same nominal types. Private declarations remain privat
 to their defining module, regardless of directory ancestry. All reachable modules
 are checked before execution. Imported modules need no entrypoint, and their
 `main` functions are ordinary functions.
+
+## Numeric constants
+
+`const name: T = value` declares an immutable numeric value at module scope;
+`pub const` exports it. `T` must be a concrete integer or float type. The
+initializer must be a numeric literal (optionally negative or parenthesized)
+or a numeric type constant such as `f64.PI` or `u8.MAX`; float type constants
+may also be negated. Ordinary type and range checks apply. Calls, arithmetic,
+references to other module constants, type aliases, and nonnumeric values are
+not supported as constant initializers.
+
+Imports and aliases bind constants as values: `import std.math as math` permits
+`math.pi`, while `from std.math import pi` permits `pi`. Constants are not
+callables or mutable places. Private constants follow the same visibility
+rules as private functions. A local binding may shadow an imported constant.
+Constant names share the declaration namespace with functions and types.
+
+Constants require no module initialization or allocation. The compiler lowers
+each read through a private scalar getter; no mutable global storage or user
+code runs at import time.

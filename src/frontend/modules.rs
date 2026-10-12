@@ -42,6 +42,7 @@ struct Import {
 struct Module {
     name: String,
     functions: Vec<Function>,
+    constants: HashSet<String>,
     declarations: Vec<TypeAlias>,
     enums: Vec<enums::EnumDecl>,
     classes: Vec<classes::ClassDecl>,
@@ -84,7 +85,65 @@ fn qualified(module: &str, name: &str) -> String {
     }
 }
 
+fn numeric_type_name(name: &str) -> bool {
+    matches!(
+        name,
+        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "f32" | "f64"
+    )
+}
+
 impl Parser {
+    /// Scalar constants use the ordinary typed function lowering, with a
+    /// compiler-only getter name. Initializers cannot execute user code.
+    fn constant(&mut self) -> Result<Function> {
+        let at = self.take(); // const
+        let name = self.name()?;
+        self.expect(":")?;
+        let output = self.ty()?;
+        if !output.args.is_empty() || !output.name.as_deref().is_some_and(numeric_type_name) {
+            return Err(output
+                .at
+                .error("module constants require a concrete numeric type"));
+        }
+        self.expect("=")?;
+        let value = self.expr(0)?;
+        let valid = match &ungroup(&value).kind {
+            Expression::Number(_) => true,
+            Expression::Member(base, _) => {
+                matches!(&base.kind, Expression::Name(n) if numeric_type_name(n))
+            }
+            Expression::Unary(op, inner) if op == "-" => {
+                matches!(&ungroup(inner).kind, Expression::Number(_))
+                    || matches!(&ungroup(inner).kind, Expression::Member(base, _)
+                        if matches!(&base.kind, Expression::Name(n) if n == "f32" || n == "f64"))
+            }
+            _ => false,
+        };
+        if !valid {
+            return Err(value
+                .at
+                .error("constant initializer must be a numeric literal or numeric type constant"));
+        }
+        self.kind(Kind::Newline, "the end of the constant declaration")?;
+        Ok(Function {
+            once: false,
+            captures: vec![],
+            foreign: None,
+            export: None,
+            name,
+            type_params: vec![],
+            at: at.clone(),
+            inputs: vec![],
+            output,
+            doc: String::new(),
+            doc_at: None,
+            body: vec![Stmt {
+                at,
+                kind: Statement::Expr(value),
+            }],
+        })
+    }
+
     fn module_path(&mut self) -> Result<String> {
         let mut path = self.name()?;
         while self.eat(".") {
@@ -149,6 +208,7 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
         name,
         ..Module::default()
     };
+    let mut declared = HashSet::new();
     while parser.peek().kind != Kind::Eof {
         let public = parser.eat("pub");
         let at = parser.peek().clone();
@@ -191,6 +251,12 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
             let name = f.name.clone();
             module.functions.push(f);
             name
+        } else if parser.peek().is("const") {
+            let f = parser.constant()?;
+            let name = f.name.clone();
+            module.constants.insert(name.clone());
+            module.functions.push(f);
+            name
         } else if parser.peek().is("class") {
             let c = parser.class_decl()?;
             let name = c.name.clone();
@@ -226,13 +292,16 @@ fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Tok
             continue;
         } else {
             return Err(at.error(if public {
-                "pub requires a function, class, enum, or type declaration; re-exports are not supported"
+                "pub requires a function, class, enum, type, or const declaration; re-exports are not supported"
             } else {
                 "executable statements are not allowed at module scope; put them inside `def main() -> ():`"
             }));
         };
         if name == "std" {
             return Err(at.error("`std` is reserved for the toolchain standard library"));
+        }
+        if !declared.insert(name.clone()) && (at.is("const") || module.constants.contains(&name)) {
+            return Err(at.error(format!("duplicate declaration `{name}`")));
         }
         if builtin(&name) {
             return Err(at.error(format!("cannot redefine builtin `{name}` as a type")));
@@ -461,6 +530,7 @@ struct Scope {
     // its own scope, and copying these per scope is quadratic (issue #53).
     symbols: Rc<HashMap<String, String>>,
     namespaces: Rc<HashMap<String, Rc<HashMap<String, String>>>>,
+    constants: Rc<HashMap<String, String>>,
     type_params: HashSet<String>,
 }
 
@@ -735,6 +805,13 @@ impl Scope {
             candidate.filter(|p| !locals.contains(p.split('.').next().unwrap()))
         {
             if let Some(symbol) = self.symbol(&candidate, &e.at)? {
+                if let Some(getter) = self.constants.get(&symbol) {
+                    if !matches!(e.kind, Expression::Member(..)) {
+                        return Err(e.at.error("a module constant is a value, not a callable"));
+                    }
+                    e.kind = Expression::Call(getter.clone(), vec![]);
+                    return Ok(());
+                }
                 e.kind = match &mut e.kind {
                     Expression::Method(_, _, args) => {
                         Expression::Call(symbol, std::mem::take(args))
@@ -773,6 +850,21 @@ impl Scope {
                 }
             }
             _ => {}
+        }
+        if let Expression::Name(n)
+        | Expression::Call(n, _)
+        | Expression::GenericCall(n, _, _)
+        | Expression::GenericValue(n, _) = &e.kind
+        {
+            if !locals.contains(n) && !self.type_params.contains(n) {
+                if let Some(getter) = self.constants.get(n) {
+                    if !matches!(e.kind, Expression::Name(_)) {
+                        return Err(e.at.error("a module constant is a value, not a callable"));
+                    }
+                    e.kind = Expression::Call(getter.clone(), vec![]);
+                    return Ok(());
+                }
+            }
         }
         match &mut e.kind {
             Expression::GenericMethod(base, _, types, args) => {
@@ -881,6 +973,17 @@ fn resolve(
     at: Token,
     require_main: bool,
 ) -> Result<Resolved> {
+    let constants: Rc<HashMap<String, String>> = Rc::new(
+        modules
+            .iter()
+            .flat_map(|m| {
+                m.constants.iter().map(|name| {
+                    let symbol = qualified(&m.name, name);
+                    (symbol.clone(), format!("$const.{symbol}"))
+                })
+            })
+            .collect(),
+    );
     let exports: Vec<Rc<HashMap<String, String>>> = modules
         .iter()
         .map(|m| {
@@ -918,6 +1021,7 @@ fn resolve(
                     .collect(),
             ),
             namespaces: Rc::default(),
+            constants: constants.clone(),
         };
         for (import, dependency) in m.imports.iter().zip(&dependencies[i]) {
             let root = import.binding.split('.').next().unwrap();
@@ -968,7 +1072,8 @@ fn resolve(
                     }
                 }
             }
-            f.name = qualified(&m.name, &f.name);
+            let symbol = qualified(&m.name, &f.name);
+            f.name = constants.get(&symbol).cloned().unwrap_or(symbol);
         }
         for p in &mut m.protocols {
             let public = m.exports.contains(&p.name);

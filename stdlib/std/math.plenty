@@ -5,6 +5,12 @@ pub enum MathError:
     Domain
     Overflow
 
+pub const pi: f64 = f64.PI
+pub const e: f64 = f64.E
+pub const tau: f64 = f64.TAU
+pub const inf: f64 = f64.INF
+pub const nan: f64 = f64.NAN
+
 pub def isnan(x: f64) -> bool:
     x != x
 
@@ -165,6 +171,38 @@ pub def ceil(x: f64) -> Result[i64, MathError]:
 pub def trunc(x: f64) -> Result[i64, MathError]:
     integer_result(x.trunc())
 
+pub def round(x: f64) -> Result[i64, MathError]:
+    integer_result(x.round())
+
+# Both outputs follow the existing integer floor division/modulo contract.
+pub def divmod[T: IntType](a: T, b: T) -> Result[(T, T), MathError]:
+    if b == 0:
+        return Err(MathError.Domain)
+    if a < 0 and b < 0 and b + 1 == 0 and a == T.MIN:
+        return Err(MathError.Overflow)
+    Ok((a // b, a % b))
+
+# Derive both outputs from one remainder, preserving the divisor's sign.
+pub def divmod_float(a: f64, b: f64) -> Result[(f64, f64), MathError]:
+    if b == 0.0 or not isfinite(a) or not isfinite(b):
+        return Err(MathError.Domain)
+    mut remainder = a.fmod(b)
+    mut divided = (a - remainder) / b
+    if remainder != 0.0:
+        if (b < 0.0) != (remainder < 0.0):
+            remainder += b
+            divided -= 1.0
+    else:
+        remainder = (0.0).copysign(b)
+    if not isfinite(divided):
+        return Err(MathError.Overflow)
+    mut quotient = divided.floor()
+    if divided - quotient > 0.5:
+        quotient += 1.0
+    if quotient == 0.0:
+        quotient = (0.0).copysign(a / b)
+    Ok((quotient, remainder))
+
 # Fixed-width integer algorithms need no runtime implementation. Division before
 # multiplication guards overflow without trapping or losing integer precision.
 pub def factorial(n: i64) -> Result[u64, MathError]:
@@ -257,6 +295,25 @@ pub def max[T](a: T, b: T) -> T:
         return b
     a
 
+# Borrow the collection; copy the selected value, retaining the first on ties.
+pub def min_all[T](items: &list[T]) -> Option[T]:
+    if len(items) == 0:
+        return Nothing
+    mut best = *&items[0]
+    for item in items:
+        if item < best:
+            best = *item
+    Some(best)
+
+pub def max_all[T](items: &list[T]) -> Option[T]:
+    if len(items) == 0:
+        return Nothing
+    mut best = *&items[0]
+    for item in items:
+        if item > best:
+            best = *item
+    Some(best)
+
 pub def sum[T](items: &list[T], start: T) -> T:
     mut total = start
     for item in items:
@@ -264,6 +321,19 @@ pub def sum[T](items: &list[T], start: T) -> T:
     total
 
 pub def prod[T](items: &list[T], start: T) -> T:
+    mut total = start
+    for item in items:
+        total *= *item
+    total
+
+# I specializes to any supported borrowed iterable with numeric elements T.
+pub def sum_iter[I, T](items: &I, start: T) -> T:
+    mut total = start
+    for item in items:
+        total += *item
+    total
+
+pub def prod_iter[I, T](items: &I, start: T) -> T:
     mut total = start
     for item in items:
         total *= *item

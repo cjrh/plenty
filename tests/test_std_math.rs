@@ -61,6 +61,111 @@ fn floating_algorithms_and_generic_helpers() {
 }
 
 #[test]
+fn round_uses_ties_to_even_and_checked_integer_bounds() {
+    let output = run(r#"    print(math.round(2.5)?)?
+    print(math.round(3.5)?)?
+    print(math.round(-2.5)?)?
+    print(math.round(-3.5)?)?
+    print(math.round(-0.0)?)?
+    print(math.round(-9223372036854775808.0)?)?
+    print(math.round(9223372036854775808.0) == Rounded.Err(math.MathError.Overflow))?
+    print(math.round(f64.INF) == Rounded.Err(math.MathError.Overflow))?
+    print(math.round(f64.NAN) == Rounded.Err(math.MathError.Domain))?
+    print((2.5f32).round())?
+    print((-3.5f32).round())?
+    print((0.0).copysign((-0.1).round()))?
+"#);
+    assert_eq!(
+        output,
+        "2\n4\n-2\n-4\n0\n-9223372036854775808\nTrue\nTrue\nTrue\n2.0\n-4.0\n-0.0\n"
+    );
+}
+
+#[test]
+fn quotient_and_remainder_agree_at_integer_edges() {
+    let output = run(r#"    print(math.divmod(7, 3)?)?
+    print(math.divmod(-7, 3)?)?
+    print(math.divmod(7, -3)?)?
+    print(math.divmod(-7, -3)?)?
+    print(math.divmod(i64.MIN, 1)?)?
+    print(math.divmod(u64.MAX, 2u64)?)?
+    print(math.divmod(-128i8, 3i8)?)?
+    print(math.divmod(255u8, 255u8)?)?
+    print(math.divmod(1, 0) == Result[(i64, i64), math.MathError].Err(math.MathError.Domain))?
+    print(math.divmod(i64.MIN, -1) == Result[(i64, i64), math.MathError].Err(math.MathError.Overflow))?
+    print(math.divmod(i8.MIN, -1i8) == Result[(i8, i8), math.MathError].Err(math.MathError.Overflow))?
+"#);
+    assert_eq!(output, "(2, 1)\n(-3, 2)\n(-3, -2)\n(2, -1)\n(-9223372036854775808, 0)\n(9223372036854775807, 1)\n(-43, 1)\n(1, 0)\nTrue\nTrue\nTrue\n");
+}
+
+#[test]
+fn floating_divmod_preserves_signs_and_recovers_errors() {
+    let output = run(r#"    print(math.divmod_float(7.5, 2.0)?)?
+    print(math.divmod_float(-7.5, 2.0)?)?
+    print(math.divmod_float(7.5, -2.0)?)?
+    print(math.divmod_float(-7.5, -2.0)?)?
+    print(math.divmod_float(1.0, 0.1)?)?
+    q, r = math.divmod_float(-0.0, 2.0)?
+    print(q.copysign(q))?
+    print(r)?
+    q2, r2 = math.divmod_float(0.0, -2.0)?
+    print(q2)?
+    print(r2)?
+    print(math.divmod_float(1.0, 0.0) == Result[(f64, f64), math.MathError].Err(math.MathError.Domain))?
+    print(math.divmod_float(f64.INF, 2.0) == Result[(f64, f64), math.MathError].Err(math.MathError.Domain))?
+    print(math.divmod_float(f64.NAN, 2.0) == Result[(f64, f64), math.MathError].Err(math.MathError.Domain))?
+    print(math.divmod_float(1e308, 1e-308) == Result[(f64, f64), math.MathError].Err(math.MathError.Overflow))?
+"#);
+    assert_eq!(output, "(3.0, 1.5)\n(-4.0, 0.5)\n(-4.0, -0.5)\n(3.0, -1.5)\n(9.0, 0.09999999999999995)\n-0.0\n0.0\n-0.0\n-0.0\nTrue\nTrue\nTrue\nTrue\n");
+}
+
+#[test]
+fn collection_extrema_and_borrowed_iterable_folds() {
+    let output = run(r#"    values = [4i16, -2, 7]?
+    print(math.min_all(&values).unwrap())?
+    print(math.max_all(&values).unwrap())?
+    empty: list[i64] = []?
+    print(math.min_all(&empty) == Option[i64].Nothing)?
+    print(math.max_all(&empty) == Option[i64].Nothing)?
+    words = ['z', 'a', 'b']?
+    print(math.min_all(&words).unwrap())?
+    print(math.max_all(&words).unwrap())?
+    zeros = [-0.0, 0.0]?
+    print(math.min_all(&zeros).unwrap())?
+    print(math.max_all(&zeros).unwrap())?
+    interval = range(1, 5)
+    print(math.sum_iter(&interval, 0))?
+    print(math.prod_iter(&interval, 1))?
+    unique = {2, 3, 4}?
+    print(math.sum_iter(&unique, 0))?
+    print(math.prod_iter(&unique, 1))?
+    mapping = {2: 'a', 3: 'b'}?
+    print(math.sum_iter(&mapping, 0))?
+    print(math.prod_iter(&mapping, 1))?
+    print(math.sum_iter(&values, 0i16))?
+    print(math.prod_iter(&empty, 7))?
+    print(len(values))?
+    print(len(unique))?
+    print(len(mapping))?
+"#);
+    assert_eq!(
+        output,
+        "-2\n7\nTrue\nTrue\na\nz\n-0.0\n-0.0\n10\n24\n9\n24\n5\n6\n9\n7\n3\n3\n2\n"
+    );
+}
+
+#[test]
+fn standard_math_constants_are_values_with_aliases() {
+    let output = run(r#"    print(math.pi == f64.PI)?
+    print(math.e == f64.E)?
+    print(math.tau == f64.TAU)?
+    print(math.isinf(math.inf))?
+    print(math.isnan(math.nan))?
+"#);
+    assert_eq!(output, "True\nTrue\nTrue\nTrue\nTrue\n");
+}
+
+#[test]
 fn recoverable_errors_and_ieee_special_values() {
     assert_eq!(
         run(
@@ -209,6 +314,15 @@ fn math_algorithms_and_error_construction_allocate_nothing() {
     choose = math.comb(67, 33)?
     integer = math.isqrt(u64.MAX)
     total = math.sum(&values, 0u64)
+    rounded = math.round(3.5)?
+    pair = math.divmod(u64.MAX, 2u64)?
+    float_pair = math.divmod_float(-7.5, 2.0)?
+    lowest = math.min_all(&values).unwrap()
+    highest = math.max_all(&values).unwrap()
+    interval = range(1, 5)
+    folded = math.sum_iter(&interval, 0)
+    product = math.prod_iter(&interval, 1)
+    constant = math.pi
     print('__test_restore_allocations__')?
     print('__test_end_no_allocations__')?
     print(root)?
@@ -218,6 +332,14 @@ fn math_algorithms_and_error_construction_allocate_nothing() {
     print(choose)?
     print(integer)?
     print(total)?
+    print(rounded)?
+    print(pair)?
+    print(float_pair)?
+    print(lowest)?
+    print(highest)?
+    print(folded)?
+    print(product)?
+    print(constant == f64.PI)?
 "#);
     let visible: Vec<_> = output
         .lines()
@@ -225,7 +347,7 @@ fn math_algorithms_and_error_construction_allocate_nothing() {
         .collect();
     assert_eq!(
         visible.join("\n"),
-        "2.0\nTrue\nTrue\nTrue\n14226520737620288370\n4294967295\n9"
+        "2.0\nTrue\nTrue\nTrue\n14226520737620288370\n4294967295\n9\n4\n(9223372036854775807, 1)\n(-4.0, 0.5)\n2\n4\n10\n24\nTrue"
     );
 }
 
