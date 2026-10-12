@@ -27,6 +27,15 @@ require rerunning object-identity checks and affected compiler performance
 comparisons. Record the dependency versions with benchmark results so results
 from different dependency graphs are not compared as if only Plenty changed.
 
+## Rust build profiles
+
+Development and release builds disable incremental compilation. Workspace
+sources (`plenty` and `plenty-runtime`) retain line tables for backtraces with
+file names and line numbers; third-party dependencies emit no debug information.
+Tests inherit the development settings, and benchmarks inherit the release
+settings. These profiles are configured in the workspace's `.cargo/config.toml`
+so they take precedence over user-wide Cargo profile settings.
+
 ## Runnable documentation
 
 `tests/test_tutorial.rs` reads tutorial and `design/examples/` pages in
