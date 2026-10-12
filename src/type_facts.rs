@@ -307,20 +307,20 @@ mod tests {
     use crate::nominal::Types;
     use crate::record::ClassType;
     use crate::sum::{option, EnumType, Variant};
-    use std::cell::OnceCell;
-    use std::rc::Rc;
+    use std::sync::Arc;
+    use std::sync::OnceLock;
 
     fn list(t: &Ty) -> Ty {
-        Ty::List(Rc::new(t.clone()))
+        Ty::List(Arc::new(t.clone()))
     }
     fn set(t: &Ty) -> Ty {
-        Ty::Set(Rc::new(t.clone()))
+        Ty::Set(Arc::new(t.clone()))
     }
     fn boxed(t: &Ty) -> Ty {
-        Ty::Box(Rc::new(t.clone()))
+        Ty::Box(Arc::new(t.clone()))
     }
     fn dict(k: &Ty, v: &Ty) -> Ty {
-        Ty::Dict(Rc::new(k.clone()), Rc::new(v.clone()))
+        Ty::Dict(Arc::new(k.clone()), Arc::new(v.clone()))
     }
     fn class(name: &str, fields: Vec<Ty>, destructor: bool) -> ClassType {
         ClassType {
@@ -332,13 +332,13 @@ mod tests {
                 .collect(),
             destructor: destructor.then(|| "__del__".into()),
             fallible_init: false,
-            bytes: OnceCell::new(),
-            managed: OnceCell::new(),
+            bytes: OnceLock::new(),
+            managed: OnceLock::new(),
         }
     }
     fn enumeration(name: &str, variants: Vec<Vec<Ty>>) -> EnumType {
         EnumType {
-            facts: OnceCell::new(),
+            facts: OnceLock::new(),
             restricted_storage: false,
             name: name.into(),
             variants: variants
@@ -350,11 +350,11 @@ mod tests {
                 })
                 .collect(),
             managed: true,
-            managed_fields: OnceCell::new(),
+            managed_fields: OnceLock::new(),
             inline_range: false,
-            payload_bytes: OnceCell::new(),
-            by_name: OnceCell::new(),
-            storage: OnceCell::new(),
+            payload_bytes: OnceLock::new(),
+            by_name: OnceLock::new(),
+            storage: OnceLock::new(),
         }
     }
 
@@ -382,20 +382,20 @@ mod tests {
             Ty::Executor,
             Ty::CancellationToken,
             Ty::ForeignPtr("handle".into()),
-            Ty::Range(Rc::new(Ty::I64)),
-            Ty::Ref(Rc::new(Ty::I64), false),
-            Ty::Channel(Rc::new(Ty::I64), true),
-            Ty::Future(Rc::new(Ty::I64)),
-            Ty::Callable(Rc::new(signature.clone())),
-            Ty::BoxedCallable(Rc::new(signature)),
-            Ty::Closure(Rc::new(closure)),
-            Ty::Generator(Rc::new(crate::generator::GeneratorType {
+            Ty::Range(Arc::new(Ty::I64)),
+            Ty::Ref(Arc::new(Ty::I64), false),
+            Ty::Channel(Arc::new(Ty::I64), true),
+            Ty::Future(Arc::new(Ty::I64)),
+            Ty::Callable(Arc::new(signature.clone())),
+            Ty::BoxedCallable(Arc::new(signature)),
+            Ty::Closure(Arc::new(closure)),
+            Ty::Generator(Arc::new(crate::generator::GeneratorType {
                 element: list(&Ty::I64),
                 name: Some("frame".into()),
-                slots: OnceCell::new(),
-                bytes: OnceCell::new(),
+                slots: OnceLock::new(),
+                bytes: OnceLock::new(),
             })),
-            Ty::Task(Rc::new(crate::threading::Task {
+            Ty::Task(Arc::new(crate::threading::Task {
                 adapter: "adapter".into(),
                 worker: "worker".into(),
                 closure: None,
@@ -407,7 +407,7 @@ mod tests {
 
     /// Plain, destructor-bearing, recursive, mutually recursive, infinite, and
     /// incomplete declarations. `Pending` is reserved but never defined.
-    fn nominals(owner: &Rc<Types>) -> Vec<Ty> {
+    fn nominals(owner: &Arc<Types>) -> Vec<Ty> {
         let leaf = leaves();
         let point = owner.class("Point");
         point.define(class("Point", vec![Ty::I64, Ty::I64], false));
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn owner_facts_equal_a_walk_from_the_owner() {
-        let owner = Rc::new(Types::default());
+        let owner = Arc::new(Types::default());
         let nominal = nominals(&owner);
         for ty in &nominal {
             assert_eq!(ty.facts(), ty.walk(), "{ty:?}");
@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn nested_and_recursive_owner_facts() {
-        let owner = Rc::new(Types::default());
+        let owner = Arc::new(Types::default());
         let nominal = nominals(&owner);
         let find = |name: &str| {
             nominal
@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn owner_facts_follow_later_definitions() {
-        let owner = Rc::new(Types::default());
+        let owner = Arc::new(Types::default());
         let (left, right) = (owner.class("Left"), owner.class("Right"));
         left.define(class("Left", vec![list(&Ty::Class(right.clone()))], false));
         let ty = dict(&Ty::Str, &list(&Ty::Class(left.clone())));

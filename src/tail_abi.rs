@@ -5,7 +5,7 @@ use cranelift_codegen::ir::{types, Type};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResultArea {
@@ -122,7 +122,7 @@ pub(crate) fn classify(caller: &FnSig, callee: &FnSig) -> Result<TailCallPlan, T
 /// body was a quarter of the compiler's peak memory (issue #54).
 pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
     /// Keys and signatures borrow from `ops`: nothing is copied per function.
-    type Sigs<'a> = HashMap<&'a str, &'a Rc<FnSig>>;
+    type Sigs<'a> = HashMap<&'a str, &'a Arc<FnSig>>;
     fn collect<'a>(ops: &'a [Op], sigs: &mut Sigs<'a>) {
         for op in ops {
             match op {
@@ -157,17 +157,17 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
     }
     /// The rewritten nested body, or the shared original when nothing changed.
     fn shared(
-        nested: &Rc<[Op]>,
+        nested: &Arc<[Op]>,
         caller: Option<&CompiledFn>,
         sigs: &Sigs<'_>,
         changed: &mut bool,
-    ) -> Rc<[Op]> {
+    ) -> Arc<[Op]> {
         match body(nested, caller, sigs) {
             Some(rewritten) => {
                 *changed = true;
                 rewritten.into()
             }
-            None => Rc::clone(nested),
+            None => Arc::clone(nested),
         }
     }
     /// `None` means that no operation in `ops` changes. The result starts as a
@@ -183,7 +183,7 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
                     Op::DefineFn(name.clone(), f)
                 }),
                 Op::Match(arms) => {
-                    let rewritten: Rc<[MatchArm]> = arms
+                    let rewritten: Arc<[MatchArm]> = arms
                         .iter()
                         .map(|arm| MatchArm {
                             pattern: arm.pattern,
@@ -223,8 +223,8 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
                 _ => None,
             };
             let callee = match op {
-                Op::TailCall(name) => sigs.get(name.as_str()).map(|sig| Rc::clone(sig)),
-                Op::TailCallIndirect(sig) => Some(Rc::new(sig.function())),
+                Op::TailCall(name) => sigs.get(name.as_str()).map(|sig| Arc::clone(sig)),
+                Op::TailCallIndirect(sig) => Some(Arc::new(sig.function())),
                 _ => None,
             };
             if let (Some(caller), Some(callee)) = (caller, callee) {
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn result_plan_records_capacity_alignment_offsets_and_every_native_component() {
-        let range = Ty::Range(Rc::new(Ty::I64));
+        let range = Ty::Range(Arc::new(Ty::I64));
         let caller = sig(vec![], vec![Ty::I8, range.clone(), Ty::F64, range.clone()]);
         let callee = sig(vec![Ty::I64; 20], caller.outputs.clone());
         let plan = classify(&caller, &callee).unwrap();
@@ -323,10 +323,10 @@ mod tests {
 
     #[test]
     fn external_reference_layout_is_independent_of_owned_referent_layout() {
-        let range = Ty::Range(Rc::new(Ty::I64));
+        let range = Ty::Range(Arc::new(Ty::I64));
         let caller = sig(vec![], vec![Ty::I64]);
         let borrowed = sig(
-            vec![Ty::Ref(Rc::new(range.clone()), false)],
+            vec![Ty::Ref(Arc::new(range.clone()), false)],
             caller.outputs.clone(),
         );
         assert_eq!(
@@ -439,7 +439,7 @@ mod tests {
         let prepared = prepare(&program.ops);
         for (name, shared) in [("result", true), ("consume", true), ("fallback", false)] {
             assert_eq!(
-                Rc::ptr_eq(&body(&prepared, name), &body(&program.ops, name)),
+                Arc::ptr_eq(&body(&prepared, name), &body(&program.ops, name)),
                 shared,
                 "{name}"
             );

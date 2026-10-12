@@ -65,7 +65,7 @@ pub(super) fn emit_adapters(
             let reference = lower.bcx.ins().uextend(types::I128, shared);
             lower.stack.push((
                 reference,
-                Ty::Ref(Rc::new(Ty::Closure(closure.clone())), false),
+                Ty::Ref(Arc::new(Ty::Closure(closure.clone())), false),
             ));
             lower.stack.push((value, job.input.clone()));
             lower.lower_closure_call(closure)?;
@@ -76,7 +76,7 @@ pub(super) fn emit_adapters(
                 let reference = lower.bcx.ins().uextend(types::I128, input);
                 lower.stack.push((
                     reference,
-                    Ty::Ref(Rc::new(job.input.clone()), closure.mutable),
+                    Ty::Ref(Arc::new(job.input.clone()), closure.mutable),
                 ));
             }
             lower.lower_closure_call(closure)?;

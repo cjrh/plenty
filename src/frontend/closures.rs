@@ -48,7 +48,7 @@ impl Lower<'_> {
             let parameter = if function.once || capture.borrowed {
                 ty.clone()
             } else {
-                Ty::Ref(Rc::new(ty.clone()), capture.mutable)
+                Ty::Ref(Arc::new(ty.clone()), capture.mutable)
             };
             hidden.push((
                 capture.name.clone(),
@@ -76,7 +76,7 @@ impl Lower<'_> {
         if matches!(signature.output, Some(Ty::Ref(..))) || generators::yields(&function.body) {
             return Err(at.error("capturing closures cannot return references or yield yet"));
         }
-        let closure = Rc::new(
+        let closure = Arc::new(
             ClosureType::new(
                 function.name.clone(),
                 Some(at.location().into()),
@@ -106,7 +106,7 @@ impl Lower<'_> {
         &mut self,
         callee: &Expr,
         args: &[Expr],
-        closure: Rc<ClosureType>,
+        closure: Arc<ClosureType>,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if closure.once {
@@ -140,7 +140,7 @@ impl Lower<'_> {
         &mut self,
         at: &Token,
         args: &[Expr],
-        closure: Rc<ClosureType>,
+        closure: Arc<ClosureType>,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if closure.once {
@@ -164,7 +164,7 @@ impl Lower<'_> {
     fn consume_closure(
         &mut self,
         args: &[Expr],
-        closure: Rc<ClosureType>,
+        closure: Arc<ClosureType>,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
@@ -183,7 +183,7 @@ impl Lower<'_> {
     fn closure_arguments(
         &mut self,
         args: &[Expr],
-        closure: Rc<ClosureType>,
+        closure: Arc<ClosureType>,
         loan: usize,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {

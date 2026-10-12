@@ -1,6 +1,6 @@
 //! Typed bounded-channel operations. Endpoint sharing is explicit; messages move.
 use crate::op::Ty;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChannelOp {
@@ -26,32 +26,32 @@ impl ChannelOp {
                 vec![Ty::U64],
                 crate::sum::result(
                     crate::sum::tuple(vec![
-                        Ty::Channel(Rc::new(t.clone()), true),
-                        Ty::Channel(Rc::new(t.clone()), false),
+                        Ty::Channel(Arc::new(t.clone()), true),
+                        Ty::Channel(Arc::new(t.clone()), false),
                     ]),
                     crate::sum::channel_error(),
                 ),
             ),
             Self::Send(t, _) => (
-                vec![Ty::Channel(Rc::new(t.clone()), true), t.clone()],
+                vec![Ty::Channel(Arc::new(t.clone()), true), t.clone()],
                 crate::sum::result(Ty::Unit, crate::sum::send_error(t.clone())),
             ),
             Self::Recv(t, _) => (
-                vec![Ty::Channel(Rc::new(t.clone()), false)],
+                vec![Ty::Channel(Arc::new(t.clone()), false)],
                 crate::sum::result(t.clone(), crate::sum::recv_error()),
             ),
             Self::SendTimeout(t) => (
-                vec![Ty::Channel(Rc::new(t.clone()), true), t.clone(), Ty::U64],
+                vec![Ty::Channel(Arc::new(t.clone()), true), t.clone(), Ty::U64],
                 crate::sum::result(Ty::Unit, crate::sum::send_timeout_error(t.clone())),
             ),
             Self::RecvTimeout(t) => (
-                vec![Ty::Channel(Rc::new(t.clone()), false), Ty::U64],
+                vec![Ty::Channel(Arc::new(t.clone()), false), Ty::U64],
                 crate::sum::result(t.clone(), crate::sum::recv_timeout_error()),
             ),
             Self::Select(first, second, mode) => {
                 let mut inputs = vec![
-                    Ty::Channel(Rc::new(Ty::clone(first)), false),
-                    Ty::Channel(Rc::new(Ty::clone(second)), false),
+                    Ty::Channel(Arc::new(Ty::clone(first)), false),
+                    Ty::Channel(Arc::new(Ty::clone(second)), false),
                 ];
                 if *mode == SelectMode::Timeout {
                     inputs.push(Ty::U64);

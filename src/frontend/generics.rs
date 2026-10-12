@@ -132,7 +132,7 @@ pub(super) fn prepare(
                 return Err(f.at.error("main cannot have type parameters"));
             }
             engine.validate_template(&f, aliases)?;
-            engine.templates.insert(f.name.clone(), Rc::new(f));
+            engine.templates.insert(f.name.clone(), Arc::new(f));
         }
     }
     Ok(engine)
@@ -141,9 +141,9 @@ pub(super) fn prepare(
 pub(super) struct Engine {
     protocols: HashMap<String, protocols::Protocol>,
     pub(super) methods: HashMap<String, (Vec<Ty>, Type)>,
-    pub(super) templates: HashMap<String, Rc<Function>>,
+    pub(super) templates: HashMap<String, Arc<Function>>,
     cache: HashMap<(String, Vec<Ty>), String>,
-    pub(super) pending: VecDeque<Rc<Function>>,
+    pub(super) pending: VecDeque<Arc<Function>>,
     pub(super) functions: HashMap<String, Declared>,
     pub(super) compiled: Vec<Op>,
     pub(super) tail_candidates: HashMap<String, Vec<tail_calls::Candidate>>,
@@ -152,7 +152,7 @@ pub(super) struct Engine {
     pub(super) frames: HashMap<(String, Vec<Ty>), String>,
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
-    pub(super) required: HashMap<String, Rc<Instantiation>>,
+    pub(super) required: HashMap<String, Arc<Instantiation>>,
     pub(super) source_root: Option<std::path::PathBuf>,
 }
 
@@ -164,24 +164,24 @@ pub(super) struct Declared {
     /// ahead of the queue, or copied under a frame symbol, through this handle.
     /// It is `None` once the function is lowered: its syntax tree is released
     /// then, not at the end of the program (issue #54).
-    pub(super) function: Option<Rc<Function>>,
+    pub(super) function: Option<Arc<Function>>,
 }
 
 impl Engine {
     /// Adds a concrete function to the table without queueing it.
-    pub(super) fn record(&mut self, f: &Rc<Function>) {
+    pub(super) fn record(&mut self, f: &Arc<Function>) {
         self.functions.insert(
             f.name.clone(),
             Declared {
                 yields: generators::yields(&f.body),
-                function: Some(Rc::clone(f)),
+                function: Some(Arc::clone(f)),
             },
         );
     }
 
     /// Adds a concrete function to the table and to the lowering queue.
     pub(super) fn declare(&mut self, f: Function) {
-        let f = Rc::new(f);
+        let f = Arc::new(f);
         self.record(&f);
         self.pending.push_back(f);
     }
@@ -198,12 +198,12 @@ impl Engine {
     }
 
     /// `source` relative to the source root; unchanged without a root.
-    pub(super) fn trap_file(&self, source: &Rc<str>) -> Rc<str> {
+    pub(super) fn trap_file(&self, source: &Arc<str>) -> Arc<str> {
         self.source_root
             .as_deref()
             .and_then(|root| std::path::Path::new(&**source).strip_prefix(root).ok())
             .map_or_else(
-                || Rc::clone(source),
+                || Arc::clone(source),
                 |relative| relative.to_string_lossy().as_ref().into(),
             )
     }
@@ -427,7 +427,7 @@ fn infer_callable_bounds(
             };
             infer(
                 &callable_pattern(bound),
-                &Ty::Callable(Rc::new(signature)),
+                &Ty::Callable(Arc::new(signature)),
                 template,
                 inferred,
                 aliases,
@@ -484,8 +484,8 @@ impl Lower<'_> {
                 .instantiate(name, actual, at, self.aliases, self.access)?;
         if let Some(f) = function {
             let instance = self.generics.diagnostic_name(&symbol);
-            let instance: Rc<str> = crate::record::method_display(&instance).into();
-            let required = Rc::new(match self.generics.required.get(&self.function_name) {
+            let instance: Arc<str> = crate::record::method_display(&instance).into();
+            let required = Arc::new(match self.generics.required.get(&self.function_name) {
                 Some(outer) => Instantiation {
                     instance,
                     ..(**outer).clone()
@@ -507,7 +507,7 @@ impl Lower<'_> {
             let registered = register_signature(&f, self.aliases, self.sigs, self.returned_fields);
             self.aliases.data.attribute(outer);
             registered?;
-            let f = Rc::new(f);
+            let f = Arc::new(f);
             self.generics.record(&f);
             if !self.sigs[&f.name]
                 .inputs

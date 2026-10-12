@@ -2,6 +2,7 @@
 //! declaration shape below once copied a whole-program table per declaration
 //! (issue #53). The arms of one `if` must cost the same each (issue #70).
 
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 fn fastest(source: &str) -> Duration {
@@ -29,10 +30,17 @@ fn assert_linear(shape: &str, unit: impl Fn(usize) -> String) {
     assert_linear_sources(shape, |units| program(units, &unit));
 }
 
+/// Checking uses every core, so a measurement that overlaps another is slowed
+/// by an amount that depends on what the other is checking.
+static MEASURING: Mutex<()> = Mutex::new(());
+
 fn assert_linear_sources(shape: &str, source: impl Fn(usize) -> String) {
     const UNITS: usize = 1500;
-    let small = fastest(&source(UNITS));
-    let large = fastest(&source(UNITS * 4));
+    let (small, large) = (source(UNITS), source(UNITS * 4));
+    let measuring = MEASURING.lock().unwrap_or_else(PoisonError::into_inner);
+    let small = fastest(&small);
+    let large = fastest(&large);
+    drop(measuring);
     assert!(
         large < small * 8,
         "{shape}: {UNITS} units took {small:?}, {} took {large:?}",

@@ -1,6 +1,6 @@
 //! Checked executor operations and statically certified job adapters.
 use crate::op::Ty;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Job {
@@ -8,17 +8,17 @@ pub struct Job {
     pub worker: String,
     pub input: Ty,
     pub output: Ty,
-    pub closure: Option<Rc<crate::closure::ClosureType>>,
+    pub closure: Option<Arc<crate::closure::ClosureType>>,
     /// One caller-owned immutable environment shared until the map drains.
-    pub shared: Option<Rc<crate::closure::ClosureType>>,
+    pub shared: Option<Arc<crate::closure::ClosureType>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExecutorOp {
     New,
-    Submit(Rc<Job>, bool),
-    Map(Rc<Job>, Ty, bool),
-    Reduce(Rc<Job>, Ty),
+    Submit(Arc<Job>, bool),
+    Map(Arc<Job>, Ty, bool),
+    Reduce(Arc<Job>, Ty),
     Result(Ty),
     Done(Ty),
     Cancel(Ty),
@@ -36,7 +36,7 @@ impl ExecutorOp {
             Self::Submit(job, _) => (
                 vec![Ty::Executor, job.input.clone()],
                 crate::sum::result(
-                    Ty::Future(Rc::new(job.output.clone())),
+                    Ty::Future(Arc::new(job.output.clone())),
                     crate::sum::submit_error(job.input.clone()),
                 ),
             ),
@@ -50,12 +50,12 @@ impl ExecutorOp {
                         unreachable!()
                     };
                     crate::sum::result(
-                        Ty::List(Rc::new(result.get().variants[0].fields[0].clone())),
+                        Ty::List(Arc::new(result.get().variants[0].fields[0].clone())),
                         crate::sum::parallel_error(result.get().variants[1].fields[0].clone()),
                     )
                 } else {
                     crate::sum::result(
-                        Ty::List(Rc::new(job.output.clone())),
+                        Ty::List(Arc::new(job.output.clone())),
                         crate::sum::pool_map_error(),
                     )
                 },
@@ -68,11 +68,11 @@ impl ExecutorOp {
                 ),
             ),
             Self::Result(t) => (
-                vec![Ty::Future(Rc::new(t.clone()))],
+                vec![Ty::Future(Arc::new(t.clone()))],
                 crate::sum::result(t.clone(), crate::sum::future_error()),
             ),
-            Self::Done(t) | Self::Cancel(t) => (vec![Ty::Future(Rc::new(t.clone()))], Ty::Bool),
-            Self::WaitTimeout(t) => (vec![Ty::Future(Rc::new(t.clone())), Ty::U64], Ty::Bool),
+            Self::Done(t) | Self::Cancel(t) => (vec![Ty::Future(Arc::new(t.clone()))], Ty::Bool),
+            Self::WaitTimeout(t) => (vec![Ty::Future(Arc::new(t.clone())), Ty::U64], Ty::Bool),
             Self::Shutdown => (vec![Ty::Executor, Ty::Bool], Ty::Unit),
         }
     }
@@ -92,7 +92,7 @@ impl ExecutorOp {
         }
     }
 
-    pub fn job(&self) -> Option<&Rc<Job>> {
+    pub fn job(&self) -> Option<&Arc<Job>> {
         match self {
             Self::Submit(job, _) | Self::Map(job, ..) | Self::Reduce(job, _) => Some(job),
             _ => None,

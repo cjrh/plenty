@@ -14,6 +14,16 @@ compiles batches of fixed IR size on all available cores. Definitions enter the
 object in build order, preserving byte-for-byte output across core counts. There
 is no worker-count flag. Tests compare one, two, and eight workers.
 
+Building IR declares symbols in the object as it meets them: type descriptors,
+trap-site records, foreign imports. Their order decides the object's bytes, so
+building stays on one thread. It is about 7% of emission's CPU time, and the
+building thread compiles too whenever a batch is ready before the previous one
+is done, so building limits emission only above roughly fourteen cores
+(measurement below).
+
+The worker count is the number of processors the process may run on. Restricting
+its CPU affinity, for example with `taskset`, restricts the workers.
+
 A function's operations are released once its IR is built, and the object is
 written to its file one section at a time. Emission therefore holds neither
 every function's operations nor a second copy of the object (issue #54).
@@ -52,6 +62,31 @@ units / 39,003 lines from 3.25 s to 0.87 s, and object emission of 5,000
 units / 195,003 lines from 16.9 s to 4.35 s (2.6 s checking). With one core the
 latter took 13.2 s, isolating verifier removal. These are workload
 measurements, not general latency guarantees.
+
+The 2026-10-12 release measurement used the same machine restricted to its
+eight physical cores, and 5,000 units / 195,003 lines. Checking function bodies
+on all cores reduced the independent check from 0.48 s to 0.09 s and `--check`
+from 1.81 s to 1.44 s (five runs each). Object emission then spends, in seconds:
+
+| Phase | Threads | Time |
+|---|---|---|
+| Parsing and name resolution | 1 | 0.31 |
+| Type resolution, class expansion, generic preparation, signatures | 1 | 0.35 |
+| Lowering bodies to operations | 1 | 0.41 |
+| Layout, operation validation, rest of the frontend | 1 | 0.13 |
+| Independent check | 8 | 0.09 |
+| Tail-call preparation; declaring functions, strings, adapters | 1 | 0.19 |
+| Building IR and compiling it | 8 | 2.1 |
+| Serializing and writing the object | 1 | 0.22 |
+
+On one core, building IR takes 0.95 s and compiling it 13.1 s. On eight, the
+compile step holds every core: the main thread spends 0.05 s defining compiled
+functions and otherwise builds IR or compiles.
+
+With all 16 hardware threads the same emission took 9.9 s, against 4.2 s on
+the eight cores. The instruction count was the same; above about ten busy
+threads this machine ran at 1.1 GHz instead of 3.9 GHz. Measure on a fixed set
+of cores, for example `taskset -c 0,2,4,6,8,10,12,14`.
 
 Report build mode, machine, input size, repetitions, and included phases with
 new results. Measure checking, IR construction, native emission, runtime

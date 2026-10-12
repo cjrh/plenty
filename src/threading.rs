@@ -1,13 +1,13 @@
 //! Closed-world worker eligibility and the compiler-owned scoped task contract.
 use crate::op::{CompiledFn, Op, Ty};
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Task {
     pub adapter: String,
     pub worker: String,
-    pub closure: Option<Rc<crate::closure::ClosureType>>,
+    pub closure: Option<Arc<crate::closure::ClosureType>>,
     pub inputs: Vec<Ty>,
     pub output: Ty,
 }
@@ -43,9 +43,9 @@ impl Task {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ThreadOp {
-    Start(Rc<Task>, u8),
-    Join(Rc<Task>),
-    Finish(Rc<Task>, u8),
+    Start(Arc<Task>, u8),
+    Join(Arc<Task>),
+    Finish(Arc<Task>, u8),
 }
 
 /// Inspect each reachable body and stored type once. Cycles through recursive

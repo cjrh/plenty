@@ -102,7 +102,7 @@ impl Lower<'_> {
             Ty::Callable(sig) => sig.clone(),
             Ty::Closure(t) if t.once => return Err(at.error("BoxedCallable requires a reusable callback; one-shot closures cannot be erased yet")),
             Ty::Closure(t) if t.mutable => return Err(at.error("BoxedCallable requires a shared-call callback; mutable closures cannot be erased yet")),
-            Ty::Closure(t) => Rc::new(t.signature.clone()),
+            Ty::Closure(t) => Arc::new(t.signature.clone()),
             _ => return Err(at.error("BoxedCallable requires an owned Callable or closure")),
         };
         if matches!(signature.output, Some(Ty::Ref(..))) {
@@ -123,10 +123,10 @@ impl Lower<'_> {
                 0,
                 (
                     "environment".into(),
-                    Ty::Ref(Rc::new(source.clone()), false),
+                    Ty::Ref(Arc::new(source.clone()), false),
                 ),
             );
-            let adapted = Rc::new(adapted);
+            let adapted = Arc::new(adapted);
             let mut body = vec![Op::LoadLocal(0)];
             if matches!(source, Ty::Callable(_)) {
                 body.push(Op::ReadRef(source.clone()));
@@ -148,12 +148,12 @@ impl Lower<'_> {
                 adapter.clone(),
                 Box::new(CompiledFn {
                     location: Some(at.location().into()),
-                    origins: Rc::default(),
+                    origins: Arc::default(),
                     generator: None,
                     sig: adapted,
                     doc: "".into(),
                     body: body.into(),
-                    locals: Rc::default(),
+                    locals: Arc::default(),
                 }),
             ));
         }
@@ -168,7 +168,7 @@ impl Lower<'_> {
     fn boxed_callable_arguments(
         &mut self,
         args: &[Expr],
-        signature: Rc<CallableSig>,
+        signature: Arc<CallableSig>,
         loan: usize,
         at: &Token,
         ops: &mut Vec<Op>,
@@ -194,7 +194,7 @@ impl Lower<'_> {
             Expression::Name(name) => self.names.get(name).map(|l| l.ty.clone()).or_else(|| {
                 self.sigs
                     .get(name)
-                    .map(|sig| Ty::Callable(Rc::new(CallableSig::from_function(sig))))
+                    .map(|sig| Ty::Callable(Arc::new(CallableSig::from_function(sig))))
             }),
             Expression::Call(name, _) => {
                 if name == "CancellationToken" {
@@ -307,7 +307,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         self.ensure_concrete_output(name, at)?;
-        let sig = Rc::new(CallableSig::from_function(&self.sigs[name]));
+        let sig = Arc::new(CallableSig::from_function(&self.sigs[name]));
         validate(&sig, at)?;
         ops.push(Op::FunctionAddress(name.into(), sig.clone()));
         Ok(Ty::Callable(sig))

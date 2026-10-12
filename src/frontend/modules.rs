@@ -54,7 +54,7 @@ struct Module {
 }
 
 pub(super) struct Access {
-    owner: Option<Rc<str>>,
+    owner: Option<Arc<str>>,
     public: bool,
 }
 
@@ -222,7 +222,7 @@ fn parse_buffered(
         }
     };
     let mut lexer = Lexer::new(source);
-    let mut parser = Parser::new(path.map(|p| Rc::<str>::from(p.to_string_lossy().as_ref())));
+    let mut parser = Parser::new(path.map(|p| Arc::<str>::from(p.to_string_lossy().as_ref())));
     let parsed = parse_items(&mut parser, &mut lexer, path, name, lookahead, &located);
     if parser.starved.get() {
         return Ok(None);
@@ -573,9 +573,9 @@ struct Scope {
     module: String,
     // Module-wide tables are shared: every function, class, and closure gets
     // its own scope, and copying these per scope is quadratic (issue #53).
-    symbols: Rc<HashMap<String, String>>,
-    namespaces: Rc<HashMap<String, Rc<HashMap<String, String>>>>,
-    constants: Rc<HashMap<String, String>>,
+    symbols: Arc<HashMap<String, String>>,
+    namespaces: Arc<HashMap<String, Arc<HashMap<String, String>>>>,
+    constants: Arc<HashMap<String, String>>,
     type_params: HashSet<String>,
 }
 
@@ -1022,7 +1022,7 @@ fn resolve(
     at: Token,
     require_main: bool,
 ) -> Result<Resolved> {
-    let constants: Rc<HashMap<String, String>> = Rc::new(
+    let constants: Arc<HashMap<String, String>> = Arc::new(
         modules
             .iter()
             .flat_map(|m| {
@@ -1033,10 +1033,10 @@ fn resolve(
             })
             .collect(),
     );
-    let exports: Vec<Rc<HashMap<String, String>>> = modules
+    let exports: Vec<Arc<HashMap<String, String>>> = modules
         .iter()
         .map(|m| {
-            Rc::new(
+            Arc::new(
                 m.exports
                     .iter()
                     .map(|n| (n.clone(), qualified(&m.name, n)))
@@ -1063,13 +1063,13 @@ fn resolve(
             uncaptured: HashSet::new(),
             type_params: HashSet::new(),
             module: m.name.clone(),
-            symbols: Rc::new(
+            symbols: Arc::new(
                 m.names()
                     .into_iter()
                     .map(|n| (n.clone(), qualified(&m.name, &n)))
                     .collect(),
             ),
-            namespaces: Rc::default(),
+            namespaces: Arc::default(),
             constants: constants.clone(),
         };
         for (import, dependency) in m.imports.iter().zip(&dependencies[i]) {
@@ -1093,9 +1093,9 @@ fn resolve(
                         import.module
                     ))
                 })?;
-                Rc::make_mut(&mut scope.symbols).insert(import.binding.clone(), name.clone());
+                Arc::make_mut(&mut scope.symbols).insert(import.binding.clone(), name.clone());
             } else {
-                Rc::make_mut(&mut scope.namespaces)
+                Arc::make_mut(&mut scope.namespaces)
                     .insert(import.binding.clone(), exports[*dependency].clone());
             }
         }

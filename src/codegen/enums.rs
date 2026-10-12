@@ -510,7 +510,7 @@ impl Lowerer<'_, '_> {
             BoxOp::New(t) => {
                 // The runtime moves the value into the box, or drops it on failure.
                 let value = self.pack(operand, t);
-                let boxed = Ty::Box(std::rc::Rc::new(t.clone()));
+                let boxed = Ty::Box(std::sync::Arc::new(t.clone()));
                 self.collection_call(119, &[value], Some(&boxed))?
             }
             BoxOp::Take(t) => {

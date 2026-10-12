@@ -1,7 +1,7 @@
 //! Concrete nominal sum types and their checked operations.
 use crate::op::Ty;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Structural sums keep concrete producer symbols in nominal identity while
 /// their display spelling describes the same payloads using source origins.
@@ -12,7 +12,7 @@ fn structural(mut ty: EnumType, identity: String) -> Ty {
 
 #[derive(Clone, Debug)]
 pub struct EnumType {
-    pub facts: std::cell::OnceCell<crate::type_facts::Facts>,
+    pub facts: std::sync::OnceLock<crate::type_facts::Facts>,
     pub restricted_storage: bool,
     // Names are unique within a compilation; builtin names include concrete args.
     pub name: String,
@@ -20,16 +20,16 @@ pub struct EnumType {
     /// False only when no payload can need cleanup; see `Ty::managed`.
     pub managed: bool,
     /// Whether some payload actually needs cleanup; excluded from equality.
-    pub managed_fields: std::cell::OnceCell<bool>,
+    pub managed_fields: std::sync::OnceLock<bool>,
     pub inline_range: bool,
     /// Layout cache, excluded from nominal type equality and hashing.
-    pub payload_bytes: std::cell::OnceCell<usize>,
+    pub payload_bytes: std::sync::OnceLock<usize>,
     /// Whether any variant keeps owner-local storage; excluded from equality.
-    pub storage: std::cell::OnceCell<bool>,
+    pub storage: std::sync::OnceLock<bool>,
     /// Tags ordered by variant name, built by the first `tag` lookup in a
     /// large enum; excluded from equality. The variants must not change after
     /// that lookup.
-    pub by_name: std::cell::OnceCell<Vec<usize>>,
+    pub by_name: std::sync::OnceLock<Vec<usize>>,
 }
 
 /// Enums up to this size are searched in declaration order, so the builtin
@@ -107,13 +107,13 @@ pub fn failure() -> Ty {
             name: "Unspecified".into(),
             fields: vec![],
         }],
-        facts: std::cell::OnceCell::new(),
+        facts: std::sync::OnceLock::new(),
         managed: false,
         inline_range: false,
-        payload_bytes: std::cell::OnceCell::new(),
-        by_name: std::cell::OnceCell::new(),
-        storage: std::cell::OnceCell::new(),
-        managed_fields: std::cell::OnceCell::new(),
+        payload_bytes: std::sync::OnceLock::new(),
+        by_name: std::sync::OnceLock::new(),
+        storage: std::sync::OnceLock::new(),
+        managed_fields: std::sync::OnceLock::new(),
     }))
 }
 
@@ -129,13 +129,13 @@ pub fn alloc_error() -> Ty {
                 fields: vec![],
             })
             .collect(),
-        facts: std::cell::OnceCell::new(),
+        facts: std::sync::OnceLock::new(),
         managed: false,
         inline_range: false,
-        payload_bytes: std::cell::OnceCell::new(),
-        by_name: std::cell::OnceCell::new(),
-        storage: std::cell::OnceCell::new(),
-        managed_fields: std::cell::OnceCell::new(),
+        payload_bytes: std::sync::OnceLock::new(),
+        by_name: std::sync::OnceLock::new(),
+        storage: std::sync::OnceLock::new(),
+        managed_fields: std::sync::OnceLock::new(),
     }))
 }
 
@@ -149,7 +149,7 @@ pub fn thread_error() -> Ty {
         unreachable!()
     };
     let mut ty = (*template.get()).clone();
-    ty.facts = std::cell::OnceCell::new();
+    ty.facts = std::sync::OnceLock::new();
     ty.name = "ThreadError".into();
     ty.variants = vec![Variant {
         name: "System".into(),
@@ -364,7 +364,7 @@ pub fn load_error() -> Ty {
         unreachable!()
     };
     let mut ty = (*template.get()).clone();
-    ty.facts = std::cell::OnceCell::new();
+    ty.facts = std::sync::OnceLock::new();
     ty.name = "LoadError".into();
     ty.variants = [
         "OutOfMemory",
@@ -389,7 +389,7 @@ pub fn data_error() -> Ty {
         unreachable!()
     };
     let mut ty = (*template.get()).clone();
-    ty.facts = std::cell::OnceCell::new();
+    ty.facts = std::sync::OnceLock::new();
     ty.name = "DataError".into();
     ty.variants[0] = Variant {
         name: "InvalidUtf8".into(),
@@ -405,7 +405,7 @@ pub fn c_str_error() -> Ty {
         unreachable!()
     };
     let mut ty = (*template.get()).clone();
-    ty.facts = std::cell::OnceCell::new();
+    ty.facts = std::sync::OnceLock::new();
     ty.name = "CStrError".into();
     ty.variants[0].name = "EmbeddedNul".into();
     Ty::Enum(crate::nominal::Nominal::new(ty))
@@ -420,7 +420,7 @@ pub fn io_error() -> Ty {
         unreachable!()
     };
     let mut ty = (*template.get()).clone();
-    ty.facts = std::cell::OnceCell::new();
+    ty.facts = std::sync::OnceLock::new();
     ty.name = "IoError".into();
     ty.variants[0].name = "System".into();
     ty.variants[1].name = "Data".into();
@@ -447,7 +447,7 @@ pub fn parse_error() -> Ty {
         unreachable!()
     };
     let mut ty = (*template.get()).clone();
-    ty.facts = std::cell::OnceCell::new();
+    ty.facts = std::sync::OnceLock::new();
     ty.name = "ParseError".into();
     ty.variants[0].name = "Invalid".into();
     ty.variants[1].name = "OutOfRange".into();
@@ -491,14 +491,14 @@ pub fn tuple(fields: Vec<Ty>) -> Ty {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            facts: std::cell::OnceCell::new(),
+            facts: std::sync::OnceLock::new(),
             restricted_storage: fields.iter().any(|t| !t.heap_storable()),
             managed: true,
             inline_range: false,
-            payload_bytes: std::cell::OnceCell::new(),
-            by_name: std::cell::OnceCell::new(),
-            storage: std::cell::OnceCell::new(),
-            managed_fields: std::cell::OnceCell::new(),
+            payload_bytes: std::sync::OnceLock::new(),
+            by_name: std::sync::OnceLock::new(),
+            storage: std::sync::OnceLock::new(),
+            managed_fields: std::sync::OnceLock::new(),
             variants: vec![Variant {
                 name: String::new(),
                 fields,
@@ -514,15 +514,15 @@ pub fn option(element: Ty) -> Ty {
         EnumType {
             restricted_storage: element.restricted_storage(),
             name: format!("Option[{element}]"),
-            facts: std::cell::OnceCell::new(),
+            facts: std::sync::OnceLock::new(),
             // Payloads may be forward nominal definitions during alias
             // resolution. Query actual cleanup lazily after finalization.
             managed: true,
             inline_range: element.has_inline_range(),
-            payload_bytes: std::cell::OnceCell::new(),
-            by_name: std::cell::OnceCell::new(),
-            storage: std::cell::OnceCell::new(),
-            managed_fields: std::cell::OnceCell::new(),
+            payload_bytes: std::sync::OnceLock::new(),
+            by_name: std::sync::OnceLock::new(),
+            storage: std::sync::OnceLock::new(),
+            managed_fields: std::sync::OnceLock::new(),
             variants: vec![
                 Variant {
                     name: "Nothing".into(),
@@ -543,13 +543,13 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
         EnumType {
             restricted_storage: ok.restricted_storage() || error.restricted_storage(),
             name: format!("Result[{ok}, {error}]"),
-            facts: std::cell::OnceCell::new(),
+            facts: std::sync::OnceLock::new(),
             managed: true,
             inline_range: ok.has_inline_range() || error.has_inline_range(),
-            payload_bytes: std::cell::OnceCell::new(),
-            by_name: std::cell::OnceCell::new(),
-            storage: std::cell::OnceCell::new(),
-            managed_fields: std::cell::OnceCell::new(),
+            payload_bytes: std::sync::OnceLock::new(),
+            by_name: std::sync::OnceLock::new(),
+            storage: std::sync::OnceLock::new(),
+            managed_fields: std::sync::OnceLock::new(),
             variants: vec![
                 Variant {
                     name: "Ok".into(),
@@ -589,13 +589,13 @@ impl EnumOp {
             ),
             Self::Tag(t) => (vec![Ty::Enum(t.clone())], Ty::I64),
             Self::TagRef(t, mutable) => (
-                vec![Ty::Ref(Rc::new(Ty::Enum(t.clone())), *mutable)],
+                vec![Ty::Ref(Arc::new(Ty::Enum(t.clone())), *mutable)],
                 Ty::I64,
             ),
             Self::FieldRef(t, tag, field, mutable) => (
-                vec![Ty::Ref(Rc::new(Ty::Enum(t.clone())), *mutable)],
+                vec![Ty::Ref(Arc::new(Ty::Enum(t.clone())), *mutable)],
                 Ty::Ref(
-                    Rc::new(t.get().variants.get(*tag)?.fields.get(*field)?.clone()),
+                    Arc::new(t.get().variants.get(*tag)?.fields.get(*field)?.clone()),
                     *mutable,
                 ),
             ),

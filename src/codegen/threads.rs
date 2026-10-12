@@ -69,7 +69,7 @@ pub(super) fn emit_adapters(
                 let reference = lower.bcx.ins().uextend(types::I128, slot);
                 lower.stack.push((
                     reference,
-                    Ty::Ref(Rc::new(Ty::Closure(closure.clone())), closure.mutable),
+                    Ty::Ref(Arc::new(Ty::Closure(closure.clone())), closure.mutable),
                 ));
             }
             lower.lower_closure_call(closure)?;

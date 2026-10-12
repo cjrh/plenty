@@ -5,7 +5,7 @@ use crate::threading::{endpoints, owns_executor, Task, ThreadOp};
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Source position of the operations that follow an `Op::Site` marker in the
 /// same sequence. Nested blocks inherit it until they place their own marker.
@@ -24,16 +24,16 @@ pub struct Site {
 /// reports. They never affect liveness or aliasing.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Origins {
-    pub source: Option<Rc<str>>,
+    pub source: Option<Arc<str>>,
     /// `source` relative to the source root, for runtime trap reports.
     /// Generated code must not depend on where the tree is checked out.
-    pub trap_file: Option<Rc<str>>,
+    pub trap_file: Option<Arc<str>>,
     /// Source name of each local slot, parameters first. Slots are never
     /// reused, so a name stays valid after its scope ends. Compiler
     /// temporaries have none.
-    pub names: Vec<Option<Rc<str>>>,
+    pub names: Vec<Option<Arc<str>>>,
     /// Present when the function is a generic instance.
-    pub required: Option<Rc<Instantiation>>,
+    pub required: Option<Arc<Instantiation>>,
 }
 
 /// The use that first required a generic instance. A body is checked once per
@@ -42,13 +42,13 @@ pub struct Origins {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Instantiation {
     /// `source:line:column` of the use in code that is not itself an instance.
-    pub at: Rc<str>,
+    pub at: Arc<str>,
     /// The instance that use asked for.
-    pub requested: Rc<str>,
+    pub requested: Arc<str>,
     /// The instance whose body is checked. It differs from `requested` when a
     /// generic body requires further instances; the links between are omitted
     /// to keep the diagnostic at two locations.
-    pub instance: Rc<str>,
+    pub instance: Arc<str>,
 }
 
 impl Instantiation {
@@ -116,8 +116,8 @@ pub struct Error {
     /// Absent only for operations that carry no source marker.
     pub primary: Option<Site>,
     pub notes: Vec<(Site, String)>,
-    pub source: Option<Rc<str>>,
-    pub required: Option<Rc<Instantiation>>,
+    pub source: Option<Arc<str>>,
+    pub required: Option<Arc<Instantiation>>,
 }
 
 impl Error {

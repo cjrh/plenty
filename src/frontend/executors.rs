@@ -135,7 +135,7 @@ impl Lower<'_> {
                     .at
                     .error("executor results require a concrete wholly owned type"));
             }
-            let job = Rc::new(Job {
+            let job = Arc::new(Job {
                 adapter: format!(
                     "__plenty_pool_{}_{}_{}",
                     self.function_name, base.at.line, base.at.column
@@ -192,7 +192,7 @@ impl Lower<'_> {
                 at.error("executor arguments must be owned; borrowed work belongs in scoped spawn")
             );
         }
-        let closure = Rc::new(
+        let closure = Arc::new(
             crate::closure::ClosureType::new(
                 worker,
                 Some(at.location().into()),
@@ -344,7 +344,7 @@ impl Lower<'_> {
         );
         if reduce {
             let captures = self.sigs[&worker].inputs.clone();
-            let closure = Rc::new(
+            let closure = Arc::new(
                 crate::closure::ClosureType::new(
                     worker.clone(),
                     Some(at.location().into()),
@@ -359,7 +359,7 @@ impl Lower<'_> {
                 .map_err(|e| at.error(e))?,
             );
             return Ok(ExecutorOp::Reduce(
-                Rc::new(Job {
+                Arc::new(Job {
                     adapter,
                     worker,
                     input: Ty::Closure(closure.clone()),
@@ -371,7 +371,7 @@ impl Lower<'_> {
             ));
         }
         Ok(ExecutorOp::Map(
-            Rc::new(Job {
+            Arc::new(Job {
                 adapter,
                 worker,
                 input: (**element).clone(),

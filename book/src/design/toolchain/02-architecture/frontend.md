@@ -27,6 +27,14 @@ Its compile-time operand stack is private compiler machinery. `CompiledFn` carri
 a signature, documentation, body, and typed local slots. Unit produces zero stack
 values. Loads and stores address slots; exhaustive branches produce conditional values.
 
+The checker collects every signature on one thread, then checks function bodies
+on all available cores: a body reads only the signature table. It reports the
+first error in program order whichever body failed first, so diagnostics do not
+depend on the core count. Operations, types, and signatures are shared between
+threads without copying. Parsing, name and type resolution, and lowering bodies
+to operations run on one thread (issue #59): lowering interns strings, records
+generic instances, and infers returned fields in tables shared by every body.
+
 ## Control flow and access
 
 `Return`, `TailCall`, `Break`, and `Continue` terminate paths. The checker joins

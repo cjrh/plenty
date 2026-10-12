@@ -9,7 +9,7 @@ pub(super) struct Candidate {
 
 enum Rejection {
     ContextExit(crate::ownership::Site),
-    LocalReference(Option<Rc<str>>, Option<crate::ownership::Site>),
+    LocalReference(Option<Arc<str>>, Option<crate::ownership::Site>),
     ReferenceProof,
     PostCall,
 }

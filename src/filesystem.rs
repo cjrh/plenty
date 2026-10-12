@@ -1,6 +1,6 @@
 //! Narrow native primitives; public path/metadata/walking policy lives in std.
 use crate::{op::Ty, sum};
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FsOp {
@@ -44,7 +44,7 @@ impl FsOp {
     }
 
     pub fn signature(self) -> (Vec<Ty>, Ty) {
-        let bytes = || Ty::List(Rc::new(Ty::U8));
+        let bytes = || Ty::List(Arc::new(Ty::U8));
         let (inputs, output) = match self {
             Self::Open => (vec![bytes()], Ty::FsReadDir),
             Self::Next => (vec![Ty::FsReadDir], sum::option(Ty::FsDirEntry)),
@@ -58,7 +58,7 @@ impl FsOp {
             Self::ReadLink => (vec![bytes()], bytes()),
             Self::Join => (vec![bytes(), bytes()], bytes()),
             Self::Lexical => (vec![bytes(), Ty::U8], sum::option(bytes())),
-            Self::Components => (vec![bytes()], Ty::List(Rc::new(bytes()))),
+            Self::Components => (vec![bytes()], Ty::List(Arc::new(bytes()))),
             Self::Display => (vec![bytes()], Ty::Str),
         };
         (inputs, sum::result(output, sum::io_error()))
