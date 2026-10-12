@@ -14,10 +14,14 @@ the [prelude](../language/02-source/names.md) and are specified under
 | Module | Contents | Error type |
 |---|---|---|
 | [`std.math`](math.md) | Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants | `MathError` |
+| [`std.path`](path.md) | Lossless Linux paths, lexical operations, checked text conversion and escaped display | `IoError`, `AllocError` |
+| [`std.fs`](fs.md) | Lazy directories, detached entries, metadata/links and Plenty walking with pruning | `IoError`, `AllocError`, `WalkError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in
-[Use the standard math library](../../tutorial/07-modules/03-standard-math.md).
+[Use the standard math library](../../tutorial/07-modules/03-standard-math.md),
+[Enumerate and classify paths](../../tutorial/08-resources/21-directories.md), and
+[Prune before descending](../../tutorial/08-resources/22-walking.md).
 
 ## Importing a standard module
 
@@ -68,7 +72,9 @@ Each module page gives every public function's signature and states:
 - whether it allocates;
 - the limits that differ from the Python module of the same name.
 
-A module that reports recoverable failures defines its own error enum. `?`
-propagates it to a caller returning the same error type or
+Recoverable failures use typed errors: `std.math` defines `MathError`, while
+`std.path` and `std.fs` share the native `IoError` and storage `AllocError`.
+The filesystem walker adds `WalkError` to retain attempted paths and operations.
+`?` propagates an error to a caller returning the same error type or
 [`Failure`](../language/08-errors/01-sums-and-propagation.md). Keyword and
 default arguments are unimplemented, so every argument is explicit.

@@ -24,6 +24,8 @@ impl ModuleSource {
     fn read(&self) -> Result<String> {
         match self {
             Self::Standard("std.math") => Ok(include_str!("../../stdlib/std/math.plenty").into()),
+            Self::Standard("std.fs") => Ok(include_str!("../../stdlib/std/fs.plenty").into()),
+            Self::Standard("std.path") => Ok(include_str!("../../stdlib/std/path.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -434,8 +436,10 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
             if import.module.split('.').next() == Some("std") {
                 return match import.module.as_str() {
                     "std.math" => Ok(ModuleSource::Standard("std.math")),
+                    "std.fs" => Ok(ModuleSource::Standard("std.fs")),
+                    "std.path" => Ok(ModuleSource::Standard("std.path")),
                     _ => Err(import.at.error(format!(
-                        "unknown standard library module `{}`; available modules: std.math",
+                        "unknown standard library module `{}`; available modules: std.math, std.fs, std.path",
                         import.module
                     ))),
                 };

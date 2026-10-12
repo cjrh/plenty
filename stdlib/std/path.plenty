@@ -1,0 +1,44 @@
+# Linux paths keep their exact native bytes; text conversion is explicit.
+pub class Path:
+    _bytes: list[u8]
+
+    pub def as_bytes(self) -> &list[u8]:
+        &self._bytes
+
+    pub def to_text(self) -> Result[str, IoError]:
+        decode_utf8(self._bytes)
+
+    pub def display(self) -> Result[str, IoError]:
+        __path_display(self._bytes)
+
+    pub def copy(self) -> Result[Path, AllocError]:
+        Ok(Path(copy(self._bytes)?))
+
+    pub def join(self, child: &Path) -> Result[Path, IoError]:
+        Ok(Path(__path_join(self._bytes, child._bytes)?))
+
+    pub def is_absolute(self) -> bool:
+        len(self._bytes) > 0 and self._bytes[0] == 47u8
+
+    pub def parent(self) -> Result[Option[Path], IoError]:
+        match __path_lexical(self._bytes, 0)?:
+            case Some(bytes):
+                Ok(Some(Path(bytes)))
+            case Nothing:
+                Ok(Nothing)
+
+    pub def file_name(self) -> Result[Option[Path], IoError]:
+        match __path_lexical(self._bytes, 1)?:
+            case Some(bytes):
+                Ok(Some(Path(bytes)))
+            case Nothing:
+                Ok(Nothing)
+
+    pub def components(self) -> Result[list[list[u8]], IoError]:
+        __path_components(self._bytes)
+
+pub def from_bytes(bytes: list[u8]) -> Path:
+    Path(bytes)
+
+pub def from_text(text: &str) -> Result[Path, IoError]:
+    Ok(Path(encode_utf8(text)?))

@@ -126,6 +126,7 @@ impl Lowerer<'_, '_> {
         }
         values.reverse();
         let descriptor = match operation {
+            CollectionOp::Filesystem(_) => Some(&output),
             CollectionOp::Args
             | CollectionOp::ArgsBytes
             | CollectionOp::InputBytes
