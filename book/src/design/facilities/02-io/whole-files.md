@@ -26,3 +26,4 @@ Creation uses `0666` restricted by the process umask. Append creates a missing
 file even for empty text. Each native write appends at the current end, but one
 logical call may use several writes and is not an atomic concurrent record.
 For explicit lifetime and cursor control, use [File](files.md).
+For raw path bytes and untranslated contents, use [read_bytes and write_bytes](bytes-paths.md).

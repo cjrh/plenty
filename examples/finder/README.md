@@ -4,7 +4,7 @@
 shipped APIs cannot implement a standalone directory finder. Directory
 enumeration and file-type metadata are missing. This example preserves the
 working core, the failed capability probes, and a repeatable assessment.
-It adds no compiler/runtime features and is not a replacement for `fd`.
+The `--null` mode uses the byte transport added for issue #61.
 
 ## Run it
 
@@ -39,11 +39,20 @@ only for names compatible with the line protocol below. Invoking the finder
 without `--paths` exits 2 and explains the traversal blocker. It does not silently
 accept a root argument and pretend to search it.
 
+For lossless Unix filenames, use NUL framing on both sides:
+
+```sh
+find . -print0 | /tmp/plenty-finder --paths --null --glob '*.plenty'
+```
+
+The output is also NUL-delimited; feed it to a consumer accepting that protocol.
+
 ## Implemented behavior
 
 | Surface | Behavior |
 | --- | --- |
 | `--paths [PATTERN]` | Read paths from stdin; match a literal, case-sensitive substring in each basename |
+| `--null` | Read and emit raw NUL-delimited Unix paths; raw patterns and globs match bytes |
 | `--glob` | Match the whole basename: `*` means zero or more Unicode scalars; `?` means exactly one |
 | `--full-path` | Match the entire supplied path, including `/`; in glob mode wildcards may cross separators |
 | `--hidden` | Include dot-prefixed components, otherwise skipped; structural `.` and `..` components are allowed |
@@ -65,7 +74,10 @@ input spelling/order and duplicates. No sorting or filesystem operation occurs.
 
 This framing cannot safely carry arbitrary Unix names: embedded LF splits a
 name, CR before LF is stripped, invalid UTF-8 is rejected, and there is no
-NUL-delimited mode. Do not treat it as a lossless filesystem protocol.
+lossless framing. Choose `--null` for arbitrary Unix names. In that mode only
+NUL ends a record; CR, LF, and invalid UTF-8 are preserved. `?` matches one byte,
+so UTF-8 `é` matches `??`. Empty records are skipped and final unterminated
+nonempty records are accepted. Option parsing ends at `--` in both modes.
 
 ## What worked and what was awkward
 
@@ -88,12 +100,12 @@ The main obstacles are library/runtime capabilities:
 | Gap | Evidence and consequence | Local issue |
 | --- | --- | --- |
 | Directory entries and metadata | The preserved `read_dir` and `metadata` probes are rejected; no equivalent operation was found in the implemented I/O surface. There is nothing for a Plenty walker to enumerate or classify. | #60 |
-| Lossless OS paths and binary streams | Both stdin and `args()` reject invalid UTF-8; line framing loses legal Unix filename characters. A real finder needs a path/bytes representation and NUL framing. | #61 |
+| Compact buffers and richer path APIs | `--null` now preserves raw arguments and paths with `list[u8]` and NUL framing. General list storage is not a compact byte buffer; path composition and traversal still need library APIs. | #49 |
 | Convenient optional-value defaults | `unwrap_or` is rejected; explicit matches work. | #35 |
 | Buffered/reusable I/O and iterator/view facilities | The current stdin backend reads without read-ahead; indexed non-ASCII characters scan scalar boundaries. These costs matter for larger workloads. | Existing B12 scope and issue #49 |
 
-Issues #60 and #61 are concrete motivating gaps within issue #49's broader
-standard-library catalogue. They remain open; this example does not fix them.
+Issues #60 and #61 motivated concrete slices of issue #49's broader library
+catalogue. The raw transport for #61 is implemented; directory APIs remain missing.
 The reference's current text/interop contracts still apply.
 
 I also checked the C interoperability surface. It can pass text **into** C and
@@ -106,13 +118,16 @@ provide an ordinary safe `readdir` binding. See the reference's
 
 ## Validation and performance limits
 
-`check.py` compiles both the application and a matcher driver, then runs nine
+`check.py` compiles the application and text/byte matcher drivers, then runs eleven
 checks: CLI statuses/options, literal/basename/full-path matching, wildcards,
 hidden components, line boundaries, UTF-8 failures in input and arguments,
-a real directory fixture, and the two expected capability failures.
+a real directory fixture, lossless Unix names/raw patterns, byte wildcards, and
+the two expected capability failures.
 It compares **10,581** wildcard cases against an independent dynamic-programming
 oracle, including empty strings, retries, Unicode, and long names. When `fd` is
 installed, the fixture's `*.plenty` result also agrees with `fd --glob --no-ignore`.
+It also checks **10,576** byte wildcard cases, including invalid UTF-8, embedded
+LF, multibyte UTF-8, and long names.
 Python supplies the test fixture and candidate enumeration, never the matching.
 The capability checks should be revised when traversal support lands.
 

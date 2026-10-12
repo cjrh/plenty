@@ -1,0 +1,118 @@
+# Unix separators and wildcard tokens are ASCII bytes. Path spelling is never decoded.
+def basename_start(path: &list[u8]) -> i64:
+    mut start = 0
+    for index in range(len(path)):
+        if path[index] == 47u8:
+            start = index + 1
+    start
+
+def is_hidden(path: &list[u8]) -> bool:
+    mut length = 0
+    mut begins_dot = False
+    mut dots_only = True
+    for byte in path:
+        if byte == 47u8:
+            if begins_dot and (length > 2 or not dots_only):
+                return True
+            length = 0
+            begins_dot = False
+            dots_only = True
+        else:
+            if length == 0:
+                begins_dot = byte == 46u8
+            length = length + 1
+            dots_only = dots_only and byte == 46u8
+    begins_dot and (length > 2 or not dots_only)
+
+pub def glob_matches(pattern: &list[u8], path: &list[u8], start: i64) -> bool:
+    mut p = 0
+    mut t = start
+    mut star = -1
+    mut retry = start
+    while t < len(path):
+        if p < len(pattern) and pattern[p] == 42u8:
+            star = p
+            p = p + 1
+            retry = t
+        elif p < len(pattern) and (pattern[p] == 63u8 or pattern[p] == path[t]):
+            p = p + 1
+            t = t + 1
+        elif star >= 0:
+            retry = retry + 1
+            t = retry
+            p = star + 1
+        else:
+            return False
+    while p < len(pattern) and pattern[p] == 42u8:
+        p = p + 1
+    p == len(pattern)
+
+def literal_matches(pattern: &list[u8], path: &list[u8], start: i64) -> bool:
+    for position in range(start, len(path) - len(pattern) + 1):
+        mut index = 0
+        while index < len(pattern) and path[position + index] == pattern[index]:
+            index = index + 1
+        if index == len(pattern):
+            return True
+    False
+
+def search(pattern: &list[u8], glob: bool, full_path: bool, hidden: bool) -> Result[i32, IoError]:
+    terminator = encode_utf8("\0")?
+    while True:
+        match input_bytes(0u8)?:
+            case Some(path):
+                if len(path) == 0:
+                    continue
+                if not hidden and is_hidden(&path):
+                    continue
+                start = 0 if full_path else basename_start(&path)
+                matched = glob_matches(pattern, &path, start) if glob else literal_matches(pattern, &path, start)
+                if matched:
+                    write_stdout_bytes(&path)?
+                    write_stdout_bytes(&terminator)?
+            case Nothing:
+                break
+    flush_stdout()?
+    Ok(0)
+
+pub def run(argv: &list[list[u8]]) -> Result[i32, IoError]:
+    mut paths = False
+    mut glob = False
+    mut full_path = False
+    mut hidden = False
+    mut options = True
+    mut pattern_index = -1
+    for index in range(1, len(argv)):
+        argument = &argv[index]
+        if options and argument == encode_utf8("--")?:
+            options = False
+        elif options and argument == encode_utf8("--null")?:
+            pass
+        elif options and (argument == encode_utf8("--help")? or argument == encode_utf8("-h")?):
+            print("Usage: finder --paths --null [--glob] [--full-path] [--hidden] [--] [PATTERN]")?
+            print("NUL-delimited raw Unix paths; directory traversal is unavailable.")?
+            return Ok(0)
+        elif options and argument == encode_utf8("--paths")?:
+            paths = True
+        elif options and argument == encode_utf8("--glob")?:
+            glob = True
+        elif options and argument == encode_utf8("--full-path")?:
+            full_path = True
+        elif options and argument == encode_utf8("--hidden")?:
+            hidden = True
+        elif options and len(argument) > 0 and argument[0] == 45u8:
+            write_stderr("finder: unknown option; see --help\n")?
+            return Ok(2)
+        elif pattern_index >= 0:
+            write_stderr("finder: expected one pattern; directory roots are not supported\n")?
+            return Ok(2)
+        else:
+            pattern_index = index
+    if not paths:
+        write_stderr("finder: directory enumeration and file metadata are missing in Plenty; use --paths with a supplied path list\n")?
+        return Ok(2)
+    if pattern_index < 0:
+        empty = encode_utf8("")?
+        search(&empty, False, full_path, hidden)
+    else:
+        search(&argv[pattern_index], glob, full_path, hidden)

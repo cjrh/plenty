@@ -7,6 +7,7 @@ use crate::strings::{self, Text};
 use std::cmp::Ordering;
 use std::io::Write;
 
+mod bytes;
 mod entry_error;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
@@ -1520,6 +1521,7 @@ pub(crate) unsafe fn collection_at(
                 (*descriptor).variants[0].fields[0],
             )),
             84 => crate::text_io::input(),
+            142..=149 => crate::text_io::result(bytes::call(op, a, b, descriptor)),
             80 | 82 => crate::io::write_stream(a as *const Text, op == 82),
             81 | 83 => crate::io::flush_stream(op == 83),
             79 => match crate::numbers::format(a, (*descriptor).kind) {
