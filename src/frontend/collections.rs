@@ -1355,23 +1355,6 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if matches!(name, "wrapping_add" | "wrapping_sub" | "wrapping_mul") {
-            if args.len() != 1 {
-                return Err(base.at.error("wrapping arithmetic takes one argument"));
-            }
-            let ty = self.value(base, ops)?;
-            if !ty.is_int() {
-                return Err(base.at.error("wrapping arithmetic requires integers"));
-            }
-            let argument = self.expr_expected(&args[0], Some(ty.clone()), ops)?;
-            self.same(argument, Some(ty.clone()), &args[0].at)?;
-            ops.push(Op::Integer(match name {
-                "wrapping_add" => IntegerOp::WrappingAdd,
-                "wrapping_sub" => IntegerOp::WrappingSub,
-                _ => IntegerOp::WrappingMul,
-            }));
-            return Ok(Some(ty));
-        }
         if matches!(self.place_type(base), Some(Ty::Task(_))) {
             return self.join_thread(base, name, args, ops);
         }
@@ -1588,6 +1571,20 @@ impl Lower<'_> {
         } else {
             self.observe_method_receiver(base, ops)?
         };
+        if ty.is_int() && matches!(name, "wrapping_add" | "wrapping_sub" | "wrapping_mul") {
+            if args.len() != 1 {
+                return Err(base.at.error("wrapping arithmetic takes one argument"));
+            }
+            let argument = self.expr_expected(&args[0], Some(ty.clone()), ops)?;
+            self.same(argument, Some(ty.clone()), &args[0].at)?;
+            ops.push(Op::Integer(match name {
+                "wrapping_add" => IntegerOp::WrappingAdd,
+                "wrapping_sub" => IntegerOp::WrappingSub,
+                _ => IntegerOp::WrappingMul,
+            }));
+            Self::end_reads(loans, ops);
+            return Ok(Some(ty));
+        }
         if ty.is_numeric() && numeric::method(name) {
             return self
                 .numeric_method(base, name, args, (ty, loans), ops)

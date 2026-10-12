@@ -37,6 +37,15 @@ fn precedence_borrows_and_overflow_boundaries() {
 }
 
 #[test]
+fn wrapping_receiver_reads_end_after_the_call() {
+    let output = support::run(
+        "mut n = 127i8\nprint(n.wrapping_add(1)).unwrap()\nn = 2\nprint(n.wrapping_mul(3)).unwrap()\nprint((n + 1).wrapping_sub(2)).unwrap()\n",
+    );
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "-128\n6\n1\n");
+}
+
+#[test]
 fn invalid_counts_trap_before_machine_shift_masking() {
     for (ty, width) in [
         ("i8", 8),
@@ -68,6 +77,9 @@ fn reject_noninteger_and_mixed_width_operations() {
         "print(True | False).unwrap()",
         "print(1u8 << 1u16).unwrap()",
         "print(1.0.wrapping_add(2.0)).unwrap()",
+        "print(1u8.wrapping_add(2u16)).unwrap()",
+        "print(1u8.wrapping_sub()).unwrap()",
+        "print(1u8.wrapping_mul(2, 3)).unwrap()",
     ] {
         assert!(support::check_source(source).is_err(), "{source}");
     }
