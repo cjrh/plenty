@@ -42,7 +42,59 @@ workers; ordinary drop does the same. Explicit shutdown is idempotent and always
 waits. Detachment and `wait=False` are unsupported; running jobs are not forcibly
 killed. [Tokens](cancellation.md) permit cooperative stopping.
 
-When jobs send to a receiver the parent may abandon, put the receiver guard after
-the executor manager so disconnection precedes shutdown. Workers must finish any
-other communication before the scope can close. See [futures](futures.md) for
-result ownership and [parallel operations](parallel-map.md) for batched work.
+Workers must finish their communication before the scope can close. See
+[futures](futures.md) for result ownership and
+[parallel operations](parallel-map.md) for batched work.
+
+## Shutdown and live receivers
+
+Shutdown waits for every accepted job, and a job waiting for queue space is
+released only by a receive or by the drop of the last receiver. The compiler
+therefore applies the [task join rule](channels.md#joins-and-live-receivers) to
+pools:
+
+> A pool cannot be shut down while a live binding of the function can hold
+> `Receiver[T]`, once the function has submitted a job that can hold `Sender[T]`.
+
+A pool shuts down at `pool.shutdown()`, including through a
+`&ThreadPoolExecutor`, at `drop(pool)`, when its binding is reassigned, and
+wherever its owner leaves scope: the end of its `with` block or of the function,
+`return`, `?`, `break`, and `continue`. Locals are released last declared first,
+so a receiver bound after the pool is dropped before the pool shuts down.
+
+Jobs are not matched to pools and are never assumed to have finished. A job
+submitted with `submit` or `submit_nowait` counts at every later shutdown in the
+function, and at every shutdown in a loop that contains the submission. A
+`submit(...)?` that fails has submitted nothing on the path that leaves.
+`map`, `map_result`, and `reduce_tree` finish their jobs before returning and do
+not count. What a job and a binding *can hold* is defined as for tasks.
+
+Place the receiver guard directly after the pool manager. Contexts exit in
+reverse order, so every exit drops the receiver before the pool shuts down:
+
+```text
+with ThreadPoolExecutor(2, 8)? as pool, receiver as inbox:
+    future = pool.submit(produce, sender)?
+    ...
+```
+
+A guard nested inside the pool's block, a channel created inside it, and a
+`drop(receiver)` on every path to the shutdown also satisfy the rule. The
+diagnostic reports the shutdown or the pool's binding, each binding that holds a
+matching receiver, where the job is submitted, and the early exit that reaches
+the shutdown.
+
+The rule has the task rule's
+[false positives and gaps](channels.md#what-the-rule-does-not-decide). It also
+rejects these safe programs:
+
+- the job has finished, for example after `future.result()` returned;
+- the job was submitted to a different pool than the one shutting down;
+- a `submit` failure handled without `?` returned the job to the caller.
+
+It does not cover:
+
+- a job submitted by another function through a `&ThreadPoolExecutor`;
+- a pool moved into a function that drops it;
+- `future.result()` waiting for a job that is waiting to send;
+- a `map`, `map_result`, or `reduce_tree` callback that waits to send.

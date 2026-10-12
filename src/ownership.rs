@@ -1,6 +1,8 @@
 //! Definite ownership and last-use loans over an explicit access control-flow graph.
+use crate::executor::ExecutorOp;
 use crate::op::{Op, Ty};
-use crate::threading::{endpoints, Task, ThreadOp};
+use crate::threading::{endpoints, owns_executor, Task, ThreadOp};
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 use std::rc::Rc;
@@ -95,6 +97,14 @@ pub enum Kind {
         /// The join belongs to a `with` block exit, not an explicit `join()`.
         automatic: bool,
     },
+    /// A pool shutdown that a job waiting to send could keep waiting forever.
+    BlockedShutdown {
+        /// Message type of the job's sender and the surviving receiver.
+        message: String,
+        /// The shutdown belongs to the end of the pool's scope, not to
+        /// `shutdown()`, `drop()`, or a reassignment.
+        automatic: bool,
+    },
 }
 
 /// A rejected operation, the place it touches, and the related source sites.
@@ -177,6 +187,20 @@ impl fmt::Display for Error {
                     None => "an unnamed value".into(),
                 }
             ),
+            Kind::BlockedShutdown { message, automatic } => format!(
+                "{} after a job that holds `Sender[{message}]` was submitted, while {} still \
+                 holds `Receiver[{message}]`: a full queue could block the job's send, and the \
+                 shutdown, forever",
+                if *automatic {
+                    "leaving its scope shuts down this pool"
+                } else {
+                    "this shuts down a pool"
+                },
+                match &self.place {
+                    Some(place) => format!("`{place}`"),
+                    None => "an unnamed value".into(),
+                }
+            ),
         };
         match &self.required {
             Some(required) => f.write_str(&required.report(&location, &message))?,
@@ -235,6 +259,10 @@ struct Checker<'a> {
     locals: &'a [Ty],
     parameters: usize,
     origins: &'a Origins,
+    /// Message types that a job submitted by operations already checked can
+    /// send, each with its first submission. Jobs are not matched to pools,
+    /// and one is never assumed to have finished.
+    submitted: RefCell<Vec<(Ty, Option<Site>)>>,
 }
 
 pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) -> Result<()> {
@@ -243,6 +271,7 @@ pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) ->
         locals,
         parameters,
         origins,
+        submitted: RefCell::default(),
     };
     let mut state = (0..locals.len())
         .map(|i| {
@@ -253,7 +282,9 @@ pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) ->
             }
         })
         .collect();
-    checker.sequence(ops, &mut state, &mut Vec::new(), None)?;
+    if checker.sequence(ops, &mut state, &mut Vec::new(), None)? {
+        checker.release(&mut state, None)?;
+    }
     checker.loans(ops)
 }
 
@@ -298,21 +329,23 @@ fn early_exit(rest: &[Op], written: Option<Site>) -> Option<&'static str> {
     }
 }
 
-/// Name the early exit that reaches a rejected automatic join. The join is
-/// reported at its `with` statement, which need not be near the exit.
+/// Name the early exit that reaches a rejected automatic join or shutdown.
+/// Either is reported where its task or pool starts, which need not be near
+/// the exit.
 fn leaving(mut error: Box<Error>, at: Option<Site>, exit: Option<&str>) -> Box<Error> {
-    let automatic = matches!(
-        error.kind,
+    let (Some(at), Some(exit)) = (at, exit) else {
+        return error;
+    };
+    let note = match error.kind {
         Kind::BlockedJoin {
-            automatic: true,
-            ..
-        }
-    );
-    if let (true, Some(at), Some(exit)) = (automatic, at, exit) {
-        error
-            .notes
-            .push((at, format!("{exit} leaves the block here")));
-    }
+            automatic: true, ..
+        } => format!("{exit} leaves the block here"),
+        Kind::BlockedShutdown {
+            automatic: true, ..
+        } => format!("{exit} leaves the pool's scope here"),
+        _ => return error,
+    };
+    error.notes.push((at, note));
     error
 }
 
@@ -536,14 +569,21 @@ impl Checker<'_> {
             .min_by_key(|site| (site.line, site.column))
     }
 
-    /// A worker waiting for queue space is released only when the last
-    /// receiver drops. Reject a join reached while this function still keeps
-    /// one alive for a message type the worker can send. Endpoints are matched
-    /// by type, so this neither identifies queues nor proves a join completes.
-    fn join(&self, task: &Task, state: &State, site: Option<Site>, automatic: bool) -> Result<()> {
-        let sends = endpoints(task.inputs.iter().cloned(), true, true);
+    /// The error for a wait on a thread that can send one of `sends` while a
+    /// live binding can hold the matching receiver, with a note per holder.
+    /// Nothing but the last receiver's drop releases a thread waiting for queue
+    /// space. Endpoints are matched by type, so this neither identifies queues
+    /// nor proves a wait completes. `advice` says how to release an owned holder.
+    fn blocked(
+        &self,
+        sends: &[Ty],
+        state: &State,
+        site: Option<Site>,
+        kind: impl Fn(String) -> Kind,
+        advice: impl Fn(Option<&str>) -> String,
+    ) -> Option<Box<Error>> {
         if sends.is_empty() {
-            return Ok(());
+            return None;
         }
         let mut error: Option<Box<Error>> = None;
         for (slot, owned) in state.iter().enumerate() {
@@ -569,16 +609,8 @@ impl Checker<'_> {
             };
             let at = self.bound(slot);
             let first = error.is_none();
-            let error = error.get_or_insert_with(|| {
-                self.error(
-                    Kind::BlockedJoin {
-                        message: message.to_string(),
-                        automatic,
-                    },
-                    place.clone(),
-                    site,
-                )
-            });
+            let error = error
+                .get_or_insert_with(|| self.error(kind(message.to_string()), place.clone(), site));
             let holds = format!(
                 "{name} {}holds `Receiver[{message}]`{}",
                 if first { "" } else { "also " },
@@ -586,22 +618,30 @@ impl Checker<'_> {
             );
             let advice = if matches!(self.locals[slot], Ty::Ref(..)) {
                 "its owner outlives this call, so take the receiver by value".into()
-            } else if !automatic {
-                "drop it, or end its `with` block, before joining".to_owned()
             } else {
-                match &place {
-                    Some(place) => format!(
-                        "drop it before leaving the block, or guard it directly after the \
-                         task: `with spawn(...)?, {place} as inbox:`"
-                    ),
-                    None => "end its scope before leaving the block".into(),
-                }
+                advice(place.as_deref())
             };
             if let Some(at) = at.or(site) {
                 error.notes.push((at, format!("{holds}; {advice}")));
             }
         }
-        let Some(mut error) = error else {
+        error
+    }
+
+    /// Reject a join reached while this function still keeps a receiver alive
+    /// for a message type the worker can send.
+    fn join(&self, task: &Task, state: &State, site: Option<Site>, automatic: bool) -> Result<()> {
+        let sends = endpoints(task.inputs.iter().cloned(), true, true);
+        let kind = |message| Kind::BlockedJoin { message, automatic };
+        let advice = |place: Option<&str>| match place {
+            _ if !automatic => "drop it, or end its `with` block, before joining".to_owned(),
+            Some(place) => format!(
+                "drop it before leaving the block, or guard it directly after the task: \
+                 `with spawn(...)?, {place} as inbox:`"
+            ),
+            None => "end its scope before leaving the block".into(),
+        };
+        let Some(mut error) = self.blocked(&sends, state, site, kind, advice) else {
             return Ok(());
         };
         // An automatic join is reported at the `with` statement that starts the task.
@@ -616,6 +656,87 @@ impl Checker<'_> {
             }
         }
         Err(error)
+    }
+
+    /// Record the message types a job accepted by a pool can send.
+    fn submit(&self, sends: impl IntoIterator<Item = (Ty, Option<Site>)>) {
+        let mut submitted = self.submitted.borrow_mut();
+        for (message, at) in sends {
+            if !submitted.iter().any(|(other, _)| *other == message) {
+                submitted.push((message, at));
+            }
+        }
+    }
+
+    /// Dropping the value in `slot` shuts a pool down. No pool is looked for
+    /// until a job that could block the shutdown has been submitted.
+    fn closes(&self, slot: usize, state: &State) -> bool {
+        !self.submitted.borrow().is_empty()
+            && matches!(
+                state[slot],
+                Slot::Owned
+                    | Slot::Moved {
+                        definite: false,
+                        ..
+                    }
+            )
+            && owns_executor(&self.locals[slot])
+    }
+
+    /// Shutdown drains accepted work and joins the workers. Reject one reached
+    /// while this function still keeps a receiver alive for a message type that
+    /// a job it submitted earlier can send. `scope` is the pool's slot when the
+    /// shutdown belongs to the end of the pool's scope.
+    fn shutdown(&self, scope: Option<usize>, state: &State, site: Option<Site>) -> Result<()> {
+        let submitted = self.submitted.borrow();
+        let sends: Vec<_> = submitted
+            .iter()
+            .map(|(message, _)| message.clone())
+            .collect();
+        let automatic = scope.is_some();
+        let kind = |message| Kind::BlockedShutdown { message, automatic };
+        let advice = |place: Option<&str>| match place {
+            _ if !automatic => {
+                "drop it, or end its `with` block, before shutting the pool down".to_owned()
+            }
+            Some(place) => format!(
+                "drop it before the pool shuts down, or guard it directly after the pool: \
+                 `with ThreadPoolExecutor(...)? as pool, {place} as inbox:`"
+            ),
+            None => "end its scope before the pool shuts down".into(),
+        };
+        let Some(mut error) = self.blocked(&sends, state, site, kind, advice) else {
+            return Ok(());
+        };
+        // An automatic shutdown is reported where its pool starts.
+        if let Some(at) = scope.and_then(|slot| self.bound(slot)) {
+            error.primary = Some(at);
+        }
+        let Kind::BlockedShutdown { message, .. } = &error.kind else {
+            unreachable!()
+        };
+        let job = submitted
+            .iter()
+            .find(|(sent, _)| sent.to_string() == *message)
+            .and_then(|(_, at)| *at);
+        if let Some(at) = job {
+            error.notes.push((at, "the job is submitted here".into()));
+        }
+        Err(error)
+    }
+
+    /// A function exit releases every local, the last declared first.
+    fn release(&self, state: &mut State, site: Option<Site>) -> Result<()> {
+        if self.submitted.borrow().is_empty() {
+            return Ok(());
+        }
+        for slot in (0..state.len()).rev() {
+            if self.closes(slot, state) {
+                self.shutdown(Some(slot), state, site)?;
+            }
+            state[slot] = Slot::Unset;
+        }
+        Ok(())
     }
 
     fn backedge(&self, state: &State, entry: &State, site: Option<Site>) -> Result<()> {
@@ -644,6 +765,8 @@ impl Checker<'_> {
     ) -> Result<bool> {
         // The last position the programmer wrote, as opposed to a scope end.
         let mut written = site.filter(|site| !site.scope_end);
+        // Sends of a job that `submit(...)?` moves into a pool only on success.
+        let mut accepted = Vec::new();
         for (index, op) in ops.iter().enumerate() {
             match op {
                 Op::Site(at) => {
@@ -663,15 +786,38 @@ impl Checker<'_> {
                     }
                     state[*slot as usize] = Slot::Unset
                 }
+                Op::Executor(ExecutorOp::Submit(job, _)) => {
+                    let sends = endpoints([job.input.clone()], true, true)
+                        .into_iter()
+                        .map(|message| (message, site));
+                    let result = ops[index + 1..]
+                        .iter()
+                        .find(|op| !matches!(op, Op::UseLoan(_) | Op::Site(_)));
+                    if matches!(result, Some(Op::Try { .. })) {
+                        accepted.extend(sends);
+                    } else {
+                        self.submit(sends);
+                    }
+                }
+                Op::Executor(ExecutorOp::Shutdown) => self.shutdown(None, state, site)?,
                 Op::Try { cleanup, .. } => {
-                    self.sequence(cleanup, &mut state.clone(), &mut Vec::new(), site)
+                    let mut failed = state.clone();
+                    self.sequence(cleanup, &mut failed, &mut Vec::new(), site)
+                        .and_then(|_| self.release(&mut failed, site))
                         .map_err(|error| leaving(error, site, Some("`?`")))?;
+                    self.submit(accepted.drain(..));
                 }
                 Op::MoveLocal(i) | Op::Next(i) => {
                     if state.get(*i as usize) != Some(&Slot::Owned) {
                         return Err(self.unavailable(*i, state, site));
                     }
                     if matches!(op, Op::MoveLocal(_)) {
+                        // `drop(pool)` shuts the pool down where it is written.
+                        if matches!(ops.get(index + 1), Some(Op::Drop))
+                            && self.closes(*i as usize, state)
+                        {
+                            self.shutdown(None, state, site)?;
+                        }
                         state[*i as usize] = Slot::Moved {
                             at: site,
                             definite: true,
@@ -683,8 +829,22 @@ impl Checker<'_> {
                         return Err(self.unavailable(*i, state, site));
                     }
                 }
-                Op::StoreLocal(i) => state[*i as usize] = Slot::Owned,
-                Op::DropLocal(i) => state[*i as usize] = Slot::Unset,
+                Op::StoreLocal(i) => {
+                    // Assignment drops the pool the binding held.
+                    if self.closes(*i as usize, state) {
+                        self.shutdown(None, state, site)?;
+                    }
+                    state[*i as usize] = Slot::Owned
+                }
+                Op::DropLocal(i) => {
+                    if self.closes(*i as usize, state) {
+                        self.shutdown(Some(*i as usize), state, site)
+                            .map_err(|error| {
+                                leaving(error, written, early_exit(&ops[index + 1..], written))
+                            })?;
+                    }
+                    state[*i as usize] = Slot::Unset
+                }
                 Op::Match(arms) => {
                     let initial = state.clone();
                     let mut continuing = Vec::new();
@@ -734,6 +894,7 @@ impl Checker<'_> {
                     let entry = state.clone();
                     self.sequence(condition, state, &mut Vec::new(), site)?;
                     let zero = state.clone();
+                    let submitted = self.submitted.borrow().len();
                     loops.push(Loop {
                         entry,
                         breaks: vec![zero.clone()],
@@ -741,7 +902,21 @@ impl Checker<'_> {
                     if self.sequence(body, state, loops, site)? {
                         self.backedge(state, &loops.last().unwrap().entry, site)?;
                     }
-                    let exits = loops.pop().unwrap().breaks;
+                    let Loop {
+                        entry,
+                        breaks: exits,
+                    } = loops.pop().unwrap();
+                    // A job submitted in one iteration can still be in its pool
+                    // in the next, so shutdowns before the submit see it too.
+                    if self.submitted.borrow().len() > submitted {
+                        loops.push(Loop {
+                            entry,
+                            breaks: Vec::new(),
+                        });
+                        let again = self.sequence(body, &mut zero.clone(), loops, site);
+                        loops.pop();
+                        again?;
+                    }
                     merge(&exits, state);
                 }
                 Op::Continue => {
@@ -757,9 +932,17 @@ impl Checker<'_> {
                         .push(state.clone());
                     return Ok(false);
                 }
-                Op::Return | Op::TailCall(_) | Op::TailCallIndirect(_) | Op::Unreachable => {
-                    return Ok(false)
+                Op::Return | Op::TailCall(_) | Op::TailCallIndirect(_) => {
+                    self.release(state, site).map_err(|mut error| {
+                        // A tail call returns without the keyword.
+                        if let Some(at) = written {
+                            error.notes.push((at, "the function returns here".into()));
+                        }
+                        error
+                    })?;
+                    return Ok(false);
                 }
+                Op::Unreachable => return Ok(false),
                 _ => {}
             }
         }

@@ -250,6 +250,28 @@ pub fn endpoints(roots: impl IntoIterator<Item = Ty>, sender: bool, borrowed: bo
     found
 }
 
+/// A value of `ty` owns a pool, so its drop drains accepted work and joins the
+/// workers. A reference leaves that to the pool's owner.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "nominal identities exclude definition cells"
+)]
+pub fn owns_executor(ty: &Ty) -> bool {
+    let mut pending = vec![ty.clone()];
+    let mut seen = HashSet::new();
+    while let Some(ty) = pending.pop() {
+        match ty {
+            Ty::Executor => return true,
+            Ty::Ref(..) => continue,
+            _ => {}
+        }
+        if seen.insert(ty.clone()) {
+            contained(&ty, &mut pending);
+        }
+    }
+    false
+}
+
 fn inspect(
     function: &CompiledFn,
     types: &mut Vec<Ty>,

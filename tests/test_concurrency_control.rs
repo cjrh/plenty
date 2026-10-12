@@ -37,9 +37,9 @@ print(token.is_cancelled()).unwrap()
 print(token.wait_timeout(0)).unwrap()
 print(token.wait_timeout(1)).unwrap()
 ready, started = channel[i64](1).unwrap()
-with ThreadPoolExecutor(1, 1).unwrap() as pool:
+with ThreadPoolExecutor(1, 1).unwrap() as pool, started as inbox:
     future = pool.submit(work, token.share(), ready).unwrap()
-    started.recv().unwrap()
+    inbox.recv().unwrap()
     print(future.cancel()).unwrap()
     token.cancel()
     token.cancel()
@@ -86,9 +86,9 @@ def value() -> i64:
     9
 ready, started = channel[i64](1).unwrap()
 signal, gate = channel[i64](1).unwrap()
-with ThreadPoolExecutor(1, 1).unwrap() as pool:
+with ThreadPoolExecutor(1, 1).unwrap() as pool, started as inbox:
     running = pool.submit(block, ready, gate).unwrap()
-    started.recv().unwrap()
+    inbox.recv().unwrap()
     print(running.wait_timeout(0)).unwrap()
     print(running.wait_timeout(1)).unwrap()
     pending = pool.submit(value).unwrap()
