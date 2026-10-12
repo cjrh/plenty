@@ -185,7 +185,7 @@ print(len(values)).unwrap()
     "get requires one key argument"
 )]
 #[case(
-    "print({1: 2}.unwrap().get(1, 0)).unwrap()",
+    "print({1: 2}.unwrap().get(1, 0, 3)).unwrap()",
     "get requires one key argument"
 )]
 #[case("key = 1\nprint({1u8: 2}.unwrap().get(key)).unwrap()", "expected u8")]

@@ -10,12 +10,18 @@ absent key traps. Use [insert](construction-copy.md) to add a key recoverably.
 order, including references. It copies or retains only non-affine values;
 collections, classes, and enums containing affine payloads are rejected.
 Lookup allocates nothing. Results outlive source replacement or destruction.
+
+`dictionary.get(key, default) -> V` accepts a second positional argument of
+the value type and returns it only when the key is absent. Receiver, key, and
+default evaluate once in that order; the default is eager even for a present
+key. Lookup still requires a copyable value and adds no allocation. Zero,
+`False`, and an empty string are present values. This does not insert the key.
 A stored `Nothing` produces `Some(Nothing)`, distinct from a missing key.
 
 `dictionary.pop(key) -> Option[V]` requires exclusive access and supports all
 permitted value types. A hit removes the entry, drops its stored key, and transfers
 the value's owner into `Some`; a miss returns `Nothing` without mutation.
-The key is observed once before exclusive receiver access. Both methods take
+The key is observed once before exclusive receiver access. Removal takes
 exactly one key, with no default argument.
 
 Removal allocates nothing, preserves capacity and remaining insertion order,
