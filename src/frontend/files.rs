@@ -6,6 +6,28 @@ use super::*;
 mod open_modes;
 
 impl Lower<'_> {
+    pub(super) fn filesystem_call(
+        &mut self,
+        operation: crate::filesystem::FsOp,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if !operation.mutable() {
+            return self.system_call(CollectionOp::Filesystem(operation), args, at, ops);
+        }
+        let [arg] = args else {
+            return Err(at.error("directory operation takes one owner"));
+        };
+        let (_, loan) = self.borrow(arg, true, ops)?;
+        let (inputs, output) = operation.signature();
+        self.same(self.place_type(arg), Some(inputs[0].clone()), &arg.at)?;
+        ops.push(Op::ReadRef(inputs[0].clone()));
+        ops.push(Op::Collection(CollectionOp::Filesystem(operation)));
+        ops.push(Op::UseLoan(loan));
+        Ok(Some(output))
+    }
+
     pub(super) fn open_file(
         &mut self,
         args: &[Expr],

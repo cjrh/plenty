@@ -45,6 +45,10 @@ pub enum Ty {
     Unit,
     Str,
     File,
+    /// Private native owners used by the embedded filesystem library.
+    FsReadDir,
+    FsDirEntry,
+    FsMetadata,
     /// Nominal opaque C pointer. No dereference or integer conversions.
     ForeignPtr(Rc<str>),
     Bool,
@@ -150,6 +154,9 @@ impl Ty {
                 | Self::Class(_)
                 | Self::Box(_)
                 | Self::File
+                | Self::FsReadDir
+                | Self::FsDirEntry
+                | Self::FsMetadata
         ) || matches!(self, Self::Enum(_) if self.facts().affine)
     }
     pub fn restricted_storage(&self) -> bool {
@@ -254,6 +261,9 @@ impl Ty {
                 | Self::Closure(_)
                 | Self::BoxedCallable(_)
                 | Self::File
+                | Self::FsReadDir
+                | Self::FsDirEntry
+                | Self::FsMetadata
                 | Self::Channel(..)
                 | Self::CancellationToken
                 | Self::Executor
@@ -382,6 +392,9 @@ impl fmt::Display for Ty {
             Ty::Unit => "()",
             Ty::Str => "str",
             Ty::File => "File",
+            Ty::FsReadDir => "FsReadDir",
+            Ty::FsDirEntry => "FsDirEntry",
+            Ty::FsMetadata => "FsMetadata",
             Ty::ForeignPtr(name) => return f.write_str(name),
             Ty::Bool => "bool",
             Ty::List(t) => return write!(f, "list[{t}]"),

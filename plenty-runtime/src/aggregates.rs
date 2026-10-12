@@ -11,6 +11,7 @@ mod bytes;
 mod entry_error;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
+mod filesystem;
 #[cfg(test)]
 mod removal_tests;
 
@@ -54,6 +55,9 @@ impl Type {
                     | b'C'
                     | b'G'
                     | b'F'
+                    | b'A'
+                    | b'I'
+                    | b'M'
                     | b'X'
                     | b'Y'
                     | b'P'
@@ -1227,6 +1231,9 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'Z' => out.extend_from_slice(b"<future>"),
             b'K' => out.extend_from_slice(b"<cancellation token>"),
             b'b' => out.extend_from_slice(if value == 0 { b"False" } else { b"True" }),
+            b'A' => out.extend_from_slice(b"ReadDir"),
+            b'I' => out.extend_from_slice(b"DirEntry"),
+            b'M' => out.extend_from_slice(b"Metadata"),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
                 if crate::files::closed(value as *const crate::files::File) {
@@ -1394,6 +1401,7 @@ pub(crate) unsafe fn collection_at(
             };
         }
         match op {
+            150..=164 => filesystem::call(op, a, b, descriptor),
             112 => {
                 let owner = *(a as *const u128);
                 let c = &mut *(owner as *mut Collection);
