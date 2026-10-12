@@ -39,6 +39,10 @@ impl Hash for ClassType {
 pub fn method(class: &str, method: &str) -> String {
     format!("__plenty_class_{}.{}", class, method)
 }
+/// Whether `symbol` came from `method`. Source names cannot start this way.
+pub fn is_method(symbol: &str) -> bool {
+    symbol.starts_with("__plenty_class_")
+}
 /// A method symbol as `Class.method`, for diagnostics.
 pub fn method_display(symbol: &str) -> &str {
     symbol.strip_prefix("__plenty_class_").unwrap_or(symbol)
