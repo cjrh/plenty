@@ -128,10 +128,10 @@ impl Output {
     }
 
     /// Compile what is still queued and serialize the object.
-    pub(super) fn finish(mut self) -> Result<Vec<u8>> {
+    pub(super) fn finish(mut self) -> Result<cranelift_object::ObjectProduct> {
         self.start_batch()?;
         self.define_compiled()?;
-        Ok(self.module.finish().emit()?)
+        Ok(self.module.finish())
     }
 
     /// Hand the queued functions to helpers. The batch before them is defined
@@ -349,7 +349,7 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
         let mut heap = Heap::default();
         let program = crate::frontend::compile(&source, &mut heap).unwrap();
         let object = |workers| {
-            super::super::object_bytes(&program.ops, &heap, Some(false), &[], None, workers)
+            super::super::object_bytes(program.ops.clone(), &heap, Some(false), &[], None, workers)
                 .unwrap()
         };
         let serial = object(1);

@@ -17,6 +17,11 @@ Module loading canonicalizes qualified names and checks imported modules togethe
 before producing one application object. Import traversal is bounded to depth
 128 and 4,096 modules. This is not separate module compilation.
 
+A module is lexed one top-level item at a time. The parser holds the tokens of
+the item it is parsing and of the next one, so a module's tokens never all exist
+beside its syntax tree (issue #54). A lexical error anywhere in a module is still
+reported before any syntax error in it.
+
 `op.rs` defines backend-neutral structured operations and an independent checker.
 Its compile-time operand stack is private compiler machinery. `CompiledFn` carries
 a signature, documentation, body, and typed local slots. Unit produces zero stack

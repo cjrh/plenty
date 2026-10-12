@@ -19,6 +19,7 @@ pub(super) fn resume_signature(module: &ObjectModule) -> Signature {
 
 pub(super) fn emit_generator(
     name: &str,
+    body: &[Op],
     fns: &HashMap<String, UserFn>,
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
@@ -135,7 +136,7 @@ pub(super) fn emit_generator(
                 continuations: vec![start],
             }),
         };
-        for op in decl.body.iter() {
+        for op in body {
             if lower.terminated {
                 break;
             }

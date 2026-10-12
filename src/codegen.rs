@@ -256,12 +256,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// executable. With `returns_status`, the final `i32` operand is the process
 /// status; unit entrypoints and legacy programs return zero on completion.
 fn compile_to_object(ops: Vec<Op>, heap: &Heap, output: &Path, returns_status: bool) -> Result<()> {
-    let module = object_module(&ops, heap, Some(returns_status), &[], None, workers())?;
-    // Serializing reads the module alone and holds the object twice, as
-    // sections and as file bytes. Release the program first (issue #54).
-    drop(ops);
-    std::fs::write(output, module.finish()?)?;
-    Ok(())
+    emit_object(ops, heap, output, Some(returns_status), &[], None)
 }
 
 fn workers() -> usize {
@@ -269,58 +264,60 @@ fn workers() -> usize {
 }
 
 pub(crate) fn emit_library_object(
-    program: &crate::frontend::Program,
+    ops: Vec<Op>,
+    exports: &[crate::exports::Export],
     heap: &Heap,
     output: &Path,
     interface: &crate::exports::Interface,
 ) -> Result<()> {
-    emit_object(
-        &program.ops,
-        heap,
-        output,
-        None,
-        &program.exports,
-        Some(interface),
-    )
+    emit_object(ops, heap, output, None, exports, Some(interface))
 }
 
 fn emit_object(
-    ops: &[Op],
+    ops: Vec<Op>,
     heap: &Heap,
     output: &Path,
     entry: Option<bool>,
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
 ) -> Result<()> {
-    let bytes = object_bytes(ops, heap, entry, exports, interface, workers())?;
-    std::fs::write(output, bytes)?;
-    Ok(())
+    let product = object_module(ops, heap, entry, exports, interface, workers())?.finish()?;
+    // Written section by section: the file's bytes are never all in memory
+    // beside the sections (issue #54).
+    let file = std::io::BufWriter::new(std::fs::File::create(output)?);
+    product.object.write_stream(file)
 }
 
 /// The object's bytes are the same for every `workers` count.
+#[cfg(test)]
 fn object_bytes(
-    ops: &[Op],
+    ops: Vec<Op>,
     heap: &Heap,
     entry: Option<bool>,
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
     workers: usize,
 ) -> Result<Vec<u8>> {
-    object_module(ops, heap, entry, exports, interface, workers)?.finish()
+    let module = object_module(ops, heap, entry, exports, interface, workers)?;
+    Ok(module.finish()?.emit()?)
 }
 
-/// Every definition of the object, not yet serialized. Nothing in the result
-/// refers to `ops`.
+/// Every definition of the object, not yet serialized. Takes the program to
+/// release each function's operations once its code is built, rather than hold
+/// them all until the last function is (issue #54).
 fn object_module(
-    ops: &[Op],
+    ops: Vec<Op>,
     heap: &Heap,
     entry: Option<bool>,
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
     workers: usize,
 ) -> Result<Output> {
-    let prepared = crate::tail_abi::prepare(ops);
-    let ops = &*prepared;
+    let rewritten = match crate::tail_abi::prepare(&ops) {
+        std::borrow::Cow::Owned(rewritten) => Some(rewritten),
+        std::borrow::Cow::Borrowed(_) => None,
+    };
+    let mut ops = rewritten.unwrap_or(ops);
     let targets = output::Targets {
         ordinary: host_isa()?,
         single_pass: target_isa("single_pass")?,
@@ -334,7 +331,8 @@ fn object_module(
     // arm), declare each as a Cranelift symbol with the tail-call
     // convention so its body can `return_call` other user functions.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
-    collect_user_fns(ops, &mut out.module, &mut user_fns)?;
+    let mut bodies = Vec::new();
+    collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
     runtime.drop_hooks = user_fns
         .iter()
         .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
@@ -346,23 +344,40 @@ fn object_module(
     // every `StrId` referenced by `PushStr` or `Pattern::Str`, then
     // declare and define each one. The compiler's string pool is the
     // source of truth for the literal bytes.
-    let str_data = declare_str_data(ops, heap, &mut out.module)?;
+    let str_data = declare_str_data(&ops, heap, &mut out.module)?;
 
     // An immortal empty string substitutes for the legacy input helper's EOF.
     let eof_empty_str = declare_eof_empty_str(&mut out.module)?;
-    threads::emit_adapters(ops, &user_fns, &str_data, eof_empty_str, &runtime, &mut out)?;
-    executors::emit_adapters(ops, &user_fns, &str_data, eof_empty_str, &runtime, &mut out)?;
+    threads::emit_adapters(
+        &ops,
+        &user_fns,
+        &str_data,
+        eof_empty_str,
+        &runtime,
+        &mut out,
+    )?;
+    executors::emit_adapters(
+        &ops,
+        &user_fns,
+        &str_data,
+        eof_empty_str,
+        &runtime,
+        &mut out,
+    )?;
 
     // Pass 2: emit each user function's body. Bodies can refer to each
     // other (forward references, mutual recursion) because every callee
     // is already declared.
-    // `FuncId`s follow declaration order. The map's own order changes from
-    // run to run, which would make the object differ between identical builds.
-    let mut names: Vec<&String> = user_fns.keys().collect();
-    names.sort_unstable_by_key(|name| user_fns[*name].id);
-    for name in names {
+    // `bodies` is in declaration order, as `FuncId`s are. The map's own order
+    // changes from run to run, which would make the object differ between
+    // identical builds.
+    // From here `bodies` alone holds the top-level functions' operations, so
+    // each function's are released as the loop passes it.
+    ops.retain(|op| !matches!(op, Op::DefineFn(..)));
+    for (name, body) in bodies {
         emit_user_function(
-            name,
+            &name,
+            &body,
             &user_fns,
             &str_data,
             eof_empty_str,
@@ -376,7 +391,7 @@ fn object_module(
     // definition is a no-op (it does not touch the data stack).
     if let Some(returns_status) = entry {
         emit_main(
-            ops,
+            &ops,
             returns_status,
             &user_fns,
             &str_data,
@@ -757,7 +772,6 @@ struct UserFn {
     resume: Option<FuncId>,
     id: FuncId,
     sig: Rc<FnSig>,
-    body: Rc<[Op]>,
     locals: Rc<[Ty]>,
     /// File that defines the body, relative to the source root, for trap
     /// positions.
@@ -792,6 +806,7 @@ fn collect_user_fns(
     ops: &[Op],
     module: &mut ObjectModule,
     out: &mut HashMap<String, UserFn>,
+    bodies: &mut Vec<(String, Rc<[Op]>)>,
 ) -> Result<()> {
     for op in ops {
         match op {
@@ -834,16 +849,16 @@ fn collect_user_fns(
                             None
                         },
                         sig: Rc::clone(&f.sig),
-                        body: Rc::clone(&f.body),
                         locals: Rc::clone(&f.locals),
                         source: f.origins.trap_file.clone(),
                     },
                 );
-                collect_user_fns(&f.body, module, out)?;
+                bodies.push((name.clone(), Rc::clone(&f.body)));
+                collect_user_fns(&f.body, module, out, bodies)?;
             }
             Op::Match(arms) => {
                 for arm in arms.iter() {
-                    collect_user_fns(&arm.body, module, out)?;
+                    collect_user_fns(&arm.body, module, out, bodies)?;
                 }
             }
             Op::If {
@@ -851,12 +866,12 @@ fn collect_user_fns(
                 elifs,
                 otherwise,
             } => {
-                collect_user_fns(then, module, out)?;
+                collect_user_fns(then, module, out, bodies)?;
                 for arm in elifs.iter() {
-                    collect_user_fns(&arm.condition, module, out)?;
-                    collect_user_fns(&arm.body, module, out)?;
+                    collect_user_fns(&arm.condition, module, out, bodies)?;
+                    collect_user_fns(&arm.body, module, out, bodies)?;
                 }
-                collect_user_fns(otherwise, module, out)?;
+                collect_user_fns(otherwise, module, out, bodies)?;
             }
             _ => {}
         }
@@ -894,6 +909,7 @@ fn needs_local_addresses(ops: &[Op]) -> bool {
 
 fn emit_user_function(
     name: &str,
+    body: &[Op],
     fns: &HashMap<String, UserFn>,
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
@@ -902,7 +918,7 @@ fn emit_user_function(
 ) -> Result<()> {
     let decl = &fns[name];
     if decl.generator.is_some() {
-        return generators::emit_generator(name, fns, str_data, eof_empty_str, runtime, out);
+        return generators::emit_generator(name, body, fns, str_data, eof_empty_str, runtime, out);
     }
     let module = &mut out.module;
     let cl_sig = user_fn_signature(module, &decl.sig);
@@ -942,37 +958,36 @@ fn emit_user_function(
             locals.push((var, ty.clone()));
         }
 
-        let local_frame = if needs_local_addresses(&decl.body)
-            || locals.iter().any(|(_, t)| t.has_inline_storage())
-        {
-            let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                locals.iter().map(|(_, t)| t.slot_bytes() as u32).sum(),
-                4,
-            ));
-            let frame = bcx.ins().stack_addr(PTR_TY, slot, 0);
-            for (i, (var, ty)) in locals.iter().enumerate() {
-                let packed = if i < decl.sig.inputs.len() || ty.managed() {
-                    let value = bcx.use_var(*var);
-                    enums::pack_value(&mut bcx, value, ty)
-                } else {
-                    let zero = bcx.ins().iconst(types::I64, 0);
-                    bcx.ins().uextend(types::I128, zero)
-                };
-                bcx.ins().store(
-                    cranelift_codegen::ir::MemFlags::trusted(),
-                    packed,
-                    frame,
-                    locals[..i]
-                        .iter()
-                        .map(|(_, t)| t.slot_bytes() as i32)
-                        .sum::<i32>(),
-                );
-            }
-            Some(frame)
-        } else {
-            None
-        };
+        let local_frame =
+            if needs_local_addresses(body) || locals.iter().any(|(_, t)| t.has_inline_storage()) {
+                let slot = bcx.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    locals.iter().map(|(_, t)| t.slot_bytes() as u32).sum(),
+                    4,
+                ));
+                let frame = bcx.ins().stack_addr(PTR_TY, slot, 0);
+                for (i, (var, ty)) in locals.iter().enumerate() {
+                    let packed = if i < decl.sig.inputs.len() || ty.managed() {
+                        let value = bcx.use_var(*var);
+                        enums::pack_value(&mut bcx, value, ty)
+                    } else {
+                        let zero = bcx.ins().iconst(types::I64, 0);
+                        bcx.ins().uextend(types::I128, zero)
+                    };
+                    bcx.ins().store(
+                        cranelift_codegen::ir::MemFlags::trusted(),
+                        packed,
+                        frame,
+                        locals[..i]
+                            .iter()
+                            .map(|(_, t)| t.slot_bytes() as i32)
+                            .sum::<i32>(),
+                    );
+                }
+                Some(frame)
+            } else {
+                None
+            };
         let return_storage = decl
             .sig
             .outputs
@@ -1005,7 +1020,7 @@ fn emit_user_function(
                 lower.write_local(i as u8, value);
             }
         }
-        for op in decl.body.iter() {
+        for op in body {
             if lower.terminated {
                 // A `TailCall` already terminated this block; any
                 // trailing op is dead. `op::compile` only emits
