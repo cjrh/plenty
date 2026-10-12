@@ -37,4 +37,6 @@ round-trippable filesystem spelling. Use NUL framing with
 The Rust implementation baseline is `library/std/src/path.rs`; Python's
 `PurePath`/`Path` separation motivates keeping lexical operations distinct from
 [filesystem observations](fs/metadata.md). Broader buffers and portable path
-representations remain within issues #49/#61.
+representations remain [B12/B39 candidates](../../backlog.md); issue #76 owns
+compact buffers/views. Closed issue #61 records the initial raw transport,
+and issue #49 records the catalogue's decomposition rather than implementation.

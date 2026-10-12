@@ -333,6 +333,8 @@
 # Proposals
 
 - [Proposals](proposals/index.md)
+    - [Standard library scope](proposals/standard-library-scope.md)
+    - [Bundled HTTP acceptance](proposals/standard-http.md)
     - [Runtime allocation audit](proposals/allocation-audit.md)
     - [References, ownership, and explicit copying](proposals/references-and-copying.md)
     - [One immutable `str` with explicit lengths](proposals/strings.md)

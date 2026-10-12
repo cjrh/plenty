@@ -53,6 +53,7 @@ were last reconciled with the compiler on 2026-10-10.
 | [Generated library contracts and C headers](ffi-export-contracts.md) | [Exports](../design/facilities/04-interop/exports.md), [contracts](../design/facilities/04-interop/contracts.md) | B27, B28 |
 | [Fallible memory, parallel execution, and SIMD](memory-parallelism-and-simd.md) | [Fallible allocation](../design/language/08-errors/02-allocation-and-traps.md), [concurrency](../design/facilities/03-concurrency/index.md) | B13, B23, B24 |
 | [Plenty's next language phase](next-language-phase.md) | Nine of eleven recommendations, at least in part | B13, B23, and others |
+| [Standard library scope](standard-library-scope.md) | Embedded math, paths, filesystem walking and deque | B38–B70 |
 
 ## Not implemented
 
@@ -60,3 +61,4 @@ were last reconciled with the compiler on 2026-10-10.
 | --- | --- |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | B36 |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
+| [Bundled HTTP acceptance](standard-http.md) | B58–B66 |

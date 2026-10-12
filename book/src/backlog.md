@@ -231,10 +231,11 @@ receiver annotation (issue #42). Receiver shorthand semantics are unchanged; `mu
 parameters remain a separate candidate. B35's inline storage removed the
 mutable-enum restriction (issue #41); regression tests cover it.
 
-The newer package-tooling agreement (issue #45) belongs to B17. The std catalogue
-and finder prerequisites (issues #49, #60, and #61) are recorded under B38/B12.
-They are future work, not shipped facilities or a reason to skip B34. The finder
-experiment filters supplied paths; it does not enumerate directories.
+The package-tooling agreement (issue #45) belongs to B17. Issue #49's standard
+library catalogue is decomposed into B39–B70 below; closing the umbrella records
+that split, not delivery of those modules. Lossless paths and directory walking
+have shipped (issues #60/#61), and the finder now searches roots itself. The
+remaining library slices are candidates, not a reason to skip B34.
 
 ## Work items
 
@@ -268,15 +269,62 @@ ownership remain in the shared `issues.db`.
 | B34 | Post-concurrency cleanup and review | Current phase, partly complete. Result handling, ownership/tail-call fixes, performance improvements, test reliability, and book restructuring have landed. Callable diagnostics now explain code-only parameters and generic callback ownership, identify closures by source location, and retain distinct `Callable`/`Closure` representations (issue #24). Direct borrowing of named functions and its tutorial updates are implemented (issue #26). Anonymous functions can be written inline inside brackets (issue #27). The bare-self mutation hint is implemented (issue #42); broader receiver/parameter mutability remains a separate candidate. Continue auditing code and docs and resolving open issues in severity order. Runtime traps now report `file:line:column`, and bounds traps the index and length (issue #37). Python habits get targeted diagnostics, with `mut` payload bindings diagnosed rather than supported (issue #38). `elif` chains of any length compile in linear time, and blocks and expressions nest to 64 levels, with operator chains counted as nesting (issue #70). Concurrency findings are linked under B22; generic diagnostics under B29. See scope above; the completed documentation reorganization does not close all review findings. |
 | B36 | Keyword arguments, defaults, and static unpacking | Keyword/default/variadic arguments and starred unpacking are unimplemented; ordinary tuple bindings and assignment to several targets already work. Proposed: keyword and keyword-only arguments, constant defaults, `/` and `*` markers, keyword constructors, and `*`/`**` unpacking at calls, in displays, and in tuple bindings. Call binding and tuple arities must resolve at compile time, with no runtime arity/key check or hidden allocation; collection displays retain explicit fallible allocation. Keyword arguments and defaults are frontend-only and come first; `*args` and sequence patterns depend on a borrowed sequence view (B12). Decide whether `first, *rest = tuple` is accepted now that tuples are inline. [Design](proposals/keyword-arguments-and-unpacking.md). |
 | B37 | Ordering beyond `sort()` | `list.sort()` orders integers, floats, `str`, and tuples of those in place; `swap` and assignment to several targets are complete (issue #31). Lexicographic string comparisons are implemented (issue #22). Allocation-free unstable `sort_by_key` with shared element borrows and recomputed keys, positional descending bools, and fallible natural-order `sorted` copies are implemented (issue #64). Remaining extensions: cached or fallible keys, stable sorting, comparison functions, tuple relational operators matching the total sort order, and class ordering protocols. Preserve no hidden allocation. |
-| B38 | Standard library and filesystem foundations | The catalogue in issue #49 proposes coherent `std` module families and a production-grade HTTP server. The first [embedded `std.math` module](design/stdlib/math.md) is implemented for issue #45: Plenty algorithms and typed errors, generic `abs`/`min`/`max`/`sum`/`prod`, fixed-width combinatorics, float rounding, transcendental methods, and infinity/NaN/tau constants. Issue #34 is complete through local PR #72: ties-to-even rounding, checked integer/float quotient-remainder pairs, borrowed list extrema, folds over borrowed numeric iterables, and numeric module constants. Remaining math work includes accurate summation/norms, float decomposition and adjacent-value operations, special functions, defaults, arbitrary constant expressions, and custom iterator protocols; each needs numerical contracts and acceptance checks. Completed language foundations also include string character codes, ASCII classification, Unicode scalar casing, whitespace splitting, and ordering (issue #22), integer bitwise/wrapping operations (issue #33), numeric primitives and `FloatType` (issue #34), and checked conversion (issue #39). [std.path](design/stdlib/path.md) and [std.fs](design/stdlib/fs.md) implement lossless Linux paths, lazy directory streams, metadata/links and a Plenty walker with pruning and bottom-up order for issue #60; the finder searches roots itself. Issue #35 already has `enumerate`/`zip`/`reversed` loop sources, boolean `any`/`all`, `dict.get(key, default)`, Option defaults and explicit `ok_or(error)?` conversion (also B12/B14), and literal patterns (issue #36). Local PR #85 completes issue #35 with multi-value print, consuming list unpacking, scalar tuple keys, owned generator expressions, `dict.into_values()`, and [std.deque](design/stdlib/deque.md) ring buffers. Dictionary `insert` is the fallible upsert; indexed assignment retains its allocation-free existing-key contract. Reusable adapters remain B12 protocol work, and list performance remains issue #18. Other foundations: compact byte buffers and portable path abstractions (B12; initial raw transport for issue #61 is implemented), and package boundaries (B17, issue #45). Separate library APIs from language prerequisites. Networking/HTTP needs explicit ownership, concurrency, partial-I/O, cancellation, and resource limits. |
+| B38 | Standard library scope | Issue #49 is split into B39–B70, with [catalogue rationale](proposals/standard-library-scope.md) and [HTTP acceptance](proposals/standard-http.md). [std.math](design/stdlib/math.md), [std.path](design/stdlib/path.md), [std.fs](design/stdlib/fs.md), and [std.deque](design/stdlib/deque.md) are implemented; reuse completed issues #22/#29/#31/#33/#34/#35/#39/#60/#61 rather than duplicating them. Remaining numerical candidates: accurate summation/norms, float decomposition/adjacent values and special functions, each with numerical contracts/tests. Defaults and arbitrary constant expressions are language candidates; reusable iterator contracts remain B12. Portable paths remain B12; packages/runner remain B17, issue #45. Further library breadth needs a concrete use case and its own scope before scheduling. |
+
+### Standard library delivery slices
+
+These entries replace issue #49's umbrella scope. Each linked issue records
+acceptance checks, errors, allocation/ownership contracts and dependencies.
+Dependencies identify technical prerequisites; row order is not a priority or
+approval of a proposed API. All slices remain unimplemented unless explicitly
+recorded otherwise. B39/B41/B42 are foundational contracts; a useful CLI/data
+slice composes them with B40/B44/B51/B52/B53/B55/B57 and B17 tooling. HTTP must
+pass B66 before it is described as production-ready. Libraries use checked
+Plenty; approved platform/backend boundaries remain narrow.
+
+| ID | Work / issue | Scope / dependency |
+| --- | --- | --- |
+| B39 | Compact bytes — issue #76 | Owned contiguous buffers and checked views; explicit copies and relocation/loan rules. B12; retain #61 transport compatibility. |
+| B40 | Binary streams — issue #77 | Partial read/write/seek, bounded buffering, read_exact/write_all/copy and flush/close. Depends on B39/B41. |
+| B41 | Error context — issue #78 | Typed causes/native codes and presentation with a nonallocating fallback; preserve #16. B14. |
+| B42 | Time/deadlines — issue #79 | Monotonic instants, durations and distinct wall timestamps; reconcile current cancellation/timed waits. |
+| B43 | Environment/processes — issue #80 | Lossless args/env/cwd, vector spawning, pipes, status, termination and reaping. Depends on B40/B42. |
+| B44 | CLI parsing — issue #81 | Typed options/positionals, help/errors and lossless path arguments. Depends on B41. |
+| B45 | Formatting — issue #82 | Explicit display/debug forms, writer output and fallible strings. Depends on B40. |
+| B46 | Structured logs — issue #83 | Levels, fields, caller-supplied sinks and bounded failure policy. Depends on B45/B42. |
+| B47 | Text/Unicode — issue #84 | Builders/join/wrap and versioned normalization; reuse #22. Depends on B39. |
+| B48 | Regex — issue #85 | Compiled search/split/replace with documented engine/features and resource bounds. Depends on B39/B47. |
+| B49 | Collections/iterators — issue #86 | Heap/priority queue and reusable static map/filter/fold; reuse deque and #35. Iterator/borrow contracts remain B12. |
+| B50 | Randomness/secrets — issue #87 | Explicit seeded PRNG/sampling/shuffle and separately named OS-backed entropy/tokens. Depends on B39/B54. |
+| B51 | JSON — issue #88 | Explicit values/events/codecs, precise errors, numeric/duplicate/depth policies and bounded streaming. Depends on B40/B54. |
+| B52 | TOML — issue #89 | Versioned bounded parsing/writing and manifest coordination with #45; comment-preserving editing stays B17. Depends on B40/B54. |
+| B53 | CSV — issue #90 | Streaming records/writers, explicit dialects and field/record limits. Depends on B40/B54. |
+| B54 | Binary encodings — issue #91 | Hex/base64, fixed-width packing with explicit endianness and strict UTF-8 reuse. Depends on B39. |
+| B55 | Filesystem helpers — issue #92 | Owned temporary resources, copy/move/remove and glob filtering with symlink/race/cleanup policies; reuse #60/#61. Depends on B40/B50. |
+| B56 | Concurrency modules — issue #93 | Importable thread/sync/channel/concurrent surfaces preserving current join/ownership/effect guarantees. Depends on B42; additional primitives need a use case. |
+| B57 | Library test support — issue #94 | Assertions, static discovery, fixtures and explicit test doubles; runner remains #45/B17. Depends on B55/B50. |
+| B58 | Trusted I/O effects — issue #95 | Certify narrow native effects/handle ownership and choose measured bounded blocking versus polling execution. Depends on B40/B42/B56; no std-wide checker exemption. |
+| B59 | Sockets/DNS — issue #96 | Owned TCP/UDP, addresses, bounded resolution/deadlines and local-socket scope. Depends on B58. |
+| B60 | URLs — issue #97 | Component-aware parsing/query/percent encoding with explicit standard and normalization policy. Depends on B54. |
+| B61 | TLS — issue #98 | Maintained backend, verified client streams, server certificates and cancellable handshakes. Depends on B59/B42. |
+| B62 | HTTP/1.1 messages — issue #99 | Strict bounded framing/headers and streamed bodies; parser fuzzing and regression corpus. Depends on B40/B59. |
+| B63 | HTTP client — issue #100 | Pooling, redirects/proxies, verified TLS, deadlines/cancellation and safe retry policy. Depends on B62/B60/B61. |
+| B64 | HTTP server — issue #101 | Typed handlers/routing, bounded admission/backpressure, stream controls, observability and graceful drain/cancellation. Depends on B62/B61/B58/B46. |
+| B65 | HTTP/deployment helpers — issue #102 | JSON/forms/cookies, bounded multipart cleanup, explicit trusted proxies and filesystem-aware static-file decision. Depends on B64/B51/B55/B60. |
+| B66 | HTTP production qualification — issue #103 | Conformance/fuzzing, slow-client/cancellation/load/leak suites, measured baselines and security maintenance; installed CLI/API workflows. Depends on B63/B65/B57. |
+| B67 | Curated crypto — issue #104 | Maintained digests/HMAC/constant-time comparison; encryption requires separate API/use-case review. Depends on B40. |
+| B68 | Compression — issue #105 | Bounded gzip/deflate streams, expansion/checksum/partial-output policy and maintained backend. Depends on B40. |
+| B69 | Archives — issue #106 | ZIP/TAR reading/writing and filesystem-aware extraction roots/links/limits/cleanup. Depends on B68/B55. |
+| B70 | SQLite — issue #107 | Typed binding, prepared statements, owned transactions and thread/row lifetimes; maintained SQLite, no ORM. Depends on B40/B55/B58. |
 
 ## Reconciled completed work
 
 Issue #61's initial lossless Unix transport is implemented with owned `list[u8]`,
 explicit UTF-8 conversion, raw arguments, binary file helpers, and NUL stream
 records. The finder now exercises those contracts with `--null`. Under B38/B12,
-compact byte buffers, platform path abstractions, buffered reader/writer objects,
-and broader `std` distribution remain future work; directory traversal is issue #60.
+compact byte buffers (B39), platform path abstractions (B12), buffered streams
+(B40), and broader `std` distribution (B17) remain future work. Directory
+traversal and metadata from issue #60 are implemented in `std.fs`.
 
 Integer bitwise operators, checked shift counts, and explicit wrapping
 add/subtract/multiply are implemented for issue #33. The numeric reference and
