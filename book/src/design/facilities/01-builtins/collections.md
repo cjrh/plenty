@@ -1,8 +1,10 @@
 # Collections
 
 `list[T]`, `dict[K, V]`, and `set[T]` have concrete element types, including
-nested collections. Dictionary keys and set members are integers, `bool`, or
-`str`; floats and user-defined hash/equality are unsupported. Unit elements are
+nested collections. Dictionary keys and set members are integers, `bool`, `str`,
+or tuples recursively containing those types. Hashing uses tuple contents,
+including string bytes, independently of where a tuple is stored. Floats,
+owned collection/class components, and user-defined hash/equality are unsupported. Unit elements are
 rejected.
 
 Lists preserve order and duplicates. Dictionaries preserve first insertion
@@ -24,6 +26,17 @@ use an explicit element reference, an owned removal operation, or copying.
 Element loans conservatively protect the whole collection. See
 [borrowing](../../language/05-ownership/index.md) and
 [iteration](../../language/09-iteration/index.md).
+
+Flat unpacking also consumes a list: `a, b = values` requires exactly two
+elements and transfers their owners; `_` drops an ignored element. A length
+mismatch traps at the unpacking expression before any target is written.
+Unpacking itself allocates nothing. Borrowed lists, nested targets, and starred
+targets are unsupported; explicitly copy a list first to preserve it.
+
+`replace(collection[index], value)` transfers the previous element out while
+writing its replacement. It requires exclusive access, evaluates the replacement
+before the target index, and adds no allocation. List indices must exist;
+dictionary keys must already be present, as for indexed assignment.
 
 ## Shared mutation rules
 

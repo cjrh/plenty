@@ -31,6 +31,12 @@ may also be fields and collection elements: see
 Nested and starred unpacking are unsupported. Unit components can be discarded
 or used as unit expressions without enabling standalone unit storage.
 
+An owned list also supports flat unpacking with an exact runtime length check;
+see [collection rules](../../facilities/01-builtins/collections.md).
+Tuples of integers, `bool`, strings, and nested tuples of those types are
+copyable dictionary keys and set members. Hashing and equality use their
+contents, with no formatting or string-key encoding.
+
 Distinct components of a named tuple can be borrowed independently. Reads of
 one component can continue while another is exclusively borrowed; whole-tuple
 access overlaps all components. See [borrowing](../05-ownership/index.md) for

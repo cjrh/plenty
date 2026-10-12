@@ -125,6 +125,32 @@ impl Lowerer<'_, '_> {
             values.push(self.pack(value, input));
         }
         values.reverse();
+        if let CollectionOp::TryPrintMany(types) = operation {
+            let slot = self
+                .bcx
+                .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    (types.len().max(1) * 16) as u32,
+                    4,
+                ));
+            let address = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
+            for (i, value) in values.iter().enumerate() {
+                self.bcx.ins().store(
+                    cranelift_codegen::ir::MemFlags::trusted(),
+                    *value,
+                    address,
+                    (i * 16) as i32,
+                );
+            }
+            let metadata = crate::sum::tuple(types.clone());
+            let result = self.collection_call(operation.opcode(), &[address], Some(&metadata))?;
+            let result = self.unpack(result, &output);
+            for (value, ty) in values.iter().zip(&inputs) {
+                self.release(*value, ty);
+            }
+            self.stack.push((result, output));
+            return Ok(());
+        }
         let descriptor = match operation {
             CollectionOp::Filesystem(_) => Some(&output),
             CollectionOp::Args

@@ -6,7 +6,8 @@
 observe text and write its exact UTF-8 bytes without adding a newline. Success
 returns the Unicode-scalar count. Errors can follow partial output.
 
-`print(value) -> Result[(), IoError]` formats supported values and adds a newline;
+`print(values...) -> Result[(), IoError]` formats supported values separated by
+spaces and adds a newline; no arguments produce an empty line;
 see [formatting](../01-builtins/formatting.md) for allocation and Result restrictions.
 `flush_stdout()` and `flush_stderr()` return `Result[(), IoError]`, exposing
 deferred buffered-write errors. These operations retain the process-owned stream

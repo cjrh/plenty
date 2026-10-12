@@ -54,7 +54,31 @@ dropping a suspended or never-started frame releases remaining locals and
 captures without resuming the body or allocating. Short local borrows completed
 within one resume are permitted, but generator parameters cannot be references
 and no live loan may cross `yield`. `yield` inside `with` is unsupported.
-There is no yield-from, send/throw, generator expression, or async/await.
+There is no yield-from, send/throw, or async/await.
+
+## Generator expressions
+
+`(expression for name in source if condition)` creates a concrete owned
+`Generator[T]`, with its yielded type inferred from `expression`. Multiple
+`for` and `if` clauses have the same scopes and nesting limits as comprehensions.
+The outer source evaluates once at creation; inner sources, filters, and the
+element expression run only as the frame advances. A sole call argument can
+omit parentheses: `any(n == 2 for n in range(10))`. With other arguments,
+parenthesize the generator expression.
+
+Inputs and referenced enclosing local values copy or move into the frame at
+creation. Copyable captures are snapshots; later assignments do not change them.
+Affine captures become unavailable to the caller. Captures are taken in order
+of first use in the remaining clauses, then the yielded expression, after the
+outer source. References cannot be captured, including a borrowed outer source;
+use an owned source or `copy(source)?`. Adapter sources `enumerate`, `zip`, and
+`reversed` evaluate their inputs at creation without allocating an adapter.
+
+Construction and advancement add no heap allocation beyond the expressions
+they run. The same yield restrictions, propagation restrictions, destruction,
+and concrete-frame specialization rules apply as for generator functions.
+Dropping an unstarted frame releases its captures without evaluating filters
+or elements; short-circuit consumers destroy the remaining frame immediately.
 
 Recursive inline layouts are rejected. Nested frame layouts are limited to
 64 levels, native frame offsets to signed 32-bit sizes, and concrete consumer

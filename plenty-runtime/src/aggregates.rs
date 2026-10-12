@@ -473,7 +473,20 @@ pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
     (i >= 0 && i < len as i128).then_some(i as usize)
 }
 unsafe fn hash(value: u128, ty: &Type) -> u64 {
-    if ty.kind == b's' {
+    if ty.kind == b'B' {
+        // Hash structural fields, never the address of an inline tuple's storage.
+        let mut combined = 14695981039346656037u64;
+        if let Some(record) = ty.record(value) {
+            for i in 0..record.len() {
+                combined = (combined ^ unsafe { hash(record.slot(i).read(), record.ty(i)) })
+                    .wrapping_mul(1099511628211);
+            }
+        } else if let Some(field) = ty.payload(value) {
+            combined =
+                (combined ^ unsafe { hash(ty.unpack(value), field) }).wrapping_mul(1099511628211);
+        }
+        combined
+    } else if ty.kind == b's' {
         let mut hash = 14695981039346656037u64;
         for &b in unsafe { strings::bytes(&(value as *const Text)) } {
             hash = (hash ^ b as u64).wrapping_mul(1099511628211);
@@ -1438,7 +1451,22 @@ pub(crate) unsafe fn collection_at(
                     .expect("valid reverse string cursor");
                 b - previous.len_utf8() as u128
             }
-            110 | 111 => {
+            167 => {
+                let collection = &*(a as *const Collection);
+                if collection.len() != b as usize {
+                    crate::fail_at(
+                        site,
+                        format_args!(
+                            "unpacking requires exactly {} list elements; got {}",
+                            b,
+                            collection.len()
+                        ),
+                    );
+                }
+                plenty_retain(a as *mut Header);
+                a
+            }
+            110 | 111 | 166 => {
                 #[cfg(feature = "allocation-checks")]
                 if op == 111
                     && (*descriptor).kind == b's'
@@ -1460,12 +1488,25 @@ pub(crate) unsafe fn collection_at(
                     );
                 }
                 let mut out = crate::render_buffer::Buffer::default();
-                if op == 111 && (*descriptor).kind == b's' {
-                    out.extend_from_slice(strings::bytes(&(a as *const Text)));
+                if op == 166 {
+                    let ty = &*descriptor;
+                    let mut item = |i: usize, value: u128, field: &Type| {
+                        if i != 0 {
+                            out.push(b' ');
+                        }
+                        if field.kind == b's' {
+                            out.extend_from_slice(strings::bytes(&(value as *const Text)));
+                        } else {
+                            render(value, field, &mut out);
+                        }
+                    };
+                    for (i, field) in ty.variants[0].fields.iter().enumerate() {
+                        item(i, (a as *const u128).add(i).read(), field);
+                    }
                 } else {
                     render(a, &*descriptor, &mut out);
                 }
-                if op == 111 {
+                if op == 111 || op == 166 {
                     out.push(b'\n');
                     let result =
                         out.finish()

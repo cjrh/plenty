@@ -117,7 +117,7 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("'\\q'", "unsupported escape")]
 #[case("(1 + 2", "unclosed parenthesis")]
 #[case("1 + 2)", "unmatched")]
-#[case("print().unwrap()", "print takes one")]
+#[case("print(())", "expected a value")]
 #[case("contains('a', 1)", "expected str")]
 fn diagnostics(#[case] source: &str, #[case] message: &str) {
     let error = support::check_source(source).expect_err(source).to_string();

@@ -1,0 +1,77 @@
+# Vacant slots keep ownership explicit. End removals never shift elements;
+# growth reserves the entire replacement before moving any live payload.
+pub class Deque[T]:
+    _slots: list[Option[T]]
+    _head: i64
+    _count: i64
+
+    pub def __init__(self) -> Result[(), AllocError]:
+        self._slots = list[Option[T]].new()?
+        self._head = 0
+        self._count = 0
+        Ok(())
+
+    pub def len(self) -> i64:
+        self._count
+
+    pub def is_empty(self) -> bool:
+        self._count == 0
+
+    def position(self, offset: i64) -> i64:
+        capacity = len(self._slots)
+        remaining = capacity - self._head
+        if offset >= remaining:
+            offset - remaining
+        else:
+            self._head + offset
+
+    def grow(self: &mut Deque[T]) -> Result[(), AllocError]:
+        if self._count < len(self._slots):
+            return Ok(())
+        old = len(self._slots)
+        if old > i64.MAX // 2:
+            return Err(AllocError.CapacityOverflow)
+        capacity = 8 if old == 0 else old * 2
+        mut slots = list[Option[T]].with_capacity(capacity)?
+        for index in range(capacity):
+            slots.append(Nothing)?
+        for offset in range(self._count):
+            index = self.position(offset)
+            value = replace(self._slots[index], Nothing)
+            replace(slots[offset], value)
+        self._slots = slots
+        self._head = 0
+        Ok(())
+
+    pub def append(self: &mut Deque[T], value: T) -> Result[(), AllocError]:
+        self.grow()?
+        index = self.position(self._count)
+        replace(self._slots[index], Some(value))
+        self._count += 1
+        Ok(())
+
+    pub def appendleft(self: &mut Deque[T], value: T) -> Result[(), AllocError]:
+        self.grow()?
+        self._head = len(self._slots) - 1 if self._head == 0 else self._head - 1
+        replace(self._slots[self._head], Some(value))
+        self._count += 1
+        Ok(())
+
+    pub def pop(self: &mut Deque[T]) -> Option[T]:
+        if self._count == 0:
+            return Nothing
+        self._count -= 1
+        index = self.position(self._count)
+        replace(self._slots[index], Nothing)
+
+    pub def popleft(self: &mut Deque[T]) -> Option[T]:
+        if self._count == 0:
+            return Nothing
+        value = replace(self._slots[self._head], Nothing)
+        self._head = 0 if self._head == len(self._slots) - 1 else self._head + 1
+        self._count -= 1
+        value
+
+    pub def clear(self: &mut Deque[T]) -> ():
+        while self._count > 0:
+            drop(self.pop())

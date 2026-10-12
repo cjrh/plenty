@@ -15,6 +15,161 @@ pub(super) fn yields(body: &[Stmt]) -> bool {
 }
 
 impl Lower<'_> {
+    pub(super) fn generator_expression(
+        &mut self,
+        element: &Expr,
+        clauses: &[Clause],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let Some(Clause::For(names, iterable)) = clauses.first() else {
+            return Err(at.error("a generator expression requires a for clause"));
+        };
+        // Evaluate the outer source now; filters, inner sources, and the yielded
+        // expression execute only when the concrete frame is advanced.
+        let mut inputs = Vec::new();
+        let source = self.generator_source(iterable, &mut inputs, ops)?;
+        let mut bound: HashSet<String> = names.iter().cloned().collect();
+        let mut free = Vec::new();
+        for clause in &clauses[1..] {
+            match clause {
+                Clause::For(names, source) => {
+                    free_names(source, &bound, &mut free);
+                    bound.extend(names.iter().cloned());
+                }
+                Clause::If(condition) => free_names(condition, &bound, &mut free),
+            }
+        }
+        free_names(element, &bound, &mut free);
+        let mut seen = HashSet::new();
+        for name in free {
+            if !seen.insert(name.clone()) || !self.names.contains_key(&name) {
+                continue;
+            }
+            let value = Expr {
+                at: at.clone(),
+                kind: Expression::Name(name.clone()),
+            };
+            let ty = self.value(&value, ops)?;
+            if ty.contains_reference() {
+                return Err(at.error("generator expressions capture values by ownership; references cannot be suspended"));
+            }
+            inputs.push((name, generics::type_ref(&ty, at)));
+        }
+        let mut clauses = clauses.to_vec();
+        clauses[0] = Clause::For(names.clone(), source);
+        let mut body = vec![Stmt {
+            at: element.at.clone(),
+            kind: Statement::Yield(element.clone()),
+        }];
+        for clause in clauses.into_iter().rev() {
+            let (at, kind) = match clause {
+                Clause::For(names, iterable) => (
+                    iterable.at.clone(),
+                    Statement::For {
+                        name: names,
+                        iterable,
+                        body,
+                    },
+                ),
+                Clause::If(condition) => (
+                    condition.at.clone(),
+                    Statement::If {
+                        condition,
+                        yes: body,
+                        elifs: vec![],
+                        no: vec![],
+                    },
+                ),
+            };
+            body = vec![Stmt { at, kind }];
+        }
+        let name = format!(
+            "__plenty_genexpr_{}_{}_{}",
+            self.function_name, at.line, at.column
+        );
+        if !self.sigs.contains_key(&name) {
+            let function = Function {
+                once: false,
+                captures: vec![],
+                foreign: None,
+                export: None,
+                name: name.clone(),
+                type_params: vec![],
+                at: at.clone(),
+                inputs,
+                // Unit is an internal inference marker, never a source annotation.
+                output: generics::type_ref(&crate::generator::ty(Ty::Unit, None), at),
+                doc: String::new(),
+                doc_at: None,
+                body,
+            };
+            register_signature(&function, self.aliases, self.sigs, self.returned_fields)?;
+            self.generics
+                .inherit_requirement(&self.function_name, &name);
+            let function = Arc::new(function);
+            self.generics.record(&function);
+            lower_function(
+                function,
+                self.heap,
+                self.sigs,
+                self.generics,
+                self.aliases,
+                self.access,
+                self.returned_fields,
+            )?;
+        }
+        let signature = self.sigs[&name].clone();
+        self.record_direct_call(&name, at, &[], ops);
+        self.push_call(Op::Call(name), &signature.inputs, &[], ops);
+        Ok(signature.outputs[0].clone())
+    }
+
+    fn generator_source(
+        &mut self,
+        source: &Expr,
+        inputs: &mut Vec<(String, TypeRef)>,
+        ops: &mut Vec<Op>,
+    ) -> Result<Expr> {
+        if let Expression::Call(name, args) = &ungroup(source).kind {
+            if matches!(name.as_str(), "enumerate" | "zip" | "reversed")
+                && !self.names.contains_key(name)
+                && !self.sigs.contains_key(name)
+                && !self.generics.templates.contains_key(name)
+                && !self.aliases.contains_key(name)
+            {
+                let valid = match name.as_str() {
+                    "enumerate" => (1..=2).contains(&args.len()),
+                    "zip" => args.len() == 2,
+                    _ => args.len() == 1,
+                };
+                if !valid {
+                    return Err(source.at.error(format!("invalid {name} argument count")));
+                }
+                let args = args
+                    .iter()
+                    .map(|arg| self.generator_source(arg, inputs, ops))
+                    .collect::<Result<_>>()?;
+                return Ok(Expr {
+                    at: source.at.clone(),
+                    kind: Expression::Call(name.clone(), args),
+                });
+            }
+        }
+        let ty = self.value(source, ops)?;
+        if ty.contains_reference() {
+            return Err(source.at.error(
+                "generator expressions require owned inputs; references cannot be suspended",
+            ));
+        }
+        let name = format!("<generator source {}>", inputs.len());
+        inputs.push((name.clone(), generics::type_ref(&ty, &source.at)));
+        Ok(Expr {
+            at: source.at.clone(),
+            kind: Expression::Name(name),
+        })
+    }
+
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
         if actual
             .as_ref()
@@ -226,5 +381,81 @@ impl Lower<'_> {
         self.mark(at, ops);
         ops.push(Op::Next(local.slot));
         Ok(Some(crate::sum::option(element.element.clone())))
+    }
+}
+
+fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String>) {
+    let mut name = |name: &String| {
+        if !bound.contains(name) {
+            names.push(name.clone());
+        }
+    };
+    match &expression.kind {
+        Expression::Name(n) | Expression::GenericValue(n, _) => name(n),
+        Expression::Call(n, args) | Expression::GenericCall(n, _, args) => {
+            name(n);
+            for arg in args {
+                free_names(arg, bound, names);
+            }
+        }
+        Expression::Tuple(values) | Expression::Constructor(_, values) => {
+            for value in values {
+                free_names(value, bound, names);
+            }
+        }
+        Expression::Method(base, _, args)
+        | Expression::GenericMethod(base, _, _, args)
+        | Expression::Invoke(base, args) => {
+            free_names(base, bound, names);
+            for arg in args {
+                free_names(arg, bound, names);
+            }
+        }
+        Expression::Try(base)
+        | Expression::Member(base, _)
+        | Expression::Group(base)
+        | Expression::Unary(_, base)
+        | Expression::ClassReady(_, base) => free_names(base, bound, names),
+        Expression::Index(left, right) | Expression::Binary(_, left, right) => {
+            free_names(left, bound, names);
+            free_names(right, bound, names);
+        }
+        Expression::Conditional { condition, yes, no } => {
+            free_names(condition, bound, names);
+            free_names(yes, bound, names);
+            free_names(no, bound, names);
+        }
+        Expression::Collection {
+            entries, clauses, ..
+        } => {
+            let mut inner = bound.clone();
+            for clause in clauses {
+                match clause {
+                    Clause::For(bindings, iterable) => {
+                        free_names(iterable, &inner, names);
+                        inner.extend(bindings.iter().cloned());
+                    }
+                    Clause::If(condition) => free_names(condition, &inner, names),
+                }
+            }
+            for (key, value) in entries {
+                free_names(key, &inner, names);
+                if let Some(value) = value {
+                    free_names(value, &inner, names);
+                }
+            }
+        }
+        Expression::Anonymous(function) => {
+            for capture in &function.captures {
+                name(&capture.name);
+            }
+        }
+        Expression::Ambiguous { .. } => unreachable!("module resolution precedes lowering"),
+        Expression::ClassNew(_)
+        | Expression::Type(_)
+        | Expression::Number(_)
+        | Expression::Text(_)
+        | Expression::Bool(_)
+        | Expression::Unit => {}
     }
 }

@@ -24,6 +24,16 @@ Live-row cursors make traversal, snapshots, copying, formatting, and destruction
 follow insertion order without visiting dead rows. Capacity follows peak occupancy
 and explicit reservation, and persists until destruction. Hashes are not randomized.
 
+Tuple keys recursively hash scalar fields and string bytes using their static
+metadata. Inline storage addresses never participate in the hash, so copied
+keys, relocated rows, lookup temporaries, and newly constructed equal strings
+all retain the same hash. Tuple hashing and equality allocate nothing.
+
+`std.deque` builds a ring buffer in Plenty over a private list of optional
+payloads. End removal replaces a slot with `Nothing` and transfers its previous
+owner. Growth doubles the slot count and initializes a replacement buffer
+before moving live entries; list removal behavior is unchanged.
+
 Reservation obtains bucket, link, and row capacity before publishing indices or
 transferring owners. Failure preserves contents and order, though capacity may
 have grown. Relocation ignores dead rows. A popped inline payload stays readable
