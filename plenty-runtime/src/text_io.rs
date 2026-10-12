@@ -14,17 +14,24 @@ pub(crate) unsafe fn set_arguments(argc: i32, argv: *const *const u8) {
 }
 
 pub(crate) unsafe fn arguments(ty: &'static crate::aggregates::Type) -> Result<u128, Error> {
+    // SAFETY: startup publishes immutable process-lifetime arguments.
+    unsafe {
+        crate::aggregates::try_text_list(
+            argument_bytes()
+                .map(|bytes| std::str::from_utf8(bytes).map_err(|_| Error::InvalidUtf8)),
+            ty,
+        )
+    }
+}
+
+pub(crate) unsafe fn argument_bytes() -> impl ExactSizeIterator<Item = &'static [u8]> {
     let count = ARG_COUNT.load(Ordering::Acquire);
     let vector = ARG_VECTOR.load(Ordering::Relaxed);
     // SAFETY: startup publishes argc pointers to immutable process-lifetime
     // NUL-terminated arguments before any Plenty code can request a snapshot.
     unsafe {
-        let texts = (0..count).map(|index| {
-            std::ffi::CStr::from_ptr((*vector.add(index)).cast())
-                .to_str()
-                .map_err(|_| Error::InvalidUtf8)
-        });
-        crate::aggregates::try_text_list(texts, ty)
+        (0..count)
+            .map(move |index| std::ffi::CStr::from_ptr((*vector.add(index)).cast()).to_bytes())
     }
 }
 
@@ -91,7 +98,11 @@ fn push(bytes: &mut Vec<u8>, byte: u8) -> Result<(), Error> {
 }
 
 pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Error> {
-    if path.as_bytes().contains(&0) {
+    open_file_bytes(path.as_bytes(), mode)
+}
+
+pub(crate) fn open_file_bytes(path: &[u8], mode: OpenMode) -> Result<std::fs::File, Error> {
+    if path.contains(&0) {
         return Err(Kind::InvalidInput.into());
     }
     #[cfg(target_os = "linux")]
@@ -105,7 +116,7 @@ pub(crate) fn open_file(path: &str, mode: OpenMode) -> Result<std::fs::File, Err
         let mut name = Vec::new();
         name.try_reserve_exact(length)
             .map_err(|_| AllocError::OutOfMemory)?;
-        name.extend_from_slice(path.as_bytes());
+        name.extend_from_slice(path);
         name.push(0);
         unsafe extern "C" {
             fn open(path: *const std::ffi::c_char, flags: i32, ...) -> i32;
@@ -342,7 +353,7 @@ fn line(reader: &mut impl Read) -> Result<u128, Error> {
     Ok(wrap(strings::try_new(text)? as u128, 1))
 }
 
-struct Stdin;
+pub(crate) struct Stdin;
 impl Read for Stdin {
     fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
         #[cfg(unix)]

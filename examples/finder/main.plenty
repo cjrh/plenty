@@ -1,12 +1,14 @@
 import matching
+import binary
 
 def usage() -> Result[(), IoError]:
-    print("Usage: finder --paths [--glob] [--full-path] [--hidden] [--] [PATTERN]")?
+    print("Usage: finder --paths [--null] [--glob] [--full-path] [--hidden] [--] [PATTERN]")?
     print("Read relative UTF-8 paths from stdin, one per LF/CRLF line.")?
     print("Default: case-sensitive literal substring in the basename.")?
     print("--glob: whole-name match; * matches zero or more scalars, ? one scalar.")?
     print("--full-path: match the entire supplied path; wildcards may cross /.")?
     print("--hidden: include components beginning with a dot.")?
+    print("--null: read/write NUL-delimited raw Unix paths; globs match bytes.")?
     print("Directory traversal is unavailable in the current Plenty runtime.")?
     Ok(())
 
@@ -26,6 +28,12 @@ def search(pattern: &str, glob: bool, full_path: bool, hidden: bool) -> Result[i
     Ok(0)
 
 def main() -> Result[i32, IoError]:
+    raw = args_bytes()?
+    for index in range(1, len(raw)):
+        if raw[index] == encode_utf8("--")?:
+            break
+        if raw[index] == encode_utf8("--null")?:
+            return binary.run(&raw)
     argv = args()?
     mut paths = False
     mut glob = False

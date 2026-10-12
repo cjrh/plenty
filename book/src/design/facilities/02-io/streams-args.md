@@ -21,8 +21,9 @@ is EOF. Decoding is strict UTF-8.
 Buffer growth and result construction are recoverable. Failure may consume a
 prefix or complete line; the reader does not read ahead into the next line.
 The current Unix backend reads the process descriptor directly. Prompt arguments,
-bare-CR newline translation, binary input, and buffered stream objects are
+bare-CR newline translation and buffered stream objects are
 unsupported.
+Use [input_bytes](bytes-paths.md) for binary records without newline conversion.
 
 ## Arguments
 
@@ -31,3 +32,4 @@ including the invocation name at index zero. Each call produces an independent
 list with fallible text construction. Invalid UTF-8 is rejected rather than
 replaced or escaped; failed construction releases partial output. OS argument
 storage is only borrowed during construction.
+Use [args_bytes](bytes-paths.md) for lossless Unix arguments and paths.

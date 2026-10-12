@@ -1990,6 +1990,14 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "flush_stderr"
                 | "input"
                 | "args"
+                | "args_bytes"
+                | "input_bytes"
+                | "encode_utf8"
+                | "decode_utf8"
+                | "write_stdout_bytes"
+                | "write_stderr_bytes"
+                | "read_bytes"
+                | "write_bytes"
                 | "read_text"
                 | "write_text"
                 | "append_text"
@@ -3049,6 +3057,14 @@ impl Lower<'_> {
                     "flush_stderr" => Some(CollectionOp::FlushStderr),
                     "input" => Some(CollectionOp::Input),
                     "args" => Some(CollectionOp::Args),
+                    "args_bytes" => Some(CollectionOp::ArgsBytes),
+                    "input_bytes" => Some(CollectionOp::InputBytes),
+                    "encode_utf8" => Some(CollectionOp::EncodeUtf8),
+                    "decode_utf8" => Some(CollectionOp::DecodeUtf8),
+                    "write_stdout_bytes" => Some(CollectionOp::WriteStdoutBytes),
+                    "write_stderr_bytes" => Some(CollectionOp::WriteStderrBytes),
+                    "read_bytes" => Some(CollectionOp::ReadBytes),
+                    "write_bytes" => Some(CollectionOp::WriteBytes),
                     "read_text" => Some(CollectionOp::ReadText),
                     "write_text" => Some(CollectionOp::WriteText),
                     "append_text" => Some(CollectionOp::AppendText),

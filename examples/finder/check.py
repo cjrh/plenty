@@ -3,6 +3,7 @@
 
 import argparse
 import itertools
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -62,6 +63,27 @@ class FinderChecks(unittest.TestCase):
             (cls.example / "matching.plenty").read_bytes()
         )
         cls.compile(cls.driver_source, cls.driver)
+        cls.byte_driver_source = cls.directory / "byte-matcher.plenty"
+        cls.byte_driver_source.write_text(
+            "import binary\n"
+            "def main() -> Result[(), IoError]:\n"
+            "    while True:\n"
+            "        match input_bytes(0u8)?:\n"
+            "            case Some(pattern):\n"
+            "                match input_bytes(0u8)?:\n"
+            "                    case Some(text):\n"
+            "                        print(binary.glob_matches(&pattern, &text, 0))?\n"
+            "                    case Nothing:\n"
+            "                        return Err(IoError.InvalidInput)\n"
+            "            case Nothing:\n"
+            "                break\n"
+            "    flush_stdout()?\n"
+            "    Ok(())\n",
+            encoding="utf-8",
+        )
+        (cls.directory / "binary.plenty").write_bytes((cls.example / "binary.plenty").read_bytes())
+        cls.byte_driver = cls.directory / "byte-matcher"
+        cls.compile(cls.byte_driver_source, cls.byte_driver)
 
     @classmethod
     def compile(cls, source, output):
@@ -170,6 +192,53 @@ class FinderChecks(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(diagnostic, result.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "raw Unix filenames")
+    def test_nul_framed_real_filenames_and_raw_patterns(self):
+        tree = bytes(self.directory / "raw-tree")
+        os.makedirs(tree)
+        names = [b"space name", b"tab\tname", b"CR\r", b"LF\nname", b"bad\xff", b".hidden\xfe", b"\xc3\xa9"]
+        for name in names:
+            with open(tree + b"/" + name, "wb") as file:
+                file.write(b"fixture")
+        names = sorted(os.listdir(tree))
+        data = b"\0".join(names) + b"\0"
+        visible = [name for name in names if not name.startswith(b".")]
+        for options, pattern, expected in [
+            ([], None, visible),
+            (["--hidden"], None, names),
+            ([], b"\xff", [b"bad\xff"]),
+            ([], b"\n", [b"LF\nname"]),
+            (["--glob"], b"?", []),
+            (["--glob"], b"??", [b"\xc3\xa9"]),
+            (["--glob"], b"bad?", [b"bad\xff"]),
+        ]:
+            arguments = ["--paths", "--null", *options]
+            if pattern is not None:
+                arguments += ["--", pattern]
+            result = self.run_finder(*arguments, data=data)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, b"".join(name + b"\0" for name in expected))
+        result = self.run_finder("--paths", "--null", data=b"\0a\r\n\xff")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, b"a\r\n\xff\0")
+        # -- ends option parsing, including recognition of --null.
+        self.assert_paths(["--paths", "--", "--null"], "--null\nother\n", "--null\n")
+
+    def test_byte_wildcards_against_independent_oracle(self):
+        patterns = [b""] + [bytes(items) for size in range(1, 5) for items in itertools.product(b"a\xff*?", repeat=size)]
+        texts = [b""] + [bytes(items) for size in range(1, 5) for items in itertools.product(b"a\xff", repeat=size)]
+        pairs = list(itertools.product(patterns, texts)) + [
+            (b"?", b"\xc3\xa9"), (b"??", b"\xc3\xa9"), (b"*\n?", b"a\n\xff"),
+            (b"*", b"x" * 5000), (b"*a*b", b"a" * 2000 + b"b"),
+        ]
+        result = subprocess.run([str(self.byte_driver)], input=b"".join(pattern + b"\0" + text + b"\0" for pattern, text in pairs), capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        answers = result.stdout.decode("ascii").splitlines()
+        self.assertEqual(len(answers), len(pairs))
+        # Translate byte tokens to scalar tokens solely for the independent oracle.
+        for (pattern, text), actual in zip(pairs, answers):
+            self.assertEqual(actual, str(wildcard_oracle(pattern.decode("latin1"), text.decode("latin1"))), (pattern, text))
 
     def test_wildcards_against_independent_oracle(self):
         patterns = [""] + [

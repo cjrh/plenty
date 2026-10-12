@@ -24,12 +24,18 @@ limitation when asked to search without supplied paths. Its test harness provide
 filesystem traversal outside Plenty; Plenty performs the filtering. Capability
 probes preserve the currently rejected directory operations.
 
-Text-only arguments and line I/O cannot transport arbitrary Unix filenames
-losslessly (issue #61). Invalid UTF-8 is rejected, embedded LF splits records,
-and a CR before LF is stripped. Directory walking alone will not solve this.
-These findings give concrete acceptance cases for issue #49's proposed
-filesystem/path/bytes facilities.
+Use `--null` for lossless Unix paths: `args_bytes()` preserves raw patterns,
+`input_bytes(0u8)` reads NUL records, and `write_stdout_bytes` emits exact names
+followed by NUL. CR, LF, and invalid UTF-8 are preserved. Matching borrows
+`list[u8]`; in this mode `?` matches one byte, so UTF-8 `é` takes two `?` tokens.
+The default text mode retains its Unicode-scalar and line semantics.
+
+Issue #61's transport acceptance cases are covered by a real Unix fixture with
+spaces, tabs, CR/LF, and invalid UTF-8, plus raw argument patterns and a byte
+wildcard oracle. Broader compact byte buffers and path/library APIs remain within
+issue #49; traversal is still blocked by issue #60.
 
 See the current [standard stream and argument](../facilities/02-io/streams-args.md),
+[binary transport](../facilities/02-io/bytes-paths.md),
 [text](../facilities/01-builtins/text.md), and
 [foreign text adapter](../facilities/04-interop/borrowing-text.md) contracts.

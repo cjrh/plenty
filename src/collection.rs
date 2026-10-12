@@ -28,6 +28,14 @@ pub enum CollectionOp {
     FlushStderr,
     Input,
     Args,
+    ArgsBytes,
+    InputBytes,
+    EncodeUtf8,
+    DecodeUtf8,
+    WriteStdoutBytes,
+    WriteStderrBytes,
+    ReadBytes,
+    WriteBytes,
     ReadText,
     WriteText,
     AppendText,
@@ -225,6 +233,40 @@ impl CollectionOp {
             Args => (
                 vec![],
                 crate::sum::result(Ty::List(std::rc::Rc::new(Ty::Str)), crate::sum::io_error()),
+            ),
+            ArgsBytes => (
+                vec![],
+                crate::sum::result(
+                    Ty::List(Rc::new(Ty::List(Rc::new(Ty::U8)))),
+                    crate::sum::io_error(),
+                ),
+            ),
+            InputBytes => (
+                vec![Ty::U8],
+                crate::sum::result(
+                    crate::sum::option(Ty::List(Rc::new(Ty::U8))),
+                    crate::sum::io_error(),
+                ),
+            ),
+            EncodeUtf8 => (
+                vec![Ty::Str],
+                crate::sum::result(Ty::List(Rc::new(Ty::U8)), crate::sum::io_error()),
+            ),
+            DecodeUtf8 => (
+                vec![Ty::List(Rc::new(Ty::U8))],
+                crate::sum::result(Ty::Str, crate::sum::io_error()),
+            ),
+            WriteStdoutBytes | WriteStderrBytes => (
+                vec![Ty::List(Rc::new(Ty::U8))],
+                crate::sum::result(Ty::I64, crate::sum::io_error()),
+            ),
+            ReadBytes => (
+                vec![Ty::List(Rc::new(Ty::U8))],
+                crate::sum::result(Ty::List(Rc::new(Ty::U8)), crate::sum::io_error()),
+            ),
+            WriteBytes => (
+                vec![Ty::List(Rc::new(Ty::U8)), Ty::List(Rc::new(Ty::U8))],
+                crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
             Input => (
                 vec![],
@@ -457,6 +499,14 @@ impl CollectionOp {
             Self::FlushStderr => 83,
             Self::Input => 84,
             Self::Args => 85,
+            Self::ArgsBytes => 142,
+            Self::InputBytes => 143,
+            Self::EncodeUtf8 => 144,
+            Self::DecodeUtf8 => 145,
+            Self::WriteStdoutBytes => 146,
+            Self::WriteStderrBytes => 147,
+            Self::ReadBytes => 148,
+            Self::WriteBytes => 149,
             Self::ReadText => 86,
             Self::WriteText => 87,
             Self::AppendText => 88,
