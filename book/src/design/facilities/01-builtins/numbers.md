@@ -106,7 +106,7 @@ and the cast `i64(x.floor())` produces the integer.
 
 Each binary method takes one argument of the receiver's type. Unary methods
 take no arguments. Generic `FloatType` functions can use every method.
-[The imported `std.math` functions](../math.md) wrap these primitives with
+[The imported `std.math` functions](../../stdlib/math.md) wrap these primitives with
 recoverable domain and overflow errors and checked integer rounding.
 
 ## Formatting

@@ -66,11 +66,13 @@ issue ownership, discussion, and PR review state live in the database.
 |---|---|
 | `book/src/design/` | Language reference: current behavior, limits, architecture |
 | `book/src/design/toolchain/02-architecture/support.md` | What works today |
+| `book/src/design/stdlib/` | Standard library reference: one page per `std` module |
 | `book/src/tutorial/` | Learn Plenty: runnable lessons, checked by tests |
 | `book/src/backlog.md` | The only list of future work and priorities |
 | `book/src/proposals/` | Design rationale and alternatives (may contain old syntax) |
 | `src/` | Compiler: frontend (parse, check) and Cranelift codegen |
 | `plenty-runtime/` | Rust runtime crate, embedded in the compiler and linked into programs |
+| `stdlib/std/` | Standard library modules in Plenty, embedded in the compiler |
 | `tests/` | Integration tests, one area per file |
 | `examples/` | Small sample programs and a compile-time benchmark |
 
