@@ -28,5 +28,6 @@ its separate two-binding contract and is not an adapter input.
 
 The calls do not construct first-class iterators, support arbitrary iterator
 protocols, or implement keyword arguments or zip strictness. Outside a loop
-source they report this restriction explicitly. A user function or callable
+source they report this restriction explicitly. [Reverse traversal](05-reverse-and-reduce.md)
+can supply either input. A user function or callable
 binding named `enumerate` or `zip` retains its normal call behavior.
