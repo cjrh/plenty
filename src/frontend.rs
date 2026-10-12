@@ -3,6 +3,7 @@
 //! Signatures are collected before bodies. Inference is local, expressions
 //! have zero (unit) or one result, and no backend participates in inference.
 use std::cell::Cell;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::sync::Arc;
@@ -3933,7 +3934,7 @@ fn register_signature(
     aliases: &TypeAliases,
     sigs: &mut HashMap<String, Arc<FnSig>>,
     returned_fields: &mut HashMap<String, Vec<usize>>,
-) -> Result<()> {
+) -> Result<Arc<FnSig>> {
     if f.inputs.len() > 256 {
         return Err(f
             .at
@@ -3944,12 +3945,14 @@ fn register_signature(
             .at
             .error(format!("function `{}` conflicts with a type alias", f.name)));
     }
-    if sigs.contains_key(&f.name) {
+    // The entry is found once and filled below: a whole-program table costs
+    // a cache miss per probe once it outgrows the caches (issue #57).
+    let Entry::Vacant(entry) = sigs.entry(f.name.clone()) else {
         return Err(f.at.error(format!(
             "function `{}` is already defined; redefinition is not supported",
             f.name
         )));
-    }
+    };
     let mut inputs = Vec::with_capacity(f.inputs.len());
     for (name, ty) in &f.inputs {
         let resolved = ty
@@ -3989,12 +3992,12 @@ fn register_signature(
         }
     }
     let outputs = output.into_iter().collect();
-    sigs.insert(f.name.clone(), Arc::new(FnSig { inputs, outputs }));
-
-    if let Some(fields) = references::returned_fields(f, &sigs[&f.name]) {
+    let sig = Arc::new(FnSig { inputs, outputs });
+    if let Some(fields) = references::returned_fields(f, &sig) {
         returned_fields.insert(f.name.clone(), fields);
     }
-    Ok(())
+    entry.insert(Arc::clone(&sig));
+    Ok(sig)
 }
 
 /// Lowers one function. An error in the body of a generic instance is reported
@@ -4009,7 +4012,7 @@ fn lower_function(
     access: &modules::AccessMap,
     returned_fields: &mut HashMap<String, Vec<usize>>,
 ) -> Result<()> {
-    if generics.completed.contains(&f.name) {
+    if generics.lowered(&f.name) {
         return Ok(());
     }
     let required = generics.required.get(&f.name).cloned();
@@ -4061,8 +4064,7 @@ fn lower_body(
             .map(|(_, t)| t.clone())
             .collect::<Vec<_>>();
         generics.active.remove(&f.name);
-        generics.completed.insert(f.name.clone());
-        generics.release(&f.name, &sig);
+        generics.complete(&f.name, &sig);
         generics.compiled.push(Op::DefineFn(
             f.name.clone(),
             Box::new(CompiledFn {
@@ -4190,11 +4192,18 @@ fn lower_body(
                 .error("cannot infer the concrete generator returned by this function"));
         }
         let inferred_frame = sig.outputs.iter().any(Ty::unresolved_generator);
-        sig = Arc::new(FnSig {
-            inputs: sig.inputs.clone(),
-            outputs: output.into_iter().collect(),
-        });
-        lower.sigs.insert(f.name.clone(), sig.clone());
+        // Most bodies return exactly the declared type; the registered
+        // signature then stands, sparing a copy and a table probe (issue #57).
+        if inferred_frame || sig.outputs.as_slice() != output.as_slice() {
+            sig = Arc::new(FnSig {
+                inputs: sig.inputs.clone(),
+                outputs: output.into_iter().collect(),
+            });
+            *lower
+                .sigs
+                .get_mut(&f.name)
+                .expect("a lowered function has a registered signature") = sig.clone();
+        }
         if inferred_frame {
             // Check empty variants and propagation paths again with the resolved
             // return context. Calls/specializations are cached across this pass.
@@ -4249,8 +4258,7 @@ fn lower_body(
         locals: lower.locals.into(),
     };
     generics.active.remove(&f.name);
-    generics.completed.insert(f.name.clone());
-    generics.release(&f.name, &compiled.sig);
+    generics.complete(&f.name, &compiled.sig);
     generics
         .compiled
         .push(Op::DefineFn(f.name.clone(), Box::new(compiled)));
@@ -4283,21 +4291,28 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let mut generics = generics::prepare(functions, &aliases, protocols)?;
     generics.source_root = source_root;
     while !generics.expand_data(&aliases)?.is_empty() {}
-    // One entry per function: sized up front, these tables are not rehashed
-    // key by key at every doubling while the program is lowered (issue #57).
+    // One entry per function: sized up front, the table is not rehashed key by
+    // key at every doubling while the program is lowered (issue #57).
     let declared = generics.pending.len();
     let mut sigs = HashMap::with_capacity(declared);
-    generics.completed.reserve(declared);
     generics.compiled.reserve(declared);
     let mut returned_fields = HashMap::new();
+    // Every function is visited once here. A pass over the whole program
+    // costs cache misses per function once the program outgrows the caches,
+    // so the checks below visit only the functions they concern (issue #57).
+    let mut boundary = Vec::new();
+    let mut generator_parameters = false;
     for f in &generics.pending {
-        register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;
+        let sig = register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;
+        generator_parameters |= sig.inputs.iter().any(|(_, t)| t.unresolved_generator());
+        if f.foreign.is_some() || f.export.is_some() {
+            boundary.push(f.as_ref());
+        }
     }
-    foreign::check_symbols(generics.pending.iter().map(Arc::as_ref), &sigs)?;
+    foreign::check_symbols(boundary.iter().copied(), &sigs)?;
     let mut exports = Vec::new();
     let mut symbols = HashSet::new();
-    let imported_symbols: HashSet<_> = generics
-        .pending
+    let imported_symbols: HashSet<_> = boundary
         .iter()
         .filter_map(|f| {
             f.foreign
@@ -4307,7 +4322,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         })
         .collect();
     let mut interface_names = HashSet::new();
-    for f in &generics.pending {
+    for f in &boundary {
         if let Some(symbol) = &f.export {
             let name = f.name.rsplit('.').next().unwrap().to_owned();
             if imported_symbols.contains(symbol.as_str()) || !symbols.insert(symbol.clone()) {
@@ -4332,10 +4347,10 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     exports.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     let returns_status = if require_main {
         const MAIN_RETURN_TYPES: &str = "(), i32, Result[(), E], or Result[i32, E]";
-        let entry = generics
-            .pending
-            .iter()
-            .find(|f| f.name == "main")
+        let (yields, entry) = generics
+            .functions
+            .get("main")
+            .and_then(|declared| Some((declared.yields, declared.function.as_ref()?)))
             .ok_or_else(|| {
                 at.error(format!(
                     "binary application requires a module-level main taking no parameters and returning {MAIN_RETURN_TYPES}"
@@ -4345,7 +4360,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         if !entry_sig.inputs.is_empty()
             || !matches!(entry_sig.outputs.as_slice(), [] | [Ty::I32])
                 && !matches!(entry_sig.outputs.as_slice(), [Ty::Enum(t)] if t.propagatable() && !t.is_option() && matches!(t.get().variants[0].fields.as_slice(), [Ty::Unit | Ty::I32]))
-            || generators::yields(&entry.body)
+            || yields
         {
             return Err(entry.at.error(format!(
                 "main must take no parameters and return {MAIN_RETURN_TYPES}; it cannot be a generator"
@@ -4355,12 +4370,14 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     } else {
         false
     };
-    generics.pending.retain(|f| {
-        !sigs[&f.name]
-            .inputs
-            .iter()
-            .any(|(_, t)| t.unresolved_generator())
-    });
+    if generator_parameters {
+        generics.pending.retain(|f| {
+            !sigs[&f.name]
+                .inputs
+                .iter()
+                .any(|(_, t)| t.unresolved_generator())
+        });
+    }
     loop {
         // Resolving a specialized return type can introduce data instances even
         // when its body only returns Err. Drain those methods before finishing.

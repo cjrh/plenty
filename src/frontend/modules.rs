@@ -88,6 +88,13 @@ fn qualified(module: &str, name: &str) -> String {
     }
 }
 
+/// `qualified` in place: a root-module name is already its own symbol.
+fn qualify(module: &str, name: &mut String) {
+    if !module.is_empty() {
+        *name = format!("{module}.{name}");
+    }
+}
+
 fn numeric_type_name(name: &str) -> bool {
     matches!(
         name,
@@ -358,7 +365,7 @@ fn parse_items(
 }
 
 impl Module {
-    fn names(&self) -> HashSet<String> {
+    fn names(&self) -> impl Iterator<Item = &String> {
         self.functions
             .iter()
             .map(|f| &f.name)
@@ -366,8 +373,6 @@ impl Module {
             .chain(self.enums.iter().map(|e| &e.name))
             .chain(self.classes.iter().map(|c| &c.name))
             .chain(self.protocols.iter().map(|p| &p.name))
-            .cloned()
-            .collect()
     }
 }
 
@@ -575,7 +580,11 @@ struct Scope {
     module: String,
     // Module-wide tables are shared: every function, class, and closure gets
     // its own scope, and copying these per scope is quadratic (issue #53).
-    symbols: Arc<HashMap<String, String>>,
+    /// Names the module declares. Each resolves to its qualified name, which
+    /// is built on use: storing it would double this table (issue #57).
+    declared: Arc<HashSet<String>>,
+    /// Names bound by `from module import name`, and their symbols.
+    imported: Arc<HashMap<String, String>>,
     namespaces: Arc<HashMap<String, Arc<HashMap<String, String>>>>,
     constants: Arc<HashMap<String, String>>,
     type_params: HashSet<String>,
@@ -595,7 +604,10 @@ impl Scope {
         Ok(())
     }
     fn symbol(&self, path: &str, at: &Token) -> Result<Option<String>> {
-        if let Some(symbol) = self.symbols.get(path) {
+        if self.declared.contains(path) {
+            return Ok(Some(qualified(&self.module, path)));
+        }
+        if let Some(symbol) = self.imported.get(path) {
             return Ok(Some(symbol.clone()));
         }
         if let Some((prefix, member)) = path.rsplit_once('.') {
@@ -623,9 +635,15 @@ impl Scope {
             if self.type_params.contains(name) {
                 return Ok(());
             }
+            // A builtin can be neither declared nor bound by an import, so
+            // it is settled without probing the module's symbol table, which
+            // costs a cache miss in a large module (issue #57).
+            if builtin(name) {
+                return Ok(());
+            }
             if let Some(symbol) = self.symbol(name, &ty.at)? {
                 *name = symbol;
-            } else if !builtin(name) && !matches!(name.as_str(), "&" | "&mut") {
+            } else if !matches!(name.as_str(), "&" | "&mut") {
                 return Err(ty.at.error(format!("unknown type `{name}`")));
             }
         }
@@ -1065,19 +1083,16 @@ fn resolve(
             uncaptured: HashSet::new(),
             type_params: HashSet::new(),
             module: m.name.clone(),
-            symbols: Arc::new(
-                m.names()
-                    .into_iter()
-                    .map(|n| (n.clone(), qualified(&m.name, &n)))
-                    .collect(),
-            ),
+            declared: Arc::new(m.names().cloned().collect()),
+            imported: Arc::default(),
             namespaces: Arc::default(),
             constants: constants.clone(),
         };
         for (import, dependency) in m.imports.iter().zip(&dependencies[i]) {
             let root = import.binding.split('.').next().unwrap();
             if builtin(root)
-                || scope.symbols.contains_key(root)
+                || scope.declared.contains(root)
+                || scope.imported.contains_key(root)
                 || scope.namespaces.contains_key(&import.binding)
                 || scope.namespaces.contains_key(root)
                 || (scope.namespace_root(root)
@@ -1095,7 +1110,7 @@ fn resolve(
                         import.module
                     ))
                 })?;
-                Arc::make_mut(&mut scope.symbols).insert(import.binding.clone(), name.clone());
+                Arc::make_mut(&mut scope.imported).insert(import.binding.clone(), name.clone());
             } else {
                 Arc::make_mut(&mut scope.namespaces)
                     .insert(import.binding.clone(), exports[*dependency].clone());
@@ -1123,8 +1138,10 @@ fn resolve(
                     }
                 }
             }
-            let symbol = qualified(&m.name, &f.name);
-            f.name = constants.get(&symbol).cloned().unwrap_or(symbol);
+            qualify(&m.name, &mut f.name);
+            if let Some(constant) = constants.get(&f.name) {
+                f.name.clone_from(constant);
+            }
         }
         for p in &mut m.protocols {
             let public = m.exports.contains(&p.name);

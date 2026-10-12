@@ -96,30 +96,39 @@ pub(super) fn prepare(
             },
         )?;
     }
-    // The tables below get one entry per function. Sized up front, they are
-    // not rehashed key by key at every doubling (issue #57).
-    let mut methods = HashMap::with_capacity(functions.len());
+    let mut methods = HashMap::new();
     for f in functions.iter().filter(|f| f.type_params.is_empty()) {
-        methods.insert(f.name.clone(), protocols::signature(f, aliases)?);
+        // Every signature is resolved here, so its errors are reported
+        // first, but only a method's can satisfy a protocol. A program-wide
+        // table would cost a name copy and a cache miss per function
+        // (issue #57).
+        let signature = protocols::signature(f, aliases)?;
+        if crate::record::is_method(&f.name) {
+            methods.insert(f.name.clone(), signature);
+        }
     }
     let mut engine = Engine {
         protocols: declarations,
         methods,
         templates: HashMap::new(),
         cache: HashMap::new(),
+        // One entry per function: sized up front, these are not rehashed
+        // key by key at every doubling (issue #57).
         pending: VecDeque::with_capacity(functions.len()),
         functions: HashMap::with_capacity(functions.len()),
         compiled: Vec::new(),
         tail_candidates: HashMap::new(),
         active: HashSet::new(),
-        completed: HashSet::new(),
         frames: HashMap::new(),
         required: HashMap::new(),
         source_root: None,
+        trap_file: None,
     };
-    let mut names = HashSet::with_capacity(functions.len());
     for f in functions {
-        if !names.insert(f.name.clone()) || aliases.contains_key(&f.name) {
+        if engine.functions.contains_key(&f.name)
+            || engine.templates.contains_key(&f.name)
+            || aliases.contains_key(&f.name)
+        {
             return Err(f.at.error(format!(
                 "function `{}` is already defined or conflicts with a type alias",
                 f.name
@@ -148,12 +157,14 @@ pub(super) struct Engine {
     pub(super) compiled: Vec<Op>,
     pub(super) tail_candidates: HashMap<String, Vec<tail_calls::Candidate>>,
     pub(super) active: HashSet<String>,
-    pub(super) completed: HashSet<String>,
     pub(super) frames: HashMap<(String, Vec<Ty>), String>,
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<String, Arc<Instantiation>>,
     pub(super) source_root: Option<std::path::PathBuf>,
+    /// The last source `trap_file` made relative, and the result. Functions
+    /// arrive module by module, so this spares a path copy per function.
+    trap_file: Option<(Arc<str>, Arc<str>)>,
 }
 
 /// What later calls need from a concrete function after it joined the queue.
@@ -165,6 +176,9 @@ pub(super) struct Declared {
     /// It is `None` once the function is lowered: its syntax tree is released
     /// then, not at the end of the program (issue #54).
     pub(super) function: Option<Arc<Function>>,
+    /// Whether the function is lowered. Kept here, not in a table of its own:
+    /// each whole-program table costs a cache miss per function (issue #57).
+    lowered: bool,
 }
 
 impl Engine {
@@ -175,6 +189,7 @@ impl Engine {
             Declared {
                 yields: generators::yields(&f.body),
                 function: Some(Arc::clone(f)),
+                lowered: false,
             },
         );
     }
@@ -186,26 +201,41 @@ impl Engine {
         self.pending.push_back(f);
     }
 
-    /// Releases a lowered function's syntax tree. A function with a generator
-    /// parameter stays: each frame specialization copies its declaration.
-    pub(super) fn release(&mut self, name: &str, sig: &FnSig) {
-        if sig.inputs.iter().any(|(_, t)| t.unresolved_generator()) {
-            return;
-        }
-        if let Some(declared) = self.functions.get_mut(name) {
+    pub(super) fn lowered(&self, name: &str) -> bool {
+        self.functions[name].lowered
+    }
+
+    /// Marks a function lowered and releases its syntax tree. A function with
+    /// a generator parameter keeps its tree: each frame specialization copies
+    /// its declaration.
+    pub(super) fn complete(&mut self, name: &str, sig: &FnSig) {
+        let declared = self
+            .functions
+            .get_mut(name)
+            .expect("a lowered function is declared");
+        declared.lowered = true;
+        if !sig.inputs.iter().any(|(_, t)| t.unresolved_generator()) {
             declared.function = None;
         }
     }
 
     /// `source` relative to the source root; unchanged without a root.
-    pub(super) fn trap_file(&self, source: &Arc<str>) -> Arc<str> {
-        self.source_root
+    pub(super) fn trap_file(&mut self, source: &Arc<str>) -> Arc<str> {
+        if let Some((last, relative)) = &self.trap_file {
+            if Arc::ptr_eq(last, source) {
+                return Arc::clone(relative);
+            }
+        }
+        let relative = self
+            .source_root
             .as_deref()
             .and_then(|root| std::path::Path::new(&**source).strip_prefix(root).ok())
             .map_or_else(
                 || Arc::clone(source),
                 |relative| relative.to_string_lossy().as_ref().into(),
-            )
+            );
+        self.trap_file = Some((Arc::clone(source), Arc::clone(&relative)));
+        relative
     }
 }
 

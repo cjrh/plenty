@@ -681,8 +681,10 @@ impl generics::Engine {
                 self.templates.insert(f.name.clone(), Arc::new(f.clone()));
                 continue;
             }
-            self.methods
-                .insert(f.name.clone(), protocols::signature(f, aliases)?);
+            let signature = protocols::signature(f, aliases)?;
+            if crate::record::is_method(&f.name) {
+                self.methods.insert(f.name.clone(), signature);
+            }
             self.declare(f.clone());
         }
         Ok(functions
