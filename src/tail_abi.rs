@@ -121,11 +121,13 @@ pub(crate) fn classify(caller: &FnSig, callee: &FnSig) -> Result<TailCallPlan, T
 /// a program without any fallback is returned borrowed: a full copy of every
 /// body was a quarter of the compiler's peak memory (issue #54).
 pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
-    fn collect(ops: &[Op], sigs: &mut HashMap<String, Rc<FnSig>>) {
+    /// Keys and signatures borrow from `ops`: nothing is copied per function.
+    type Sigs<'a> = HashMap<&'a str, &'a Rc<FnSig>>;
+    fn collect<'a>(ops: &'a [Op], sigs: &mut Sigs<'a>) {
         for op in ops {
             match op {
                 Op::DefineFn(name, f) => {
-                    sigs.insert(name.clone(), f.sig.clone());
+                    sigs.insert(name, &f.sig);
                     collect(&f.body, sigs);
                 }
                 Op::Match(arms) => {
@@ -157,7 +159,7 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
     fn shared(
         nested: &Rc<[Op]>,
         caller: Option<&CompiledFn>,
-        sigs: &HashMap<String, Rc<FnSig>>,
+        sigs: &Sigs<'_>,
         changed: &mut bool,
     ) -> Rc<[Op]> {
         match body(nested, caller, sigs) {
@@ -170,11 +172,7 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
     }
     /// `None` means that no operation in `ops` changes. The result starts as a
     /// copy of the operations before the first change.
-    fn body(
-        ops: &[Op],
-        caller: Option<&CompiledFn>,
-        sigs: &HashMap<String, Rc<FnSig>>,
-    ) -> Option<Vec<Op>> {
+    fn body(ops: &[Op], caller: Option<&CompiledFn>, sigs: &Sigs<'_>) -> Option<Vec<Op>> {
         let mut result: Option<Vec<Op>> = None;
         for (index, op) in ops.iter().enumerate() {
             let mut changed = false;
@@ -225,7 +223,7 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
                 _ => None,
             };
             let callee = match op {
-                Op::TailCall(name) => sigs.get(name).cloned(),
+                Op::TailCall(name) => sigs.get(name.as_str()).map(|sig| Rc::clone(sig)),
                 Op::TailCallIndirect(sig) => Some(Rc::new(sig.function())),
                 _ => None,
             };
@@ -270,7 +268,8 @@ pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
         }
         result
     }
-    let mut sigs = HashMap::new();
+    // Nearly every top-level operation defines a function.
+    let mut sigs = HashMap::with_capacity(ops.len());
     collect(ops, &mut sigs);
     match body(ops, None, &sigs) {
         Some(rewritten) => Cow::Owned(rewritten),

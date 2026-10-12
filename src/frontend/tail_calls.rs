@@ -188,16 +188,21 @@ fn expression_endings(
 }
 
 pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
+    // Only a function with a call in source tail position has anything to
+    // validate. Without one, skip the whole-program tables built below.
+    if generics.tail_candidates.is_empty() {
+        return Ok(());
+    }
     // This is the same normalization codegen consumes. A raw TailCall marker
     // alone does not prove that its reference/storage transfer was approved.
     let prepared = crate::tail_abi::prepare(ops);
-    let prepared_functions: HashMap<_, _> = prepared
-        .iter()
-        .filter_map(|op| match op {
-            Op::DefineFn(name, function) => Some((name.as_str(), function)),
-            _ => None,
-        })
-        .collect();
+    let mut prepared_functions = HashMap::with_capacity(generics.tail_candidates.len());
+    prepared_functions.extend(prepared.iter().filter_map(|op| match op {
+        Op::DefineFn(name, function) if generics.tail_candidates.contains_key(name) => {
+            Some((name.as_str(), function))
+        }
+        _ => None,
+    }));
     let functions: Vec<_> = ops
         .iter()
         .filter_map(|op| match op {

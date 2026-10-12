@@ -20,6 +20,31 @@ fn mutual_cycles_include_non_tail_back_edges() {
 }
 
 #[test]
+fn candidates_are_validated_among_functions_without_any() {
+    // Only a function with a call in source tail position records candidates
+    // (issue #57). The first offender in source order is still the one reported.
+    let walk = |name: &str| {
+        format!("def {name}(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    child = n - 1\n    return {name}(child, n - 1)\n")
+    };
+    let quiet = "def quiet(n: i64) -> i64:\n    n + 1\n";
+    let source = format!(
+        "{quiet}{}def other(n: i64) -> i64:\n    1 + quiet(n)\n{}",
+        walk("early"),
+        walk("late")
+    );
+    rejects(
+        &source,
+        &["7:12:", "recursive call to `early`", "local `child`"],
+    );
+    // A cycle closed only through a call outside tail position still counts.
+    rejects(&format!("{quiet}def first(value: &i64, n: i64) -> i64:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    1 + first(value, n - 1)\n"), &["recursive call to `second`", "cycle as `first`", "local `child`"]);
+    support::check_source(&format!(
+        "{quiet}def other(n: i64) -> i64:\n    1 + quiet(n)\n"
+    ))
+    .unwrap();
+}
+
+#[test]
 fn nested_branches_and_conditional_expressions_retain_candidates() {
     for tail in [
         "if n > 1:\n        if n > 2:\n            return walk(child, n - 1)\n        return 0\n    return 0",
