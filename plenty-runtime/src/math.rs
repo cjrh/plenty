@@ -36,6 +36,7 @@ macro_rules! float_math {
                 25 => x.trunc(),
                 26 => x.abs(),
                 27 => x.copysign(y),
+                28 => x.round_ties_even(),
                 _ => unreachable!("invalid float operation"),
             }
         }

@@ -34,6 +34,7 @@ pub enum FloatOp {
     Trunc = 25,
     Abs = 26,
     Copysign = 27,
+    Round = 28,
 }
 
 impl FloatOp {

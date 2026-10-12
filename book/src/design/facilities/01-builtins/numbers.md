@@ -95,6 +95,7 @@ infinity, following IEEE 754 and the platform math library.
 | `x.asinh()`, `x.acosh()`, `x.atanh()` | Inverse hyperbolic functions |
 | `x.cbrt()` | Real cube root, including negative inputs |
 | `x.floor()`, `x.ceil()`, `x.trunc()` | Whole value toward negative infinity, positive infinity, or zero; still a float |
+| `x.round()` | Nearest whole value, choosing even at halfway values; preserves signed zero |
 | `x.fabs()`, `x.copysign(y)` | Absolute magnitude; magnitude with the sign bit of `y` |
 | `x.pow(y)` | `x` to the power `y` |
 | `x.fmod(y)` | Remainder of `x / y` with the sign of `x`; NaN when `y` is zero |
