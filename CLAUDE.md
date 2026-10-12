@@ -13,8 +13,8 @@ follow `AGENTS.md`.
 Issues and pull requests are entirely local records in the shared `issues.db`.
 Do not create GitHub issues/PRs, add GitHub URLs, or fetch/push as part of this
 workflow. A change request authorizes committing the scoped changes locally and
-creating/updating a local PR record. The user reviews and merges; do not merge
-or rewrite a branch under review without explicit instruction.
+creating/updating a local PR record. The user reviews and authorizes merging;
+do not merge or rewrite a branch under review without explicit instruction.
 
 1. Inspect local status and worktrees. For issue work, read its description,
    comments, and linked PRs, then claim it atomically using the procedure below
@@ -45,7 +45,15 @@ or rewrite a branch under review without explicit instruction.
    Report blockers or checks not run accurately. Resolve conflicts within the
    task worktree and rerun affected checks. Hand off the local PR number,
    source/target branches, and worktree path. Keep the claim, branch, and
-   worktree available through review and revisions; merging belongs to the user.
+   worktree available through review and revisions until the user instructs you
+   to merge.
+6. After completing work on an issue, **"merge the PR"** authorizes the full
+   completion workflow without a separate cleanup instruction. Merge the branch
+   into its local target, mark the local PR as merged, update the linked issue
+   (close it with the actual fixing commit and resolution when resolved), and
+   release the task's claim. Check the docs and `book/src/backlog.md` and update
+   them if necessary. Remove the task worktree only after confirming its changes
+   are preserved; preserve unrelated changes and other workers' worktrees.
 
 The issues database is the deliberate exception to isolated working files: all
 workers use the main worktree's database as described below. Do not introduce
@@ -178,8 +186,9 @@ the UPDATE predicate to avoid overwriting another worker's intervening edit.
 Never hold a transaction while researching, building, or waiting for review.
 
 An open fixing PR is not a completed fix in the shared register. Keep the issue
-open until the user has actually merged it into the target branch; then record
-the PR as merged, close the fixed issue with the actual fixing commit and
+open until the branch has actually been merged into the target branch under the
+user's authorization; then record the PR as merged, close the fixed issue with
+the actual fixing commit and
 resolution, and release its claim. A PR status of `merged` is metadata, not proof
 that Git has merged anything. Keep shared backlog status consistent with that
 distinction. Closing an unmerged PR does not resolve the issue; its owner must
@@ -291,10 +300,13 @@ rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-update \
 If the revision is stale, reread and reconcile instead of overwriting another
 worker's changes. PR statuses are `open`, `merged`, and `closed`; there is no
 draft status. Describe incomplete work/checks explicitly. Once the user has
-actually merged the branch, use `pr-update --number N --revision R --status merged`
-with current values, close the fixed issue with a resolution, and release the
+authorized merging and the branch has actually been merged, use
+`pr-update --number N --revision R --status merged` with current values, close
+the fixed issue with a resolution, and release the
 claim. Neither automatic links nor status updates close issues or perform Git
-operations. Leave Git branches/worktrees for the user's review and cleanup.
+operations. Keep the branch/worktree available for review and revisions until
+the user instructs you to merge; that instruction includes the issue updates,
+necessary docs/backlog updates, and worktree cleanup described above.
 
 ### Schema and commands
 
