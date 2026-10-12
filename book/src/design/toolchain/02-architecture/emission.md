@@ -14,6 +14,10 @@ compiles batches of fixed IR size on all available cores. Definitions enter the
 object in build order, preserving byte-for-byte output across core counts. There
 is no worker-count flag. Tests compare one, two, and eight workers.
 
+A function's operations are released once its IR is built, and the object is
+written to its file one section at a time. Emission therefore holds neither
+every function's operations nor a second copy of the object (issue #54).
+
 Cranelift's verifier checks compiler-generated IR, not source programs. It runs
 in debug compiler builds, including tests; release builds omit it.
 

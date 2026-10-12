@@ -104,7 +104,7 @@ pub fn compile_file_to_library(
     crate::validate_target(options.compile.target.as_deref())?;
     crate::exports::check_library_name(&options.name)?;
     let mut heap = crate::value::Heap::default();
-    let program = crate::frontend::compile_file(path, root, false, &mut heap)?;
+    let mut program = crate::frontend::compile_file(path, root, false, &mut heap)?;
     crate::op::check(&program.ops)?;
     let interface = Interface::new(&options.name, &program.exports)?;
     interface.validate_imports(&program.imported_symbols)?;
@@ -138,7 +138,8 @@ pub fn compile_file_to_library(
         .prefix(".plenty-build-")
         .tempdir_in(directory)?;
     let object = workspace.path().join("plenty_exports.o");
-    crate::codegen::emit_library_object(&program, &heap, &object, &interface)?;
+    let ops = std::mem::take(&mut program.ops);
+    crate::codegen::emit_library_object(ops, &program.exports, &heap, &object, &interface)?;
     let built = workspace.path().join("library");
     match options.kind {
         LibraryKind::Static => {

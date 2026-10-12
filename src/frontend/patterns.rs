@@ -190,8 +190,7 @@ impl Parser {
         let at = self.peek().clone();
         let negative = at.is("-")
             && self
-                .tokens
-                .get(self.pos + 1)
+                .token(self.pos + 1)
                 .is_some_and(|t| matches!(t.kind, Kind::Number(_)));
         if negative {
             self.take();
@@ -219,7 +218,7 @@ impl Parser {
         let at = self.peek();
         let mut depth = 0usize;
         let mut end = self.pos;
-        while let Some(token) = self.tokens.get(end) {
+        while let Some(token) = self.token(end) {
             if token.is("[") {
                 depth += 1;
             } else if token.is("]") {
@@ -232,7 +231,7 @@ impl Parser {
             }
             end += 1;
         }
-        let variant = match (self.tokens.get(end + 1), self.tokens.get(end + 2)) {
+        let variant = match (self.token(end + 1), self.token(end + 2)) {
             (
                 Some(dot),
                 Some(Token {
