@@ -12,7 +12,7 @@ impl Lower<'_> {
             self.generics.validate_template(&function, self.aliases)?;
             self.generics
                 .templates
-                .insert(name.into(), Rc::new(function));
+                .insert(name.into(), Arc::new(function));
         }
         Ok(())
     }
@@ -101,22 +101,22 @@ impl Lower<'_> {
                 .error("sort_by_key callback must return an integer, float, str, or tuple of those")
         })?;
         let compare_name = format!("__plenty_order_compare_{}", key.identity_name());
-        let compare_sig = Rc::new(crate::op::CallableSig {
+        let compare_sig = Arc::new(crate::op::CallableSig {
             inputs: vec![key.clone(), key.clone()],
             output: Some(Ty::I64),
         });
         if !self.sigs.contains_key(&compare_name) {
-            let sig = Rc::new(compare_sig.function());
+            let sig = Arc::new(compare_sig.function());
             self.sigs.insert(compare_name.clone(), sig.clone());
             self.generics.compiled.push(Op::DefineFn(
                 compare_name.clone(),
                 Box::new(CompiledFn {
                     location: None,
-                    origins: Rc::default(),
+                    origins: Arc::default(),
                     generator: None,
                     sig,
                     doc: "".into(),
-                    locals: Rc::default(),
+                    locals: Arc::default(),
                     body: vec![
                         Op::LoadLocal(0),
                         Op::LoadLocal(1),

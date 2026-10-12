@@ -25,6 +25,7 @@ mod nominal;
 mod numeric;
 mod op;
 mod ownership;
+mod parallel;
 mod record;
 mod sum;
 mod tail_abi;

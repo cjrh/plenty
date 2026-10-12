@@ -14,6 +14,16 @@ compiles batches of fixed IR size on all available cores. Definitions enter the
 object in build order, preserving byte-for-byte output across core counts. There
 is no worker-count flag. Tests compare one, two, and eight workers.
 
+Building IR declares symbols in the object as it meets them: type descriptors,
+trap-site records, foreign imports. Their order decides the object's bytes, so
+building stays on one thread. It is about 7% of emission's CPU time, and the
+building thread compiles too whenever a batch is ready before the previous one
+is done, so building limits emission only above roughly fourteen cores
+(measurement below).
+
+The worker count is the number of processors the process may run on. Restricting
+its CPU affinity, for example with `taskset`, restricts the workers.
+
 A function's operations are released once its IR is built, and the object is
 written to its file one section at a time. Emission therefore holds neither
 every function's operations nor a second copy of the object (issue #54).

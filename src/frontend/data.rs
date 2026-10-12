@@ -3,33 +3,35 @@ use super::*;
 use crate::ownership::Instantiation;
 use std::cell::{Cell, RefCell};
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
 #[derive(Clone, Default)]
 pub(crate) struct TypeAliases {
     named: HashMap<String, Type>,
+    /// Checking state of one compilation's frontend; it never leaves its thread.
     pub(super) data: Rc<DataTypes>,
 }
 
 #[derive(Default)]
 pub(super) struct DataTypes {
-    enums: Rc<HashMap<String, enums::EnumDecl>>,
-    classes: Rc<HashMap<String, classes::ClassDecl>>,
+    enums: Arc<HashMap<String, enums::EnumDecl>>,
+    classes: Arc<HashMap<String, classes::ClassDecl>>,
     instances: RefCell<HashMap<(String, Vec<Ty>), Ty>>,
     named: RefCell<HashMap<String, Ty>>,
     arguments: RefCell<HashMap<String, (String, Vec<Ty>)>>,
     pending: RefCell<Vec<classes::ClassDecl>>,
-    definitions: Rc<crate::nominal::Types>,
+    definitions: Arc<crate::nominal::Types>,
     pending_types: RefCell<std::collections::VecDeque<DefinitionJob>>,
     deferred: Cell<bool>,
     depth: Cell<usize>,
     /// The instance being defined, whose fields request further instances.
-    requirer: RefCell<Option<Rc<Requirer>>>,
+    requirer: RefCell<Option<Arc<Requirer>>>,
     /// What instances created now are attributed to. Without one, an
     /// instance is required by the type application that names it.
     requiring: RefCell<Option<Requiring>>,
     /// The use that first required each generic class instance, by concrete
     /// name, for the diagnostics of its methods.
-    required: RefCell<HashMap<String, Rc<Instantiation>>>,
+    required: RefCell<HashMap<String, Arc<Instantiation>>>,
     /// Signature-shape probes use placeholder arguments, not real instances.
     shapes_only: bool,
     /// The shape-only tables, created by the first probe and shared by the rest.
@@ -41,8 +43,8 @@ struct DefinitionJob {
     actual: Vec<Ty>,
     at: Token,
     depth: usize,
-    requirer: Option<Rc<Requirer>>,
-    required: Rc<Instantiation>,
+    requirer: Option<Arc<Requirer>>,
+    required: Arc<Instantiation>,
 }
 
 /// The reason data instances are being created, when it is not the type
@@ -52,7 +54,7 @@ struct DefinitionJob {
 #[derive(Clone)]
 pub(super) enum Requiring {
     /// Code or types of this generic instance.
-    Instance(Rc<Instantiation>),
+    Instance(Arc<Instantiation>),
     /// A generic use in ordinary code whose instance is not known yet.
     Use(Token),
 }
@@ -82,7 +84,7 @@ struct Requirer {
     instance: String,
     /// The type application that requested this instance.
     at: Token,
-    parent: Option<Rc<Requirer>>,
+    parent: Option<Arc<Requirer>>,
 }
 
 impl Deref for TypeAliases {
@@ -279,8 +281,8 @@ impl TypeAliases {
             class_declarations.insert(c.name.clone(), c.template());
         }
         let data = DataTypes {
-            enums: Rc::new(enum_declarations),
-            classes: Rc::new(class_declarations),
+            enums: Arc::new(enum_declarations),
+            classes: Arc::new(class_declarations),
             ..DataTypes::default()
         };
         data.deferred.set(true);
@@ -391,8 +393,8 @@ impl TypeAliases {
             .named
             .borrow_mut()
             .insert(concrete_name, ty.clone());
-        let instance: Rc<str> = ty.to_string().into();
-        let required = Rc::new(match &*self.data.requiring.borrow() {
+        let instance: Arc<str> = ty.to_string().into();
+        let required = Arc::new(match &*self.data.requiring.borrow() {
             Some(Requiring::Instance(outer)) => Instantiation {
                 instance,
                 ..(**outer).clone()
@@ -437,7 +439,7 @@ impl TypeAliases {
         }
         chain.reverse();
         chain.iter().find_map(|first| {
-            let instances: Vec<&Rc<Requirer>> = chain
+            let instances: Vec<&Arc<Requirer>> = chain
                 .iter()
                 .filter(|r| r.declaration == first.declaration)
                 .take(3)
@@ -478,7 +480,7 @@ impl TypeAliases {
                 let ty = self.data.instances.borrow()[&(name.clone(), actual.clone())].clone();
                 let concrete_name = ty.identity_name();
                 // Diagnostics show the display name, not the linking identity.
-                *self.data.requirer.borrow_mut() = Some(Rc::new(Requirer {
+                *self.data.requirer.borrow_mut() = Some(Arc::new(Requirer {
                     declaration: name.clone(),
                     instance: ty.to_string(),
                     at: at.clone(),
@@ -626,15 +628,15 @@ impl TypeAliases {
         Ok(Ty::Enum(crate::nominal::Nominal::new(
             crate::sum::EnumType {
                 name: declaration.name.clone(),
-                facts: std::cell::OnceCell::new(),
+                facts: std::sync::OnceLock::new(),
                 variants,
                 restricted_storage: false,
                 managed: true,
                 inline_range: false,
-                payload_bytes: std::cell::OnceCell::new(),
-                by_name: std::cell::OnceCell::new(),
-                storage: std::cell::OnceCell::new(),
-                managed_fields: std::cell::OnceCell::new(),
+                payload_bytes: std::sync::OnceLock::new(),
+                by_name: std::sync::OnceLock::new(),
+                storage: std::sync::OnceLock::new(),
+                managed_fields: std::sync::OnceLock::new(),
             },
         )))
     }
@@ -676,7 +678,7 @@ impl generics::Engine {
         for f in &functions {
             if !f.type_params.is_empty() {
                 self.validate_template(f, aliases)?;
-                self.templates.insert(f.name.clone(), Rc::new(f.clone()));
+                self.templates.insert(f.name.clone(), Arc::new(f.clone()));
                 continue;
             }
             self.methods

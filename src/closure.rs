@@ -1,15 +1,15 @@
 //! Concrete, owner-local closure environments. Code is statically selected;
 //! capture storage is part of the value, never an implicit heap allocation.
 use crate::op::{CallableSig, Ty};
-use std::cell::OnceCell;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 #[derive(Clone, Debug)]
 pub struct ClosureType {
     pub name: String,
     /// Diagnostic origin only; nominal identity and linking still use `name`.
-    pub location: Option<Rc<str>>,
+    pub location: Option<Arc<str>>,
     pub signature: CallableSig,
     pub captures: Vec<(String, Ty)>,
     pub writable: Vec<bool>,
@@ -17,7 +17,7 @@ pub struct ClosureType {
     pub once: bool,
     pub depth: usize,
     pub borrowed: bool,
-    bytes: OnceCell<usize>,
+    bytes: OnceLock<usize>,
 }
 
 // A concrete expression has one environment identity. Hashing its entire
@@ -43,13 +43,13 @@ impl Hash for ClosureType {
 impl ClosureType {
     pub fn new(
         name: String,
-        location: Option<Rc<str>>,
+        location: Option<Arc<str>>,
         signature: CallableSig,
         captures: Vec<(String, Ty)>,
         writable: Vec<bool>,
         once: bool,
     ) -> Result<Self, String> {
-        let bytes = OnceCell::new();
+        let bytes = OnceLock::new();
         // Captured frame bodies are finalized by the normal lowering work queue.
         // Defer only their dependent sizes, avoiding recursive body lowering.
         if !captures.iter().any(|(_, ty)| ty.contains_generator_frame()) {
@@ -88,7 +88,7 @@ impl ClosureType {
         if self.once || matches!(ty, Ty::Ref(..)) {
             ty.clone()
         } else {
-            Ty::Ref(std::rc::Rc::new(ty.clone()), self.writable[index])
+            Ty::Ref(std::sync::Arc::new(ty.clone()), self.writable[index])
         }
     }
     pub fn bytes(&self) -> usize {

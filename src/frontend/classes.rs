@@ -142,8 +142,8 @@ impl ClassDecl {
             },
             fields,
             destructor,
-            bytes: std::cell::OnceCell::new(),
-            managed: std::cell::OnceCell::new(),
+            bytes: std::sync::OnceLock::new(),
+            managed: std::sync::OnceLock::new(),
         })))
     }
 }

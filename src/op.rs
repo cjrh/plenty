@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::lexer::Tok;
 use crate::value::{Heap, StrId, Value};
@@ -21,16 +21,16 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     /// Lexical join token: only direct `.join()` consumes a source task.
-    Task(Rc<crate::threading::Task>),
+    Task(Arc<crate::threading::Task>),
     /// Shared channel core, with affine sender (true) or receiver (false) handles.
-    Channel(Rc<Ty>, bool),
+    Channel(Arc<Ty>, bool),
     CancellationToken,
     Executor,
-    Future(Rc<Ty>),
-    Closure(Rc<crate::closure::ClosureType>),
-    Callable(Rc<CallableSig>),
+    Future(Arc<Ty>),
+    Closure(Arc<crate::closure::ClosureType>),
+    Callable(Arc<CallableSig>),
     /// Explicitly allocated, owned shared-call environment with structural identity.
-    BoxedCallable(Rc<CallableSig>),
+    BoxedCallable(Arc<CallableSig>),
     I8,
     I16,
     I32,
@@ -50,18 +50,18 @@ pub enum Ty {
     FsDirEntry,
     FsMetadata,
     /// Nominal opaque C pointer. No dereference or integer conversions.
-    ForeignPtr(Rc<str>),
+    ForeignPtr(Arc<str>),
     Bool,
-    List(Rc<Ty>),
-    Set(Rc<Ty>),
-    Dict(Rc<Ty>, Rc<Ty>),
+    List(Arc<Ty>),
+    Set(Arc<Ty>),
+    Dict(Arc<Ty>, Arc<Ty>),
     /// One owned heap value; recursive types reach themselves through boxes.
-    Box(Rc<Ty>),
-    Range(Rc<Ty>),
+    Box(Arc<Ty>),
+    Range(Arc<Ty>),
     Enum(crate::nominal::Nominal<crate::sum::EnumType>),
     Class(crate::nominal::Nominal<crate::record::ClassType>),
-    Generator(Rc<crate::generator::GeneratorType>),
-    Ref(Rc<Ty>, bool),
+    Generator(Arc<crate::generator::GeneratorType>),
+    Ref(Arc<Ty>, bool),
 }
 
 /// Why a type cannot enter heap storage; see `Ty::storage_barrier`.
@@ -540,18 +540,18 @@ pub enum Op {
     Channel(crate::channel::ChannelOp),
     Control(crate::control::ControlOp),
     Executor(crate::executor::ExecutorOp),
-    ClosureNew(Rc<crate::closure::ClosureType>),
-    ClosureCall(Rc<crate::closure::ClosureType>),
-    BoxedCallableNew(Box<Ty>, String, Rc<CallableSig>),
-    BoxedCallableCall(Rc<CallableSig>),
-    FunctionAddress(String, Rc<CallableSig>),
-    CallIndirect(Rc<CallableSig>),
-    TailCallIndirect(Rc<CallableSig>),
+    ClosureNew(Arc<crate::closure::ClosureType>),
+    ClosureCall(Arc<crate::closure::ClosureType>),
+    BoxedCallableNew(Box<Ty>, String, Arc<CallableSig>),
+    BoxedCallableCall(Arc<CallableSig>),
+    FunctionAddress(String, Arc<CallableSig>),
+    CallIndirect(Arc<CallableSig>),
+    TailCallIndirect(Arc<CallableSig>),
     /// Unwrap a standard sum or return its residual, releasing pending operands.
     Try {
         source: Box<crate::nominal::Nominal<crate::sum::EnumType>>,
         target: Box<crate::nominal::Nominal<crate::sum::EnumType>>,
-        cleanup: Rc<[Op]>,
+        cleanup: Arc<[Op]>,
     },
     Class(crate::record::ClassOp),
     BorrowLocal(u8, bool),
@@ -579,17 +579,17 @@ pub enum Op {
     Numeric(crate::numeric::NumericOp),
     /// The condition leaves bool; a continuing body preserves the operand stack.
     Loop {
-        condition: Rc<[Op]>,
-        body: Rc<[Op]>,
+        condition: Arc<[Op]>,
+        body: Arc<[Op]>,
     },
     /// An `if` statement. Pops the bool left by the first condition; a later
     /// condition runs only when every earlier one was false. The `elif` arms
     /// are a list rather than nested `otherwise` bodies, so that no pass
     /// recurses once per arm (issue #70).
     If {
-        then: Rc<[Op]>,
-        elifs: Rc<[ElifArm]>,
-        otherwise: Rc<[Op]>,
+        then: Arc<[Op]>,
+        elifs: Arc<[ElifArm]>,
+        otherwise: Arc<[Op]>,
     },
     /// Push an integer literal onto the stack. The payload is always an
     /// integer `Value`; retaining its width makes suffixed literals direct.
@@ -655,7 +655,7 @@ pub enum Op {
     Call(String),
     ForeignCall {
         declaration: crate::foreign::Declaration,
-        sig: Rc<FnSig>,
+        sig: Arc<FnSig>,
     },
     ForeignNull(Ty),
     /// Invoke a user-defined function by name from tail position (§11.8).
@@ -684,7 +684,7 @@ pub enum Op {
     /// whose pattern matches runs; the value itself is *consumed* by the
     /// match. Exhaustiveness has been checked at compile time, so on a
     /// well-formed source the search always finds a match.
-    Match(Rc<[MatchArm]>),
+    Match(Arc<[MatchArm]>),
     /// Pop an integer of any width; push its representation at the target
     /// integer width. Surface syntax is `:as-i8` ... `:as-u64`. Conversion
     /// follows Rust's `as` semantics: widening sign-extends signed sources
@@ -728,8 +728,8 @@ pub enum Op {
 /// One `elif` of an [`Op::If`]. `condition` adds a bool to the stack it found.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ElifArm {
-    pub condition: Rc<[Op]>,
-    pub body: Rc<[Op]>,
+    pub condition: Arc<[Op]>,
+    pub body: Arc<[Op]>,
 }
 
 /// One arm of a [`Op::Match`]. The pattern is matched against the popped
@@ -738,7 +738,7 @@ pub struct ElifArm {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MatchArm {
     pub pattern: Pattern,
-    pub body: Rc<[Op]>,
+    pub body: Arc<[Op]>,
 }
 
 /// What a match-arm pattern can be. Today: typed literals plus the wildcard.
@@ -765,15 +765,15 @@ pub enum Pattern {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledFn {
     /// Source location for diagnostics from the independent IR/ownership checker.
-    pub location: Option<Rc<str>>,
+    pub location: Option<Arc<str>>,
     /// Source file and binding names for ownership diagnostics.
-    pub origins: Rc<crate::ownership::Origins>,
+    pub origins: Arc<crate::ownership::Origins>,
     pub generator: Option<Ty>,
-    pub sig: Rc<FnSig>,
-    pub doc: Rc<str>,
-    pub body: Rc<[Op]>,
+    pub sig: Arc<FnSig>,
+    pub doc: Arc<str>,
+    pub body: Arc<[Op]>,
     /// Types of local slots after the parameters. Allocated once per call.
-    pub locals: Rc<[Ty]>,
+    pub locals: Arc<[Ty]>,
 }
 
 /// Compile lexed words into ops, interning string literals into `heap`.
@@ -887,7 +887,7 @@ impl Compiler<'_, '_> {
         if is_reserved_function_name(&name) {
             return Err(format!("function name `{name}` is reserved for a builtin word").into());
         }
-        let sig: Rc<FnSig> = self.compile_sig(&name)?.into();
+        let sig: Arc<FnSig> = self.compile_sig(&name)?.into();
         if sig.inputs.len() > u8::MAX as usize {
             return Err(format!(
                 "function `{name}` has too many inputs \
@@ -899,7 +899,7 @@ impl Compiler<'_, '_> {
         }
         // A docstring is optional. When present, it must immediately follow
         // the header, so tools can still identify it without parsing a body.
-        let doc: Rc<str> = match self.toks.get(self.pos).cloned() {
+        let doc: Arc<str> = match self.toks.get(self.pos).cloned() {
             Some(Tok::Text(s)) => {
                 self.pos += 1;
                 unescape(s)?.into()
@@ -923,12 +923,12 @@ impl Compiler<'_, '_> {
             name,
             Box::new(CompiledFn {
                 location: None,
-                origins: Rc::default(),
+                origins: Arc::default(),
                 sig,
                 doc,
                 generator: None,
                 body: body.into(),
-                locals: Rc::from([]),
+                locals: Arc::from([]),
             }),
         ))
     }
@@ -1351,7 +1351,7 @@ fn is_valid_input_name(name: &str) -> bool {
 ///
 /// The rewrite is structural: we walk only the *tail* of the body, so
 /// non-tail calls anywhere else stay `Call`. Match arms are stored as
-/// `Rc<[Op]>`, so mutating an arm body means rebuilding it; we only do that
+/// `Arc<[Op]>`, so mutating an arm body means rebuilding it; we only do that
 /// for arms that actually contain a tail call.
 pub(crate) fn mark_tail_calls(body: &mut [Op]) {
     let Some(last) = body.last_mut() else {
@@ -1384,13 +1384,13 @@ pub(crate) fn mark_tail_calls(body: &mut [Op]) {
             elifs,
             otherwise,
         } => {
-            let mark = |body: &mut Rc<[Op]>| {
+            let mark = |body: &mut Arc<[Op]>| {
                 let mut ops = body.to_vec();
                 mark_tail_calls(&mut ops);
                 *body = ops.into();
             };
             mark(then);
-            for arm in Rc::make_mut(elifs) {
+            for arm in Arc::make_mut(elifs) {
                 mark(&mut arm.body);
             }
             mark(otherwise);
@@ -1404,13 +1404,48 @@ pub(crate) fn mark_tail_calls(body: &mut [Op]) {
 /// Independently check a complete module's operations and function signatures.
 /// Abstract operand stacks track concrete types without executing the program.
 pub fn check(ops: &[Op]) -> Result<()> {
+    check_with(ops, crate::parallel::workers())
+}
+
+/// Functions below which another checking thread costs more to start than it
+/// saves: a typical body takes microseconds to check.
+const FUNCTIONS_PER_WORKER: usize = 16;
+
+/// Function bodies are checked on `workers` threads: a body reads only the
+/// signature table. The error reported is the first in program order.
+fn check_with(ops: &[Op], workers: usize) -> Result<()> {
     // Nearly every top-level operation defines a function.
     let mut sigs = HashMap::with_capacity(ops.len());
     collect_sigs(ops, &mut sigs);
+    let functions: Vec<_> = ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::DefineFn(name, f) => Some((name, f)),
+            _ => None,
+        })
+        .collect();
+    let workers = workers.min(functions.len() / FUNCTIONS_PER_WORKER + 1);
+    let mut checked = crate::parallel::map(functions.len(), workers, |i| {
+        let (name, f) = functions[i];
+        check_function(name, f, &sigs).map_err(|e| e.to_string())
+    })
+    .into_iter();
     // Top-level: locals are empty (the compiler will never have emitted a
     // `LoadLocal` here either), and there is no end-of-stream invariant.
     let mut stack = Vec::new();
-    check_sequence(ops, &mut stack, &[], &sigs, None, None, None)?;
+    let mut flow = Flow::Continues;
+    for op in ops {
+        if flow == Flow::Exits {
+            return Err("unreachable operation after a control-flow exit".into());
+        }
+        flow = match op {
+            Op::DefineFn(..) => {
+                checked.next().expect("one result per function")?;
+                Flow::Continues
+            }
+            _ => step(op, &mut stack, &[], &sigs, None, None, None)?,
+        };
+    }
     crate::threading::check(ops)?;
     Ok(())
 }
@@ -1426,7 +1461,7 @@ fn check_sequence(
     ops: &[Op],
     stack: &mut Vec<Ty>,
     locals: &[Ty],
-    sigs: &HashMap<String, Rc<FnSig>>,
+    sigs: &HashMap<String, Arc<FnSig>>,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
     yield_ty: Option<&Ty>,
@@ -1462,11 +1497,11 @@ fn check_return(stack: &[Ty], returns: Option<&[Ty]>) -> Result<Flow> {
 /// caught at runtime as an "undefined function" error, which is fine —
 /// the checker's job is to catch *type* mismatches, not to police call
 /// ordering.
-fn collect_sigs(ops: &[Op], out: &mut HashMap<String, Rc<FnSig>>) {
+fn collect_sigs(ops: &[Op], out: &mut HashMap<String, Arc<FnSig>>) {
     for op in ops {
         match op {
             Op::DefineFn(name, f) => {
-                out.insert(name.clone(), Rc::clone(&f.sig));
+                out.insert(name.clone(), Arc::clone(&f.sig));
                 collect_sigs(&f.body, out);
             }
             Op::Loop { condition, body } => {
@@ -1504,7 +1539,7 @@ fn step(
     op: &Op,
     stack: &mut Vec<Ty>,
     locals: &[Ty],
-    sigs: &HashMap<String, Rc<FnSig>>,
+    sigs: &HashMap<String, Arc<FnSig>>,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
     yield_ty: Option<&Ty>,
@@ -1592,7 +1627,7 @@ fn step(
         Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;
-            stack.push(Ty::Ref(Rc::new(ty.clone()), *mutable));
+            stack.push(Ty::Ref(Arc::new(ty.clone()), *mutable));
         }
         Op::ReadRef(ty) => {
             if !matches!(stack.pop(), Some(Ty::Ref(t, _)) if t.as_ref() == ty) {
@@ -1613,7 +1648,7 @@ fn step(
             stack.push(target.clone());
         }
         Op::WriteRef(ty) | Op::ReplaceRef(ty) => {
-            if stack.pop() != Some(Ty::Ref(Rc::new(ty.clone()), true))
+            if stack.pop() != Some(Ty::Ref(Arc::new(ty.clone()), true))
                 || stack.pop().as_ref() != Some(ty)
             {
                 return Err("invalid reference write".into());
@@ -1854,20 +1889,7 @@ fn step(
                 return Err("local assignment type mismatch".into());
             }
         }
-        Op::DefineFn(name, f) => {
-            check_body(name, f, sigs).map_err(|e| -> Box<dyn std::error::Error> {
-                // An ownership error that knows its own position already names
-                // the file; the header is only a fallback. One in a generic
-                // instance is positioned at the use that required the instance.
-                let located = e
-                    .downcast_ref::<crate::ownership::Error>()
-                    .is_some_and(|e| e.primary.is_some() || e.required.is_some());
-                match &f.location {
-                    Some(at) if !located => format!("{at}: {e}").into(),
-                    _ => e,
-                }
-            })?
-        }
+        Op::DefineFn(name, f) => check_function(name, f, sigs)?,
         Op::Call(name) => check_call(name, stack, sigs)?,
         Op::ClosureNew(t) => {
             for (_, ty) in t.captures.iter().rev() {
@@ -1906,7 +1928,7 @@ fn step(
             let expected = if t.once {
                 Ty::Closure(t.clone())
             } else {
-                Ty::Ref(Rc::new(Ty::Closure(t.clone())), t.mutable)
+                Ty::Ref(Arc::new(Ty::Closure(t.clone())), t.mutable)
             };
             if stack.pop() != Some(expected) {
                 return Err("closure call environment ownership mismatch".into());
@@ -1933,10 +1955,10 @@ fn step(
                 0,
                 (
                     "environment".into(),
-                    Ty::Ref(Rc::new(source.clone()), false),
+                    Ty::Ref(Arc::new(source.clone()), false),
                 ),
             );
-            if sigs.get(adapter).map(Rc::as_ref) != Some(&adapted) {
+            if sigs.get(adapter).map(Arc::as_ref) != Some(&adapted) {
                 return Err("boxed callable adapter signature mismatch".into());
             }
             stack.push(crate::sum::result(
@@ -1955,7 +1977,7 @@ fn step(
             }
             if stack.pop()
                 != Some(Ty::Ref(
-                    Rc::new(Ty::BoxedCallable(signature.clone())),
+                    Arc::new(Ty::BoxedCallable(signature.clone())),
                     false,
                 ))
             {
@@ -2165,7 +2187,7 @@ fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
 /// Stack effect for a `Call(name)`: verify the top of the stack matches
 /// the function's declared inputs in declaration order, then replace them
 /// with the declared outputs.
-fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Rc<FnSig>>) -> Result<()> {
+fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &HashMap<String, Arc<FnSig>>) -> Result<()> {
     let sig = sigs
         .get(name)
         .ok_or_else(|| format!("call to undefined function `{name}`"))?;
@@ -2206,7 +2228,7 @@ fn check_match(
     arms: &[MatchArm],
     stack: &mut Vec<Ty>,
     locals: &[Ty],
-    sigs: &HashMap<String, Rc<FnSig>>,
+    sigs: &HashMap<String, Arc<FnSig>>,
     returns: Option<&[Ty]>,
     loop_stack: Option<&[Ty]>,
     yield_ty: Option<&Ty>,
@@ -2328,6 +2350,22 @@ fn check_match(
     }
 }
 
+/// Check one function definition, naming its file in the error.
+fn check_function(name: &str, f: &CompiledFn, sigs: &HashMap<String, Arc<FnSig>>) -> Result<()> {
+    check_body(name, f, sigs).map_err(|e| -> Box<dyn std::error::Error> {
+        // An ownership error that knows its own position already names
+        // the file; the header is only a fallback. One in a generic
+        // instance is positioned at the use that required the instance.
+        let located = e
+            .downcast_ref::<crate::ownership::Error>()
+            .is_some_and(|e| e.primary.is_some() || e.required.is_some());
+        match &f.location {
+            Some(at) if !located => format!("{at}: {e}").into(),
+            _ => e,
+        }
+    })
+}
+
 /// Check one function body against its declared sig.
 ///
 /// The body's abstract data stack starts **empty** — inputs are drained
@@ -2335,7 +2373,7 @@ fn check_match(
 /// inputs become the body's `locals` for `LoadLocal` to resolve against.
 /// At end of body the abstract stack must equal the declared outputs
 /// exactly; anything else is a type error.
-fn check_body(fn_name: &str, f: &CompiledFn, sigs: &HashMap<String, Rc<FnSig>>) -> Result<()> {
+fn check_body(fn_name: &str, f: &CompiledFn, sigs: &HashMap<String, Arc<FnSig>>) -> Result<()> {
     let (sig, body, yield_ty) = (&*f.sig, &*f.body, f.generator.as_ref());
     let locals: Vec<Ty> = sig
         .inputs
@@ -2462,6 +2500,34 @@ def main() -> ():
     /// Every lowered operation stays live until its function is emitted, so
     /// the largest variant sets the size of all of them (issue #54). Box a
     /// payload that would raise this bound.
+    /// Bodies are checked out of order, so the error must be chosen by position.
+    #[test]
+    fn first_error_in_program_order_for_every_worker_count() {
+        let source: String = (0..64)
+            .map(|i| format!("def unit{i}() -> i64:\n    {i}\n"))
+            .chain(["def main() -> ():\n    pass\n".to_string()])
+            .collect();
+        let mut heap = crate::value::Heap::default();
+        let mut program = crate::frontend::compile(&source, &mut heap).unwrap();
+        fn corrupt(ops: &mut [Op], name: &str, body: Vec<Op>) {
+            for op in ops {
+                match op {
+                    Op::DefineFn(n, f) if n == name => f.body = body.clone().into(),
+                    _ => {}
+                }
+            }
+        }
+        corrupt(&mut program.ops, "unit40", Vec::new());
+        let later = check_with(&program.ops, 1).unwrap_err().to_string();
+        corrupt(&mut program.ops, "unit9", vec![Op::PushBool(true)]);
+        let first = check_with(&program.ops, 1).unwrap_err().to_string();
+        assert_ne!(first, later);
+        for workers in [2, 8] {
+            let error = check_with(&program.ops, workers).unwrap_err().to_string();
+            assert_eq!(error, first);
+        }
+    }
+
     #[test]
     fn operations_stay_small() {
         assert!(std::mem::size_of::<Op>() <= 96);

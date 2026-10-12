@@ -8,7 +8,7 @@ impl Lowerer<'_, '_> {
         &mut self,
         source: &Ty,
         adapter: &str,
-        signature: &Rc<crate::op::CallableSig>,
+        signature: &Arc<crate::op::CallableSig>,
     ) -> Result<()> {
         let (value, _) = self.pop_typed(source.clone())?;
         let value = self.pack(value, source);
@@ -17,7 +17,7 @@ impl Lowerer<'_, '_> {
             .declare_func_in_func(self.user_fns[adapter].id, self.bcx.func);
         let code = self.bcx.ins().func_addr(PTR_TY, function);
         let code = self.bcx.ins().uextend(types::I128, code);
-        let descriptor = Ty::Box(Rc::new(source.clone()));
+        let descriptor = Ty::Box(Arc::new(source.clone()));
         let packed = self.collection_call(128, &[value, code], Some(&descriptor))?;
         let output = crate::sum::result(
             Ty::BoxedCallable(signature.clone()),
@@ -30,7 +30,7 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn lower_boxed_callable_call(
         &mut self,
-        signature: &Rc<crate::op::CallableSig>,
+        signature: &Arc<crate::op::CallableSig>,
     ) -> Result<()> {
         let split = self
             .stack
@@ -50,16 +50,16 @@ impl Lowerer<'_, '_> {
         // All environment references use the same native ABI; the adapter knows
         // the concrete type while this call site knows only the public signature.
         let mut adapted = (**signature).clone();
-        adapted.inputs.insert(0, Ty::Ref(Rc::new(Ty::Unit), false));
-        let adapted = Rc::new(adapted);
+        adapted.inputs.insert(0, Ty::Ref(Arc::new(Ty::Unit), false));
+        let adapted = Arc::new(adapted);
         self.stack.push((code, Ty::Callable(adapted.clone())));
         self.stack
-            .push((environment, Ty::Ref(Rc::new(Ty::Unit), false)));
+            .push((environment, Ty::Ref(Arc::new(Ty::Unit), false)));
         self.stack.extend(args);
         self.lower_indirect_call(&adapted, false)
     }
 
-    pub(super) fn lower_closure_new(&mut self, t: &Rc<ClosureType>) -> Result<()> {
+    pub(super) fn lower_closure_new(&mut self, t: &Arc<ClosureType>) -> Result<()> {
         let ty = Ty::Closure(t.clone());
         let storage = self.inline_storage(t.bytes());
         let id = metadata::declare(self.module, self.runtime, &ty)?;
@@ -77,7 +77,7 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    pub(super) fn lower_closure_call(&mut self, t: &Rc<ClosureType>) -> Result<()> {
+    pub(super) fn lower_closure_call(&mut self, t: &Arc<ClosureType>) -> Result<()> {
         let split = self
             .stack
             .len()

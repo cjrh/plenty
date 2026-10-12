@@ -1,7 +1,7 @@
 //! Nominal fixed-layout classes and their native operations.
 use crate::op::Ty;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct ClassType {
@@ -10,9 +10,9 @@ pub struct ClassType {
     pub destructor: Option<String>,
     pub fallible_init: bool,
     /// Inline field storage size; excluded from nominal equality.
-    pub bytes: std::cell::OnceCell<usize>,
+    pub bytes: std::sync::OnceLock<usize>,
     /// Whether an instance needs cleanup; excluded from nominal equality.
-    pub managed: std::cell::OnceCell<bool>,
+    pub managed: std::sync::OnceLock<bool>,
 }
 impl ClassType {
     /// A class with `__del__` keeps a state word before its fields: whether
@@ -54,15 +54,18 @@ pub enum ClassOp {
 impl ClassOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
-            Self::ArmDrop(t) => (vec![Ty::Ref(Rc::new(Ty::Class(t.clone())), true)], Ty::Unit),
+            Self::ArmDrop(t) => (
+                vec![Ty::Ref(Arc::new(Ty::Class(t.clone())), true)],
+                Ty::Unit,
+            ),
             Self::New(t) => (vec![], Ty::Class(t.clone())),
             Self::Field(t, i) => (
                 vec![Ty::Class(t.clone())],
                 t.get().fields.get(*i)?.1.clone(),
             ),
             Self::FieldRef(t, i, mutable) => (
-                vec![Ty::Ref(Rc::new(Ty::Class(t.clone())), *mutable)],
-                Ty::Ref(Rc::new(t.get().fields.get(*i)?.1.clone()), *mutable),
+                vec![Ty::Ref(Arc::new(Ty::Class(t.clone())), *mutable)],
+                Ty::Ref(Arc::new(t.get().fields.get(*i)?.1.clone()), *mutable),
             ),
         })
     }

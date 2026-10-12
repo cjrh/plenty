@@ -55,7 +55,7 @@ impl Lower<'_> {
                     return Err(manager.at.error(format!("duplicate binding `{name}`")));
                 }
                 let loan = self.new_loan(slot, false, None, ops);
-                let reference = Ty::Ref(Rc::new(ty), false);
+                let reference = Ty::Ref(Arc::new(ty), false);
                 ops.push(Op::BorrowLocal(slot, false));
                 let target = self.slot(reference.clone(), &manager.at)?;
                 ops.push(Op::StoreLocal(target));
@@ -83,7 +83,7 @@ impl Lower<'_> {
         }
         let slot = self.slot(ty, &manager.at)?;
         ops.push(Op::StoreLocal(slot));
-        let receiver = Ty::Ref(Rc::new(owner.clone()), true);
+        let receiver = Ty::Ref(Arc::new(owner.clone()), true);
         let (entry, enter, exit) = if let Ty::Class(class) = &owner {
             let mut entry = None;
             for name in ["__enter__", "__exit__"] {

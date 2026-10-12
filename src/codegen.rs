@@ -47,7 +47,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{
@@ -259,10 +259,6 @@ fn compile_to_object(ops: Vec<Op>, heap: &Heap, output: &Path, returns_status: b
     emit_object(ops, heap, output, Some(returns_status), &[], None)
 }
 
-fn workers() -> usize {
-    std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
-}
-
 pub(crate) fn emit_library_object(
     ops: Vec<Op>,
     exports: &[crate::exports::Export],
@@ -281,7 +277,15 @@ fn emit_object(
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
 ) -> Result<()> {
-    let product = object_module(ops, heap, entry, exports, interface, workers())?.finish()?;
+    let product = object_module(
+        ops,
+        heap,
+        entry,
+        exports,
+        interface,
+        crate::parallel::workers(),
+    )?
+    .finish()?;
     // Written section by section: the file's bytes are never all in memory
     // beside the sections (issue #54).
     let file = std::io::BufWriter::new(std::fs::File::create(output)?);
@@ -771,11 +775,11 @@ struct UserFn {
     generator: Option<Ty>,
     resume: Option<FuncId>,
     id: FuncId,
-    sig: Rc<FnSig>,
-    locals: Rc<[Ty]>,
+    sig: Arc<FnSig>,
+    locals: Arc<[Ty]>,
     /// File that defines the body, relative to the source root, for trap
     /// positions.
-    source: Option<Rc<str>>,
+    source: Option<Arc<str>>,
 }
 
 /// Build a Cranelift `Signature` from a Plenty `FnSig`. User functions
@@ -806,7 +810,7 @@ fn collect_user_fns(
     ops: &[Op],
     module: &mut ObjectModule,
     out: &mut HashMap<String, UserFn>,
-    bodies: &mut Vec<(String, Rc<[Op]>)>,
+    bodies: &mut Vec<(String, Arc<[Op]>)>,
 ) -> Result<()> {
     for op in ops {
         match op {
@@ -848,12 +852,12 @@ fn collect_user_fns(
                         } else {
                             None
                         },
-                        sig: Rc::clone(&f.sig),
-                        locals: Rc::clone(&f.locals),
+                        sig: Arc::clone(&f.sig),
+                        locals: Arc::clone(&f.locals),
                         source: f.origins.trap_file.clone(),
                     },
                 );
-                bodies.push((name.clone(), Rc::clone(&f.body)));
+                bodies.push((name.clone(), Arc::clone(&f.body)));
                 collect_user_fns(&f.body, module, out, bodies)?;
             }
             Op::Match(arms) => {
@@ -1347,7 +1351,7 @@ impl Lowerer<'_, '_> {
                 self.stack.push((
                     ptr,
                     Ty::Ref(
-                        std::rc::Rc::new(self.locals[*i as usize].1.clone()),
+                        std::sync::Arc::new(self.locals[*i as usize].1.clone()),
                         *mutable,
                     ),
                 ));

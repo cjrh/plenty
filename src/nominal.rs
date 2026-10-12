@@ -1,32 +1,32 @@
 //! Compilation-owned nominal definitions. Stored edges are weak; escaped handles
 //! retain the table. Neither recursive declarations nor failed compilation leak
-//! an Rc cycle, and looking up a definition never expands its children.
+//! an Arc cycle, and looking up a definition never expands its children.
 use crate::{op::Ty, record::ClassType, sum::EnumType};
-use std::cell::{OnceCell, RefCell};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak};
+use std::sync::{Mutex, OnceLock};
 
-type Slot<T> = Rc<OnceCell<Rc<T>>>;
+type Slot<T> = Arc<OnceLock<Arc<T>>>;
 
 #[derive(Default)]
 pub struct Types {
-    classes: RefCell<Vec<Slot<ClassType>>>,
-    enums: RefCell<Vec<Slot<EnumType>>>,
-    facts: RefCell<std::collections::HashMap<String, crate::type_facts::Facts>>,
+    classes: Mutex<Vec<Slot<ClassType>>>,
+    enums: Mutex<Vec<Slot<EnumType>>>,
+    facts: Mutex<std::collections::HashMap<String, crate::type_facts::Facts>>,
 }
 
 enum Link<T> {
-    Local(Rc<T>),
-    Stored(Rc<T>),
-    Owned(Rc<Types>, Weak<OnceCell<Rc<T>>>),
-    Weak(Weak<Types>, Weak<OnceCell<Rc<T>>>),
+    Local(Arc<T>),
+    Stored(Arc<T>),
+    Owned(Arc<Types>, Weak<OnceLock<Arc<T>>>),
+    Weak(Weak<Types>, Weak<OnceLock<Arc<T>>>),
 }
 
 pub struct Nominal<T> {
     pub name: String,
     /// User-facing spelling, excluded from identity and type-table lookup.
-    display_name: Option<Rc<str>>,
+    display_name: Option<Arc<str>>,
     link: Link<T>,
 }
 
@@ -44,7 +44,7 @@ impl<T: Definition> Nominal<T> {
         Self {
             name: value.name().into(),
             display_name: None,
-            link: Link::Local(Rc::new(value)),
+            link: Link::Local(Arc::new(value)),
         }
     }
     pub fn with_display_name(mut self, name: String) -> Self {
@@ -54,7 +54,7 @@ impl<T: Definition> Nominal<T> {
     pub fn display_name(&self) -> &str {
         self.display_name.as_deref().unwrap_or(&self.name)
     }
-    pub fn get(&self) -> Rc<T> {
+    pub fn get(&self) -> Arc<T> {
         self.try_get()
             .expect("nominal definition must be finalized before use")
     }
@@ -65,7 +65,7 @@ impl<T: Definition> Nominal<T> {
             _ => panic!("expected a builtin structural definition"),
         }
     }
-    pub fn try_get(&self) -> Option<Rc<T>> {
+    pub fn try_get(&self) -> Option<Arc<T>> {
         match &self.link {
             Link::Local(t) | Link::Stored(t) => Some(t.clone()),
             Link::Owned(_, slot) | Link::Weak(_, slot) => slot.upgrade()?.get().cloned(),
@@ -76,12 +76,12 @@ impl<T: Definition> Nominal<T> {
             panic!("only reserved nominal definitions can be finalized")
         };
         value.weaken();
-        assert!(slot.upgrade().unwrap().set(Rc::new(value)).is_ok());
+        assert!(slot.upgrade().unwrap().set(Arc::new(value)).is_ok());
         if let Some(owner) = self.owner() {
-            owner.facts.borrow_mut().clear();
+            owner.facts.lock().unwrap().clear();
         }
     }
-    fn owner(&self) -> Option<Rc<Types>> {
+    fn owner(&self) -> Option<Arc<Types>> {
         match &self.link {
             Link::Owned(owner, _) => Some(owner.clone()),
             Link::Weak(owner, _) => owner.upgrade(),
@@ -92,7 +92,7 @@ impl<T: Definition> Nominal<T> {
         if let Link::Local(t) | Link::Stored(t) = &self.link {
             return t.cached_facts();
         }
-        self.owner()?.facts.borrow().get(&self.name).copied()
+        self.owner()?.facts.lock().unwrap().get(&self.name).copied()
     }
     pub fn cache_facts(&self, facts: crate::type_facts::Facts) {
         if let Link::Local(t) | Link::Stored(t) = &self.link {
@@ -100,17 +100,17 @@ impl<T: Definition> Nominal<T> {
             return;
         }
         if let Some(owner) = self.owner() {
-            owner.facts.borrow_mut().insert(self.name.clone(), facts);
+            owner.facts.lock().unwrap().insert(self.name.clone(), facts);
         }
     }
     fn weaken(&self) -> Self {
         let link = match &self.link {
-            Link::Owned(owner, slot) => Link::Weak(Rc::downgrade(owner), slot.clone()),
+            Link::Owned(owner, slot) => Link::Weak(Arc::downgrade(owner), slot.clone()),
             Link::Weak(owner, slot) => Link::Weak(owner.clone(), slot.clone()),
             Link::Local(value) | Link::Stored(value) => {
                 let mut value = (**value).clone();
                 value.weaken();
-                Link::Stored(Rc::new(value))
+                Link::Stored(Arc::new(value))
             }
         };
         Self {
@@ -125,7 +125,7 @@ impl<T: Definition> Clone for Nominal<T> {
         let link = match &self.link {
             Link::Local(t) => Link::Local(t.clone()),
             // Cloning fields out of the table promotes all weak nominal edges.
-            Link::Stored(t) => Link::Local(Rc::new((**t).clone())),
+            Link::Stored(t) => Link::Local(Arc::new((**t).clone())),
             Link::Owned(owner, slot) => Link::Owned(owner.clone(), slot.clone()),
             Link::Weak(owner, slot) => {
                 Link::Owned(owner.upgrade().expect("live type table"), slot.clone())
@@ -155,24 +155,24 @@ impl<T> Hash for Nominal<T> {
     }
 }
 impl Types {
-    pub fn class(self: &Rc<Self>, name: &str) -> Nominal<ClassType> {
-        let slot = Rc::new(OnceCell::new());
+    pub fn class(self: &Arc<Self>, name: &str) -> Nominal<ClassType> {
+        let slot = Arc::new(OnceLock::new());
         let value = Nominal {
             name: name.into(),
             display_name: None,
-            link: Link::Owned(self.clone(), Rc::downgrade(&slot)),
+            link: Link::Owned(self.clone(), Arc::downgrade(&slot)),
         };
-        self.classes.borrow_mut().push(slot);
+        self.classes.lock().unwrap().push(slot);
         value
     }
-    pub fn enumeration(self: &Rc<Self>, name: &str) -> Nominal<EnumType> {
-        let slot = Rc::new(OnceCell::new());
+    pub fn enumeration(self: &Arc<Self>, name: &str) -> Nominal<EnumType> {
+        let slot = Arc::new(OnceLock::new());
         let value = Nominal {
             name: name.into(),
             display_name: None,
-            link: Link::Owned(self.clone(), Rc::downgrade(&slot)),
+            link: Link::Owned(self.clone(), Arc::downgrade(&slot)),
         };
-        self.enums.borrow_mut().push(slot);
+        self.enums.lock().unwrap().push(slot);
         value
     }
 }
@@ -210,18 +210,18 @@ impl Ty {
         match self {
             Self::Class(t) => Self::Class(t.weaken()),
             Self::Enum(t) => Self::Enum(t.weaken()),
-            Self::List(t) => Self::List(Rc::new(t.weaken())),
-            Self::Channel(t, sender) => Self::Channel(Rc::new(t.weaken()), *sender),
-            Self::Future(t) => Self::Future(Rc::new(t.weaken())),
-            Self::Set(t) => Self::Set(Rc::new(t.weaken())),
-            Self::Box(t) => Self::Box(Rc::new(t.weaken())),
-            Self::Dict(k, v) => Self::Dict(Rc::new(k.weaken()), Rc::new(v.weaken())),
-            Self::Ref(t, m) => Self::Ref(Rc::new(t.weaken()), *m),
-            Self::Callable(t) => Self::Callable(Rc::new(crate::op::CallableSig {
+            Self::List(t) => Self::List(Arc::new(t.weaken())),
+            Self::Channel(t, sender) => Self::Channel(Arc::new(t.weaken()), *sender),
+            Self::Future(t) => Self::Future(Arc::new(t.weaken())),
+            Self::Set(t) => Self::Set(Arc::new(t.weaken())),
+            Self::Box(t) => Self::Box(Arc::new(t.weaken())),
+            Self::Dict(k, v) => Self::Dict(Arc::new(k.weaken()), Arc::new(v.weaken())),
+            Self::Ref(t, m) => Self::Ref(Arc::new(t.weaken()), *m),
+            Self::Callable(t) => Self::Callable(Arc::new(crate::op::CallableSig {
                 inputs: t.inputs.iter().map(Ty::weaken).collect(),
                 output: t.output.as_ref().map(Ty::weaken),
             })),
-            Self::BoxedCallable(t) => Self::BoxedCallable(Rc::new(crate::op::CallableSig {
+            Self::BoxedCallable(t) => Self::BoxedCallable(Arc::new(crate::op::CallableSig {
                 inputs: t.inputs.iter().map(Ty::weaken).collect(),
                 output: t.output.as_ref().map(Ty::weaken),
             })),
@@ -234,16 +234,16 @@ impl Clone for Ty {
     fn clone(&self) -> Self {
         match self {
             Self::Task(t) => Self::Task(t.clone()),
-            Self::Channel(t, sender) => Self::Channel(Rc::new((**t).clone()), *sender),
-            Self::Future(t) => Self::Future(Rc::new((**t).clone())),
+            Self::Channel(t, sender) => Self::Channel(Arc::new((**t).clone()), *sender),
+            Self::Future(t) => Self::Future(Arc::new((**t).clone())),
             Self::Class(t) => Self::Class(t.clone()),
             Self::Enum(t) => Self::Enum(t.clone()),
-            Self::List(t) => Self::List(Rc::new((**t).clone())),
-            Self::Set(t) => Self::Set(Rc::new((**t).clone())),
-            Self::Dict(k, v) => Self::Dict(Rc::new((**k).clone()), Rc::new((**v).clone())),
-            Self::Box(t) => Self::Box(Rc::new((**t).clone())),
-            Self::Ref(t, m) => Self::Ref(Rc::new((**t).clone()), *m),
-            Self::Callable(t) => Self::Callable(Rc::new((**t).clone())),
+            Self::List(t) => Self::List(Arc::new((**t).clone())),
+            Self::Set(t) => Self::Set(Arc::new((**t).clone())),
+            Self::Dict(k, v) => Self::Dict(Arc::new((**k).clone()), Arc::new((**v).clone())),
+            Self::Box(t) => Self::Box(Arc::new((**t).clone())),
+            Self::Ref(t, m) => Self::Ref(Arc::new((**t).clone()), *m),
+            Self::Callable(t) => Self::Callable(Arc::new((**t).clone())),
             Self::BoxedCallable(t) => Self::BoxedCallable(t.clone()),
             Self::Closure(t) => Self::Closure(t.clone()),
             Self::Generator(t) => Self::Generator(t.clone()),
@@ -278,19 +278,19 @@ mod tests {
 
     #[test]
     fn recursive_fields_can_escape_but_tables_do_not_leak() {
-        let owner = Rc::new(Types::default());
-        let witness = Rc::downgrade(&owner);
+        let owner = Arc::new(Types::default());
+        let witness = Arc::downgrade(&owner);
         let node = owner.class("Node");
         node.define(ClassType {
             name: "Node".into(),
             fields: vec![(
                 "children".into(),
-                Ty::List(Rc::new(crate::sum::option(Ty::Class(node.clone())))),
+                Ty::List(Arc::new(crate::sum::option(Ty::Class(node.clone())))),
             )],
             destructor: None,
             fallible_init: false,
-            bytes: std::cell::OnceCell::new(),
-            managed: std::cell::OnceCell::new(),
+            bytes: std::sync::OnceLock::new(),
+            managed: std::sync::OnceLock::new(),
         });
         let field = node.get().fields[0].1.clone();
         drop(node);
@@ -307,19 +307,19 @@ mod tests {
 
     #[test]
     fn boxed_recursive_fields_do_not_leak_tables() {
-        let owner = Rc::new(Types::default());
-        let witness = Rc::downgrade(&owner);
+        let owner = Arc::new(Types::default());
+        let witness = Arc::downgrade(&owner);
         let node = owner.class("Node");
         node.define(ClassType {
             name: "Node".into(),
             fields: vec![(
                 "next".into(),
-                crate::sum::option(Ty::Box(Rc::new(Ty::Class(node.clone())))),
+                crate::sum::option(Ty::Box(Arc::new(Ty::Class(node.clone())))),
             )],
             destructor: None,
             fallible_init: false,
-            bytes: std::cell::OnceCell::new(),
-            managed: std::cell::OnceCell::new(),
+            bytes: std::sync::OnceLock::new(),
+            managed: std::sync::OnceLock::new(),
         });
         let field = node.get().fields[0].1.clone();
         drop(node);
@@ -332,8 +332,8 @@ mod tests {
 
     #[test]
     fn partially_resolved_tables_are_freed_after_a_diagnostic() {
-        let owner = Rc::new(Types::default());
-        let witness = Rc::downgrade(&owner);
+        let owner = Arc::new(Types::default());
+        let witness = Arc::downgrade(&owner);
         let a = owner.class("A");
         let b = owner.class("B");
         a.define(ClassType {
@@ -341,8 +341,8 @@ mod tests {
             fields: vec![("b".into(), Ty::Class(b.clone()))],
             destructor: None,
             fallible_init: false,
-            bytes: std::cell::OnceCell::new(),
-            managed: std::cell::OnceCell::new(),
+            bytes: std::sync::OnceLock::new(),
+            managed: std::sync::OnceLock::new(),
         });
         assert!(!Ty::Class(a.clone()).facts().complete);
         drop(a);

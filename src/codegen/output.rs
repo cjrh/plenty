@@ -24,10 +24,6 @@ use super::Result;
 /// the object to be.
 const BATCH_INSTRUCTIONS: usize = 1 << 16;
 
-/// Cranelift used to run on the main thread, whose stack is typically 8 MiB.
-/// Rust's 2 MiB default for spawned threads would be a smaller limit.
-const HELPER_STACK_BYTES: usize = 8 << 20;
-
 /// Branch arguments in one function above which Cranelift's single-pass
 /// register allocator compiles it. The backtracking allocator re-sorts a block
 /// parameter's whole live-range list for each branch argument merged into it,
@@ -170,7 +166,7 @@ impl Batch {
             .filter_map(|_| {
                 let (queue, targets) = (Arc::clone(&queue), targets.clone());
                 std::thread::Builder::new()
-                    .stack_size(HELPER_STACK_BYTES)
+                    .stack_size(crate::parallel::HELPER_STACK_BYTES)
                     .spawn(move || drain(&queue, &targets))
                     .ok()
             })

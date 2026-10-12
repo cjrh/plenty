@@ -1108,7 +1108,7 @@ impl Lower<'_> {
             let mut slots = HashMap::new();
             for (name, ty) in bound {
                 let ty = match subject.borrowed {
-                    Some((_, mutable)) => Ty::Ref(Rc::new(ty.clone()), mutable),
+                    Some((_, mutable)) => Ty::Ref(Arc::new(ty.clone()), mutable),
                     None => ty.clone(),
                 };
                 let slot = self.slot(ty.clone(), &case.at)?;
@@ -1414,7 +1414,7 @@ const LIBRARY_GENERICS: [&str; 6] = [
 ];
 
 /// Arms selected by position; the last takes the wildcard an integer match needs.
-fn numbered(bodies: Vec<Vec<Op>>) -> Rc<[MatchArm]> {
+fn numbered(bodies: Vec<Vec<Op>>) -> Arc<[MatchArm]> {
     let last = bodies.len() - 1;
     bodies
         .into_iter()

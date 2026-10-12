@@ -727,16 +727,16 @@ impl Lower<'_> {
                                 .at
                                 .error("dictionary keys must be integers, bool, or str"));
                         }
-                        Ty::Dict(Rc::new(k), Rc::new(v))
+                        Ty::Dict(Arc::new(k), Arc::new(v))
                     } else if kind == "set" {
                         if !k.hashable() {
                             return Err(key
                                 .at
                                 .error("set elements must be integers, bool, or str"));
                         }
-                        Ty::Set(Rc::new(k))
+                        Ty::Set(Arc::new(k))
                     } else {
-                        Ty::List(Rc::new(k))
+                        Ty::List(Arc::new(k))
                     };
                     if let Some(expected) = ty {
                         self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
@@ -911,7 +911,7 @@ impl Lower<'_> {
             (
                 self.expr_expected(
                     iterable,
-                    Some(Ty::Range(Rc::new(hint.unwrap_or_else(|| {
+                    Some(Ty::Range(Arc::new(hint.unwrap_or_else(|| {
                         args.iter()
                             .take(2)
                             .find_map(|e| self.numeric_hint(e))
@@ -980,8 +980,10 @@ impl Lower<'_> {
             // Text scalars and range elements are computed values. Their shared
             // reference points to an iteration-local slot, not into the source.
             let value_slot = plan.target;
-            let reference_slot =
-                self.slot(Ty::Ref(Rc::new(ty.element().unwrap()), false), &iterable.at)?;
+            let reference_slot = self.slot(
+                Ty::Ref(Arc::new(ty.element().unwrap()), false),
+                &iterable.at,
+            )?;
             let loan = self.new_loan(value_slot, false, None, &mut plan.body);
             plan.body.extend([
                 Op::BorrowLocal(value_slot, false),
@@ -1000,7 +1002,7 @@ impl Lower<'_> {
             Local {
                 slot: plan.target,
                 ty: if borrowed {
-                    Ty::Ref(Rc::new(ty.element().unwrap()), mutable)
+                    Ty::Ref(Arc::new(ty.element().unwrap()), mutable)
                 } else {
                     ty.element().unwrap()
                 },
@@ -1173,7 +1175,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
         let source = self.slot(ty.clone(), at)?;
-        let target = self.slot(Ty::Ref(Rc::new(ty.element().unwrap()), mutable), at)?;
+        let target = self.slot(Ty::Ref(Arc::new(ty.element().unwrap()), mutable), at)?;
         let index = self.slot(Ty::I64, at)?;
         ops.extend([
             Op::StoreLocal(source),
@@ -2132,7 +2134,7 @@ impl Lower<'_> {
                 "repeat" => (Ty::I64, CollectionOp::TextTryRepeat),
                 "removeprefix" => (Ty::Str, CollectionOp::TextTryRemovePrefix),
                 "removesuffix" => (Ty::Str, CollectionOp::TextTryRemoveSuffix),
-                _ => (Ty::List(Rc::new(Ty::Str)), CollectionOp::TextTryJoin),
+                _ => (Ty::List(Arc::new(Ty::Str)), CollectionOp::TextTryJoin),
             };
             let mut argument_loans = vec![];
             for argument in args {
@@ -2532,7 +2534,7 @@ impl Lower<'_> {
         }
         self.mark(at, ops);
         ops.push(Op::Collection(CollectionOp::Range(element.clone())));
-        Ok(Ty::Range(Rc::new(element)))
+        Ok(Ty::Range(Arc::new(element)))
     }
 
     pub(super) fn builtin_collection(
@@ -2577,8 +2579,8 @@ impl Lower<'_> {
             .element()
             .ok_or_else(|| at.error("collection constructor requires an iterable"))?;
         let out = match name {
-            "list" => Ty::List(Rc::new(element)),
-            "set" if element.hashable() => Ty::Set(Rc::new(element)),
+            "list" => Ty::List(Arc::new(element)),
+            "set" if element.hashable() => Ty::Set(Arc::new(element)),
             "dict" if matches!(ty, Ty::Dict(_, _)) => {
                 let Ty::Enum(result) = crate::sum::result(ty, crate::sum::alloc_error()) else {
                     unreachable!()

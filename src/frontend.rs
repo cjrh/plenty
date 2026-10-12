@@ -5,7 +5,7 @@
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::collection::CollectionOp;
 use crate::op::{
@@ -97,7 +97,7 @@ struct Token {
     kind: Kind,
     line: usize,
     column: usize,
-    source: Option<Rc<str>>,
+    source: Option<Arc<str>>,
 }
 
 impl Token {
@@ -523,7 +523,7 @@ impl TypeRef {
                     .error("BoxedCallable callbacks cannot return references yet"));
             }
             if matches!(name.as_str(), "Closure" | "OnceClosure") {
-                return Ok(Some(Ty::Closure(Rc::new(
+                return Ok(Some(Ty::Closure(Arc::new(
                     crate::closure::ClosureType::new(
                         String::new(),
                         None,
@@ -536,9 +536,9 @@ impl TypeRef {
                 ))));
             }
             return Ok(Some(if name == "BoxedCallable" {
-                Ty::BoxedCallable(Rc::new(signature))
+                Ty::BoxedCallable(Arc::new(signature))
             } else {
-                Ty::Callable(Rc::new(signature))
+                Ty::Callable(Arc::new(signature))
             }));
         }
         if name == "tuple" {
@@ -575,7 +575,7 @@ impl TypeRef {
             if !ty.is_int() {
                 return Err(self.at.error("range requires an integer type"));
             }
-            return Ok(Some(Ty::Range(Rc::new(ty))));
+            return Ok(Some(Ty::Range(Arc::new(ty))));
         }
         if matches!(name.as_str(), "&" | "&mut") {
             let inner = self.args[0]
@@ -584,7 +584,7 @@ impl TypeRef {
             if matches!(inner, Ty::Ref(..)) {
                 return Err(self.at.error("references to references are not supported"));
             }
-            return Ok(Some(Ty::Ref(Rc::new(inner), name == "&mut")));
+            return Ok(Some(Ty::Ref(Arc::new(inner), name == "&mut")));
         }
         if name == "Generator" {
             if self.args.len() != 1 {
@@ -608,7 +608,7 @@ impl TypeRef {
             if let Some(barrier) = content.storage_barrier() {
                 return Err(self.at.error(barrier.message("a box")));
             }
-            return Ok(Some(Ty::Box(Rc::new(content))));
+            return Ok(Some(Ty::Box(Arc::new(content))));
         }
         if name == "Future" {
             if self.args.len() != 1 {
@@ -620,7 +620,7 @@ impl TypeRef {
                     .at
                     .error("future results require a concrete wholly owned type"));
             }
-            return Ok(Some(Ty::Future(Rc::new(output))));
+            return Ok(Some(Ty::Future(Arc::new(output))));
         }
         if matches!(name.as_str(), "Sender" | "Receiver") {
             if self.args.len() != 1 {
@@ -632,7 +632,7 @@ impl TypeRef {
             if !message.heap_storable() {
                 return Err(self.at.error("channel messages require a concrete wholly owned type without references or generator frames"));
             }
-            return Ok(Some(Ty::Channel(Rc::new(message), name == "Sender")));
+            return Ok(Some(Ty::Channel(Arc::new(message), name == "Sender")));
         }
         if matches!(
             name.as_str(),
@@ -707,12 +707,12 @@ impl TypeRef {
                 return Err(self.at.error(barrier.message("collections")));
             }
             return Ok(Some(match name.as_str() {
-                "list" => Ty::List(Rc::new(args[0].clone())),
+                "list" => Ty::List(Arc::new(args[0].clone())),
                 "set" => {
                     if !args[0].hashable() {
                         return Err(self.at.error("set elements must be integers, bool, or str"));
                     }
-                    Ty::Set(Rc::new(args[0].clone()))
+                    Ty::Set(Arc::new(args[0].clone()))
                 }
                 _ => {
                     if !args[0].hashable() {
@@ -720,7 +720,7 @@ impl TypeRef {
                             .at
                             .error("dictionary keys must be integers, bool, or str"));
                     }
-                    Ty::Dict(Rc::new(args[0].clone()), Rc::new(args[1].clone()))
+                    Ty::Dict(Arc::new(args[0].clone()), Arc::new(args[1].clone()))
                 }
             }));
         }
@@ -899,7 +899,7 @@ struct Parser {
 }
 impl Parser {
     /// A parser for a module whose tokens name `origin` as their source file.
-    fn new(origin: Option<Rc<str>>) -> Self {
+    fn new(origin: Option<Arc<str>>) -> Self {
         Parser {
             tokens: VecDeque::new(),
             in_brackets: VecDeque::new(),
@@ -2032,7 +2032,7 @@ fn named_type(name: &str) -> Type {
         "FsReadDir" => Ty::FsReadDir,
         "FsDirEntry" => Ty::FsDirEntry,
         "FsMetadata" => Ty::FsMetadata,
-        "range" => Ty::Range(Rc::new(Ty::I64)),
+        "range" => Ty::Range(Arc::new(Ty::I64)),
         "AllocError" => crate::sum::alloc_error(),
         "ParseError" => crate::sum::parse_error(),
         "RangeError" => crate::sum::range_error(),
@@ -2263,7 +2263,7 @@ struct Lower<'a> {
     closure_loans: HashMap<String, Vec<usize>>,
     captures: HashSet<String>,
     heap: &'a mut Heap,
-    sigs: &'a mut HashMap<String, Rc<FnSig>>,
+    sigs: &'a mut HashMap<String, Arc<FnSig>>,
     generics: &'a mut generics::Engine,
     aliases: &'a TypeAliases,
     access: &'a modules::AccessMap,
@@ -2286,7 +2286,7 @@ struct Lower<'a> {
     returned_fields: &'a mut HashMap<String, Vec<usize>>,
     /// Source name of each slot, kept after the binding leaves scope so an
     /// ownership diagnostic can still name it.
-    slot_names: Vec<Option<Rc<str>>>,
+    slot_names: Vec<Option<Arc<str>>>,
     /// Position of the last source marker, restored after scope cleanup.
     site: std::cell::Cell<Option<crate::ownership::Site>>,
 }
@@ -3821,7 +3821,7 @@ fn finish_return(body: &mut Vec<Op>) {
             *last = Op::TailCallIndirect(signature.clone());
         }
         Some(Op::Match(arms)) => {
-            for arm in Rc::make_mut(arms) {
+            for arm in Arc::make_mut(arms) {
                 let mut body = arm.body.to_vec();
                 finish_return(&mut body);
                 arm.body = body.into();
@@ -3893,7 +3893,7 @@ pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
 fn register_signature(
     f: &Function,
     aliases: &TypeAliases,
-    sigs: &mut HashMap<String, Rc<FnSig>>,
+    sigs: &mut HashMap<String, Arc<FnSig>>,
     returned_fields: &mut HashMap<String, Vec<usize>>,
 ) -> Result<()> {
     if f.inputs.len() > 256 {
@@ -3951,7 +3951,7 @@ fn register_signature(
         }
     }
     let outputs = output.into_iter().collect();
-    sigs.insert(f.name.clone(), Rc::new(FnSig { inputs, outputs }));
+    sigs.insert(f.name.clone(), Arc::new(FnSig { inputs, outputs }));
 
     if let Some(fields) = references::returned_fields(f, &sigs[&f.name]) {
         returned_fields.insert(f.name.clone(), fields);
@@ -3963,9 +3963,9 @@ fn register_signature(
 /// at the use that first required the instance, with the body position in a
 /// note: see `ownership::Instantiation`.
 fn lower_function(
-    f: Rc<Function>,
+    f: Arc<Function>,
     heap: &mut Heap,
-    sigs: &mut HashMap<String, Rc<FnSig>>,
+    sigs: &mut HashMap<String, Arc<FnSig>>,
     generics: &mut generics::Engine,
     aliases: &TypeAliases,
     access: &modules::AccessMap,
@@ -3996,9 +3996,9 @@ fn lower_function(
 }
 
 fn lower_body(
-    f: Rc<Function>,
+    f: Arc<Function>,
     heap: &mut Heap,
-    sigs: &mut HashMap<String, Rc<FnSig>>,
+    sigs: &mut HashMap<String, Arc<FnSig>>,
     generics: &mut generics::Engine,
     aliases: &TypeAliases,
     access: &modules::AccessMap,
@@ -4007,7 +4007,7 @@ fn lower_body(
     if !generics.active.insert(f.name.clone()) {
         return Err(f.at.error("recursive generator factory requires a concrete return type; recursive inline frames are not supported"));
     }
-    let mut sig = Rc::clone(&sigs[&f.name]);
+    let mut sig = Arc::clone(&sigs[&f.name]);
     if let Some(declaration) = &f.foreign {
         let mut body: Vec<_> = (0..sig.inputs.len())
             .map(|i| Op::LoadLocal(i as u8))
@@ -4029,7 +4029,7 @@ fn lower_body(
             f.name.clone(),
             Box::new(CompiledFn {
                 location: None,
-                origins: Rc::default(),
+                origins: Arc::default(),
                 generator: None,
                 sig,
                 doc: "".into(),
@@ -4139,7 +4139,7 @@ fn lower_body(
                 .error("cannot infer the concrete generator returned by this function"));
         }
         let inferred_frame = sig.outputs.iter().any(Ty::unresolved_generator);
-        sig = Rc::new(FnSig {
+        sig = Arc::new(FnSig {
             inputs: sig.inputs.clone(),
             outputs: output.into_iter().collect(),
         });
@@ -4181,7 +4181,7 @@ fn lower_body(
             .source
             .as_ref()
             .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
-        origins: Rc::new(crate::ownership::Origins {
+        origins: Arc::new(crate::ownership::Origins {
             source: f.at.source.clone(),
             trap_file: f
                 .at
@@ -4242,7 +4242,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     for f in &generics.pending {
         register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;
     }
-    foreign::check_symbols(generics.pending.iter().map(Rc::as_ref), &sigs)?;
+    foreign::check_symbols(generics.pending.iter().map(Arc::as_ref), &sigs)?;
     let mut exports = Vec::new();
     let mut symbols = HashSet::new();
     let imported_symbols: HashSet<_> = generics

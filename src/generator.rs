@@ -1,16 +1,16 @@
 //! Concrete suspended-frame identities and finite inline layouts.
 use crate::op::Ty;
-use std::cell::OnceCell;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 #[derive(Debug)]
 pub struct GeneratorType {
     pub element: Ty,
     /// None is a source annotation awaiting a concrete producer.
     pub name: Option<String>,
-    pub slots: OnceCell<Vec<Ty>>,
-    pub bytes: OnceCell<usize>,
+    pub slots: OnceLock<Vec<Ty>>,
+    pub bytes: OnceLock<usize>,
 }
 impl PartialEq for GeneratorType {
     fn eq(&self, other: &Self) -> bool {
@@ -60,11 +60,11 @@ impl GeneratorType {
     }
 }
 pub fn ty(element: Ty, name: Option<String>) -> Ty {
-    Ty::Generator(Rc::new(GeneratorType {
+    Ty::Generator(Arc::new(GeneratorType {
         element,
         name,
-        slots: OnceCell::new(),
-        bytes: OnceCell::new(),
+        slots: OnceLock::new(),
+        bytes: OnceLock::new(),
     }))
 }
 
@@ -93,7 +93,7 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
                 None
             }
         }
-        (Ty::Ref(a, am), Ty::Ref(b, bm)) if am == bm => Some(Ty::Ref(Rc::new(refine(a, b)?), *am)),
+        (Ty::Ref(a, am), Ty::Ref(b, bm)) if am == bm => Some(Ty::Ref(Arc::new(refine(a, b)?), *am)),
         (Ty::Enum(a), Ty::Enum(b)) if a.is_option() && b.is_option() => {
             Some(crate::sum::option(refine(
                 &a.get().variants[1].fields[0],

@@ -1,7 +1,7 @@
 //! `Box[T]`: one owned heap value. Recursive types reach themselves through
 //! boxes, so every other value can keep its storage inline.
 use crate::op::Ty;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BoxOp {
@@ -17,12 +17,12 @@ impl BoxOp {
         match self {
             Self::New(t) => (
                 vec![t.clone()],
-                crate::sum::result(Ty::Box(Rc::new(t.clone())), crate::sum::alloc_error()),
+                crate::sum::result(Ty::Box(Arc::new(t.clone())), crate::sum::alloc_error()),
             ),
-            Self::Take(t) => (vec![Ty::Box(Rc::new(t.clone()))], t.clone()),
+            Self::Take(t) => (vec![Ty::Box(Arc::new(t.clone()))], t.clone()),
             Self::Ref(t, mutable) => (
-                vec![Ty::Ref(Rc::new(Ty::Box(Rc::new(t.clone()))), *mutable)],
-                Ty::Ref(Rc::new(t.clone()), *mutable),
+                vec![Ty::Ref(Arc::new(Ty::Box(Arc::new(t.clone()))), *mutable)],
+                Ty::Ref(Arc::new(t.clone()), *mutable),
             ),
         }
     }

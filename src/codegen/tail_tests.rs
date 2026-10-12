@@ -3,9 +3,9 @@ use super::*;
 
 #[test]
 fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
-    let range = Ty::Range(Rc::new(Ty::I64));
-    let sig = Rc::new(FnSig {
-        inputs: vec![("external".into(), Ty::Ref(Rc::new(range.clone()), false))],
+    let range = Ty::Range(Arc::new(Ty::I64));
+    let sig = Arc::new(FnSig {
+        inputs: vec![("external".into(), Ty::Ref(Arc::new(range.clone()), false))],
         outputs: vec![range],
     });
     let builder = cranelift_object::ObjectBuilder::new(
@@ -28,7 +28,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
             resume: None,
             id,
             sig: sig.clone(),
-            locals: Rc::from([]),
+            locals: Arc::from([]),
             source: None,
         },
     );

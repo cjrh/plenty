@@ -116,7 +116,7 @@ impl Lower<'_> {
                 "worker results cannot contain references, generators, borrowed/unresolved closures, or scoped tasks",
             ));
         }
-        let task = Rc::new(Task {
+        let task = Arc::new(Task {
             adapter: format!(
                 "__plenty_thread_{}_{}",
                 self.function_name,

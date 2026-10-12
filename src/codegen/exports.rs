@@ -46,7 +46,7 @@ pub(super) fn emit(
         // Allocate a returned instance's handle before calling Plenty, so an
         // allocation failure has no construction side effects.
         let returned_handle = if let Some((ok @ Ty::Class(_), _)) = result {
-            let boxed = Ty::Box(std::rc::Rc::new(ok.clone()));
+            let boxed = Ty::Box(std::sync::Arc::new(ok.clone()));
             let handle = collection(&mut b, module, runtime, 121, &[], Some(&boxed))?;
             let tags = b.ins().ushr_imm(handle, 64);
             let failed = b.ins().band_imm(tags, 1);

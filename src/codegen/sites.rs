@@ -17,7 +17,7 @@ use cranelift_codegen::ir::{GlobalValue, Value};
 
 const RECORD: usize = 12;
 
-type Key = (Option<Rc<str>>, u32, u32);
+type Key = (Option<Arc<str>>, u32, u32);
 
 /// The positions an object's functions refer to, in first-use order. Bodies
 /// are lowered one at a time in declaration order, so the order is the same
@@ -92,14 +92,14 @@ impl Sites {
 pub(super) struct Position {
     /// File of the function's body: for a generic instance or an imported
     /// function, the file that defines it.
-    file: Option<Rc<str>>,
+    file: Option<Arc<str>>,
     /// Line and column of the last `Op::Site` marker.
     at: Option<(u32, u32)>,
     table: Option<GlobalValue>,
 }
 
 impl Position {
-    pub(super) fn in_file(file: Option<Rc<str>>) -> Self {
+    pub(super) fn in_file(file: Option<Arc<str>>) -> Self {
         Self {
             file,
             ..Default::default()

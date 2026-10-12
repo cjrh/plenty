@@ -76,7 +76,7 @@ impl Lower<'_> {
         self.expression_temps.push(slot);
         let loan = self.new_loan(slot, false, None, ops);
         ops.push(Op::BorrowLocal(slot, false));
-        Ok((Ty::Ref(Rc::new(ty), false), loan))
+        Ok((Ty::Ref(Arc::new(ty), false), loan))
     }
 
     pub(super) fn check_stored_reference(&self, loan: usize, at: &Token) -> Result<()> {
@@ -402,7 +402,7 @@ impl Lower<'_> {
                         index,
                         mutable,
                     )));
-                    return Ok((Ty::Ref(Rc::new(field), mutable), loan));
+                    return Ok((Ty::Ref(Arc::new(field), mutable), loan));
                 }
             }
             let key = match &collection {
@@ -483,7 +483,7 @@ impl Lower<'_> {
                     }
                 }
             }
-            let result = Ty::Ref(Rc::new(class.get().fields[index].1.clone()), mutable);
+            let result = Ty::Ref(Arc::new(class.get().fields[index].1.clone()), mutable);
             ops.push(Op::Class(crate::record::ClassOp::FieldRef(
                 class.clone(),
                 index,
@@ -533,11 +533,11 @@ impl Lower<'_> {
         let id = self.new_loan(root, mutable, parent, ops);
         if parent.is_some() {
             ops.push(Op::LoadLocal(local.slot));
-            ops.push(Op::Reborrow(Ty::Ref(Rc::new(ty.clone()), mutable)));
+            ops.push(Op::Reborrow(Ty::Ref(Arc::new(ty.clone()), mutable)));
         } else {
             ops.push(Op::BorrowLocal(local.slot, mutable));
         }
-        Ok((Ty::Ref(Rc::new(ty), mutable), id))
+        Ok((Ty::Ref(Arc::new(ty), mutable), id))
     }
 
     fn is_function_place(&self, e: &Expr) -> bool {

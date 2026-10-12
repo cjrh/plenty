@@ -1,6 +1,6 @@
 //! Statically typed collection operations shared by checking and native lowering.
 use crate::op::Ty;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
@@ -198,10 +198,13 @@ impl CollectionOp {
             ),
             FileReadLines => (
                 vec![Ty::File],
-                crate::sum::result(Ty::List(std::rc::Rc::new(Ty::Str)), crate::sum::io_error()),
+                crate::sum::result(
+                    Ty::List(std::sync::Arc::new(Ty::Str)),
+                    crate::sum::io_error(),
+                ),
             ),
             FileWriteLines => (
-                vec![Ty::File, Ty::List(std::rc::Rc::new(Ty::Str))],
+                vec![Ty::File, Ty::List(std::sync::Arc::new(Ty::Str))],
                 crate::sum::result(Ty::Unit, crate::sum::io_error()),
             ),
             FileTruncateSized => (
@@ -234,40 +237,43 @@ impl CollectionOp {
             ),
             Args => (
                 vec![],
-                crate::sum::result(Ty::List(std::rc::Rc::new(Ty::Str)), crate::sum::io_error()),
+                crate::sum::result(
+                    Ty::List(std::sync::Arc::new(Ty::Str)),
+                    crate::sum::io_error(),
+                ),
             ),
             ArgsBytes => (
                 vec![],
                 crate::sum::result(
-                    Ty::List(Rc::new(Ty::List(Rc::new(Ty::U8)))),
+                    Ty::List(Arc::new(Ty::List(Arc::new(Ty::U8)))),
                     crate::sum::io_error(),
                 ),
             ),
             InputBytes => (
                 vec![Ty::U8],
                 crate::sum::result(
-                    crate::sum::option(Ty::List(Rc::new(Ty::U8))),
+                    crate::sum::option(Ty::List(Arc::new(Ty::U8))),
                     crate::sum::io_error(),
                 ),
             ),
             EncodeUtf8 => (
                 vec![Ty::Str],
-                crate::sum::result(Ty::List(Rc::new(Ty::U8)), crate::sum::io_error()),
+                crate::sum::result(Ty::List(Arc::new(Ty::U8)), crate::sum::io_error()),
             ),
             DecodeUtf8 => (
-                vec![Ty::List(Rc::new(Ty::U8))],
+                vec![Ty::List(Arc::new(Ty::U8))],
                 crate::sum::result(Ty::Str, crate::sum::io_error()),
             ),
             WriteStdoutBytes | WriteStderrBytes => (
-                vec![Ty::List(Rc::new(Ty::U8))],
+                vec![Ty::List(Arc::new(Ty::U8))],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
             ReadBytes => (
-                vec![Ty::List(Rc::new(Ty::U8))],
-                crate::sum::result(Ty::List(Rc::new(Ty::U8)), crate::sum::io_error()),
+                vec![Ty::List(Arc::new(Ty::U8))],
+                crate::sum::result(Ty::List(Arc::new(Ty::U8)), crate::sum::io_error()),
             ),
             WriteBytes => (
-                vec![Ty::List(Rc::new(Ty::U8)), Ty::List(Rc::new(Ty::U8))],
+                vec![Ty::List(Arc::new(Ty::U8)), Ty::List(Arc::new(Ty::U8))],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
             Input => (
@@ -288,8 +294,8 @@ impl CollectionOp {
                     _ => unreachable!("element reference collection"),
                 };
                 (
-                    vec![Ty::Ref(std::rc::Rc::new(t.clone()), *mutable), key],
-                    Ty::Ref(std::rc::Rc::new(value), *mutable),
+                    vec![Ty::Ref(std::sync::Arc::new(t.clone()), *mutable), key],
+                    Ty::Ref(std::sync::Arc::new(value), *mutable),
                 )
             }
             TryPrint(t) => (
@@ -339,24 +345,24 @@ impl CollectionOp {
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
             TextTryJoin => (
-                vec![Ty::Str, Ty::List(std::rc::Rc::new(Ty::Str))],
+                vec![Ty::Str, Ty::List(std::sync::Arc::new(Ty::Str))],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
             ),
             TextTrySplit => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(
-                    Ty::List(std::rc::Rc::new(Ty::Str)),
+                    Ty::List(std::sync::Arc::new(Ty::Str)),
                     crate::sum::alloc_error(),
                 ),
             ),
             TextTrySplitWhitespace => (
                 vec![Ty::Str],
-                crate::sum::result(Ty::List(Rc::new(Ty::Str)), crate::sum::alloc_error()),
+                crate::sum::result(Ty::List(Arc::new(Ty::Str)), crate::sum::alloc_error()),
             ),
             TextTrySplitLines => (
                 vec![Ty::Str, Ty::Bool],
                 crate::sum::result(
-                    Ty::List(std::rc::Rc::new(Ty::Str)),
+                    Ty::List(std::sync::Arc::new(Ty::Str)),
                     crate::sum::alloc_error(),
                 ),
             ),
@@ -436,15 +442,15 @@ impl CollectionOp {
             ListSort(t) => (vec![t.clone(), Ty::Bool], t.clone()),
             ListSwap(t) => (vec![t.clone(), Ty::I64, Ty::I64], t.clone()),
             Len(t) | HashIterFirst(t) => (vec![t.clone()], Ty::I64),
-            ListLenRef(t) => (vec![Ty::Ref(Rc::new(t.clone()), false)], Ty::I64),
+            ListLenRef(t) => (vec![Ty::Ref(Arc::new(t.clone()), false)], Ty::I64),
             ListScalarGetRef(t) => (
-                vec![Ty::Ref(Rc::new(t.clone()), false), Ty::I64],
+                vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
                 t.element().unwrap(),
             ),
             HashIterNext(t) => (vec![t.clone(), Ty::I64], Ty::I64),
             HashIterKeyRef(t) => (
-                vec![Ty::Ref(Rc::new(t.clone()), false), Ty::I64],
-                Ty::Ref(Rc::new(t.element().unwrap()), false),
+                vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
+                Ty::Ref(Arc::new(t.element().unwrap()), false),
             ),
             IterGet(t) | IterTake(t) | HashIterGet(t) => {
                 (vec![t.clone(), Ty::I64], t.element().unwrap())
@@ -462,7 +468,7 @@ impl CollectionOp {
             ),
             Range(t) => (
                 vec![t.clone(), t.clone(), Ty::I64],
-                Ty::Range(Rc::new(t.clone())),
+                Ty::Range(Arc::new(t.clone())),
             ),
             TryKeys(t) | TryValues(t) => {
                 let Ty::Dict(k, v) = t else { unreachable!() };

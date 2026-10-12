@@ -1,6 +1,6 @@
 //! A checked C export drives native entry adapters and both interface views.
 use crate::op::{FnSig, Ty};
-use std::rc::Rc;
+use std::sync::Arc;
 mod dynamic;
 mod handles;
 pub(crate) use handles::Handle;
@@ -9,7 +9,7 @@ pub(crate) struct Export {
     pub function: String,
     pub name: String,
     pub symbol: String,
-    pub signature: Rc<FnSig>,
+    pub signature: Arc<FnSig>,
     pub documentation: String,
 }
 
