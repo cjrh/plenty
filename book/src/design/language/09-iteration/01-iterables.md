@@ -23,6 +23,9 @@ invalidating mutation, movement, or destruction. Element loans protect the
 whole collection; different indices are not proven disjoint. Iteration
 references cannot escape into stored references.
 
+Borrowed temporary iterable owners remain alive through the loop and drop
+when its scope exits, including on early exit.
+
 Borrowed dictionary and set iteration yields shared references to keys or
 elements. Borrowed range and string iteration also yields shared references;
 each refers to a computed value in an iteration-local slot and cannot escape

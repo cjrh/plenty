@@ -5,3 +5,6 @@ values incrementally, and collect them when you need a stored result.
 
 [Count positions and pair inputs](enumerate-and-zip.md) with `enumerate` and
 `zip` directly in loops and comprehensions.
+
+[Traverse backward and test boolean inputs](reverse-and-reduce.md) with
+`reversed`, `any`, and `all`.

@@ -1427,6 +1427,17 @@ pub(crate) unsafe fn collection_at(
                 let tail = &source[b as usize..];
                 b + tail.chars().next().expect("valid string cursor").len_utf8() as u128
             }
+            165 => {
+                let text = a as *const Text;
+                let source = strings::utf8(&text);
+                // Reverse loops keep a positive cursor at a UTF-8 boundary.
+                // Inspect at most four bytes rather than rescanning the prefix.
+                let previous = source[..b as usize]
+                    .chars()
+                    .next_back()
+                    .expect("valid reverse string cursor");
+                b - previous.len_utf8() as u128
+            }
             110 | 111 => {
                 #[cfg(feature = "allocation-checks")]
                 if op == 111

@@ -867,15 +867,36 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
         if let Expression::Call(function, args) = &ungroup(iterable).kind {
-            if matches!(function.as_str(), "enumerate" | "zip")
+            if matches!(function.as_str(), "enumerate" | "zip" | "reversed")
                 && !self.names.contains_key(function)
                 && !self.sigs.contains_key(function)
                 && !self.generics.templates.contains_key(function)
+                && !self.aliases.contains_key(function)
             {
+                if function == "reversed" {
+                    let [source] = args.as_slice() else {
+                        return Err(iterable.at.error("reversed requires one iterable"));
+                    };
+                    return self.iteration_source(names, source, hint, true, ops);
+                }
                 return self.iteration_adapter(names, function, args, &iterable.at, ops);
             }
         }
+        self.iteration_source(names, iterable, hint, false, ops)
+    }
+
+    fn iteration_source(
+        &mut self,
+        names: &[String],
+        iterable: &Expr,
+        hint: Option<Ty>,
+        reverse: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
         if let Some((base, mutable)) = dictionary_items(iterable) {
+            if reverse {
+                return Err(iterable.at.error("reversed requires a list, str, or range"));
+            }
             return self.dictionary_iteration(names, base, mutable, ops);
         }
         let name = if names.len() == 1 {
@@ -948,6 +969,9 @@ impl Lower<'_> {
         } else {
             (self.value(iterable, ops)?, vec![])
         };
+        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::Range(_)) {
+            return Err(iterable.at.error("reversed requires a list, str, or range"));
+        }
         if borrowed && matches!(ty, Ty::Generator(_)) {
             return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
         }
@@ -961,9 +985,9 @@ impl Lower<'_> {
             return Err(iterable.at.error("borrowed iteration of owned elements is not supported; iterate an owned collection or copy it"));
         }
         let mut plan = if references {
-            self.borrowed_collection_iteration(ty.clone(), mutable, &iterable.at, ops)?
+            self.borrowed_collection_iteration(ty.clone(), mutable, reverse, &iterable.at, ops)?
         } else {
-            self.iteration_on_stack(ty.clone(), &iterable.at, ops)?
+            self.iteration_on_stack_direction(ty.clone(), reverse, &iterable.at, ops)?
         };
         if references {
             let loan = loans[0];
@@ -991,7 +1015,13 @@ impl Lower<'_> {
             plan.target = reference_slot;
             plan.step.push(Op::DropLocal(value_slot));
         }
-        self.finish_temporaries(temporary_start, ops);
+        if borrowed {
+            // The caller's loop scope owns these locals. A borrowed temporary
+            // must survive the source loan's uses through the backedge.
+            self.expression_temps.truncate(temporary_start);
+        } else {
+            self.finish_temporaries(temporary_start, ops);
+        }
         plan.condition
             .extend(loans.iter().copied().map(Op::UseLoan));
         plan.body.extend(loans.into_iter().map(Op::UseLoan));
@@ -1169,17 +1199,23 @@ impl Lower<'_> {
         &mut self,
         ty: Ty,
         mutable: bool,
+        reverse: bool,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
         let source = self.slot(ty.clone(), at)?;
         let target = self.slot(Ty::Ref(Rc::new(ty.element().unwrap()), mutable), at)?;
         let index = self.slot(Ty::I64, at)?;
-        ops.extend([
-            Op::StoreLocal(source),
-            Op::PushInt(Value::I64(0)),
-            Op::StoreLocal(index),
-        ]);
+        ops.push(Op::StoreLocal(source));
+        if reverse {
+            ops.extend([
+                Op::BorrowLocal(source, false),
+                Op::Collection(CollectionOp::ListLenRef(ty.clone())),
+            ]);
+        } else {
+            ops.push(Op::PushInt(Value::I64(0)));
+        }
+        ops.push(Op::StoreLocal(index));
         let mut step = Vec::new();
         let hashed = matches!(ty, Ty::Dict(..) | Ty::Set(_));
         if hashed {
@@ -1194,12 +1230,28 @@ impl Lower<'_> {
                 Op::Collection(CollectionOp::HashIterNext(ty.clone())),
                 Op::StoreLocal(index),
             ]);
-        } else {
+        } else if !reverse {
             increment(index, &mut step);
         }
+        let mut body = Vec::new();
+        if reverse {
+            decrement(index, &mut body);
+        }
+        body.extend([
+            Op::BorrowLocal(source, mutable),
+            Op::LoadLocal(index),
+            Op::Collection(if hashed {
+                CollectionOp::HashIterKeyRef(ty.clone())
+            } else {
+                CollectionOp::ElementRef(ty.clone(), mutable)
+            }),
+            Op::StoreLocal(target),
+        ]);
         Ok(Iteration {
             condition: if hashed {
                 vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne]
+            } else if reverse {
+                vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Gt]
             } else {
                 vec![
                     Op::LoadLocal(index),
@@ -1209,22 +1261,23 @@ impl Lower<'_> {
                 ]
             },
             absent: vec![],
-            body: vec![
-                Op::BorrowLocal(source, mutable),
-                Op::LoadLocal(index),
-                Op::Collection(if hashed {
-                    CollectionOp::HashIterKeyRef(ty)
-                } else {
-                    CollectionOp::ElementRef(ty, mutable)
-                }),
-                Op::StoreLocal(target),
-            ],
+            body,
             step,
             target,
         })
     }
 
     fn iteration_on_stack(&mut self, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Iteration> {
+        self.iteration_on_stack_direction(ty, false, at, ops)
+    }
+
+    fn iteration_on_stack_direction(
+        &mut self,
+        ty: Ty,
+        reverse: bool,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
         let element = ty
             .element()
             .ok_or_else(|| at.error("for requires an iterable"))?;
@@ -1266,20 +1319,38 @@ impl Lower<'_> {
         }
         let index = self.slot(Ty::I64, at)?;
         let hashed = matches!(ty, Ty::Set(_) | Ty::Dict(..));
+        let text = ty == Ty::Str;
+        let list = matches!(ty, Ty::List(_));
         if hashed {
             ops.extend([
                 Op::LoadLocal(source),
                 Op::Collection(CollectionOp::HashIterFirst(ty.clone())),
                 Op::StoreLocal(index),
             ]);
+        } else if reverse {
+            ops.extend([
+                if list {
+                    Op::BorrowLocal(source, false)
+                } else {
+                    Op::LoadLocal(source)
+                },
+                Op::Collection(if text {
+                    CollectionOp::TextByteLen
+                } else if list {
+                    CollectionOp::ListLenRef(ty.clone())
+                } else {
+                    CollectionOp::Len(ty.clone())
+                }),
+                Op::StoreLocal(index),
+            ]);
         } else {
             ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
         }
-        let text = ty == Ty::Str;
-        let list = matches!(ty, Ty::List(_));
         let scalar_list = list && (element.is_numeric() || element == Ty::Bool);
         let condition = if hashed {
             vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne]
+        } else if reverse {
+            vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Gt]
         } else {
             vec![
                 Op::LoadLocal(index),
@@ -1298,7 +1369,20 @@ impl Lower<'_> {
                 Op::Lt,
             ]
         };
-        let body = vec![
+        let mut body = Vec::new();
+        if reverse {
+            if text {
+                body.extend([
+                    Op::LoadLocal(source),
+                    Op::LoadLocal(index),
+                    Op::Collection(CollectionOp::TextPrevByte),
+                    Op::StoreLocal(index),
+                ]);
+            } else {
+                decrement(index, &mut body);
+            }
+        }
+        body.extend([
             if scalar_list {
                 Op::BorrowLocal(source, false)
             } else {
@@ -1319,7 +1403,7 @@ impl Lower<'_> {
                 }
             }),
             Op::StoreLocal(target),
-        ];
+        ]);
         let mut step = Vec::new();
         if hashed {
             step.extend([
@@ -1328,14 +1412,14 @@ impl Lower<'_> {
                 Op::Collection(CollectionOp::HashIterNext(ty)),
                 Op::StoreLocal(index),
             ]);
-        } else if text {
+        } else if !reverse && text {
             step.extend([
                 Op::LoadLocal(source),
                 Op::LoadLocal(index),
                 Op::Collection(CollectionOp::TextNextByte),
                 Op::StoreLocal(index),
             ]);
-        } else {
+        } else if !reverse {
             increment(index, &mut step);
         }
         if element.managed() {
@@ -1348,6 +1432,58 @@ impl Lower<'_> {
             step,
             target,
         })
+    }
+
+    pub(super) fn boolean_reduction(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let [source] = args else {
+            return Err(at.error(format!("{name} requires one boolean iterable")));
+        };
+        let start = self.locals.len();
+        let saved = self.names.clone();
+        let internal = format!("<boolean reduction {start}>");
+        let Iteration {
+            condition,
+            mut body,
+            step,
+            target,
+            ..
+        } = self.iteration(std::slice::from_ref(&internal), source, None, ops)?;
+        let item = &self.names[&internal].ty;
+        let borrowed = matches!(item, Ty::Ref(inner, _) if **inner == Ty::Bool);
+        if *item != Ty::Bool && !borrowed {
+            return Err(source.at.error(format!(
+                "{name} requires bool elements; use an explicit comparison"
+            )));
+        }
+        self.names = saved;
+        let result = self.slot(Ty::Bool, at)?;
+        let identity = name == "all";
+        ops.extend([Op::PushBool(identity), Op::StoreLocal(result)]);
+        body.push(Op::LoadLocal(target));
+        if borrowed {
+            body.push(Op::ReadRef(Ty::Bool));
+        }
+        if identity {
+            body.push(Op::Not);
+        }
+        body.push(branch(
+            vec![Op::PushBool(!identity), Op::StoreLocal(result), Op::Break],
+            vec![],
+        ));
+        body.extend(step);
+        ops.push(Op::Loop {
+            condition: condition.into(),
+            body: body.into(),
+        });
+        ops.push(Op::LoadLocal(result));
+        self.cleanup(start, ops);
+        Ok(Ty::Bool)
     }
 
     pub(super) fn for_statement(
@@ -2794,6 +2930,15 @@ fn allocation_succeeded(slot: u8) -> Vec<Op> {
         Op::PushInt(Value::I64(0)),
         Op::Eq,
     ]
+}
+
+fn decrement(index: u8, ops: &mut Vec<Op>) {
+    ops.extend([
+        Op::LoadLocal(index),
+        Op::PushInt(Value::I64(1)),
+        Op::Sub,
+        Op::StoreLocal(index),
+    ]);
 }
 
 fn increment(index: u8, ops: &mut Vec<Op>) {
