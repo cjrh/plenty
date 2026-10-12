@@ -1,8 +1,8 @@
 # Modules and imports
 
 `std` is a reserved toolchain namespace. The embedded modules
-[std.math](../../facilities/math.md), [std.path](../../facilities/02-io/paths.md)
-and [std.fs](../../facilities/02-io/directories.md) are available without local
+[std.math](../../stdlib/math.md), [std.path](../../stdlib/path.md)
+and [std.fs](../../stdlib/fs.md) are available without local
 sources. Unknown `std` modules never
 fall back to the source root. Local files/directories and declarations named
 `std`, and imports binding a non-standard module as `std`, are rejected.

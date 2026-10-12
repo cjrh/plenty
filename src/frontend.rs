@@ -4072,10 +4072,14 @@ fn lower_body(
     // A declaration's borrowed address has one immutable slot per function.
     // Initialize it at entry so a first borrow inside a branch dominates later uses.
     body.splice(0..0, std::mem::take(&mut lower.function_initializers));
-    lower
-        .generics
-        .tail_candidates
-        .insert(f.name.clone(), std::mem::take(&mut lower.tail_candidates));
+    // Most functions have no call in source tail position; `validate` reads
+    // a missing entry as no candidates.
+    if !lower.tail_candidates.is_empty() {
+        lower
+            .generics
+            .tail_candidates
+            .insert(f.name.clone(), std::mem::take(&mut lower.tail_candidates));
+    }
     let compiled = CompiledFn {
         location: f
             .at
@@ -4133,7 +4137,12 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let mut generics = generics::prepare(functions, &aliases, protocols)?;
     generics.source_root = source_root;
     while !generics.expand_data(&aliases)?.is_empty() {}
-    let mut sigs = HashMap::new();
+    // One entry per function: sized up front, these tables are not rehashed
+    // key by key at every doubling while the program is lowered (issue #57).
+    let declared = generics.pending.len();
+    let mut sigs = HashMap::with_capacity(declared);
+    generics.completed.reserve(declared);
+    generics.compiled.reserve(declared);
     let mut returned_fields = HashMap::new();
     for f in &generics.pending {
         register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;

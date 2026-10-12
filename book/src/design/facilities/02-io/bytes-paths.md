@@ -44,8 +44,8 @@ the Unix process descriptor.
 
 For display, decode explicitly or format the byte list with `str.repr`; keep the
 original bytes for filesystem operations. Replacement decoding is never used.
-The imported [std.path](paths.md) module provides Linux Path owners over this
-transport, and [std.fs](directories.md) provides directory enumeration and
+The imported [std.path](../../stdlib/path.md) module provides Linux Path owners over this
+transport, and [std.fs](../../stdlib/fs.md) provides directory enumeration and
 metadata. Compact buffers, byte views, portable path representations, binary
 File methods and reader/writer objects remain within issue #49's broader scope.
 The [finder example](../../examples/finder.md) exercises raw arguments, matching,

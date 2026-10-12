@@ -1,7 +1,7 @@
 # Walking a tree
 
 `std.fs.walk(&root, top_down) -> Result[Walk, AllocError]` constructs an explicit
-Plenty walker over [directory enumeration](directories.md). It copies the root
+Plenty walker over [directory enumeration](../fs.md). It copies the root
 and allocates its pending stack, but opens no directory until advancement.
 `walker.next() -> Result[bool, WalkError]` updates `walker.current` when it returns
 True. False means exhaustion or explicit close. `walker.close()` clears pending

@@ -1,6 +1,6 @@
-# Directory enumeration
+# std.fs — directory enumeration
 
-Import `std.fs` and pass a borrowed [Path](paths.md).
+Import `std.fs` and pass a borrowed [Path](path.md).
 `read_dir(&path) -> Result[ReadDir, IoError]` opens one directory immediately.
 `ReadDir` is affine and owns a lazy native stream. `next()` requires a mutable
 owner and returns `Result[Option[DirEntry], IoError]`: `Some` is one entry,
@@ -42,10 +42,10 @@ Type-only queries use `d_type` when available. An unknown native type triggers a
 non-following metadata lookup and propagates any lookup error. `FileType` is
 `File`, `Directory`, `Symlink`, or `Other`; sockets, FIFOs and devices are Other,
 never regular files. Cached native types can become stale; entry metadata is
-fresh on every call. See [metadata and links](metadata.md).
+fresh on every call. See [metadata and links](fs/metadata.md).
 
 Python's `os.scandir` and Rust's `read_dir`/`DirEntry` provide the API baseline.
 The runtime follows their Unix errno-reset/EOF distinction but copies detached
 entry data fallibly instead of adopting Rust DirEntry's descriptor retention.
 Native enumeration currently supports 64-bit Linux; unsupported hosts return
-`IoError.Unsupported`. See [walking](walking.md) for tree traversal.
+`IoError.Unsupported`. See [walking](fs/walking.md) for tree traversal.

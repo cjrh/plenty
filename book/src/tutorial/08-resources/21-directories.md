@@ -38,4 +38,4 @@ Types distinguish regular files, directories, links and other native objects.
 Path text conversion is checked. For arbitrary Unix filenames, use
 `name.as_bytes()` and [NUL-framed transport](20-binary-paths.md), avoiding text
 decoding. These filesystem APIs currently require 64-bit Linux and statx for
-metadata. See the [directory reference](../../design/facilities/02-io/directories.md).
+metadata. See the [directory reference](../../design/stdlib/fs.md).

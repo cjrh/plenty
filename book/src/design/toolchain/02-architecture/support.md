@@ -14,7 +14,7 @@ restrictions live with their contracts.
 | Errors and resources | [Sums, propagation, allocation, and context scopes](../../language/08-errors/index.md); traps do not unwind |
 | Iteration | [Loops, comprehensions, and native generators](../../language/09-iteration/index.md); no reference yield or public borrow across suspension |
 | Built-ins | [Numeric, text, and collection operations](../../facilities/01-builtins/index.md); explicitly fallible allocating operations |
-| Standard library | [Embedded `std.math`](../../facilities/math.md), [std.path](../../facilities/02-io/paths.md) and [std.fs](../../facilities/02-io/directories.md); Plenty algorithms/walking, typed errors, Linux paths and metadata |
+| Standard library | [Embedded `std.math`](../../stdlib/math.md), [std.path](../../stdlib/path.md) and [std.fs](../../stdlib/fs.md); Plenty algorithms/walking, typed errors, Linux paths and metadata |
 | I/O | [Text/byte streams, raw Unix paths, and owned UTF-8 files](../../facilities/02-io/index.md); direct file iteration unsupported |
 | Concurrency | [Threads, channels, pools, futures, and parallel operations](../../facilities/03-concurrency/index.md); certified worker effects, serial ordinary loops |
 | Interoperability | [Trusted C imports, exports, metadata, and runtime loading](../../facilities/04-interop/index.md) |

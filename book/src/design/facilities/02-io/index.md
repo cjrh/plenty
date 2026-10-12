@@ -8,8 +8,8 @@ Successful writes and ordinary flushing do not promise durable storage.
 
 - [Standard streams and arguments](streams-args.md).
 - [Bytes and lossless Unix paths](bytes-paths.md).
-- [Native paths](paths.md), [directory enumeration](directories.md),
-  [metadata and links](metadata.md), and [walking a tree](walking.md).
+- [Native paths](../../stdlib/path.md), [directory enumeration](../../stdlib/fs.md),
+  [metadata and links](../../stdlib/fs/metadata.md), and [walking a tree](../../stdlib/fs/walking.md).
 - [Whole-file helpers](whole-files.md).
 - [Owned files and modes](files.md).
 - [Reading](reading.md), [writing and synchronization](writing.md), and

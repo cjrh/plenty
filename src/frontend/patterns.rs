@@ -563,43 +563,54 @@ impl<'a> Compiler<'a> {
             _ => unreachable!(),
         };
         let definition = t.get();
-        let mut tags = Vec::new();
-        for row in &rows {
+        // Rows grouped by the variant they name, variants in the order the
+        // cases first name them. Grouping in one pass keeps a match with one
+        // case per variant linear in the number of variants (issue #71).
+        let mut index: HashMap<usize, usize> = HashMap::new();
+        let mut groups: Vec<(usize, Vec<usize>)> = Vec::new();
+        let mut rest = Vec::new();
+        for (position, row) in rows.iter().enumerate() {
             if let Checked::Variant { tag, .. } = row.patterns[column] {
-                if !tags.contains(tag) {
-                    tags.push(*tag);
-                }
+                let group = *index.entry(*tag).or_insert_with(|| {
+                    groups.push((*tag, Vec::new()));
+                    groups.len() - 1
+                });
+                groups[group].1.push(position);
+            } else {
+                rest.push(position);
             }
         }
         let mut steps = occurrences[column].clone();
         steps.extend(boxes.iter().cloned().map(Step::Unbox));
         let mut missing = Vec::new();
         let mut branches = Vec::new();
-        for &tag in &tags {
+        for (tag, named) in &groups {
+            let tag = *tag;
             let arity = definition.variants[tag].fields.len();
-            let specialized = rows
-                .iter()
-                .filter_map(|row| {
-                    let payload: Vec<&Checked> = match row.patterns[column] {
-                        Checked::Variant {
-                            tag: other, fields, ..
-                        } => {
-                            if *other != tag {
-                                return None;
-                            }
-                            fields.iter().collect()
-                        }
-                        _ => vec![self.wildcard; arity],
-                    };
-                    let mut patterns = row.patterns[..column].to_vec();
-                    patterns.extend(payload);
-                    patterns.extend(&row.patterns[column + 1..]);
-                    Some(Row {
-                        patterns,
-                        index: row.index,
-                    })
-                })
-                .collect();
+            let wildcard = self.wildcard;
+            let specialize = |position: usize| {
+                let row = &rows[position];
+                let mut patterns = row.patterns[..column].to_vec();
+                match row.patterns[column] {
+                    Checked::Variant { fields, .. } => patterns.extend(fields),
+                    _ => patterns.extend(std::iter::repeat_n(wildcard, arity)),
+                }
+                patterns.extend(&row.patterns[column + 1..]);
+                Row {
+                    patterns,
+                    index: row.index,
+                }
+            };
+            // A row naming no variant joins every branch, in source order.
+            let mut specialized = Vec::with_capacity(named.len() + rest.len());
+            let mut others = rest.iter().copied().peekable();
+            for &position in named {
+                while let Some(other) = others.next_if(|&other| other < position) {
+                    specialized.push(specialize(other));
+                }
+                specialized.push(specialize(position));
+            }
+            specialized.extend(others.map(specialize));
             let mut inner = occurrences[..column].to_vec();
             inner.extend((0..arity).map(|field| {
                 let mut steps = steps.clone();
@@ -615,13 +626,13 @@ impl<'a> Compiler<'a> {
             }
             branches.push((tag, tree));
         }
-        let default = if tags.len() == definition.variants.len() {
+        let default = if groups.len() == definition.variants.len() {
             None
         } else {
-            let rest = rows
+            let rest = rest
                 .iter()
-                .filter(|row| !matches!(row.patterns[column], Checked::Variant { .. }))
-                .map(|row| {
+                .map(|&position| {
+                    let row = &rows[position];
                     let mut patterns = row.patterns.clone();
                     patterns.remove(column);
                     Row {
@@ -635,7 +646,7 @@ impl<'a> Compiler<'a> {
             let (tree, witnesses) = self.compile(rest, &outer);
             for witness in witnesses {
                 for (tag, variant) in definition.variants.iter().enumerate() {
-                    if !tags.contains(&tag) {
+                    if !index.contains_key(&tag) {
                         let mut witness = witness.clone();
                         let payload = vec!["_".to_string(); variant.fields.len()];
                         witness.insert(column, variant_text(t, tag, &payload));
@@ -784,7 +795,7 @@ impl Lower<'_> {
             PatKind::Wildcard => Ok(Checked::Wildcard),
             PatKind::Binding(name) => {
                 if let Ty::Enum(t) = content {
-                    if t.get().variants.iter().any(|v| &v.name == name) {
+                    if t.get().tag(name).is_some() {
                         let owner = t.display_name().split('[').next().unwrap_or_default();
                         return Err(pattern.at.error(format!(
                             "`{name}` is a variant of `{owner}`, so it cannot name a payload binding; write `{owner}.{name}` to match the variant"
@@ -814,9 +825,7 @@ impl Lower<'_> {
                 self.pattern_owner(qualifier.as_deref(), name, t, &pattern.at)?;
                 let definition = t.get();
                 let tag = definition
-                    .variants
-                    .iter()
-                    .position(|v| &v.name == name)
+                    .tag(name)
                     .ok_or_else(|| pattern.at.error(format!("unknown variant `{name}`")))?;
                 let fields = &definition.variants[tag].fields;
                 if payload.as_ref().map_or(0, Vec::len) != fields.len()

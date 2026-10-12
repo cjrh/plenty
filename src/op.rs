@@ -1404,7 +1404,8 @@ pub(crate) fn mark_tail_calls(body: &mut [Op]) {
 /// Independently check a complete module's operations and function signatures.
 /// Abstract operand stacks track concrete types without executing the program.
 pub fn check(ops: &[Op]) -> Result<()> {
-    let mut sigs = HashMap::new();
+    // Nearly every top-level operation defines a function.
+    let mut sigs = HashMap::with_capacity(ops.len());
     collect_sigs(ops, &mut sigs);
     // Top-level: locals are empty (the compiler will never have emitted a
     // `LoadLocal` here either), and there is no end-of-stream invariant.

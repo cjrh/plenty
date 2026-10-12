@@ -16,7 +16,7 @@ Standard library Plenty sources are embedded in the compiler as well. `std.math`
 is parsed and checked as an ordinary module, with a stable toolchain identity;
 it is never loaded from the user's source root. Its algorithms and error policy
 remain Plenty code, while numeric methods supply IEEE/platform primitives.
-See [the math contract](../../facilities/math.md).
+See the [standard library](../../stdlib/index.md) and [the math contract](../../stdlib/math.md).
 
 The application archive supplies C `main`, calling `plenty_main`. A separate
 library archive omits both startup and that dependency; shared-library export

@@ -66,7 +66,12 @@ pub(super) fn prepare(
     aliases.validate_data_bounds()?;
     functions.extend(aliases.data.factories());
     let mut declarations = HashMap::new();
-    let function_names: HashSet<_> = functions.iter().map(|f| f.name.as_str()).collect();
+    // Only protocol declarations consult this table.
+    let function_names: HashSet<_> = if protocols.is_empty() {
+        HashSet::new()
+    } else {
+        functions.iter().map(|f| f.name.as_str()).collect()
+    };
     for protocol in &protocols {
         if aliases.contains_key(&protocol.name)
             || function_names.contains(protocol.name.as_str())
@@ -91,17 +96,19 @@ pub(super) fn prepare(
             },
         )?;
     }
+    // The tables below get one entry per function. Sized up front, they are
+    // not rehashed key by key at every doubling (issue #57).
+    let mut methods = HashMap::with_capacity(functions.len());
+    for f in functions.iter().filter(|f| f.type_params.is_empty()) {
+        methods.insert(f.name.clone(), protocols::signature(f, aliases)?);
+    }
     let mut engine = Engine {
         protocols: declarations,
-        methods: functions
-            .iter()
-            .filter(|f| f.type_params.is_empty())
-            .map(|f| Ok((f.name.clone(), protocols::signature(f, aliases)?)))
-            .collect::<Result<_>>()?,
+        methods,
         templates: HashMap::new(),
         cache: HashMap::new(),
-        pending: VecDeque::new(),
-        functions: HashMap::new(),
+        pending: VecDeque::with_capacity(functions.len()),
+        functions: HashMap::with_capacity(functions.len()),
         compiled: Vec::new(),
         tail_candidates: HashMap::new(),
         active: HashSet::new(),
@@ -110,7 +117,7 @@ pub(super) fn prepare(
         required: HashMap::new(),
         source_root: None,
     };
-    let mut names = HashSet::new();
+    let mut names = HashSet::with_capacity(functions.len());
     for f in functions {
         if !names.insert(f.name.clone()) || aliases.contains_key(&f.name) {
             return Err(f.at.error(format!(

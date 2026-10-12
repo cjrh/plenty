@@ -78,4 +78,4 @@ False
 The failed subtree is already skipped. Another call continues any pending
 siblings. Propagating the error stops traversal with normal cleanup. Only the
 current scan owns a native directory stream; retaining results does not retain
-directory handles. See [walking contracts](../../design/facilities/02-io/walking.md).
+directory handles. See [walking contracts](../../design/stdlib/fs/walking.md).

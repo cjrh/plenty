@@ -1,17 +1,18 @@
-# Standard library: `std.math`
+# `std.math`
 
-`import std.math`, aliases, and `from std.math import Name` use the standard
-library embedded in the compiler. No source installation, network, Cargo, or
-rustc is needed. Native compilation still requires the supported linker
-environment. `std` is reserved: a local `std` directory, `std.plenty`,
-`std.plentyi`, declaration named `std`, or non-standard import bound as `std`
-is an error. Unknown standard modules never fall back to local files.
+`std.math` provides floating-point functions with recoverable domain and
+overflow errors, checked rounding to integers, integer algorithms, generic
+numeric helpers, and constants. Its source is `stdlib/std/math.plenty`.
+[Importing, the reserved `std` namespace, and compilation](index.md) are common
+to every standard module.
 
-`stdlib/std/math.plenty` passes through ordinary parsing, visibility checks,
-type checking, specialization, and native emission. Repeated imports share its
-nominal `MathError` type. Private helpers stay private. Embedded module
-identities and diagnostics use `std/math.plenty`, independent of installation
-paths. Imports currently require file-based compilation APIs.
+```python
+import std.math as math
+from std.math import pi, MathError
+```
+
+Recoverable failures are `MathError.Domain` and `MathError.Overflow`. No
+function in this module allocates.
 
 ## Floating-point functions
 
@@ -62,7 +63,7 @@ absolute tolerance may accept the difference. Negative tolerances produce
 and keyword arguments are unimplemented. `1e-9, 0.0` matches Python's defaults.
 
 The module exports `pi`, `e`, `tau`, `inf`, and `nan` as immutable `f64`
-[module constants](../language/02-source/modules.md). They can also be imported
+[module constants](../language/02-source/modules.md#numeric-constants). They can also be imported
 individually. Numeric types retain `f64.PI`, `f64.E`, `f64.TAU`, `f64.INF`, and
 `f64.NAN`, with the same names on `f32`.
 

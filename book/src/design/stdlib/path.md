@@ -1,4 +1,4 @@
-# Native paths
+# std.path — native paths
 
 Import `std.path`. `Path` owns an affine `list[u8]`, preserving exact Linux path
 bytes, including invalid UTF-8, spaces, tabs, CR and LF. It is not a compact byte
@@ -32,9 +32,9 @@ invalid UTF-8 and control bytes visible without replacement decoding; it is not
 an input parser. `to_text()` validates, while `as_bytes()` allows exact binary
 transport. Automatic record formatting is diagnostic list formatting, not a
 round-trippable filesystem spelling. Use NUL framing with
-[binary transport](bytes-paths.md) when passing arbitrary Linux paths.
+[binary transport](../facilities/02-io/bytes-paths.md) when passing arbitrary Linux paths.
 
 The Rust implementation baseline is `library/std/src/path.rs`; Python's
 `PurePath`/`Path` separation motivates keeping lexical operations distinct from
-[filesystem observations](metadata.md). Broader buffers and portable path
+[filesystem observations](fs/metadata.md). Broader buffers and portable path
 representations remain within issues #49/#61.

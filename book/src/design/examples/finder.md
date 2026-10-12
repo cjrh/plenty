@@ -41,8 +41,8 @@ APIs remain within issue #49.
 
 See the current [standard stream and argument](../facilities/02-io/streams-args.md),
 [binary transport](../facilities/02-io/bytes-paths.md),
-[paths](../facilities/02-io/paths.md),
-[directory enumeration](../facilities/02-io/directories.md),
-[walking](../facilities/02-io/walking.md),
+[paths](../stdlib/path.md),
+[directory enumeration](../stdlib/fs.md),
+[walking](../stdlib/fs/walking.md),
 [text](../facilities/01-builtins/text.md), and
 [foreign text adapter](../facilities/04-interop/borrowing-text.md) contracts.

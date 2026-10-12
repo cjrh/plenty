@@ -353,6 +353,7 @@ mod tests {
             managed_fields: OnceCell::new(),
             inline_range: false,
             payload_bytes: OnceCell::new(),
+            by_name: OnceCell::new(),
             storage: OnceCell::new(),
         }
     }
