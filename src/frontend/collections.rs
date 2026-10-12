@@ -2,6 +2,9 @@ use super::*;
 
 struct Iteration {
     condition: Vec<Op>,
+    // Initialize pending generator results when a paired condition is skipped.
+    // This keeps conditional advancement compatible with definite ownership.
+    absent: Vec<Op>,
     body: Vec<Op>,
     step: Vec<Op>,
     target: u8,
@@ -448,6 +451,15 @@ impl Lower<'_> {
             }
             Expression::Try(value) => self.propagate(e, value, expected, ops),
             Expression::Method(base, name, args)
+                if matches!(name.as_str(), "unwrap_or" | "ok_or")
+                    && !matches!(
+                        self.place_type(base).map(classes::unbox),
+                        Some(Ty::Class(_))
+                    ) =>
+            {
+                self.option_method(base, name, args, expected, ops)
+            }
+            Expression::Method(base, name, args)
                 if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) =>
             {
                 self.unwrap_result(base, args, expected, ops)
@@ -840,6 +852,7 @@ impl Lower<'_> {
                 Op::Ne,
                 Op::UseLoan(loan),
             ],
+            absent: vec![],
             body,
             step,
             target: value_slot,
@@ -853,6 +866,15 @@ impl Lower<'_> {
         hint: Option<Ty>,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        if let Expression::Call(function, args) = &ungroup(iterable).kind {
+            if matches!(function.as_str(), "enumerate" | "zip")
+                && !self.names.contains_key(function)
+                && !self.sigs.contains_key(function)
+                && !self.generics.templates.contains_key(function)
+            {
+                return self.iteration_adapter(names, function, args, &iterable.at, ops);
+            }
+        }
         if let Some((base, mutable)) = dictionary_items(iterable) {
             return self.dictionary_iteration(names, base, mutable, ops);
         }
@@ -1002,6 +1024,147 @@ impl Lower<'_> {
         Ok(plan)
     }
 
+    fn iteration_adapter(
+        &mut self,
+        names: &[String],
+        function: &str,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        if (function == "enumerate" && !(1..=2).contains(&args.len()))
+            || (function == "zip" && args.len() != 2)
+        {
+            return Err(at.error(if function == "enumerate" {
+                "enumerate requires an iterable and an optional i64 start"
+            } else {
+                "zip requires two iterables"
+            }));
+        }
+        let internal = format!("<iteration {}>", self.locals.len());
+        let mut left = self.iteration(std::slice::from_ref(&internal), &args[0], None, ops)?;
+        let left_local = self.names.remove(&internal).unwrap();
+        let (fields, slots) = if function == "enumerate" {
+            let counter = self.slot(Ty::I64, at)?;
+            let first = self.slot(Ty::Bool, at)?;
+            if let Some(start) = args.get(1) {
+                let actual = self.expr_expected(start, Some(Ty::I64), ops)?;
+                self.same(actual, Some(Ty::I64), &start.at)?;
+            } else {
+                ops.push(Op::PushInt(Value::I64(0)));
+            }
+            ops.extend([
+                Op::StoreLocal(counter),
+                Op::PushBool(true),
+                Op::StoreLocal(first),
+            ]);
+            // Increment only when another item exists, so a final i64::MAX
+            // index is valid. The next index reports checked overflow.
+            let mut advance = Vec::new();
+            self.mark(at, &mut advance);
+            increment(counter, &mut advance);
+            let mut body = vec![
+                Op::LoadLocal(first),
+                branch(vec![Op::PushBool(false), Op::StoreLocal(first)], advance),
+            ];
+            body.extend(left.body);
+            left.body = body;
+            (vec![Ty::I64, left_local.ty], vec![counter, left.target])
+        } else {
+            let right = self.iteration(std::slice::from_ref(&internal), &args[1], None, ops)?;
+            let right_local = self.names.remove(&internal).unwrap();
+            // Test left before right, including next() on a generator. Stop
+            // immediately when either input ends.
+            let mut skipped = right.absent.clone();
+            skipped.push(Op::PushBool(false));
+            left.condition.push(branch(right.condition, skipped));
+            left.absent.extend(right.absent);
+            left.body.extend(right.body);
+            left.step.extend(right.step);
+            (
+                vec![left_local.ty, right_local.ty],
+                vec![left.target, right.target],
+            )
+        };
+        if fields.iter().any(|ty| matches!(ty, Ty::Ref(..))) {
+            if names.len() != 2 {
+                return Err(at.error("borrowed enumerate/zip requires two unpacked loop bindings"));
+            }
+            if names[0] == names[1] && names[0] != "_" {
+                return Err(at.error("duplicate unpacking binding"));
+            }
+            for ((name, ty), slot) in names.iter().zip(fields).zip(slots) {
+                if name != "_" {
+                    self.bind(
+                        name.clone(),
+                        Local {
+                            slot,
+                            ty,
+                            mutable: false,
+                        },
+                    );
+                }
+            }
+        } else {
+            if let Some(barrier) = fields.iter().find_map(Ty::storage_barrier) {
+                return Err(at.error(barrier.message("iteration item tuples")));
+            }
+            if fields
+                .iter()
+                .map(|ty| ty.identity_name().len())
+                .sum::<usize>()
+                > 16_384
+                || fields.iter().any(|ty| ty.layout_depth() >= 64)
+            {
+                return Err(at.error("type nesting exceeds the implementation limit of 64"));
+            }
+            let field_types = fields.clone();
+            let ty = crate::sum::tuple(fields);
+            let Ty::Enum(tuple) = &ty else { unreachable!() };
+            for (slot, ty) in slots.into_iter().zip(field_types) {
+                left.body.push(if ty.affine() {
+                    Op::MoveLocal(slot)
+                } else {
+                    Op::LoadLocal(slot)
+                });
+            }
+            left.body
+                .push(Op::Enum(crate::sum::EnumOp::New(tuple.clone(), 0)));
+            let target = self.slot(ty.clone(), at)?;
+            left.body.push(Op::StoreLocal(target));
+            left.step.push(Op::DropLocal(target));
+            left.target = target;
+            let name = format!("<adapter {target}>");
+            self.bind(
+                name.clone(),
+                Local {
+                    slot: target,
+                    ty,
+                    mutable: false,
+                },
+            );
+            if names.len() == 1 {
+                let local = self.names.remove(&name).unwrap();
+                self.bind(names[0].clone(), local);
+            } else {
+                for name in names {
+                    self.names.remove(name);
+                }
+                self.unpack_tuple(
+                    names,
+                    false,
+                    &Expr {
+                        at: at.clone(),
+                        kind: Expression::Name(name.clone()),
+                    },
+                    &mut left.body,
+                )?;
+                self.names.remove(&name);
+            }
+        }
+        Ok(left)
+    }
+
     fn borrowed_collection_iteration(
         &mut self,
         ty: Ty,
@@ -1045,6 +1208,7 @@ impl Lower<'_> {
                     Op::Lt,
                 ]
             },
+            absent: vec![],
             body: vec![
                 Op::BorrowLocal(source, mutable),
                 Op::LoadLocal(index),
@@ -1074,6 +1238,10 @@ impl Lower<'_> {
             };
             let item = self.slot(option.clone(), at)?;
             return Ok(Iteration {
+                absent: vec![
+                    Op::Enum(crate::sum::EnumOp::New(enum_type.clone(), 0)),
+                    Op::StoreLocal(item),
+                ],
                 condition: vec![
                     Op::Next(source),
                     Op::StoreLocal(item),
@@ -1175,6 +1343,7 @@ impl Lower<'_> {
         }
         Ok(Iteration {
             condition,
+            absent: vec![],
             body,
             step,
             target,
@@ -1346,6 +1515,145 @@ impl Lower<'_> {
         }
     }
 
+    fn option_method(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let payload_hint = if name == "unwrap_or" {
+            expected
+                .clone()
+                .or_else(|| {
+                    match self
+                        .place_type(base)
+                        .or_else(|| self.expression_type_hint(base))
+                    {
+                        Some(Ty::Enum(t)) if t.is_option() => {
+                            Some(t.get().variants[1].fields[0].clone())
+                        }
+                        _ => None,
+                    }
+                })
+                .or_else(|| {
+                    args.first().and_then(|argument| {
+                        self.place_type(argument)
+                            .or_else(|| self.numeric_hint(argument))
+                    })
+                })
+        } else {
+            match &expected {
+                Some(Ty::Enum(t)) if t.is_result() => Some(t.get().variants[0].fields[0].clone()),
+                _ => None,
+            }
+        };
+        let start = self.locals.len();
+        let ty = self.expr_expected(base, payload_hint.map(crate::sum::option), ops)?;
+        if let Some(actual) = &ty {
+            let class = classes::unbox(actual.clone());
+            if matches!(class, Ty::Class(_)) {
+                self.unbox_to(actual.clone(), &class, ops);
+                return self.temporary_class_method(base, name, None, args, (class, vec![]), ops);
+            }
+        }
+        let [argument] = args else {
+            return Err(base.at.error(format!("{name} requires one argument")));
+        };
+        let Some(Ty::Enum(option)) = ty else {
+            return Err(base.at.error(format!("{name} requires an Option")));
+        };
+        if !option.is_option() {
+            return Err(base.at.error(format!("{name} requires an Option")));
+        }
+        let source = self.slot(Ty::Enum(option.clone()), &base.at)?;
+        ops.push(Op::StoreLocal(source));
+        let payload = option.get().variants[1].fields[0].clone();
+        let argument_hint = if name == "unwrap_or" {
+            Some(payload.clone())
+        } else {
+            match &expected {
+                Some(Ty::Enum(t)) if t.is_result() => Some(t.get().variants[1].fields[0].clone()),
+                _ => None,
+            }
+        };
+        let actual = self
+            .expr_expected(argument, argument_hint.clone(), ops)?
+            .unwrap_or_else(|| {
+                ops.push(Op::PushUnit);
+                Ty::Unit
+            });
+        if let Some(hint) = argument_hint {
+            self.same(Some(actual.clone()), Some(hint), &argument.at)?;
+        }
+        if let Some(barrier) = actual.storage_barrier() {
+            return Err(argument
+                .at
+                .error(barrier.message("Option convenience arguments")));
+        }
+        let fallback = self.slot(actual.clone(), &argument.at)?;
+        ops.push(Op::StoreLocal(fallback));
+        let result = if name == "unwrap_or" {
+            payload.clone()
+        } else {
+            crate::sum::result(payload.clone(), actual)
+        };
+        self.select_option(
+            option,
+            source,
+            fallback,
+            result.clone(),
+            name == "ok_or",
+            ops,
+        );
+        self.cleanup(start, ops);
+        if result == Ty::Unit {
+            ops.push(Op::Drop);
+            Ok(None)
+        } else {
+            Ok(Some(result))
+        }
+    }
+
+    /// Select from already evaluated operands. Lookup defaults and Option
+    /// methods share the ownership transfer and unused-argument cleanup.
+    fn select_option(
+        &self,
+        option: crate::nominal::Nominal<crate::sum::EnumType>,
+        source: u8,
+        fallback: u8,
+        result: Ty,
+        convert: bool,
+        ops: &mut Vec<Op>,
+    ) {
+        let payload = &option.get().variants[1].fields[0];
+        let mut yes = vec![
+            Op::MoveLocal(source),
+            Op::Enum(if payload.affine() {
+                crate::sum::EnumOp::Take(option.clone(), 1, 0)
+            } else {
+                crate::sum::EnumOp::Field(option.clone(), 1, 0)
+            }),
+        ];
+        let mut no = vec![Op::MoveLocal(fallback)];
+        if let Ty::Enum(t) = &result {
+            if convert {
+                yes.push(Op::Enum(crate::sum::EnumOp::New(t.clone(), 0)));
+                no.push(Op::Enum(crate::sum::EnumOp::New(t.clone(), 1)));
+            }
+        }
+        ops.extend([
+            Op::LoadLocal(source),
+            Op::Enum(crate::sum::EnumOp::Tag(option)),
+            Op::PushInt(Value::I64(1)),
+            Op::Eq,
+            branch(yes, no),
+            Op::DropLocal(source),
+            Op::DropLocal(fallback),
+        ]);
+    }
+
     pub(super) fn method(
         &mut self,
         base: &Expr,
@@ -1353,23 +1661,6 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if matches!(name, "wrapping_add" | "wrapping_sub" | "wrapping_mul") {
-            if args.len() != 1 {
-                return Err(base.at.error("wrapping arithmetic takes one argument"));
-            }
-            let ty = self.value(base, ops)?;
-            if !ty.is_int() {
-                return Err(base.at.error("wrapping arithmetic requires integers"));
-            }
-            let argument = self.expr_expected(&args[0], Some(ty.clone()), ops)?;
-            self.same(argument, Some(ty.clone()), &args[0].at)?;
-            ops.push(Op::Integer(match name {
-                "wrapping_add" => IntegerOp::WrappingAdd,
-                "wrapping_sub" => IntegerOp::WrappingSub,
-                _ => IntegerOp::WrappingMul,
-            }));
-            return Ok(Some(ty));
-        }
         if matches!(self.place_type(base), Some(Ty::Task(_))) {
             return self.join_thread(base, name, args, ops);
         }
@@ -1403,6 +1694,14 @@ impl Lower<'_> {
         }
         if name == "unwrap" && !matches!(self.place_type(base), Some(Ty::Class(_))) {
             return self.unwrap_result(base, args, None, ops);
+        }
+        if matches!(name, "unwrap_or" | "ok_or")
+            && !matches!(
+                self.place_type(base).map(classes::unbox),
+                Some(Ty::Class(_))
+            )
+        {
+            return self.option_method(base, name, args, None, ops);
         }
         if name == "new" {
             if let Expression::Name(function) = &ungroup(base).kind {
@@ -1586,6 +1885,20 @@ impl Lower<'_> {
         } else {
             self.observe_method_receiver(base, ops)?
         };
+        if ty.is_int() && matches!(name, "wrapping_add" | "wrapping_sub" | "wrapping_mul") {
+            if args.len() != 1 {
+                return Err(base.at.error("wrapping arithmetic takes one argument"));
+            }
+            let argument = self.expr_expected(&args[0], Some(ty.clone()), ops)?;
+            self.same(argument, Some(ty.clone()), &args[0].at)?;
+            ops.push(Op::Integer(match name {
+                "wrapping_add" => IntegerOp::WrappingAdd,
+                "wrapping_sub" => IntegerOp::WrappingSub,
+                _ => IntegerOp::WrappingMul,
+            }));
+            Self::end_reads(loans, ops);
+            return Ok(Some(ty));
+        }
         if ty.is_numeric() && numeric::method(name) {
             return self
                 .numeric_method(base, name, args, (ty, loans), ops)
@@ -1887,11 +2200,11 @@ impl Lower<'_> {
                 ),
                 _ => return Err(base.at.error("unsupported method `get`")),
             };
-            if args.len() != 1 {
+            if args.len() != 1 && !(collection == "dictionary" && args.len() == 2) {
                 return Err(base.at.error(if collection == "list" {
                     "get requires one index argument"
                 } else {
-                    "get requires one key argument"
+                    "get requires one key argument and an optional default"
                 }));
             }
             if element.affine() {
@@ -1901,10 +2214,28 @@ impl Lower<'_> {
             }
             let (key, key_loans) = self.observe_expected(&args[0], Some(expected.clone()), ops)?;
             self.same(Some(key), Some(expected), &args[0].at)?;
-            let result = crate::sum::option(element);
+            let default = if let Some(argument) = args.get(1) {
+                let actual = self.expr_expected(argument, Some(element.clone()), ops)?;
+                self.same(actual, Some(element.clone()), &argument.at)?;
+                let slot = self.slot(element.clone(), &argument.at)?;
+                ops.push(Op::StoreLocal(slot));
+                Some(slot)
+            } else {
+                None
+            };
+            let result = crate::sum::option(element.clone());
             ops.push(Op::Collection(operation));
             Self::end_reads(key_loans, ops);
             Self::end_reads(loans, ops);
+            if let Some(default) = default {
+                let slot = self.slot(result.clone(), &base.at)?;
+                ops.push(Op::StoreLocal(slot));
+                let Ty::Enum(option) = result else {
+                    unreachable!()
+                };
+                self.select_option(option, slot, default, element.clone(), false, ops);
+                return Ok(Some(element));
+            }
             return Ok(Some(result));
         }
         let Ty::Dict(_, v) = &ty else {
@@ -2335,6 +2666,7 @@ impl Lower<'_> {
             mut body,
             step,
             target,
+            ..
         } = self.iteration_on_stack(source, at, ops)?;
         let output = crate::sum::result(target_ty.clone(), crate::sum::alloc_error());
         let Ty::Enum(result_type) = &output else {

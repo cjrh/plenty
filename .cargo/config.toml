@@ -1,0 +1,19 @@
+[profile.dev]
+incremental = false
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = "line-tables-only"
+
+[profile.release]
+incremental = false
+debug = "line-tables-only"
+
+[profile.release.package."*"]
+debug = false
+
+[profile.release.build-override]
+debug = "line-tables-only"

@@ -1,5 +1,15 @@
 # Standard sums and propagation
 
+`Option[T].unwrap_or(default: T) -> T` selects a present payload or the default.
+`Option[T].ok_or(error: E) -> Result[T, E]` converts `Some(value)` to `Ok(value)`
+and `Nothing` to `Err(error)`. Both consume owned receivers, evaluate receiver
+then argument exactly once, and drop the unused argument. They add no
+allocation and support affine payloads and arguments; their construction
+expressions retain their own allocation contracts. Unit payloads and unit
+errors are supported. Bare absence needs enough type context to determine `T`.
+Conversion is explicit: use `option.ok_or(error)?` in a Result-returning
+function; `?` alone does not invent an error for absence.
+
 `Option[T]` has `Some(value)` and `Nothing`; `Result[T, E]` has `Ok(value)`
 and `Err(error)`. These prelude variants are ordinary typed values. `Some`
 can infer its type from its payload; `Ok`, `Err`, and `Nothing` need expected

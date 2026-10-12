@@ -36,6 +36,28 @@ Ordinary methods borrow `self` read-only by default: `self` is shorthand for
 `self: &Point` here. A method that changes fields declares `self: &mut Point`.
 Calling it requires a `mut` binding or an exclusive reference.
 
+Methods can share names with integer built-ins. A class receiver selects its
+own method, including its parameter and return types:
+
+```plenty
+class Counter:
+    total: i64
+
+    def wrapping_add(self: &Counter, other: i64) -> i64:
+        self.total + other
+
+def main() -> Result[(), Failure]:
+    counter = Counter(1)
+    print(counter.wrapping_add(2))?
+    Ok(())
+```
+
+```output
+3
+```
+
+This method uses ordinary checked addition; its name does not change that.
+
 If you forget the receiver annotation, the error names the required signature:
 
 ```plenty-error

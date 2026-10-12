@@ -3026,6 +3026,15 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if matches!(name.as_str(), "enumerate" | "zip")
+                    && !self.names.contains_key(name)
+                    && !self.sigs.contains_key(name)
+                    && !self.generics.templates.contains_key(name)
+                {
+                    return Err(e.at.error(format!(
+                        "{name} is supported directly in for loops and comprehensions"
+                    )));
+                }
                 if matches!(name.as_str(), "ord" | "chr")
                     && !self.names.contains_key(name)
                     && !self.sigs.contains_key(name)

@@ -54,6 +54,34 @@ fn fields_constructors_methods_and_copy() {
 }
 
 #[test]
+fn wrapping_method_names_use_class_signatures() {
+    run(
+        r#"
+class Counter:
+    total: i64
+    def wrapping_add(self: &Counter, other: i64) -> i64:
+        self.total + other
+    def wrapping_sub(self: &Counter) -> i64:
+        self.total - 1
+    def wrapping_mul(self: &Counter, left: i64, right: i64) -> i64:
+        self.total * left * right
+c = Counter(3)
+print(c.wrapping_add(2)).unwrap()
+print(c.wrapping_sub()).unwrap()
+print(c.wrapping_mul(2, 4)).unwrap()
+r = &c
+print(r.wrapping_add(2)).unwrap()
+print(r.wrapping_sub()).unwrap()
+print(r.wrapping_mul(2, 4)).unwrap()
+print(Counter(3).wrapping_add(2)).unwrap()
+print(Counter(3).wrapping_sub()).unwrap()
+print(Counter(3).wrapping_mul(2, 4)).unwrap()
+"#,
+        "5\n2\n24\n5\n2\n24\n5\n2\n24\n",
+    );
+}
+
+#[test]
 fn explicit_constructor_and_control_flow() {
     run(
         r#"

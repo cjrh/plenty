@@ -890,7 +890,11 @@ impl Scope {
             {
                 if let Some(symbol) = self.symbol(n, &e.at)? {
                     *n = symbol;
-                } else if n != "replace" && !builtin(n) && !self.namespace_root(n) {
+                } else if n != "replace"
+                    && !matches!(n.as_str(), "enumerate" | "zip")
+                    && !builtin(n)
+                    && !self.namespace_root(n)
+                {
                     *n = qualified(&self.module, n);
                 }
             }
