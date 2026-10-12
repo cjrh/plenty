@@ -3,6 +3,9 @@
 Dictionaries use the [common collection rules](collections.md).
 `dictionary[key] = value` replaces an existing entry without allocation; an
 absent key traps. Use [insert](construction-copy.md) to add a key recoverably.
+`insert(key, value)` also replaces an existing value, so counting can use
+`counts.insert(key, counts.get(key, 0) + 1)?`. This deliberate upsert spelling
+exposes allocation failure; indexed assignment remains allocation-free.
 
 ## Lookup and removal
 
@@ -42,6 +45,14 @@ payloads instead requires an owned temporary; its values transfer and the
 temporary is consumed on success or failure. Use `copy(d)?.values()` to preserve
 such a source explicitly. Both snapshots reserve their complete output before
 transfer: two allocations when nonempty, one for an empty owner.
+
+`dictionary.into_values() -> Result[list[V], AllocError]` consumes a named owner
+or owned expression directly, including dictionaries with affine payloads.
+It preserves insertion order and transfers those payloads without copying.
+The dictionary is consumed on success and failure. Output reservation happens
+before any transfer; allocation failure drops the remaining source exactly once.
+Use `for value in dictionary.into_values()?:` when the dictionary is no longer
+needed. This is an owned snapshot, not a stored borrowed view.
 
 `dictionary.items()` is a borrowed loop/comprehension view rather than a stored
 iterator and creates no item tuples or snapshot buffers. Shared views load

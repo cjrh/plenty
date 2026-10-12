@@ -155,7 +155,7 @@ fn field_exchange_obeys_loans_and_initialization() {
         ),
         ("class C:\n    n: i64\nreplace(C(1).n, 2)", "named owner"),
         ("mut n = 1\nreplace(n, 2)", "mutable class field"),
-        ("replace()", "takes a mutable class field"),
+        ("replace()", "takes a mutable field or element"),
         (
             "class C:\n    n: i64\n    def __init__(self) -> ():\n        replace(self.n, 2)",
             "not initialized",

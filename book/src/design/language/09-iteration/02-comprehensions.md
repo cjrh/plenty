@@ -17,8 +17,9 @@ def main() -> Result[(), Failure]:
 
 Comprehension bindings have their own scope; the first iterable sees the
 enclosing scope. Flat tuple targets are supported. Conditional expressions in
-iterables or filters must be parenthesized. There are no generator expressions
-or async comprehensions.
+iterables or filters must be parenthesized. Parenthesized
+[generator expressions](03-generators.md#generator-expressions) produce lazy
+owned frames instead of collection Results. Async comprehensions are unsupported.
 
 Output ownership and growth are fallible. On growth failure, the partial output,
 current yielded owners, and active hidden iterators clean up. No iterator

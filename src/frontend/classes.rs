@@ -734,15 +734,20 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let [target, value] = args else {
-            return Err(at.error("replace takes a mutable class field and its replacement"));
+            return Err(at.error("replace takes a mutable field or element and its replacement"));
         };
-        if !matches!(ungroup(target).kind, Expression::Member(..)) {
-            return Err(target.at.error("replace requires a mutable class field"));
+        if !matches!(
+            ungroup(target).kind,
+            Expression::Member(..) | Expression::Index(..)
+        ) {
+            return Err(target
+                .at
+                .error("replace requires a mutable class field or collection element"));
         }
         let ty = self.place_type(target).ok_or_else(|| {
             target
                 .at
-                .error("replace requires a mutable class field of a named owner")
+                .error("replace requires a mutable field or element of a named owner")
         })?;
         // As for assignment, finish user code before resolving an address.
         // The replacement remains owned locally if an index propagates failure.

@@ -44,6 +44,8 @@ pub enum CollectionOp {
     FormatScalar(Ty),
     FormatValue(Ty),
     TryPrint(Ty),
+    TryPrintMany(Vec<Ty>),
+    ListUnpack(Ty),
     /// Reports the error `main` returned on stderr, consumes it, and yields
     /// the process status.
     ReportEntryError(Ty),
@@ -163,7 +165,9 @@ impl Ty {
         }
     }
     pub fn hashable(&self) -> bool {
-        self.is_int() || matches!(self, Self::Bool | Self::Str)
+        self.is_int()
+            || matches!(self, Self::Bool | Self::Str)
+            || matches!(self, Self::Enum(t) if t.tuple() && t.get().variants[0].fields.iter().all(Self::hashable))
     }
 }
 
@@ -304,6 +308,11 @@ impl CollectionOp {
                 crate::sum::result(Ty::Unit, crate::sum::io_error()),
             ),
             ReportEntryError(t) => (vec![t.clone()], Ty::I32),
+            TryPrintMany(types) => (
+                types.clone(),
+                crate::sum::result(Ty::Unit, crate::sum::io_error()),
+            ),
+            ListUnpack(t) => (vec![t.clone(), Ty::I64], t.clone()),
             FormatScalar(t) | FormatValue(t) => (
                 vec![t.clone()],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
@@ -494,6 +503,7 @@ impl CollectionOp {
             Self::Get(_)
                 | Self::ElementRef(..)
                 | Self::ListSwap(_)
+                | Self::ListUnpack(_)
                 | Self::Range(_)
                 | Self::TextIndex
                 | Self::TextTrySplit
@@ -541,6 +551,8 @@ impl CollectionOp {
             Self::FormatScalar(_) => 79,
             Self::FormatValue(_) => 110,
             Self::TryPrint(_) => 111,
+            Self::TryPrintMany(_) => 166,
+            Self::ListUnpack(_) => 167,
             Self::ReportEntryError(_) => 122,
             Self::ElementRef(..) => 112,
             Self::ParseNumber(_) => 78,

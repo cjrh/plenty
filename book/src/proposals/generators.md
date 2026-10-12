@@ -16,7 +16,8 @@
 > module-scope loop is no longer accepted.
 >
 > **Remaining (unscheduled):** frames in collections, class fields, tuples, and
-> user enums; `yield from`; generator expressions.
+> user enums; `yield from`. Owned generator expressions are now implemented;
+> see the [reference](../design/language/09-iteration/03-generators.md#generator-expressions).
 
 ## Source contract
 

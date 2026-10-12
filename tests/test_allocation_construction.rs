@@ -175,7 +175,7 @@ print(str.repr(build(False)).unwrap()).unwrap()
 #[case("mut values = [1].unwrap()\nvalues.new()", "unsupported method")]
 #[case(
     "print(set[list[i64]].new()).unwrap()",
-    "set elements must be integers, bool, or str"
+    "set elements must be integers, bool, str, or tuples of these"
 )]
 #[case("values: list[i64] = list[i64].new()", "expected list[i64]")]
 #[case(

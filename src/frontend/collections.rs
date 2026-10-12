@@ -23,7 +23,17 @@ impl Parser {
                     )));
                 }
             }
-            args.push(self.expr(0)?);
+            let mut argument = self.expr(0)?;
+            if self.peek().is("for") {
+                if !args.is_empty() {
+                    return Err(argument.at.error("a generator expression must be parenthesized when there are other arguments"));
+                }
+                argument.kind = self.generator_display(argument.clone())?;
+                self.expect(")")?;
+                args.push(argument);
+                break;
+            }
+            args.push(argument);
             if self.eat(")") {
                 break;
             }
@@ -31,6 +41,38 @@ impl Parser {
         }
         args.shrink_to_fit();
         Ok(args)
+    }
+
+    pub(super) fn generator_display(&mut self, element: Expr) -> Result<Expression> {
+        Ok(Expression::Collection {
+            kind: "generator".into(),
+            entries: vec![(element, None)],
+            clauses: self.comprehension_clauses()?,
+        })
+    }
+
+    fn comprehension_clauses(&mut self) -> Result<Vec<Clause>> {
+        let mut clauses = Vec::new();
+        let mut element = self.deepest;
+        loop {
+            let keyword = self.pos;
+            if self.eat("for") {
+                let mut names = vec![self.name()?];
+                while self.eat(",") {
+                    names.push(self.name()?);
+                }
+                self.expect("in")?;
+                let iterable = self.clause(keyword, clauses.len(), &mut element)?;
+                clauses.push(Clause::For(names, iterable));
+            } else if self.eat("if") {
+                let condition = self.clause(keyword, clauses.len(), &mut element)?;
+                clauses.push(Clause::If(condition));
+            } else {
+                break;
+            }
+        }
+        self.deepest = self.deepest.max(element);
+        Ok(clauses)
     }
 
     pub(super) fn collection_display(&mut self, open: &str) -> Result<Expression> {
@@ -50,25 +92,7 @@ impl Parser {
             }
             entries.push((first, value));
             if self.peek().is("for") {
-                let mut element = self.deepest;
-                loop {
-                    let keyword = self.pos;
-                    if self.eat("for") {
-                        let mut name = vec![self.name()?];
-                        while self.eat(",") {
-                            name.push(self.name()?);
-                        }
-                        self.expect("in")?;
-                        let iterable = self.clause(keyword, clauses.len(), &mut element)?;
-                        clauses.push(Clause::For(name, iterable));
-                    } else if self.eat("if") {
-                        let condition = self.clause(keyword, clauses.len(), &mut element)?;
-                        clauses.push(Clause::If(condition));
-                    } else {
-                        break;
-                    }
-                }
-                self.deepest = self.deepest.max(element);
+                clauses = self.comprehension_clauses()?;
                 self.expect(close)?;
             } else {
                 while !self.eat(close) {
@@ -157,9 +181,11 @@ impl Lower<'_> {
             .map(|name| self.names.get(name).map(|local| local.ty.clone()))
             .collect::<Option<Vec<_>>>()
             .map(crate::sum::tuple);
+        let expected = self.unpack_hint(expected, value);
         let ty = self
             .expr_expected(value, expected, ops)?
             .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+        let ty = self.unpack_list(ty, names.len(), &value.at, ops)?;
         let Ty::Enum(t) = &ty else {
             return Err(value.at.error("unpacking requires a tuple"));
         };
@@ -237,6 +263,49 @@ impl Lower<'_> {
             _ => Ok(()),
         }
     }
+
+    fn unpack_list(&mut self, ty: Ty, count: usize, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
+        let Ty::List(element) = &ty else {
+            return Ok(ty);
+        };
+        let element = (**element).clone();
+        let source = self.slot(ty.clone(), at)?;
+        self.mark(at, ops);
+        ops.push(Op::PushInt(Value::I64(count as i64)));
+        ops.push(Op::Collection(CollectionOp::ListUnpack(ty.clone())));
+        ops.push(Op::StoreLocal(source));
+        for index in 0..count {
+            ops.push(Op::LoadLocal(source));
+            ops.push(Op::PushInt(Value::I64(index as i64)));
+            ops.push(Op::Collection(if element.affine() {
+                CollectionOp::IterTake(ty.clone())
+            } else {
+                CollectionOp::IterGet(ty.clone())
+            }));
+        }
+        let Ty::Enum(tuple) = crate::sum::tuple(vec![element; count]) else {
+            unreachable!()
+        };
+        ops.push(Op::Enum(crate::sum::EnumOp::New(tuple.clone(), 0)));
+        ops.push(Op::DropLocal(source));
+        Ok(Ty::Enum(tuple))
+    }
+
+    fn unpack_hint(&self, expected: Type, value: &Expr) -> Type {
+        if list_display(value).is_some() || matches!(self.place_type(value), Some(Ty::List(_))) {
+            let Some(Ty::Enum(tuple)) = expected else {
+                return None;
+            };
+            let fields = &tuple.get().variants[0].fields;
+            let first = fields.first()?;
+            fields
+                .iter()
+                .all(|field| field == first)
+                .then(|| Ty::List(Arc::new(first.clone())))
+        } else {
+            expected
+        }
+    }
     /// Assign each component of `value` to its target, left to right, exactly
     /// as a single assignment to that target would. The right side is complete
     /// before the first write, so targets may exchange their values.
@@ -267,9 +336,11 @@ impl Lower<'_> {
             .map(|target| self.place_type(target))
             .collect::<Option<Vec<_>>>()
             .map(crate::sum::tuple);
+        let expected = self.unpack_hint(expected, value);
         let ty = self
             .expr_expected(value, expected, ops)?
             .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+        let ty = self.unpack_list(ty, targets.len(), &value.at, ops)?;
         let Ty::Enum(t) = &ty else {
             return Err(value.at.error("unpacking requires a tuple"));
         };
@@ -563,6 +634,9 @@ impl Lower<'_> {
         else {
             unreachable!()
         };
+        if kind == "generator" {
+            return self.generator_expression(&entries[0].0, clauses, &e.at, ops);
+        }
         let expected = match expected {
             Some(Ty::Enum(t))
                 if t.propagatable()
@@ -723,16 +797,16 @@ impl Lower<'_> {
                             .expr_expected(value, expected, ops)?
                             .ok_or_else(|| value.at.error("collection elements cannot be unit"))?;
                         if !k.hashable() {
-                            return Err(key
-                                .at
-                                .error("dictionary keys must be integers, bool, or str"));
+                            return Err(key.at.error(
+                                "dictionary keys must be integers, bool, str, or tuples of these",
+                            ));
                         }
                         Ty::Dict(Arc::new(k), Arc::new(v))
                     } else if kind == "set" {
                         if !k.hashable() {
-                            return Err(key
-                                .at
-                                .error("set elements must be integers, bool, or str"));
+                            return Err(key.at.error(
+                                "set elements must be integers, bool, str, or tuples of these",
+                            ));
                         }
                         Ty::Set(Arc::new(k))
                     } else {
@@ -741,7 +815,7 @@ impl Lower<'_> {
                     if let Some(expected) = ty {
                         self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
                     }
-                    // Keys are hashable scalars or text, which are always storable.
+                    // Hashable keys are copyable scalars or structural tuples.
                     let barrier = match &inferred {
                         Ty::Dict(_, t) | Ty::List(t) | Ty::Set(t) => t.storage_barrier(),
                         _ => None,
@@ -1979,6 +2053,24 @@ impl Lower<'_> {
         }
         if matches!(name, "reserve" | "append" | "add" | "insert") {
             return self.fallible_mutation(base, name, args, ops);
+        }
+        if name == "into_values" {
+            let ty = self.value(base, ops)?;
+            let class = classes::unbox(ty.clone());
+            if matches!(class, Ty::Class(_)) {
+                self.unbox_to(ty, &class, ops);
+                return self.temporary_class_method(base, name, None, args, (class, vec![]), ops);
+            }
+            if !args.is_empty() {
+                return Err(base.at.error("into_values takes no arguments"));
+            }
+            if !matches!(ty, Ty::Dict(..)) {
+                return Err(base.at.error("into_values requires an owned dictionary"));
+            }
+            let operation = CollectionOp::TryValues(ty);
+            let output = operation.signature().1;
+            ops.push(Op::Collection(operation));
+            return Ok(Some(output));
         }
         let collection = self.place_type(base).map(classes::unbox);
         if name == "pop" && matches!(collection, Some(Ty::Dict(..) | Ty::List(_))) {

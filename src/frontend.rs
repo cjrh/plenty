@@ -711,15 +711,17 @@ impl TypeRef {
                 "list" => Ty::List(Arc::new(args[0].clone())),
                 "set" => {
                     if !args[0].hashable() {
-                        return Err(self.at.error("set elements must be integers, bool, or str"));
+                        return Err(self.at.error(
+                            "set elements must be integers, bool, str, or tuples of these",
+                        ));
                     }
                     Ty::Set(Arc::new(args[0].clone()))
                 }
                 _ => {
                     if !args[0].hashable() {
-                        return Err(self
-                            .at
-                            .error("dictionary keys must be integers, bool, or str"));
+                        return Err(self.at.error(
+                            "dictionary keys must be integers, bool, str, or tuples of these",
+                        ));
                     }
                     Ty::Dict(Arc::new(args[0].clone()), Arc::new(args[1].clone()))
                 }
@@ -1757,6 +1759,11 @@ impl Parser {
             return Ok(Expression::Unit);
         }
         let first = self.expr(0)?;
+        if self.peek().is("for") {
+            let generator = self.generator_display(first)?;
+            self.expect(")")?;
+            return Ok(generator);
+        }
         if self.eat(")") {
             return Ok(Expression::Group(Box::new(first)));
         }
@@ -3091,36 +3098,43 @@ impl Lower<'_> {
                     if self.names.contains_key(name) {
                         return Err(e.at.error(format!("binding `{name}` is not callable")));
                     }
-                    if args.len() != 1 {
-                        return Err(e.at.error("print takes one argument"));
-                    }
-                    let (ty, loans) = self.observe(&args[0], ops)?;
-                    if ty.prints_generator_frame() {
-                        return Err(e.at.error("generators cannot be printed"));
-                    }
-                    if ty.recursive_data() {
-                        return Err(e.at.error("automatic formatting is not supported for recursive data; print selected fields"));
-                    }
-                    if matches!(&ty, Ty::Enum(t) if t.is_result()) {
-                        // Observation also accepts references and borrowed owners.
-                        // Do not advise moving them with `?` based on type alone.
-                        let unborrowed = loans.is_empty()
-                            && !matches!(&ungroup(&args[0]).kind, Expression::Name(name)
+                    let mut types = Vec::new();
+                    let mut reads = Vec::new();
+                    for argument in args {
+                        let (ty, loans) = self.observe(argument, ops)?;
+                        if ty.prints_generator_frame() {
+                            return Err(e.at.error("generators cannot be printed"));
+                        }
+                        if ty.recursive_data() {
+                            return Err(e.at.error("automatic formatting is not supported for recursive data; print selected fields"));
+                        }
+                        if matches!(&ty, Ty::Enum(t) if t.is_result()) {
+                            // Observation also accepts references and borrowed owners.
+                            // Do not advise moving them with `?` based on type alone.
+                            let unborrowed = loans.is_empty()
+                                && !matches!(&ungroup(argument).kind, Expression::Name(name)
                                 if self.names.get(name).is_some_and(|local| matches!(local.ty, Ty::Ref(..))));
-                        let hint = self.result_success(&ty).filter(|success| {
-                            unborrowed
-                                && *success != Ty::Unit
-                                && !matches!(success, Ty::Enum(t) if t.is_result())
-                        });
-                        return Err(args[0].at.error(format!(
+                            let hint = self.result_success(&ty).filter(|success| {
+                                unborrowed
+                                    && *success != Ty::Unit
+                                    && !matches!(success, Ty::Enum(t) if t.is_result())
+                            });
+                            return Err(argument.at.error(format!(
                             "print cannot print a Result directly; {}match the result explicitly, or use `str.repr` for intentional wrapper formatting",
                             if hint.is_some() { "use `?` on the argument to propagate its error, " } else { "" }
                         )));
+                        }
+                        types.push(ty);
+                        reads.extend(loans);
                     }
-                    let operation = CollectionOp::TryPrint(ty);
+                    let operation = if args.len() == 1 {
+                        CollectionOp::TryPrint(types.remove(0))
+                    } else {
+                        CollectionOp::TryPrintMany(types)
+                    };
                     let output = operation.signature().1;
                     ops.push(Op::Collection(operation));
-                    Self::end_reads(loans, ops);
+                    Self::end_reads(reads, ops);
                     return Ok(Some(output));
                 }
                 if name == "open" {
@@ -3409,8 +3423,20 @@ impl Lower<'_> {
                         stmt.at
                             .error("yield requires a function returning Generator[T]")
                     })?;
-                    let actual = self.expr_expected(e, Some(expected.clone()), ops)?;
-                    self.same(actual, Some(expected.clone()), &e.at)?;
+                    let expected = if self.function_name.starts_with("__plenty_genexpr_")
+                        && expected == Ty::Unit
+                    {
+                        let actual = self.value(e, ops)?;
+                        if actual.restricted_storage() {
+                            return Err(e.at.error("generator expression elements cannot be references, generators, closures, or scoped tasks"));
+                        }
+                        self.yield_type = Some(actual.clone());
+                        actual
+                    } else {
+                        let actual = self.expr_expected(e, Some(expected.clone()), ops)?;
+                        self.same(actual, Some(expected.clone()), &e.at)?;
+                        expected
+                    };
                     self.finish_temporaries(temporary_start, ops);
                     ops.push(Op::Yield(expected));
                     None
@@ -3733,6 +3759,9 @@ const LIST_REPETITION: &str = "lists do not support `*` repetition; build the li
 fn list_display(e: &Expr) -> Option<&Expr> {
     match &e.kind {
         Expression::Group(inner) | Expression::Try(inner) => list_display(inner),
+        Expression::Method(inner, name, args) if name == "unwrap" && args.is_empty() => {
+            list_display(inner)
+        }
         Expression::Collection { kind, .. } if kind == "list" => Some(e),
         _ => None,
     }
@@ -4050,7 +4079,7 @@ fn lower_body(
         ));
         return Ok(());
     }
-    let yield_type = if generators::yields(&f.body) {
+    let mut yield_type = if generators::yields(&f.body) {
         let Some(Ty::Generator(element)) = sig.outputs.first() else {
             return Err(f
                 .at
@@ -4141,6 +4170,19 @@ fn lower_body(
             ));
         }
         lower.refine_return(output, &f.at)?;
+    }
+    if f.name.starts_with("__plenty_genexpr_") {
+        yield_type = lower.yield_type.clone();
+        sig = Arc::new(FnSig {
+            inputs: sig.inputs.clone(),
+            outputs: vec![crate::generator::ty(
+                yield_type
+                    .clone()
+                    .expect("generator expression yields a value"),
+                Some(f.name.clone()),
+            )],
+        });
+        lower.sigs.insert(f.name.clone(), sig.clone());
     }
     if yield_type.is_none() {
         let output = lower.return_type.clone().flatten();
