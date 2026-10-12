@@ -130,7 +130,7 @@ fn check_type(
         {
             return Err(format!("recursive channel ownership through {ty} could retain its own receiver; keep receiving handles outside queued message cycles"));
         }
-        Ty::File | Ty::ForeignPtr(_) => {
+        Ty::File | Ty::FsReadDir | Ty::FsDirEntry | Ty::FsMetadata | Ty::ForeignPtr(_) => {
             return Err(format!("{ty} has no cross-thread ownership contract"))
         }
         Ty::Callable(_) => {

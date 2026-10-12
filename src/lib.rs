@@ -14,6 +14,7 @@ mod collection;
 mod control;
 mod executor;
 mod exports;
+mod filesystem;
 mod foreign;
 mod frontend;
 mod generator;

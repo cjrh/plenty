@@ -1,6 +1,9 @@
-# A capability probe, intentionally rejected by the current compiler.
+import std.fs as fs
+import std.path as path
+
 def main() -> Result[(), Failure]:
-    entries = read_dir(".")?
-    for entry in entries:
-        print(entry)?
+    root = path.from_text(".")?
+    for result in fs.entries(fs.read_dir(&root)?):
+        entry = result?
+        print(entry.file_type()?)?
     Ok(())

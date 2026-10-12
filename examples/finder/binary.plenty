@@ -1,3 +1,7 @@
+import std.fs as fs
+import std.path as pathmod
+import matching
+
 # Unix separators and wildcard tokens are ASCII bytes. Path spelling is never decoded.
 def basename_start(path: &list[u8]) -> i64:
     mut start = 0
@@ -75,6 +79,68 @@ def search(pattern: &list[u8], glob: bool, full_path: bool, hidden: bool) -> Res
     flush_stdout()?
     Ok(0)
 
+def emit(path: &pathmod.Path, pattern: &list[u8], glob: bool, full_path: bool, null: bool) -> Result[(), IoError]:
+    bytes = path.as_bytes()
+    if null:
+        start = 0 if full_path else basename_start(bytes)
+        matched = glob_matches(pattern, bytes, start) if glob else literal_matches(pattern, bytes, start)
+        if matched:
+            write_stdout_bytes(bytes)?
+            write_stdout_bytes(encode_utf8("\0")?)?
+    else:
+        text = path.to_text()?
+        needle = decode_utf8(pattern)?
+        if matching.matches(&needle, &text, glob, full_path):
+            print(text)?
+    Ok(())
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, IoError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(IoError.Data(DataError.Allocation(error)))
+
+def advance(walker: &mut fs.Walk) -> Result[bool, IoError]:
+    match walker.next():
+        case Ok(found):
+            Ok(found)
+        case Err(error):
+            match error:
+                case fs.WalkError.Io(at, operation, cause):
+                    write_stderr("finder: ")?
+                    write_stderr(operation)?
+                    write_stderr(" \"")?
+                    write_stderr(at.display()?)?
+                    write_stderr("\"\n")?
+                    Err(cause)
+                case fs.WalkError.Allocation(cause):
+                    Err(IoError.Data(DataError.Allocation(cause)))
+
+pub def search_tree(root: &pathmod.Path, pattern: &list[u8], glob: bool, full_path: bool, hidden: bool, null: bool) -> Result[i32, IoError]:
+    mut walker = allocated(fs.walk(root, True))?
+    while advance(&mut walker)?:
+        mut index = len(walker.current.directories) - 1
+        while index >= 0:
+            if not hidden and hidden_name(&walker.current.directories[index])?:
+                drop(walker.current.directories.pop(index))
+            index = index - 1
+        for directory in &walker.current.directories:
+            emit(&directory, pattern, glob, full_path, null)?
+        for entry in &walker.current.files:
+            path = entry.path()?
+            if hidden or not hidden_name(&path)?:
+                emit(&path, pattern, glob, full_path, null)?
+    flush_stdout()?
+    Ok(0)
+
+def hidden_name(path: &pathmod.Path) -> Result[bool, IoError]:
+    match path.file_name()?:
+        case Some(name):
+            Ok(is_hidden(name.as_bytes()))
+        case Nothing:
+            Ok(False)
+
 pub def run(argv: &list[list[u8]]) -> Result[i32, IoError]:
     mut paths = False
     mut glob = False
@@ -82,6 +148,7 @@ pub def run(argv: &list[list[u8]]) -> Result[i32, IoError]:
     mut hidden = False
     mut options = True
     mut pattern_index = -1
+    mut root_index = -1
     for index in range(1, len(argv)):
         argument = &argv[index]
         if options and argument == encode_utf8("--")?:
@@ -89,8 +156,8 @@ pub def run(argv: &list[list[u8]]) -> Result[i32, IoError]:
         elif options and argument == encode_utf8("--null")?:
             pass
         elif options and (argument == encode_utf8("--help")? or argument == encode_utf8("-h")?):
-            print("Usage: finder --paths --null [--glob] [--full-path] [--hidden] [--] [PATTERN]")?
-            print("NUL-delimited raw Unix paths; directory traversal is unavailable.")?
+            print("Usage: finder --null [--paths] [--glob] [--full-path] [--hidden] [--] [PATTERN [ROOT]]")?
+            print("Search a directory root, or filter stdin with --paths. NUL-framed Unix paths.")?
             return Ok(0)
         elif options and argument == encode_utf8("--paths")?:
             paths = True
@@ -103,16 +170,20 @@ pub def run(argv: &list[list[u8]]) -> Result[i32, IoError]:
         elif options and len(argument) > 0 and argument[0] == 45u8:
             write_stderr("finder: unknown option; see --help\n")?
             return Ok(2)
-        elif pattern_index >= 0:
-            write_stderr("finder: expected one pattern; directory roots are not supported\n")?
+        elif root_index >= 0 or (paths and pattern_index >= 0):
+            write_stderr("finder: expected a pattern and optional root; --paths accepts one pattern\n")?
             return Ok(2)
+        elif pattern_index >= 0:
+            root_index = index
         else:
             pattern_index = index
     if not paths:
-        write_stderr("finder: directory enumeration and file metadata are missing in Plenty; use --paths with a supplied path list\n")?
-        return Ok(2)
+        root_bytes = allocated(copy(argv[root_index]))? if root_index >= 0 else encode_utf8(".")?
+        root = pathmod.from_bytes(root_bytes)
+        pattern = allocated(copy(argv[pattern_index]))? if pattern_index >= 0 else encode_utf8("")?
+        return search_tree(&root, &pattern, glob, full_path, hidden, True)
     if pattern_index < 0:
         empty = encode_utf8("")?
-        search(&empty, False, full_path, hidden)
+        Ok(search(&empty, False, full_path, hidden)?)
     else:
-        search(&argv[pattern_index], glob, full_path, hidden)
+        Ok(search(&argv[pattern_index], glob, full_path, hidden)?)

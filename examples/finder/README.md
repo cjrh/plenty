@@ -1,150 +1,102 @@
 # Finder: a realistic Plenty experiment
 
-**Result:** Plenty can implement the search/matching core, but its current
-shipped APIs cannot implement a standalone directory finder. Directory
-enumeration and file-type metadata are missing. This example preserves the
-working core, the failed capability probes, and a repeatable assessment.
-The `--null` mode uses the byte transport added for issue #61.
+Plenty now searches a directory root itself through `std.fs` and `std.path`.
+The finder keeps matching, option parsing, hidden-directory pruning and traversal
+policy in Plenty. Its `--paths` mode still filters paths supplied on stdin.
+`--null` preserves arbitrary Linux filenames and raw patterns.
 
 ## Run it
 
-From the repository root, with Rust dependencies available locally:
-
 ```sh
-cargo build --offline
+cargo build --locked --offline
 target/debug/plenty --compile examples/finder/main.plenty -o /tmp/plenty-finder
-printf 'src/main.plenty\nsrc/notes.txt\ndocs/guide.plenty\n' | /tmp/plenty-finder --paths --glob '*.plenty'
+/tmp/plenty-finder --glob '*.plenty' .
+/tmp/plenty-finder --null --glob '*.plenty' .
+printf 'src/main.plenty\nnotes.txt\n' | /tmp/plenty-finder --paths --glob '*.plenty'
 python3 -B examples/finder/check.py -v
 ```
 
-Expected finder output:
+Compile a native executable before supplying application arguments; the
+compiler's compile-and-run command does not forward arbitrary finder flags.
+Pass `--plenty PATH` to the checks to use another compiler.
 
-```text
-src/main.plenty
-docs/guide.plenty
-```
-
-Pass `--plenty PATH` to `check.py` to use another built compiler. Compile to a
-native executable before supplying application arguments: the compiler's
-compile-and-run command does not forward arbitrary finder flags.
-
-You can try it on actual paths using an **external** enumerator:
-
-```sh
-find . -print | /tmp/plenty-finder --paths --glob '*.plenty'
-```
-
-Here `find` discovers paths; Plenty only filters them. This pipeline is suitable
-only for names compatible with the line protocol below. Invoking the finder
-without `--paths` exits 2 and explains the traversal blocker. It does not silently
-accept a root argument and pretend to search it.
-
-For lossless Unix filenames, use NUL framing on both sides:
-
-```sh
-find . -print0 | /tmp/plenty-finder --paths --null --glob '*.plenty'
-```
-
-The output is also NUL-delimited; feed it to a consumer accepting that protocol.
-
-## Implemented behavior
+## Interface
 
 | Surface | Behavior |
 | --- | --- |
-| `--paths [PATTERN]` | Read paths from stdin; match a literal, case-sensitive substring in each basename |
-| `--null` | Read and emit raw NUL-delimited Unix paths; raw patterns and globs match bytes |
-| `--glob` | Match the whole basename: `*` means zero or more Unicode scalars; `?` means exactly one |
-| `--full-path` | Match the entire supplied path, including `/`; in glob mode wildcards may cross separators |
-| `--hidden` | Include dot-prefixed components, otherwise skipped; structural `.` and `..` components are allowed |
-| `--` | End option parsing, allowing a pattern beginning with `-` |
-| `--help`, `-h` | Explain the experimental interface and traversal limitation |
-| Omitted pattern | Match all nonempty supplied paths, including with `--glob` |
-| Exit status | 0 for successful processing/help, including no matches; 2 for usage/traversal errors; 1 for an I/O error |
+| `[PATTERN [ROOT]]` | Search ROOT, default `.`; omitted pattern matches everything |
+| `--paths [PATTERN]` | Filter stdin instead of accessing the filesystem |
+| `--null` | NUL-framed raw output; raw input too with `--paths`; globs match bytes |
+| `--glob` | Whole-basename `*`/`?` matching instead of literal substring search |
+| `--full-path` | Match the full path; globs may cross separators |
+| `--hidden` | Include dot-prefixed components; otherwise prune hidden directories before descent |
+| `--` | End option parsing |
+| `--help`, `-h` | Show usage |
+| Exit status | 0 for success/help, even without matches; 2 for usage; 1 for I/O/traversal failure |
 
-In glob mode, brackets, backslashes, and other characters are literal. There are
-no regexes, character classes, escape syntax, special `**`, normalization, or
-case folding. `?` matches a Unicode scalar, not a grapheme: `é` matches one `?`,
-while decomposed `e` plus a combining accent requires two.
+Traversal excludes the supplied root from output, emits directories and all
+non-directory entries, and never follows discovered directory links. Dangling
+links remain discoverable. An explicitly supplied root can itself be a symlink.
+Hidden filtering applies to discovered names, not to an explicitly supplied
+root's spelling. Native sibling order is unspecified. Root spelling is preserved; `.` produces
+`./name`, while absolute roots produce absolute paths. No snapshot or sorting
+is promised. Traversal failure stops with its attempted path, operation and
+concrete IoError visible on stderr. Diagnostic paths use explicit byte escaping.
 
-Input is one UTF-8 path per LF/CRLF line, with empty records skipped and a final
-unterminated record accepted. Spaces are preserved. Records should have no
-trailing `/`. Supplied paths need not exist; file types, symlinks, permissions,
-ignore files, and recursion are the producer's responsibility. Results retain
-input spelling/order and duplicates. No sorting or filesystem operation occurs.
+Text matching is case-sensitive and `?` means one Unicode scalar; raw matching
+uses bytes, so UTF-8 `é` needs two `?` tokens. Brackets, backslashes and other
+characters are literal. There are no regexes, character classes, special `**`,
+normalization, case folding, ignore files or follow-links flag.
 
-This framing cannot safely carry arbitrary Unix names: embedded LF splits a
-name, CR before LF is stripped, invalid UTF-8 is rejected, and there is no
-lossless framing. Choose `--null` for arbitrary Unix names. In that mode only
-NUL ends a record; CR, LF, and invalid UTF-8 are preserved. `?` matches one byte,
-so UTF-8 `é` matches `??`. Empty records are skipped and final unterminated
-nonempty records are accepted. Option parsing ends at `--` in both modes.
+Text output uses lines and cannot safely frame names containing LF. Invalid UTF-8
+causes a checked conversion error. Choose `--null` for arbitrary filenames;
+the exact output bytes are separated only by NUL. In `--paths` text mode, stdin
+accepts LF/CRLF and an unterminated final record, skips empty records, and
+preserves spaces, input order and duplicates. Supplied paths need not exist.
 
-## What worked and what was awkward
+## Ownership and limits
 
-The algorithm and CLI are entirely Plenty: arguments, option parsing, borrowed
-strings, literal search, a greedy wildcard matcher with retries, hidden-component
-filtering, incremental stdin consumption, stdout flushing, and typed error
-propagation. `main() -> Result[i32, IoError]` preserves the actual I/O cause and
-supports distinct usage status without a new process-exit API. The matcher uses
-no recursion and allocates no basename slices, token arrays, or search trees.
-Memory grows with arguments and the current input path, not all candidate paths.
+The native directory stream yields one detached entry at a time and closes on
+EOF, errors or drop. Entries contain their own path bytes and cached native type,
+and do not retain directory handles. The Plenty walker collects one directory's
+entries for pruning, keeps pending sibling paths along the active depth, and
+uses an explicit list of frames rather than recursive calls. It has at most one
+native directory stream open while scanning, and none between walker advances.
+Bottom-up walking is also available in the library.
 
-Explicit borrowing was manageable here; no ownership workaround or `unwrap()`
-was needed. Fallible I/O composes cleanly with `?`. The absence of
-`Option.unwrap_or` required small explicit matches, already tracked by issue #35.
-A supplied relative path can be processed with strings, though a dedicated path
-API would avoid reimplementing separator and component rules in each tool.
+Native operations currently require 64-bit Linux; metadata requires libc/kernel
+statx support. The runtime adapts Rust `read_dir`/`DirEntry` and Python `scandir`
+semantics to fallible buffers and Plenty ownership. The walker follows Python's
+top-down/bottom-up/pruning model and Path.walk's non-followed link grouping.
+Paths preserve Linux bytes and expose checked text conversion separately from
+escaped display. General `list[u8]` storage remains larger than a compact buffer.
+Broader buffers and library facilities remain within issues #49/#61; optional
+defaults and iterator conveniences remain in issue #35.
 
-The main obstacles are library/runtime capabilities:
+`check.py` runs twelve checks, including native-root traversal with ancestor
+links, hidden pruning, raw filenames, CLI errors, and both formerly failing
+capability probes. Python creates fixtures and independently computes expected
+results; it supplies no paths to the native traversal invocation. The fixture
+also agrees with installed `fd --glob --no-ignore`. The matcher checks cover
+10,581 Unicode-scalar and 10,576 byte wildcard cases against independent oracles.
+Compiler/runtime regressions additionally cover file/link metadata, special
+types, permission denial, pruning, bottom-up order, subtree recovery, descriptor
+lifetime, allocation failure, unknown-type fallback, and flat/deep trees.
 
-| Gap | Evidence and consequence | Local issue |
+The wildcard matcher may retry suffixes and is not guaranteed linear-time.
+Non-ASCII text indexing can rescan scalar boundaries. Flat/deep regression
+fixtures verify streaming and handle bounds, not fd-level throughput or memory
+efficiency; there is no claim of a production fd replacement.
+
+A local smoke measurement on 2026-10-12 used three native-executable runs per
+fixture, an unmatched raw pattern, and `--null --hidden`. These include scanning
+and matching; setup and compilation are excluded. RSS is the largest process
+peak reported by `/usr/bin/time` across those runs.
+
+| Fixture | Median elapsed | Peak RSS |
 | --- | --- | --- |
-| Directory entries and metadata | The preserved `read_dir` and `metadata` probes are rejected; no equivalent operation was found in the implemented I/O surface. There is nothing for a Plenty walker to enumerate or classify. | #60 |
-| Compact buffers and richer path APIs | `--null` now preserves raw arguments and paths with `list[u8]` and NUL framing. General list storage is not a compact byte buffer; path composition and traversal still need library APIs. | #49 |
-| Convenient optional-value defaults | `unwrap_or` is rejected; explicit matches work. | #35 |
-| Buffered/reusable I/O and iterator/view facilities | The current stdin backend reads without read-ahead; indexed non-ASCII characters scan scalar boundaries. These costs matter for larger workloads. | Existing B12 scope and issue #49 |
+| 10,000 files in one directory | 0.0659 s | 4,880 KiB |
+| 256 nested child directories | 0.0128 s | 3,228 KiB |
 
-Issues #60 and #61 motivated concrete slices of issue #49's broader library
-catalogue. The raw transport for #61 is implemented; directory APIs remain missing.
-The reference's current text/interop contracts still apply.
-
-I also checked the C interoperability surface. It can pass text **into** C and
-hold opaque pointers, but cannot directly access C records such as `dirent`,
-decode a returned C string, or receive mutable byte buffers. A trusted native
-bridge could provide the missing OS operations, but would require new supporting
-code and a safe entry-name transport. Existing FFI declarations alone do not
-provide an ordinary safe `readdir` binding. See the reference's
-`facilities/04-interop/trusted-declarations.md` and `borrowing-text.md` contracts.
-
-## Validation and performance limits
-
-`check.py` compiles the application and text/byte matcher drivers, then runs eleven
-checks: CLI statuses/options, literal/basename/full-path matching, wildcards,
-hidden components, line boundaries, UTF-8 failures in input and arguments,
-a real directory fixture, lossless Unix names/raw patterns, byte wildcards, and
-the two expected capability failures.
-It compares **10,581** wildcard cases against an independent dynamic-programming
-oracle, including empty strings, retries, Unicode, and long names. When `fd` is
-installed, the fixture's `*.plenty` result also agrees with `fd --glob --no-ignore`.
-It also checks **10,576** byte wildcard cases, including invalid UTF-8, embedded
-LF, multibyte UTF-8, and long names.
-Python supplies the test fixture and candidate enumeration, never the matching.
-The capability checks should be revised when traversal support lands.
-
-A local smoke measurement on 2026-10-10, using a compiler built from main
-`08c73bc`, sent 10,000 repeated paths to the standalone executable, captured all
-output, and took the median of three runs:
-
-| Input record | Query | Median elapsed |
-| --- | --- | --- |
-| `src/module.plenty` | Literal `plenty` | 0.094 s |
-| `src/module.plenty` | Glob `*.plenty` | 0.107 s |
-| `src/é界🦀.plenty` | Glob `*.plenty` | 0.117 s |
-
-These are short-path filter measurements, not an `fd` speed comparison or
-filesystem benchmark. They do not establish memory accounting or large-tree
-performance. The wildcard algorithm may retry a suffix many times; it is not
-guaranteed linear-time. Non-ASCII scalar indexing can repeatedly rescan the text,
-making long Unicode names more expensive. Buffered input and an efficient
-character cursor/view are useful next capabilities; regex support is unnecessary
-for this experiment.
+These local fixture numbers do not establish a worst-case memory bound or a
+comparison with fd. The walker intentionally allocates per-directory lists.

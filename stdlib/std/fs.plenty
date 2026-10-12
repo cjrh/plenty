@@ -1,0 +1,265 @@
+from std.path import Path, from_bytes
+
+pub enum FileType:
+    File
+    Directory
+    Symlink
+    Other
+
+def file_type(code: u8) -> FileType:
+    if code == 8u8:
+        FileType.File
+    elif code == 4u8:
+        FileType.Directory
+    elif code == 10u8:
+        FileType.Symlink
+    else:
+        FileType.Other
+
+pub class Timestamp:
+    pub seconds: i64
+    pub nanoseconds: u32
+
+pub class Permissions:
+    pub readonly: bool
+    pub unix_mode: u32
+
+pub class Metadata:
+    _owner: FsMetadata
+
+    pub def file_type(self) -> FileType:
+        file_type(u8.wrapping_from(__fs_metadata_field(self._owner, 0)))
+
+    pub def is_file(self) -> bool:
+        self.file_type() == FileType.File
+
+    pub def is_dir(self) -> bool:
+        self.file_type() == FileType.Directory
+
+    pub def is_symlink(self) -> bool:
+        self.file_type() == FileType.Symlink
+
+    pub def size(self) -> u64:
+        __fs_metadata_field(self._owner, 1)
+
+    pub def permissions(self) -> Permissions:
+        Permissions(__fs_metadata_field(self._owner, 2) != 0u64, u32.wrapping_from(__fs_metadata_field(self._owner, 3)))
+
+    def time(self, field: u8) -> Option[Timestamp]:
+        if __fs_metadata_field(self._owner, field) == 0u64:
+            return Nothing
+        Some(Timestamp(i64.wrapping_from(__fs_metadata_field(self._owner, field + 1u8)), u32.wrapping_from(__fs_metadata_field(self._owner, field + 2u8))))
+
+    pub def modified(self) -> Option[Timestamp]:
+        self.time(8)
+
+    pub def accessed(self) -> Option[Timestamp]:
+        self.time(11)
+
+    pub def created(self) -> Option[Timestamp]:
+        self.time(14)
+
+    pub def unix_changed(self) -> Timestamp:
+        Timestamp(i64.wrapping_from(__fs_metadata_field(self._owner, 17)), u32.wrapping_from(__fs_metadata_field(self._owner, 18)))
+
+    pub def unix_uid(self) -> u32:
+        u32.wrapping_from(__fs_metadata_field(self._owner, 4))
+
+    pub def unix_gid(self) -> u32:
+        u32.wrapping_from(__fs_metadata_field(self._owner, 5))
+
+    pub def unix_device(self) -> u64:
+        __fs_metadata_field(self._owner, 6)
+
+    pub def unix_inode(self) -> u64:
+        __fs_metadata_field(self._owner, 7)
+
+pub class DirEntry:
+    _owner: FsDirEntry
+
+    pub def file_name(self) -> Result[Path, IoError]:
+        Ok(from_bytes(__fs_name(self._owner)?))
+
+    pub def path(self) -> Result[Path, IoError]:
+        Ok(from_bytes(__fs_path(self._owner)?))
+
+    pub def file_type(self) -> Result[FileType, IoError]:
+        Ok(file_type(__fs_type(self._owner)?))
+
+    pub def metadata(self) -> Result[Metadata, IoError]:
+        Ok(Metadata(__fs_entry_metadata(self._owner)?))
+
+pub class ReadDir:
+    _owner: FsReadDir
+
+    pub def next(self: &mut ReadDir) -> Result[Option[DirEntry], IoError]:
+        match __fs_next(self._owner)?:
+            case Some(owner):
+                Ok(Some(DirEntry(owner)))
+            case Nothing:
+                Ok(Nothing)
+
+    pub def close(self: &mut ReadDir) -> Result[(), IoError]:
+        __fs_close(self._owner)
+
+    pub def closed(self) -> bool:
+        __fs_closed(self._owner)
+
+pub def read_dir(path: &Path) -> Result[ReadDir, IoError]:
+    Ok(ReadDir(__fs_open(path.as_bytes())?))
+
+pub def metadata(path: &Path) -> Result[Metadata, IoError]:
+    Ok(Metadata(__fs_metadata(path.as_bytes(), True)?))
+
+pub def symlink_metadata(path: &Path) -> Result[Metadata, IoError]:
+    Ok(Metadata(__fs_metadata(path.as_bytes(), False)?))
+
+pub def read_link(path: &Path) -> Result[Path, IoError]:
+    Ok(from_bytes(__fs_readlink(path.as_bytes())?))
+
+# Consuming generator uses the existing iteration system. Each item is fallible;
+# construction opens immediately, while advancing obtains just one entry.
+pub def entries(owner: ReadDir) -> Generator[Result[DirEntry, IoError]]:
+    mut directory = owner
+    while True:
+        match directory.next():
+            case Ok(value):
+                match value:
+                    case Some(entry):
+                        yield Ok(entry)
+                    case Nothing:
+                        return
+            case Err(error):
+                yield Err(error)
+                return
+
+pub enum WalkError:
+    Io(Path, str, IoError)
+    Allocation(AllocError)
+
+pub class WalkDir:
+    pub path: Path
+    pub directories: list[Path]
+    pub files: list[DirEntry]
+
+enum Frame:
+    Pending(Path)
+    Scanned(WalkDir)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, WalkError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(WalkError.Allocation(error))
+
+def stored(result: Result[(), AllocError]) -> Result[(), WalkError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(WalkError.Allocation(error))
+
+def scan(path: Path) -> Result[WalkDir, WalkError]:
+    match read_dir(&path):
+        case Ok(owner):
+            scan_open(path, owner)
+        case Err(error):
+            Err(WalkError.Io(path, "read_dir", error))
+
+def scan_open(path: Path, owner: ReadDir) -> Result[WalkDir, WalkError]:
+    mut directories = allocated(list[Path].new())?
+    mut files = allocated(list[DirEntry].new())?
+    mut directory = owner
+    while True:
+        advanced = directory.next()
+        match advanced:
+            case Ok(value):
+                match value:
+                    case Some(entry):
+                        match entry.file_type():
+                            case Ok(kind):
+                                if kind == FileType.Directory:
+                                    match entry.path():
+                                        case Ok(child):
+                                            stored(directories.append(child))?
+                                        case Err(error):
+                                            return Err(WalkError.Io(path, "entry.path", error))
+                                else:
+                                    stored(files.append(entry))?
+                            case Err(error):
+                                match entry.path():
+                                    case Ok(child):
+                                        return Err(WalkError.Io(child, "file_type", error))
+                                    case Err(path_error):
+                                        return Err(WalkError.Io(path, "entry.path", path_error))
+                    case Nothing:
+                        return Ok(WalkDir(path, directories, files))
+            case Err(error):
+                return Err(WalkError.Io(path, "next", error))
+    Ok(WalkDir(path, directories, files))
+
+# Only scan owns a native directory stream. Pending frames are detached values;
+# bottom-up retains a row at each active level until its children finish.
+pub class Walk:
+    pub current: WalkDir
+    _pending: list[Frame]
+    _top_down: bool
+    _started: bool
+    _closed: bool
+
+    pub def close(self: &mut Walk) -> ():
+        self._pending.clear()
+        self.current.directories.clear()
+        self.current.files.clear()
+        self._closed = True
+
+    pub def next(self: &mut Walk) -> Result[bool, WalkError]:
+        if self._closed:
+            return Ok(False)
+        if self._top_down and self._started:
+            # Reserve before consuming caller-edited directories. The caller
+            # can remove/reorder these paths before any child is opened.
+            stored(self._pending.reserve(len(self._pending) + len(self.current.directories)))?
+            while len(self.current.directories) > 0:
+                match self.current.directories.pop():
+                    case Some(child):
+                        stored(self._pending.append(Frame.Pending(child)))?
+                    case Nothing:
+                        pass
+        self._started = True
+        while True:
+            match self._pending.pop():
+                case Nothing:
+                    self._closed = True
+                    return Ok(False)
+                case Some(frame):
+                    match frame:
+                        case Frame.Scanned(row):
+                            self.current = row
+                            return Ok(True)
+                        case Frame.Pending(path):
+                            # A failed frame is already popped. Handling Err
+                            # and calling next again continues pending siblings.
+                            row = scan(path)?
+                            if self._top_down:
+                                self.current = row
+                                return Ok(True)
+                            stored(self._pending.reserve(len(self._pending) + len(row.directories) + 1))?
+                            mut children = allocated(list[Frame].with_capacity(len(row.directories)))?
+                            for child in &row.directories:
+                                stored(children.append(Frame.Pending(allocated(child.copy())?)))?
+                            stored(self._pending.append(Frame.Scanned(row)))?
+                            while len(children) > 0:
+                                match children.pop():
+                                    case Some(child):
+                                        stored(self._pending.append(child))?
+                                    case Nothing:
+                                        pass
+        Ok(False)
+
+pub def walk(root: &Path, top_down: bool) -> Result[Walk, AllocError]:
+    mut pending = list[Frame].with_capacity(1)?
+    pending.append(Frame.Pending(root.copy()?))?
+    current = WalkDir(root.copy()?, list[Path].new()?, list[DirEntry].new()?)
+    Ok(Walk(current, pending, top_down, False, False))

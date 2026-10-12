@@ -33,6 +33,9 @@ impl Ty {
             let resource = matches!(
                 self,
                 Self::File
+                    | Self::FsReadDir
+                    | Self::FsDirEntry
+                    | Self::FsMetadata
                     | Self::Generator(_)
                     | Self::Closure(_)
                     | Self::BoxedCallable(_)
@@ -194,6 +197,9 @@ impl Ty {
                     vec![(**k).clone(), (**v).clone()]
                 }
                 Self::File
+                | Self::FsReadDir
+                | Self::FsDirEntry
+                | Self::FsMetadata
                 | Self::Closure(_)
                 | Self::BoxedCallable(_)
                 | Self::Generator(_)

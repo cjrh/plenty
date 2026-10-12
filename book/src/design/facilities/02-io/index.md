@@ -8,6 +8,8 @@ Successful writes and ordinary flushing do not promise durable storage.
 
 - [Standard streams and arguments](streams-args.md).
 - [Bytes and lossless Unix paths](bytes-paths.md).
+- [Native paths](paths.md), [directory enumeration](directories.md),
+  [metadata and links](metadata.md), and [walking a tree](walking.md).
 - [Whole-file helpers](whole-files.md).
 - [Owned files and modes](files.md).
 - [Reading](reading.md), [writing and synchronization](writing.md), and
@@ -17,6 +19,6 @@ These APIs are prelude builtins. File I/O currently supports Linux;
 unsupported hosts report `IoError.Unsupported`. Standard-stream input uses the
 process descriptor on Unix. Configurable encodings, public OS
 descriptors, and lazy file iteration are unsupported.
-Directory enumeration and file-type metadata are also unavailable; the
-[finder experiment](../../examples/finder.md) records the resulting limits for
-a filesystem search tool.
+The imported `std.fs`/`std.path` modules add native paths, lazy directory streams,
+metadata and a Plenty walker. The [finder example](../../examples/finder.md)
+searches directory roots through these APIs.

@@ -44,8 +44,9 @@ the Unix process descriptor.
 
 For display, decode explicitly or format the byte list with `str.repr`; keep the
 original bytes for filesystem operations. Replacement decoding is never used.
-This initial surface does not add a platform-independent `Path` type, byte views,
-binary `File` methods, reader/writer objects, or directory enumeration. Those
-remain part of issue #49's broader library scope and issue #60's traversal scope.
+The imported [std.path](paths.md) module provides Linux Path owners over this
+transport, and [std.fs](directories.md) provides directory enumeration and
+metadata. Compact buffers, byte views, portable path representations, binary
+File methods and reader/writer objects remain within issue #49's broader scope.
 The [finder example](../../examples/finder.md) exercises raw arguments, matching,
 and NUL input/output against real Unix filenames.

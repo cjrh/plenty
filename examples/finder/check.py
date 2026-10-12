@@ -137,7 +137,7 @@ class FinderChecks(unittest.TestCase):
         result = self.run_finder("--help")
         self.assertEqual(result.returncode, 0)
         self.assertIn(b"directory", result.stdout.lower())
-        for arguments in [(), ("x",), ("--unknown",), ("--paths", "x", "root")]:
+        for arguments in [("--unknown",), ("--paths", "x", "root"), ("x", "root", "extra")]:
             with self.subTest(arguments=arguments):
                 result = self.run_finder(*arguments)
                 self.assertEqual(result.returncode, 2, result.stderr)
@@ -156,8 +156,7 @@ class FinderChecks(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn(b"InvalidUtf8", result.stderr)
 
-    def test_real_directory_fixture_with_external_enumerator(self):
-        # Python supplies traversal only. Plenty chooses every matching path.
+    def test_real_directory_fixture_with_native_traversal(self):
         tree = self.directory / "tree"
         for name in ["src/main.plenty", "src/notes.txt", "docs/guide.plenty", ".git/config", "src/.cache/private.plenty"]:
             path = tree / name
@@ -171,6 +170,14 @@ class FinderChecks(unittest.TestCase):
             "\n".join(paths) + "\n",
             "\n".join(expected) + "\n",
         )
+        (tree / "src" / "ancestor").symlink_to("..", target_is_directory=True)
+        (tree / "directory-link").symlink_to("src", target_is_directory=True)
+        result = subprocess.run(
+            [str(self.binary), "--glob", "*.plenty", "."], cwd=tree,
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(result.stdout.splitlines()), ["./" + name for name in expected])
         if fd := shutil.which("fd"):
             result = subprocess.run(
                 [fd, "--glob", "--no-ignore", "--color", "never", "*.plenty"],
@@ -183,15 +190,26 @@ class FinderChecks(unittest.TestCase):
             self.assertEqual(sorted(result.stdout.splitlines()), expected)
 
     def test_directory_capability_probes(self):
-        for name, diagnostic in [("read_dir", "unknown function `read_dir`"), ("metadata", "unknown function `metadata`")]:
+        for name in ["read_dir", "metadata"]:
             result = subprocess.run(
                 [str(self.compiler), "--check", str(self.example / "probes" / f"{name}.plenty")],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn(diagnostic, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_explicit_hidden_and_symlink_roots_are_searchable(self):
+        root = self.directory / ".explicit-root"
+        root.mkdir()
+        (root / "visible.txt").write_text("fixture")
+        (root / ".hidden.txt").write_text("fixture")
+        linked = self.directory / "linked-root"
+        linked.symlink_to(root, target_is_directory=True)
+        for supplied in [root, linked]:
+            result = self.run_finder("", str(supplied))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.decode(), str(supplied / "visible.txt") + "\n")
 
     @unittest.skipUnless(os.name == "posix", "raw Unix filenames")
     def test_nul_framed_real_filenames_and_raw_patterns(self):
@@ -202,6 +220,12 @@ class FinderChecks(unittest.TestCase):
             with open(tree + b"/" + name, "wb") as file:
                 file.write(b"fixture")
         names = sorted(os.listdir(tree))
+        traversed = subprocess.run(
+            [bytes(self.binary), b"--null", b"--hidden", b"", tree],
+            capture_output=True, timeout=10,
+        )
+        self.assertEqual(traversed.returncode, 0, traversed.stderr)
+        self.assertEqual(sorted(traversed.stdout.rstrip(b"\0").split(b"\0")), [tree + b"/" + name for name in names])
         data = b"\0".join(names) + b"\0"
         visible = [name for name in names if not name.startswith(b".")]
         for options, pattern, expected in [

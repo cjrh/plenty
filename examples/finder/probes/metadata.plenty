@@ -1,5 +1,9 @@
 # Traversal needs file types and an explicit policy for symbolic links.
+import std.fs as fs
+import std.path as path
+
 def main() -> Result[(), Failure]:
-    info = metadata(".")?
-    print(info)?
+    root = path.from_text(".")?
+    info = fs.metadata(&root)?
+    print(info.is_dir())?
     Ok(())
