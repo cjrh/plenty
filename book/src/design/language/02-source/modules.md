@@ -1,7 +1,7 @@
 # Modules and imports
 
-`std` is a reserved toolchain namespace. [The embedded math library](../../facilities/math.md)
-is available as `std.math` without local sources. Unknown `std` modules never
+`std` is a reserved toolchain namespace. [Standard library](../../stdlib/index.md)
+modules such as `std.math` are available without local sources. Unknown `std` modules never
 fall back to the source root. Local files/directories and declarations named
 `std`, and imports binding a non-standard module as `std`, are rejected.
 

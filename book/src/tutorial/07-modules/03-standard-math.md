@@ -73,5 +73,6 @@ Declare your own immutable numeric constants with `const name: T = value`, as
 with `half_turn`. Initializers accept numeric literals or numeric type constants.
 Use `pub const` to export one from a module.
 
-See the [math reference](../../design/facilities/math.md) for available functions
-and their fixed-width and numerical limits.
+See the [math reference](../../design/stdlib/math.md) for available functions
+and their fixed-width and numerical limits. The
+[standard library reference](../../design/stdlib/index.md) lists every module.

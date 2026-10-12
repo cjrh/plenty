@@ -14,6 +14,9 @@ or use the [support index](toolchain/02-architecture/support.md) to find a contr
   [concurrency](facilities/03-concurrency/index.md), and
   [C interfaces](facilities/04-interop/index.md) specify available operations,
   ownership transfer, allocation, and failure behavior.
+- **Standard library:** [imported `std` modules](stdlib/index.md), currently
+  [`std.math`](stdlib/math.md), are written in Plenty and embedded in the
+  compiler.
 - **Toolchain and implementation:** [building programs](toolchain/01-building/index.md)
   explains commands and artifacts; [architecture](toolchain/02-architecture/index.md)
   explains checking, native compilation, and runtime mechanisms.
