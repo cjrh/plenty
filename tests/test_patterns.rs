@@ -1442,3 +1442,153 @@ fn pattern_size_limits_are_reported() {
         "10:9: pattern expands to more than 256 `|` combinations"
     );
 }
+
+/// More variants than a name lookup searches in declaration order.
+const MANY: usize = 40;
+
+/// `enum Kind` with variants `V0` to `V39`, where the odd ones carry an
+/// `i64`, and the start of a function `pick` that matches one.
+fn many_kinds() -> String {
+    let mut source = String::from("enum Kind:\n");
+    for variant in 0..MANY {
+        let payload = if variant % 2 == 1 { "(i64)" } else { "" };
+        source.push_str(&format!("    V{variant}{payload}\n"));
+    }
+    source.push_str("def pick(k: Kind) -> i64:\n    match k:\n");
+    source
+}
+
+/// `many_kinds` with one case per pattern in `cases`.
+fn many_variants(cases: &[String]) -> String {
+    let mut source = many_kinds();
+    for case in cases {
+        source.push_str(&format!(
+            "        case {case}:\n            {}\n",
+            case.len()
+        ));
+    }
+    source
+}
+
+fn case_for(variant: usize) -> String {
+    if variant % 2 == 1 {
+        format!("Kind.V{variant}(_)")
+    } else {
+        format!("Kind.V{variant}")
+    }
+}
+
+#[test]
+fn a_large_enum_matches_each_variant_by_name() {
+    // Cases in reverse order, so neither declaration order nor name order
+    // is the order the cases name the variants in.
+    let mut source = many_kinds();
+    for variant in (0..MANY).rev() {
+        source.push_str(&if variant % 2 == 1 {
+            format!("        case Kind.V{variant}(n):\n            n * 100 + {variant}\n")
+        } else {
+            format!("        case Kind.V{variant}:\n            {variant}\n")
+        });
+    }
+    source.push_str(
+        "def main() -> Result[(), Failure]:
+    print(pick(Kind.V0))?
+    print(pick(Kind.V2))?
+    print(pick(Kind.V10))?
+    print(pick(Kind.V17(5)))?
+    print(pick(Kind.V38))?
+    print(pick(Kind.V39(2)))?
+    Ok(())
+",
+    );
+    runs(&source, "0\n2\n10\n517\n38\n239\n");
+}
+
+#[test]
+fn a_large_enum_reports_the_same_diagnostics() {
+    let all: Vec<String> = (0..MANY).map(case_for).collect();
+    let main = "def main() -> ():\n    pass\n";
+
+    let missing: Vec<String> = (0..MANY)
+        .filter(|variant| ![5, 20, 39].contains(variant))
+        .map(case_for)
+        .collect();
+    assert_eq!(
+        diagnostic(&(many_variants(&missing) + main)),
+        "43:11: non-exhaustive match; missing Kind.V5(_), Kind.V20, Kind.V39(_)"
+    );
+
+    let mut repeated = all.clone();
+    repeated.push("Kind.V4".into());
+    assert_eq!(
+        diagnostic(&(many_variants(&repeated) + main)),
+        "124:9: duplicate variant case"
+    );
+
+    let mut unknown = all.clone();
+    unknown[7] = "Kind.V70".into();
+    assert_eq!(
+        diagnostic(&(many_variants(&unknown) + main)),
+        "58:14: unknown variant `V70`"
+    );
+
+    let wrapped = "enum Wrap:\n    Of(Kind)\ndef inner(w: Wrap) -> i64:\n    match w:\n        case Wrap.Of(V6):\n            0\n";
+    assert_eq!(
+        diagnostic(&(many_variants(&all) + wrapped + main)),
+        "128:22: `V6` is a variant of `Kind`, so it cannot name a payload binding; write `Kind.V6` to match the variant"
+    );
+
+    assert_eq!(
+        diagnostic(&(many_variants(&all) + "def main() -> ():\n    k = Kind.V40\n")),
+        "125:9: unknown variant `Kind.V40`"
+    );
+
+    let mut twice = String::from("enum Kind:\n");
+    for variant in 0..MANY {
+        twice.push_str(&format!("    V{variant}\n"));
+    }
+    twice.push_str("    V12\n    V3\n");
+    assert_eq!(diagnostic(&(twice + main)), "42:8: duplicate variant `V12`");
+}
+
+#[test]
+fn a_case_naming_no_variant_keeps_its_place_among_those_that_do() {
+    runs(
+        r#"
+enum Kind:
+    A
+    B
+    C
+enum Pair:
+    Of(Kind, i64)
+def pick(pair: Pair) -> str:
+    match pair:
+        case Pair.Of(Kind.A, 1):
+            "a one"
+        case Pair.Of(_, 2):
+            "two"
+        case Pair.Of(Kind.A, _):
+            "a"
+        case Pair.Of(Kind.B, 3):
+            "b three"
+        case Pair.Of(_, 3):
+            "three"
+        case Pair.Of(Kind.B, _):
+            "b"
+        case Pair.Of(_, _):
+            "other"
+def main() -> Result[(), Failure]:
+    print(pick(Pair.Of(Kind.A, 1)))?
+    print(pick(Pair.Of(Kind.A, 2)))?
+    print(pick(Pair.Of(Kind.A, 3)))?
+    print(pick(Pair.Of(Kind.B, 2)))?
+    print(pick(Pair.Of(Kind.B, 3)))?
+    print(pick(Pair.Of(Kind.B, 4)))?
+    print(pick(Pair.Of(Kind.C, 2)))?
+    print(pick(Pair.Of(Kind.C, 3)))?
+    print(pick(Pair.Of(Kind.C, 4)))?
+    Ok(())
+"#,
+        "a one\ntwo\na\ntwo\nb three\nb\ntwo\nthree\nother\n",
+    );
+}

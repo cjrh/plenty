@@ -26,6 +26,37 @@ pub struct EnumType {
     pub payload_bytes: std::cell::OnceCell<usize>,
     /// Whether any variant keeps owner-local storage; excluded from equality.
     pub storage: std::cell::OnceCell<bool>,
+    /// Tags ordered by variant name, built by the first `tag` lookup in a
+    /// large enum; excluded from equality. The variants must not change after
+    /// that lookup.
+    pub by_name: std::cell::OnceCell<Vec<usize>>,
+}
+
+/// Enums up to this size are searched in declaration order, so the builtin
+/// sums never build a name order.
+const LINEAR_VARIANTS: usize = 16;
+
+impl EnumType {
+    /// The tag of the first variant called `name`.
+    pub fn tag(&self, name: &str) -> Option<usize> {
+        if self.variants.len() <= LINEAR_VARIANTS {
+            return self.variants.iter().position(|v| v.name == name);
+        }
+        // Naming every variant of a large enum once, as a `match` with one
+        // case per variant does, must not search them all each time
+        // (issue #71).
+        let order = self.by_name.get_or_init(|| {
+            let mut order: Vec<usize> = (0..self.variants.len()).collect();
+            // Stable, so equal names keep declaration order.
+            order.sort_by(|&a, &b| self.variants[a].name.cmp(&self.variants[b].name));
+            order
+        });
+        let first = order.partition_point(|&tag| self.variants[tag].name.as_str() < name);
+        order
+            .get(first)
+            .copied()
+            .filter(|&tag| self.variants[tag].name == name)
+    }
 }
 impl PartialEq for EnumType {
     fn eq(&self, other: &Self) -> bool {
@@ -80,6 +111,7 @@ pub fn failure() -> Ty {
         managed: false,
         inline_range: false,
         payload_bytes: std::cell::OnceCell::new(),
+        by_name: std::cell::OnceCell::new(),
         storage: std::cell::OnceCell::new(),
         managed_fields: std::cell::OnceCell::new(),
     }))
@@ -101,6 +133,7 @@ pub fn alloc_error() -> Ty {
         managed: false,
         inline_range: false,
         payload_bytes: std::cell::OnceCell::new(),
+        by_name: std::cell::OnceCell::new(),
         storage: std::cell::OnceCell::new(),
         managed_fields: std::cell::OnceCell::new(),
     }))
@@ -463,6 +496,7 @@ pub fn tuple(fields: Vec<Ty>) -> Ty {
             managed: true,
             inline_range: false,
             payload_bytes: std::cell::OnceCell::new(),
+            by_name: std::cell::OnceCell::new(),
             storage: std::cell::OnceCell::new(),
             managed_fields: std::cell::OnceCell::new(),
             variants: vec![Variant {
@@ -486,6 +520,7 @@ pub fn option(element: Ty) -> Ty {
             managed: true,
             inline_range: element.has_inline_range(),
             payload_bytes: std::cell::OnceCell::new(),
+            by_name: std::cell::OnceCell::new(),
             storage: std::cell::OnceCell::new(),
             managed_fields: std::cell::OnceCell::new(),
             variants: vec![
@@ -512,6 +547,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
             managed: true,
             inline_range: ok.has_inline_range() || error.has_inline_range(),
             payload_bytes: std::cell::OnceCell::new(),
+            by_name: std::cell::OnceCell::new(),
             storage: std::cell::OnceCell::new(),
             managed_fields: std::cell::OnceCell::new(),
             variants: vec![
@@ -568,5 +604,43 @@ impl EnumOp {
                 t.get().variants.get(*tag)?.fields.get(*field)?.clone(),
             ),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn named(names: &[String]) -> EnumType {
+        let Ty::Enum(template) = failure() else {
+            unreachable!()
+        };
+        let mut ty = (*template.get()).clone();
+        ty.variants = names
+            .iter()
+            .map(|name| Variant {
+                name: name.clone(),
+                fields: vec![],
+            })
+            .collect();
+        ty
+    }
+
+    /// Small enums are searched in declaration order and large ones through
+    /// the name order; both must name the first variant with a given name.
+    #[test]
+    fn tag_finds_the_first_variant_with_a_name() {
+        for count in [1, LINEAR_VARIANTS, LINEAR_VARIANTS + 1, 500] {
+            // `V10` sorts before `V2`, so name order differs from tag order.
+            let mut names: Vec<String> = (0..count).map(|i| format!("V{i}")).collect();
+            names.push("V0".into());
+            let ty = named(&names);
+            for (tag, name) in names.iter().enumerate().take(count) {
+                assert_eq!(ty.tag(name), Some(tag), "{name} of {count}");
+            }
+            for unknown in ["", "V", "U9", "V00", "W", &format!("V{count}")] {
+                assert_eq!(ty.tag(unknown), None, "{unknown} of {count}");
+            }
+        }
     }
 }
