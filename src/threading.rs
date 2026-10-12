@@ -52,12 +52,8 @@ pub enum ThreadOp {
 /// source data and recursive functions terminate through their nominal identity.
 /// A structural signature cannot certify the effects of an indirect callee.
 pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
-    let mut functions = HashMap::new();
     let mut roots = Vec::new();
     walk(ops, &mut |op| {
-        if let Op::DefineFn(name, function) = op {
-            functions.insert(name.as_str(), function);
-        }
         if let Op::Thread(ThreadOp::Start(task, _)) = op {
             let mut types = task.inputs.clone();
             types.push(task.output.clone());
@@ -83,6 +79,17 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
                         .collect(),
                 ));
             }
+        }
+    });
+    // Only a value crossing a thread boundary starts an inspection. A program
+    // without one needs no table of every function.
+    if roots.is_empty() {
+        return Ok(());
+    }
+    let mut functions = HashMap::new();
+    walk(ops, &mut |op| {
+        if let Op::DefineFn(name, function) = op {
+            functions.insert(name.as_str(), function);
         }
     });
     let mut checked = HashSet::new();
