@@ -4,6 +4,8 @@ Timeouts are `u64` milliseconds using a monotonic total budget, including repeat
 wakeups. Zero checks immediately. Readiness or disconnection at the final check
 wins over timeout. Lock contention, cleanup, and scheduling may delay return
 beyond the budget; timeouts are not hard execution deadlines.
+[`std.time`](../../stdlib/time.md#sleeping-and-timed-waits) converts a
+`Duration` or the remainder of a shared `Deadline` to this budget.
 
 | Operation | Result |
 | --- | --- |

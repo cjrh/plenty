@@ -23,7 +23,8 @@ earlier data stale.
 | `unix_uid()`, `unix_gid()` | `u32` Unix identity fields |
 | `unix_device()`, `unix_inode()` | `u64` Unix directory-identity fields |
 
-`Timestamp` has signed `i64` seconds since the Unix epoch and `u32` nanoseconds
+`Timestamp` is [`std.time.Timestamp`](../time.md); import the name from
+`std.time`. It has signed `i64` seconds since the Unix epoch and `u32` nanoseconds
 in `[0, 1_000_000_000)`. Negative times use floor seconds: half a second before
 the epoch is `(-1, 500_000_000)`. Nothing means the filesystem did not supply
 that timestamp. Unsupported creation time is never filled with Unix change time.

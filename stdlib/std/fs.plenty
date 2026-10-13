@@ -1,4 +1,5 @@
 from std.path import Path, from_bytes
+from std.time import Timestamp
 
 pub enum FileType:
     File
@@ -15,10 +16,6 @@ def file_type(code: u8) -> FileType:
         FileType.Symlink
     else:
         FileType.Other
-
-pub class Timestamp:
-    pub seconds: i64
-    pub nanoseconds: u32
 
 pub class Permissions:
     pub readonly: bool

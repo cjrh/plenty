@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub enum CollectionOp {
     Filesystem(crate::filesystem::FsOp),
     Bytes(crate::bytes::BytesOp),
+    Time(crate::time::TimeOp),
     OpenFile,
     FileClose,
     FileClosed,
@@ -178,6 +179,7 @@ impl CollectionOp {
         match self {
             Filesystem(op) => op.signature(),
             Bytes(op) => op.signature(),
+            Time(op) => op.signature(),
             OpenFile => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::File, crate::sum::io_error()),
@@ -516,6 +518,7 @@ impl CollectionOp {
         match self {
             Self::Filesystem(op) => op.opcode(),
             Self::Bytes(op) => op.opcode(),
+            Self::Time(op) => op.opcode(),
             Self::WriteStdout => 80,
             Self::FlushStdout => 81,
             Self::WriteStderr => 82,
