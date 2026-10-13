@@ -15,7 +15,9 @@ equality are unsupported.
 
 All methods observe their receiver without requiring `mut` and allocate nothing.
 Cancellation is idempotent. Dropping a handle does not request cancellation;
-the last owner releases the state. Timeout does not consume or reset it.
+the last owner releases the state. Timeout does not consume or reset it. `wait_timeout` is also the cancellable
+sleep; [`std.time`](../../stdlib/time.md#sleeping-and-timed-waits) supplies its
+budget from a `Duration`.
 
 Workers must check the token at safe boundaries, finish required cleanup, and
 return normally. A token imposes no return type or error variant. It does not

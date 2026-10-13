@@ -5,6 +5,7 @@ use std::sync::Arc;
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
     Filesystem(crate::filesystem::FsOp),
+    Time(crate::time::TimeOp),
     OpenFile,
     FileClose,
     FileClosed,
@@ -176,6 +177,7 @@ impl CollectionOp {
         use CollectionOp::*;
         match self {
             Filesystem(op) => op.signature(),
+            Time(op) => op.signature(),
             OpenFile => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::File, crate::sum::io_error()),
@@ -513,6 +515,7 @@ impl CollectionOp {
     pub fn opcode(&self) -> i64 {
         match self {
             Self::Filesystem(op) => op.opcode(),
+            Self::Time(op) => op.opcode(),
             Self::WriteStdout => 80,
             Self::FlushStdout => 81,
             Self::WriteStderr => 82,

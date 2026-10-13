@@ -11,6 +11,7 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Send values between threads](channels-and-shutdown.md)
 - [Handle channel backpressure](channel-backpressure.md)
 - [Bound your waits](channel-timeouts.md)
+- [Share one deadline across waits](deadlines.md)
 - [Reuse workers with an executor](executors-and-futures.md)
 - [Handle executor outcomes](executor-outcomes.md)
 - [Cancel queued work and bound a future wait](future-cancellation-and-waits.md)

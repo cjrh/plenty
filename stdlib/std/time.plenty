@@ -1,0 +1,169 @@
+# Spans, monotonic instants, deadlines and wall timestamps are checked Plenty
+# code. The runtime only reads the two clocks and sleeps. See
+# book/src/design/stdlib/time.md for contracts.
+
+const second: u64 = 1000000000
+const millisecond: u64 = 1000000
+const microsecond: u64 = 1000
+
+def summed(a: u64, b: u64) -> Result[u64, RangeError]:
+    if a > u64.MAX - b:
+        return Err(RangeError.OutOfRange)
+    Ok(a + b)
+
+def scaled(count: u64, unit: u64) -> Result[u64, RangeError]:
+    if unit != 0 and count > u64.MAX // unit:
+        return Err(RangeError.OutOfRange)
+    Ok(count * unit)
+
+# A nonnegative span. u64 nanoseconds reach just over 584 years.
+pub class Duration:
+    _nanoseconds: u64
+
+    pub def as_nanoseconds(self) -> u64:
+        self._nanoseconds
+
+    pub def as_microseconds(self) -> u64:
+        self._nanoseconds // microsecond
+
+    pub def as_milliseconds(self) -> u64:
+        self._nanoseconds // millisecond
+
+    pub def as_seconds(self) -> u64:
+        self._nanoseconds // second
+
+    # Rounds up, so a budget passed to a millisecond wait never ends early and
+    # a positive remainder never becomes a zero-timeout busy loop.
+    pub def as_timeout_ms(self) -> u64:
+        whole = self._nanoseconds // millisecond
+        if self._nanoseconds % millisecond == 0:
+            whole
+        else:
+            whole + 1
+
+    pub def is_zero(self) -> bool:
+        self._nanoseconds == 0
+
+    pub def checked_add(self, other: &Duration) -> Result[Duration, RangeError]:
+        Ok(Duration(summed(self._nanoseconds, other._nanoseconds)?))
+
+    pub def checked_sub(self, other: &Duration) -> Result[Duration, RangeError]:
+        if other._nanoseconds > self._nanoseconds:
+            return Err(RangeError.OutOfRange)
+        Ok(Duration(self._nanoseconds - other._nanoseconds))
+
+    pub def saturating_sub(self, other: &Duration) -> Duration:
+        if other._nanoseconds > self._nanoseconds:
+            Duration(0)
+        else:
+            Duration(self._nanoseconds - other._nanoseconds)
+
+    pub def checked_mul(self, factor: u64) -> Result[Duration, RangeError]:
+        Ok(Duration(scaled(self._nanoseconds, factor)?))
+
+pub def nanoseconds(count: u64) -> Duration:
+    Duration(count)
+
+# u32 counts cannot overflow the representation, so construction never fails.
+pub def microseconds(count: u32) -> Duration:
+    Duration(u64(count) * microsecond)
+
+pub def milliseconds(count: u32) -> Duration:
+    Duration(u64(count) * millisecond)
+
+pub def seconds(count: u32) -> Duration:
+    Duration(u64(count) * second)
+
+# A point on one monotonic timeline, as nanoseconds after its origin.
+pub class Instant:
+    _nanoseconds: u64
+
+    pub def checked_add(self, span: &Duration) -> Result[Instant, RangeError]:
+        Ok(Instant(summed(self._nanoseconds, span._nanoseconds)?))
+
+    pub def duration_since(self, earlier: &Instant) -> Result[Duration, RangeError]:
+        if earlier._nanoseconds > self._nanoseconds:
+            return Err(RangeError.OutOfRange)
+        Ok(Duration(self._nanoseconds - earlier._nanoseconds))
+
+    pub def saturating_duration_since(self, earlier: &Instant) -> Duration:
+        if earlier._nanoseconds > self._nanoseconds:
+            Duration(0)
+        else:
+            Duration(self._nanoseconds - earlier._nanoseconds)
+
+pub def monotonic_now() -> Instant:
+    Instant(__time_monotonic())
+
+# A caller-defined timeline for simulations and tests.
+pub def instant_at(nanoseconds_after_origin: u64) -> Instant:
+    Instant(nanoseconds_after_origin)
+
+# The instant at which a total budget ends.
+pub class Deadline:
+    _nanoseconds: u64
+
+    pub def expired(self, now: &Instant) -> bool:
+        now._nanoseconds >= self._nanoseconds
+
+    pub def remaining(self, now: &Instant) -> Duration:
+        if now._nanoseconds >= self._nanoseconds:
+            Duration(0)
+        else:
+            Duration(self._nanoseconds - now._nanoseconds)
+
+pub def deadline_at(at: &Instant) -> Deadline:
+    Deadline(at._nanoseconds)
+
+pub def deadline_after(start: &Instant, budget: &Duration) -> Result[Deadline, RangeError]:
+    Ok(Deadline(summed(start._nanoseconds, budget._nanoseconds)?))
+
+# Wall-clock time: floor seconds since the Unix epoch and nanoseconds in
+# [0, 1_000_000_000). The system clock can be stepped in either direction.
+pub class Timestamp:
+    pub seconds: i64
+    pub nanoseconds: u32
+
+    def valid(self) -> bool:
+        u64(self.nanoseconds) < second
+
+    pub def duration_since(self, earlier: &Timestamp) -> Result[Duration, RangeError]:
+        if not self.valid() or not earlier.valid():
+            return Err(RangeError.OutOfRange)
+        if self.seconds < earlier.seconds:
+            return Err(RangeError.OutOfRange)
+        # Ordered operands make the two's-complement difference exact in u64.
+        whole = u64.wrapping_from(self.seconds.wrapping_sub(earlier.seconds))
+        if self.nanoseconds >= earlier.nanoseconds:
+            fraction = u64(self.nanoseconds - earlier.nanoseconds)
+            return Ok(Duration(summed(scaled(whole, second)?, fraction)?))
+        if whole == 0:
+            return Err(RangeError.OutOfRange)
+        fraction = second - u64(earlier.nanoseconds - self.nanoseconds)
+        Ok(Duration(summed(scaled(whole - 1, second)?, fraction)?))
+
+    pub def checked_add(self, span: &Duration) -> Result[Timestamp, RangeError]:
+        if not self.valid():
+            return Err(RangeError.OutOfRange)
+        fraction = u64(self.nanoseconds) + span._nanoseconds % second
+        mut whole = i64(span._nanoseconds // second)
+        mut nanoseconds = fraction
+        if fraction >= second:
+            whole += 1
+            nanoseconds = fraction - second
+        if self.seconds > i64.MAX - whole:
+            return Err(RangeError.OutOfRange)
+        Ok(Timestamp(self.seconds + whole, u32(nanoseconds)))
+
+# One reading supplies both fields: the runtime keeps the sub-second part of
+# this thread's latest seconds reading for the request that follows.
+pub def wall_now() -> Timestamp:
+    whole = __time_wall_seconds()
+    Timestamp(whole, __time_wall_nanoseconds())
+
+pub def sleep(span: &Duration) -> ():
+    __time_sleep(span._nanoseconds)
+
+pub def sleep_until(deadline: &Deadline) -> ():
+    now = monotonic_now()
+    __time_sleep(deadline.remaining(&now)._nanoseconds)

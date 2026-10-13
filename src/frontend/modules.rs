@@ -27,6 +27,7 @@ impl ModuleSource {
             Self::Standard("std.fs") => Ok(include_str!("../../stdlib/std/fs.plenty").into()),
             Self::Standard("std.path") => Ok(include_str!("../../stdlib/std/path.plenty").into()),
             Self::Standard("std.deque") => Ok(include_str!("../../stdlib/std/deque.plenty").into()),
+            Self::Standard("std.time") => Ok(include_str!("../../stdlib/std/time.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -486,8 +487,9 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.fs" => Ok(ModuleSource::Standard("std.fs")),
                     "std.path" => Ok(ModuleSource::Standard("std.path")),
                     "std.deque" => Ok(ModuleSource::Standard("std.deque")),
+                    "std.time" => Ok(ModuleSource::Standard("std.time")),
                     _ => Err(import.at.error(format!(
-                        "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque",
+                        "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.time",
                         import.module
                     ))),
                 };

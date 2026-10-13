@@ -30,4 +30,5 @@ store, or drop it. A timeout does not discard the message.
 
 Timeouts limit waiting, not total wall-clock execution. Lock contention and
 scheduling can delay return. A message already available at the check is
-received even with a zero budget.
+received even with a zero budget. To bound several waits by one total budget,
+[share a deadline](deadlines.md).

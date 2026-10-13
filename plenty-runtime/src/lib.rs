@@ -35,6 +35,7 @@ mod tests;
 mod text_io;
 mod text_lines;
 mod threads;
+mod time;
 
 fn fail(message: &str) -> ! {
     io::flush();

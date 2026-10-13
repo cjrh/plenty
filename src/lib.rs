@@ -30,6 +30,7 @@ mod record;
 mod sum;
 mod tail_abi;
 mod threading;
+mod time;
 mod toolchain;
 mod type_facts;
 mod value;

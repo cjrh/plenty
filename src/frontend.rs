@@ -2072,6 +2072,7 @@ fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
 pub(crate) fn builtin(name: &str) -> bool {
     named_type(name).is_some()
         || crate::filesystem::FsOp::named(name).is_some()
+        || crate::time::TimeOp::named(name).is_some()
         || matches!(
             name,
             "print"
@@ -3142,6 +3143,15 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::filesystem::FsOp::named(name) {
                     return self.filesystem_call(operation, args, &e.at, ops);
+                }
+                if let Some(operation) = crate::time::TimeOp::named(name) {
+                    let output =
+                        self.system_call(CollectionOp::Time(operation), args, &e.at, ops)?;
+                    if output == Some(Ty::Unit) {
+                        ops.push(Op::Drop);
+                        return Ok(None);
+                    }
+                    return Ok(output);
                 }
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));
