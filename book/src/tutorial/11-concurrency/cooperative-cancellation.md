@@ -12,11 +12,12 @@ def work(stop: CancellationToken, ready: Sender[i64]) -> i64:
 
 def main() -> Result[(), Failure]:
     stop = CancellationToken()?
-    ready, started = channel[i64](1)?
-    with ThreadPoolExecutor(1, 1)? as pool, started as inbox:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        ready, started = channel[i64](1)?
         future = pool.submit(work, stop.share(), ready)?
-        inbox.recv()?
+        started.recv()?
         stop.cancel()
+        drop(started)
         print(future.result()?)?
     print(stop.is_cancelled())?
     Ok(())
@@ -27,8 +28,10 @@ def main() -> Result[(), Failure]:
 True
 ```
 
-`started` is guarded directly after the pool, so it drops before the pool shuts
-down. Shutdown waits for submitted jobs, and a job waiting to send is released
+The receiver drops before `future.result()` waits. The channel is created inside
+the pool's scope, so an earlier error also drops its receiver before shutdown.
+A receiver guard that only ends with the pool would still be alive at the wait.
+Shutdown also waits for submitted jobs, and a job waiting to send is released
 only when the last receiver drops. Plenty rejects a shutdown reached while a
 receiver for a submitted job's sender is still alive:
 

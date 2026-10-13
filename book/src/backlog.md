@@ -45,8 +45,9 @@ ownership. Table row order below remains a catalogue, not a second priority list
   table/pass reductions have landed; further architectural optimization needs
   measurements and a focused batch, and does not keep B34 open.
 - **B22:** join/shutdown checks for sending workers are implemented (issues
-  #12/#74). The receiving-worker join gap (issue #108) and blocking future-result
-  gap (issue #109) remain open for focused diagnostic work. Other documented
+  #12/#74). Blocking future-result checks are implemented (issue #109 remains
+  open until its local PR merges). The receiving-worker join gap (issue #108)
+  remains open for focused diagnostic work. Other documented
   limits remain explicit in the [channel](design/facilities/03-concurrency/channels.md#what-the-rule-does-not-decide)
   and [executor](design/facilities/03-concurrency/executors.md#shutdown-and-live-receivers)
   contracts; these checks do not establish deadlock freedom.

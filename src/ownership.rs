@@ -7,6 +7,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 use std::sync::Arc;
 
+mod futures;
+
 /// Source position of the operations that follow an `Op::Site` marker in the
 /// same sequence. Nested blocks inherit it until they place their own marker.
 /// The marker travels with the operations, so inserting or cloning operations
@@ -90,6 +92,10 @@ pub enum Kind {
         exclusive: bool,
     },
     LiveAcrossYield,
+    /// A future result waiting on a job that can send to a live receiver.
+    BlockedFuture {
+        message: String,
+    },
     /// A join that a worker waiting to send could keep waiting forever.
     BlockedJoin {
         /// Message type of the worker's sender and the surviving receiver.
@@ -173,6 +179,11 @@ impl fmt::Display for Error {
             Kind::LiveAcrossYield => {
                 format!("a borrow of {place} cannot remain live across yield")
             }
+            Kind::BlockedFuture { message } => format!(
+                "this result() waits for a job that holds `Sender[{message}]` while \
+                 {place} still holds `Receiver[{message}]`: a full queue could block \
+                 the job's send, and this result wait, forever"
+            ),
             Kind::BlockedJoin { message, automatic } => format!(
                 "{} a task whose worker holds `Sender[{message}]` while {} still holds \
                  `Receiver[{message}]`: a full queue could block the worker's send, and \
@@ -263,6 +274,7 @@ struct Checker<'a> {
     /// send, each with its first submission. Jobs are not matched to pools,
     /// and one is never assumed to have finished.
     submitted: RefCell<Vec<(Ty, Option<Site>)>>,
+    futures: futures::Futures,
 }
 
 pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) -> Result<()> {
@@ -272,6 +284,7 @@ pub fn check(ops: &[Op], locals: &[Ty], parameters: usize, origins: &Origins) ->
         parameters,
         origins,
         submitted: RefCell::default(),
+        futures: futures::Futures::new(ops, locals.len()),
     };
     let mut state = (0..locals.len())
         .map(|i| {
@@ -668,6 +681,31 @@ impl Checker<'_> {
         }
     }
 
+    fn future_result(&self, before: &[Op], state: &State, site: Option<Site>) -> Result<()> {
+        let jobs = self.futures.before(before);
+        let sends: Vec<_> = jobs.iter().map(|(message, _)| message.clone()).collect();
+        let Some(mut error) = self.blocked(
+            &sends,
+            state,
+            site,
+            |message| Kind::BlockedFuture { message },
+            |_| "drop it, or end its `with` block, before waiting for the result".into(),
+        ) else {
+            return Ok(());
+        };
+        let Kind::BlockedFuture { message } = &error.kind else {
+            unreachable!()
+        };
+        if let Some(at) = jobs
+            .iter()
+            .find(|(sent, _)| sent.to_string() == *message)
+            .and_then(|(_, at)| *at)
+        {
+            error.notes.push((at, "the job is submitted here".into()));
+        }
+        Err(error)
+    }
+
     /// Dropping the value in `slot` shuts a pool down. No pool is looked for
     /// until a job that could block the shutdown has been submitted.
     fn closes(&self, slot: usize, state: &State) -> bool {
@@ -800,6 +838,9 @@ impl Checker<'_> {
                     }
                 }
                 Op::Executor(ExecutorOp::Shutdown) => self.shutdown(None, state, site)?,
+                Op::Executor(ExecutorOp::Result(_)) => {
+                    self.future_result(&ops[..index], state, site)?;
+                }
                 Op::Try { cleanup, .. } => {
                     let mut failed = state.clone();
                     self.sequence(cleanup, &mut failed, &mut Vec::new(), site)
