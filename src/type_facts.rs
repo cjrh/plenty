@@ -36,6 +36,7 @@ impl Ty {
                     | Self::FsReadDir
                     | Self::FsDirEntry
                     | Self::FsMetadata
+                    | Self::ByteStorage
                     | Self::Generator(_)
                     | Self::Closure(_)
                     | Self::BoxedCallable(_)
@@ -200,6 +201,7 @@ impl Ty {
                 | Self::FsReadDir
                 | Self::FsDirEntry
                 | Self::FsMetadata
+                | Self::ByteStorage
                 | Self::Closure(_)
                 | Self::BoxedCallable(_)
                 | Self::Generator(_)

@@ -268,6 +268,7 @@ impl Clone for Ty {
             Self::FsReadDir => Self::FsReadDir,
             Self::FsDirEntry => Self::FsDirEntry,
             Self::FsMetadata => Self::FsMetadata,
+            Self::ByteStorage => Self::ByteStorage,
         }
     }
 }

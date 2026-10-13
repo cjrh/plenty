@@ -7,6 +7,7 @@ use crate::strings::{self, Text};
 use std::cmp::Ordering;
 use std::io::Write;
 
+mod byte_storage;
 mod bytes;
 mod entry_error;
 pub(crate) mod executor_map;
@@ -58,6 +59,7 @@ impl Type {
                     | b'A'
                     | b'I'
                     | b'M'
+                    | b'U'
                     | b'X'
                     | b'Y'
                     | b'P'
@@ -748,6 +750,7 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
             b'd' => f64::from_bits(a as u64) == f64::from_bits(b as u64),
             b's' => strings::bytes(&(a as *const Text)) == strings::bytes(&(b as *const Text)),
+            b'U' => byte_storage::equal(a, b),
             b'O' => {
                 let (a, b) = (a as *const Boxed, b as *const Boxed);
                 let slot =
@@ -1247,6 +1250,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'A' => out.extend_from_slice(b"ReadDir"),
             b'I' => out.extend_from_slice(b"DirEntry"),
             b'M' => out.extend_from_slice(b"Metadata"),
+            b'U' => byte_storage::render(value, out),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
                 if crate::files::closed(value as *const crate::files::File) {
@@ -1339,6 +1343,19 @@ pub(crate) unsafe extern "C" fn plenty_collection(
                 site,
             ));
             out.write(range as u128);
+            return;
+        }
+        if (170..=183).contains(&op) {
+            // Read every operand first: the fourth and fifth share the
+            // scratch words that follow the result slot.
+            let operands = [
+                *args,
+                *args.add(1),
+                *args.add(2),
+                *args.add(4),
+                *args.add(5),
+            ];
+            out.write(byte_storage::call(op, operands, descriptor));
             return;
         }
         if op == 24 {

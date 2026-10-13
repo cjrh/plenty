@@ -1,0 +1,141 @@
+# One byte per element in contiguous native storage. Every offset is validated
+# here and reported as a value; the native primitives only repeat the check.
+# A view is an ordinary `&Bytes` or `&mut Bytes` loan plus explicit offsets, so
+# the borrow checker already rejects growth or movement while one is live.
+pub enum BytesError:
+    OutOfRange
+    InvalidUtf8
+    Allocation(AllocError)
+
+pub class Bytes:
+    _owner: ByteStorage
+
+    pub def len(self) -> i64:
+        __bytes_len(self._owner)
+
+    pub def is_empty(self) -> bool:
+        __bytes_len(self._owner) == 0
+
+    pub def capacity(self) -> i64:
+        __bytes_capacity(self._owner)
+
+    pub def get(self, index: i64) -> Result[u8, BytesError]:
+        if index < 0 or index >= __bytes_len(self._owner):
+            return Err(BytesError.OutOfRange)
+        Ok(__bytes_get(self._owner, index))
+
+    pub def set(self: &mut Bytes, index: i64, value: u8) -> Result[(), BytesError]:
+        if index < 0 or index >= __bytes_len(self._owner):
+            return Err(BytesError.OutOfRange)
+        __bytes_set(self._owner, index, value)
+        Ok(())
+
+    pub def push(self: &mut Bytes, value: u8) -> Result[(), BytesError]:
+        stored(__bytes_push(self._owner, value))
+
+    pub def pop(self: &mut Bytes) -> Option[u8]:
+        count = __bytes_len(self._owner)
+        if count == 0:
+            return Nothing
+        value = __bytes_get(self._owner, count - 1)
+        # Shrinking never allocates, so this cannot fail.
+        drop(__bytes_resize(self._owner, count - 1, 0u8))
+        Some(value)
+
+    pub def reserve(self: &mut Bytes, additional: i64) -> Result[(), BytesError]:
+        if additional < 0:
+            return Err(BytesError.OutOfRange)
+        stored(__bytes_reserve(self._owner, additional))
+
+    pub def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), BytesError]:
+        if count < 0:
+            return Err(BytesError.OutOfRange)
+        stored(__bytes_resize(self._owner, count, fill))
+
+    pub def truncate(self: &mut Bytes, count: i64) -> Result[(), BytesError]:
+        if count < 0 or count > __bytes_len(self._owner):
+            return Err(BytesError.OutOfRange)
+        stored(__bytes_resize(self._owner, count, 0u8))
+
+    pub def clear(self: &mut Bytes) -> ():
+        drop(__bytes_resize(self._owner, 0, 0u8))
+
+    pub def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> Result[(), BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        for index in range(start, stop):
+            __bytes_set(self._owner, index, value)
+        Ok(())
+
+    pub def extend(self: &mut Bytes, source: &Bytes) -> Result[(), BytesError]:
+        stored(__bytes_append(self._owner, source._owner, 0, __bytes_len(source._owner)))
+
+    pub def extend_range(self: &mut Bytes, source: &Bytes, start: i64, stop: i64) -> Result[(), BytesError]:
+        checked(start, stop, __bytes_len(source._owner))?
+        stored(__bytes_append(self._owner, source._owner, start, stop))
+
+    pub def overwrite(self: &mut Bytes, offset: i64, source: &Bytes, start: i64, stop: i64) -> Result[(), BytesError]:
+        checked(start, stop, __bytes_len(source._owner))?
+        if offset < 0 or offset > __bytes_len(self._owner) - (stop - start):
+            return Err(BytesError.OutOfRange)
+        __bytes_overwrite(self._owner, offset, source._owner, start, stop)
+        Ok(())
+
+    pub def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        mut owner = allocated(__bytes_new(stop - start))?
+        stored(__bytes_append(owner, self._owner, start, stop))?
+        Ok(Bytes(owner))
+
+    pub def copy(self) -> Result[Bytes, BytesError]:
+        self.slice(0, __bytes_len(self._owner))
+
+    pub def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        for index in range(start, stop):
+            if __bytes_get(self._owner, index) == value:
+                return Ok(Some(index))
+        Ok(Nothing)
+
+    pub def to_list(self) -> Result[list[u8], BytesError]:
+        allocated(__bytes_to_list(self._owner))
+
+    pub def to_text(self) -> Result[str, BytesError]:
+        match allocated(__bytes_to_text(self._owner))?:
+            case Some(text):
+                Ok(text)
+            case Nothing:
+                Err(BytesError.InvalidUtf8)
+
+# The one range rule: 0 <= start <= stop <= count. No clamping, no negatives.
+def checked(start: i64, stop: i64, count: i64) -> Result[(), BytesError]:
+    if start < 0 or start > stop or stop > count:
+        return Err(BytesError.OutOfRange)
+    Ok(())
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(BytesError.Allocation(error))
+
+def stored(result: Result[(), AllocError]) -> Result[(), BytesError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(BytesError.Allocation(error))
+
+pub def empty() -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__bytes_new(0))?))
+
+pub def with_capacity(capacity: i64) -> Result[Bytes, BytesError]:
+    if capacity < 0:
+        return Err(BytesError.OutOfRange)
+    Ok(Bytes(allocated(__bytes_new(capacity))?))
+
+pub def from_list(values: &list[u8]) -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__bytes_from_list(values))?))
+
+pub def from_text(text: &str) -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__bytes_from_text(text))?))

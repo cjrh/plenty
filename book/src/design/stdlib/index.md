@@ -18,6 +18,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.fs`](fs.md) | Lazy directories, detached entries, metadata/links and Plenty walking with pruning | `IoError`, `AllocError`, `WalkError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.error`](error.md) | Operation and path context around a typed cause, descriptions, and standard-error reports | `Context[E]`, `AllocError` |
+| [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in
