@@ -11,4 +11,5 @@ fatal traps terminate without unwinding.
 
 [Destruction](../05-ownership/06-destruction.md) defines cleanup order.
 [The entrypoint](../02-source/entrypoint.md) defines process exit status and
-reporting of a `main` error.
+reporting of a `main` error. [`std.error`](../../stdlib/error.md) adds operation
+and path context around a typed error and reports it on standard error.

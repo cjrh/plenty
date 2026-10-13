@@ -17,6 +17,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.path`](path.md) | Lossless Linux paths, lexical operations, checked text conversion and escaped display | `IoError`, `AllocError` |
 | [`std.fs`](fs.md) | Lazy directories, detached entries, metadata/links and Plenty walking with pruning | `IoError`, `AllocError`, `WalkError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
+| [`std.error`](error.md) | Operation and path context around a typed cause, descriptions, and standard-error reports | `Context[E]`, `AllocError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in
@@ -77,5 +78,7 @@ Recoverable failures use typed errors: `std.math` defines `MathError`, while
 `std.path` and `std.fs` share the native `IoError` and storage `AllocError`.
 The filesystem walker adds `WalkError` to retain attempted paths and operations.
 `?` propagates an error to a caller returning the same error type or
-[`Failure`](../language/08-errors/01-sums-and-propagation.md). Keyword and
+[`Failure`](../language/08-errors/01-sums-and-propagation.md).
+[`std.error`](error.md) states the conventions modules follow for typed causes,
+native codes, and allocation failure. Keyword and
 default arguments are unimplemented, so every argument is explicit.
