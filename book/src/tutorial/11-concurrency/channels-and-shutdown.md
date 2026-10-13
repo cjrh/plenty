@@ -72,6 +72,33 @@ Multiple receivers compete for messages on the same queue:
 each message is delivered to one of them. Disconnection occurs only after the
 last handle on that side drops, so remember to drop unused handles too.
 
+The same ordering applies when the worker receives: an empty queue keeps it
+waiting while any sender survives. Guard the sender after the task so every exit
+disconnects the queue before joining:
+
+```plenty
+def consume(receiver: Receiver[i64]) -> ():
+    match receiver.recv():
+        case Ok(_):
+            pass
+        case Err(_):
+            pass
+
+def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with spawn(consume, receiver)?, sender as outbox:
+        outbox.send(42)?
+    Ok(())
+```
+
+```output
+```
+
+Leaving `sender` alive until after this block is rejected, even if the message
+is already queued. For an explicit `task.join()`, end an inner sender guard or
+drop every sender handle first. A drop after an earlier `?` cannot protect that
+early exit.
+
 Channel construction can fail. Its positive capacity fixes the queue's storage
 up front; sending and receiving introduce no further allocations. Messages still
 use their ordinary types: sending a list moves it, and receiving returns its

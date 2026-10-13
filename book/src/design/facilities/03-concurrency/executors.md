@@ -50,7 +50,7 @@ Workers must finish their communication before the scope can close. See
 
 Shutdown waits for every accepted job, and a job waiting for queue space is
 released only by a receive or by the drop of the last receiver. The compiler
-therefore applies the [task join rule](channels.md#joins-and-live-receivers) to
+therefore applies the [task join rule](channels.md#joins-and-live-endpoints) to
 pools:
 
 > A pool cannot be shut down while a live binding of the function can hold

@@ -38,7 +38,7 @@ Other shared handles remain independent owners.
 
 Workers must handle disconnection and terminate.
 
-## Joins and live receivers
+## Joins and live endpoints
 
 A worker waiting for queue space is released only by a receive or by the drop of
 the last receiver. A join that waits for such a worker while the joining
@@ -47,6 +47,10 @@ compiler therefore rejects a join that could wait this way:
 
 > A scoped task whose worker can hold `Sender[T]` cannot be joined while a live
 > binding of the joining function can hold `Receiver[T]`.
+>
+> Likewise, a worker that can hold `Receiver[T]` cannot be joined while a live
+> binding of the joining function can hold `Sender[T]`: an empty queue could
+> leave the worker waiting forever for a message or the last sender's drop.
 
 The rule applies to `task.join()` and to the automatic join on every exit from
 the task's `with` block: its end, `return`, `?`, `break`, `continue`, and the
@@ -58,6 +62,8 @@ of one, behind a reference, or a message of a channel it holds. A binding
 *can hold* a receiver the same way, except that a local reference is ignored
 because its owner is checked instead. A `&Receiver[T]` parameter, or a parameter
 that refers to a value holding one, always counts: its owner outlives the call.
+The same holder rules apply to receiving workers and surviving senders, including
+borrowed sender parameters, aggregates, and concrete callable captures.
 
 Place the receiver guard directly after the task manager. Contexts exit in
 reverse order, so every exit drops the receiver before joining the producer:
@@ -84,11 +90,17 @@ statement, because a failed later start joins the earlier ones before the guard
 exists. Give the receiver to a consuming worker, or start the later producers in
 a function that takes the receiver by value.
 
+For a receiving worker, drop or guard every matching sender before joining.
+Write `with spawn(consumer)?, sender as outbox:` for an automatic join, or end
+the sender's inner guard before `task.join()`. Other shared sender handles still
+count; a drop on only one branch does not release a handle on other paths. A
+failed later task start also joins earlier tasks before any later guard exists.
+
 The diagnostic reports the join or the `with` statement, each binding that holds
-a matching receiver, the early exit that reaches the join, and, for an explicit
+a matching endpoint, the early exit that reaches the join, and, for an explicit
 join, where the task starts.
 
-Pool shutdown waits for submitted jobs the same way and follows the same rule.
+Pool shutdown checks sending jobs against surviving receivers.
 See [shutdown and live receivers](executors.md#shutdown-and-live-receivers).
 
 ### What the rule does not decide
@@ -104,16 +116,20 @@ count messages. These safe programs are rejected:
 - another thread also receives from the queue;
 - the receiver's caller-side owner would have received.
 
+The receiving-worker rule likewise rejects a sender for an unrelated queue of
+the same message type, a worker that only receives with `recv_nowait` or
+`recv_timeout`, and a worker whose receives are already satisfied by buffered
+messages or another thread. It does not count sends or receives.
+
 The rule is not a deadlock-freedom guarantee. It does not cover:
 
-- a worker waiting to *receive* while the joining function keeps a sender;
-- a receiver captured by a `Callable` or boxed callable held by the joining
+- an endpoint captured by a `Callable` or boxed callable held by the joining
   function, whose captures have no type;
-- receivers held by the function's callers through bindings it was not passed;
+- endpoints held by the function's callers through bindings it was not passed;
 - a worker blocked for any other reason.
 
-Dropping or guarding the receiver removes the rejection without changing what
-the program sends.
+Dropping or guarding the surviving endpoints removes the rejection. Workers
+must still handle disconnection and terminate.
 
 ## Messages
 
