@@ -63,10 +63,11 @@ def pause(stop: CancellationToken, ready: Sender[i64]) -> bool:
 
 def main() -> Result[(), Failure]:
     stop = CancellationToken()?
-    ready, started = channel[i64](1)?
-    with ThreadPoolExecutor(1, 1)? as pool, started as inbox:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        ready, started = channel[i64](1)?
         future = pool.submit(pause, stop.share(), ready)?
-        inbox.recv()?
+        started.recv()?
+        drop(started)
         stop.cancel()
         print(future.result()?)?
     Ok(())

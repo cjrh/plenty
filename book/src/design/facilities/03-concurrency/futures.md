@@ -34,3 +34,27 @@ Scoped `Task.join()` returns `T` directly because scoped tasks cannot be
 cancelled. `Future.result()` needs its outer `Result` to report cancellation;
 for an application Result, `(future.result()?)?` deliberately handles two
 different failure layers.
+
+## Result waits and live receivers
+
+`result()` cannot wait for a locally submitted job holding `Sender[T]` while
+the calling function still holds `Receiver[T]`. A full queue could keep the job
+and the result wait blocked forever. Drop every matching receiver, or end its
+guard, before retrieving the result. Guarding a receiver alongside the pool
+only disconnects it at pool shutdown; that is too late for a result wait inside
+the block.
+
+The diagnostic points to the wait, receiver holders, and submission. Tracking
+follows local future moves, `?`, `unwrap()`, and extraction from submission
+results. Separate futures with the same result type keep their own job origins.
+Receivers dropped on every continuing path are accepted. `done()`, `cancel()`,
+and `wait_timeout()` are unaffected, and result retrieval still consumes the
+future and preserves both cancellation and application errors.
+
+This is a conservative check, not a proof of deadlock freedom: endpoints are
+matched by message type, not channel identity. Completion, cancellation, queue
+capacity, and earlier receives do not discharge the check. Assignments to the
+same local are conservatively combined. Provenance is not tracked through
+function calls, collections, class fields, or multi-field aggregate storage;
+indirect submissions, moved pools, and blocking mapping callbacks retain the
+[executor limits](executors.md#shutdown-and-live-receivers).

@@ -47,9 +47,9 @@ ownership. Table row order below remains a catalogue, not a second priority list
   measurements and a focused batch, and does not keep B34 open.
 - **B22:** join/shutdown checks for sending workers are implemented (issues
   #12/#74). Scoped joins also check receiving workers against surviving senders
-  (issue #108); the issue remains open until its local PR merges. The blocking
-  future-result gap (issue #109) remains open for focused diagnostic work. Other
-  documented limits remain explicit in the [channel](design/facilities/03-concurrency/channels.md#what-the-rule-does-not-decide)
+  (issue #108), and blocking future-result checks are implemented (issue #109).
+  Other documented
+  limits remain explicit in the [channel](design/facilities/03-concurrency/channels.md#what-the-rule-does-not-decide)
   and [executor](design/facilities/03-concurrency/executors.md#shutdown-and-live-receivers)
   contracts; these checks do not establish deadlock freedom.
 - Broader concurrency mapping/effects, streaming results, rendezvous, larger or
@@ -148,7 +148,7 @@ Plenty; approved platform/backend boundaries remain narrow.
 | --- | --- | --- |
 | B39 | Compact bytes — issue #76 | [std.bytes](design/stdlib/bytes.md) owning buffers, checked ranges, explicit copies, and `&Bytes`/`&mut Bytes` views under the ordinary loan rules are implemented. Remaining: first-class sub-range view values (needs B11 stored references), index/slice syntax and iteration, bulk search/fill primitives, and direct `Bytes` I/O (with B40). B12; #61 transport keeps `list[u8]`. |
 | B40 | Binary streams — issue #77 | Partial read/write/seek, bounded buffering, read_exact/write_all/copy and flush/close. Depends on B39/B41. |
-| B41 | Error context — issue #78 | [std.error](design/stdlib/error.md) is implemented: `Context[E]` with operation/path/typed cause, explicit conversion, descriptions and stderr reports with nonallocating fallbacks, and module conventions. Remaining: OS description text, entrypoint rendering of a `Context`, and unit Results (issue #110). B14. |
+| B41 | Error context — issue #78 | [std.error](design/stdlib/error.md) is implemented: `Context[E]` with operation/path/typed cause, explicit conversion, descriptions and stderr reports with nonallocating fallbacks, and module conventions. Unit Results are supported (issue #110). Remaining: OS description text and entrypoint rendering of a `Context`. B14. |
 | B42 | Time/deadlines — issue #79 | Complete: [std.time](design/stdlib/time.md) delivers checked `Duration`, monotonic `Instant`/`Deadline`, wall `Timestamp`, and sleep. Unscheduled candidates: `Duration`/`Deadline` overloads of timed waits, calendar and formatting support. |
 | B43 | Environment/processes — issue #80 | Lossless args/env/cwd, vector spawning, pipes, status, termination and reaping. Depends on B40/B42. |
 | B44 | CLI parsing — issue #81 | Typed options/positionals, help/errors and lossless path arguments. Depends on B41. |

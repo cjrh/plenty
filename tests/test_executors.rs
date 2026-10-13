@@ -97,9 +97,10 @@ def full[F: OnceCallable[[], i64]](pool: &ThreadPoolExecutor, job: F) -> i64:
                     -3
 ready, started = channel[i64](1).unwrap()
 signal, gate = channel[i64](1).unwrap()
-with ThreadPoolExecutor(1, 1).unwrap() as pool, started as inbox:
+with ThreadPoolExecutor(1, 1).unwrap() as pool:
     running = pool.submit(block, ready, gate).unwrap()
-    inbox.recv().unwrap()
+    started.recv().unwrap()
+    drop(started)
     print(running.done()).unwrap()
     print(running.cancel()).unwrap()
     pending = pool.submit(value).unwrap()
@@ -396,6 +397,185 @@ fn blocked_shutdown(body: &str) -> String {
 
 fn accepted(body: &str) {
     support::check_source(&format!("{PRODUCE}{body}")).unwrap_or_else(|e| panic!("{body}\n{e}"));
+}
+
+#[test]
+fn future_result_rejects_a_live_receiver_at_the_wait() {
+    for (binding, wait) in [
+        ("", "future.result()"),
+        ("        moved = future\n", "moved.result()"),
+    ] {
+        let source = format!(
+            "{PRODUCE}def main() -> Result[(), Failure]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+{binding}        {wait}?
+        drop(receiver)
+    Ok(())
+"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        let line = if binding.is_empty() { "12:" } else { "13:" };
+        assert!(error.starts_with(line), "{error}");
+        assert!(error.contains("this result() waits for a job"), "{error}");
+        assert!(
+            error.contains("`receiver` still holds `Receiver[i64]`"),
+            "{error}"
+        );
+        assert!(error.contains("the job is submitted here"), "{error}");
+        assert!(error.contains("before waiting for the result"), "{error}");
+    }
+}
+
+#[test]
+fn future_result_tracks_unwrapped_and_matched_submission_results() {
+    for binding in [
+        "pool.submit(produce, sender).unwrap().result().unwrap()",
+        "future = pool.submit(produce, sender).unwrap()\n    future.result().unwrap()",
+        "submitted = pool.submit(produce, sender)\n    future = submitted.unwrap()\n    future.result().unwrap()",
+        "match pool.submit(produce, sender):\n        case Ok(future):\n            future.result().unwrap()\n        case Err(error):\n            drop(error)",
+    ] {
+        let source = format!(
+            "{PRODUCE}def main() -> ():
+    pool = ThreadPoolExecutor(1, 1).unwrap()
+    sender, receiver = channel[i64](1).unwrap()
+    {binding}
+    drop(receiver)
+"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("this result() waits for a job"), "{error}");
+    }
+}
+
+#[test]
+fn a_temporary_future_wait_is_checked_after_try() {
+    let error = support::check_source(&format!(
+        "{PRODUCE}def main() -> Result[(), Failure]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        sender, receiver = channel[i64](1)?
+        (pool.submit(produce, sender)?).result()?
+        drop(receiver)
+    Ok(())
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("this result() waits for a job"), "{error}");
+}
+
+#[test]
+fn future_waits_keep_distinct_jobs_and_message_types_separate() {
+    accepted(
+        "def noop() -> ():
+    pass
+def words(sender: Sender[str]) -> ():
+    drop(sender)
+def main() -> Result[(), Failure]:
+    with ThreadPoolExecutor(3, 3)? as pool:
+        sender, receiver = channel[i64](1)?
+        texts, lines = channel[str](1)?
+        blocked = pool.submit(produce, sender)?
+        other = pool.submit(words, texts)?
+        plain = pool.submit(noop)?
+        plain.result()?
+        drop(lines)
+        other.result()?
+        drop(receiver)
+        blocked.result()?
+    Ok(())
+",
+    );
+}
+
+#[test]
+fn future_result_accepts_dropped_or_ended_receiver_guards_and_early_exits() {
+    for release in [
+        "drop(receiver)",
+        "with receiver as inbox:\n            pass",
+        "if leave:\n            drop(receiver)\n        else:\n            return Ok(())",
+    ] {
+        accepted(&format!(
+            "def main() -> Result[(), Failure]:
+    leave = True
+    with ThreadPoolExecutor(1, 1)? as pool:
+        sender, receiver = channel[i64](1)?
+        future = pool.submit(produce, sender)?
+        {release}
+        future.result()?
+    Ok(())
+"
+        ));
+    }
+}
+
+#[test]
+fn timed_and_nonblocking_future_operations_allow_live_receivers() {
+    runs(
+        &format!(
+            "{PRODUCE}def main() -> Result[(), Failure]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        sender, receiver = channel[i64](1)?
+        future = pool.submit(produce, sender)?
+        future.done()
+        future.wait_timeout(1)
+        future.cancel()
+        drop(receiver)
+        match future.result():
+            case Ok(_):
+                pass
+            case Err(_):
+                pass
+    Ok(())
+"
+        ),
+        "",
+    );
+}
+
+#[test]
+fn receiver_guards_and_partial_drops_do_not_discharge_future_waits() {
+    for before in [
+        "with receiver as inbox:\n            future.result().unwrap()",
+        "if flag:\n            drop(receiver)\n        future.result().unwrap()",
+    ] {
+        let error = support::check_source(&format!(
+            "{PRODUCE}def main() -> ():
+    flag = True
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        sender, receiver = channel[i64](1).unwrap()
+        future = pool.submit(produce, sender).unwrap()
+        {before}
+"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("this result() waits for a job"), "{error}");
+    }
+}
+
+#[test]
+fn result_errors_remain_recoverable_after_receiver_cleanup() {
+    runs(
+        r#"
+def fail(sender: Sender[str]) -> Result[(), i64]:
+    drop(sender)
+    Err(42)
+def main() -> Result[(), Failure]:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        sender, receiver = channel[str](1)?
+        future = pool.submit(fail, sender)?
+        drop(receiver)
+        match future.result()?:
+            case Ok(_):
+                pass
+            case Err(error):
+                print(error)?
+    Ok(())
+"#,
+        "42\n",
+    );
 }
 
 #[test]

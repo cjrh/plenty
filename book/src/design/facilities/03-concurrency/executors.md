@@ -96,5 +96,7 @@ It does not cover:
 
 - a job submitted by another function through a `&ThreadPoolExecutor`;
 - a pool moved into a function that drops it;
-- `future.result()` waiting for a job that is waiting to send;
 - a `map`, `map_result`, or `reduce_tree` callback that waits to send.
+
+Blocking [future retrieval](futures.md#result-waits-and-live-receivers) has its own
+check at `result()`, before any later receiver cleanup.

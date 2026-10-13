@@ -35,6 +35,41 @@ def start(path: &Path) -> Result[i64, Context[Context[IoError]]]:
 "#;
 
 #[test]
+fn context_helpers_preserve_unit_success_and_typed_errors() {
+    run_both(
+        r#"from std.error import Context, context, path_context
+from std.path import from_text
+
+def flush() -> Result[(), Context[IoError]]:
+    context(flush_stdout(), "flush")
+
+def fail() -> Result[(), IoError]:
+    Err(IoError.Closed)
+
+def main() -> Result[(), Failure]:
+    path = from_text("output.txt")?
+    flush()?
+    path_context(flush_stdout(), "flush path", &path)?
+    print("flushed")?
+    match context(fail(), "close"):
+        case Ok(_):
+            print("unexpected success")?
+        case Err(error):
+            print(error.describe()?)?
+    match path_context(fail(), "close path", &path):
+        case Ok(_):
+            print("unexpected success")?
+        case Err(error):
+            print(error.describe()?)?
+    Ok(())
+"#,
+        0,
+        "flushed\nclose: IoError.Closed\nclose path \"output.txt\": IoError.Closed\n",
+        "",
+    );
+}
+
+#[test]
 fn a_context_keeps_its_operation_path_and_typed_cause() {
     run_both(
         &format!(

@@ -15,6 +15,9 @@ def read_limit(path: &Path) -> Result[list[u8], Context[IoError]]:
 def parse_limit(text: &str) -> Result[i64, Context[ParseError]]:
     context(i64.parse(text), "parse limit")
 
+def flush_output() -> Result[(), Context[IoError]]:
+    context(flush_stdout(), "flush output")
+
 def limit(path: &Path) -> Result[i64, Failure]:
     match read_limit(path):
         case Ok(bytes):
@@ -33,6 +36,7 @@ def run() -> Result[(), Failure]:
         case Err(error):
             print(error.describe()?)?
             print(error.cause == ParseError.Invalid)?
+    flush_output()?
     Ok(())
 
 def main() -> i32:
@@ -52,10 +56,11 @@ True
 ```
 
 `context(result, label)` and `path_context(result, label, &path)` pass an `Ok`
-through and wrap an `Err`. They do not yet accept a Result whose success is
-`()`; `main` shows the direct form, `Context(label, Subject.Absent, cause)`. Nothing is wrapped implicitly: `?` still needs the
-function's exact error type, so `read_limit` returns `Context[IoError]` and
-says so.
+through and wrap an `Err`, including operations whose success is `()`, as
+`flush_output` shows. `main` uses the direct form,
+`Context(label, Subject.Absent, cause)`. Nothing is wrapped implicitly: `?`
+still needs the function's exact error type, so `read_limit` returns
+`Context[IoError]` and says so.
 
 `describe()` builds one line: the label, the quoted path if there is one, and
 the cause. It allocates, so it returns a Result. `error.cause` is the untouched

@@ -292,10 +292,11 @@ def main() -> Result[(), Failure]:
     drop(sender)
     drop(receiver)
     hour = deadline_after(&monotonic_now(), &seconds(3600))?
-    ready, started = channel[i64](1)?
-    with ThreadPoolExecutor(1, 1)? as pool, started as inbox:
+    with ThreadPoolExecutor(1, 1)? as pool:
+        ready, started = channel[i64](1)?
         future = pool.submit(wait, stop.share(), hour, ready)?
-        inbox.recv()?
+        started.recv()?
+        drop(started)
         print(future.wait_timeout(0))?
         stop.cancel()
         print(future.result()?)?

@@ -13,5 +13,10 @@ For a future, `future.wait_timeout(milliseconds)` returns a boolean: true means
 completed or cancelled. This only observes the future; call `result()` afterward
 to take its result. A false return leaves the job running or queued.
 
+Before `result()` on a job that holds a sender, drop matching receivers or end
+their guards. Plenty rejects a blocking result wait while those receivers are
+still alive, even after `done()` or `wait_timeout()` reports completion. These
+observations do not prove the channel protocol to the checker.
+
 A worker that may run indefinitely needs a cooperative shutdown protocol:
 scope exit still waits after a timed wait returns.

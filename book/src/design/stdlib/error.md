@@ -30,7 +30,8 @@ pub class Context[E]:
 | `native_code(error)` | `Option[i32]` | The OS code of `IoError.System(code)`; otherwise `Nothing` |
 
 `context` and `path_context` consume the Result and return `Ok` payloads
-unchanged. Conversion is always this explicit call: `?` neither wraps an error
+unchanged, including `()` from operations such as `flush_stdout()` and
+`File.close()`. Conversion is always this explicit call: `?` neither wraps an error
 in a `Context` nor unwraps one, and the
 [identical-error rule](../language/08-errors/01-sums-and-propagation.md)
 applies to `Context[E]` as to any error type. A `Context` moves, because it can
@@ -121,9 +122,6 @@ format above.
 
 ## Limits
 
-- `context` and `path_context` reject `Result[(), E]`, because unit cannot be
-  a generic function type argument (issue #110). Match the Result and construct
-  `Context(operation, Subject.Absent, cause)` in the `Err` arm.
 - `E` must be a type `str.repr` accepts. A cause holding recursive data or a
   generator is rejected where `Context[E]` is first used, because every method
   of a class instance is checked together.
