@@ -90,10 +90,11 @@ pub enum Kind {
         exclusive: bool,
     },
     LiveAcrossYield,
-    /// A join that a worker waiting to send could keep waiting forever.
+    /// A join that a worker waiting on a channel could keep waiting forever.
     BlockedJoin {
-        /// Message type of the worker's sender and the surviving receiver.
+        /// Message type shared by the worker and the surviving endpoint.
         message: String,
+        worker_sends: bool,
         /// The join belongs to a `with` block exit, not an explicit `join()`.
         automatic: bool,
     },
@@ -173,19 +174,31 @@ impl fmt::Display for Error {
             Kind::LiveAcrossYield => {
                 format!("a borrow of {place} cannot remain live across yield")
             }
-            Kind::BlockedJoin { message, automatic } => format!(
-                "{} a task whose worker holds `Sender[{message}]` while {} still holds \
-                 `Receiver[{message}]`: a full queue could block the worker's send, and \
+            Kind::BlockedJoin {
+                message,
+                worker_sends,
+                automatic,
+            } => format!(
+                "{} a task whose worker holds `{}[{message}]` while {} still holds \
+                 `{}[{message}]`: {} could block the worker's {}, and \
                  this join, forever",
                 if *automatic {
                     "leaving this `with` block joins"
                 } else {
                     "this join waits for"
                 },
+                if *worker_sends { "Sender" } else { "Receiver" },
                 match &self.place {
                     Some(place) => format!("`{place}`"),
                     None => "an unnamed value".into(),
-                }
+                },
+                if *worker_sends { "Receiver" } else { "Sender" },
+                if *worker_sends {
+                    "a full queue"
+                } else {
+                    "an empty queue"
+                },
+                if *worker_sends { "send" } else { "receive" },
             ),
             Kind::BlockedShutdown { message, automatic } => format!(
                 "{} after a job that holds `Sender[{message}]` was submitted, while {} still \
@@ -582,7 +595,20 @@ impl Checker<'_> {
         kind: impl Fn(String) -> Kind,
         advice: impl Fn(Option<&str>) -> String,
     ) -> Option<Box<Error>> {
-        if sends.is_empty() {
+        self.blocked_endpoints(sends, true, state, site, kind, advice)
+    }
+
+    /// Match the worker's endpoints against live owners of the opposite side.
+    fn blocked_endpoints(
+        &self,
+        messages: &[Ty],
+        worker_sends: bool,
+        state: &State,
+        site: Option<Site>,
+        kind: impl Fn(String) -> Kind,
+        advice: impl Fn(Option<&str>) -> String,
+    ) -> Option<Box<Error>> {
+        if messages.is_empty() {
             return None;
         }
         let mut error: Option<Box<Error>> = None;
@@ -596,9 +622,9 @@ impl Checker<'_> {
             };
             // A borrowed parameter's owner is alive for the whole call.
             let parameter = slot < self.parameters;
-            let Some(message) = endpoints([self.locals[slot].clone()], false, parameter)
+            let Some(message) = endpoints([self.locals[slot].clone()], !worker_sends, parameter)
                 .into_iter()
-                .find(|message| sends.contains(message))
+                .find(|message| messages.contains(message))
             else {
                 continue;
             };
@@ -611,13 +637,17 @@ impl Checker<'_> {
             let first = error.is_none();
             let error = error
                 .get_or_insert_with(|| self.error(kind(message.to_string()), place.clone(), site));
+            let endpoint = if worker_sends { "Receiver" } else { "Sender" };
             let holds = format!(
-                "{name} {}holds `Receiver[{message}]`{}",
+                "{name} {}holds `{endpoint}[{message}]`{}",
                 if first { "" } else { "also " },
                 if partly { " on some paths" } else { "" }
             );
             let advice = if matches!(self.locals[slot], Ty::Ref(..)) {
-                "its owner outlives this call, so take the receiver by value".into()
+                format!(
+                    "its owner outlives this call, so take the {} by value",
+                    endpoint.to_lowercase()
+                )
             } else {
                 advice(place.as_deref())
             };
@@ -628,20 +658,27 @@ impl Checker<'_> {
         error
     }
 
-    /// Reject a join reached while this function still keeps a receiver alive
-    /// for a message type the worker can send.
+    /// Reject a join while this function retains the opposite channel endpoint.
     fn join(&self, task: &Task, state: &State, site: Option<Site>, automatic: bool) -> Result<()> {
-        let sends = endpoints(task.inputs.iter().cloned(), true, true);
-        let kind = |message| Kind::BlockedJoin { message, automatic };
-        let advice = |place: Option<&str>| match place {
-            _ if !automatic => "drop it, or end its `with` block, before joining".to_owned(),
-            Some(place) => format!(
-                "drop it before leaving the block, or guard it directly after the task: \
-                 `with spawn(...)?, {place} as inbox:`"
-            ),
-            None => "end its scope before leaving the block".into(),
+        let blocked = |worker_sends| {
+            let messages = endpoints(task.inputs.iter().cloned(), worker_sends, true);
+            let kind = |message| Kind::BlockedJoin {
+                message,
+                worker_sends,
+                automatic,
+            };
+            let guard = if worker_sends { "inbox" } else { "outbox" };
+            let advice = |place: Option<&str>| match place {
+                _ if !automatic => "drop it, or end its `with` block, before joining".to_owned(),
+                Some(place) => format!(
+                    "drop it before leaving the block, or guard it directly after the task: \
+                 `with spawn(...)?, {place} as {guard}:`"
+                ),
+                None => "end its scope before leaving the block".into(),
+            };
+            self.blocked_endpoints(&messages, worker_sends, state, site, kind, advice)
         };
-        let Some(mut error) = self.blocked(&sends, state, site, kind, advice) else {
+        let Some(mut error) = blocked(true).or_else(|| blocked(false)) else {
             return Ok(());
         };
         // An automatic join is reported at the `with` statement that starts the task.

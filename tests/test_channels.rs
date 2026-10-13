@@ -783,7 +783,8 @@ def main() -> Result[(), Failure]:
     # The receiver belongs to another worker, which ends at disconnection.
     first, queued = channel[i64](1)?
     second = first.share()
-    with spawn(consume, queued)? as consumer, spawn(produce, first)?, spawn(produce, second)?:
+    # A failed first producer start must not join while second is still alive.
+    with spawn(consume, queued)? as consumer, spawn(produce, first).unwrap(), spawn(produce, second)?:
         print(consumer.join())?
     # A helper that owns the receiver ends it before the outer join.
     outer, handed = channel[i64](1)?

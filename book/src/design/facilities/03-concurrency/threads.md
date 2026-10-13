@@ -28,8 +28,10 @@ and forced cancellation are unsupported.
 
 A join is rejected when the worker can hold `Sender[T]` and a live binding of
 the joining function can hold `Receiver[T]`: a full queue could block the
-worker's send and the join forever. This applies to `task.join()` and to every
-automatic join. See [joins and live receivers](channels.md#joins-and-live-receivers).
+worker's send and the join forever. Likewise, a worker holding `Receiver[T]`
+cannot be joined while the function retains `Sender[T]`: an empty queue could keep
+its receive waiting. This applies to `task.join()` and to every automatic join.
+See [joins and live endpoints](channels.md#joins-and-live-endpoints).
 
 Argument loans and borrowed capture dependencies last until the end of the
 `with` block, including after explicit join. Shared readers can coexist;
