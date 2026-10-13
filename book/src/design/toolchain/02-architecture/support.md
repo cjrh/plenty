@@ -11,7 +11,7 @@ restrictions live with their contracts.
 | Ownership | [Moves, checked borrows, returned references, and cleanup](../../language/05-ownership/index.md); general stored references unsupported |
 | Functions | [Named functions and concrete closures](../../language/06-functions/index.md); explicit fallible [shared-call erasure](../../language/06-functions/05-boxed-callables.md) |
 | Generics | [Concrete specialization and structural protocols](../../language/07-generics/index.md); no dynamic protocol dispatch |
-| Errors and resources | [Sums, propagation, allocation, and context scopes](../../language/08-errors/index.md); traps do not unwind |
+| Errors and resources | [Sums, propagation, allocation, and context scopes](../../language/08-errors/index.md); traps do not unwind; explicit [std.error](../../stdlib/error.md) contexts |
 | Iteration | [Loops, comprehensions, and native generators](../../language/09-iteration/index.md); no reference yield or public borrow across suspension |
 | Built-ins | [Numeric, text, and collection operations](../../facilities/01-builtins/index.md); explicitly fallible allocating operations |
 | Standard library | Embedded [std.math](../../stdlib/math.md), [std.path](../../stdlib/path.md), [std.fs](../../stdlib/fs.md), and [std.deque](../../stdlib/deque.md); typed errors, Linux paths/metadata and walking, and owned double-ended queues |

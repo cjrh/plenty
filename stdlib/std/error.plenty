@@ -1,0 +1,89 @@
+from std.path import Path
+
+# What the failed operation acted on. Unavailable records that copying the
+# path failed; the context still keeps its operation and typed cause.
+pub enum Subject:
+    Absent
+    At(Path)
+    Unavailable(AllocError)
+
+pub class Context[E]:
+    pub operation: str
+    pub subject: Subject
+    pub cause: E
+
+    pub def describe(self) -> Result[str, AllocError]:
+        self.describe_with(&str.repr(self.cause)?)
+
+    # For a cause with its own presentation, such as a nested Context.
+    pub def describe_with(self, cause: &str) -> Result[str, AllocError]:
+        match &self.subject:
+            case Subject.Absent:
+                self.operation.concat(": ")?.concat(cause)
+            case Subject.At(path):
+                self.operation.concat(" \"")?.concat(displayed(path)?)?.concat("\": ")?.concat(cause)
+            case Subject.Unavailable(_):
+                self.operation.concat(" <path unavailable>: ")?.concat(cause)
+
+    pub def report(self) -> ():
+        self.report_with(self.describe())
+
+    # Best effort, like the entrypoint report: stderr is the last channel, so
+    # flush and write failures are dropped. One write keeps the line whole.
+    # Without memory for the line, existing text is written in pieces; neither
+    # fallback allocates.
+    pub def report_with(self, description: Result[str, AllocError]) -> ():
+        drop(flush_stdout())
+        match description:
+            case Ok(text):
+                match line(&text):
+                    case Ok(whole):
+                        drop(write_stderr(whole))
+                    case Err(_):
+                        drop(write_stderr("error: "))
+                        drop(write_stderr(text))
+                        drop(write_stderr("\n"))
+            case Err(_):
+                drop(write_stderr("error: "))
+                drop(write_stderr(self.operation))
+                drop(write_stderr(": no memory to describe the error\n"))
+
+def line(text: &str) -> Result[str, AllocError]:
+    "error: ".concat(text)?.concat("\n")
+
+def displayed(path: &Path) -> Result[str, AllocError]:
+    match path.display():
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            match error:
+                case IoError.Data(DataError.Allocation(cause)):
+                    Err(cause)
+                case _:
+                    Err(AllocError.OutOfMemory)
+
+pub def context[T, E](result: Result[T, E], operation: str) -> Result[T, Context[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(Context(operation, Subject.Absent, cause))
+
+# Copies the path only on failure. A failed copy keeps the cause.
+pub def path_context[T, E](result: Result[T, E], operation: str, path: &Path) -> Result[T, Context[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            match path.copy():
+                case Ok(owned):
+                    Err(Context(operation, Subject.At(owned), cause))
+                case Err(error):
+                    Err(Context(operation, Subject.Unavailable(error), cause))
+
+pub def native_code(error: IoError) -> Option[i32]:
+    match error:
+        case IoError.System(code):
+            Some(code)
+        case _:
+            Nothing
