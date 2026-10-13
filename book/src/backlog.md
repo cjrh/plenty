@@ -25,9 +25,10 @@ not mean all candidates or every concurrency diagnostic are implemented.
    `plentyc`/`plenty` split, manifests, Git/path dependencies, import aliases,
    committed lockfiles, and debug/release profiles. Begin with a local application
    and library workflow; preserve standalone compiler and C tooling behavior.
-2. **Standard-library foundations.** Settle and implement B39 compact bytes
-   (issue #76), B41 error context (issue #78), and B42 time/deadlines (issue #79).
-   Then build B40 binary streams (issue #77), which depends on B39/B41.
+2. **Standard-library foundations.** The first B39 compact-bytes slice (issue
+   #76), B41 error context (issue #78), and B42 time/deadlines (issue #79) have
+   landed. Build B40 binary streams (issue #77) next, including direct `Bytes`
+   I/O; the remaining B39 items stay under issue #76.
 3. **A focused CLI/data workflow.** Select a concrete use case and its acceptance
    checks, then compose the needed CLI parsing, encodings, codecs, filesystem,
    and test-support slices. B44/B51–B55/B57 are candidates, not one mandatory
@@ -129,7 +130,7 @@ ownership remain in the shared `issues.db`.
 | B33 | Deep operations on recursive values | Recursive source storage is implemented under B10. Replace native recursive copy/format traversals with iterative fallible work storage before enabling them; select an explicit bounded-memory contract for structural equality and membership without adding hidden allocation failure. Preserve failure cleanup, shared-string ownership, and float/NaN semantics. [Design rationale](proposals/recursive-data.md). |
 | B36 | Keyword arguments, defaults, and static unpacking | Keyword/default/variadic arguments and starred unpacking are unimplemented; ordinary tuple bindings and assignment to several targets already work. Proposed: keyword and keyword-only arguments, constant defaults, `/` and `*` markers, keyword constructors, and `*`/`**` unpacking at calls, in displays, and in tuple bindings. Call binding and tuple arities must resolve at compile time, with no runtime arity/key check or hidden allocation; collection displays retain explicit fallible allocation. Keyword arguments and defaults are frontend-only and come first; `*args` and sequence patterns depend on a borrowed sequence view (B12). Decide whether `first, *rest = tuple` is accepted now that tuples are inline. [Design](proposals/keyword-arguments-and-unpacking.md). |
 | B37 | Ordering beyond `sort()` | `list.sort()` orders integers, floats, `str`, and tuples of those in place; `swap` and assignment to several targets are complete (issue #31). Lexicographic string comparisons are implemented (issue #22). Allocation-free unstable `sort_by_key` with shared element borrows and recomputed keys, positional descending bools, and fallible natural-order `sorted` copies are implemented (issue #64). Remaining extensions: cached or fallible keys, stable sorting, comparison functions, tuple relational operators matching the total sort order, and class ordering protocols. Preserve no hidden allocation. |
-| B38 | Standard library scope | Issue #49 is split into B39–B70, with [catalogue rationale](proposals/standard-library-scope.md) and [HTTP acceptance](proposals/standard-http.md). [std.math](design/stdlib/math.md), [std.path](design/stdlib/path.md), [std.fs](design/stdlib/fs.md), and [std.deque](design/stdlib/deque.md) are implemented; reuse completed issues #22/#29/#31/#33/#34/#35/#39/#60/#61 rather than duplicating them. Remaining numerical candidates: accurate summation/norms, float decomposition/adjacent values and special functions, each with numerical contracts/tests. Defaults and arbitrary constant expressions are language candidates; reusable iterator contracts remain B12. Portable paths remain B12; packages/runner remain B17, issue #45. Further library breadth needs a concrete use case and its own scope before scheduling. |
+| B38 | Standard library scope | Issue #49 is split into B39–B70, with [catalogue rationale](proposals/standard-library-scope.md) and [HTTP acceptance](proposals/standard-http.md). [std.math](design/stdlib/math.md), [std.path](design/stdlib/path.md), [std.fs](design/stdlib/fs.md), [std.deque](design/stdlib/deque.md), [std.error](design/stdlib/error.md), [std.bytes](design/stdlib/bytes.md), and [std.time](design/stdlib/time.md) are implemented; reuse completed issues #22/#29/#31/#33/#34/#35/#39/#60/#61 rather than duplicating them. Remaining numerical candidates: accurate summation/norms, float decomposition/adjacent values and special functions, each with numerical contracts/tests. Defaults and arbitrary constant expressions are language candidates; reusable iterator contracts remain B12. Portable paths remain B12; packages/runner remain B17, issue #45. Further library breadth needs a concrete use case and its own scope before scheduling. |
 
 ### Standard library delivery slices
 
@@ -144,10 +145,10 @@ Plenty; approved platform/backend boundaries remain narrow.
 
 | ID | Work / issue | Scope / dependency |
 | --- | --- | --- |
-| B39 | Compact bytes — issue #76 | Owned contiguous buffers and checked views; explicit copies and relocation/loan rules. B12; retain #61 transport compatibility. |
+| B39 | Compact bytes — issue #76 | [std.bytes](design/stdlib/bytes.md) owning buffers, checked ranges, explicit copies, and `&Bytes`/`&mut Bytes` views under the ordinary loan rules are implemented. Remaining: first-class sub-range view values (needs B11 stored references), index/slice syntax and iteration, bulk search/fill primitives, and direct `Bytes` I/O (with B40). B12; #61 transport keeps `list[u8]`. |
 | B40 | Binary streams — issue #77 | Partial read/write/seek, bounded buffering, read_exact/write_all/copy and flush/close. Depends on B39/B41. |
-| B41 | Error context — issue #78 | Typed causes/native codes and presentation with a nonallocating fallback; preserve #16. B14. |
-| B42 | Time/deadlines — issue #79 | Monotonic instants, durations and distinct wall timestamps; reconcile current cancellation/timed waits. |
+| B41 | Error context — issue #78 | [std.error](design/stdlib/error.md) is implemented: `Context[E]` with operation/path/typed cause, explicit conversion, descriptions and stderr reports with nonallocating fallbacks, and module conventions. Remaining: OS description text, entrypoint rendering of a `Context`, and unit Results (issue #110). B14. |
+| B42 | Time/deadlines — issue #79 | Complete: [std.time](design/stdlib/time.md) delivers checked `Duration`, monotonic `Instant`/`Deadline`, wall `Timestamp`, and sleep. Unscheduled candidates: `Duration`/`Deadline` overloads of timed waits, calendar and formatting support. |
 | B43 | Environment/processes — issue #80 | Lossless args/env/cwd, vector spawning, pipes, status, termination and reaping. Depends on B40/B42. |
 | B44 | CLI parsing — issue #81 | Typed options/positionals, help/errors and lossless path arguments. Depends on B41. |
 | B45 | Formatting — issue #82 | Explicit display/debug forms, writer output and fallible strings. Depends on B40. |
