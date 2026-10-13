@@ -2625,10 +2625,7 @@ impl Lower<'_> {
             Expression::GenericValue(name, types) => {
                 let actual = types
                     .iter()
-                    .map(|t| {
-                        t.resolve(self.aliases)?
-                            .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))
-                    })
+                    .map(|t| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
                     .collect::<Result<_>>()?;
                 let symbol = self.specialize(name, actual, &e.at)?;
                 Some(self.function_value(&symbol, &e.at, ops)?)

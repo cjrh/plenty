@@ -290,7 +290,9 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         _ => (Some(ty.to_string()), vec![]),
     };
     TypeRef {
-        concrete: Some(ty.clone()),
+        // Unit has no expression operand: resolving its type reference must
+        // produce None, just like a source-level `()` annotation.
+        concrete: (*ty != Ty::Unit).then(|| ty.clone()),
         at: at.clone(),
         name,
         args: children.into_iter().map(|t| type_ref(t, at)).collect(),
@@ -564,10 +566,7 @@ impl Lower<'_> {
         if let Some(types) = types {
             let actual = types
                 .iter()
-                .map(|t| {
-                    t.resolve(self.aliases)?
-                        .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))
-                })
+                .map(|t| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<_>>()?;
             let symbol = self.specialize(name, actual, at)?;
             return self.call_named(&symbol, args, at, ops);
@@ -853,9 +852,6 @@ impl Engine {
             .zip(actual.iter().map(|ty| type_ref(ty, at)))
             .collect();
         for ((_, bound), ty) in template.type_params.iter().zip(&actual) {
-            if *ty == Ty::Unit {
-                return Err(at.error("unit type arguments are not supported yet"));
-            }
             let borrowed_callable =
                 matches!(ty, Ty::Closure(_)) && bound.as_ref().is_some_and(callable_bound);
             if ty.contains_reference() && !borrowed_callable {

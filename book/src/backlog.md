@@ -219,7 +219,7 @@ active list.
 | Precompiled runtime archive | The runtime archive is built with the compiler and embedded for linking. It is not rebuilt from C source for each program. See [runtime](runtime.md). |
 | Foundation batch | Main/imports/visibility, fallible allocation APIs, borrowing, tuples/items, typed ranges, generic functions, and structural protocols have implemented paths. See the [current status](design/toolchain/02-architecture/support.md). |
 | Allocation syntax and error convenience | Allocating operations return Result by default; `?`, explicit success values, and `Failure` replace the old `try`/`try_` alternatives and repetitive unwraps. |
-| Generic argument inference | Calls infer concrete type parameters from arguments; explicit arguments remain available. See [generic functions](design/language/07-generics/index.md). |
+| Generic argument inference | Calls infer concrete type parameters from arguments; explicit arguments remain available. Unit type arguments work in function specializations, including `Result`/`Option` payloads (issue #110); standalone unit parameters/storage remain B16. See [generic functions](design/language/07-generics/index.md). |
 | Catch-all matching | `case _:` already handles remaining enum variants. See the [enum lesson](tutorial/06-data/06-enums.md). |
 | mdBook migration | Reference and tutorial pages live under `book/src/`, are listed in `SUMMARY.md`, and tutorial examples run in tests. Literate-source generation is the separate B21 candidate. |
 
