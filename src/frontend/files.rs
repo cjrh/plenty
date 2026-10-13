@@ -28,6 +28,43 @@ impl Lower<'_> {
         Ok(Some(output))
     }
 
+    pub(super) fn bytes_call(
+        &mut self,
+        operation: crate::bytes::BytesOp,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if !operation.mutable() {
+            return self.system_call(CollectionOp::Bytes(operation), args, at, ops);
+        }
+        let (inputs, output) = operation.signature();
+        if args.len() != inputs.len() {
+            return Err(at.error(format!(
+                "expected {} arguments, got {}",
+                inputs.len(),
+                args.len()
+            )));
+        }
+        let (_, loan) = self.borrow(&args[0], true, ops)?;
+        self.same(
+            self.place_type(&args[0]),
+            Some(inputs[0].clone()),
+            &args[0].at,
+        )?;
+        ops.push(Op::ReadRef(inputs[0].clone()));
+        let mut reads = Vec::new();
+        for (arg, expected) in args.iter().zip(inputs).skip(1) {
+            let (actual, loans) = self.observe_expected(arg, Some(expected.clone()), ops)?;
+            self.same(Some(actual), Some(expected), &arg.at)?;
+            reads.extend(loans);
+        }
+        ops.push(Op::Collection(CollectionOp::Bytes(operation)));
+        ops.push(Op::UseLoan(loan));
+        Self::end_reads(reads, ops);
+        Ok(Some(output))
+    }
+
     pub(super) fn open_file(
         &mut self,
         args: &[Expr],

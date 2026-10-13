@@ -56,6 +56,21 @@ impl Lowerer<'_, '_> {
                 (i * 16) as i32,
             );
         }
+        // `std.bytes` range copies take up to five operands; the two beyond
+        // the fixed inputs travel in the scratch words after the result.
+        for (i, value) in values.iter().enumerate().skip(3).take(2) {
+            let value = if self.bcx.func.dfg.value_type(*value) == types::I128 {
+                *value
+            } else {
+                self.bcx.ins().uextend(types::I128, *value)
+            };
+            self.bcx.ins().store(
+                cranelift_codegen::ir::MemFlags::trusted(),
+                value,
+                args,
+                ((i + 1) * 16) as i32,
+            );
+        }
         let f = self
             .module
             .declare_func_in_func(self.runtime.collection, self.bcx.func);
@@ -152,7 +167,7 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         let descriptor = match operation {
-            CollectionOp::Filesystem(_) => Some(&output),
+            CollectionOp::Filesystem(_) | CollectionOp::Bytes(_) => Some(&output),
             CollectionOp::Args
             | CollectionOp::ArgsBytes
             | CollectionOp::InputBytes

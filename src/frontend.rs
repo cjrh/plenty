@@ -2040,6 +2040,7 @@ fn named_type(name: &str) -> Type {
         "FsReadDir" => Ty::FsReadDir,
         "FsDirEntry" => Ty::FsDirEntry,
         "FsMetadata" => Ty::FsMetadata,
+        "ByteStorage" => Ty::ByteStorage,
         "range" => Ty::Range(Arc::new(Ty::I64)),
         "AllocError" => crate::sum::alloc_error(),
         "ParseError" => crate::sum::parse_error(),
@@ -2072,6 +2073,7 @@ fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
 pub(crate) fn builtin(name: &str) -> bool {
     named_type(name).is_some()
         || crate::filesystem::FsOp::named(name).is_some()
+        || crate::bytes::BytesOp::named(name).is_some()
         || matches!(
             name,
             "print"
@@ -3142,6 +3144,9 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::filesystem::FsOp::named(name) {
                     return self.filesystem_call(operation, args, &e.at, ops);
+                }
+                if let Some(operation) = crate::bytes::BytesOp::named(name) {
+                    return self.bytes_call(operation, args, &e.at, ops);
                 }
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));

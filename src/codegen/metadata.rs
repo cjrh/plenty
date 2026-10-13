@@ -90,6 +90,7 @@ fn define_type(
         Ty::FsReadDir => b'A',
         Ty::FsDirEntry => b'I',
         Ty::FsMetadata => b'M',
+        Ty::ByteStorage => b'U',
         Ty::List(_) => b'L',
         Ty::Set(_) => b'S',
         Ty::Dict(..) => b'D',

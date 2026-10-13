@@ -7,6 +7,7 @@
 //! Compile with [`compile_source_to_executable`] or validate with [`check_source`].
 
 mod boxed;
+mod bytes;
 mod channel;
 mod closure;
 mod codegen;

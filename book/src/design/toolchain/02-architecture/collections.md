@@ -34,6 +34,10 @@ payloads. End removal replaces a slot with `Nothing` and transfers its previous
 owner. Growth doubles the slot count and initializes a replacement buffer
 before moving live entries; list removal behavior is unchanged.
 
+`std.bytes` does not use collection slots. Its private owner holds a contiguous
+one-byte-per-element buffer, reached only through range-checked runtime
+operations that never expose an address. See [std.bytes](../../stdlib/bytes.md).
+
 Reservation obtains bucket, link, and row capacity before publishing indices or
 transferring owners. Failure preserves contents and order, though capacity may
 have grown. Relocation ignores dead rows. A popped inline payload stays readable

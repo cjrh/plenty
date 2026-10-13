@@ -49,6 +49,8 @@ pub enum Ty {
     FsReadDir,
     FsDirEntry,
     FsMetadata,
+    /// Private contiguous byte owner used by the embedded `std.bytes`.
+    ByteStorage,
     /// Nominal opaque C pointer. No dereference or integer conversions.
     ForeignPtr(Arc<str>),
     Bool,
@@ -157,6 +159,7 @@ impl Ty {
                 | Self::FsReadDir
                 | Self::FsDirEntry
                 | Self::FsMetadata
+                | Self::ByteStorage
         ) || matches!(self, Self::Enum(_) if self.facts().affine)
     }
     pub fn restricted_storage(&self) -> bool {
@@ -264,6 +267,7 @@ impl Ty {
                 | Self::FsReadDir
                 | Self::FsDirEntry
                 | Self::FsMetadata
+                | Self::ByteStorage
                 | Self::Channel(..)
                 | Self::CancellationToken
                 | Self::Executor
@@ -395,6 +399,7 @@ impl fmt::Display for Ty {
             Ty::FsReadDir => "FsReadDir",
             Ty::FsDirEntry => "FsDirEntry",
             Ty::FsMetadata => "FsMetadata",
+            Ty::ByteStorage => "ByteStorage",
             Ty::ForeignPtr(name) => return f.write_str(name),
             Ty::Bool => "bool",
             Ty::List(t) => return write!(f, "list[{t}]"),
