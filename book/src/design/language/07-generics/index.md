@@ -27,8 +27,14 @@ explicit argument list. [Generic data and methods](data.md) retain nominal
 identity. [Protocols](protocols.md) describe exact structural interfaces without
 inheritance or registration.
 
-Generic function type arguments cannot be references or unit. A signature can
-borrow `T` with `&T` or `&mut T`. A callable-constrained parameter can borrow a
+Generic function type arguments can be unit `()`, including when inferred from
+`Result` or `Option` payloads. Substituted signatures and bodies retain ordinary
+unit restrictions: unit can be a return type or built-in enum payload, but not
+a direct function parameter or stored collection element. Explicit calls and
+specialized function values also accept `()`.
+
+Generic function type arguments cannot be references. A signature can borrow
+`T` with `&T` or `&mut T`. A callable-constrained parameter can borrow a
 concrete closure while keeping its capture loans live across the call. Data and
 protocol arguments have their additional restrictions on their own pages.
 

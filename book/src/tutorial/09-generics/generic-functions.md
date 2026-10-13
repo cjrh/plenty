@@ -58,3 +58,24 @@ list, while a function taking `&T` borrows its argument.
 `f64`. Unconstrained `T` is useful
 when the body only moves, borrows, or uses operations supported by the chosen
 concrete type. Each specialization is checked against those operations.
+
+A type parameter can also stand for unit `()` inside a `Result` or `Option`.
+This lets one helper handle both operations that return a value and operations
+that only succeed or fail:
+
+```plenty
+def keep_result[T, E](result: Result[T, E]) -> Result[T, E]:
+    result
+
+def main() -> Result[(), Failure]:
+    written = print("saved")
+    keep_result(written)?
+    Ok(())
+```
+```output
+saved
+```
+
+Here `T` is inferred as `()`. You can also write an explicit unit type argument,
+such as `keep_result[(), IoError](written)`. Unit still cannot be a direct
+function parameter, so `identity[()](())` is rejected.
