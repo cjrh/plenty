@@ -15,7 +15,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 |---|---|---|
 | [`std.math`](math.md) | Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants | `MathError` |
 | [`std.path`](path.md) | Lossless Linux paths, lexical operations, checked text conversion and escaped display | `IoError`, `AllocError` |
-| [`std.fs`](fs.md) | Lazy directories, detached entries, metadata/links and Plenty walking with pruning | `IoError`, `AllocError`, `WalkError` |
+| [`std.fs`](fs.md) | Directories, metadata/walking, rooted mutation, owned temporary resources, bounded copy/delete/glob | `IoError`, `AllocError`, `WalkError`, `FsError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.error`](error.md) | Operation and path context around a typed cause, descriptions, and standard-error reports | `Context[E]`, `AllocError` |
 | [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |

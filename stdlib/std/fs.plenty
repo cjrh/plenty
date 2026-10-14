@@ -1,5 +1,331 @@
 from std.path import Path, from_bytes
 from std.time import Timestamp
+import std.bytes
+import std.secrets
+from std.io import FileStream, Reader, StreamError, write_all
+from std.sync import CancellationToken
+from std.secrets import SecretsError
+from std.bytes import Bytes, BytesError
+
+pub enum FsError:
+    Io(IoError)
+    Stream(StreamError)
+    Allocation(AllocError)
+    Entropy(SecretsError)
+    InvalidInput
+    Limit
+    Cancelled
+    Replaced
+    Collisions
+
+def fs_io[T](result: Result[T, IoError]) -> Result[T, FsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(FsError.Io(error))
+
+def fs_alloc[T](result: Result[T, AllocError]) -> Result[T, FsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(FsError.Allocation(error))
+
+def fs_stream[T](result: Result[T, StreamError]) -> Result[T, FsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(FsError.Stream(error))
+
+def fs_bytes[T](result: Result[T, BytesError]) -> Result[T, FsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(error)):
+            Err(FsError.Allocation(error))
+        case Err(_):
+            Err(FsError.InvalidInput)
+
+def fs_secret(result: Result[str, SecretsError]) -> Result[str, FsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(FsError.Entropy(error))
+
+# These handles anchor every child operation to an opened directory. Names
+# contain exactly one nonempty component (neither dot nor dot-dot).
+pub class Root:
+    _handle: File
+
+    pub def open_dir(self, name: &Path) -> Result[Root, IoError]:
+        Ok(Root(__fs_child(self._handle, name.as_bytes())?))
+
+    pub def read_file(self, name: &Path) -> Result[FileStream, IoError]:
+        Ok(FileStream(__fs_read_file(self._handle, name.as_bytes())?))
+
+    pub def create_dir(self, name: &Path) -> Result[(), IoError]:
+        __fs_make_dir(self._handle, name.as_bytes())
+
+    pub def remove_file(self, name: &Path) -> Result[(), IoError]:
+        __fs_remove_file(self._handle, name.as_bytes())
+
+    pub def remove_dir(self, name: &Path) -> Result[(), IoError]:
+        __fs_remove_dir(self._handle, name.as_bytes())
+
+    pub def move(self, source: &Path, destination: &Path) -> Result[(), IoError]:
+        __fs_move(self._handle, source.as_bytes(), destination.as_bytes())
+
+    pub def names(self) -> Result[Names, IoError]:
+        Ok(Names(ReadDir(__fs_root_entries(self._handle)?)))
+
+    def duplicate(self) -> Result[Root, IoError]:
+        Ok(Root(__fs_duplicate_root(self._handle)?))
+
+pub def root(path: &Path) -> Result[Root, IoError]:
+    Ok(Root(__fs_root(path.as_bytes())?))
+
+pub class Names:
+    _directory: ReadDir
+
+    pub def next(self: &mut Names) -> Result[Option[Path], IoError]:
+        match self._directory.next()?:
+            case Some(entry):
+                Ok(Some(entry.file_name()?))
+            case Nothing:
+                Ok(Nothing)
+
+    pub def close(self: &mut Names) -> Result[(), IoError]:
+        self._directory.close()
+
+# An unnamed inode: neither cancellation nor destruction unlinks a path that
+# another process could have replaced. Publication adds one name atomically.
+pub class TempFile:
+    pub stream: FileStream
+    _root: Root
+    _published: bool
+
+    pub def publish(self: &mut TempFile, name: &Path) -> Result[(), IoError]:
+        if self._published:
+            return Err(IoError.InvalidInput)
+        __fs_publish(self.stream.file, self._root._handle, name.as_bytes())?
+        self._published = True
+        Ok(())
+
+    pub def close(self: &mut TempFile) -> Result[(), StreamError]:
+        self.stream.close()
+
+pub def temporary_file(parent: &Root) -> Result[TempFile, IoError]:
+    owner = parent.duplicate()?
+    stream = FileStream(__fs_anonymous(parent._handle)?)
+    Ok(TempFile(stream, owner, False))
+
+pub class TempDir:
+    _parent: Root
+    _root: Root
+    _name: Path
+    _active: bool
+
+    pub def name(self) -> &Path:
+        &self._name
+
+    pub def root(self) -> &Root:
+        &self._root
+
+    pub def cleanup(self: &mut TempDir) -> Result[(), FsError]:
+        if not self._active:
+            return Ok(())
+        if not fs_io(__fs_same_dir(self._root._handle, self._parent._handle, self._name.as_bytes()))?:
+            return Err(FsError.Replaced)
+        fs_io(self._parent.remove_dir(&self._name))?
+        self._active = False
+        Ok(())
+
+    pub def keep(self: &mut TempDir) -> ():
+        self._active = False
+
+    def __del__(self) -> ():
+        drop(self.cleanup())
+
+# Deterministic exclusive creation is also useful when a caller already has
+# an unpredictable name. Parent/name allocation precedes mkdir.
+pub def temporary_dir_named(parent: &Root, name: &Path) -> Result[TempDir, FsError]:
+    owner = fs_io(parent.duplicate())?
+    saved = fs_alloc(name.copy())?
+    child = Root(fs_io(__fs_make_temporary_dir(parent._handle, name.as_bytes()))?)
+    Ok(TempDir(owner, child, saved, True))
+
+pub def temporary_dir(parent: &Root, prefix: &Path, attempts: i64) -> Result[TempDir, FsError]:
+    if attempts < 1 or attempts > 1024 or len(prefix.as_bytes()) > 200:
+        return Err(FsError.InvalidInput)
+    for index in range(len(prefix.as_bytes())):
+        byte = prefix.as_bytes()[index]
+        if byte == 0u8 or byte == 47u8:
+            return Err(FsError.InvalidInput)
+    for _ in range(attempts):
+        token = fs_secret(std.secrets.token_hex(16))?
+        mut bytes = fs_alloc(copy(prefix.as_bytes()))?
+        suffix = fs_io(encode_utf8(&token))?
+        for index in range(len(suffix)):
+            fs_alloc(bytes.append(suffix[index]))?
+        name = from_bytes(bytes)
+        match temporary_dir_named(parent, &name):
+            case Ok(owner):
+                return Ok(owner)
+            case Err(error):
+                match error:
+                    case FsError.Io(IoError.System(code)):
+                        if code != 17i32:
+                            return Err(FsError.Io(IoError.System(code)))
+                    case _:
+                        return Err(error)
+    Err(FsError.Collisions)
+
+# Caller-defined Reader permits devices and deterministic cancellation tests.
+# A failed transfer leaves no destination name, even after partial writes.
+pub def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]:
+    if max_bytes < 0:
+        return Err(FsError.InvalidInput)
+    if cancel.is_cancelled():
+        return Err(FsError.Cancelled)
+    mut scratch = fs_bytes(std.bytes.with_capacity(8192))?
+    fs_bytes(scratch.resize(8192, 0u8))?
+    mut target = fs_io(temporary_file(parent))?
+    mut total = 0
+    while True:
+        if cancel.is_cancelled():
+            return Err(FsError.Cancelled)
+        mut count = 0
+        match source.read(&mut scratch, 0, 8192):
+            case Ok(value):
+                count = value
+            case Err(StreamError.Interrupted):
+                continue
+            case Err(error):
+                return Err(FsError.Stream(error))
+        if cancel.is_cancelled():
+            return Err(FsError.Cancelled)
+        if count < 0 or count > 8192:
+            return Err(FsError.Stream(StreamError.InvalidProgress))
+        if count == 0:
+            fs_stream(target.stream.flush())?
+            if cancel.is_cancelled():
+                return Err(FsError.Cancelled)
+            fs_io(target.publish(destination))?
+            return Ok(total)
+        if count > max_bytes - total:
+            return Err(FsError.Limit)
+        match write_all(&mut target.stream, &scratch, 0, count):
+            case Ok(_):
+                total += count
+            case Err(partial):
+                return Err(FsError.Stream(partial.cause))
+    Ok(total)
+
+pub def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]:
+    mut input = fs_io(parent.read_file(source))?
+    copy_from(&mut input, parent, destination, max_bytes, cancel)
+
+class Budget:
+    remaining: i64
+
+    def step(self: &mut Budget) -> Result[(), FsError]:
+        if self.remaining <= 0:
+            return Err(FsError.Limit)
+        self.remaining -= 1
+        Ok(())
+
+def delete_children(parent: &Root, name: &Path, budget: &mut Budget, depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
+    if cancel.is_cancelled():
+        return Err(FsError.Cancelled)
+    budget.step()?
+    if depth == 0:
+        return Err(FsError.Limit)
+    child = fs_io(parent.open_dir(name))?
+    mut names = fs_io(child.names())?
+    while True:
+        if cancel.is_cancelled():
+            return Err(FsError.Cancelled)
+        match fs_io(names.next())?:
+            case Nothing:
+                break
+            case Some(leaf):
+                match child.open_dir(&leaf):
+                    case Ok(directory):
+                        drop(directory)
+                        delete_children(&child, &leaf, budget, depth - 1, cancel)?
+                    case Err(error):
+                        match error:
+                            case IoError.System(code):
+                                if code != 20i32 and code != 40i32:
+                                    return Err(FsError.Io(IoError.System(code)))
+                            case _:
+                                return Err(FsError.Io(error))
+                        budget.step()?
+                        fs_io(child.remove_file(&leaf))?
+    if not fs_io(__fs_same_dir(child._handle, parent._handle, name.as_bytes()))?:
+        return Err(FsError.Replaced)
+    fs_io(parent.remove_dir(name))
+
+# Explicit recursive removal only: a budget/cancellation/error leaves already
+# removed entries removed. Symlinks are unlinked, never traversed.
+pub def remove_tree(parent: &Root, name: &Path, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
+    if max_entries < 1 or max_depth < 1 or max_depth > 64:
+        return Err(FsError.InvalidInput)
+    mut budget = Budget(max_entries)
+    delete_children(parent, name, &mut budget, max_depth, cancel)
+
+# Byte matching (not Unicode): star matches any sequence and question-mark
+# exactly one byte. All other bytes are literal, including dot and brackets.
+def matches_name(pattern: &list[u8], name: &list[u8], budget: &mut Budget) -> Result[bool, FsError]:
+    mut p = 0
+    mut n = 0
+    mut star = -1
+    mut retry = 0
+    while n < len(name):
+        budget.step()?
+        if p < len(pattern) and pattern[p] == 42u8:
+            star = p
+            p += 1
+            retry = n
+        elif p < len(pattern) and (pattern[p] == 63u8 or pattern[p] == name[n]):
+            p += 1
+            n += 1
+        elif star >= 0:
+            retry += 1
+            n = retry
+            p = star + 1
+        else:
+            return Ok(False)
+    while p < len(pattern) and pattern[p] == 42u8:
+        budget.step()?
+        p += 1
+    Ok(p == len(pattern))
+
+pub def glob(parent: &Root, pattern: &Path, max_entries: i64, max_matches: i64, max_steps: i64) -> Result[list[Path], FsError]:
+    if max_entries < 0 or max_matches < 0 or max_steps < 0 or len(pattern.as_bytes()) > 4096:
+        return Err(FsError.InvalidInput)
+    for index in range(len(pattern.as_bytes())):
+        byte = pattern.as_bytes()[index]
+        if byte == 0u8 or byte == 47u8:
+            return Err(FsError.InvalidInput)
+    mut scan_budget = Budget(max_entries)
+    mut match_budget = Budget(max_steps)
+    mut result = fs_alloc(list[Path].new())?
+    mut names = fs_io(parent.names())?
+    while True:
+        match fs_io(names.next())?:
+            case Nothing:
+                return Ok(result)
+            case Some(name):
+                scan_budget.step()?
+                if matches_name(pattern.as_bytes(), name.as_bytes(), &mut match_budget)?:
+                    if len(result) == max_matches:
+                        return Err(FsError.Limit)
+                    fs_alloc(result.append(name))?
+    Ok(result)
 
 pub enum FileType:
     File

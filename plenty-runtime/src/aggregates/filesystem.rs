@@ -45,7 +45,9 @@ pub(super) unsafe fn byte_list(bytes: &[u8], ty: &'static Type) -> Result<u128, 
 mod native {
     use super::*;
     use std::ffi::{c_char, c_void, CStr, OsStr};
+    use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
     use std::path::Path;
 
     // Linux's architecture-independent statx ABI, also used by Rust's Unix fs
@@ -105,6 +107,13 @@ mod native {
         fn __errno_location() -> *mut i32;
         fn readlink(path: *const c_char, buffer: *mut u8, size: usize) -> isize;
         fn statx(fd: i32, path: *const c_char, flags: i32, mask: u32, stat: *mut Stat) -> i32;
+        fn openat(fd: i32, path: *const c_char, flags: i32, ...) -> i32;
+        fn mkdirat(fd: i32, path: *const c_char, mode: u32) -> i32;
+        fn unlinkat(fd: i32, path: *const c_char, flags: i32) -> i32;
+        fn renameat2(from: i32, old: *const c_char, to: i32, new: *const c_char, flags: u32)
+            -> i32;
+        fn linkat(from: i32, old: *const c_char, to: i32, new: *const c_char, flags: i32) -> i32;
+        fn fdopendir(fd: i32) -> *mut c_void;
     }
 
     struct Stream(*mut c_void);
@@ -176,6 +185,201 @@ mod native {
         reserve(&mut bytes, 1)?;
         bytes.push(0);
         Ok(bytes)
+    }
+
+    fn leaf(bytes: Vec<u8>) -> Result<Vec<u8>, Error> {
+        if bytes.is_empty() || matches!(bytes.as_slice(), b"." | b"..") || bytes.contains(&b'/') {
+            return Err(Kind::InvalidInput.into());
+        }
+        terminated(bytes)
+    }
+
+    const DIRECTORY: i32 = 0o200000;
+    const NOFOLLOW: i32 = 0o400000;
+    const CLOEXEC: i32 = 0o2000000;
+
+    fn open_at(fd: i32, path: &[u8], flags: i32) -> Result<std::fs::File, Error> {
+        // SAFETY: callers provide a terminated buffer; ownership transfers once.
+        let result = unsafe { openat(fd, path.as_ptr().cast(), flags | CLOEXEC, 0o600u32) };
+        if result < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(unsafe { std::fs::File::from_raw_fd(result) })
+    }
+
+    fn checked(status: i32) -> Result<u128, Error> {
+        if status == 0 {
+            Ok(0)
+        } else {
+            Err(std::io::Error::last_os_error().into())
+        }
+    }
+
+    fn directory_entries(fd: i32) -> Result<u128, Error> {
+        let pointer = memory::try_allocate::<Directory, u8>(0)?;
+        let result = (|| {
+            let file = open_at(fd, b".\0", DIRECTORY)?;
+            // fdopendir takes ownership only on success.
+            let stream = unsafe { fdopendir(file.as_raw_fd()) };
+            if stream.is_null() {
+                return Err(std::io::Error::last_os_error().into());
+            }
+            let _ = file.into_raw_fd();
+            Ok(Stream(stream))
+        })();
+        match result {
+            Ok(stream) => {
+                unsafe {
+                    pointer.write(Directory {
+                        header: Header::new(destroy_directory),
+                        root: Vec::new(),
+                        stream: Some(stream),
+                    });
+                }
+                Ok(pointer as u128)
+            }
+            Err(error) => {
+                unsafe {
+                    memory::free::<Directory, u8>(pointer, 0);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    // Use procfs for unprivileged O_TMPFILE publication. AT_EMPTY_PATH would
+    // require CAP_DAC_READ_SEARCH. The source fd remains owned for this call.
+    fn publish(source: i32, destination: i32, name: &[u8]) -> Result<u128, Error> {
+        let mut path = [0u8; 64];
+        let prefix = b"/proc/self/fd/";
+        path[..prefix.len()].copy_from_slice(prefix);
+        let mut digits = [0u8; 10];
+        let mut count = 0;
+        let mut number = source as u32;
+        loop {
+            digits[count] = b'0' + (number % 10) as u8;
+            count += 1;
+            number /= 10;
+            if number == 0 {
+                break;
+            }
+        }
+        for index in 0..count {
+            path[prefix.len() + index] = digits[count - index - 1];
+        }
+        checked(unsafe {
+            linkat(
+                -100,
+                path.as_ptr().cast(),
+                destination,
+                name.as_ptr().cast(),
+                0x400,
+            )
+        })
+    }
+
+    pub(super) unsafe fn rooted_call(
+        op: i64,
+        a: u128,
+        b: u128,
+        c: u128,
+        ty: &'static Type,
+    ) -> Result<u128, Error> {
+        // SAFETY: signatures supply live File loans and byte lists; none of
+        // these descriptor-relative operations changes an existing cursor.
+        unsafe {
+            if op == 260 {
+                let mut path = contiguous(a)?;
+                // A trailing slash makes Linux resolve a directory symlink
+                // before applying O_NOFOLLOW. Strip separators but preserve /.
+                while path.len() > 1 && path.last() == Some(&b'/') {
+                    path.pop();
+                }
+                let path = terminated(path)?;
+                return crate::files::adopt(
+                    open_at(-100, &path, DIRECTORY | NOFOLLOW)?,
+                    true,
+                    ty.variants[0].fields[0],
+                );
+            }
+            let fd = crate::files::descriptor(a as *const crate::files::File)?;
+            match op {
+                261 | 262 => {
+                    let name = leaf(contiguous(b)?)?;
+                    // O_NONBLOCK avoids hanging on a FIFO before its type is
+                    // checked. The flag is harmless for regular files.
+                    let file = open_at(
+                        fd,
+                        &name,
+                        NOFOLLOW | if op == 261 { DIRECTORY } else { 0o4000 },
+                    )?;
+                    if op == 262 && !file.metadata()?.is_file() {
+                        return Err(Kind::InvalidInput.into());
+                    }
+                    crate::files::adopt(file, true, ty.variants[0].fields[0])
+                }
+                263..=265 => {
+                    let name = leaf(contiguous(b)?)?;
+                    checked(match op {
+                        263 => mkdirat(fd, name.as_ptr().cast(), 0o700),
+                        264 => unlinkat(fd, name.as_ptr().cast(), 0),
+                        _ => unlinkat(fd, name.as_ptr().cast(), 0x200),
+                    })
+                }
+                266 => {
+                    let old = leaf(contiguous(b)?)?;
+                    let new = leaf(contiguous(c)?)?;
+                    checked(renameat2(
+                        fd,
+                        old.as_ptr().cast(),
+                        fd,
+                        new.as_ptr().cast(),
+                        1,
+                    ))
+                }
+                267 => directory_entries(fd),
+                268 => {
+                    let file = open_at(fd, b".\0", 0o20000000 | DIRECTORY | 0o2)?;
+                    crate::files::adopt(file, false, ty.variants[0].fields[0])
+                }
+                269 => {
+                    let target = crate::files::descriptor(b as *const crate::files::File)?;
+                    let name = leaf(contiguous(c)?)?;
+                    publish(fd, target, &name)
+                }
+                270 => {
+                    let parent = crate::files::descriptor(b as *const crate::files::File)?;
+                    let name = leaf(contiguous(c)?)?;
+                    let original = open_at(fd, b".\0", DIRECTORY)?.metadata()?;
+                    let current = open_at(parent, &name, DIRECTORY | NOFOLLOW)?.metadata()?;
+                    Ok(
+                        (original.ino() == current.ino() && original.dev() == current.dev())
+                            as u128,
+                    )
+                }
+                271 => crate::files::adopt(
+                    open_at(fd, b".\0", DIRECTORY)?,
+                    true,
+                    ty.variants[0].fields[0],
+                ),
+                272 => {
+                    let name = leaf(contiguous(b)?)?;
+                    crate::files::prepare(true, ty.variants[0].fields[0], || {
+                        checked(mkdirat(fd, name.as_ptr().cast(), 0o700))?;
+                        match open_at(fd, &name, DIRECTORY | NOFOLLOW) {
+                            Ok(file) => Ok(file),
+                            Err(error) => {
+                                // Name and owner allocations precede mkdir;
+                                // rollback must work under allocator exhaustion.
+                                unlinkat(fd, name.as_ptr().cast(), 0x200);
+                                Err(error)
+                            }
+                        }
+                    })
+                }
+                _ => unreachable!("rooted filesystem opcode"),
+            }
+        }
     }
 
     unsafe fn open(value: u128) -> Result<u128, Error> {
@@ -561,6 +765,35 @@ mod native {
         }
 
         #[test]
+        fn rooted_leaf_validation_preserves_bytes_without_navigation() {
+            for invalid in [b"".as_slice(), b".", b"..", b"a/b", b"a\0b"] {
+                assert!(matches!(
+                    leaf(invalid.to_vec()),
+                    Err(Error::Kind(Kind::InvalidInput))
+                ));
+            }
+            assert_eq!(leaf(b"raw\xff".to_vec()).unwrap(), b"raw\xff\0");
+        }
+
+        #[test]
+        fn rooted_no_follow_rejects_directory_link_and_anonymous_publish_refuses_collision() {
+            let fixture = Fixture::new();
+            let parent = std::fs::File::open(&fixture.0).unwrap();
+            std::fs::create_dir(fixture.0.join("directory")).unwrap();
+            std::os::unix::fs::symlink("directory", fixture.0.join("link")).unwrap();
+            assert!(open_at(parent.as_raw_fd(), b"link\0", DIRECTORY | NOFOLLOW).is_err());
+            let temporary =
+                open_at(parent.as_raw_fd(), b".\0", 0o20000000 | DIRECTORY | 0o2).unwrap();
+            std::fs::write(fixture.0.join("collision"), b"keep").unwrap();
+            assert!(
+                matches!(publish(temporary.as_raw_fd(), parent.as_raw_fd(), b"collision\0"), Err(Error::System(error)) if error.raw_os_error() == Some(17))
+            );
+            assert_eq!(std::fs::read(fixture.0.join("collision")).unwrap(), b"keep");
+            publish(temporary.as_raw_fd(), parent.as_raw_fd(), b"published\0").unwrap();
+            assert!(fixture.0.join("published").is_file());
+        }
+
+        #[test]
         fn detached_entries_known_types_and_unknown_type_fallback() {
             let fixture = Fixture::new();
             std::fs::write(fixture.0.join("file"), b"abc").unwrap();
@@ -650,6 +883,24 @@ pub(super) unsafe fn call(op: i64, a: u128, b: u128, descriptor: *const Type) ->
         if matches!(op, 153 | 159) {
             return 0;
         }
+        text_io::result(Err(Kind::Unsupported.into()))
+    }
+}
+
+pub(super) unsafe fn rooted_call(
+    op: i64,
+    a: u128,
+    b: u128,
+    c: u128,
+    descriptor: *const Type,
+) -> u128 {
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    {
+        text_io::result(unsafe { native::rooted_call(op, a, b, c, &*descriptor) })
+    }
+    #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
+    {
+        let _ = (op, a, b, c, descriptor);
         text_io::result(Err(Kind::Unsupported.into()))
     }
 }
