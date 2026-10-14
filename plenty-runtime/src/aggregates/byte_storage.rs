@@ -5,6 +5,8 @@
 use super::{wrap, Collection, OwnedValue, Type};
 use crate::memory::{self, AllocError, Header};
 use crate::strings;
+use crate::text_io;
+use std::io::{Read, Write};
 
 #[repr(C)]
 struct Storage {
@@ -191,6 +193,41 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type)
                 Ok(text) => strings::try_new(text).map(|text| wrap(text as u128, 1)),
                 Err(_) => Ok(wrap(0, 0)),
             }),
+            188 => {
+                let bytes = storage(a);
+                let within = range(b, c, bytes.len());
+                let target = &mut bytes[within];
+                text_io::result(crate::files::read_bytes(
+                    d as *mut crate::files::File,
+                    target,
+                ))
+            }
+            189 => {
+                let bytes = storage(a);
+                let source = &bytes[range(b, c, bytes.len())];
+                text_io::result(crate::files::write_bytes(
+                    d as *mut crate::files::File,
+                    source,
+                ))
+            }
+            190 => {
+                let bytes = storage(a);
+                let within = range(b, c, bytes.len());
+                let target = &mut bytes[within];
+                crate::io::io_result(text_io::Stdin.read(target).map(|count| count as u128))
+            }
+            191 => {
+                let bytes = storage(a);
+                let source = &bytes[range(b, c, bytes.len())];
+                // The process streams keep their existing buffering, so bytes
+                // stay ordered with `print` and the text writers.
+                let written = if d == 2 {
+                    std::io::stderr().lock().write(source)
+                } else {
+                    std::io::stdout().lock().write(source)
+                };
+                crate::io::io_result(written.map(|count| count as u128))
+            }
             _ => unreachable!("byte storage opcode"),
         }
     }

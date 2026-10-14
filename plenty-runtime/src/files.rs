@@ -2,7 +2,7 @@
 use crate::aggregates::Type;
 use crate::memory::{self, Header};
 use crate::text_io::{self, Error, Kind, OpenMode};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 #[repr(C)]
 pub(crate) struct File {
@@ -154,6 +154,56 @@ pub(crate) unsafe fn seek(pointer: *mut File, cookie: u64) -> Result<u128, Error
     // Preserve decoder state on failed seeks; replace it only after success.
     owner.skip_lf = cookie & 1 != 0;
     Ok(0)
+}
+
+/// One native read; a short count is success and zero is end of input. An
+/// interrupted call surfaces as its OS error so `std.io` owns the retry policy.
+pub(crate) unsafe fn read_bytes(pointer: *mut File, target: &mut [u8]) -> Result<u128, Error> {
+    // SAFETY: the compiler supplies a live exclusively borrowed owner.
+    let owner = unsafe { &mut *pointer };
+    let file = owner.file.as_mut().ok_or(Kind::Closed)?;
+    if !owner.readable {
+        return Err(Kind::NotReadable.into());
+    }
+    let count = file.read(target)?;
+    // Byte transfers carry no pending newline translation.
+    owner.skip_lf = false;
+    Ok(count as u128)
+}
+
+/// One native write, which may accept only a prefix of `source`.
+pub(crate) unsafe fn write_bytes(pointer: *mut File, source: &[u8]) -> Result<u128, Error> {
+    // SAFETY: the compiler supplies a live exclusively borrowed owner.
+    let owner = unsafe { &mut *pointer };
+    let file = owner.file.as_mut().ok_or(Kind::Closed)?;
+    if !owner.writable {
+        return Err(Kind::NotWritable.into());
+    }
+    let count = file.write(source)?;
+    owner.skip_lf = false;
+    Ok(count as u128)
+}
+
+/// Byte-offset seek: `whence` 0 is the start, 1 the cursor, 2 the end.
+pub(crate) unsafe fn seek_bytes(
+    pointer: *mut File,
+    whence: u8,
+    offset: i64,
+) -> Result<u128, Error> {
+    // SAFETY: the caller holds exclusive access to a live File owner.
+    let owner = unsafe { &mut *pointer };
+    let file = owner.file.as_mut().ok_or(Kind::Closed)?;
+    let target = match whence {
+        0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| Kind::InvalidInput)?),
+        1 => SeekFrom::Current(offset),
+        2 => SeekFrom::End(offset),
+        _ => return Err(Kind::InvalidInput.into()),
+    };
+    let position = file.seek(target)?;
+    owner.skip_lf = false;
+    i64::try_from(position)
+        .map(|position| position as u128)
+        .map_err(|_| Kind::InvalidInput.into())
 }
 
 pub(crate) unsafe fn flush(pointer: *mut File, durable: bool) -> Result<u128, Error> {

@@ -1,0 +1,568 @@
+# Byte streams with explicit partial progress. A stream is any class whose
+# methods match Reader, Writer, Seeker or Closer; calls are statically
+# dispatched per concrete class. One read or write call makes at most one
+# attempt and reports the bytes it moved. The helpers below add retry, end of
+# input and failure-after-progress policy. See book/src/design/stdlib/io.md.
+from std.bytes import Bytes, BytesError, with_capacity
+
+pub enum StreamError:
+    Interrupted
+    UnexpectedEof
+    WriteZero
+    OutOfRange
+    InvalidProgress
+    Io(IoError)
+    Allocation(AllocError)
+
+# A multi-step helper stopped after moving `completed` bytes.
+pub class Partial:
+    pub completed: i64
+    pub cause: StreamError
+
+# The count is the bytes delivered to the writer before the named side failed.
+pub enum CopyError:
+    Read(i64, StreamError)
+    Write(i64, StreamError)
+
+pub enum CloseError:
+    Flush(StreamError)
+    Close(StreamError)
+    FlushAndClose(StreamError, StreamError)
+
+pub enum SeekFrom:
+    Start(i64)
+    Current(i64)
+    End(i64)
+
+pub protocol Reader:
+    def read(self: &mut Reader, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        pass
+
+pub protocol Writer:
+    def write(self: &mut Writer, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        pass
+
+    def flush(self: &mut Writer) -> Result[(), StreamError]:
+        pass
+
+pub protocol Seeker:
+    def seek(self: &mut Seeker, target: SeekFrom) -> Result[i64, StreamError]:
+        pass
+
+pub protocol Closer:
+    def close(self: &mut Closer) -> Result[(), StreamError]:
+        pass
+
+const chunk: i64 = 8192
+const interrupted_call: i32 = 4
+
+def within(start: i64, stop: i64, count: i64) -> bool:
+    start >= 0 and start <= stop and stop <= count
+
+def ranged(start: i64, stop: i64, count: i64) -> Result[(), StreamError]:
+    if within(start, stop, count):
+        Ok(())
+    else:
+        Err(StreamError.OutOfRange)
+
+# A stream that reports moving more than it was offered, or a negative count,
+# is broken; trusting it would corrupt every offset computed afterwards.
+def progressed(count: i64, offered: i64) -> Result[i64, StreamError]:
+    if count < 0 or count > offered:
+        return Err(StreamError.InvalidProgress)
+    Ok(count)
+
+def interrupted(cause: &StreamError) -> bool:
+    match cause:
+        case StreamError.Interrupted:
+            True
+        case _:
+            False
+
+def stored(result: Result[(), BytesError]) -> Result[(), StreamError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(StreamError.Allocation(cause))
+                case _:
+                    Err(StreamError.OutOfRange)
+
+# EINTR becomes Interrupted and buffer exhaustion Allocation; every other
+# native failure keeps its IoError.
+pub def classify(error: IoError) -> StreamError:
+    match error:
+        case IoError.System(code):
+            if code == interrupted_call:
+                StreamError.Interrupted
+            else:
+                StreamError.Io(IoError.System(code))
+        case IoError.Data(data):
+            match data:
+                case DataError.Allocation(cause):
+                    StreamError.Allocation(cause)
+                case _:
+                    StreamError.Io(IoError.Data(data))
+        case IoError.InvalidMode:
+            StreamError.Io(IoError.InvalidMode)
+        case IoError.Closed:
+            StreamError.Io(IoError.Closed)
+        case IoError.NotReadable:
+            StreamError.Io(IoError.NotReadable)
+        case IoError.NotWritable:
+            StreamError.Io(IoError.NotWritable)
+        case IoError.InvalidInput:
+            StreamError.Io(IoError.InvalidInput)
+        case IoError.Unsupported:
+            StreamError.Io(IoError.Unsupported)
+        case IoError.Other:
+            StreamError.Io(IoError.Other)
+
+def moved(result: Result[i64, IoError]) -> Result[i64, StreamError]:
+    match result:
+        case Ok(count):
+            Ok(count)
+        case Err(error):
+            Err(classify(error))
+
+def finished(result: Result[(), IoError]) -> Result[(), StreamError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(classify(error))
+
+# `base` is a nonnegative position, so only the upper bound can overflow.
+def displaced(base: i64, offset: i64) -> Result[i64, StreamError]:
+    if offset > i64.MAX - base:
+        return Err(StreamError.OutOfRange)
+    if base + offset < 0:
+        return Err(StreamError.OutOfRange)
+    Ok(base + offset)
+
+# Fills buffer[start:stop] completely, retrying interrupted and short reads.
+pub def read_exact[R: Reader](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial]:
+    if not within(start, stop, buffer.len()):
+        return Err(Partial(0, StreamError.OutOfRange))
+    mut at = start
+    while at < stop:
+        match reader.read(buffer, at, stop):
+            case Ok(count):
+                if count == 0:
+                    return Err(Partial(at - start, StreamError.UnexpectedEof))
+                if count < 0 or count > stop - at:
+                    return Err(Partial(at - start, StreamError.InvalidProgress))
+                at += count
+            case Err(cause):
+                if not interrupted(&cause):
+                    return Err(Partial(at - start, cause))
+    Ok(())
+
+# Delivers source[start:stop] completely, retrying interrupted and short writes.
+pub def write_all[W: Writer](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), Partial]:
+    if not within(start, stop, source.len()):
+        return Err(Partial(0, StreamError.OutOfRange))
+    mut at = start
+    while at < stop:
+        match writer.write(source, at, stop):
+            case Ok(count):
+                if count == 0:
+                    return Err(Partial(at - start, StreamError.WriteZero))
+                if count < 0 or count > stop - at:
+                    return Err(Partial(at - start, StreamError.InvalidProgress))
+                at += count
+            case Err(cause):
+                if not interrupted(&cause):
+                    return Err(Partial(at - start, cause))
+    Ok(())
+
+# Appends at most `limit` bytes to `out`, stopping early only at end of input.
+# `out` grows one bounded step at a time and never holds unread filler.
+pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Result[i64, Partial]:
+    if limit < 0:
+        return Err(Partial(0, StreamError.OutOfRange))
+    mut total = 0
+    while total < limit:
+        mut step = limit - total
+        if step > chunk:
+            step = chunk
+        filled = out.len()
+        match stored(out.resize(filled + step, 0u8)):
+            case Ok(_):
+                pass
+            case Err(cause):
+                return Err(Partial(total, cause))
+        outcome = reader.read(out, filled, filled + step)
+        match outcome:
+            case Ok(count):
+                if count < 0 or count > step:
+                    drop(out.truncate(filled))
+                    return Err(Partial(total, StreamError.InvalidProgress))
+                drop(out.truncate(filled + count))
+                if count == 0:
+                    return Ok(total)
+                total += count
+            case Err(cause):
+                drop(out.truncate(filled))
+                if not interrupted(&cause):
+                    return Err(Partial(total, cause))
+    Ok(total)
+
+# Moves bytes until the reader reports end of input, using the whole of the
+# caller's `scratch` as the transfer buffer. Nothing is allocated or flushed.
+pub def copy_all[R: Reader, W: Writer](reader: &mut R, writer: &mut W, scratch: &mut Bytes) -> Result[i64, CopyError]:
+    size = scratch.len()
+    if size == 0:
+        return Err(CopyError.Read(0, StreamError.OutOfRange))
+    mut total = 0
+    while True:
+        outcome = reader.read(scratch, 0, size)
+        match outcome:
+            case Ok(count):
+                if count == 0:
+                    return Ok(total)
+                if count < 0 or count > size:
+                    return Err(CopyError.Read(total, StreamError.InvalidProgress))
+                match write_all(writer, scratch, 0, count):
+                    case Ok(_):
+                        total += count
+                    case Err(partial):
+                        return Err(CopyError.Write(total + partial.completed, partial.cause))
+            case Err(cause):
+                if not interrupted(&cause):
+                    return Err(CopyError.Read(total, cause))
+    Ok(total)
+
+# A fixed-capacity read buffer in front of `inner`. The buffer is allocated
+# once and never grows. `inner` is public so its owner can be closed or
+# replaced; reading it directly skips bytes still held here.
+pub class BufReader[R]:
+    pub inner: R
+    _buffer: Bytes
+    _start: i64
+    _stop: i64
+
+    pub def capacity(self) -> i64:
+        self._buffer.len()
+
+    pub def buffered(self) -> i64:
+        self._stop - self._start
+
+    # One inner read into the empty buffer. An error leaves it empty.
+    def fill(self: &mut BufReader[R]) -> Result[i64, StreamError]:
+        self._start = 0
+        self._stop = 0
+        size = self._buffer.len()
+        count = progressed(self.inner.read(&mut self._buffer, 0, size)?, size)?
+        self._stop = count
+        Ok(count)
+
+    pub def read(self: &mut BufReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, buffer.len())?
+        if start == stop:
+            return Ok(0)
+        if self._start == self._stop:
+            # A request at least as large as the buffer gains nothing from it.
+            if stop - start >= self._buffer.len():
+                return progressed(self.inner.read(buffer, start, stop)?, stop - start)
+            if self.fill()? == 0:
+                return Ok(0)
+        mut count = stop - start
+        if count > self._stop - self._start:
+            count = self._stop - self._start
+        stored(buffer.overwrite(start, &self._buffer, self._start, self._start + count))?
+        self._start += count
+        Ok(count)
+
+    # Appends to `out` through the first `delimiter`, at most `limit` bytes.
+    # Returns the count appended; zero is end of input. A nonzero count whose
+    # last byte is not the delimiter means the limit or end of input came first.
+    # After an error, `out` keeps the bytes already appended.
+    pub def read_until(self: &mut BufReader[R], delimiter: u8, out: &mut Bytes, limit: i64) -> Result[i64, StreamError]:
+        if limit <= 0:
+            return Err(StreamError.OutOfRange)
+        mut total = 0
+        while total < limit:
+            if self._start == self._stop:
+                match self.fill():
+                    case Ok(count):
+                        if count == 0:
+                            return Ok(total)
+                    case Err(cause):
+                        if not interrupted(&cause):
+                            return Err(cause)
+            else:
+                mut stop = self._stop
+                if stop - self._start > limit - total:
+                    stop = self._start + (limit - total)
+                mut found = False
+                match self._buffer.find(delimiter, self._start, stop):
+                    case Ok(position):
+                        match position:
+                            case Some(index):
+                                stop = index + 1
+                                found = True
+                            case Nothing:
+                                pass
+                    case Err(_):
+                        return Err(StreamError.OutOfRange)
+                stored(out.extend_range(&self._buffer, self._start, stop))?
+                total += stop - self._start
+                self._start = stop
+                if found:
+                    return Ok(total)
+        Ok(total)
+
+pub def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], StreamError]:
+    if capacity <= 0:
+        return Err(StreamError.OutOfRange)
+    mut buffer = allocated(with_capacity(capacity))?
+    stored(buffer.resize(capacity, 0u8))?
+    Ok(BufReader(inner, buffer, 0, 0))
+
+# Repositions the inner stream and discards buffered input. A relative target
+# is measured from the position the program has consumed up to.
+pub def seek_reader[R: Seeker](reader: &mut BufReader[R], target: SeekFrom) -> Result[i64, StreamError]:
+    held = reader._stop - reader._start
+    mut adjusted = target
+    match target:
+        case SeekFrom.Current(offset):
+            if offset < i64.MIN + held:
+                return Err(StreamError.OutOfRange)
+            adjusted = SeekFrom.Current(offset - held)
+        case _:
+            pass
+    position = reader.inner.seek(adjusted)?
+    reader._start = 0
+    reader._stop = 0
+    Ok(position)
+
+# A fixed-capacity write buffer in front of `inner`. Pending bytes never
+# exceed the capacity, and nothing reaches `inner` in a different order.
+# `inner` is public so its owner can be closed or replaced; flush first.
+pub class BufWriter[W]:
+    pub inner: W
+    _buffer: Bytes
+    _start: i64
+    _capacity: i64
+
+    pub def capacity(self) -> i64:
+        self._capacity
+
+    pub def pending(self) -> i64:
+        self._buffer.len() - self._start
+
+    # Delivers every pending byte. A failure keeps the undelivered tail, so a
+    # later drain resumes exactly where this one stopped.
+    def drain(self: &mut BufWriter[W]) -> Result[(), StreamError]:
+        total = self._buffer.len()
+        while self._start < total:
+            match self.inner.write(&self._buffer, self._start, total):
+                case Ok(count):
+                    if count == 0:
+                        return Err(StreamError.WriteZero)
+                    if count < 0 or count > total - self._start:
+                        return Err(StreamError.InvalidProgress)
+                    self._start += count
+                case Err(cause):
+                    if not interrupted(&cause):
+                        return Err(cause)
+        self._buffer.clear()
+        self._start = 0
+        Ok(())
+
+    pub def write(self: &mut BufWriter[W], source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, source.len())?
+        count = stop - start
+        if count == 0:
+            return Ok(0)
+        if count > self._capacity - self._buffer.len():
+            self.drain()?
+        # A range at least as large as the buffer goes straight through.
+        if count >= self._capacity:
+            return progressed(self.inner.write(source, start, stop)?, count)
+        stored(self._buffer.extend_range(source, start, stop))?
+        Ok(count)
+
+    pub def flush(self: &mut BufWriter[W]) -> Result[(), StreamError]:
+        self.drain()?
+        self.inner.flush()
+
+pub def buffered_writer[W](inner: W, capacity: i64) -> Result[BufWriter[W], StreamError]:
+    if capacity <= 0:
+        return Err(StreamError.OutOfRange)
+    Ok(BufWriter(inner, allocated(with_capacity(capacity))?, 0, capacity))
+
+# Delivers pending bytes, then repositions the inner stream.
+pub def seek_writer[W: Seeker](writer: &mut BufWriter[W], target: SeekFrom) -> Result[i64, StreamError]:
+    writer.drain()?
+    writer.inner.seek(target)
+
+# Flushes, then closes the inner stream whether or not the flush succeeded, and
+# reports which step failed.
+pub def close_buffered[W: Closer](writer: &mut BufWriter[W]) -> Result[(), CloseError]:
+    flushed = writer.flush()
+    closed = writer.inner.close()
+    match flushed:
+        case Ok(_):
+            match closed:
+                case Ok(_):
+                    Ok(())
+                case Err(cause):
+                    Err(CloseError.Close(cause))
+        case Err(first):
+            match closed:
+                case Ok(_):
+                    Err(CloseError.Flush(first))
+                case Err(second):
+                    Err(CloseError.FlushAndClose(first, second))
+
+def allocated(result: Result[Bytes, BytesError]) -> Result[Bytes, StreamError]:
+    match result:
+        case Ok(buffer):
+            Ok(buffer)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(StreamError.Allocation(cause))
+                case _:
+                    Err(StreamError.OutOfRange)
+
+# An in-memory stream over an owned buffer. Reads stop at the buffer's end;
+# writes overwrite in place and extend it at the end.
+pub class Cursor:
+    pub data: Bytes
+    _position: i64
+
+    pub def position(self) -> i64:
+        self._position
+
+    pub def read(self: &mut Cursor, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, buffer.len())?
+        size = self.data.len()
+        if self._position >= size:
+            return Ok(0)
+        mut count = stop - start
+        if count > size - self._position:
+            count = size - self._position
+        stored(buffer.overwrite(start, &self.data, self._position, self._position + count))?
+        self._position += count
+        Ok(count)
+
+    pub def write(self: &mut Cursor, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, source.len())?
+        count = stop - start
+        if count == 0:
+            return Ok(0)
+        end = displaced(self._position, count)?
+        # A position past the end leaves a gap, which reads back as zeros.
+        if self._position > self.data.len():
+            stored(self.data.resize(self._position, 0u8))?
+        mut inside = self.data.len() - self._position
+        if inside > count:
+            inside = count
+        # Reserving first means a failed write changes nothing but the gap.
+        stored(self.data.reserve(count - inside))?
+        stored(self.data.overwrite(self._position, source, start, start + inside))?
+        stored(self.data.extend_range(source, start + inside, stop))?
+        self._position = end
+        Ok(count)
+
+    pub def flush(self: &mut Cursor) -> Result[(), StreamError]:
+        Ok(())
+
+    pub def seek(self: &mut Cursor, target: SeekFrom) -> Result[i64, StreamError]:
+        match target:
+            case SeekFrom.Start(offset):
+                self._position = displaced(0, offset)?
+            case SeekFrom.Current(offset):
+                self._position = displaced(self._position, offset)?
+            case SeekFrom.End(offset):
+                self._position = displaced(self.data.len(), offset)?
+        Ok(self._position)
+
+pub def cursor(data: Bytes) -> Cursor:
+    Cursor(data, 0)
+
+# Byte access to an owned file. Positions are byte offsets, not the text
+# cookies of File.tell. `file` is public for the remaining File operations.
+pub class FileStream:
+    pub file: File
+
+    pub def read(self: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, buffer.len())?
+        moved(buffer.read_file(&mut self.file, start, stop))
+
+    pub def write(self: &mut FileStream, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, source.len())?
+        moved(source.write_file(&mut self.file, start, stop))
+
+    pub def flush(self: &mut FileStream) -> Result[(), StreamError]:
+        finished(self.file.flush())
+
+    pub def sync(self: &mut FileStream) -> Result[(), StreamError]:
+        finished(self.file.sync())
+
+    pub def seek(self: &mut FileStream, target: SeekFrom) -> Result[i64, StreamError]:
+        match target:
+            case SeekFrom.Start(offset):
+                if offset < 0:
+                    return Err(StreamError.OutOfRange)
+                moved(__io_file_seek(self.file, 0u8, offset))
+            case SeekFrom.Current(offset):
+                moved(__io_file_seek(self.file, 1u8, offset))
+            case SeekFrom.End(offset):
+                moved(__io_file_seek(self.file, 2u8, offset))
+
+    pub def close(self: &mut FileStream) -> Result[(), StreamError]:
+        finished(self.file.close())
+
+pub def open_file(path: &str, mode: &str) -> Result[FileStream, StreamError]:
+    match open(path, mode):
+        case Ok(file):
+            Ok(FileStream(file))
+        case Err(error):
+            Err(classify(error))
+
+pub def from_file(file: File) -> FileStream:
+    FileStream(file)
+
+# The process streams. Each adapter is a zero-cost handle: the descriptor
+# stays owned by the process and is never closed.
+pub class Stdin:
+    _descriptor: u8
+
+    pub def read(self: &mut Stdin, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, buffer.len())?
+        moved(buffer.read_stdin(start, stop))
+
+pub class Stdout:
+    _descriptor: u8
+
+    pub def write(self: &mut Stdout, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, source.len())?
+        moved(source.write_stdout(start, stop))
+
+    pub def flush(self: &mut Stdout) -> Result[(), StreamError]:
+        finished(flush_stdout())
+
+pub class Stderr:
+    _descriptor: u8
+
+    pub def write(self: &mut Stderr, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        ranged(start, stop, source.len())?
+        moved(source.write_stderr(start, stop))
+
+    pub def flush(self: &mut Stderr) -> Result[(), StreamError]:
+        finished(flush_stderr())
+
+pub def stdin() -> Stdin:
+    Stdin(0u8)
+
+pub def stdout() -> Stdout:
+    Stdout(1u8)
+
+pub def stderr() -> Stderr:
+    Stderr(2u8)

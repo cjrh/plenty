@@ -2074,6 +2074,7 @@ pub(crate) fn builtin(name: &str) -> bool {
     named_type(name).is_some()
         || crate::filesystem::FsOp::named(name).is_some()
         || crate::bytes::BytesOp::named(name).is_some()
+        || crate::stream::StreamOp::named(name).is_some()
         || crate::time::TimeOp::named(name).is_some()
         || matches!(
             name,
@@ -3145,6 +3146,9 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::bytes::BytesOp::named(name) {
                     return self.bytes_call(operation, args, &e.at, ops);
+                }
+                if let Some(operation) = crate::stream::StreamOp::named(name) {
+                    return self.stream_call(operation, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::time::TimeOp::named(name) {
                     let output =

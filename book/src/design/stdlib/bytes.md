@@ -115,7 +115,7 @@ may over-reserve; `reserve` requests an exact total.
 
 | Allocates | Does not allocate |
 |---|---|
-| Constructors, `slice`, `copy`, `to_list`, `to_text` | `len`, `is_empty`, `capacity`, `get`, `find`, `==` |
+| Constructors, `slice`, `copy`, `to_list`, `to_text` | `len`, `is_empty`, `capacity`, `get`, `find`, `==`, transport |
 | `push`, `extend`, `extend_range`, `resize`, `reserve` beyond capacity | The same operations within capacity |
 | | `set`, `fill`, `overwrite`, `truncate`, `pop`, `clear` |
 
@@ -140,8 +140,25 @@ An empty program peaks at 2.4 MB. A single-element call costs roughly 70 to
 
 ## Transport
 
-The [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
+These methods move a range between a buffer and a descriptor without an
+intermediate list. Each makes at most one native call, returns the bytes moved
+as `Result[i64, IoError]`, and never changes the buffer's length or capacity.
+
+| Method | Receiver | Contract |
+|---|---|---|
+| `read_file(file: &mut File, start, stop)` | exclusive | Read into `self[start:stop]`; zero for a nonempty range is end of input |
+| `write_file(file: &mut File, start, stop)` | shared | Write a prefix of `self[start:stop]` |
+| `read_stdin(start, stop)` | exclusive | Read standard input into `self[start:stop]` |
+| `write_stdout(start, stop)`, `write_stderr(start, stop)` | shared | Write a prefix of the range to the process stream's buffer |
+
+A count below the range length is normal. A range outside the buffer is
+`IoError.InvalidInput`; a closed file is `Closed`, and the open mode is
+enforced with `NotReadable` and `NotWritable`. An interrupted call is
+`IoError.System(4)`. File transfers are raw bytes with no newline translation.
+
+Programs normally use these through [`std.io`](io.md), which adds retry, end
+of input, seeking, and bounded buffering on top.
+
+The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
-`from_list` and `to_list`; each conversion allocates and copies. Reading a file
-directly into a `Bytes`, or writing one without the intermediate list, is not
-implemented.
+`from_list` and `to_list`; each conversion allocates and copies.

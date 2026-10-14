@@ -1345,7 +1345,7 @@ pub(crate) unsafe extern "C" fn plenty_collection(
             out.write(range as u128);
             return;
         }
-        if (170..=183).contains(&op) {
+        if matches!(op, 170..=183 | 188..=191) {
             // Read every operand first: the fourth and fifth share the
             // scratch words that follow the result slot.
             let operands = [
@@ -1433,6 +1433,11 @@ pub(crate) unsafe fn collection_at(
         match op {
             150..=164 => filesystem::call(op, a, b, descriptor),
             184..=187 => crate::time::call(op, a),
+            192 => crate::text_io::result(crate::files::seek_bytes(
+                a as *mut crate::files::File,
+                b as u8,
+                value as i64,
+            )),
             112 => {
                 let owner = *(a as *const u128);
                 let c = &mut *(owner as *mut Collection);
