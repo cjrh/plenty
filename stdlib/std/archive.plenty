@@ -1,0 +1,1536 @@
+# TAR and ZIP archives over std.io streams, and extraction confined to a new
+# directory under a std.fs Root. Formats, limits and cleanup are ordinary
+# Plenty over std.bytes, std.compress and std.fs. See
+# book/src/design/stdlib/archive.md.
+import std.bytes
+import std.compress
+import std.fs
+import std.io
+import std.path
+from std.bytes import Bytes, BytesError
+from std.compress import CompressError, Format, Inflater
+from std.fs import FsError, Root, TempDir
+from std.io import SeekFrom, StreamError
+from std.path import Path
+from std.secrets import SecretsError
+from std.sync import CancellationToken
+
+pub enum ArchiveError:
+    Stream(StreamError)
+    Io(IoError)
+    Fs(FsError)
+    Allocation(AllocError)
+    Corrupt
+    Checksum
+    Truncated
+    Unsupported
+    UnsafePath
+    Link
+    Special
+    Duplicate
+    Exists
+    Limit
+    Cancelled
+    InvalidInput
+
+pub enum EntryKind:
+    File
+    Directory
+    Symlink
+    Hardlink
+    Other
+
+# One archive member. `size` is the stored content length; `compressed` is
+# its length in the archive (equal to `size` in TAR). `mode` holds the Unix
+# permission bits and `link` a TAR link target (empty otherwise).
+pub class Entry:
+    pub name: Path
+    pub kind: EntryKind
+    pub size: i64
+    pub compressed: i64
+    pub mode: i64
+    pub mtime: i64
+    pub link: Path
+
+# What extraction accepts. Every limit is checked before the bytes it
+# guards are written.
+pub class Policy:
+    pub max_entries: i64
+    pub max_entry_size: i64
+    pub max_total_size: i64
+    pub max_ratio: i64
+    pub max_depth: i64
+    pub max_name: i64
+    pub skip_links: bool
+    pub skip_special: bool
+
+pub def policy() -> Policy:
+    Policy(10000, 1073741824, 4294967296, 100, 32, 4096, False, False)
+
+pub class Summary:
+    pub entries: i64
+    pub files: i64
+    pub bytes: i64
+    pub skipped: i64
+
+const block_size: i64 = 512
+# 2^62: no real archive member is larger.
+const max_size: i64 = 4611686018427387904
+const chunk: i64 = 16384
+# Bound on a pax extended header or a GNU long name or link.
+const max_metadata: i64 = 65536
+const u16_max: i64 = 65535
+const u32_max: i64 = 4294967295
+# Entries this small are exempt from the expansion ratio.
+const ratio_floor: i64 = 1048576
+const local_signature: i64 = 67324752
+const central_signature: i64 = 33639248
+const end_signature: i64 = 101010256
+const end64_signature: i64 = 101075792
+const locator_signature: i64 = 117853008
+# 3 (Unix) in the high byte, specification 3.0 in the low byte.
+const made_by: i64 = 798
+# DOS dates start in 1980.
+const dos_epoch: i64 = 315532800
+const type_mask: i64 = 61440
+const regular_bits: i64 = 32768
+const directory_bits: i64 = 16384
+const symlink_bits: i64 = 40960
+
+# Error conversion
+
+def bytes_failure(error: BytesError) -> ArchiveError:
+    match error:
+        case BytesError.Allocation(cause):
+            ArchiveError.Allocation(cause)
+        case _:
+            ArchiveError.Corrupt
+
+def held[T](result: Result[T, BytesError]) -> Result[T, ArchiveError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(bytes_failure(error))
+
+def owned[T](result: Result[T, AllocError]) -> Result[T, ArchiveError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(ArchiveError.Allocation(error))
+
+def system[T](result: Result[T, IoError]) -> Result[T, ArchiveError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(io_failure(error))
+
+def io_failure(error: IoError) -> ArchiveError:
+    match error:
+        case IoError.Data(DataError.Allocation(cause)):
+            ArchiveError.Allocation(cause)
+        case _:
+            ArchiveError.Io(error)
+
+def moved[T](result: Result[T, StreamError]) -> Result[T, ArchiveError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(ArchiveError.Stream(error))
+
+def coded[T](result: Result[T, CompressError]) -> Result[T, ArchiveError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(compress_failure(error))
+
+# A zip entry that inflates past its declared size is corrupt, not a limit:
+# the declared size was already checked against the policy.
+def compress_failure(error: CompressError) -> ArchiveError:
+    match error:
+        case CompressError.Checksum:
+            ArchiveError.Checksum
+        case CompressError.Truncated:
+            ArchiveError.Truncated
+        case CompressError.Allocation(cause):
+            ArchiveError.Allocation(cause)
+        case CompressError.OutOfRange:
+            ArchiveError.InvalidInput
+        case _:
+            ArchiveError.Corrupt
+
+def fs_failure(error: FsError) -> ArchiveError:
+    match error:
+        case FsError.Io(IoError.System(code)):
+            if code == 17i32:
+                return ArchiveError.Duplicate
+            ArchiveError.Io(IoError.System(code))
+        case FsError.Io(cause):
+            io_failure(cause)
+        case FsError.Stream(cause):
+            ArchiveError.Stream(cause)
+        case FsError.Allocation(cause):
+            ArchiveError.Allocation(cause)
+        case FsError.Entropy(SecretsError.Allocation(cause)):
+            ArchiveError.Allocation(cause)
+        case FsError.Limit:
+            ArchiveError.Limit
+        case FsError.Cancelled:
+            ArchiveError.Cancelled
+        case _:
+            ArchiveError.Fs(error)
+
+# How a reader reports each failure through the Reader protocol; the
+# reader's `failure` keeps the precise cause.
+pub def stream_error(error: ArchiveError) -> StreamError:
+    match error:
+        case ArchiveError.Stream(cause):
+            cause
+        case ArchiveError.Truncated:
+            StreamError.UnexpectedEof
+        case ArchiveError.Allocation(cause):
+            StreamError.Allocation(cause)
+        case ArchiveError.Io(cause):
+            StreamError.Io(cause)
+        case _:
+            StreamError.Io(IoError.InvalidInput)
+
+def send[W](writer: &mut W, data: &Bytes, start: i64, stop: i64) -> Result[(), ArchiveError]:
+    match std.io.write_all(writer, data, start, stop):
+        case Ok(_):
+            Ok(())
+        case Err(partial):
+            Err(ArchiveError.Stream(partial.cause))
+
+# Reads data[0:count] in full, retrying interruptions. Fewer bytes before
+# the end of input is Truncated.
+def fill[R](reader: &mut R, data: &mut Bytes, count: i64) -> Result[(), ArchiveError]:
+    mut at = 0
+    while at < count:
+        match reader.read(data, at, count):
+            case Ok(got):
+                if got < 0 or got > count - at:
+                    return Err(ArchiveError.Stream(StreamError.InvalidProgress))
+                if got == 0:
+                    return Err(ArchiveError.Truncated)
+                at += got
+            case Err(StreamError.Interrupted):
+                pass
+            case Err(error):
+                return Err(ArchiveError.Stream(error))
+    Ok(())
+
+# Byte fields
+
+def byte(data: &Bytes, at: i64) -> Result[i64, ArchiveError]:
+    Ok(i64(held(data.get(at))?))
+
+# A little-endian unsigned field; a value with the sign bit set is Corrupt.
+def le(data: &Bytes, at: i64, width: i64) -> Result[i64, ArchiveError]:
+    mut value = 0
+    mut index = width - 1
+    while index >= 0:
+        value = (value << 8) | byte(data, at + index)?
+        index -= 1
+    if value < 0:
+        return Err(ArchiveError.Corrupt)
+    Ok(value)
+
+def put_le(out: &mut Bytes, value: i64, width: i64) -> Result[(), ArchiveError]:
+    for index in range(0, width):
+        held(out.push(u8.wrapping_from((value >> (8 * index)) & 255)))?
+    Ok(())
+
+def put_list(out: &mut Bytes, values: &list[u8]) -> Result[(), ArchiveError]:
+    held(out.reserve(len(values)))?
+    for index in range(0, len(values)):
+        held(out.push(values[index]))?
+    Ok(())
+
+def put_text(out: &mut Bytes, text: &str) -> Result[(), ArchiveError]:
+    held(out.extend(&held(std.bytes.from_text(text))?))
+
+def field_list(data: &Bytes, start: i64, stop: i64) -> Result[list[u8], ArchiveError]:
+    held(held(data.slice(start, stop))?.to_list())
+
+# A NUL-terminated field of at most `width` bytes.
+def text_field(data: &Bytes, at: i64, width: i64) -> Result[list[u8], ArchiveError]:
+    mut stop = at + width
+    match held(data.find(0u8, at, at + width))?:
+        case Some(index):
+            stop = index
+        case Nothing:
+            pass
+    field_list(data, at, stop)
+
+def smaller(a: i64, b: i64) -> i64:
+    if a < b:
+        return a
+    b
+
+def empty_path() -> Result[Path, ArchiveError]:
+    Ok(std.path.from_bytes(owned(list[u8].new())?))
+
+# Names
+
+# The components of an archive name, rejecting an absolute name, a `..`
+# component, NUL and backslash. Empty and `.` components are dropped.
+def components(name: &list[u8], max_name: i64, max_depth: i64) -> Result[list[Path], ArchiveError]:
+    count = len(name)
+    if count > max_name:
+        return Err(ArchiveError.Limit)
+    if count == 0 or name[0] == 47u8:
+        return Err(ArchiveError.UnsafePath)
+    mut parts = owned(list[Path].new())?
+    mut start = 0
+    for index in range(0, count + 1):
+        if index == count or name[index] == 47u8:
+            width = index - start
+            dot = width == 1 and name[start] == 46u8
+            if width == 2 and name[start] == 46u8 and name[start + 1] == 46u8:
+                return Err(ArchiveError.UnsafePath)
+            if width > 0 and not dot:
+                if len(parts) == max_depth:
+                    return Err(ArchiveError.Limit)
+                mut part = owned(list[u8].with_capacity(width))?
+                for at in range(start, index):
+                    owned(part.append(name[at]))?
+                owned(parts.append(std.path.from_bytes(part)))?
+            start = index + 1
+        elif name[index] == 0u8 or name[index] == 92u8:
+            return Err(ArchiveError.UnsafePath)
+    Ok(parts)
+
+# The name a writer stores: the checked components joined by slashes, with
+# a trailing slash for a directory.
+def stored_name(name: &Path, directory: bool) -> Result[list[u8], ArchiveError]:
+    parts = components(name.as_bytes(), 65535, 1024)?
+    if len(parts) == 0:
+        return Err(ArchiveError.UnsafePath)
+    mut out = owned(list[u8].new())?
+    for index in range(0, len(parts)):
+        if index > 0:
+            owned(out.append(47u8))?
+        part = parts[index].as_bytes()
+        for at in range(0, len(part)):
+            owned(out.append(part[at]))?
+    if directory:
+        owned(out.append(47u8))?
+    if len(out) > 65535:
+        return Err(ArchiveError.Limit)
+    Ok(out)
+
+def has_nul(values: &list[u8]) -> bool:
+    for index in range(0, len(values)):
+        if values[index] == 0u8:
+            return True
+    False
+
+# TAR reading
+
+# Numeric header field: octal digits padded by spaces or NULs, or GNU
+# base-256 when the high bit of the first byte is set.
+def tar_number(block: &Bytes, at: i64, width: i64) -> Result[i64, ArchiveError]:
+    first = byte(block, at)?
+    if first >= 128:
+        if first == 255:
+            return Err(ArchiveError.Corrupt)
+        mut value = first & 127
+        for index in range(at + 1, at + width):
+            if value > 36028797018963967:
+                return Err(ArchiveError.Corrupt)
+            value = (value << 8) | byte(block, index)?
+        return Ok(value)
+    stop = at + width
+    mut index = at
+    while index < stop and byte(block, index)? == 32:
+        index += 1
+    mut value = 0
+    while index < stop:
+        digit = byte(block, index)?
+        if digit == 0 or digit == 32:
+            break
+        if digit < 48 or digit > 55 or value > 1152921504606846975:
+            return Err(ArchiveError.Corrupt)
+        value = value * 8 + digit - 48
+        index += 1
+    while index < stop:
+        rest = byte(block, index)?
+        if rest != 0 and rest != 32:
+            return Err(ArchiveError.Corrupt)
+        index += 1
+    Ok(value)
+
+# The header checksum treats its own field as spaces. Old writers summed
+# signed bytes, so either sum is accepted.
+def tar_checksum_ok(block: &Bytes) -> Result[bool, ArchiveError]:
+    stored = tar_number(block, 148, 8)?
+    mut unsigned = 0
+    mut signed = 0
+    for index in range(0, block_size):
+        mut value = byte(block, index)?
+        if index >= 148 and index < 156:
+            value = 32
+        unsigned += value
+        if value >= 128:
+            signed += value - 256
+        else:
+            signed += value
+    Ok(stored == unsigned or stored == signed)
+
+def tar_kind(flag: i64) -> EntryKind:
+    if flag == 48 or flag == 0 or flag == 55:
+        return EntryKind.File
+    if flag == 53:
+        return EntryKind.Directory
+    if flag == 50:
+        return EntryKind.Symlink
+    if flag == 49:
+        return EntryKind.Hardlink
+    EntryKind.Other
+
+class Pending:
+    path: Option[list[u8]]
+    link: Option[list[u8]]
+    size: i64
+
+    def any(self) -> bool:
+        self.size >= 0 or self.path.is_some() or self.link.is_some()
+
+def digits_value(data: &Bytes, start: i64, stop: i64) -> Result[i64, ArchiveError]:
+    if start == stop:
+        return Err(ArchiveError.Corrupt)
+    mut value = 0
+    for index in range(start, stop):
+        digit = byte(data, index)?
+        if digit < 48 or digit > 57 or value > 922337203685477579:
+            return Err(ArchiveError.Corrupt)
+        value = value * 10 + digit - 48
+    Ok(value)
+
+# pax records are `LENGTH KEY=VALUE\n`, LENGTH counting the whole record.
+# Only path, linkpath and size change extraction; other keys are ignored.
+def pax_records(data: &Bytes, pending: &mut Pending) -> Result[(), ArchiveError]:
+    total = data.len()
+    mut at = 0
+    while at < total:
+        space = match held(data.find(32u8, at, total))?:
+            case Some(index):
+                index
+            case Nothing:
+                return Err(ArchiveError.Corrupt)
+        length = digits_value(data, at, space)?
+        if length > total - at or length < space - at + 3:
+            return Err(ArchiveError.Corrupt)
+        end = at + length
+        if byte(data, end - 1)? != 10:
+            return Err(ArchiveError.Corrupt)
+        equals = match held(data.find(61u8, space + 1, end - 1))?:
+            case Some(index):
+                index
+            case Nothing:
+                return Err(ArchiveError.Corrupt)
+        key = equals - space - 1
+        if key == 4 and held(data.matches_text(space + 1, "path"))?:
+            pending.path = Some(field_list(data, equals + 1, end - 1)?)
+        elif key == 8 and held(data.matches_text(space + 1, "linkpath"))?:
+            pending.link = Some(field_list(data, equals + 1, end - 1)?)
+        elif key == 4 and held(data.matches_text(space + 1, "size"))?:
+            pending.size = digits_value(data, equals + 1, end - 1)?
+        at = end
+    Ok(())
+
+# A streaming TAR reader. `next` moves to the following entry, skipping any
+# unread content; `read` returns the current entry's content. A malformed
+# header ends the archive: every later call repeats the error, and `failure`
+# names it.
+pub class TarReader[R]:
+    pub inner: R
+    _block: Bytes
+    _remaining: i64
+    _padding: i64
+    _ended: bool
+    _failure: Option[ArchiveError]
+
+    pub def failure(self) -> Option[ArchiveError]:
+        self._failure
+
+    def block(self: &mut TarReader[R]) -> Result[(), ArchiveError]:
+        fill(&mut self.inner, &mut self._block, block_size)
+
+    def skip(self: &mut TarReader[R], count: i64) -> Result[(), ArchiveError]:
+        mut left = count
+        while left > 0:
+            step = smaller(left, block_size)
+            fill(&mut self.inner, &mut self._block, step)?
+            left -= step
+        Ok(())
+
+    # The content of a metadata entry of `size` bytes, followed by padding.
+    def metadata(self: &mut TarReader[R], size: i64) -> Result[Bytes, ArchiveError]:
+        if size > max_metadata:
+            return Err(ArchiveError.Limit)
+        mut data = held(std.bytes.with_capacity(size))?
+        held(data.resize(size, 0u8))?
+        fill(&mut self.inner, &mut data, size)?
+        self.skip((block_size - size % block_size) % block_size)?
+        Ok(data)
+
+    def advance(self: &mut TarReader[R]) -> Result[Option[Entry], ArchiveError]:
+        self.skip(self._remaining + self._padding)?
+        self._remaining = 0
+        self._padding = 0
+        mut pending = Pending(Nothing, Nothing, -1)
+        while True:
+            self.block()?
+            if held(self._block.count(0u8, 0, block_size))? == block_size:
+                # The end is two zero blocks; metadata may not precede it.
+                self.block()?
+                if held(self._block.count(0u8, 0, block_size))? != block_size or pending.any():
+                    return Err(ArchiveError.Corrupt)
+                self._ended = True
+                return Ok(Nothing)
+            if not tar_checksum_ok(&self._block)?:
+                return Err(ArchiveError.Checksum)
+            flag = byte(&self._block, 156)?
+            size = tar_number(&self._block, 124, 12)?
+            if flag == 120:
+                data = self.metadata(size)?
+                pax_records(&data, &mut pending)?
+            elif flag == 103:
+                # Global pax headers apply to no field this reader keeps.
+                self.skip(size + (block_size - size % block_size) % block_size)?
+            elif flag == 76 or flag == 75:
+                data = self.metadata(size)?
+                mut stop = data.len()
+                match held(data.find(0u8, 0, stop))?:
+                    case Some(index):
+                        stop = index
+                    case Nothing:
+                        pass
+                value = field_list(&data, 0, stop)?
+                if flag == 76:
+                    pending.path = Some(value)
+                else:
+                    pending.link = Some(value)
+            else:
+                return Ok(Some(self.entry(flag, size, &mut pending)?))
+        Ok(Nothing)
+
+    def entry(self: &mut TarReader[R], flag: i64, header_size: i64, pending: &mut Pending) -> Result[Entry, ArchiveError]:
+        block = &self._block
+        mut size = header_size
+        if pending.size >= 0:
+            size = pending.size
+        # Keeps the content and its padding representable.
+        if size > max_size:
+            return Err(ArchiveError.Corrupt)
+        name = match replace(pending.path, Nothing):
+            case Some(path):
+                path
+            case Nothing:
+                mut joined = owned(list[u8].new())?
+                # ustar splits a long name into prefix and name.
+                if held(block.matches_text(257, "ustar"))? and byte(block, 262)? == 0:
+                    prefix = text_field(block, 345, 155)?
+                    if len(prefix) > 0:
+                        for index in range(0, len(prefix)):
+                            owned(joined.append(prefix[index]))?
+                        owned(joined.append(47u8))?
+                base = text_field(block, 0, 100)?
+                for index in range(0, len(base)):
+                    owned(joined.append(base[index]))?
+                joined
+        link = match replace(pending.link, Nothing):
+            case Some(path):
+                path
+            case Nothing:
+                text_field(block, 157, 100)?
+        kind = tar_kind(flag)
+        mode = tar_number(block, 100, 8)? & 4095
+        mtime = tar_number(block, 136, 12)?
+        # Links, directories and devices have no content, whatever their
+        # size field says; regular files and unknown types do.
+        mut content = 0
+        if kind == EntryKind.File or kind == EntryKind.Other:
+            content = size
+        self._remaining = content
+        self._padding = (block_size - content % block_size) % block_size
+        Ok(Entry(std.path.from_bytes(name), kind, size, content, mode, mtime, std.path.from_bytes(link)))
+
+    pub def next(self: &mut TarReader[R]) -> Result[Option[Entry], ArchiveError]:
+        match self._failure:
+            case Some(error):
+                return Err(error)
+            case Nothing:
+                pass
+        if self._ended:
+            return Ok(Nothing)
+        match self.advance():
+            case Ok(entry):
+                Ok(entry)
+            case Err(error):
+                self._failure = Some(error)
+                Err(error)
+
+    def pull(self: &mut TarReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ArchiveError]:
+        if self._remaining == 0 or start == stop:
+            return Ok(0)
+        want = smaller(stop - start, self._remaining)
+        count = moved(self.inner.read(buffer, start, start + want))?
+        if count < 0 or count > want:
+            return Err(ArchiveError.Stream(StreamError.InvalidProgress))
+        if count == 0:
+            return Err(ArchiveError.Truncated)
+        self._remaining -= count
+        Ok(count)
+
+    # Errors from `inner` leave the reader intact, so Interrupted and other
+    # transient failures can be retried.
+    pub def read(self: &mut TarReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start < 0 or start > stop or stop > buffer.len():
+            return Err(StreamError.OutOfRange)
+        match self._failure:
+            case Some(error):
+                return Err(stream_error(error))
+            case Nothing:
+                pass
+        match self.pull(buffer, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(ArchiveError.Stream(cause)):
+                Err(cause)
+            case Err(error):
+                self._failure = Some(error)
+                Err(stream_error(error))
+
+pub def tar_reader[R](inner: R) -> Result[TarReader[R], ArchiveError]:
+    mut block = held(std.bytes.with_capacity(block_size))?
+    held(block.resize(block_size, 0u8))?
+    Ok(TarReader(inner, block, 0, 0, False, Nothing))
+
+# TAR writing
+
+def put_octal(block: &mut Bytes, at: i64, width: i64, value: i64) -> Result[(), ArchiveError]:
+    mut rest = value
+    mut index = at + width - 2
+    while index >= at:
+        held(block.set(index, u8.wrapping_from(48 + rest % 8)))?
+        rest = rest // 8
+        index -= 1
+    if rest != 0:
+        return Err(ArchiveError.InvalidInput)
+    held(block.set(at + width - 1, 0u8))
+
+def put_field(block: &mut Bytes, at: i64, values: &list[u8], width: i64) -> Result[(), ArchiveError]:
+    for index in range(0, smaller(len(values), width)):
+        held(block.set(at + index, values[index]))?
+    Ok(())
+
+def decimal_width(value: i64) -> i64:
+    mut width = 1
+    mut rest = value
+    while rest >= 10:
+        rest = rest // 10
+        width += 1
+    width
+
+def pax_record(out: &mut Bytes, key: &str, value: &list[u8]) -> Result[(), ArchiveError]:
+    base = len(key) + len(value) + 3
+    mut length = base + decimal_width(base)
+    if decimal_width(length) != decimal_width(base):
+        length = base + decimal_width(length)
+    put_text(out, &owned(str.from(length))?)?
+    put_text(out, " ")?
+    put_text(out, key)?
+    put_text(out, "=")?
+    put_list(out, value)?
+    put_text(out, "\n")
+
+# A streaming TAR writer (POSIX ustar, with pax records for names and link
+# targets longer than 100 bytes). `finish` writes the end-of-archive blocks;
+# without it the archive is truncated.
+pub class TarWriter[W]:
+    pub inner: W
+    _block: Bytes
+    _finished: bool
+
+    def zero(self: &mut TarWriter[W]) -> ():
+        self._block.clear()
+        drop(self._block.resize(block_size, 0u8))
+
+    def emit(self: &mut TarWriter[W]) -> Result[(), ArchiveError]:
+        send(&mut self.inner, &self._block, 0, block_size)
+
+    def pad(self: &mut TarWriter[W], size: i64) -> Result[(), ArchiveError]:
+        count = (block_size - size % block_size) % block_size
+        self.zero()
+        send(&mut self.inner, &self._block, 0, count)
+
+    def header(self: &mut TarWriter[W], name: &list[u8], flag: u8, size: i64, mode: i64, mtime: i64, link: &list[u8]) -> Result[(), ArchiveError]:
+        if self._finished:
+            return Err(ArchiveError.InvalidInput)
+        if size < 0 or mode < 0 or mode > 4095 or mtime < 0 or mtime > 8589934591:
+            return Err(ArchiveError.InvalidInput)
+        if len(name) > 100 or len(link) > 100:
+            mut records = held(std.bytes.empty())?
+            if len(name) > 100:
+                pax_record(&mut records, "path", name)?
+            if len(link) > 100:
+                pax_record(&mut records, "linkpath", link)?
+            label = system(encode_utf8("././@PaxHeader"))?
+            self.fields(&label, 120u8, records.len(), 420, mtime, &owned(list[u8].new())?)?
+            self.emit()?
+            send(&mut self.inner, &records, 0, records.len())?
+            self.pad(records.len())?
+        self.fields(name, flag, size, mode, mtime, link)?
+        self.emit()
+
+    def fields(self: &mut TarWriter[W], name: &list[u8], flag: u8, size: i64, mode: i64, mtime: i64, link: &list[u8]) -> Result[(), ArchiveError]:
+        self.zero()
+        block = &mut self._block
+        put_field(block, 0, name, 100)?
+        put_octal(block, 100, 8, mode)?
+        put_octal(block, 108, 8, 0)?
+        put_octal(block, 116, 8, 0)?
+        if size > 8589934591:
+            # GNU base-256: a high-bit marker, then big-endian bytes.
+            held(block.set(124, 128u8))?
+            for index in range(0, 8):
+                held(block.set(135 - index, u8.wrapping_from((size >> (8 * index)) & 255)))?
+        else:
+            put_octal(block, 124, 12, size)?
+        put_octal(block, 136, 12, mtime)?
+        held(block.set(156, flag))?
+        put_field(block, 157, link, 100)?
+        magic = system(encode_utf8("ustar"))?
+        put_field(block, 257, &magic, 6)?
+        held(block.set(263, 48u8))?
+        held(block.set(264, 48u8))?
+        for index in range(148, 156):
+            held(block.set(index, 32u8))?
+        mut sum = 0
+        for index in range(0, block_size):
+            sum += byte(block, index)?
+        put_octal(block, 148, 7, sum)?
+        held(block.set(155, 32u8))
+
+    pub def add_file(self: &mut TarWriter[W], name: &Path, data: &Bytes, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
+        stored = stored_name(name, False)?
+        self.header(&stored, 48u8, data.len(), mode, mtime, &owned(list[u8].new())?)?
+        send(&mut self.inner, data, 0, data.len())?
+        self.pad(data.len())
+
+    # Copies exactly `size` bytes from `source` as the content of `name`.
+    # A source that ends early is Truncated, leaving the archive unusable.
+    pub def add_from[S](self: &mut TarWriter[W], name: &Path, size: i64, source: &mut S, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
+        stored = stored_name(name, False)?
+        self.header(&stored, 48u8, size, mode, mtime, &owned(list[u8].new())?)?
+        mut left = size
+        while left > 0:
+            step = smaller(left, block_size)
+            fill(source, &mut self._block, step)?
+            send(&mut self.inner, &self._block, 0, step)?
+            left -= step
+        self.pad(size)
+
+    pub def add_dir(self: &mut TarWriter[W], name: &Path, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
+        stored = stored_name(name, True)?
+        self.header(&stored, 53u8, 0, mode, mtime, &owned(list[u8].new())?)
+
+    pub def add_symlink(self: &mut TarWriter[W], name: &Path, target: &Path, mtime: i64) -> Result[(), ArchiveError]:
+        stored = stored_name(name, False)?
+        if len(target.as_bytes()) == 0 or has_nul(target.as_bytes()):
+            return Err(ArchiveError.InvalidInput)
+        self.header(&stored, 50u8, 0, 511, mtime, target.as_bytes())
+
+    pub def finish(self: &mut TarWriter[W]) -> Result[(), ArchiveError]:
+        if not self._finished:
+            self.zero()
+            self.emit()?
+            self.emit()?
+            self._finished = True
+        moved(self.inner.flush())
+
+pub def tar_writer[W](inner: W) -> Result[TarWriter[W], ArchiveError]:
+    mut block = held(std.bytes.with_capacity(block_size))?
+    held(block.resize(block_size, 0u8))?
+    Ok(TarWriter(inner, block, False))
+
+# DOS dates
+
+def days_from_civil(year: i64, month: i64, day: i64) -> i64:
+    mut y = year
+    if month <= 2:
+        y -= 1
+    era = y // 400
+    yoe = y - era * 400
+    shifted = (month + 9) % 12
+    doy = (153 * shifted + 2) // 5 + day - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    era * 146097 + doe - 719468
+
+def from_dos(time: i64, date: i64) -> i64:
+    year = (date >> 9) + 1980
+    mut month = (date >> 5) & 15
+    mut day = date & 31
+    if month < 1 or month > 12:
+        month = 1
+    if day < 1:
+        day = 1
+    seconds = (time >> 11) * 3600 + ((time >> 5) & 63) * 60 + (time & 31) * 2
+    days_from_civil(year, month, day) * 86400 + seconds
+
+# DOS time and date of a Unix time, clamped to 1980..2107.
+def to_dos(mtime: i64) -> (i64, i64):
+    mut at = mtime
+    if at < dos_epoch:
+        at = dos_epoch
+    if at > 4354819198:
+        at = 4354819198
+    z = at // 86400 + 719468
+    era = z // 146097
+    doe = z - era * 146097
+    yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp = (5 * doy + 2) // 153
+    day = doy - (153 * mp + 2) // 5 + 1
+    mut month = mp + 3
+    if mp >= 10:
+        month = mp - 9
+    mut year = yoe + era * 400
+    if month <= 2:
+        year += 1
+    second = at % 86400
+    time = ((second // 3600) << 11) | (((second // 60) % 60) << 5) | ((second % 60) // 2)
+    date = ((year - 1980) << 9) | (month << 5) | day
+    (time, date)
+
+# ZIP reading
+
+class Record:
+    method: i64
+    flags: i64
+    crc: i64
+    offset: i64
+
+def zip_kind(made: i64, external: i64, name: &list[u8]) -> (EntryKind, i64):
+    count = len(name)
+    trailing = count > 0 and name[count - 1] == 47u8
+    if made >> 8 == 3:
+        mode = external >> 16
+        bits = mode & type_mask
+        if bits == symlink_bits:
+            return (EntryKind.Symlink, mode & 4095)
+        if bits == directory_bits or trailing:
+            return (EntryKind.Directory, mode & 4095)
+        if bits == regular_bits or bits == 0:
+            return (EntryKind.File, mode & 4095)
+        return (EntryKind.Other, mode & 4095)
+    if trailing or external & 16 != 0:
+        return (EntryKind.Directory, 0)
+    (EntryKind.File, 0)
+
+# A ZIP reader over a seekable stream. Opening reads the central directory;
+# `open` selects an entry and `read` returns its content, checking its size
+# and CRC-32 when it ends. A failure ends the entry: `read` repeats it until
+# another `open`, and `failure` names it.
+pub class ZipReader[R]:
+    pub inner: R
+    _entries: list[Entry]
+    _records: list[Record]
+    # The end of the space each entry's data may occupy.
+    _bounds: list[i64]
+    _input: Bytes
+    _in_start: i64
+    _in_stop: i64
+    _decoder: Inflater
+    _out_start: i64
+    _stored: bool
+    _active: bool
+    _left: i64
+    _size: i64
+    _produced: i64
+    _crc: i64
+    _expected: i64
+    _failure: Option[ArchiveError]
+
+    pub def len(self) -> i64:
+        len(self._entries)
+
+    pub def entries(self) -> &list[Entry]:
+        &self._entries
+
+    pub def failure(self) -> Option[ArchiveError]:
+        self._failure
+
+    def at(self: &mut ZipReader[R], offset: i64) -> Result[(), ArchiveError]:
+        drop(moved(self.inner.seek(SeekFrom.Start(offset)))?)
+        Ok(())
+
+    def chunk_of(self: &mut ZipReader[R], count: i64) -> Result[(), ArchiveError]:
+        fill(&mut self.inner, &mut self._input, count)
+
+    def load(self: &mut ZipReader[R], max_entries: i64) -> Result[(), ArchiveError]:
+        size = moved(self.inner.seek(SeekFrom.End(0)))?
+        if size < 22:
+            return Err(ArchiveError.Corrupt)
+        tail_size = smaller(size, 65557)
+        mut tail = held(std.bytes.with_capacity(tail_size))?
+        held(tail.resize(tail_size, 0u8))?
+        self.at(size - tail_size)?
+        fill(&mut self.inner, &mut tail, tail_size)?
+        # The last end record whose comment reaches exactly to the end.
+        mut found = tail_size - 22
+        while found >= 0:
+            if le(&tail, found, 4)? == end_signature and le(&tail, found + 20, 2)? == tail_size - found - 22:
+                break
+            found -= 1
+        if found < 0:
+            return Err(ArchiveError.Corrupt)
+        end = size - tail_size + found
+        mut disk = le(&tail, found + 4, 2)?
+        mut directory_disk = le(&tail, found + 6, 2)?
+        mut on_disk = le(&tail, found + 8, 2)?
+        mut count = le(&tail, found + 10, 2)?
+        mut directory_size = le(&tail, found + 12, 4)?
+        mut directory_offset = le(&tail, found + 16, 4)?
+        mut limit = end
+        if count == u16_max or on_disk == u16_max or directory_size == u32_max or directory_offset == u32_max:
+            if end < 76:
+                return Err(ArchiveError.Corrupt)
+            self.at(end - 20)?
+            self.chunk_of(20)?
+            if le(&self._input, 0, 4)? != locator_signature:
+                return Err(ArchiveError.Corrupt)
+            if le(&self._input, 4, 4)? != 0 or le(&self._input, 16, 4)? != 1:
+                return Err(ArchiveError.Unsupported)
+            record = le(&self._input, 8, 8)?
+            if record > end - 76:
+                return Err(ArchiveError.Corrupt)
+            self.at(record)?
+            self.chunk_of(56)?
+            if le(&self._input, 0, 4)? != end64_signature:
+                return Err(ArchiveError.Corrupt)
+            disk = le(&self._input, 16, 4)?
+            directory_disk = le(&self._input, 20, 4)?
+            on_disk = le(&self._input, 24, 8)?
+            count = le(&self._input, 32, 8)?
+            directory_size = le(&self._input, 40, 8)?
+            directory_offset = le(&self._input, 48, 8)?
+            limit = record
+        if disk != 0 or directory_disk != 0 or on_disk != count:
+            return Err(ArchiveError.Unsupported)
+        if directory_offset > limit or directory_size > limit - directory_offset:
+            return Err(ArchiveError.Corrupt)
+        if count > max_entries:
+            return Err(ArchiveError.Limit)
+        if count > directory_size // 46:
+            return Err(ArchiveError.Corrupt)
+        owned(self._entries.reserve(count))?
+        owned(self._records.reserve(count))?
+        self.at(directory_offset)?
+        mut consumed = 0
+        for _ in range(0, count):
+            self.chunk_of(46)?
+            if le(&self._input, 0, 4)? != central_signature:
+                return Err(ArchiveError.Corrupt)
+            made = le(&self._input, 4, 2)?
+            flags = le(&self._input, 8, 2)?
+            method = le(&self._input, 10, 2)?
+            time = le(&self._input, 12, 2)?
+            date = le(&self._input, 14, 2)?
+            crc = le(&self._input, 16, 4)?
+            mut compressed = le(&self._input, 20, 4)?
+            mut original = le(&self._input, 24, 4)?
+            name_size = le(&self._input, 28, 2)?
+            extra_size = le(&self._input, 30, 2)?
+            comment_size = le(&self._input, 32, 2)?
+            external = le(&self._input, 38, 4)?
+            mut offset = le(&self._input, 42, 4)?
+            consumed += 46 + name_size + extra_size + comment_size
+            if consumed > directory_size:
+                return Err(ArchiveError.Corrupt)
+            mut raw = held(std.bytes.with_capacity(name_size))?
+            held(raw.resize(name_size, 0u8))?
+            fill(&mut self.inner, &mut raw, name_size)?
+            name = held(raw.to_list())?
+            mut extra = held(std.bytes.with_capacity(extra_size))?
+            held(extra.resize(extra_size, 0u8))?
+            fill(&mut self.inner, &mut extra, extra_size)?
+            mut left = comment_size
+            while left > 0:
+                step = smaller(left, chunk)
+                self.chunk_of(step)?
+                left -= step
+            # ZIP64 extra: 8-byte values for exactly the saturated fields.
+            mut wide = False
+            mut at = 0
+            while at + 4 <= extra_size:
+                id = le(&extra, at, 2)?
+                width = le(&extra, at + 2, 2)?
+                stop = at + 4 + width
+                if stop > extra_size:
+                    return Err(ArchiveError.Corrupt)
+                if id == 1:
+                    wide = True
+                    mut field = at + 4
+                    if original == u32_max:
+                        if field + 8 > stop:
+                            return Err(ArchiveError.Corrupt)
+                        original = le(&extra, field, 8)?
+                        field += 8
+                    if compressed == u32_max:
+                        if field + 8 > stop:
+                            return Err(ArchiveError.Corrupt)
+                        compressed = le(&extra, field, 8)?
+                        field += 8
+                    if offset == u32_max:
+                        if field + 8 > stop:
+                            return Err(ArchiveError.Corrupt)
+                        offset = le(&extra, field, 8)?
+                at = stop
+            if not wide and (original == u32_max or compressed == u32_max or offset == u32_max):
+                return Err(ArchiveError.Corrupt)
+            if offset > directory_offset - 30:
+                return Err(ArchiveError.Corrupt)
+            kind, mode = zip_kind(made, external, &name)
+            entry = Entry(std.path.from_bytes(name), kind, original, compressed, mode, from_dos(time, date), empty_path()?)
+            owned(self._entries.append(entry))?
+            owned(self._records.append(Record(method, flags, crc, offset)))?
+        # Entries may not overlap: each one's data must end before the next
+        # local header, which defeats overlapping-entry bombs.
+        mut spans = owned(list[(i64, i64)].with_capacity(count))?
+        for index in range(0, count):
+            owned(spans.append((self._records[index].offset, index)))?
+        spans.sort()
+        mut bounds = owned(list[i64].with_capacity(count))?
+        for _ in range(0, count):
+            owned(bounds.append(0))?
+        for position in range(0, count):
+            start, index = spans[position]
+            mut next = directory_offset
+            if position + 1 < count:
+                following, _ = spans[position + 1]
+                next = following
+            if start + 30 > next:
+                return Err(ArchiveError.Corrupt)
+            bounds[index] = next
+        self._bounds = bounds
+        Ok(())
+
+    def select(self: &mut ZipReader[R], index: i64) -> Result[(), ArchiveError]:
+        if index < 0 or index >= len(self._entries):
+            return Err(ArchiveError.InvalidInput)
+        record = &self._records[index]
+        method = record.method
+        flags = record.flags
+        expected = record.crc
+        offset = record.offset
+        size = self._entries[index].size
+        compressed = self._entries[index].compressed
+        bound = self._bounds[index]
+        if flags & 1 != 0:
+            return Err(ArchiveError.Unsupported)
+        if method != 0 and method != 8:
+            return Err(ArchiveError.Unsupported)
+        if method == 0 and compressed != size:
+            return Err(ArchiveError.Corrupt)
+        self.at(offset)?
+        self.chunk_of(30)?
+        if le(&self._input, 0, 4)? != local_signature:
+            return Err(ArchiveError.Corrupt)
+        name_size = le(&self._input, 26, 2)?
+        extra_size = le(&self._input, 28, 2)?
+        if name_size != len(self._entries[index].name.as_bytes()):
+            return Err(ArchiveError.Corrupt)
+        # The local name must repeat the central one.
+        mut compared = 0
+        while compared < name_size:
+            step = smaller(name_size - compared, chunk)
+            self.chunk_of(step)?
+            for position in range(0, step):
+                if held(self._input.get(position))? != self._entries[index].name.as_bytes()[compared + position]:
+                    return Err(ArchiveError.Corrupt)
+            compared += step
+        start = offset + 30 + name_size + extra_size
+        if start > bound or compressed > bound - start:
+            return Err(ArchiveError.Corrupt)
+        self.at(start)?
+        if method == 8:
+            self._decoder = coded(std.compress.inflater(Format.Deflate, size))?
+        self._stored = method == 0
+        self._left = compressed
+        self._size = size
+        self._expected = expected
+        self._produced = 0
+        self._crc = 0
+        self._in_start = 0
+        self._in_stop = 0
+        self._out_start = 0
+        self._active = True
+        Ok(())
+
+    # Selects entry `index` for `read`, clearing an earlier failure.
+    pub def open(self: &mut ZipReader[R], index: i64) -> Result[(), ArchiveError]:
+        self._active = False
+        self._failure = Nothing
+        match self.select(index):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                self._failure = Some(error)
+                Err(error)
+
+    def verify(self: &mut ZipReader[R]) -> Result[i64, ArchiveError]:
+        if self._produced != self._size:
+            return Err(ArchiveError.Corrupt)
+        if self._crc != self._expected:
+            return Err(ArchiveError.Checksum)
+        self._active = False
+        Ok(0)
+
+    def pull(self: &mut ZipReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ArchiveError]:
+        if not self._active or start == stop:
+            return Ok(0)
+        if self._stored:
+            if self._left == 0:
+                return self.verify()
+            want = smaller(stop - start, self._left)
+            count = moved(self.inner.read(buffer, start, start + want))?
+            if count < 0 or count > want:
+                return Err(ArchiveError.Stream(StreamError.InvalidProgress))
+            if count == 0:
+                return Err(ArchiveError.Truncated)
+            self._crc = coded(std.compress.crc32(self._crc, buffer, start, start + count))?
+            self._left -= count
+            self._produced += count
+            return Ok(count)
+        while True:
+            pending = self._decoder.output().len() - self._out_start
+            if pending > 0:
+                count = smaller(stop - start, pending)
+                held(buffer.overwrite(start, self._decoder.output(), self._out_start, self._out_start + count))?
+                self._crc = coded(std.compress.crc32(self._crc, buffer, start, start + count))?
+                self._produced += count
+                self._out_start += count
+                if self._out_start == self._decoder.output().len():
+                    self._decoder.clear()
+                    self._out_start = 0
+                return Ok(count)
+            if self._decoder.complete():
+                if self._in_start < self._in_stop or self._left > 0:
+                    return Err(ArchiveError.Corrupt)
+                return self.verify()
+            if self._in_start == self._in_stop:
+                if self._left == 0:
+                    return Err(ArchiveError.Truncated)
+                want = smaller(chunk, self._left)
+                count = moved(self.inner.read(&mut self._input, 0, want))?
+                if count < 0 or count > want:
+                    return Err(ArchiveError.Stream(StreamError.InvalidProgress))
+                if count == 0:
+                    return Err(ArchiveError.Truncated)
+                self._in_start = 0
+                self._in_stop = count
+                self._left -= count
+            else:
+                self._in_start += coded(self._decoder.step(&self._input, self._in_start, self._in_stop))?
+        Ok(0)
+
+    # Errors from `inner` leave the entry intact, so Interrupted and other
+    # transient failures can be retried.
+    pub def read(self: &mut ZipReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start < 0 or start > stop or stop > buffer.len():
+            return Err(StreamError.OutOfRange)
+        match self._failure:
+            case Some(error):
+                return Err(stream_error(error))
+            case Nothing:
+                pass
+        match self.pull(buffer, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(ArchiveError.Stream(cause)):
+                Err(cause)
+            case Err(error):
+                self._failure = Some(error)
+                Err(stream_error(error))
+
+# Reads the central directory of `inner`, which must support `seek` as
+# std.io.FileStream and Cursor do. More than `max_entries` entries is Limit.
+pub def zip_reader[R](inner: R, max_entries: i64) -> Result[ZipReader[R], ArchiveError]:
+    if max_entries < 0:
+        return Err(ArchiveError.InvalidInput)
+    mut input = held(std.bytes.with_capacity(chunk))?
+    held(input.resize(chunk, 0u8))?
+    decoder = coded(std.compress.inflater(Format.Deflate, 0))?
+    mut reader = ZipReader(inner, owned(list[Entry].new())?, owned(list[Record].new())?, owned(list[i64].new())?, input, 0, 0, decoder, 0, False, False, 0, 0, 0, 0, 0, Nothing)
+    reader.load(max_entries)?
+    Ok(reader)
+
+# ZIP writing
+
+pub enum Method:
+    Stored
+    Deflate
+
+def utf8_flag(name: &list[u8]) -> i64:
+    mut wide = False
+    for index in range(0, len(name)):
+        if name[index] >= 128u8:
+            wide = True
+    if wide and decode_utf8(name).is_ok():
+        return 2048
+    0
+
+# A ZIP writer for any std.io Writer; it never seeks. Each entry's data is
+# compressed in memory before its header is written. ZIP64 records are
+# added when a size, offset or the entry count needs them. `finish` writes
+# the central directory; without it the archive cannot be read.
+pub class ZipWriter[W]:
+    pub inner: W
+    _central: Bytes
+    _count: i64
+    _offset: i64
+    _finished: bool
+
+    def record(self: &mut ZipWriter[W], name: &list[u8], method: i64, crc: i64, payload: &Bytes, size: i64, mode: i64, attributes: i64, mtime: i64) -> Result[(), ArchiveError]:
+        if self._finished:
+            return Err(ArchiveError.InvalidInput)
+        if mtime < 0:
+            return Err(ArchiveError.InvalidInput)
+        compressed = payload.len()
+        wide = size >= u32_max or compressed >= u32_max or self._offset >= u32_max
+        mut version = 20
+        if wide:
+            version = 45
+        flags = utf8_flag(name)
+        time, date = to_dos(mtime)
+        mut head = held(std.bytes.with_capacity(30 + len(name) + 20))?
+        put_le(&mut head, local_signature, 4)?
+        put_le(&mut head, version, 2)?
+        put_le(&mut head, flags, 2)?
+        put_le(&mut head, method, 2)?
+        put_le(&mut head, time, 2)?
+        put_le(&mut head, date, 2)?
+        put_le(&mut head, crc, 4)?
+        if wide:
+            put_le(&mut head, u32_max, 4)?
+            put_le(&mut head, u32_max, 4)?
+        else:
+            put_le(&mut head, compressed, 4)?
+            put_le(&mut head, size, 4)?
+        put_le(&mut head, len(name), 2)?
+        if wide:
+            put_le(&mut head, 20, 2)?
+        else:
+            put_le(&mut head, 0, 2)?
+        put_list(&mut head, name)?
+        if wide:
+            put_le(&mut head, 1, 2)?
+            put_le(&mut head, 16, 2)?
+            put_le(&mut head, size, 8)?
+            put_le(&mut head, compressed, 8)?
+        central = &mut self._central
+        put_le(central, central_signature, 4)?
+        put_le(central, made_by, 2)?
+        put_le(central, version, 2)?
+        put_le(central, flags, 2)?
+        put_le(central, method, 2)?
+        put_le(central, time, 2)?
+        put_le(central, date, 2)?
+        put_le(central, crc, 4)?
+        if wide:
+            put_le(central, u32_max, 4)?
+            put_le(central, u32_max, 4)?
+        else:
+            put_le(central, compressed, 4)?
+            put_le(central, size, 4)?
+        put_le(central, len(name), 2)?
+        if wide:
+            put_le(central, 28, 2)?
+        else:
+            put_le(central, 0, 2)?
+        put_le(central, 0, 2)?
+        put_le(central, 0, 2)?
+        put_le(central, 0, 2)?
+        put_le(central, (mode << 16) | attributes, 4)?
+        if wide:
+            put_le(central, u32_max, 4)?
+        else:
+            put_le(central, self._offset, 4)?
+        put_list(central, name)?
+        if wide:
+            put_le(central, 1, 2)?
+            put_le(central, 24, 2)?
+            put_le(central, size, 8)?
+            put_le(central, compressed, 8)?
+            put_le(central, self._offset, 8)?
+        send(&mut self.inner, &head, 0, head.len())?
+        send(&mut self.inner, payload, 0, compressed)?
+        self._offset += head.len() + compressed
+        self._count += 1
+        Ok(())
+
+    pub def add_file(self: &mut ZipWriter[W], name: &Path, data: &Bytes, method: Method, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
+        if mode < 0 or mode > 4095:
+            return Err(ArchiveError.InvalidInput)
+        stored = stored_name(name, False)?
+        crc = coded(std.compress.crc32(0, data, 0, data.len()))?
+        match method:
+            case Method.Stored:
+                self.record(&stored, 0, crc, data, data.len(), regular_bits | mode, 0, mtime)
+            case Method.Deflate:
+                packed = coded(std.compress.compress(Format.Deflate, data, 6))?
+                self.record(&stored, 8, crc, &packed, data.len(), regular_bits | mode, 0, mtime)
+
+    pub def add_dir(self: &mut ZipWriter[W], name: &Path, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
+        if mode < 0 or mode > 4095:
+            return Err(ArchiveError.InvalidInput)
+        stored = stored_name(name, True)?
+        self.record(&stored, 0, 0, &held(std.bytes.empty())?, 0, directory_bits | mode, 16, mtime)
+
+    pub def add_symlink(self: &mut ZipWriter[W], name: &Path, target: &Path, mtime: i64) -> Result[(), ArchiveError]:
+        stored = stored_name(name, False)?
+        if len(target.as_bytes()) == 0 or has_nul(target.as_bytes()):
+            return Err(ArchiveError.InvalidInput)
+        data = held(std.bytes.from_list(target.as_bytes()))?
+        crc = coded(std.compress.crc32(0, &data, 0, data.len()))?
+        self.record(&stored, 0, crc, &data, data.len(), symlink_bits | 511, 0, mtime)
+
+    pub def finish(self: &mut ZipWriter[W]) -> Result[(), ArchiveError]:
+        if not self._finished:
+            directory_offset = self._offset
+            directory_size = self._central.len()
+            count = self._count
+            mut tail = held(std.bytes.with_capacity(98))?
+            if count >= u16_max or directory_offset >= u32_max or directory_size >= u32_max:
+                put_le(&mut tail, end64_signature, 4)?
+                put_le(&mut tail, 44, 8)?
+                put_le(&mut tail, made_by, 2)?
+                put_le(&mut tail, 45, 2)?
+                put_le(&mut tail, 0, 4)?
+                put_le(&mut tail, 0, 4)?
+                put_le(&mut tail, count, 8)?
+                put_le(&mut tail, count, 8)?
+                put_le(&mut tail, directory_size, 8)?
+                put_le(&mut tail, directory_offset, 8)?
+                put_le(&mut tail, locator_signature, 4)?
+                put_le(&mut tail, 0, 4)?
+                put_le(&mut tail, directory_offset + directory_size, 8)?
+                put_le(&mut tail, 1, 4)?
+            put_le(&mut tail, end_signature, 4)?
+            put_le(&mut tail, 0, 4)?
+            put_le(&mut tail, smaller(count, u16_max), 2)?
+            put_le(&mut tail, smaller(count, u16_max), 2)?
+            put_le(&mut tail, smaller(directory_size, u32_max), 4)?
+            put_le(&mut tail, smaller(directory_offset, u32_max), 4)?
+            put_le(&mut tail, 0, 2)?
+            send(&mut self.inner, &self._central, 0, directory_size)?
+            send(&mut self.inner, &tail, 0, tail.len())?
+            self._finished = True
+        moved(self.inner.flush())
+
+pub def zip_writer[W](inner: W) -> Result[ZipWriter[W], ArchiveError]:
+    Ok(ZipWriter(inner, held(std.bytes.empty())?, 0, 0, False))
+
+# Extraction
+
+# The state of one extraction: a fresh staging directory, renamed to the
+# destination only after every entry succeeded.
+class Job:
+    staging: TempDir
+    cleanup: CancellationToken
+    entries: i64
+    files: i64
+    bytes: i64
+    skipped: i64
+    created: i64
+
+def checked_policy(policy: &Policy) -> Result[(), ArchiveError]:
+    if policy.max_entries < 0 or policy.max_entry_size < 0 or policy.max_total_size < 0:
+        return Err(ArchiveError.InvalidInput)
+    if policy.max_ratio < 1 or policy.max_depth < 1 or policy.max_depth > 62 or policy.max_name < 1:
+        return Err(ArchiveError.InvalidInput)
+    Ok(())
+
+def begin(parent: &Root, destination: &Path, policy: &Policy) -> Result[Job, ArchiveError]:
+    checked_policy(policy)?
+    parts = components(destination.as_bytes(), 4096, 64)?
+    if len(parts) != 1 or len(destination.as_bytes()) != len(parts[0].as_bytes()):
+        return Err(ArchiveError.InvalidInput)
+    cleanup = owned(CancellationToken())?
+    prefix = system(std.path.from_text(".plenty-extract-"))?
+    staging = match std.fs.temporary_dir(parent, &prefix, 16):
+        case Ok(directory):
+            directory
+        case Err(error):
+            return Err(fs_failure(error))
+    Ok(Job(staging, cleanup, 0, 0, 0, 0, 0))
+
+# Opens directory `name` under `base`, creating it when missing. Returns the
+# handle and whether it was created.
+def ensure(base: &Root, name: &Path) -> Result[(Root, bool), ArchiveError]:
+    match base.open_dir(name):
+        case Ok(directory):
+            return Ok((directory, False))
+        case Err(IoError.System(code)):
+            # ENOTDIR or ELOOP: a file or link already holds the name.
+            if code == 20i32 or code == 40i32:
+                return Err(ArchiveError.Duplicate)
+            if code != 2i32:
+                return Err(ArchiveError.Io(IoError.System(code)))
+        case Err(error):
+            return Err(io_failure(error))
+    system(base.create_dir(name))?
+    Ok((system(base.open_dir(name))?, True))
+
+def descend(job: &mut Job, parts: &list[Path], count: i64) -> Result[Root, ArchiveError]:
+    first, made = ensure(job.staging.root(), &parts[0])?
+    if made:
+        job.created += 1
+    mut current = first
+    for index in range(1, count):
+        next, made_next = ensure(&current, &parts[index])?
+        if made_next:
+            job.created += 1
+        current = next
+    Ok(current)
+
+def copied[S](source: &mut S, directory: &Root, leaf: &Path, size: i64, cancel: &CancellationToken) -> Result[i64, ArchiveError]:
+    match std.fs.copy_from(source, directory, leaf, size, cancel):
+        case Ok(count):
+            Ok(count)
+        case Err(FsError.Stream(cause)):
+            match source.failure():
+                case Some(error):
+                    Err(error)
+                case Nothing:
+                    Err(ArchiveError.Stream(cause))
+        case Err(error):
+            Err(fs_failure(error))
+
+def exceeds_ratio(size: i64, compressed: i64, ratio: i64) -> bool:
+    if size <= ratio_floor:
+        return False
+    mut needed = size // ratio
+    if size % ratio != 0:
+        needed += 1
+    needed > compressed
+
+# Writes one entry under the staging directory. The source must be
+# positioned at the entry's content.
+def place[S](job: &mut Job, source: &mut S, name: &Path, kind: EntryKind, size: i64, compressed: i64, policy: &Policy, cancel: &CancellationToken) -> Result[(), ArchiveError]:
+    if cancel.is_cancelled():
+        return Err(ArchiveError.Cancelled)
+    if job.entries == policy.max_entries:
+        return Err(ArchiveError.Limit)
+    job.entries += 1
+    parts = components(name.as_bytes(), policy.max_name, policy.max_depth)?
+    count = len(parts)
+    match kind:
+        case EntryKind.Symlink:
+            if not policy.skip_links:
+                return Err(ArchiveError.Link)
+            job.skipped += 1
+            return Ok(())
+        case EntryKind.Hardlink:
+            if not policy.skip_links:
+                return Err(ArchiveError.Link)
+            job.skipped += 1
+            return Ok(())
+        case EntryKind.Other:
+            if not policy.skip_special:
+                return Err(ArchiveError.Special)
+            job.skipped += 1
+            return Ok(())
+        case EntryKind.Directory:
+            if count > 0:
+                drop(descend(job, &parts, count)?)
+            return Ok(())
+        case EntryKind.File:
+            pass
+    if count == 0:
+        return Err(ArchiveError.UnsafePath)
+    if size < 0 or size > policy.max_entry_size or size > policy.max_total_size - job.bytes:
+        return Err(ArchiveError.Limit)
+    if exceeds_ratio(size, compressed, policy.max_ratio):
+        return Err(ArchiveError.Limit)
+    mut written = 0
+    if count == 1:
+        written = copied(source, job.staging.root(), &parts[0], size, cancel)?
+    else:
+        directory = descend(job, &parts, count - 1)?
+        written = copied(source, &directory, &parts[count - 1], size, cancel)?
+    if written != size:
+        return Err(ArchiveError.Truncated)
+    job.created += 1
+    job.files += 1
+    job.bytes += written
+    Ok(())
+
+# Moves the staging directory to `destination`, or removes it and returns
+# the first error.
+def conclude(job: &mut Job, outcome: Result[(), ArchiveError], parent: &Root, destination: &Path, policy: &Policy) -> Result[Summary, ArchiveError]:
+    mut failure = ArchiveError.InvalidInput
+    match outcome:
+        case Ok(_):
+            match parent.move(job.staging.name(), destination):
+                case Ok(_):
+                    job.staging.keep()
+                    return Ok(Summary(job.entries, job.files, job.bytes, job.skipped))
+                case Err(IoError.System(17i32)):
+                    failure = ArchiveError.Exists
+                case Err(error):
+                    failure = io_failure(error)
+        case Err(error):
+            failure = error
+    # Best effort: a staging directory that cannot be removed keeps its
+    # `.plenty-extract-` name for the caller to find.
+    drop(std.fs.remove_tree(parent, job.staging.name(), job.created + 2, policy.max_depth + 2, &job.cleanup))
+    job.staging.keep()
+    Err(failure)
+
+def tar_entries[R](archive: &mut TarReader[R], job: &mut Job, policy: &Policy, cancel: &CancellationToken) -> Result[(), ArchiveError]:
+    while True:
+        if cancel.is_cancelled():
+            return Err(ArchiveError.Cancelled)
+        match archive.next()?:
+            case Nothing:
+                return Ok(())
+            case Some(entry):
+                place(job, archive, &entry.name, entry.kind, entry.size, entry.compressed, policy, cancel)?
+    Ok(())
+
+def zip_entries[R](archive: &mut ZipReader[R], job: &mut Job, policy: &Policy, cancel: &CancellationToken) -> Result[(), ArchiveError]:
+    if archive.len() > policy.max_entries:
+        return Err(ArchiveError.Limit)
+    for index in range(0, archive.len()):
+        if cancel.is_cancelled():
+            return Err(ArchiveError.Cancelled)
+        name = owned(archive._entries[index].name.copy())?
+        kind = archive._entries[index].kind
+        size = archive._entries[index].size
+        compressed = archive._entries[index].compressed
+        if kind == EntryKind.File:
+            archive.open(index)?
+        place(job, archive, &name, kind, size, compressed, policy, cancel)?
+    Ok(())
+
+# Extracts every entry of `archive` into a new directory `destination` (one
+# name) under `parent`. Nothing appears at `destination` unless the whole
+# archive is extracted; on any error the partial tree is removed.
+pub def extract_tar[R](archive: &mut TarReader[R], parent: &Root, destination: &Path, policy: &Policy, cancel: &CancellationToken) -> Result[Summary, ArchiveError]:
+    mut job = begin(parent, destination, policy)?
+    outcome = tar_entries(archive, &mut job, policy, cancel)
+    conclude(&mut job, outcome, parent, destination, policy)
+
+pub def extract_zip[R](archive: &mut ZipReader[R], parent: &Root, destination: &Path, policy: &Policy, cancel: &CancellationToken) -> Result[Summary, ArchiveError]:
+    mut job = begin(parent, destination, policy)?
+    outcome = zip_entries(archive, &mut job, policy, cancel)
+    conclude(&mut job, outcome, parent, destination, policy)
