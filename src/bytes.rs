@@ -29,6 +29,12 @@ pub enum BytesOp {
     Matches,
     MatchesText,
     Run,
+    // 237-239: bulk fill, then indexed access with list index rules.
+    Fill,
+    Item,
+    SetItem,
+    // `Item` on a temporary buffer value rather than a named place.
+    ValueItem,
 }
 
 impl BytesOp {
@@ -56,17 +62,26 @@ impl BytesOp {
             "__bytes_matches" => Self::Matches,
             "__bytes_matches_text" => Self::MatchesText,
             "__bytes_run" => Self::Run,
+            "__bytes_fill" => Self::Fill,
+            "__bytes_item" => Self::Item,
+            "__bytes_set_item" => Self::SetItem,
             _ => return None,
         })
     }
 
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         let storage = || Ty::ByteStorage;
+        let storage_ref = |mutable| Ty::Ref(Arc::new(Ty::ByteStorage), mutable);
         let list = || Ty::List(Arc::new(Ty::U8));
         let (inputs, output) = match self {
             Self::Len | Self::Capacity => return (vec![storage()], Ty::I64),
             Self::Get => return (vec![storage(), Ty::I64], Ty::U8),
             Self::Set => return (vec![storage(), Ty::I64, Ty::U8], Ty::Unit),
+            // Index syntax reads the owner through a borrowed field reference.
+            Self::Item => return (vec![storage_ref(false), Ty::I64], Ty::U8),
+            Self::ValueItem => return (vec![storage(), Ty::I64], Ty::U8),
+            Self::SetItem => return (vec![storage_ref(true), Ty::I64, Ty::U8], Ty::Unit),
+            Self::Fill => return (vec![storage(), Ty::I64, Ty::I64, Ty::U8], Ty::Unit),
             Self::WriteFloat => return (vec![storage(), Ty::F64], Ty::I64),
             Self::Overwrite => {
                 return (
@@ -113,6 +128,8 @@ impl BytesOp {
         matches!(
             self,
             Self::Set
+                | Self::SetItem
+                | Self::Fill
                 | Self::Reserve
                 | Self::Resize
                 | Self::Push
@@ -122,10 +139,19 @@ impl BytesOp {
         )
     }
 
+    /// Indexed access traps at the source position on a missing index.
+    pub fn traps(self) -> bool {
+        matches!(self, Self::Item | Self::SetItem | Self::ValueItem)
+    }
+
     pub fn opcode(self) -> i64 {
-        // The scans sit in their own range; 184 onward belongs to others.
+        // The scans, fill, and indexed access sit in their own range (230-239);
+        // 184 onward belongs to others.
         match self {
             Self::WriteFloat => 280,
+            Self::Fill => 237,
+            Self::Item | Self::ValueItem => 238,
+            Self::SetItem => 239,
             _ => match (self as i64).checked_sub(Self::Find as i64) {
                 Some(scan) if scan >= 0 => 230 + scan,
                 _ => 170 + self as i64,

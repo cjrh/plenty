@@ -31,6 +31,21 @@ fn output(source: &str) -> String {
         .join("\n")
 }
 
+/// Exit status and stderr of a program expected to stop at a trap.
+fn failure(source: &str) -> (Option<i32>, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
 fn native(body: &str, expected: &str) {
     assert_eq!(
         output(&program(body)),
@@ -283,9 +298,139 @@ fn buffers_are_resources_with_a_private_owner() {
         "private",
     );
     check("buffer = Bytes(__bytes_new(0)?)", "private");
+}
+
+#[test]
+fn index_syntax_reads_and_writes_with_list_rules() {
+    native(
+        r#"
+mut buffer = std.bytes.from_text("abcd")?
+print(buffer[0], buffer[-1], buffer[-4])?
+buffer[1] = 90u8
+buffer[-1] = 33u8
+buffer[0] += 1u8
+print(buffer.to_text()?)?
+mut total = 0
+for index in range(buffer.len()):
+    total += i64(buffer[index])
+print(total)?
+print(std.bytes.from_text("xyz")?[-1])?
+"#,
+        "97 100 97\nbZc!\n320\n122",
+    );
+}
+
+#[test]
+fn index_syntax_works_through_references_and_fields() {
+    let source = format!(
+        "{HEADER}{}",
+        r#"
+class Frame:
+    data: Bytes
+
+def poke(frame: &mut Frame, index: i64, value: u8) -> ():
+    frame.data[index] = value
+
+def first(buffer: &Bytes) -> u8:
+    buffer[0]
+
+def bump(buffer: &mut Bytes) -> ():
+    buffer[-1] += 1u8
+
+def main() -> Result[(), Failure]:
+    mut frame = Frame(std.bytes.from_text("xyz")?)
+    poke(&mut frame, -2, 65u8)
+    bump(&mut frame.data)
+    print(first(&frame.data), frame.data[1], frame.data[2])?
+    Ok(())
+"#
+    );
+    assert_eq!(output(&source), "120 65 123");
+}
+
+#[test]
+fn missing_byte_index_traps_with_the_list_message() {
+    for (statement, message) in [
+        (
+            "print(buffer[3])?",
+            "index out of bounds: index 3, length 3",
+        ),
+        (
+            "buffer[-4] = 0u8",
+            "index out of bounds: index -4, length 3",
+        ),
+        ("buffer[5] += 1u8", "index out of bounds: index 5, length 3"),
+    ] {
+        let source = program(&format!(
+            "mut buffer = std.bytes.from_text(\"abc\")?\n{statement}"
+        ));
+        let (status, stderr) = failure(&source);
+        assert_eq!(status, Some(1), "{statement}\n{stderr}");
+        assert!(stderr.contains(message), "{statement}\n{stderr}");
+        assert!(stderr.contains("main.plenty:5:"), "{statement}\n{stderr}");
+    }
+}
+
+#[test]
+fn iteration_yields_bytes_and_references_to_copies() {
+    native(
+        r#"
+buffer = std.bytes.from_text("abc")?
+mut seen = list[u8]()?
+for value in &buffer:
+    seen.append(*value)?
+for value in reversed(&buffer):
+    seen.append(*value)?
+print(seen)?
+mut total = 0
+for value in buffer:
+    total += i64(value)
+print(total)?
+"#,
+        "[97, 98, 99, 99, 98, 97]\n294",
+    );
+}
+
+#[test]
+fn byte_index_and_iteration_misuse_is_rejected() {
+    let check = |body: &str, expected: &str| {
+        let error = rejected(&program(body));
+        assert!(error.contains(expected), "{body}\n{error}");
+    };
     check(
-        "buffer = std.bytes.from_text(\"abc\")?\nprint(buffer[0])?",
-        "",
+        "mut buffer = std.bytes.from_text(\"abc\")?\nfor value in &mut buffer:\n    pass",
+        "mutable iteration over Bytes is not supported; assign through an index with `b[i] = value`",
+    );
+    check(
+        "buffer = std.bytes.from_text(\"abc\")?\nbuffer[0] = 1u8",
+        "immutable binding",
+    );
+    check(
+        "mut buffer = std.bytes.from_text(\"abc\")?\nbuffer[0] = 300",
+        "out of range for u8",
+    );
+    check(
+        "buffer = std.bytes.from_text(\"abc\")?\nprint(buffer[\"a\"])?",
+        "expected i64, got str",
+    );
+    check(
+        "mut buffer = std.bytes.from_text(\"abc\")?\nfor value in &buffer:\n    buffer[0] = 1u8",
+        "conflicting borrow",
+    );
+}
+
+#[test]
+fn fill_writes_a_validated_range_natively() {
+    native(
+        r#"
+mut buffer = std.bytes.from_text("abcdef")?
+buffer.fill(1, 4, 46u8)?
+buffer.fill(6, 6, 0u8)?
+print(buffer.to_text()?)?
+print(str.repr(buffer.fill(4, 7, 0u8))?)?
+print(str.repr(buffer.fill(3, 2, 0u8))?)?
+"#,
+        &format!("a...ef\nResult[(), {OUT_OF_RANGE}\nResult[(), {OUT_OF_RANGE}"),
     );
 }
 

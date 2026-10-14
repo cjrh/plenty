@@ -13,6 +13,7 @@ use crate::op::{
     mark_tail_calls, CompiledFn, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty,
 };
 use crate::value::{Heap, Value};
+mod byte_buffers;
 mod callables;
 mod casts;
 mod channels;

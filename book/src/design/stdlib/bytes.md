@@ -63,8 +63,34 @@ diagnostic form, not a conversion.
 
 `Bytes` is a resource: assignment and argument passing move it, and the builtin
 `copy` rejects it. Duplication is always the fallible `copy()` or `slice()`
-method. It has no index syntax, iteration protocol, or hashing. A buffer can be
-stored in collections, sent through channels, and moved into worker threads.
+method. It has no hashing. A buffer can be stored in collections, sent through
+channels, and moved into worker threads.
+
+## Index syntax and iteration
+
+`buffer[i]` reads one byte as `u8` and `buffer[i] = value` replaces one. They
+follow the [list index rules](../facilities/01-builtins/lists.md), not the
+[method range rule](#the-range-rule): a negative index counts from the end, and
+a missing index [traps](../language/08-errors/02-allocation-and-traps.md) with
+exit status one and `index out of bounds: index I, length N` at the source
+position. Use `get` and `set` when an out-of-range index is an expected outcome.
+
+Writes need a `mut` binding, a mutable field, or `&mut Bytes`, and evaluate as
+[indexed assignment](../language/04-expressions/assignment.md) does: the right
+side, then the index, then the exclusive loan. `buffer[i] += 1u8` evaluates the
+index once. Indexing works on named buffers, fields, references, and temporary
+values; it never grows the buffer and allocates nothing.
+
+`for b in buffer` consumes the buffer and yields each `u8`. `for b in &buffer`
+keeps it and yields `&u8`; as for strings and ranges, each reference is to an
+iteration-local copy, because single bytes are not addressable values.
+`reversed(&buffer)` walks from the end. `for b in &mut buffer` is rejected;
+assign through an index instead. The loop holds a shared loan, so its body
+cannot change the buffer.
+
+There is no slice syntax. A list slice copies, so `buffer[a:b]` would hide an
+allocation; `slice(start, stop)` makes that copy explicit, and passing the buffer
+with a range gives a view without one.
 
 ## Scanning
 
@@ -91,9 +117,10 @@ without a `get` call per byte.
 
 ## The range rule
 
-Every range must satisfy `0 <= start <= stop <= len`, and every index
-`0 <= index < len`. There is no negative indexing and no clamping, unlike
-[list slicing](../facilities/01-builtins/lists.md). A violation returns
+Every range must satisfy `0 <= start <= stop <= len`, and every index passed to
+a method `0 <= index < len`. Methods have no negative indexing and no clamping,
+unlike [list slicing](../facilities/01-builtins/lists.md) and
+[index syntax](#index-syntax-and-iteration). A violation returns
 `Err(BytesError.OutOfRange)` and changes nothing. A zero-length range is valid
 anywhere from `0` to `len` inclusive. `overwrite` additionally requires
 `offset + (stop - start) <= len` of the destination. `matches` and
@@ -149,14 +176,14 @@ may over-reserve; `reserve` requests an exact total.
 
 | Allocates | Does not allocate |
 |---|---|
-| Constructors, `slice`, `copy`, `to_list`, `to_text` | `len`, `is_empty`, `capacity`, `get`, every scan, `==`, transport |
+| Constructors, `slice`, `copy`, `to_list`, `to_text` | `len`, `is_empty`, `capacity`, `get`, index syntax, iteration, every scan, `==`, transport |
 | `push`, `extend`, `extend_range`, `resize`, `reserve` beyond capacity | The same operations within capacity |
 | | `set`, `fill`, `overwrite`, `truncate`, `pop`, `clear` |
 
-`get`, `set`, `push` within capacity, `pop`, `truncate`, and `clear` take
-constant time. Range operations take time linear in the range; `extend`,
-`overwrite`, `slice`, `copy`, and `resize` use bulk copies. `fill` is a loop
-over single checked accesses.
+`get`, `set`, index syntax, `push` within capacity, `pop`, `truncate`, and
+`clear` take constant time. Range operations take time linear in the range;
+`extend`, `overwrite`, `slice`, `copy`, `resize`, and `fill` are single native
+bulk operations.
 
 The scans run natively. `find` and `find_in` with a set of at most four bytes
 examine eight bytes per step. `find_in` with a larger set and `find_not_in`
@@ -191,6 +218,18 @@ pinned to one core:
 | `find_not_in` with a 94-byte set | 15 ms |
 | `count(44u8, 0, len)` | 17 ms |
 | A `get` loop over the same range | 2.3 s |
+
+Index syntax and iteration read the storage through a borrowed reference rather
+than calling a `std.bytes` method. Reading every element of an 8,388,608-byte
+buffer, same machine, pinned to one core:
+
+| Loop | Wall time |
+|---|---|
+| `buffer.get(i)?` over `range(n)` | 0.56 s |
+| `buffer[i]` over `range(n)` | 0.43 s |
+| `for b in &buffer` | 0.15 s |
+
+`fill` over 67,108,864 bytes takes about 5 ms.
 
 ## Transport
 

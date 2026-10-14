@@ -113,5 +113,37 @@ Option[i64].Some(11)
 True 2
 ```
 
+Index syntax reads and writes single bytes, with the same rules as a list
+index: a negative index counts from the end, and a missing one stops the
+program with `index out of bounds`. Iterating over `&buffer` reads each byte
+without consuming the buffer:
+
+```plenty
+import std.bytes
+
+def main() -> Result[(), Failure]:
+    mut word = std.bytes.from_text("plenty")?
+    word[0] = 80u8
+    word[-1] -= 32u8
+    print(word.to_text()?, word[1])?
+    mut vowels = 0
+    for b in &word:
+        if b == 101u8 or b == 89u8:
+            vowels += 1
+    print(vowels)?
+    word.fill(1, 5, 46u8)?
+    print(word.to_text()?)?
+    Ok(())
+```
+```output
+PlentY 108
+2
+P....Y
+```
+
+Use `get` and `set` instead when a missing index is an expected outcome to
+handle. `for b in &mut word` is rejected: write through an index. There is no
+slice syntax; `slice` makes its copy explicit.
+
 See [the module reference](../../design/stdlib/bytes.md) for every operation,
 its costs, and what views cannot do yet.

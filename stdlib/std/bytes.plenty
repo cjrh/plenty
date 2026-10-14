@@ -68,8 +68,7 @@ pub class Bytes:
 
     pub def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> Result[(), BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        for index in range(start, stop):
-            __bytes_set(self._owner, index, value)
+        __bytes_fill(self._owner, start, stop, value)
         Ok(())
 
     pub def extend(self: &mut Bytes, source: &Bytes) -> Result[(), BytesError]:

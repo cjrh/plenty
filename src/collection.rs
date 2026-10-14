@@ -521,7 +521,7 @@ impl CollectionOp {
                 | Self::Range(_)
                 | Self::TextIndex
                 | Self::TextTrySplit
-        )
+        ) || matches!(self, Self::Bytes(op) if op.traps())
     }
 
     pub fn opcode(&self) -> i64 {

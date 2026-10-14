@@ -1,13 +1,13 @@
 use super::*;
 
-struct Iteration {
-    condition: Vec<Op>,
+pub(super) struct Iteration {
+    pub(super) condition: Vec<Op>,
     // Initialize pending generator results when a paired condition is skipped.
     // This keeps conditional advancement compatible with definite ownership.
-    absent: Vec<Op>,
-    body: Vec<Op>,
-    step: Vec<Op>,
-    target: u8,
+    pub(super) absent: Vec<Op>,
+    pub(super) body: Vec<Op>,
+    pub(super) step: Vec<Op>,
+    pub(super) target: u8,
 }
 
 impl Parser {
@@ -127,6 +127,11 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if let Expression::Index(base, index) = &ungroup(target).kind {
+            if let Some(class) = self.byte_place(base) {
+                return self.augment_byte(&class, (base, index), op, value, &target.at, ops);
+            }
+        }
         let ty = self.place_type(target).ok_or_else(|| {
             target.at.error("augmented assignment requires an existing writable binding, field, or collection element")
         })?;
@@ -970,7 +975,9 @@ impl Lower<'_> {
     ) -> Result<Iteration> {
         if let Some((base, mutable)) = dictionary_items(iterable) {
             if reverse {
-                return Err(iterable.at.error("reversed requires a list, str, or range"));
+                return Err(iterable
+                    .at
+                    .error("reversed requires a list, str, range, or Bytes"));
             }
             return self.dictionary_iteration(names, base, mutable, ops);
         }
@@ -1044,9 +1051,20 @@ impl Lower<'_> {
         } else {
             (self.value(iterable, ops)?, vec![])
         };
-        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::Range(_)) {
-            return Err(iterable.at.error("reversed requires a list, str, or range"));
+        let bytes = byte_buffers::byte_buffer(&ty).is_some();
+        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::Range(_)) && !bytes {
+            return Err(iterable
+                .at
+                .error("reversed requires a list, str, range, or Bytes"));
         }
+        // Bytes are not addressable, so `for x in &b` yields a reference to an
+        // iteration-local copy as text and range iteration do.
+        if mutable && bytes {
+            return Err(iterable.at.error(
+                "mutable iteration over Bytes is not supported; assign through an index with `b[i] = value`",
+            ));
+        }
+        let element = if bytes { Some(Ty::U8) } else { ty.element() };
         if borrowed && matches!(ty, Ty::Generator(_)) {
             return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
         }
@@ -1056,7 +1074,7 @@ impl Lower<'_> {
                 "mutable iteration requires a list; use items for mutable dictionary values",
             ));
         }
-        if borrowed && !references && ty.element().is_some_and(|t| t.affine()) {
+        if borrowed && !references && element.as_ref().is_some_and(Ty::affine) {
             return Err(iterable.at.error("borrowed iteration of owned elements is not supported; iterate an owned collection or copy it"));
         }
         let mut plan = if references {
@@ -1080,7 +1098,7 @@ impl Lower<'_> {
             // reference points to an iteration-local slot, not into the source.
             let value_slot = plan.target;
             let reference_slot = self.slot(
-                Ty::Ref(Arc::new(ty.element().unwrap()), false),
+                Ty::Ref(Arc::new(element.clone().unwrap()), false),
                 &iterable.at,
             )?;
             let loan = self.new_loan(value_slot, false, None, &mut plan.body);
@@ -1107,9 +1125,9 @@ impl Lower<'_> {
             Local {
                 slot: plan.target,
                 ty: if borrowed {
-                    Ty::Ref(Arc::new(ty.element().unwrap()), mutable)
+                    Ty::Ref(Arc::new(element.unwrap()), mutable)
                 } else {
-                    ty.element().unwrap()
+                    element.unwrap()
                 },
                 mutable: false,
             },
@@ -1355,6 +1373,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        if let Some(class) = byte_buffers::byte_buffer(&ty) {
+            return self.byte_iteration(class, ty, reverse, at, ops);
+        }
         let element = ty
             .element()
             .ok_or_else(|| at.error("for requires an iterable"))?;
@@ -1613,6 +1634,11 @@ impl Lower<'_> {
             Self::end_reads(vec![loan], ops);
             return Ok((*value).clone());
         }
+        if let Some(class) = self.byte_place(base) {
+            let reads = self.byte_item(&class, base, index, &e.at, ops)?;
+            Self::end_reads(reads, ops);
+            return Ok(Ty::U8);
+        }
         if let Some(ty @ Ty::List(_)) = self.place_type(base) {
             let value = ty.element().unwrap();
             if value.is_numeric() || value == Ty::Bool {
@@ -1654,12 +1680,22 @@ impl Lower<'_> {
                 return Ok(value);
             }
         }
+        if let Some(class) = byte_buffers::byte_buffer(&ty) {
+            let reads = self.byte_value_item(&class, index, &e.at, ops)?;
+            Self::end_reads(reads, ops);
+            Self::end_reads(loans, ops);
+            return Ok(Ty::U8);
+        }
         let (key, value) = match &ty {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
             Ty::Str => (Ty::I64, Ty::Str),
             Ty::Range(t) => (Ty::I64, (**t).clone()),
-            _ => return Err(base.at.error("indexing requires list, dict, str, or range")),
+            _ => {
+                return Err(base
+                    .at
+                    .error("indexing requires list, dict, str, range, or Bytes"))
+            }
         };
         if value.affine() {
             return Err(base
@@ -1696,7 +1732,20 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if let Expression::Index(base, index) = &ungroup(target).kind {
+            if let Some(class) = self.byte_place(base) {
+                return self.set_byte(&class, base, index, value, &target.at, ops);
+            }
+        }
         self.set_field(target, value, ops)
+    }
+
+    /// The `Bytes` class when `base` names a byte buffer place.
+    pub(super) fn byte_place(
+        &self,
+        base: &Expr,
+    ) -> Option<crate::nominal::Nominal<crate::record::ClassType>> {
+        byte_buffers::byte_buffer(&classes::unbox(self.place_type(base)?))
     }
 
     fn unwrap_result(
@@ -3071,7 +3120,7 @@ fn allocation_succeeded(slot: u8) -> Vec<Op> {
     ]
 }
 
-fn decrement(index: u8, ops: &mut Vec<Op>) {
+pub(super) fn decrement(index: u8, ops: &mut Vec<Op>) {
     ops.extend([
         Op::LoadLocal(index),
         Op::PushInt(Value::I64(1)),
@@ -3080,7 +3129,7 @@ fn decrement(index: u8, ops: &mut Vec<Op>) {
     ]);
 }
 
-fn increment(index: u8, ops: &mut Vec<Op>) {
+pub(super) fn increment(index: u8, ops: &mut Vec<Op>) {
     ops.extend([
         Op::LoadLocal(index),
         Op::PushInt(Value::I64(1)),

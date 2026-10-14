@@ -18,7 +18,8 @@ membership tests keys. Indexed reads use `i64` list indices (including negative
 indices) or the dictionary's key type; missing keys and out-of-bounds indices
 [trap](../../language/08-errors/02-allocation-and-traps.md) with exit status
 one, reporting the source position. An index is one expression evaluated once; multiple
-comma-separated indices are rejected.
+comma-separated indices are rejected. [`std.bytes.Bytes`](../../stdlib/bytes.md#index-syntax-and-iteration)
+uses the list index rules for `buffer[i]` reads and writes.
 
 Collections move on assignment, owned calls, and returns. Independent duplication
 uses [copy](construction-copy.md). Indexed reads do not extract affine owners:
