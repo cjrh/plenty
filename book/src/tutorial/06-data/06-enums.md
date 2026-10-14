@@ -53,7 +53,8 @@ non-exhaustive match; missing Switch.Off
 ```
 
 A final match produces the function's result; cases can also return early or
-break/continue a loop. Separately declared enums remain distinct types, even
+break/continue a loop. A match can also be
+[the value of a binding](match-values.md). Separately declared enums remain distinct types, even
 with identical variants.
 
 A payload position can hold another pattern instead of a name, so one case

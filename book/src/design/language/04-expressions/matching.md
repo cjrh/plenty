@@ -127,7 +127,79 @@ place, match `&mut value`.
 
 Continuing arms must agree on their result type. Arms ending in `return`, `break`,
 or `continue` contribute no join value. A function-tail match supplies the final
-expression of its selected arm, just like a tail conditional.
+expression of its selected arm, just like a tail conditional. A match elsewhere
+in a suite is a statement, and its arms' values are discarded, unless it is
+[a statement's value](#a-match-as-a-statements-value).
+
+## A match as a statement's value
+
+A `match` block can be the whole value of these statements, and of no other
+position:
+
+| Statement | Effect |
+|---|---|
+| `name = match value:`, with `mut` or an annotation as for any binding | declares the local, or assigns an existing `mut` local |
+| `place = match value:`, where `place` is a field, a collection element, or `*reference` | assigns the place |
+| `return match value:` | returns from the function |
+
+```python
+def area(shape: Shape) -> i64:
+    side: i64 = match shape:
+        case Shape.Dot:
+            return 0
+        case Shape.Circle(side):
+            side
+        case Shape.Rect(width, height):
+            if width < height:
+                width
+            else:
+                height
+    side * side
+```
+
+The statement ends with the last case; nothing follows the block on its line.
+Patterns, exhaustiveness, and ownership of the scrutinee are those of any
+other match.
+
+In a binding or assignment, the final expression of the selected case is the
+value. A final `if` or `match` supplies the value of its selected suite.
+
+- Continuing cases must agree on one type. An annotation, or the type of the
+  assigned local, is the expected type of every case's final expression, as it
+  is for an ordinary right-hand side; without one, each case is inferred alone,
+  so `Nothing` or `[]?` needs the annotation.
+- A case that ends in `return`, `break`, `continue`, or a propagating `?` gives
+  no value. At least one case must continue; a match whose cases all exit is
+  rejected with advice to write it as a statement.
+- A case whose final statement has no value, such as `pass` or an assignment,
+  makes the match unit, which cannot be bound.
+- The value cannot be a reference or a closure with borrowed captures, because
+  the case's bindings end before the statement uses it. Produce an owned value,
+  or declare `mut name` and assign in each case.
+- Earlier expressions in a case are discarded as in any suite, so an unhandled
+  `Result` there is still an error.
+
+Evaluation order is: the scrutinee; the selected case's suite; cleanup of that
+case's bindings and locals, in reverse declaration order, and of scrutinee
+parts no pattern bound; then the binding or assignment. An assignment
+evaluates [destination indices](assignment.md) and destroys the replaced value
+after all of that. An exit from a case performs the ordinary cleanup for that
+exit and assigns nothing.
+
+`return match value:` returns the final expression of the selected case, exactly
+as if that case ended with `return expression`. Every case therefore exits, a
+call there is a [source-tail call](../06-functions/05-tail-calls.md), and a
+statement after the block is unreachable. A case that ends without a value
+returns unit, which is an error unless the function returns unit. A returned
+reference follows the rules of any other [returned
+reference](../05-ownership/04-returned-references.md).
+
+Augmented assignment, assignment to several targets, call arguments, operands,
+and every other expression position reject a `match` block; bind its value to a
+name first. `if` blocks are never values in these positions: use the inline
+conditional, or a `match` on the `bool`.
+
+## Ownership
 
 Owned matching consumes the scrutinee: bound payloads move into their bindings
 and every part no pattern binds is destroyed. `_ as name` moves the whole value

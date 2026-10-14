@@ -24,7 +24,8 @@ def clamp_low(value: i64, minimum: i64) -> i64:
 ```
 
 `return value` exits the enclosing function from any suite. Bare `return`
-returns unit. Every explicit return must match the declared result, including
+returns unit. `return match value:` returns the final expression of the
+[selected case](matching.md#a-match-as-a-statements-value). Every explicit return must match the declared result, including
 returns in non-final or statically unchosen branches.
 
 A returning branch contributes no value to paths that continue. Every continuing

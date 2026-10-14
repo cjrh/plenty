@@ -992,21 +992,28 @@ pub(super) fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) 
                 substitute_expr(manager, substitutions)?;
                 substitute_block(body, substitutions)?;
             }
-            Statement::Match { value, cases } => {
-                substitute_expr(value, substitutions)?;
-                for case in cases {
-                    case.pattern
-                        .qualifiers_mut(&mut |t| substitute(t, substitutions))?;
-                    substitute_block(&mut case.body, substitutions)?;
-                }
-            }
+            Statement::Match { value, cases } => substitute_match(value, cases, substitutions)?,
             Statement::Pass | Statement::Break | Statement::Continue => {}
         }
     }
     Ok(())
 }
+fn substitute_match(
+    value: &mut Expr,
+    cases: &mut [enums::Case],
+    substitutions: &Substitution,
+) -> Result<()> {
+    substitute_expr(value, substitutions)?;
+    for case in cases {
+        case.pattern
+            .qualifiers_mut(&mut |t| substitute(t, substitutions))?;
+        substitute_block(&mut case.body, substitutions)?;
+    }
+    Ok(())
+}
 fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
+        Expression::Match(value, cases) => substitute_match(value, cases, substitutions)?,
         Expression::GenericMethod(base, _, types, args) => {
             substitute_expr(base, substitutions)?;
             for ty in types {

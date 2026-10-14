@@ -862,18 +862,28 @@ impl Scope {
                     self.block(body, &mut inner)?;
                 }
                 Statement::Match { value, cases } => {
-                    self.expr(value, locals)?;
-                    for case in cases {
-                        let mut inner = locals.clone();
-                        case.pattern.qualifiers_mut(&mut |ty| self.ty(ty))?;
-                        let bindings = case.pattern.bindings();
-                        self.fresh_capture_binding(bindings.iter().copied(), &stmt.at)?;
-                        inner.extend(bindings.into_iter().cloned());
-                        self.block(&mut case.body, &mut inner)?;
-                    }
+                    self.match_block(value, cases, &stmt.at, locals)?
                 }
                 Statement::Pass | Statement::Break | Statement::Continue => {}
             }
+        }
+        Ok(())
+    }
+    fn match_block(
+        &self,
+        value: &mut Expr,
+        cases: &mut [enums::Case],
+        at: &Token,
+        locals: &HashSet<String>,
+    ) -> Result<()> {
+        self.expr(value, locals)?;
+        for case in cases {
+            let mut inner = locals.clone();
+            case.pattern.qualifiers_mut(&mut |ty| self.ty(ty))?;
+            let bindings = case.pattern.bindings();
+            self.fresh_capture_binding(bindings.iter().copied(), at)?;
+            inner.extend(bindings.into_iter().cloned());
+            self.block(&mut case.body, &mut inner)?;
         }
         Ok(())
     }
@@ -1096,6 +1106,10 @@ impl Scope {
                 self.expr(condition, locals)?;
                 self.expr(yes, locals)?;
                 self.expr(no, locals)?;
+            }
+            Expression::Match(value, cases) => {
+                let at = e.at.clone();
+                self.match_block(value, cases, &at, locals)?
             }
             Expression::Type(t) => self.ty(t)?,
             Expression::Constructor(t, args) => {

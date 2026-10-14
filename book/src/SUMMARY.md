@@ -75,6 +75,7 @@
         - [Describe alternatives with enums](tutorial/06-data/06-enums.md)
         - [Match literal values](tutorial/06-data/literal-patterns.md)
         - [Bind the value a match leaves over](tutorial/06-data/bind-the-rest.md)
+        - [Bind the value a match selects](tutorial/06-data/match-values.md)
         - [Creating enum values](tutorial/06-data/07-enum-payload-ownership.md)
         - [Match borrowed values](tutorial/06-data/08-borrowed-matching.md)
         - [Clean up owned instances](tutorial/06-data/09-cleanup.md)

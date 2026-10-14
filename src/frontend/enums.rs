@@ -59,6 +59,15 @@ impl Parser {
     }
 
     pub(super) fn match_statement(&mut self) -> Result<Stmt> {
+        let (at, value, cases) = self.match_block()?;
+        Ok(Stmt {
+            at,
+            kind: Statement::Match { value, cases },
+        })
+    }
+
+    /// `match value:` and its cases, as a statement or as a statement's value.
+    pub(super) fn match_block(&mut self) -> Result<(Token, Expr, Vec<Case>)> {
         let at = self.take();
         let value = self.expr(0)?;
         self.expect(":")?;
@@ -75,10 +84,7 @@ impl Parser {
         if cases.is_empty() {
             return Err(at.error("match requires case arms"));
         }
-        Ok(Stmt {
-            at,
-            kind: Statement::Match { value, cases },
-        })
+        Ok((at, value, cases))
     }
 }
 
@@ -349,7 +355,7 @@ impl Lower<'_> {
         &mut self,
         value: &Expr,
         cases: &[Case],
-        tail: bool,
+        tail: &Tail,
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
         let temporary_start = self.expression_temps.len();
@@ -389,6 +395,26 @@ impl Lower<'_> {
         self.finish_temporaries(temporary_start, ops);
         let subject = patterns::Subject { source, borrowed };
         self.match_patterns(value, cases, &matched, subject, tail, ops)
+    }
+}
+
+impl Lower<'_> {
+    /// Lowers a `match` block used as a value: the selected case's final
+    /// expression stays on the stack after the case's cleanup.
+    pub(super) fn match_value(
+        &mut self,
+        at: &Token,
+        value: &Expr,
+        cases: &[Case],
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        match self.match_cases(value, cases, &Tail::Value(expected), ops)? {
+            BlockResult::Continues(ty) => Ok(ty),
+            BlockResult::Exits => Err(at.error(
+                "every case of this `match` exits, so it has no value; write it as a statement",
+            )),
+        }
     }
 }
 

@@ -186,7 +186,7 @@ impl Lower<'_> {
                 },
             );
         }
-        let result = self.block_inner(body, ops, false)?;
+        let result = self.block_inner(body, ops, &Tail::Discard)?;
         if matches!(result, BlockResult::Continues(_)) {
             self.cleanup(start, ops);
         }
