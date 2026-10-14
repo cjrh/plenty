@@ -272,7 +272,7 @@ def main() -> ():
 fn allocation_instrumentation_detects_a_temporary_allocation() {
     let output = support::run("print(\"__test_begin_no_allocations__\").unwrap()\nlen((\"abcd\" + \"efgh\").unwrap())\nprint(\"__test_end_no_allocations__\").unwrap()");
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected allocation"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected successful allocation"));
 }
 
 #[rstest]

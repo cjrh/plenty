@@ -35,8 +35,10 @@ MIRIFLAGS=-Zmiri-permissive-provenance cargo +nightly miri test -p plenty-runtim
 omits the process entrypoint; embedded application builds enable it separately.
 
 `runtime-checks` enables allocation counting and failure injection in the
-compiler's archive. Allocation-free regions count every attempt on the calling
-thread, including temporary allocations already freed and failed attempts.
+compiler's archive. Allocation-free regions count every successful allocation,
+zeroed allocation, and reallocation on the calling thread, including temporary
+allocations already freed. Failed attempts, injected or real, obtain no memory
+and do not count, so failure injection can run inside a region.
 Each thread has its own region baseline, so workers can use overlapping regions.
 Failure injection is also local to the calling thread and covers allocation,
 zeroed allocation, and reallocation without allocating inside the instrumentation.
