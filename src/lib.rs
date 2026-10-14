@@ -13,6 +13,7 @@ mod closure;
 mod codegen;
 mod collection;
 mod control;
+mod crypto;
 mod executor;
 mod exports;
 mod filesystem;

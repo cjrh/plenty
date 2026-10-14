@@ -36,6 +36,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.csv`](csv.md) | Streaming CSV readers and writers over `std.io` with explicit dialects, size limits, and positioned errors | `CsvError` |
 | [`std.random`](random.md) | Caller-owned seeded generators with unbiased ranges, shuffling, and index sampling; not for secrets | `RandomError` |
 | [`std.secrets`](secrets.md) | Operating-system entropy: secret bytes, hex and base64url tokens, and unbiased integers, with no fallback source | `SecretsError` |
+| [`std.crypto`](crypto.md) | SHA-256, SHA-512, and HMAC over `std.bytes`, incremental or one-shot, and constant-time comparison | `CryptoError` |
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
 | [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
 | [`std.process`](process.md) | Children spawned from an argument vector with no implicit shell, piped streams, bounded output collection, signals, and explicit reaping | `IoError`, `StreamError` |

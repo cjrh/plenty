@@ -121,6 +121,7 @@ Throughput has not been measured on an idle machine.
 - Linux only, through `getrandom(2)`; there is no `/dev/urandom` path for
   kernels older than 3.17.
 - No nonblocking or deadline-bounded request.
-- No constant-time comparison, digests, or key derivation; see [backlog](../../backlog.md) B67.
+- No key derivation; see [backlog](../../backlog.md) B67. Digests, HMAC, and
+  constant-time comparison are in [`std.crypto`](crypto.md).
 - No zero-on-drop buffer type.
 - No choice or shuffle helpers; combine `below` with indexing.

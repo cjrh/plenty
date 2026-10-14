@@ -71,9 +71,12 @@ impl Lowerer<'_, '_> {
                 ((i + 1) * 16) as i32,
             );
         }
-        let f = self
-            .module
-            .declare_func_in_func(self.runtime.collection, self.bcx.func);
+        let callee = if (300..320).contains(&opcode) {
+            self.runtime.crypto
+        } else {
+            self.runtime.collection
+        };
+        let f = self.module.declare_func_in_func(callee, self.bcx.func);
         // The runtime writes the result after the three inputs, which leaves
         // the fourth argument for the trap site.
         // Advancing a generator or dropping a value can enter std without a
@@ -176,9 +179,10 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         let descriptor = match operation {
-            CollectionOp::Filesystem(_) | CollectionOp::Bytes(_) | CollectionOp::Process(_) => {
-                Some(&output)
-            }
+            CollectionOp::Filesystem(_)
+            | CollectionOp::Bytes(_)
+            | CollectionOp::Crypto(_)
+            | CollectionOp::Process(_) => Some(&output),
             CollectionOp::Args
             | CollectionOp::ArgsBytes
             | CollectionOp::InputBytes

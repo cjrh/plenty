@@ -187,6 +187,33 @@ pub class Bytes:
         transported(start, stop, __bytes_len(self._owner))?
         __io_entropy_read(self._owner, start, stop)
 
+    # std.crypto's native back end; import that module instead. A receiver
+    # that did not come from `crypto_state` stops the process. Each returns
+    # false (or -1) once the state has finished.
+    pub def crypto_update(self: &mut Bytes, data: &Bytes, start: i64, stop: i64) -> Result[bool, BytesError]:
+        checked(start, stop, __bytes_len(data._owner))?
+        Ok(__crypto_update(self._owner, data._owner, start, stop))
+
+    pub def crypto_update_text(self: &mut Bytes, text: &str) -> bool:
+        __crypto_update_text(self._owner, text)
+
+    # Writes `size` output bytes at target[offset:]; `size` must be the
+    # algorithm's output size.
+    pub def crypto_finish(self: &mut Bytes, target: &mut Bytes, offset: i64, size: i64) -> Result[bool, BytesError]:
+        count = __bytes_len(target._owner)
+        if offset < 0 or offset > count or size > count - offset:
+            return Err(BytesError.OutOfRange)
+        Ok(__crypto_finish(self._owner, target._owner, offset))
+
+    # 1 when the output equals expected[start:stop], 0 when not.
+    pub def crypto_verify(self: &mut Bytes, expected: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(expected._owner))?
+        Ok(__crypto_verify(self._owner, expected._owner, start, stop))
+
+    # Whole-buffer equality whose time depends only on the two lengths.
+    pub def crypto_equal(self, other: &Bytes) -> bool:
+        __crypto_equal(self._owner, other._owner)
+
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)
@@ -230,3 +257,12 @@ pub def from_list(values: &list[u8]) -> Result[Bytes, BytesError]:
 
 pub def from_text(text: &str) -> Result[Bytes, BytesError]:
     Ok(Bytes(allocated(__bytes_from_text(text))?))
+
+# std.crypto's hasher states, behind a `Bytes` that byte operations see as
+# empty. Import std.crypto instead.
+pub def crypto_state(kind: u8) -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__crypto_new(kind))?))
+
+pub def crypto_keyed_state(kind: u8, key: &Bytes, start: i64, stop: i64) -> Result[Bytes, BytesError]:
+    checked(start, stop, __bytes_len(key._owner))?
+    Ok(Bytes(allocated(__crypto_new_keyed(kind, key._owner, start, stop))?))
