@@ -32,6 +32,7 @@ impl ModuleSource {
             Self::Standard("std.time") => Ok(include_str!("../../stdlib/std/time.plenty").into()),
             Self::Standard("std.cli") => Ok(include_str!("../../stdlib/std/cli.plenty").into()),
             Self::Standard("std.text") => Ok(include_str!("../../stdlib/std/text.plenty").into()),
+            Self::Standard("std.fmt") => Ok(include_str!("../../stdlib/std/fmt.plenty").into()),
             Self::Standard("std.env") => Ok(include_str!("../../stdlib/std/env.plenty").into()),
             Self::Standard("std.process") => {
                 Ok(include_str!("../../stdlib/std/process.plenty").into())
@@ -562,6 +563,7 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.time" => Ok(ModuleSource::Standard("std.time")),
                     "std.cli" => Ok(ModuleSource::Standard("std.cli")),
                     "std.text" => Ok(ModuleSource::Standard("std.text")),
+                    "std.fmt" => Ok(ModuleSource::Standard("std.fmt")),
                     "std.unicode" => Ok(ModuleSource::Standard("std.unicode")),
                     "std.thread" => Ok(ModuleSource::Standard("std.thread")),
                     "std.channel" => Ok(ModuleSource::Standard("std.channel")),
@@ -579,7 +581,7 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.env" => Ok(ModuleSource::Standard("std.env")),
                     "std.process" => Ok(ModuleSource::Standard("std.process")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.json, std.env, std.process",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.json, std.env, std.process",
                         import.module
                 ))),
                 };

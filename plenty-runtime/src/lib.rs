@@ -20,6 +20,7 @@ mod entropy;
 mod entry_order;
 mod executors;
 mod files;
+mod formatting;
 mod generators;
 mod io;
 mod libraries;

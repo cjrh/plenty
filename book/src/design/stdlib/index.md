@@ -23,6 +23,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.time`](time.md) | Checked durations, monotonic instants and deadlines, wall timestamps, and sleep | `RangeError` |
 | [`std.cli`](cli.md) | Explicit typed options/positionals, repeatable values, generated help and lossless path arguments | `CliError` |
 | [`std.text`](text.md) | Bounded reusable builders, joining, and scalar wrapping | `TextError` |
+| [`std.fmt`](fmt.md) | Static display/debug, bounded writer output and fallible strings | `FormatError` |
 | [`std.unicode`](unicode.md) | Unicode 17 normalization, combining classes, and Mark classification | `TextError` |
 | [`std.thread`](thread.md) | Explicit scoped thread and owned-job imports | `ThreadError`, `SpawnError[F]` |
 | [`std.channel`](channel.md) | Bounded channels, endpoints and selection | Channel/send/receive/selection errors |
