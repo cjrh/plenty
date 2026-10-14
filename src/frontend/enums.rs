@@ -244,8 +244,8 @@ impl Lower<'_> {
         if let Some(ty) = expected {
             if !prelude_owner(name, &ty) {
                 return Err(at.error(format!(
-                    "`{name}` requires a {} context",
-                    prelude_family(name)
+                    "`{name}` requires {} context",
+                    prelude_family_article(name)
                 )));
             }
             return self.variant(ty, name, args, at, ops);
@@ -269,8 +269,8 @@ impl Lower<'_> {
             return Ok(Some(Ty::Enum(t)));
         }
         Err(at.error(format!(
-            "cannot infer `{name}`; provide an {} annotation, parameter, or return type",
-            prelude_family(name)
+            "cannot infer `{name}`; provide {} annotation, parameter, or return type",
+            prelude_family_article(name)
         )))
     }
     pub(super) fn qualified_type(&self, base: &Expr) -> Result<Type> {
@@ -434,6 +434,14 @@ pub(super) fn prelude_family(name: &str) -> &'static str {
         "Option"
     } else {
         "Result"
+    }
+}
+/// The family name with its indefinite article, for diagnostics: "an Option", "a Result".
+fn prelude_family_article(name: &str) -> &'static str {
+    if prelude_family(name) == "Option" {
+        "an Option"
+    } else {
+        "a Result"
     }
 }
 pub(super) fn prelude_owner(name: &str, ty: &Ty) -> bool {

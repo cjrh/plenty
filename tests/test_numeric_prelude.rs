@@ -53,11 +53,16 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 #[case("x = 1.2u32", "invalid f64 literal")]
 #[case("x = {1.0}.unwrap()", "set elements must")]
 #[case("x = {1.0: 2}.unwrap()", "dictionary keys must")]
-#[case("x = Ok(1)", "cannot infer `Ok`")]
-#[case("x = Err('bad')", "cannot infer `Err`")]
-#[case("x = Nothing", "cannot infer `Nothing`")]
+#[case("x = Ok(1)", "cannot infer `Ok`; provide a Result annotation")]
+#[case("x = Err('bad')", "cannot infer `Err`; provide a Result annotation")]
+#[case("x = Nothing", "cannot infer `Nothing`; provide an Option annotation")]
+#[case(
+    "enum E:\n    A\n    B\ndef g() -> Result[(), E]:\n    Err(E.A)\nmut result = Ok(())\nresult = g()",
+    "cannot infer `Ok`; provide a Result annotation, parameter, or return type"
+)]
 #[case("x: Option[i64] = Nothing()", "nullary variants")]
 #[case("x: Option[i64] = Ok(1)", "requires a Result context")]
+#[case("x: Result[i64, str] = Some(1)", "`Some` requires an Option context")]
 #[case("x: Result[(), str] = Ok(42)", "expected (), got i64")]
 #[case("x: Result[i64, str] = Err(42)", "expected str, got i64")]
 #[case(
