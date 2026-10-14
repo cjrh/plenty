@@ -1,0 +1,165 @@
+# Caller-owned deterministic generators for simulation, sampling and tests.
+# Nothing here reads the OS, the clock or a process-wide state, and none of it
+# is suitable for keys or tokens; std.secrets is the OS-backed source. See
+# book/src/design/stdlib/random.md for the stability contract.
+from std.bytes import Bytes
+
+pub enum RandomError:
+    EmptyRange
+    OutOfRange
+    ZeroState
+    Allocation(AllocError)
+
+# SplitMix64 constants: the 64-bit golden-ratio increment and two mixers.
+const increment: u64 = 11400714819323198485
+const first_mixer: u64 = 13787848793156543929
+const second_mixer: u64 = 10723151780598845931
+
+# 2^-53: the spacing of the 53-bit fractions next_f64 returns.
+const fraction: f64 = 0.00000000000000011102230246251565404236316680908203125
+
+def rotated(value: u64, count: u64) -> u64:
+    (value << count) | (value >> (64u64 - count))
+
+def mixed(state: u64) -> u64:
+    mut z = state
+    z = (z ^ (z >> 30u64)).wrapping_mul(first_mixer)
+    z = (z ^ (z >> 27u64)).wrapping_mul(second_mixer)
+    z ^ (z >> 31u64)
+
+# xoshiro256** 1.0: 256 bits of state, period 2^256 - 1.
+pub class Rng:
+    _a: u64
+    _b: u64
+    _c: u64
+    _d: u64
+
+    pub def next_u64(self: &mut Rng) -> u64:
+        first = self._a
+        second = self._b
+        result = rotated(second.wrapping_mul(5u64), 7u64).wrapping_mul(9u64)
+        third = self._c ^ first
+        fourth = self._d ^ second
+        self._b = second ^ third
+        self._a = first ^ fourth
+        self._c = third ^ (second << 17u64)
+        self._d = rotated(fourth, 45u64)
+        result
+
+    # The high half of one step.
+    pub def next_u32(self: &mut Rng) -> u32:
+        u32(self.next_u64() >> 32u64)
+
+    # The top bit of one step.
+    pub def next_bool(self: &mut Rng) -> bool:
+        self.next_u64() >> 63u64 == 1u64
+
+    # Uniform over the 2^53 multiples of 2^-53 in [0, 1).
+    pub def next_f64(self: &mut Rng) -> f64:
+        f64(self.next_u64() >> 11u64) * fraction
+
+    # Uniform in [0, bound). Rejecting the low `2^64 mod bound` values removes
+    # modulo bias; fewer than two steps are expected for every bound.
+    pub def below(self: &mut Rng, bound: u64) -> Result[u64, RandomError]:
+        if bound == 0u64:
+            return Err(RandomError.EmptyRange)
+        threshold = 0u64.wrapping_sub(bound) % bound
+        while True:
+            value = self.next_u64()
+            if value >= threshold:
+                return Ok(value % bound)
+        Err(RandomError.EmptyRange)
+
+    # Uniform in the half-open range [low, high).
+    pub def between(self: &mut Rng, low: i64, high: i64) -> Result[i64, RandomError]:
+        if low >= high:
+            return Err(RandomError.EmptyRange)
+        # Ordered bounds make the two's-complement difference exact in u64.
+        span = u64.wrapping_from(high.wrapping_sub(low))
+        offset = self.below(span)?
+        Ok(i64.wrapping_from(u64.wrapping_from(low).wrapping_add(offset)))
+
+    # A uniform index into a collection of `count` elements.
+    pub def index(self: &mut Rng, count: i64) -> Result[i64, RandomError]:
+        if count < 0:
+            return Err(RandomError.OutOfRange)
+        self.between(0, count)
+
+    # Fisher-Yates over the whole list: every permutation is equally likely
+    # up to the generator's period. Elements are exchanged, never copied.
+    pub def shuffle[T](self: &mut Rng, items: &mut list[T]) -> ():
+        mut last = len(items) - 1
+        while last > 0:
+            # last + 1 is positive, so the draw cannot fail.
+            match self.below(u64(last + 1)):
+                case Ok(pick):
+                    items.swap(last, i64(pick))
+                case Err(_):
+                    pass
+            last -= 1
+
+    # `amount` distinct indices below `count`, in selection order. Allocates
+    # one list of `count` indices; a failure consumes no generator steps.
+    pub def sample_indices(self: &mut Rng, count: i64, amount: i64) -> Result[list[i64], RandomError]:
+        if count < 0 or amount < 0 or amount > count:
+            return Err(RandomError.OutOfRange)
+        mut pool = reserved(count)?
+        for position in range(count):
+            grown(pool.append(position))?
+        for position in range(amount):
+            pick = position + i64(self.below(u64(count - position))?)
+            pool.swap(position, pick)
+        while len(pool) > amount:
+            drop(pool.pop())
+        Ok(pool)
+
+    # Overwrites target[start:stop], eight bytes per step in little-endian
+    # order; a final partial group uses the low bytes of one more step.
+    pub def fill(self: &mut Rng, target: &mut Bytes, start: i64, stop: i64) -> Result[(), RandomError]:
+        if start < 0 or start > stop or stop > target.len():
+            return Err(RandomError.OutOfRange)
+        mut at = start
+        while at < stop:
+            mut word = self.next_u64()
+            mut group = stop - at
+            if group > 8:
+                group = 8
+            for offset in range(group):
+                # The offset was validated above, so the store cannot fail.
+                drop(target.set(at + offset, u8(word & 255u64)))
+                word = word >> 8u64
+            at += group
+        Ok(())
+
+    # The four state words, for checkpointing with from_state.
+    pub def state(self) -> (u64, u64, u64, u64):
+        (self._a, self._b, self._c, self._d)
+
+def reserved(count: i64) -> Result[list[i64], RandomError]:
+    match list[i64].with_capacity(count):
+        case Ok(pool):
+            Ok(pool)
+        case Err(error):
+            Err(RandomError.Allocation(error))
+
+def grown(result: Result[(), AllocError]) -> Result[(), RandomError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(RandomError.Allocation(error))
+
+# Expands one word into the full state with SplitMix64, so every seed,
+# including zero, gives a valid and well-mixed generator.
+pub def seeded(seed: u64) -> Rng:
+    first = seed.wrapping_add(increment)
+    second = first.wrapping_add(increment)
+    third = second.wrapping_add(increment)
+    fourth = third.wrapping_add(increment)
+    Rng(mixed(first), mixed(second), mixed(third), mixed(fourth))
+
+# Restores a generator from `state()`. The all-zero state never advances.
+pub def from_state(a: u64, b: u64, c: u64, d: u64) -> Result[Rng, RandomError]:
+    if a == 0u64 and b == 0u64 and c == 0u64 and d == 0u64:
+        return Err(RandomError.ZeroState)
+    Ok(Rng(a, b, c, d))

@@ -130,6 +130,12 @@ pub class Bytes:
         transported(start, stop, __bytes_len(self._owner))?
         __io_std_write(self._owner, start, stop, 2u8)
 
+    # One OS entropy request into self[start:stop]; a short count is success.
+    # std.secrets owns the retry policy and is the API to import.
+    pub def read_os_entropy(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]:
+        transported(start, stop, __bytes_len(self._owner))?
+        __io_entropy_read(self._owner, start, stop)
+
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)

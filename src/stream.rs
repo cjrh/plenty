@@ -1,7 +1,7 @@
 //! Single-call byte transport between `ByteStorage` and files or the standard
-//! streams, plus byte-offset seeking. Each primitive performs at most one
-//! native read or write; retry, EOF and partial-progress policy lives in
-//! `std.io`.
+//! streams, plus byte-offset seeking and the OS entropy read. Each primitive
+//! performs at most one native read or write; retry, EOF and partial-progress
+//! policy lives in `std.io` and `std.secrets`.
 use crate::{op::Ty, sum};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -11,6 +11,7 @@ pub enum StreamOp {
     StdinRead,
     StdWrite,
     FileSeek,
+    EntropyRead,
 }
 
 impl StreamOp {
@@ -21,6 +22,7 @@ impl StreamOp {
             "__io_stdin_read" => Self::StdinRead,
             "__io_std_write" => Self::StdWrite,
             "__io_file_seek" => Self::FileSeek,
+            "__io_entropy_read" => Self::EntropyRead,
             _ => return None,
         })
     }
@@ -29,7 +31,7 @@ impl StreamOp {
         let range = || vec![Ty::ByteStorage, Ty::I64, Ty::I64];
         let inputs = match self {
             Self::FileRead | Self::FileWrite => [range(), vec![Ty::File]].concat(),
-            Self::StdinRead => range(),
+            Self::StdinRead | Self::EntropyRead => range(),
             Self::StdWrite => [range(), vec![Ty::U8]].concat(),
             Self::FileSeek => vec![Ty::File, Ty::U8, Ty::I64],
         };
@@ -42,12 +44,16 @@ impl StreamOp {
         match self {
             Self::FileRead => operand == 0 || operand == 3,
             Self::FileWrite => operand == 3,
-            Self::StdinRead | Self::FileSeek => operand == 0,
+            Self::StdinRead | Self::FileSeek | Self::EntropyRead => operand == 0,
             Self::StdWrite => false,
         }
     }
 
     pub fn opcode(self) -> i64 {
-        188 + self as i64
+        match self {
+            // Outside the contiguous stream block, which later opcodes follow.
+            Self::EntropyRead => 248,
+            _ => 188 + self as i64,
+        }
     }
 }
