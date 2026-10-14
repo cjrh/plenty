@@ -1,0 +1,129 @@
+# Binary heaps over a private list. Sifting exchanges rows with `swap`, so
+# elements are never copied or dropped while the heap is reordered.
+pub class Heap[T]:
+    _items: list[T]
+
+    pub def __init__(self) -> Result[(), AllocError]:
+        self._items = list[T].new()?
+        Ok(())
+
+    pub def len(self) -> i64:
+        len(self._items)
+
+    pub def is_empty(self) -> bool:
+        len(self._items) == 0
+
+    pub def reserve(self: &mut Heap[T], additional: i64) -> Result[(), AllocError]:
+        self._items.reserve(additional)
+
+    pub def peek(self) -> &T:
+        &self._items[0]
+
+    pub def push(self: &mut Heap[T], value: T) -> Result[(), AllocError]:
+        self._items.append(value)?
+        mut child = len(self._items) - 1
+        while child > 0:
+            parent = (child - 1) // 2
+            if not (self._items[child] < self._items[parent]):
+                break
+            self._items.swap(child, parent)
+            child = parent
+        Ok(())
+
+    pub def pop(self: &mut Heap[T]) -> Option[T]:
+        last = len(self._items) - 1
+        if last < 0:
+            return Nothing
+        self._items.swap(0, last)
+        result = self._items.pop()
+        mut parent = 0
+        while True:
+            mut first = parent
+            left = 2 * parent + 1
+            right = left + 1
+            if left < last and self._items[left] < self._items[first]:
+                first = left
+            if right < last and self._items[right] < self._items[first]:
+                first = right
+            if first == parent:
+                break
+            self._items.swap(parent, first)
+            parent = first
+        result
+
+    pub def clear(self: &mut Heap[T]) -> ():
+        self._items.clear()
+
+pub class HeapBy[T, F: Callable[[&T, &T], bool]]:
+    _items: list[T]
+    _before: F
+
+    pub def __init__(self, before: F) -> Result[(), AllocError]:
+        self._items = list[T].new()?
+        self._before = before
+        Ok(())
+
+    pub def len(self) -> i64:
+        len(self._items)
+
+    pub def is_empty(self) -> bool:
+        len(self._items) == 0
+
+    pub def reserve(self: &mut HeapBy[T, F], additional: i64) -> Result[(), AllocError]:
+        self._items.reserve(additional)
+
+    pub def peek(self) -> &T:
+        &self._items[0]
+
+    pub def push(self: &mut HeapBy[T, F], value: T) -> Result[(), AllocError]:
+        self._items.append(value)?
+        mut child = len(self._items) - 1
+        while child > 0:
+            parent = (child - 1) // 2
+            if not (self._before(&self._items[child], &self._items[parent])):
+                break
+            self._items.swap(child, parent)
+            child = parent
+        Ok(())
+
+    pub def pop(self: &mut HeapBy[T, F]) -> Option[T]:
+        last = len(self._items) - 1
+        if last < 0:
+            return Nothing
+        self._items.swap(0, last)
+        result = self._items.pop()
+        mut parent = 0
+        while True:
+            mut first = parent
+            left = 2 * parent + 1
+            right = left + 1
+            if left < last and self._before(&self._items[left], &self._items[first]):
+                first = left
+            if right < last and self._before(&self._items[right], &self._items[first]):
+                first = right
+            if first == parent:
+                break
+            self._items.swap(parent, first)
+            parent = first
+        result
+
+    pub def clear(self: &mut HeapBy[T, F]) -> ():
+        self._items.clear()
+
+pub def drain[T](heap: Heap[T]) -> Generator[T]:
+    mut rest = heap
+    while True:
+        match rest.pop():
+            case Some(value):
+                yield value
+            case Nothing:
+                return
+
+pub def drain_by[T, F: Callable[[&T, &T], bool]](heap: HeapBy[T, F]) -> Generator[T]:
+    mut rest = heap
+    while True:
+        match rest.pop():
+            case Some(value):
+                yield value
+            case Nothing:
+                return

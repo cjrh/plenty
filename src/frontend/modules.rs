@@ -42,6 +42,10 @@ impl ModuleSource {
             Self::Standard("std.encoding") => {
                 Ok(include_str!("../../stdlib/std/encoding.plenty").into())
             }
+            Self::Standard("std.collections") => {
+                Ok(include_str!("../../stdlib/std/collections.plenty").into())
+            }
+            Self::Standard("std.iter") => Ok(include_str!("../../stdlib/std/iter.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -551,8 +555,10 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.sync" => Ok(ModuleSource::Standard("std.sync")),
                     "std.io" => Ok(ModuleSource::Standard("std.io")),
                     "std.encoding" => Ok(ModuleSource::Standard("std.encoding")),
+                    "std.collections" => Ok(ModuleSource::Standard("std.collections")),
+                    "std.iter" => Ok(ModuleSource::Standard("std.iter")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter",
                         import.module
                 ))),
                 };

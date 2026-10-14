@@ -29,6 +29,8 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.concurrent`](concurrent.md) | Executors, futures and parallel operations | Pool/submission/future/parallel errors |
 | [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
 | [`std.encoding`](encoding.md) | Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
+| [`std.collections`](collections.md) | Owned binary heaps ordered by `<` or by a stored comparator | `AllocError` |
+| [`std.iter`](iter.md) | Allocation-free `map`, `filter`, `take`, `fold`, and `try_fold` over generators | None |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in

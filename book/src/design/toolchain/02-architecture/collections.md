@@ -34,6 +34,9 @@ payloads. End removal replaces a slot with `Nothing` and transfers its previous
 owner. Growth doubles the slot count and initializes a replacement buffer
 before moving live entries; list removal behavior is unchanged.
 
+`std.collections` keeps each binary heap in a private list and restores heap
+order with `swap`, so sifting never copies or drops a payload.
+
 `std.bytes` does not use collection slots. Its private owner holds a contiguous
 one-byte-per-element buffer, reached only through range-checked runtime
 operations that never expose an address. See [std.bytes](../../stdlib/bytes.md).
