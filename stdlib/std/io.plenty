@@ -105,20 +105,8 @@ pub def classify(error: IoError) -> StreamError:
                     StreamError.Allocation(cause)
                 case _:
                     StreamError.Io(IoError.Data(data))
-        case IoError.InvalidMode:
-            StreamError.Io(IoError.InvalidMode)
-        case IoError.Closed:
-            StreamError.Io(IoError.Closed)
-        case IoError.NotReadable:
-            StreamError.Io(IoError.NotReadable)
-        case IoError.NotWritable:
-            StreamError.Io(IoError.NotWritable)
-        case IoError.InvalidInput:
-            StreamError.Io(IoError.InvalidInput)
-        case IoError.Unsupported:
-            StreamError.Io(IoError.Unsupported)
-        case IoError.Other:
-            StreamError.Io(IoError.Other)
+        case _ as other:
+            StreamError.Io(other)
 
 def moved(result: Result[i64, IoError]) -> Result[i64, StreamError]:
     match result:

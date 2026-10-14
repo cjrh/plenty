@@ -1,6 +1,7 @@
 //! `match` patterns: type arguments come from the matched value, payload
 //! positions nest, `|` joins alternatives, and literals match integers,
-//! strings, and booleans (issue #36).
+//! strings, and booleans (issue #36). `_ as name` binds the whole matched value
+//! (issue #114).
 mod support;
 
 fn runs(source: &str, expected: &str) {
@@ -783,7 +784,7 @@ fn payload_positions_take_only_patterns() {
     );
     assert_eq!(
         rejects("Shape", "case other:\n    0"),
-        "13:14: a case cannot bind the whole value to `other`; match any value with `_`, or qualify a variant with its enum type"
+        "13:14: a case cannot bind the whole value to the bare name `other`; bind it with `_ as other`, match any value with `_`, or qualify a variant with its enum type"
     );
     assert_eq!(
         rejects("Option[i64]", "case Some(Shape.Dot):\n    0\ncase _:\n    1"),
@@ -1590,5 +1591,221 @@ def main() -> Result[(), Failure]:
     Ok(())
 "#,
         "a one\ntwo\na\ntwo\nb three\nb\ntwo\nthree\nother\n",
+    );
+}
+
+const WHOLE: &str = r#"
+enum Item:
+    Empty
+    Count(i64)
+    Names(list[str])
+def size(item: Item) -> i64:
+    match item:
+        case Item.Empty:
+            0
+        case Item.Count(count):
+            count
+        case Item.Names(names):
+            len(names)
+"#;
+
+#[test]
+fn a_final_case_binds_the_whole_owned_value() {
+    runs(
+        &format!(
+            r#"{WHOLE}
+def forward(item: Item) -> i64:
+    match item:
+        case Item.Empty:
+            -1
+        case _ as rest:
+            size(rest)
+def only(item: Item) -> i64:
+    match item:
+        case _ as all:
+            size(all)
+def nested(item: Option[Item]) -> i64:
+    match item:
+        case Some(Item.Empty) | Some(Item.Count(0)):
+            -1
+        case _ as rest:
+            match rest:
+                case Some(inner):
+                    size(inner)
+                case Nothing:
+                    -2
+def keep(item: Item) -> Item:
+    match item:
+        case Item.Count(_):
+            Item.Empty
+        case _ as rest:
+            rest
+def number(value: i64) -> i64:
+    match value:
+        case 0:
+            100
+        case _ as other:
+            other + 1
+def word(value: str) -> str:
+    match value:
+        case "a long string to compare":
+            "first"
+        case _ as other:
+            other
+def main() -> Result[(), Failure]:
+    for round in range(3):
+        print(forward(Item.Empty))?
+        print(forward(Item.Count(4)))?
+        print(forward(Item.Names(["one long string", "two long strings"]?)))?
+        print(only(Item.Names(["three long strings"]?)))?
+        print(nested(Some(Item.Empty)))?
+        print(nested(Some(Item.Count(0))))?
+        print(nested(Some(Item.Count(9))))?
+        print(nested(Some(Item.Names(["four long strings"]?))))?
+        print(nested(Nothing))?
+        print(keep(Item.Names(["five long strings"]?)))?
+        print(keep(Item.Count(1)))?
+        print(number(0))?
+        print(number(5))?
+        print(word("a long string to compare"))?
+        print(word("another long string value"))?
+    Ok(())
+"#
+        ),
+        &"-1\n4\n2\n1\n-1\n-1\n9\n1\n-2\nItem.Names([\"five long strings\"])\nItem.Empty\n100\n6\nfirst\nanother long string value\n"
+            .repeat(3),
+    );
+}
+
+#[test]
+fn a_final_case_binds_a_reference_to_a_borrowed_value() {
+    runs(
+        &format!(
+            r#"{WHOLE}
+def peek(item: &Item) -> i64:
+    match item:
+        case Item.Names(names):
+            len(names)
+        case _:
+            -1
+def shared(item: &Item) -> i64:
+    match item:
+        case Item.Count(count):
+            *count
+        case _ as rest:
+            peek(rest)
+def reset(item: &mut Item) -> ():
+    match item:
+        case Item.Empty:
+            pass
+        case _ as rest:
+            *rest = Item.Empty
+def main() -> Result[(), Failure]:
+    mut item = Item.Names(["one long string", "two long strings"]?)
+    print(shared(&item))?
+    print(shared(&Item.Count(7)))?
+    print(shared(&Item.Empty))?
+    match &item:
+        case Item.Empty:
+            pass
+        case _ as rest:
+            print(peek(rest))?
+    reset(&mut item)
+    print(item)?
+    Ok(())
+"#
+        ),
+        "2\n7\n-1\n2\nItem.Empty\n",
+    );
+}
+
+#[test]
+fn whole_value_bindings_follow_the_ownership_rules() {
+    let owned = |body: &str| {
+        diagnostic(&format!(
+            "{WHOLE}def main() -> Result[(), Failure]:\n    mut item = Item.Names([\"a\"]?)\n{body}    Ok(())\n"
+        ))
+    };
+    let moved = owned(
+        "    match item:\n        case Item.Empty:\n            pass\n        case _ as rest:\n            print(size(rest))?\n    print(size(item))?\n",
+    );
+    assert!(moved.contains("use of moved binding `item`"), "{moved}");
+    let twice = owned(
+        "    match item:\n        case _ as rest:\n            print(size(rest))?\n            print(size(rest))?\n",
+    );
+    assert!(twice.contains("use of moved binding `rest`"), "{twice}");
+    let immutable =
+        owned("    match item:\n        case _ as rest:\n            rest = Item.Empty\n");
+    assert!(
+        immutable.contains("`rest` is immutable; declare it with `mut`"),
+        "{immutable}"
+    );
+    let reference =
+        owned("    match &item:\n        case _ as rest:\n            print(size(*rest))?\n");
+    assert!(
+        reference.contains("cannot move out of a reference"),
+        "{reference}"
+    );
+    let shared =
+        owned("    match &item:\n        case _ as rest:\n            *rest = Item.Empty\n");
+    assert!(
+        shared.contains("assignment requires an exclusive reference"),
+        "{shared}"
+    );
+    let replaced = owned(
+        "    match &mut item:\n        case _ as rest:\n            item = Item.Empty\n            *rest = Item.Empty\n",
+    );
+    assert!(
+        replaced.contains("cannot assign to `item` while it is exclusively borrowed"),
+        "{replaced}"
+    );
+}
+
+#[test]
+fn a_whole_value_binding_is_explicit_and_stands_alone() {
+    assert_eq!(
+        rejects("Shape", "case _ as Dot:\n    0"),
+        "13:19: `Dot` is a variant of `Shape`, so it cannot name the matched value; write `Shape.Dot` to match the variant"
+    );
+    assert_eq!(
+        rejects("Shape", "case Shape.Dot | _ as rest:\n    0"),
+        "13:31: `_ as rest` cannot be a `|` alternative; give it a case of its own"
+    );
+    assert_eq!(
+        rejects("Shape", "case _ as rest | Shape.Dot:\n    0"),
+        "13:19: `_ as rest` cannot be a `|` alternative; give it a case of its own"
+    );
+    assert_eq!(
+        rejects(
+            "Option[Shape]",
+            "case Some(_ as shape):\n    0\ncase Nothing:\n    1"
+        ),
+        "13:21: `_ as shape` binds only the whole matched value; bind a payload with the name alone, as in `shape`"
+    );
+    assert_eq!(
+        rejects("Shape", "case _ as _:\n    0"),
+        "13:19: `_ as` needs a name; match any value with `_` alone"
+    );
+    assert_eq!(
+        rejects("Shape", "case _ as mut rest:\n    0"),
+        "13:19: a whole-value binding cannot be declared `mut`; move it into a mutable local in the arm, as in `mut local = name`, or match `&mut value` to change it in place"
+    );
+    assert_eq!(
+        rejects("Shape", "case _ as rest:\n    0\ncase Shape.Dot:\n    1"),
+        "15:9: unreachable case"
+    );
+    assert_eq!(
+        rejects(
+            "Shape",
+            "case Shape.Dot | Shape.Circle(_) | Shape.Rect(_, _):\n    0\ncase _ as rest:\n    1"
+        ),
+        "15:9: unreachable case"
+    );
+    assert_eq!(
+        rejects(
+            "Shape",
+            "case Shape.Dot:\n    0\ncase _ as rest:\n    1\ncase _:\n    2"
+        ),
+        "17:9: unreachable case"
     );
 }

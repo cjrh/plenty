@@ -35,7 +35,7 @@ Enum payloads are stored inline: `Reading.Value(42)` needs no allocation or `?`.
 Variants without data omit parentheses. Payloads may have several positions,
 such as `Pair(i64, str)`. Case bindings are immutable and local to that case.
 Use `_` to ignore a payload position or a final `case _:` to cover remaining
-variants. Duplicate or missing cases are errors:
+variants; [`case _ as name:`](bind-the-rest.md) also binds the remaining value. Duplicate or missing cases are errors:
 
 ```plenty-error
 enum Switch:
