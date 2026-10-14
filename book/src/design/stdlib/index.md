@@ -1,7 +1,7 @@
 # Standard library
 
 The standard library is the set of modules under the reserved `std` namespace.
-They are written in Plenty and embedded in the compiler: importing one needs no
+They are written in Plenty or expose existing compiler facilities, and are embedded in the compiler: importing one needs no
 source installation, network, Cargo, or rustc. Native compilation still requires
 the supported [linker environment](../toolchain/01-building/linking.md).
 
@@ -23,6 +23,10 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.cli`](cli.md) | Explicit typed options/positionals, repeatable values, generated help and lossless path arguments | `CliError` |
 | [`std.text`](text.md) | Bounded reusable builders, joining, and scalar wrapping | `TextError` |
 | [`std.unicode`](unicode.md) | Unicode 17 normalization, combining classes, and Mark classification | `TextError` |
+| [`std.thread`](thread.md) | Explicit scoped thread and owned-job imports | `ThreadError`, `SpawnError[F]` |
+| [`std.channel`](channel.md) | Bounded channels, endpoints and selection | Channel/send/receive/selection errors |
+| [`std.concurrent`](concurrent.md) | Executors, futures and parallel operations | Pool/submission/future/parallel errors |
+| [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in
@@ -60,6 +64,13 @@ A standard module passes through ordinary parsing, visibility checks, type
 checking, specialization, and native emission. Its private helpers stay private.
 Repeated imports, through any alias or dependency path, share its nominal
 types, so a `MathError` from one module equals a `MathError` from another.
+
+The four concurrency modules export canonical builtin identities instead of
+wrapper functions. Their imports reach the existing ownership and worker checks
+directly, including scoped joins and blocking-wait diagnostics. Their prelude
+spellings remain available. Importing one of these under its own builtin name
+is permitted only when it denotes the same builtin; unrelated name collisions
+remain errors. Generic constructor and error aliases retain the same types.
 
 Embedded modules have toolchain identities such as `std/math.plenty`,
 independent of the installation path. A diagnostic located inside a standard

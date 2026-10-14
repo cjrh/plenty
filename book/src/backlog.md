@@ -151,10 +151,10 @@ Plenty; approved platform/backend boundaries remain narrow.
 | B41 | Error context — issue #78 | [std.error](design/stdlib/error.md) is implemented: `Context[E]` with operation/path/typed cause, explicit conversion, descriptions and stderr reports with nonallocating fallbacks, and module conventions. Unit Results are supported (issue #110). Remaining: OS description text and entrypoint rendering of a `Context`. B14. |
 | B42 | Time/deadlines — issue #79 | Complete: [std.time](design/stdlib/time.md) delivers checked `Duration`, monotonic `Instant`/`Deadline`, wall `Timestamp`, and sleep. Unscheduled candidates: `Duration`/`Deadline` overloads of timed waits, calendar and formatting support. |
 | B43 | Environment/processes — issue #80 | Lossless args/env/cwd, vector spawning, pipes, status, termination and reaping. Depends on B40/B42. |
-| B44 | CLI parsing — issue #81 | Implemented in the issue #81 branch, pending merge: checked `std.cli` schemas, typed options/positionals, repeatable values, `--`, help/errors and lossless path arguments. Depends on B41. |
+| B44 | CLI parsing — issue #81 | Implemented: checked `std.cli` schemas, typed options/positionals, repeatable values, `--`, help/errors and lossless path arguments. Depends on B41. |
 | B45 | Formatting — issue #82 | Explicit display/debug forms, writer output and fallible strings. Depends on B40. |
 | B46 | Structured logs — issue #83 | Levels, fields, caller-supplied sinks and bounded failure policy. Depends on B45/B42. |
-| B47 | Text/Unicode — issue #84 | Implemented in the issue #84 PR, pending merge: bounded reusable [builders/join/scalar wrapping](design/stdlib/text.md) and [Unicode 17 NFC/NFD/NFKC/NFKD](design/stdlib/unicode.md), with combining-class/Mark classification. Reuses B39 bytes and #22 text primitives. Grapheme/display-width wrapping and broader classification remain outside this slice. |
+| B47 | Text/Unicode — issue #84 | Implemented: bounded reusable [builders/join/scalar wrapping](design/stdlib/text.md) and [Unicode 17 NFC/NFD/NFKC/NFKD](design/stdlib/unicode.md), with combining-class/Mark classification. Reuses B39 bytes and #22 text primitives. Grapheme/display-width wrapping and broader classification remain outside this slice. |
 | B48 | Regex — issue #85 | Compiled search/split/replace with documented engine/features and resource bounds. Depends on B39/B47. |
 | B49 | Collections/iterators — issue #86 | Heap/priority queue and reusable static map/filter/fold; reuse deque and #35. Iterator/borrow contracts remain B12. |
 | B50 | Randomness/secrets — issue #87 | Explicit seeded PRNG/sampling/shuffle and separately named OS-backed entropy/tokens. Depends on B39/B54. |
@@ -163,7 +163,7 @@ Plenty; approved platform/backend boundaries remain narrow.
 | B53 | CSV — issue #90 | Streaming records/writers, explicit dialects and field/record limits. Depends on B40/B54. |
 | B54 | Binary encodings — issue #91 | Hex/base64, fixed-width packing with explicit endianness and strict UTF-8 reuse. Depends on B39. |
 | B55 | Filesystem helpers — issue #92 | Owned temporary resources, copy/move/remove and glob filtering with symlink/race/cleanup policies; reuse #60/#61. Depends on B40/B50. |
-| B56 | Concurrency modules — issue #93 | Importable thread/sync/channel/concurrent surfaces preserving current join/ownership/effect guarantees. Depends on B42; additional primitives need a use case. |
+| B56 | Concurrency modules — issue #93 | Implemented: explicit thread/sync/channel/concurrent imports preserve builtin identities and join/ownership/effect guarantees. B42 satisfied; additional primitives still need a use case. |
 | B57 | Library test support — issue #94 | Assertions, static discovery, fixtures and explicit test doubles; runner remains #45/B17. Depends on B55/B50. |
 | B58 | Trusted I/O effects — issue #95 | Certify narrow native effects/handle ownership and choose measured bounded blocking versus polling execution. Depends on B40/B42/B56; no std-wide checker exemption. |
 | B59 | Sockets/DNS — issue #96 | Owned TCP/UDP, addresses, bounded resolution/deadlines and local-socket scope. Depends on B58. |
