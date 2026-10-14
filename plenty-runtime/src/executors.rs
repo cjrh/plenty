@@ -147,6 +147,23 @@ fn error_payload(tag: u64, value: u128) -> u128 {
     aggregates::wrap(aggregates::wrap(value, tag >> 1), tag & 1)
 }
 
+/// Includes canceled-job cleanup: captured destructors can tail-call std even
+/// when the job entry never runs. No caller may survive into the next job.
+struct JobCaller;
+
+impl JobCaller {
+    fn isolated() -> Self {
+        crate::plenty_caller_leave(std::ptr::null());
+        Self
+    }
+}
+
+impl Drop for JobCaller {
+    fn drop(&mut self) {
+        crate::plenty_caller_leave(std::ptr::null());
+    }
+}
+
 unsafe extern "C" fn run_worker(argument: *mut c_void) -> *mut c_void {
     // SAFETY: the parent retains the pool and its worker records through join.
     // The queue lock hands each job's execution ownership to exactly one worker.
@@ -166,6 +183,7 @@ unsafe extern "C" fn run_worker(argument: *mut c_void) -> *mut c_void {
                 queue.len -= 1;
                 job
             };
+            let _caller = JobCaller::isolated();
             pool.writable.notify_one();
             let run = {
                 let mut phase = lock(&(*job).phase);

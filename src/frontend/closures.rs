@@ -133,7 +133,7 @@ impl Lower<'_> {
             )));
         }
         let (_, loan) = self.borrow(callee, closure.mutable, ops)?;
-        self.closure_arguments(args, closure, loan, ops)
+        self.closure_arguments(args, closure, loan, &callee.at, ops)
     }
 
     pub(super) fn call_temporary_closure(
@@ -158,7 +158,7 @@ impl Lower<'_> {
         self.expression_temps.push(slot);
         let loan = self.new_loan(slot, closure.mutable, None, ops);
         ops.push(Op::BorrowLocal(slot, closure.mutable));
-        self.closure_arguments(args, closure, loan, ops)
+        self.closure_arguments(args, closure, loan, at, ops)
     }
 
     fn consume_closure(
@@ -172,6 +172,7 @@ impl Lower<'_> {
             return Err(at.error("one-shot closure argument count mismatch"));
         }
         let loans = self.call_arguments(args, &closure.signature.function().inputs, ops)?;
+        self.mark_call(at, ops);
         ops.push(Op::ClosureCall(closure.clone()));
         Self::end_reads(loans, ops);
         if let Some(loans) = self.closure_loans.get(&closure.name) {
@@ -185,9 +186,11 @@ impl Lower<'_> {
         args: &[Expr],
         closure: Arc<ClosureType>,
         loan: usize,
+        at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let loans = self.call_arguments(args, &closure.signature.function().inputs, ops)?;
+        self.mark_call(at, ops);
         ops.push(Op::ClosureCall(closure.clone()));
         Self::end_reads(loans, ops);
         ops.push(Op::UseLoan(loan));

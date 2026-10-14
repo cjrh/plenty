@@ -30,6 +30,8 @@ pub struct Origins {
     /// `source` relative to the source root, for runtime trap reports.
     /// Generated code must not depend on where the tree is checked out.
     pub trap_file: Option<Arc<str>>,
+    /// Provenance supplied by the embedded-module loader, never a path prefix.
+    pub standard_library: bool,
     /// Source name of each local slot, parameters first. Slots are never
     /// reused, so a name stays valid after its scope ends. Compiler
     /// temporaries have none.
@@ -417,7 +419,7 @@ fn graph(
     let mut next = next;
     for (op, site) in ops.iter().zip(sites).rev() {
         match op {
-            Op::Site(_) => continue,
+            Op::Site(_) | Op::CallerSite(_) => continue,
             Op::Try { cleanup, .. } => {
                 let failure = graph(cleanup, site, 0, None, nodes);
                 nodes.push(Node {
@@ -867,7 +869,7 @@ impl Checker<'_> {
                         .map(|message| (message, site));
                     let result = ops[index + 1..]
                         .iter()
-                        .find(|op| !matches!(op, Op::UseLoan(_) | Op::Site(_)));
+                        .find(|op| !matches!(op, Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_)));
                     if matches!(result, Some(Op::Try { .. })) {
                         accepted.extend(sends);
                     } else {

@@ -58,6 +58,29 @@ pub(crate) struct Site {
     line: u32,
     column: u32,
     file: u32,
+    standard_library: u32,
+}
+
+thread_local! {
+    // Records live in immutable object data, so this never owns an allocation
+    // and cannot dangle when a tail call discards its stack frame.
+    static CALLER: std::cell::Cell<*const Site> = const { std::cell::Cell::new(std::ptr::null()) };
+}
+
+#[no_mangle]
+extern "C" fn plenty_caller_enter(site: *const Site) -> *const Site {
+    CALLER.with(|caller| {
+        let old = caller.get();
+        if !site.is_null() {
+            caller.set(site);
+        }
+        old
+    })
+}
+
+#[no_mangle]
+extern "C" fn plenty_caller_leave(site: *const Site) {
+    CALLER.with(|caller| caller.set(site));
 }
 
 /// Traps with `error: file:line:column: message`. A null site prints the bare
@@ -87,6 +110,26 @@ fn fail_at(site: *const Site, message: std::fmt::Arguments) -> ! {
                     at.column
                 )
             }
+        }
+        if site.as_ref().is_some_and(|at| at.standard_library != 0) {
+            CALLER.with(|caller| {
+                let caller = caller.get();
+                if let Some(at) = caller.as_ref() {
+                    if at.file == 0 {
+                        eprintln!("note: called from {}:{}", at.line, at.column);
+                    } else {
+                        let name = caller.cast::<u8>().add(at.file as usize);
+                        let len = name.cast::<u32>().read_unaligned() as usize;
+                        let name = std::slice::from_raw_parts(name.add(4), len);
+                        eprintln!(
+                            "note: called from {}:{}:{}",
+                            std::str::from_utf8_unchecked(name),
+                            at.line,
+                            at.column
+                        );
+                    }
+                }
+            });
         }
     }
     std::process::exit(1)

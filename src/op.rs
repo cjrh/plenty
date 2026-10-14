@@ -579,6 +579,9 @@ pub enum Op {
     Access(u8, bool, Option<usize>),
     /// Source position of the operations that follow; diagnostics only.
     Site(crate::ownership::Site),
+    /// Call expression position after evaluating arguments; runtime caller
+    /// attribution only, without changing ownership diagnostic positions.
+    CallerSite(crate::ownership::Site),
     Yield(Ty),
     Next(u8),
     MoveLocal(u8),
@@ -1643,7 +1646,12 @@ fn step(
             }
             stack.push(source.get().variants[usize::from(source.is_option())].fields[0].clone());
         }
-        Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) | Op::Site(_) | Op::ForwardsReferences => {}
+        Op::Loan(_)
+        | Op::UseLoan(_)
+        | Op::Access(..)
+        | Op::Site(_)
+        | Op::CallerSite(_)
+        | Op::ForwardsReferences => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;
             stack.push(Ty::Ref(Arc::new(ty.clone()), *mutable));

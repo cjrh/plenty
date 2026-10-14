@@ -65,6 +65,82 @@ struct Gate {
     started: AtomicBool,
     open: AtomicBool,
 }
+
+#[test]
+#[cfg(not(miri))]
+fn canceled_job_destructors_have_independent_caller_contexts() {
+    static CLEAN: AtomicBool = AtomicBool::new(true);
+    static DROPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static SITE: crate::Site = crate::Site {
+        line: 1,
+        column: 1,
+        file: 0,
+        standard_library: 0,
+    };
+    unsafe extern "C" fn tail_destructor(_: *mut u128) {
+        DROPS.fetch_add(1, Ordering::Relaxed);
+        CLEAN.fetch_and(
+            crate::plenty_caller_enter(std::ptr::null()).is_null(),
+            Ordering::Relaxed,
+        );
+        // Model the site left behind when a captured destructor tail-calls std.
+        crate::plenty_caller_enter(&SITE);
+    }
+    static CAPTURE: Type = Type {
+        kind: b'C',
+        affine: true,
+        reflexive: false,
+        inline_range: false,
+        inline_bytes: 16,
+        key: None,
+        value: None,
+        name: "capture",
+        variants: &[],
+        drop: Some(tail_destructor),
+    };
+    let gate = Gate {
+        started: AtomicBool::new(false),
+        open: AtomicBool::new(false),
+    };
+    unsafe {
+        let pool = create(1, 2).unwrap();
+        let running = submit(
+            pool,
+            &gate as *const Gate as u128,
+            &NUMBER,
+            &NUMBER,
+            gated,
+            false,
+        )
+        .unwrap();
+        while !gate.started.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        let state = [1u128];
+        for _ in 0..2 {
+            let canceled = submit(
+                pool,
+                state.as_ptr() as u128,
+                &CAPTURE,
+                &NUMBER,
+                square,
+                false,
+            )
+            .unwrap();
+            assert!(cancel(canceled));
+            plenty_release(canceled.cast());
+        }
+        gate.open.store(true, Ordering::Release);
+        shutdown(pool, false);
+        plenty_release(running.cast());
+        plenty_release(pool.cast());
+    }
+    assert_eq!(DROPS.load(Ordering::Relaxed), 2);
+    assert!(
+        CLEAN.load(Ordering::Relaxed),
+        "a canceled job inherited its predecessor's destructor caller"
+    );
+}
 unsafe extern "C" fn gated(input: *const u128, out: *mut u128, _: *const u128) {
     unsafe {
         let gate = &*(*input as *const Gate);

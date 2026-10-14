@@ -43,7 +43,7 @@ propagation or resource scopes.
 
 ## Trap reports
 
-A trap flushes standard output, writes one line to standard error, and exits
+A trap flushes standard output, writes its report to standard error, and exits
 with status one. The line gives the position of the failing operation in the
 form of a compile-time diagnostic, `error: file:line:column: message`:
 
@@ -60,6 +60,23 @@ it, not the call or instantiation. The file is relative to the
 module `tools.geometry`, so an executable does not depend on the directory it
 was built in. Compile-time diagnostics print the full path. Reporting a trap
 allocates nothing.
+
+When the failing body belongs to the embedded standard library, an additional
+line names the nearest non-std caller:
+
+```text
+error: std/collections.plenty:20:10: index out of bounds: index 0, length 0
+note: called from main.plenty:7:12
+```
+
+This caller is the actual invocation, including generic methods, indirect calls,
+tail calls, and nested standard-library helpers. A user callback that calls std
+becomes the nearest caller; a trap in the callback itself keeps its own ordinary
+report. A suspended std generator uses its current resume site, not its creation
+site. The note is omitted when there is no source caller on the current thread,
+such as a std function started directly as a worker. Caller context does not
+cross thread creation or executor submission. This is one caller note, not a
+stack trace; it does not change the trap message into an API-specific error.
 
 | Trap | Message |
 |---|---|

@@ -341,6 +341,7 @@ fn object_module(
         .iter()
         .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
         .collect();
+    runtime.standard_calls = user_fns.values().any(|f| f.standard_library);
     let runtime = runtime;
 
     // Pass 1b: emit one read-only data symbol per source string literal.
@@ -464,6 +465,9 @@ fn target_isa(
 /// them all up-front so each call site is just `module.declare_func_in_func`
 /// plus an `ins().call`.
 struct Runtime {
+    standard_calls: bool,
+    caller_enter: FuncId,
+    caller_leave: FuncId,
     thread_start: FuncId,
     thread_join: FuncId,
     thread_adapters: std::cell::RefCell<HashMap<String, FuncId>>,
@@ -560,6 +564,15 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        standard_calls: false,
+        caller_enter: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.push(AbiParam::new(PTR_TY));
+            sig.returns.push(AbiParam::new(PTR_TY));
+            module.declare_function("plenty_caller_enter", Linkage::Import, &sig)?
+        },
+        caller_leave: one_arg(module, "plenty_caller_leave", PTR_TY)?,
         control: {
             let mut sig = module.make_signature();
             sig.call_conv = CallConv::SystemV;
@@ -771,6 +784,7 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
 /// allocates one of these per `DefineFn` reachable from the source set;
 /// Pass 2 reads it back when emitting bodies and resolving calls.
 struct UserFn {
+    standard_library: bool,
     drop_callback: Option<FuncId>,
     generator: Option<Ty>,
     resume: Option<FuncId>,
@@ -855,6 +869,7 @@ fn collect_user_fns(
                         sig: Arc::clone(&f.sig),
                         locals: Arc::clone(&f.locals),
                         source: f.origins.trap_file.clone(),
+                        standard_library: f.origins.standard_library,
                     },
                 );
                 bodies.push((name.clone(), Arc::clone(&f.body)));
@@ -1014,7 +1029,7 @@ fn emit_user_function(
             return_storage,
             return_types: &decl.sig.outputs,
             collection_scratch: None,
-            position: sites::Position::in_file(decl.source.clone()),
+            position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
         };
         // Argument addresses belong to the caller. Snapshot inline values into
         // this function's locals before any mutation or nested call can occur.
@@ -1264,7 +1279,9 @@ impl Lowerer<'_, '_> {
             let f = self
                 .module
                 .declare_func_in_func(self.runtime.release, self.bcx.func);
+            let saved = self.enter_call().expect("drop caller site");
             self.bcx.ins().call(f, &[value]);
+            self.leave_call(saved);
         }
     }
     fn release_locals(&mut self) {
@@ -1336,6 +1353,7 @@ impl Lowerer<'_, '_> {
             } => self.lower_try(source, target, cleanup)?,
             Op::Loan(_) | Op::UseLoan(_) | Op::Access(..) => {}
             Op::Site(site) => self.position.set(site),
+            Op::CallerSite(site) => self.position.set_call(site),
             // Consumed by `tail_abi::prepare`, which decides whether the call
             // after it keeps this frame.
             Op::ForwardsReferences => {}
@@ -2209,7 +2227,11 @@ impl Lowerer<'_, '_> {
     /// Lower `Op::Call`: emit a regular call and push each return value
     /// onto the compile-time stack with its declared `Ty`.
     fn lower_call(&mut self, name: &str) -> Result<()> {
+        let caller_standard = self.in_standard_library();
         let (decl, mut args) = self.pop_call_args(name)?;
+        // Even a std-to-std call may tail-call through user code before it
+        // returns, so its caller must restore the enclosing user site.
+        let track_caller = caller_standard || decl.standard_library || decl.source.is_none();
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
         let bytes = outputs.iter().map(Ty::inline_bytes).sum();
@@ -2217,8 +2239,14 @@ impl Lowerer<'_, '_> {
             args.push(self.inline_storage(bytes));
         }
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
+        let saved = if track_caller {
+            self.enter_call()?
+        } else {
+            None
+        };
         let inst = self.bcx.ins().call(funcref, &args);
         let results: Vec<cranelift_codegen::ir::Value> = self.bcx.inst_results(inst).to_vec();
+        self.leave_call(saved);
         debug_assert_eq!(results.len(), outputs.len());
         for (v, ty) in results.into_iter().zip(outputs) {
             self.stack.push((v, ty));
@@ -2244,6 +2272,7 @@ impl Lowerer<'_, '_> {
             let native = user_fn_signature(self.module, &sig);
             let reference = self.bcx.import_signature(native);
             self.release_locals();
+            self.enter_call()?;
             self.bcx
                 .ins()
                 .return_call_indirect(reference, callee, &args);
@@ -2256,8 +2285,11 @@ impl Lowerer<'_, '_> {
         }
         let native = user_fn_signature(self.module, &sig);
         let reference = self.bcx.import_signature(native);
+        let saved = self.enter_call()?;
         let call = self.bcx.ins().call_indirect(reference, callee, &args);
-        for (value, ty) in self.bcx.inst_results(call).iter().copied().zip(sig.outputs) {
+        let results = self.bcx.inst_results(call).to_vec();
+        self.leave_call(saved);
+        for (value, ty) in results.into_iter().zip(sig.outputs) {
             self.stack.push((value, ty));
         }
         Ok(())
@@ -2272,12 +2304,17 @@ impl Lowerer<'_, '_> {
     /// Eligibility was checked before lowering. A rejected plan here is an
     /// internal invariant violation, never an ordinary-call substitution.
     fn lower_tail_call(&mut self, name: &str) -> Result<()> {
+        let caller_standard = self.in_standard_library();
         let (decl, mut args) = self.pop_call_args(name)?;
+        let track_caller = caller_standard != decl.standard_library || decl.source.is_none();
         let func_id = decl.id;
         let sig = decl.sig.clone();
         self.tail_arguments(&sig, &mut args)?;
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
         self.release_locals();
+        if track_caller {
+            self.enter_call()?;
+        }
         self.bcx.ins().return_call(funcref, &args);
         self.terminated = true;
         Ok(())

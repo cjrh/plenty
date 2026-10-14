@@ -14,7 +14,7 @@ pub(super) struct Futures {
 fn transparent(op: &Op) -> bool {
     matches!(
         op,
-        Op::Site(_) | Op::UseLoan(_) | Op::Access(..) | Op::Loan(_)
+        Op::Site(_) | Op::CallerSite(_) | Op::UseLoan(_) | Op::Access(..) | Op::Loan(_)
     ) || matches!(
         op,
         Op::Enum(EnumOp::Unwrap(_) | EnumOp::Field(..) | EnumOp::Take(..))
