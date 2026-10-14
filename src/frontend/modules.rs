@@ -54,6 +54,7 @@ impl ModuleSource {
             Self::Standard("std.secrets") => {
                 Ok(include_str!("../../stdlib/std/secrets.plenty").into())
             }
+            Self::Standard("std.json") => Ok(include_str!("../../stdlib/std/json.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -570,8 +571,9 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.csv" => Ok(ModuleSource::Standard("std.csv")),
                     "std.random" => Ok(ModuleSource::Standard("std.random")),
                     "std.secrets" => Ok(ModuleSource::Standard("std.secrets")),
+                    "std.json" => Ok(ModuleSource::Standard("std.json")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.json",
                         import.module
                 ))),
                 };
