@@ -4,6 +4,17 @@
 constants. Other declarations are private to their module. Class fields and methods require their
 own `pub`; public enums expose every variant.
 
+Generic functions check access in their **defining module**, including protocol
+requirements and calls on a type parameter. Calling a generic function does not
+lend it the caller's private access. To let a generic helper in another module
+(such as `std.io.read_exact`) call a method, mark both the class `pub class` and
+the method `pub def`; a public method alone does not expose a private class.
+Private fields and other private methods remain inaccessible. This keeps generic
+code under the same lexical visibility rules as ordinary functions. A failing
+protocol check is reported at the user's call; nested instantiations retain the
+outer call location and an instantiation note. Code within the class's own module
+can still use its private members through a locally defined generic function.
+
 A generated field constructor is public only when its class and every field are
 public. An explicit `__init__` controls its own visibility. A public factory may
 use private constructors inside their defining module. Construction through an
