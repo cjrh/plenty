@@ -28,6 +28,7 @@ mod op;
 mod ownership;
 mod parallel;
 mod record;
+mod stream;
 mod sum;
 mod tail_abi;
 mod threading;

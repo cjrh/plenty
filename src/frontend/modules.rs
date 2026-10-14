@@ -38,6 +38,7 @@ impl ModuleSource {
             Self::Standard("std.thread" | "std.channel" | "std.concurrent" | "std.sync") => {
                 Ok(String::new())
             }
+            Self::Standard("std.io") => Ok(include_str!("../../stdlib/std/io.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -545,8 +546,9 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.channel" => Ok(ModuleSource::Standard("std.channel")),
                     "std.concurrent" => Ok(ModuleSource::Standard("std.concurrent")),
                     "std.sync" => Ok(ModuleSource::Standard("std.sync")),
+                    "std.io" => Ok(ModuleSource::Standard("std.io")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io",
                         import.module
                 ))),
                 };

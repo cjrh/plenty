@@ -65,6 +65,42 @@ impl Lower<'_> {
         Ok(Some(output))
     }
 
+    pub(super) fn stream_call(
+        &mut self,
+        operation: crate::stream::StreamOp,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let (inputs, output) = operation.signature();
+        if args.len() != inputs.len() {
+            return Err(at.error(format!(
+                "expected {} arguments, got {}",
+                inputs.len(),
+                args.len()
+            )));
+        }
+        let (mut loans, mut reads) = (Vec::new(), Vec::new());
+        for (index, (arg, expected)) in args.iter().zip(inputs).enumerate() {
+            if operation.exclusive(index) {
+                let (_, loan) = self.borrow(arg, true, ops)?;
+                self.same(self.place_type(arg), Some(expected.clone()), &arg.at)?;
+                ops.push(Op::ReadRef(expected));
+                loans.push(loan);
+            } else {
+                let (actual, observed) = self.observe_expected(arg, Some(expected.clone()), ops)?;
+                self.same(Some(actual), Some(expected), &arg.at)?;
+                reads.extend(observed);
+            }
+        }
+        ops.push(Op::Collection(CollectionOp::Stream(operation)));
+        for loan in loans.into_iter().rev() {
+            ops.push(Op::UseLoan(loan));
+        }
+        Self::end_reads(reads, ops);
+        Ok(Some(output))
+    }
+
     pub(super) fn open_file(
         &mut self,
         args: &[Expr],

@@ -47,7 +47,8 @@ original bytes for filesystem operations. Replacement decoding is never used.
 The imported [std.path](../../stdlib/path.md) module provides Linux Path owners over this
 transport, and [std.fs](../../stdlib/fs.md) provides directory enumeration and
 metadata. [std.bytes](../../stdlib/bytes.md) provides compact buffers that convert
-to and from `list[u8]`. First-class byte views, portable path representations, binary
-File methods and reader/writer objects remain within issue #49's broader scope.
+to and from `list[u8]`, and [std.io](../../stdlib/io.md) reads and writes them
+through files and the process streams without that conversion. First-class byte
+views and portable path representations remain within issue #49's broader scope.
 The [finder example](../../examples/finder.md) exercises raw arguments, matching,
 and NUL input/output against real Unix filenames.

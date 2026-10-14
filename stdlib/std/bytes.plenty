@@ -106,6 +106,35 @@ pub class Bytes:
             case Nothing:
                 Err(BytesError.InvalidUtf8)
 
+    # Direct transport. Each call makes at most one native read or write and
+    # returns the bytes moved, so a short count is success. std.io adds the
+    # retry, end-of-input and partial-progress policy. A bad range is
+    # InvalidInput and touches neither the buffer nor the stream.
+    pub def read_file(self: &mut Bytes, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]:
+        transported(start, stop, __bytes_len(self._owner))?
+        __io_file_read(self._owner, start, stop, file)
+
+    pub def write_file(self, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]:
+        transported(start, stop, __bytes_len(self._owner))?
+        __io_file_write(self._owner, start, stop, file)
+
+    pub def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]:
+        transported(start, stop, __bytes_len(self._owner))?
+        __io_stdin_read(self._owner, start, stop)
+
+    pub def write_stdout(self, start: i64, stop: i64) -> Result[i64, IoError]:
+        transported(start, stop, __bytes_len(self._owner))?
+        __io_std_write(self._owner, start, stop, 1u8)
+
+    pub def write_stderr(self, start: i64, stop: i64) -> Result[i64, IoError]:
+        transported(start, stop, __bytes_len(self._owner))?
+        __io_std_write(self._owner, start, stop, 2u8)
+
+def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
+    if start < 0 or start > stop or stop > count:
+        return Err(IoError.InvalidInput)
+    Ok(())
+
 # The one range rule: 0 <= start <= stop <= count. No clamping, no negatives.
 def checked(start: i64, stop: i64, count: i64) -> Result[(), BytesError]:
     if start < 0 or start > stop or stop > count:

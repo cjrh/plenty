@@ -19,6 +19,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.error`](error.md) | Operation and path context around a typed cause, descriptions, and standard-error reports | `Context[E]`, `AllocError` |
 | [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |
+| [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters | `StreamError`, `Partial`, `CopyError`, `CloseError` |
 | [`std.time`](time.md) | Checked durations, monotonic instants and deadlines, wall timestamps, and sleep | `RangeError` |
 | [`std.cli`](cli.md) | Explicit typed options/positionals, repeatable values, generated help and lossless path arguments | `CliError` |
 | [`std.text`](text.md) | Bounded reusable builders, joining, and scalar wrapping | `TextError` |
