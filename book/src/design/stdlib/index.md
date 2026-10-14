@@ -31,6 +31,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.encoding`](encoding.md) | Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
 | [`std.collections`](collections.md) | Owned binary heaps ordered by `<` or by a stored comparator | `AllocError` |
 | [`std.iter`](iter.md) | Allocation-free `map`, `filter`, `take`, `fold`, and `try_fold` over generators | None |
+| [`std.csv`](csv.md) | Streaming CSV readers and writers over `std.io` with explicit dialects, size limits, and positioned errors | `CsvError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in
