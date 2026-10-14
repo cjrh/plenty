@@ -1,0 +1,465 @@
+# Child processes started from an argument vector. Nothing is parsed by a
+# shell unless the program is one: `shell` names that choice. Encoding the
+# request, draining pipes without deadlock, decoding the status and deciding
+# when to reap are checked Plenty; the runtime spawns, waits, signals and
+# polls. See book/src/design/stdlib/process.md.
+from std.bytes import Bytes, BytesError, with_capacity
+from std.env import valid_name
+from std.io import StreamError, classify
+from std.path import Path
+from std.time import Deadline, Duration, Instant, deadline_after, milliseconds, monotonic_now, sleep
+
+const chunk: i64 = 8192
+# A pipe that polls writable has a free page, so a write this size cannot block.
+const pipe_page: i64 = 4096
+const unreaped: i64 = -1
+const running: i64 = 65536
+const piped: i64 = 2
+const broken_pipe: i32 = 32
+const terminate_signal: i32 = 15
+const kill_signal: i32 = 9
+
+pub enum Stdio:
+    Inherit
+    Null
+    Piped
+
+def stdio_code(mode: Stdio) -> i64:
+    match mode:
+        case Stdio.Inherit:
+            0
+        case Stdio.Null:
+            1
+        case Stdio.Piped:
+            piped
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, IoError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(IoError.Data(DataError.Allocation(cause)))
+
+def has_nul(piece: &list[u8]) -> bool:
+    for byte in piece:
+        if byte == 0u8:
+            return True
+    False
+
+# Appends `piece` and its NUL terminator, or changes nothing. No argument,
+# variable or path can hold a NUL.
+def terminated(target: &mut list[u8], piece: &list[u8]) -> Result[(), IoError]:
+    if has_nul(piece):
+        return Err(IoError.InvalidInput)
+    allocated(target.reserve(len(target) + len(piece) + 1))?
+    for index in range(len(piece)):
+        allocated(target.append(piece[index]))?
+    allocated(target.append(0u8))
+
+# How a child ended: an exit code in 0..=255, or the signal that stopped it.
+pub class ExitStatus:
+    _raw: i64
+
+    pub def success(self) -> bool:
+        self._raw == 0
+
+    pub def code(self) -> Option[i32]:
+        if self._raw < 256:
+            Some(i32(self._raw))
+        else:
+            Nothing
+
+    pub def signal(self) -> Option[i32]:
+        if self._raw < 256:
+            Nothing
+        else:
+            Some(i32(self._raw - 256))
+
+pub class Output:
+    pub status: ExitStatus
+    pub stdout: Bytes
+    pub stderr: Bytes
+
+# A description of a child. Each setter either applies completely or reports
+# an error and leaves the command unchanged.
+pub class Command:
+    _spec: list[u8]
+    _dir: list[u8]
+    _env: list[u8]
+    _argc: i64
+    _stdin: i64
+    _stdout: i64
+    _stderr: i64
+    _change_dir: bool
+    _clear_env: bool
+
+    pub def arg_bytes(self: &mut Command, value: &list[u8]) -> Result[(), IoError]:
+        terminated(&mut self._spec, value)?
+        self._argc += 1
+        Ok(())
+
+    pub def arg(self: &mut Command, value: &str) -> Result[(), IoError]:
+        encoded = encode_utf8(value)?
+        self.arg_bytes(&encoded)
+
+    pub def arg_path(self: &mut Command, value: &Path) -> Result[(), IoError]:
+        self.arg_bytes(value.as_bytes())
+
+    pub def env_bytes(self: &mut Command, name: &list[u8], value: &list[u8]) -> Result[(), IoError]:
+        if not valid_name(name):
+            return Err(IoError.InvalidInput)
+        mut edit = allocated(list[u8].with_capacity(len(name) + len(value) + 1))?
+        for index in range(len(name)):
+            allocated(edit.append(name[index]))?
+        allocated(edit.append(61u8))?
+        for index in range(len(value)):
+            allocated(edit.append(value[index]))?
+        terminated(&mut self._env, &edit)
+
+    pub def env(self: &mut Command, name: &str, value: &str) -> Result[(), IoError]:
+        encoded_name = encode_utf8(name)?
+        encoded_value = encode_utf8(value)?
+        self.env_bytes(&encoded_name, &encoded_value)
+
+    pub def env_remove_bytes(self: &mut Command, name: &list[u8]) -> Result[(), IoError]:
+        if not valid_name(name):
+            return Err(IoError.InvalidInput)
+        terminated(&mut self._env, name)
+
+    pub def env_remove(self: &mut Command, name: &str) -> Result[(), IoError]:
+        encoded = encode_utf8(name)?
+        self.env_remove_bytes(&encoded)
+
+    # The child starts with no inherited variables; earlier edits are dropped.
+    pub def env_clear(self: &mut Command) -> ():
+        self._env.clear()
+        self._clear_env = True
+
+    pub def current_dir(self: &mut Command, path: &Path) -> Result[(), IoError]:
+        if len(path.as_bytes()) == 0:
+            return Err(IoError.InvalidInput)
+        mut dir = allocated(list[u8].new())?
+        terminated(&mut dir, path.as_bytes())?
+        self._dir = dir
+        self._change_dir = True
+        Ok(())
+
+    pub def stdin(self: &mut Command, mode: Stdio) -> ():
+        self._stdin = stdio_code(mode)
+
+    pub def stdout(self: &mut Command, mode: Stdio) -> ():
+        self._stdout = stdio_code(mode)
+
+    pub def stderr(self: &mut Command, mode: Stdio) -> ():
+        self._stderr = stdio_code(mode)
+
+    # The command is reusable: each call starts another child.
+    pub def spawn(self) -> Result[Child, IoError]:
+        mut spec = allocated(list[u8].with_capacity(len(self._spec) + len(self._dir) + len(self._env)))?
+        for index in range(len(self._spec)):
+            allocated(spec.append(self._spec[index]))?
+        mut flags = self._stdin + self._stdout * 4 + self._stderr * 16
+        if self._change_dir:
+            flags += 64
+            for index in range(len(self._dir)):
+                allocated(spec.append(self._dir[index]))?
+        if self._clear_env:
+            flags += 128
+        for index in range(len(self._env)):
+            allocated(spec.append(self._env[index]))?
+        handle = __process_spawn(spec, self._argc, flags)?
+        mut child = Child(handle, unreaped, Nothing, Nothing, Nothing)
+        if self._stdin == piped:
+            child._stdin = Some(pipe_end(handle, 0u8)?)
+        if self._stdout == piped:
+            child._stdout = Some(pipe_end(handle, 1u8)?)
+        if self._stderr == piped:
+            child._stderr = Some(pipe_end(handle, 2u8)?)
+        Ok(child)
+
+# A child whose pipe cannot be handed over has no owner to wait for it, so it
+# is killed and reaped before the failure is reported.
+def pipe_end(handle: i64, which: u8) -> Result[File, IoError]:
+    match __process_pipe(handle, which):
+        case Ok(file):
+            Ok(file)
+        case Err(error):
+            match __process_signal(handle, i64(kill_signal)):
+                case _:
+                    pass
+            match __process_wait(handle, True):
+                case _:
+                    pass
+            Err(error)
+
+# The program is looked up in PATH unless it contains a slash. It becomes the
+# child's argv[0]; arguments are passed exactly as given.
+pub def command_bytes(program: &list[u8]) -> Result[Command, IoError]:
+    if len(program) == 0:
+        return Err(IoError.InvalidInput)
+    mut spec = allocated(list[u8].new())?
+    terminated(&mut spec, program)?
+    Ok(Command(spec, allocated(list[u8].new())?, allocated(list[u8].new())?, 0, 0, 0, 0, False, False))
+
+pub def command(program: &str) -> Result[Command, IoError]:
+    encoded = encode_utf8(program)?
+    command_bytes(&encoded)
+
+# The explicit shell: `/bin/sh -c script`. The script is shell syntax, so
+# never build it from untrusted text.
+pub def shell(script: &str) -> Result[Command, IoError]:
+    mut built = command("/bin/sh")?
+    built.arg("-c")?
+    built.arg(script)?
+    Ok(built)
+
+def held(end: &Option[File]) -> bool:
+    match end:
+        case Some(_):
+            True
+        case Nothing:
+            False
+
+def closed_end(end: Option[File]) -> Result[(), IoError]:
+    match end:
+        case Some(file):
+            mut owned = file
+            owned.close()
+        case Nothing:
+            Ok(())
+
+def stored(result: Result[(), BytesError]) -> Result[(), StreamError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(StreamError.Allocation(cause))
+                case _:
+                    Err(StreamError.OutOfRange)
+
+def failed[T](result: Result[T, IoError]) -> Result[T, StreamError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(classify(error))
+
+def empty() -> Result[Bytes, StreamError]:
+    match with_capacity(0):
+        case Ok(buffer):
+            Ok(buffer)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(StreamError.Allocation(cause))
+                case _:
+                    Err(StreamError.OutOfRange)
+
+# A budget too long for the monotonic clock is InvalidInput.
+def ending(start: &Instant, budget: &Duration) -> Result[Deadline, IoError]:
+    match deadline_after(start, budget):
+        case Ok(deadline):
+            Ok(deadline)
+        case Err(_):
+            Err(IoError.InvalidInput)
+
+def interrupted(cause: &StreamError) -> bool:
+    match cause:
+        case StreamError.Interrupted:
+            True
+        case _:
+            False
+
+def broken(error: &IoError) -> bool:
+    match error:
+        case IoError.System(code):
+            code == broken_pipe
+        case _:
+            False
+
+# One read of at most a chunk, appended to `out`. True means end of input.
+# `out` may reach limit + 1 bytes, which is how an overflow is told apart from
+# an output of exactly `limit`.
+def drained(file: &mut File, out: &mut Bytes, limit: i64) -> Result[bool, StreamError]:
+    before = out.len()
+    mut wanted = chunk
+    if limit - before < chunk:
+        wanted = limit - before + 1
+    stored(out.resize(before + wanted, 0u8))?
+    match out.read_file(file, before, before + wanted):
+        case Ok(count):
+            stored(out.truncate(before + count))?
+            if before + count > limit:
+                return Err(StreamError.OutOfRange)
+            Ok(count == 0)
+        case Err(error):
+            stored(out.truncate(before))?
+            cause = classify(error)
+            if interrupted(&cause):
+                return Ok(False)
+            Err(cause)
+
+# An owned child. Dropping it neither stops nor reaps the process: call wait.
+pub class Child:
+    _handle: i64
+    _raw: i64
+    _stdin: Option[File]
+    _stdout: Option[File]
+    _stderr: Option[File]
+
+    pub def id(self) -> i64:
+        self._handle % 4294967296
+
+    # The pipe ends, present once each when the command asked for Piped.
+    pub def take_stdin(self: &mut Child) -> Option[File]:
+        replace(self._stdin, Nothing)
+
+    pub def take_stdout(self: &mut Child) -> Option[File]:
+        replace(self._stdout, Nothing)
+
+    pub def take_stderr(self: &mut Child) -> Option[File]:
+        replace(self._stderr, Nothing)
+
+    # End of input for the child. A no-op once the pipe is closed or taken.
+    pub def close_stdin(self: &mut Child) -> Result[(), IoError]:
+        closed_end(replace(self._stdin, Nothing))
+
+    # Blocks until the child ends and reaps it. Stdin still held here is
+    # closed first, so a child reading to end of input can finish. Later calls
+    # return the same status.
+    pub def wait(self: &mut Child) -> Result[ExitStatus, IoError]:
+        if self._raw == unreaped:
+            self.close_stdin()?
+            self._raw = __process_wait(self._handle, True)?
+        Ok(ExitStatus(self._raw))
+
+    # Reaps the child if it has ended; Nothing while it is running.
+    pub def try_wait(self: &mut Child) -> Result[Option[ExitStatus], IoError]:
+        if self._raw == unreaped:
+            raw = __process_wait(self._handle, False)?
+            if raw == running:
+                return Ok(Nothing)
+            self._raw = raw
+        Ok(Some(ExitStatus(self._raw)))
+
+    # Polls try_wait with pauses doubling from 1 ms to 32 ms. Nothing means
+    # the budget ran out and the child is still running. Stdin is left open.
+    pub def wait_timeout(self: &mut Child, budget: &Duration) -> Result[Option[ExitStatus], IoError]:
+        start = monotonic_now()
+        deadline = ending(&start, budget)?
+        mut pause = 1u32
+        while True:
+            match self.try_wait()?:
+                case Some(status):
+                    return Ok(Some(status))
+                case Nothing:
+                    pass
+            now = monotonic_now()
+            if deadline.expired(&now):
+                return Ok(Nothing)
+            left = deadline.remaining(&now)
+            step = milliseconds(pause)
+            if left.as_nanoseconds() < step.as_nanoseconds():
+                sleep(&left)
+            else:
+                sleep(&step)
+            if pause < 32u32:
+                pause = pause * 2u32
+        Ok(Nothing)
+
+    # Sends a signal to a child that has not been reaped; afterwards a no-op,
+    # so the number can never reach an unrelated process that reused the pid.
+    pub def signal(self, number: i32) -> Result[(), IoError]:
+        if self._raw != unreaped:
+            return Ok(())
+        __process_signal(self._handle, i64(number))
+
+    # SIGTERM: a request the child may handle or ignore.
+    pub def terminate(self) -> Result[(), IoError]:
+        self.signal(terminate_signal)
+
+    # SIGKILL: cannot be caught. The child still has to be waited for.
+    pub def kill(self) -> Result[(), IoError]:
+        self.signal(kill_signal)
+
+    # One page of `input` from `sent`; returns the new position. A child that
+    # stopped reading ends the feed without an error: its status tells why.
+    def feed(self: &mut Child, input: &Bytes, sent: i64) -> Result[i64, StreamError]:
+        mut stop = input.len()
+        if stop - sent > pipe_page:
+            stop = sent + pipe_page
+        match &mut self._stdin:
+            case Some(file):
+                match input.write_file(file, sent, stop):
+                    case Ok(count):
+                        return Ok(sent + count)
+                    case Err(error):
+                        if not broken(&error):
+                            cause = classify(error)
+                            if interrupted(&cause):
+                                return Ok(sent)
+                            return Err(cause)
+            case Nothing:
+                return Ok(input.len())
+        self._stdin = Nothing
+        Ok(input.len())
+
+    # Writes `input` to a piped stdin while collecting piped stdout and stderr,
+    # whichever is ready, so no pipe fills while another is being served. Then
+    # closes stdin and waits. More than `limit` bytes on either stream is
+    # OutOfRange; the child is then still running and still owned.
+    pub def communicate(self: &mut Child, input: &Bytes, limit: i64) -> Result[Output, StreamError]:
+        if limit < 0:
+            return Err(StreamError.OutOfRange)
+        mut out = empty()?
+        mut err = empty()?
+        mut sent = 0
+        while True:
+            if sent >= input.len():
+                failed(self.close_stdin())?
+            mut interest = 0
+            if held(&self._stdin):
+                interest += 1
+            if held(&self._stdout):
+                interest += 2
+            if held(&self._stderr):
+                interest += 4
+            if interest == 0:
+                break
+            mut ready = 0
+            match __process_poll(self._handle, interest, -1):
+                case Ok(mask):
+                    ready = mask
+                case Err(error):
+                    cause = classify(error)
+                    if not interrupted(&cause):
+                        return Err(cause)
+            if ready % 2 == 1:
+                sent = self.feed(input, sent)?
+            if (ready // 2) % 2 == 1:
+                mut ended = False
+                match &mut self._stdout:
+                    case Some(file):
+                        ended = drained(file, &mut out, limit)?
+                    case Nothing:
+                        pass
+                if ended:
+                    failed(closed_end(replace(self._stdout, Nothing)))?
+            if ready // 4 == 1:
+                mut ended = False
+                match &mut self._stderr:
+                    case Some(file):
+                        ended = drained(file, &mut err, limit)?
+                    case Nothing:
+                        pass
+                if ended:
+                    failed(closed_end(replace(self._stderr, Nothing)))?
+        status = failed(self.wait())?
+        Ok(Output(status, out, err))
+
+    # communicate with no input: stdin is closed at once.
+    pub def output(self: &mut Child, limit: i64) -> Result[Output, StreamError]:
+        nothing = empty()?
+        self.communicate(&nothing, limit)

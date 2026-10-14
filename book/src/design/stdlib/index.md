@@ -31,6 +31,8 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.encoding`](encoding.md) | Strict hex and base64 codecs and fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
 | [`std.collections`](collections.md) | Owned binary heaps ordered by `<` or by a stored comparator | `AllocError` |
 | [`std.iter`](iter.md) | Allocation-free `map`, `filter`, `take`, `fold`, and `try_fold` over generators | None |
+| [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
+| [`std.process`](process.md) | Children spawned from an argument vector with no implicit shell, piped streams, bounded output collection, signals, and explicit reaping | `IoError`, `StreamError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in

@@ -32,6 +32,10 @@ impl ModuleSource {
             Self::Standard("std.time") => Ok(include_str!("../../stdlib/std/time.plenty").into()),
             Self::Standard("std.cli") => Ok(include_str!("../../stdlib/std/cli.plenty").into()),
             Self::Standard("std.text") => Ok(include_str!("../../stdlib/std/text.plenty").into()),
+            Self::Standard("std.env") => Ok(include_str!("../../stdlib/std/env.plenty").into()),
+            Self::Standard("std.process") => {
+                Ok(include_str!("../../stdlib/std/process.plenty").into())
+            }
             Self::Standard("std.unicode") => {
                 Ok(include_str!("../../stdlib/std/unicode.plenty").into())
             }
@@ -557,8 +561,10 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.encoding" => Ok(ModuleSource::Standard("std.encoding")),
                     "std.collections" => Ok(ModuleSource::Standard("std.collections")),
                     "std.iter" => Ok(ModuleSource::Standard("std.iter")),
+                    "std.env" => Ok(ModuleSource::Standard("std.env")),
+                    "std.process" => Ok(ModuleSource::Standard("std.process")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.env, std.process",
                         import.module
                 ))),
                 };
