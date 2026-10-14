@@ -53,7 +53,13 @@ pub enum ThreadOp {
 /// A structural signature cannot certify the effects of an indirect callee.
 pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
     let mut roots = Vec::new();
+    // Definitions are recorded during the one walk over every body; only a
+    // program with roots indexes them by name.
+    let mut definitions = Vec::with_capacity(ops.len());
     walk(ops, &mut |op| {
+        if let Op::DefineFn(name, function) = op {
+            definitions.push((name.as_str(), function));
+        }
         if let Op::Thread(ThreadOp::Start(task, _)) = op {
             let mut types = task.inputs.clone();
             types.push(task.output.clone());
@@ -86,12 +92,7 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
     if roots.is_empty() {
         return Ok(());
     }
-    let mut functions = HashMap::new();
-    walk(ops, &mut |op| {
-        if let Op::DefineFn(name, function) = op {
-            functions.insert(name.as_str(), function);
-        }
-    });
+    let functions: HashMap<_, _> = definitions.into_iter().collect();
     let mut checked = HashSet::new();
     let mut checked_receivers = HashSet::new();
     for (origin, mut queue, mut types) in roots {

@@ -66,23 +66,19 @@ pub(super) fn prepare(
     aliases.validate_data_bounds()?;
     functions.extend(aliases.data.factories());
     let mut declarations = HashMap::new();
-    // Only protocol declarations consult this table.
-    let function_names: HashSet<_> = if protocols.is_empty() {
-        HashSet::new()
-    } else {
-        functions.iter().map(|f| f.name.as_str()).collect()
+    let conflict = |protocol: &protocols::Protocol| {
+        protocol.at.error(format!(
+            "protocol `{}` is already defined or conflicts with another declaration",
+            protocol.name
+        ))
     };
     for protocol in &protocols {
         if aliases.contains_key(&protocol.name)
-            || function_names.contains(protocol.name.as_str())
             || declarations
                 .insert(protocol.name.clone(), protocol.clone())
                 .is_some()
         {
-            return Err(protocol.at.error(format!(
-                "protocol `{}` is already defined or conflicts with another declaration",
-                protocol.name
-            )));
+            return Err(conflict(protocol));
         }
         // Validate requirements even if no function uses this protocol. The
         // receiver placeholder is replaced by the implementing class at use.
@@ -123,7 +119,7 @@ pub(super) fn prepare(
         required: HashMap::new(),
         source_root: None,
         standard_sources: HashSet::new(),
-        trap_file: None,
+        source_facts: None,
     };
     for f in functions {
         if engine.functions.contains_key(&f.name)
@@ -145,6 +141,15 @@ pub(super) fn prepare(
             engine.templates.insert(f.name.clone(), Arc::new(f));
         }
     }
+    // Checked against the function tables, which exist anyway: a table of
+    // every function name for a few protocols cost time per function in any
+    // program importing a module that declares one (issue #57).
+    if let Some(protocol) = protocols
+        .iter()
+        .find(|p| engine.functions.contains_key(&p.name) || engine.templates.contains_key(&p.name))
+    {
+        return Err(conflict(protocol));
+    }
     Ok(engine)
 }
 
@@ -164,9 +169,10 @@ pub(super) struct Engine {
     pub(super) required: HashMap<String, Arc<Instantiation>>,
     pub(super) source_root: Option<std::path::PathBuf>,
     pub(super) standard_sources: HashSet<Arc<str>>,
-    /// The last source `trap_file` made relative, and the result. Functions
-    /// arrive module by module, so this spares a path copy per function.
-    trap_file: Option<(Arc<str>, Arc<str>)>,
+    /// The last source `source_facts` described, and the result. Functions
+    /// arrive module by module, so this spares a path copy and a path hash
+    /// per function.
+    source_facts: Option<(Arc<str>, Arc<str>, bool)>,
 }
 
 /// What later calls need from a concrete function after it joined the queue.
@@ -221,14 +227,15 @@ impl Engine {
         }
     }
 
-    /// `source` relative to the source root; unchanged without a root.
-    pub(super) fn trap_file(&mut self, source: &Arc<str>) -> Arc<str> {
-        if let Some((last, relative)) = &self.trap_file {
+    /// `source` relative to the source root (unchanged without a root), and
+    /// whether it is a standard library module.
+    pub(super) fn source_facts(&mut self, source: &Arc<str>) -> (Arc<str>, bool) {
+        if let Some((last, relative, standard)) = &self.source_facts {
             if Arc::ptr_eq(last, source) {
-                return Arc::clone(relative);
+                return (Arc::clone(relative), *standard);
             }
         }
-        let relative = self
+        let relative: Arc<str> = self
             .source_root
             .as_deref()
             .and_then(|root| std::path::Path::new(&**source).strip_prefix(root).ok())
@@ -236,8 +243,9 @@ impl Engine {
                 || Arc::clone(source),
                 |relative| relative.to_string_lossy().as_ref().into(),
             );
-        self.trap_file = Some((Arc::clone(source), Arc::clone(&relative)));
-        relative
+        let standard = self.standard_sources.contains(source);
+        self.source_facts = Some((Arc::clone(source), Arc::clone(&relative), standard));
+        (relative, standard)
     }
 }
 

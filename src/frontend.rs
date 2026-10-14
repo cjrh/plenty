@@ -4413,6 +4413,10 @@ fn lower_body(
             .tail_candidates
             .insert(f.name.clone(), std::mem::take(&mut lower.tail_candidates));
     }
+    let facts =
+        f.at.source
+            .as_ref()
+            .map(|source| lower.generics.source_facts(source));
     let compiled = CompiledFn {
         location: f
             .at
@@ -4420,17 +4424,9 @@ fn lower_body(
             .as_ref()
             .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
         origins: Arc::new(crate::ownership::Origins {
-            standard_library: f
-                .at
-                .source
-                .as_ref()
-                .is_some_and(|source| lower.generics.standard_sources.contains(source)),
+            standard_library: facts.as_ref().is_some_and(|(_, standard)| *standard),
             source: f.at.source.clone(),
-            trap_file: f
-                .at
-                .source
-                .as_ref()
-                .map(|source| lower.generics.trap_file(source)),
+            trap_file: facts.map(|(relative, _)| relative),
             names: lower.slot_names,
             required: lower.generics.required.get(&f.name).cloned(),
         }),
