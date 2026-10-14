@@ -163,7 +163,7 @@ Plenty; approved platform/backend boundaries remain narrow.
 | B53 | CSV — issue #90 | Streaming records/writers, explicit dialects and field/record limits. Depends on B40/B54. |
 | B54 | Binary encodings — issue #91 | Hex/base64, fixed-width packing with explicit endianness and strict UTF-8 reuse. Depends on B39. |
 | B55 | Filesystem helpers — issue #92 | Owned temporary resources, copy/move/remove and glob filtering with symlink/race/cleanup policies; reuse #60/#61. Depends on B40/B50. |
-| B56 | Concurrency modules — issue #93 | Importable thread/sync/channel/concurrent surfaces preserving current join/ownership/effect guarantees. Depends on B42; additional primitives need a use case. |
+| B56 | Concurrency modules — issue #93 | Implemented on the issue branch, pending merge: explicit thread/sync/channel/concurrent imports preserve builtin identities and join/ownership/effect guarantees. B42 satisfied; additional primitives still need a use case. |
 | B57 | Library test support — issue #94 | Assertions, static discovery, fixtures and explicit test doubles; runner remains #45/B17. Depends on B55/B50. |
 | B58 | Trusted I/O effects — issue #95 | Certify narrow native effects/handle ownership and choose measured bounded blocking versus polling execution. Depends on B40/B42/B56; no std-wide checker exemption. |
 | B59 | Sockets/DNS — issue #96 | Owned TCP/UDP, addresses, bounded resolution/deadlines and local-socket scope. Depends on B58. |

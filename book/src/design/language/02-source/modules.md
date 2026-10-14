@@ -31,6 +31,11 @@ to their defining module, regardless of directory ancestry. All reachable module
 are checked before execution. Imported modules need no entrypoint, and their
 `main` functions are ordinary functions.
 
+The [concurrency standard modules](../../stdlib/index.md) export existing builtin
+identities. An explicit import such as `from std.thread import spawn` may bind
+the matching builtin name; an import cannot replace a builtin with a different
+symbol. Item and module aliases retain the same types and compiler safety checks.
+
 ## Numeric constants
 
 `const name: T = value` declares an immutable numeric value at module scope;

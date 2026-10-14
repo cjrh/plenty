@@ -30,10 +30,47 @@ impl ModuleSource {
             Self::Standard("std.error") => Ok(include_str!("../../stdlib/std/error.plenty").into()),
             Self::Standard("std.bytes") => Ok(include_str!("../../stdlib/std/bytes.plenty").into()),
             Self::Standard("std.time") => Ok(include_str!("../../stdlib/std/time.plenty").into()),
+            Self::Standard("std.thread" | "std.channel" | "std.concurrent" | "std.sync") => {
+                Ok(String::new())
+            }
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
         }
+    }
+}
+
+/// These exports are identities, not wrapper functions: lexical task scopes,
+/// owned jobs, and wait diagnostics must reach the existing builtin lowering.
+fn facility_exports(module: &str) -> &'static [&'static str] {
+    match module {
+        "std.thread" => &["spawn", "ThreadError", "SpawnError"],
+        "std.channel" => &[
+            "channel",
+            "Sender",
+            "Receiver",
+            "ChannelError",
+            "SendError",
+            "RecvError",
+            "SendTimeoutError",
+            "RecvTimeoutError",
+            "Selected",
+            "SelectError",
+            "select_recv",
+            "select_recv_nowait",
+            "select_recv_timeout",
+        ],
+        "std.concurrent" => &[
+            "ThreadPoolExecutor",
+            "Future",
+            "PoolError",
+            "SubmitError",
+            "FutureError",
+            "PoolMapError",
+            "ParallelError",
+        ],
+        "std.sync" => &["CancellationToken"],
+        _ => &[],
     }
 }
 
@@ -47,6 +84,7 @@ struct Import {
 #[derive(Default)]
 struct Module {
     name: String,
+    facility_exports: &'static [&'static str],
     functions: Vec<Function>,
     constants: HashSet<String>,
     declarations: Vec<TypeAlias>,
@@ -444,7 +482,10 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                 );
             }
             self.active.push(source.clone());
-            let (module, at) = parse(&source.read()?, Some(&source.path()), name)?;
+            let (mut module, at) = parse(&source.read()?, Some(&source.path()), name)?;
+            if let ModuleSource::Standard(name) = &source {
+                module.facility_exports = facility_exports(name);
+            }
             let mut deps = Vec::new();
             for import in &module.imports {
                 let dependency = self.import_path(import)?;
@@ -492,8 +533,12 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.error" => Ok(ModuleSource::Standard("std.error")),
                     "std.bytes" => Ok(ModuleSource::Standard("std.bytes")),
                     "std.time" => Ok(ModuleSource::Standard("std.time")),
+                    "std.thread" => Ok(ModuleSource::Standard("std.thread")),
+                    "std.channel" => Ok(ModuleSource::Standard("std.channel")),
+                    "std.concurrent" => Ok(ModuleSource::Standard("std.concurrent")),
+                    "std.sync" => Ok(ModuleSource::Standard("std.sync")),
                     _ => Err(import.at.error(format!(
-                        "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time",
+                        "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.thread, std.channel, std.concurrent, std.sync",
                         import.module
                     ))),
                 };
@@ -641,9 +686,8 @@ impl Scope {
             if self.type_params.contains(name) {
                 return Ok(());
             }
-            // A builtin can be neither declared nor bound by an import, so
-            // it is settled without probing the module's symbol table, which
-            // costs a cache miss in a large module (issue #57).
+            // Imports can bind a builtin spelling only to that same identity.
+            // Avoid probing the module table for these common types (issue #57).
             if builtin(name) {
                 return Ok(());
             }
@@ -904,6 +948,7 @@ impl Scope {
                         self.expr(arg, locals)?;
                     }
                 }
+                canonical_facility_expression(e);
                 return Ok(());
             }
         }
@@ -1038,7 +1083,47 @@ impl Scope {
             | Expression::Unit
             | Expression::Name(_) => {}
         }
+        canonical_facility_expression(e);
         Ok(())
+    }
+}
+
+fn canonical_facility_expression(e: &mut Expr) {
+    // The parser recognizes the unqualified `channel[T](...)` spelling before
+    // imports are known. Give imported spellings the exact same AST afterwards.
+    if let Expression::GenericCall(name, types, args) = &mut e.kind {
+        if name == "channel" {
+            e.kind = Expression::Constructor(
+                Box::new(TypeRef {
+                    at: e.at.clone(),
+                    concrete: None,
+                    name: Some(name.clone()),
+                    args: std::mem::take(types),
+                }),
+                std::mem::take(args),
+            );
+        }
+    }
+    if let Expression::GenericValue(name, types) = &mut e.kind {
+        if matches!(
+            name.as_str(),
+            "SpawnError"
+                | "SendError"
+                | "SendTimeoutError"
+                | "Selected"
+                | "SubmitError"
+                | "ParallelError"
+                | "Sender"
+                | "Receiver"
+                | "Future"
+        ) {
+            e.kind = Expression::Type(Box::new(TypeRef {
+                at: e.at.clone(),
+                concrete: None,
+                name: Some(name.clone()),
+                args: std::mem::take(types),
+            }));
+        }
     }
 }
 
@@ -1066,6 +1151,11 @@ fn resolve(
                 m.exports
                     .iter()
                     .map(|n| (n.clone(), qualified(&m.name, n)))
+                    .chain(
+                        m.facility_exports
+                            .iter()
+                            .map(|n| (n.to_string(), n.to_string())),
+                    )
                     .collect(),
             )
         })
@@ -1096,7 +1186,12 @@ fn resolve(
         };
         for (import, dependency) in m.imports.iter().zip(&dependencies[i]) {
             let root = import.binding.split('.').next().unwrap();
-            if builtin(root)
+            let identical_builtin = import.item.as_ref().is_some_and(|item| {
+                exports[*dependency]
+                    .get(item)
+                    .is_some_and(|symbol| symbol == root)
+            });
+            if (builtin(root) && !identical_builtin)
                 || scope.declared.contains(root)
                 || scope.imported.contains_key(root)
                 || scope.namespaces.contains_key(&import.binding)
