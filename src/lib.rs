@@ -12,6 +12,7 @@ mod channel;
 mod closure;
 mod codegen;
 mod collection;
+mod compress;
 mod control;
 mod crypto;
 mod executor;
