@@ -151,7 +151,7 @@ Plenty; approved platform/backend boundaries remain narrow.
 | B41 | Error context — issue #78 | [std.error](design/stdlib/error.md) is implemented: `Context[E]` with operation/path/typed cause, explicit conversion, descriptions and stderr reports with nonallocating fallbacks, and module conventions. Unit Results are supported (issue #110). Remaining: OS description text and entrypoint rendering of a `Context`. B14. |
 | B42 | Time/deadlines — issue #79 | Complete: [std.time](design/stdlib/time.md) delivers checked `Duration`, monotonic `Instant`/`Deadline`, wall `Timestamp`, and sleep. Unscheduled candidates: `Duration`/`Deadline` overloads of timed waits, calendar and formatting support. |
 | B43 | Environment/processes — issue #80 | Lossless args/env/cwd, vector spawning, pipes, status, termination and reaping. Depends on B40/B42. |
-| B44 | CLI parsing — issue #81 | Typed options/positionals, help/errors and lossless path arguments. Depends on B41. |
+| B44 | CLI parsing — issue #81 | Implemented in the issue #81 branch, pending merge: checked `std.cli` schemas, typed options/positionals, repeatable values, `--`, help/errors and lossless path arguments. Depends on B41. |
 | B45 | Formatting — issue #82 | Explicit display/debug forms, writer output and fallible strings. Depends on B40. |
 | B46 | Structured logs — issue #83 | Levels, fields, caller-supplied sinks and bounded failure policy. Depends on B45/B42. |
 | B47 | Text/Unicode — issue #84 | Builders/join/wrap and versioned normalization; reuse #22. Depends on B39. |
