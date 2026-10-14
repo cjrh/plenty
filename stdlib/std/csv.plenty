@@ -1,0 +1,624 @@
+# Streaming CSV records over std.io byte streams. A Reader fills one reusable
+# Record per call from a fixed-capacity buffer; a Writer encodes one record at
+# a time. Neither holds more than one record, and every size is bounded by the
+# Dialect. Fields are bytes; text is validated only where it is requested.
+# See book/src/design/stdlib/csv.md.
+import std.bytes
+from std.bytes import Bytes, BytesError
+from std.io import StreamError
+
+pub enum Fault:
+    BareQuote
+    AfterQuote
+    UnterminatedQuote
+    FieldTooLong
+    RecordTooLong
+    TooManyFields
+
+# Where a Reader stopped: the record number and line count from one, the
+# field index and stream byte offset from zero.
+pub class Position:
+    pub record: i64
+    pub field: i64
+    pub line: i64
+    pub offset: i64
+
+pub enum CsvError:
+    Invalid(Fault, Position)
+    # A Writer refused a field: fault, record number, field index.
+    Rejected(Fault, i64, i64)
+    # Record number, expected field count, actual field count.
+    Width(i64, i64, i64)
+    # A Writer was asked to end record number N with no fields.
+    EmptyRecord(i64)
+    # Record number and field index.
+    InvalidUtf8(i64, i64)
+    InvalidDialect
+    OutOfRange
+    Stopped
+    Stream(StreamError)
+    Allocation(AllocError)
+
+pub enum Width:
+    Any
+    First
+    Exactly(i64)
+
+pub enum Newline:
+    Lf
+    CrLf
+
+pub enum Quoting:
+    Needed
+    Always
+
+pub class Dialect:
+    pub delimiter: u8
+    pub quote: u8
+    pub newline: Newline
+    pub quoting: Quoting
+    pub width: Width
+    pub skip_bom: bool
+    pub max_field: i64
+    pub max_record: i64
+    pub max_fields: i64
+
+const line_feed: u8 = 10u8
+const carriage_return: u8 = 13u8
+
+# RFC 4180: comma, double quote, CRLF, and one field count for every record.
+pub def rfc4180() -> Dialect:
+    Dialect(44u8, 34u8, Newline.CrLf, Quoting.Needed, Width.First, False, 65536, 1048576, 4096)
+
+def valid(dialect: &Dialect) -> bool:
+    if dialect.delimiter >= 128u8 or dialect.quote >= 128u8:
+        return False
+    if dialect.delimiter == dialect.quote:
+        return False
+    if dialect.delimiter == line_feed or dialect.delimiter == carriage_return:
+        return False
+    if dialect.quote == line_feed or dialect.quote == carriage_return:
+        return False
+    if dialect.max_field < 1 or dialect.max_record < 1 or dialect.max_fields < 1:
+        return False
+    expected(dialect) != -2
+
+# 0 accepts any count, -1 adopts the first record's, a positive count is fixed.
+def expected(dialect: &Dialect) -> i64:
+    match dialect.width:
+        case Width.Any:
+            0
+        case Width.First:
+            -1
+        case Width.Exactly(count):
+            if count < 1:
+                -2
+            else:
+                count
+
+def stored(result: Result[(), BytesError]) -> Result[(), CsvError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(CsvError.Allocation(cause))
+                case _:
+                    Err(CsvError.OutOfRange)
+
+def allocated(result: Result[Bytes, BytesError]) -> Result[Bytes, CsvError]:
+    match result:
+        case Ok(buffer):
+            Ok(buffer)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(CsvError.Allocation(cause))
+                case _:
+                    Err(CsvError.OutOfRange)
+
+def listed[T](result: Result[T, AllocError]) -> Result[T, CsvError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(CsvError.Allocation(cause))
+
+def interrupted(cause: &StreamError) -> bool:
+    match cause:
+        case StreamError.Interrupted:
+            True
+        case _:
+            False
+
+# Callers pass an index they have already bounded.
+def at(buffer: &Bytes, index: i64) -> u8:
+    match buffer.get(index):
+        case Ok(value):
+            value
+        case Err(_):
+            0u8
+
+def mark(index: i64) -> u8:
+    if index == 0:
+        239u8
+    elif index == 1:
+        187u8
+    else:
+        191u8
+
+# One record's fields, unescaped and stored end to end. A Reader overwrites it
+# on the next read, which needs `&mut Record`, so no view of the previous
+# contents can still be live.
+pub class Record:
+    _data: Bytes
+    _ends: list[i64]
+    _number: i64
+    _line: i64
+
+    pub def len(self) -> i64:
+        len(self._ends)
+
+    # The record's number from one, or zero before the first read.
+    pub def number(self) -> i64:
+        self._number
+
+    # The line on which the record started.
+    pub def line(self) -> i64:
+        self._line
+
+    # Every field's bytes; field `index` occupies data()[start(index):stop(index)].
+    pub def data(self) -> &Bytes:
+        &self._data
+
+    pub def start(self, index: i64) -> Result[i64, CsvError]:
+        if index < 0 or index >= len(self._ends):
+            return Err(CsvError.OutOfRange)
+        if index == 0:
+            return Ok(0)
+        Ok(self._ends[index - 1])
+
+    pub def stop(self, index: i64) -> Result[i64, CsvError]:
+        if index < 0 or index >= len(self._ends):
+            return Err(CsvError.OutOfRange)
+        Ok(self._ends[index])
+
+    pub def bytes(self, index: i64) -> Result[Bytes, CsvError]:
+        allocated(self._data.slice(self.start(index)?, self.stop(index)?))
+
+    pub def append_to(self, index: i64, out: &mut Bytes) -> Result[(), CsvError]:
+        stored(out.extend_range(&self._data, self.start(index)?, self.stop(index)?))
+
+    pub def text(self, index: i64) -> Result[str, CsvError]:
+        field = self.bytes(index)?
+        match field.to_text():
+            case Ok(text):
+                Ok(text)
+            case Err(error):
+                match error:
+                    case BytesError.Allocation(cause):
+                        Err(CsvError.Allocation(cause))
+                    case _:
+                        Err(CsvError.InvalidUtf8(self._number, index))
+
+    pub def texts(self) -> Result[list[str], CsvError]:
+        mut fields = listed(list[str].new())?
+        listed(fields.reserve(len(self._ends)))?
+        for index in range(len(self._ends)):
+            listed(fields.append(self.text(index)?))?
+        Ok(fields)
+
+    pub def clear(self: &mut Record) -> ():
+        self._data.clear()
+        self._ends.clear()
+
+pub def record() -> Result[Record, CsvError]:
+    Ok(Record(allocated(std.bytes.empty())?, listed(list[i64].new())?, 0, 0))
+
+# Parses records from `inner` through one fixed buffer. `inner` is public so
+# its owner can close it; reading it directly skips bytes still held here.
+pub class Reader[R]:
+    pub inner: R
+    _buffer: Bytes
+    _start: i64
+    _stop: i64
+    _delimiter: u8
+    _quote: u8
+    _expected: i64
+    _max_field: i64
+    _max_record: i64
+    _max_fields: i64
+    _mark: i64
+    _records: i64
+    _line: i64
+    _offset: i64
+    _after_return: bool
+    _ended: bool
+    _stopped: bool
+
+    pub def records(self) -> i64:
+        self._records
+
+    pub def line(self) -> i64:
+        self._line
+
+    pub def offset(self) -> i64:
+        self._offset + self._start
+
+    def fault(self, fault: Fault, record: &Record) -> CsvError:
+        CsvError.Invalid(fault, Position(self._records + 1, len(record._ends), self._line, self._offset + self._start))
+
+    # One inner read into the empty buffer, repeated while interrupted.
+    def fill(self: &mut Reader[R]) -> Result[i64, CsvError]:
+        self._offset += self._stop
+        self._start = 0
+        self._stop = 0
+        size = self._buffer.len()
+        while True:
+            match self.inner.read(&mut self._buffer, 0, size):
+                case Ok(count):
+                    if count < 0 or count > size:
+                        return Err(CsvError.Stream(StreamError.InvalidProgress))
+                    self._stop = count
+                    return Ok(count)
+                case Err(cause):
+                    if not interrupted(&cause):
+                        return Err(CsvError.Stream(cause))
+        Ok(0)
+
+    # Bytes the open field, which began at `begin`, can still take. None is
+    # the limit fault, reported at the byte that does not fit.
+    def room(self, record: &Record, begin: i64) -> Result[i64, CsvError]:
+        held = record._data.len()
+        if held - begin >= self._max_field:
+            return Err(self.fault(Fault.FieldTooLong, record))
+        if held >= self._max_record:
+            return Err(self.fault(Fault.RecordTooLong, record))
+        if self._max_field - (held - begin) < self._max_record - held:
+            return Ok(self._max_field - (held - begin))
+        Ok(self._max_record - held)
+
+    def keep_byte(self, record: &mut Record, begin: i64, value: u8) -> Result[(), CsvError]:
+        drop(self.room(record, begin)?)
+        stored(record._data.push(value))
+
+    def close(self, record: &mut Record) -> Result[(), CsvError]:
+        if len(record._ends) >= self._max_fields:
+            return Err(self.fault(Fault.TooManyFields, record))
+        listed(record._ends.append(record._data.len()))
+
+    # A partial byte-order mark is ordinary data: give its bytes to the field.
+    def unmarked(self: &mut Reader[R], record: &mut Record) -> Result[bool, CsvError]:
+        matched = self._mark
+        self._mark = 3
+        for index in range(matched):
+            self.keep_byte(record, 0, mark(index))?
+        Ok(matched > 0)
+
+    # States: 0 at the start of a field, 1 in an unquoted field, 2 in a quoted
+    # field, 3 after a quote that either closes the field or starts `""`.
+    def scan(self: &mut Reader[R], record: &mut Record) -> Result[bool, CsvError]:
+        mut state = 0
+        mut started = False
+        mut begin = 0
+        while True:
+            if self._start == self._stop:
+                if self.fill()? == 0:
+                    self._ended = True
+                    if self._mark < 3:
+                        if self.unmarked(record)?:
+                            started = True
+                    if state == 2:
+                        return Err(self.fault(Fault.UnterminatedQuote, record))
+                    if not started:
+                        return Ok(False)
+                    self.close(record)?
+                    return Ok(True)
+            byte = at(&self._buffer, self._start)
+            if self._mark < 3:
+                if byte == mark(self._mark):
+                    self._mark += 1
+                    self._start += 1
+                    continue
+                if self.unmarked(record)?:
+                    started = True
+                    state = 1
+            if state == 2:
+                if byte == self._quote:
+                    self._after_return = False
+                    state = 3
+                    self._start += 1
+                    continue
+                mut limit = self._start + self.room(record, begin)?
+                if limit > self._stop:
+                    limit = self._stop
+                mut end = self._start
+                while end < limit:
+                    value = at(&self._buffer, end)
+                    if value == self._quote:
+                        break
+                    if value == carriage_return:
+                        self._line += 1
+                    elif value == line_feed and not self._after_return:
+                        self._line += 1
+                    self._after_return = value == carriage_return
+                    end += 1
+                stored(record._data.extend_range(&self._buffer, self._start, end))?
+                self._start = end
+                continue
+            if not started and self._after_return:
+                # The line feed of a CRLF that ended the previous record.
+                self._after_return = False
+                if byte == line_feed:
+                    self._start += 1
+                    continue
+            if state == 3 and byte == self._quote:
+                self.keep_byte(record, begin, byte)?
+                state = 2
+                self._start += 1
+                continue
+            if byte == self._delimiter:
+                self.close(record)?
+                begin = record._data.len()
+                state = 0
+                started = True
+                self._start += 1
+                continue
+            if byte == line_feed or byte == carriage_return:
+                self.close(record)?
+                self._line += 1
+                self._after_return = byte == carriage_return
+                self._start += 1
+                return Ok(True)
+            if state == 3:
+                return Err(self.fault(Fault.AfterQuote, record))
+            if byte == self._quote:
+                if state == 1:
+                    return Err(self.fault(Fault.BareQuote, record))
+                state = 2
+                started = True
+                self._start += 1
+                continue
+            mut limit = self._start + self.room(record, begin)?
+            if limit > self._stop:
+                limit = self._stop
+            mut end = self._start + 1
+            while end < limit:
+                value = at(&self._buffer, end)
+                if value == self._delimiter or value == self._quote or value == line_feed or value == carriage_return:
+                    break
+                end += 1
+            stored(record._data.extend_range(&self._buffer, self._start, end))?
+            self._start = end
+            state = 1
+            started = True
+        Ok(False)
+
+    # Replaces `record` with the next record. Ok(False) is end of input. A
+    # Width error leaves the record filled and the reader usable; any other
+    # error empties the record and stops the reader.
+    pub def read(self: &mut Reader[R], record: &mut Record) -> Result[bool, CsvError]:
+        if self._stopped:
+            return Err(CsvError.Stopped)
+        record._data.clear()
+        record._ends.clear()
+        if self._ended:
+            return Ok(False)
+        record._line = self._line
+        match self.scan(record):
+            case Ok(found):
+                if not found:
+                    return Ok(False)
+            case Err(cause):
+                self._stopped = True
+                record._data.clear()
+                record._ends.clear()
+                return Err(cause)
+        self._records += 1
+        record._number = self._records
+        count = len(record._ends)
+        if self._expected == -1:
+            self._expected = count
+        elif self._expected > 0 and count != self._expected:
+            return Err(CsvError.Width(self._records, self._expected, count))
+        Ok(True)
+
+pub def reader[R](inner: R, dialect: &Dialect, capacity: i64) -> Result[Reader[R], CsvError]:
+    if not valid(dialect):
+        return Err(CsvError.InvalidDialect)
+    if capacity < 1:
+        return Err(CsvError.OutOfRange)
+    mut buffer = allocated(std.bytes.with_capacity(capacity))?
+    stored(buffer.resize(capacity, 0u8))?
+    mut matched = 3
+    if dialect.skip_bom:
+        matched = 0
+    Ok(Reader(inner, buffer, 0, 0, dialect.delimiter, dialect.quote, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields, matched, 0, 1, 0, False, False, False))
+
+# Encodes records for `inner`. A finished record is delivered at once; bytes
+# the stream did not accept stay held and are delivered first by the next call.
+# `inner` is public so its owner can close it.
+pub class Writer[W]:
+    pub inner: W
+    _pending: Bytes
+    _sent: i64
+    _ready: i64
+    _fields: i64
+    _content: i64
+    _records: i64
+    _delimiter: u8
+    _quote: u8
+    _return: bool
+    _always: bool
+    _expected: i64
+    _max_field: i64
+    _max_record: i64
+    _max_fields: i64
+
+    pub def records(self) -> i64:
+        self._records
+
+    # Bytes of finished records the stream has not yet accepted.
+    pub def pending(self) -> i64:
+        self._ready - self._sent
+
+    def drain(self: &mut Writer[W]) -> Result[(), CsvError]:
+        while self._sent < self._ready:
+            match self.inner.write(&self._pending, self._sent, self._ready):
+                case Ok(count):
+                    if count == 0:
+                        return Err(CsvError.Stream(StreamError.WriteZero))
+                    if count < 0 or count > self._ready - self._sent:
+                        return Err(CsvError.Stream(StreamError.InvalidProgress))
+                    self._sent += count
+                case Err(cause):
+                    if not interrupted(&cause):
+                        return Err(CsvError.Stream(cause))
+        if self._ready == self._pending.len():
+            self._pending.clear()
+            self._sent = 0
+            self._ready = 0
+        Ok(())
+
+    def quoted(self, source: &Bytes, start: i64, stop: i64) -> bool:
+        if self._always:
+            return True
+        for index in range(start, stop):
+            value = at(source, index)
+            if value == self._delimiter or value == self._quote or value == line_feed or value == carriage_return:
+                return True
+        False
+
+    def encode(self: &mut Writer[W], source: &Bytes, start: i64, stop: i64) -> Result[(), CsvError]:
+        if self._fields > 0:
+            stored(self._pending.push(self._delimiter))?
+        if not self.quoted(source, start, stop):
+            return stored(self._pending.extend_range(source, start, stop))
+        stored(self._pending.push(self._quote))?
+        mut copied = start
+        for index in range(start, stop):
+            if at(source, index) == self._quote:
+                stored(self._pending.extend_range(source, copied, index + 1))?
+                stored(self._pending.push(self._quote))?
+                copied = index + 1
+        stored(self._pending.extend_range(source, copied, stop))?
+        stored(self._pending.push(self._quote))
+
+    # Adds source[start:stop] as the next field of the record in progress.
+    pub def field(self: &mut Writer[W], source: &Bytes, start: i64, stop: i64) -> Result[(), CsvError]:
+        if start < 0 or start > stop or stop > source.len():
+            return Err(CsvError.OutOfRange)
+        self.drain()?
+        if self._fields >= self._max_fields:
+            return Err(CsvError.Rejected(Fault.TooManyFields, self._records + 1, self._fields))
+        if stop - start > self._max_field:
+            return Err(CsvError.Rejected(Fault.FieldTooLong, self._records + 1, self._fields))
+        if stop - start > self._max_record - self._content:
+            return Err(CsvError.Rejected(Fault.RecordTooLong, self._records + 1, self._fields))
+        held = self._pending.len()
+        match self.encode(source, start, stop):
+            case Ok(_):
+                self._fields += 1
+                self._content += stop - start
+                Ok(())
+            case Err(cause):
+                drop(self._pending.truncate(held))
+                Err(cause)
+
+    pub def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]:
+        encoded = allocated(std.bytes.from_text(value))?
+        self.field(&encoded, 0, encoded.len())
+
+    def terminate(self: &mut Writer[W]) -> Result[(), CsvError]:
+        # A lone empty field would otherwise be an empty line.
+        if self._fields == 1 and self._pending.len() == self._ready:
+            stored(self._pending.push(self._quote))?
+            stored(self._pending.push(self._quote))?
+        if self._return:
+            stored(self._pending.push(carriage_return))?
+        stored(self._pending.push(line_feed))
+
+    # Discards the record in progress. Finished records are unaffected.
+    pub def discard(self: &mut Writer[W]) -> ():
+        drop(self._pending.truncate(self._ready))
+        self._fields = 0
+        self._content = 0
+
+    # Finishes the record in progress and delivers it.
+    pub def end_record(self: &mut Writer[W]) -> Result[(), CsvError]:
+        self.drain()?
+        if self._fields == 0:
+            return Err(CsvError.EmptyRecord(self._records + 1))
+        if self._expected > 0 and self._fields != self._expected:
+            found = self._fields
+            self.discard()
+            return Err(CsvError.Width(self._records + 1, self._expected, found))
+        held = self._pending.len()
+        match self.terminate():
+            case Ok(_):
+                pass
+            case Err(cause):
+                drop(self._pending.truncate(held))
+                return Err(cause)
+        if self._expected == -1:
+            self._expected = self._fields
+        self._ready = self._pending.len()
+        self._records += 1
+        self._fields = 0
+        self._content = 0
+        self.drain()
+
+    def copy(self: &mut Writer[W], record: &Record) -> Result[(), CsvError]:
+        for index in range(len(record._ends)):
+            self.field(&record._data, record.start(index)?, record.stop(index)?)?
+        self.end_record()
+
+    def encode_texts(self: &mut Writer[W], fields: &list[str]) -> Result[(), CsvError]:
+        for index in range(len(fields)):
+            self.text(&fields[index])?
+        self.end_record()
+
+    # Adds every field of `record` and ends the record. An error discards the
+    # record in progress.
+    pub def record(self: &mut Writer[W], record: &Record) -> Result[(), CsvError]:
+        match self.copy(record):
+            case Ok(_):
+                Ok(())
+            case Err(cause):
+                self.discard()
+                Err(cause)
+
+    pub def texts(self: &mut Writer[W], fields: &list[str]) -> Result[(), CsvError]:
+        match self.encode_texts(fields):
+            case Ok(_):
+                Ok(())
+            case Err(cause):
+                self.discard()
+                Err(cause)
+
+    # Delivers held bytes, then flushes the inner stream.
+    pub def flush(self: &mut Writer[W]) -> Result[(), CsvError]:
+        self.drain()?
+        match self.inner.flush():
+            case Ok(_):
+                Ok(())
+            case Err(cause):
+                Err(CsvError.Stream(cause))
+
+pub def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]:
+    if not valid(dialect):
+        return Err(CsvError.InvalidDialect)
+    mut return_first = False
+    match dialect.newline:
+        case Newline.CrLf:
+            return_first = True
+        case Newline.Lf:
+            pass
+    mut always = False
+    match dialect.quoting:
+        case Quoting.Always:
+            always = True
+        case Quoting.Needed:
+            pass
+    Ok(Writer(inner, allocated(std.bytes.empty())?, 0, 0, 0, 0, 0, dialect.delimiter, dialect.quote, return_first, always, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields))
