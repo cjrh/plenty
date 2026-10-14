@@ -170,6 +170,28 @@ deliberately wraps at the integer width, as in a hash or a random-number
 generator. Ordinary arithmetic still traps on overflow. Parenthesize mixed
 bitwise expressions when that makes the intended grouping easier to read.
 
+`rotate_left` and `rotate_right` move bits around the ends of an integer
+instead of discarding them. The count has the integer's own type. No count
+loses bits, so rotation never traps: a count of the full width leaves the value
+unchanged.
+
+```plenty
+def main() -> Result[(), IoError]:
+    bits = 129u8
+    print(bits.rotate_left(1))?
+    print(bits.rotate_right(1))?
+    print(bits.rotate_left(8))?
+    print(bits << 1)?
+    Ok(())
+```
+
+```output
+3
+192
+129
+2
+```
+
 `pow` raises a number to a power, and each integer type names its limits as
 `MIN` and `MAX`. As with the operators, the number and its exponent must have
 one type, and the result has that type:

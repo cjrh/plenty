@@ -61,6 +61,14 @@ Prefix `&` and `&mut` still create borrows.
 `value.wrapping_add(other)`, `wrapping_sub`, and `wrapping_mul` require matching
 integer types and compute modulo two to the integer width. They allocate
 nothing. Ordinary `+`, `-`, and `*` keep their overflow checks.
+
+`value.rotate_left(count)` and `value.rotate_right(count)` rotate the bits of
+an integer: bits leaving one end enter at the other, so none are lost. The count
+has the receiver's type, and a typed receiver guides an unsuffixed count literal.
+Because no count loses bits, rotation never traps: the count is reduced modulo
+the integer width, so rotating by the width is the identity and a negative
+signed count rotates the other way. Signed values rotate their two's-complement
+bit pattern. Rotation allocates nothing.
 These built-ins are selected for integer receivers; classes may define methods
 with the same names and their own signatures.
 

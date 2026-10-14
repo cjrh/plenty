@@ -18,9 +18,6 @@ const second_mixer: u64 = 10723151780598845931
 # 2^-53: the spacing of the 53-bit fractions next_f64 returns.
 const fraction: f64 = 0.00000000000000011102230246251565404236316680908203125
 
-def rotated(value: u64, count: u64) -> u64:
-    (value << count) | (value >> (64u64 - count))
-
 def mixed(state: u64) -> u64:
     mut z = state
     z = (z ^ (z >> 30u64)).wrapping_mul(first_mixer)
@@ -37,13 +34,13 @@ pub class Rng:
     pub def next_u64(self: &mut Rng) -> u64:
         first = self._a
         second = self._b
-        result = rotated(second.wrapping_mul(5u64), 7u64).wrapping_mul(9u64)
+        result = second.wrapping_mul(5u64).rotate_left(7u64).wrapping_mul(9u64)
         third = self._c ^ first
         fourth = self._d ^ second
         self._b = second ^ third
         self._a = first ^ fourth
         self._c = third ^ (second << 17u64)
-        self._d = rotated(fourth, 45u64)
+        self._d = fourth.rotate_left(45u64)
         result
 
     # The high half of one step.

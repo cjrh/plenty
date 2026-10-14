@@ -76,16 +76,8 @@ pub class Url:
                     case Nothing:
                         pass
             case Nothing:
-                match self.userinfo:
-                    case Some(_):
-                        return Err(UrlError.MissingHost)
-                    case Nothing:
-                        pass
-                match self.port:
-                    case Some(_):
-                        return Err(UrlError.MissingHost)
-                    case Nothing:
-                        pass
+                if self.userinfo.is_some() or self.port.is_some():
+                    return Err(UrlError.MissingHost)
         path_start = out.len()
         put(&mut out, self.path)?
         path_end = out.len()
@@ -340,20 +332,13 @@ def optional(source: &Bytes, start: i64, stop: i64) -> Result[Option[str], UrlEr
         return Ok(Nothing)
     Ok(Some(text_of(source, start, stop)?))
 
-# A scalar is at least one byte, so counting scalars first means the copy
-# below is at most four times the limit.
+# The limit is checked before the copy, so over-limit text allocates nothing.
 def bounded(text: &str, max_bytes: i64) -> Result[Bytes, UrlError]:
     if max_bytes < 0:
         return Err(UrlError.InvalidLimit)
-    mut scalars = 0
-    for _ in text:
-        if scalars == max_bytes:
-            return Err(UrlError.LimitExceeded)
-        scalars += 1
-    source = lifted(std.bytes.from_text(text))?
-    if source.len() > max_bytes:
+    if text.byte_len() > max_bytes:
         return Err(UrlError.LimitExceeded)
-    Ok(source)
+    lifted(std.bytes.from_text(text))
 
 # First index in the range holding a delimiter, or `stop`. Level 0 stops at
 # `/`, `?`, `#`; 1 at `?`, `#`; 2 at `#`; 3 at `:` as well as level 0.

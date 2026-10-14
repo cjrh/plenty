@@ -532,6 +532,8 @@ pub enum IntegerOp {
     WrappingAdd,
     WrappingSub,
     WrappingMul,
+    RotateLeft,
+    RotateRight,
 }
 
 impl IntegerOp {

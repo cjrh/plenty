@@ -213,13 +213,6 @@ pub def shell(script: &str) -> Result[Command, IoError]:
     built.arg(script)?
     Ok(built)
 
-def held(end: &Option[File]) -> bool:
-    match end:
-        case Some(_):
-            True
-        case Nothing:
-            False
-
 def closed_end(end: Option[File]) -> Result[(), IoError]:
     match end:
         case Some(file):
@@ -420,11 +413,11 @@ pub class Child:
             if sent >= input.len():
                 failed(self.close_stdin())?
             mut interest = 0
-            if held(&self._stdin):
+            if self._stdin.is_some():
                 interest += 1
-            if held(&self._stdout):
+            if self._stdout.is_some():
                 interest += 2
-            if held(&self._stderr):
+            if self._stderr.is_some():
                 interest += 4
             if interest == 0:
                 break

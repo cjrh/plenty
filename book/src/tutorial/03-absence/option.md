@@ -32,3 +32,22 @@ branch. A `match` must cover both `Some` and `Nothing`.
 `Some` and `Nothing` are built in and need no type prefix. `Nothing`
 belongs to one concrete option type rather than acting as a universal null.
 A present zero, `False`, or empty string is still `Some(value)`.
+
+When only presence matters, ask with `is_some()` or `is_none()` instead of
+writing a `match`. Both borrow the option, so it is still usable afterwards.
+
+```plenty
+def main() -> Result[(), IoError]:
+    found: Option[str] = Some("key")
+    missing: Option[str] = Nothing
+    print(found.is_some(), found.is_none())?
+    print(missing.is_some(), missing.is_none())?
+    print(found.unwrap_or("default"))?
+    Ok(())
+```
+
+```output
+True False
+False True
+key
+```

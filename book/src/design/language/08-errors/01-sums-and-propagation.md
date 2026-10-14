@@ -10,6 +10,14 @@ errors are supported. Bare absence needs enough type context to determine `T`.
 Conversion is explicit: use `option.ok_or(error)?` in a Result-returning
 function; `?` alone does not invent an error for absence.
 
+`Result[T, E].is_ok() -> bool` and `is_err()` report which variant a result
+holds; `Option[T].is_some() -> bool` and `is_none()` do the same for an option.
+They observe the receiver, so a named value remains usable afterwards and a
+temporary is dropped at the end of the full expression. They take no arguments,
+ignore the payload, and allocate nothing. Asking a `Result` for `is_some` or an
+`Option` for `is_ok` is a compile-time error that names the available pair.
+Classes may define methods with the same names.
+
 `Option[T]` has `Some(value)` and `Nothing`; `Result[T, E]` has `Ok(value)`
 and `Err(error)`. These prelude variants are ordinary typed values. `Some`
 can infer its type from its payload; `Ok`, `Err`, and `Nothing` need expected
