@@ -1,0 +1,38 @@
+# Adapters are generator functions: each call builds one inline frame that owns
+# its source and callback, so composition allocates nothing and stays statically
+# dispatched. Callbacks arrive by value because a frame cannot hold a reference.
+pub def map[T, U, F: Callable[[T], U]](source: Generator[T], f: F) -> Generator[U]:
+    mut call = f
+    for item in source:
+        yield call(item)
+
+pub def filter[T, F: Callable[[&T], bool]](source: Generator[T], keep: F) -> Generator[T]:
+    mut call = keep
+    for item in source:
+        if call(&item):
+            yield item
+
+pub def take[T](source: Generator[T], count: i64) -> Generator[T]:
+    mut rest = source
+    mut remaining = count
+    while remaining > 0:
+        match next(rest):
+            case Some(item):
+                yield item
+            case Nothing:
+                return
+        remaining -= 1
+
+pub def fold[T, A, F: Callable[[A, T], A]](source: Generator[T], initial: A, f: F) -> A:
+    mut call = f
+    mut total = initial
+    for item in source:
+        total = call(total, item)
+    total
+
+pub def try_fold[T, A, E, F: Callable[[A, T], Result[A, E]]](source: Generator[T], initial: A, f: F) -> Result[A, E]:
+    mut call = f
+    mut total = initial
+    for item in source:
+        total = call(total, item)?
+    Ok(total)
