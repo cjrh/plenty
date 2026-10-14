@@ -7,6 +7,7 @@ pub enum CollectionOp {
     Filesystem(crate::filesystem::FsOp),
     Bytes(crate::bytes::BytesOp),
     Time(crate::time::TimeOp),
+    Unicode(crate::unicode::UnicodeOp),
     OpenFile,
     FileClose,
     FileClosed,
@@ -180,6 +181,7 @@ impl CollectionOp {
             Filesystem(op) => op.signature(),
             Bytes(op) => op.signature(),
             Time(op) => op.signature(),
+            Unicode(op) => op.signature(),
             OpenFile => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::File, crate::sum::io_error()),
@@ -519,6 +521,7 @@ impl CollectionOp {
             Self::Filesystem(op) => op.opcode(),
             Self::Bytes(op) => op.opcode(),
             Self::Time(op) => op.opcode(),
+            Self::Unicode(op) => op.opcode(),
             Self::WriteStdout => 80,
             Self::FlushStdout => 81,
             Self::WriteStderr => 82,

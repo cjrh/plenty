@@ -2075,6 +2075,7 @@ pub(crate) fn builtin(name: &str) -> bool {
         || crate::filesystem::FsOp::named(name).is_some()
         || crate::bytes::BytesOp::named(name).is_some()
         || crate::time::TimeOp::named(name).is_some()
+        || crate::unicode::UnicodeOp::named(name).is_some()
         || matches!(
             name,
             "print"
@@ -3154,6 +3155,9 @@ impl Lower<'_> {
                         return Ok(None);
                     }
                     return Ok(output);
+                }
+                if let Some(operation) = crate::unicode::UnicodeOp::named(name) {
+                    return self.system_call(CollectionOp::Unicode(operation), args, &e.at, ops);
                 }
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));

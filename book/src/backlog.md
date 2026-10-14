@@ -154,7 +154,7 @@ Plenty; approved platform/backend boundaries remain narrow.
 | B44 | CLI parsing — issue #81 | Typed options/positionals, help/errors and lossless path arguments. Depends on B41. |
 | B45 | Formatting — issue #82 | Explicit display/debug forms, writer output and fallible strings. Depends on B40. |
 | B46 | Structured logs — issue #83 | Levels, fields, caller-supplied sinks and bounded failure policy. Depends on B45/B42. |
-| B47 | Text/Unicode — issue #84 | Builders/join/wrap and versioned normalization; reuse #22. Depends on B39. |
+| B47 | Text/Unicode — issue #84 | Implemented in the issue #84 PR, pending merge: bounded reusable [builders/join/scalar wrapping](design/stdlib/text.md) and [Unicode 17 NFC/NFD/NFKC/NFKD](design/stdlib/unicode.md), with combining-class/Mark classification. Reuses B39 bytes and #22 text primitives. Grapheme/display-width wrapping and broader classification remain outside this slice. |
 | B48 | Regex — issue #85 | Compiled search/split/replace with documented engine/features and resource bounds. Depends on B39/B47. |
 | B49 | Collections/iterators — issue #86 | Heap/priority queue and reusable static map/filter/fold; reuse deque and #35. Iterator/borrow contracts remain B12. |
 | B50 | Randomness/secrets — issue #87 | Explicit seeded PRNG/sampling/shuffle and separately named OS-backed entropy/tokens. Depends on B39/B54. |
