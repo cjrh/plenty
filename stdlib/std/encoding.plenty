@@ -2,8 +2,9 @@ import std.bytes
 from std.bytes import Bytes, BytesError
 
 # Binary-to-text codecs and fixed-width integer packing over `std.bytes`.
-# Everything here is checked Plenty: each access goes through the validated
-# `Bytes` operations, so no offset reaches storage unchecked. Each codec has
+# Everything here is checked Plenty: ranges are validated before reads and
+# writes, and an index outside the buffer would trap rather than reach past
+# it. Each codec has
 # one accepted form; nothing is skipped, trimmed, or repaired.
 pub enum EncodingError:
     OutOfRange
@@ -23,7 +24,7 @@ pub def hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, Encod
     checked(start, stop, source.len())?
     mut encoded = lifted(std.bytes.with_capacity((stop - start) * 2))?
     for index in range(start, stop):
-        value = byte(source, index)?
+        value = i64(source[index])
         emit(&mut encoded, hex_digit(value >> 4))?
         emit(&mut encoded, hex_digit(value & 15))?
     Ok(encoded)
@@ -36,10 +37,10 @@ pub def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, Encod
     mut decoded = lifted(std.bytes.with_capacity((stop - start) // 2))?
     for pair in range((stop - start) // 2):
         index = start + pair * 2
-        high = hex_value(byte(source, index)?)
+        high = hex_value(i64(source[index]))
         if high < 0:
             return Err(EncodingError.InvalidByte(index))
-        low = hex_value(byte(source, index + 1)?)
+        low = hex_value(i64(source[index + 1]))
         if low < 0:
             return Err(EncodingError.InvalidByte(index + 1))
         emit(&mut decoded, high * 16 + low)?
@@ -156,9 +157,6 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, EncodingError]:
                 case _:
                     Err(EncodingError.OutOfRange)
 
-def byte(source: &Bytes, index: i64) -> Result[i64, EncodingError]:
-    Ok(i64(lifted(source.get(index))?))
-
 # Output buffers are created with their exact final capacity, so this never
 # allocates.
 def emit(target: &mut Bytes, value: i64) -> Result[(), EncodingError]:
@@ -225,21 +223,21 @@ def encode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, 
     mut encoded = lifted(std.bytes.with_capacity(size))?
     for group in range(groups):
         index = start + group * 3
-        first = byte(source, index)?
-        second = byte(source, index + 1)?
-        third = byte(source, index + 2)?
+        first = i64(source[index])
+        second = i64(source[index + 1])
+        third = i64(source[index + 2])
         emit(&mut encoded, symbol(first >> 2, url))?
         emit(&mut encoded, symbol((first & 3) << 4 | second >> 4, url))?
         emit(&mut encoded, symbol((second & 15) << 2 | third >> 6, url))?
         emit(&mut encoded, symbol(third & 63, url))?
     if tail > 0:
         index = stop - tail
-        first = byte(source, index)?
+        first = i64(source[index])
         emit(&mut encoded, symbol(first >> 2, url))?
         if tail == 1:
             emit(&mut encoded, symbol((first & 3) << 4, url))?
         else:
-            second = byte(source, index + 1)?
+            second = i64(source[index + 1])
             emit(&mut encoded, symbol((first & 3) << 4 | second >> 4, url))?
             emit(&mut encoded, symbol((second & 15) << 2, url))?
         if not url:
@@ -250,7 +248,7 @@ def encode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, 
 # One symbol, or the error naming its index. `=` is a padding error wherever
 # the caller did not already strip it.
 def symbol_at(source: &Bytes, index: i64, url: bool) -> Result[i64, EncodingError]:
-    code = byte(source, index)?
+    code = i64(source[index])
     value = sextet(code, url)
     if value >= 0:
         return Ok(value)
@@ -270,9 +268,9 @@ def decode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, 
         # At most two trailing `=` are padding. Any other `=` is reported by
         # `symbol_at`.
         if end > start:
-            if byte(source, end - 1)? == 61:
+            if i64(source[end - 1]) == 61:
                 end -= 1
-                if byte(source, end - 1)? == 61:
+                if i64(source[end - 1]) == 61:
                     end -= 1
     groups = (end - start) // 4
     tail = (end - start) % 4
@@ -318,7 +316,7 @@ def place(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian)
         mut shift = index
         if forward:
             shift = width - 1 - index
-        lifted(target.set(offset + index, u8.wrapping_from(bits >> u64(shift * 8))))?
+        target[offset + index] = u8.wrapping_from(bits >> u64(shift * 8))
     Ok(())
 
 def store(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
@@ -340,5 +338,5 @@ def load(source: &Bytes, offset: i64, width: i64, order: Endian) -> Result[u64, 
         mut position = width - 1 - index
         if forward:
             position = index
-        bits = bits << 8 | u64(lifted(source.get(offset + position))?)
+        bits = bits << 8 | u64(source[offset + position])
     Ok(bits)

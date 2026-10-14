@@ -3,7 +3,8 @@ from std.bytes import Bytes, BytesError
 
 # Absolute URLs in the RFC 3986 generic syntax, split into components without
 # normalization, plus component-aware percent encoding. Everything here is
-# checked Plenty over the validated `Bytes` operations. Nothing is repaired:
+# checked Plenty over `Bytes`: ranges are validated before reads, and an index
+# outside the buffer would trap rather than read past it. Nothing is repaired:
 # input outside the grammar is an error naming the offending byte.
 pub enum UrlError:
     InvalidLimit
@@ -105,9 +106,9 @@ pub class Url:
         if host_start >= 0:
             check_host(&out, host_start, host_end)?
             # After an authority the path is empty or starts with `/`.
-            if path_end > path_start and byte(&out, path_start)? != 47:
+            if path_end > path_start and i64(out[path_start]) != 47:
                 return Err(UrlError.InvalidByte(path_start))
-        elif path_end - path_start >= 2 and byte(&out, path_start)? == 47 and byte(&out, path_start + 1)? == 47:
+        elif path_end - path_start >= 2 and i64(out[path_start]) == 47 and i64(out[path_start + 1]) == 47:
             # Without an authority, a leading `//` would be read as one.
             return Err(UrlError.InvalidByte(path_start + 1))
         check(&out, path_start, path_end, 2, False)?
@@ -127,7 +128,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
     source = bounded(text, max_bytes)?
     count = source.len()
     colon = until(&source, 0, count, 3)?
-    if colon == 0 or colon == count or byte(&source, colon)? != 58:
+    if colon == 0 or colon == count or i64(source[colon]) != 58:
         return Err(UrlError.MissingScheme)
     check_scheme(&source, 0, colon)?
     mut index = colon + 1
@@ -136,7 +137,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
     mut host_start = -1
     mut host_end = -1
     mut port = -1
-    if count - index >= 2 and byte(&source, index)? == 47 and byte(&source, index + 1)? == 47:
+    if count - index >= 2 and i64(source[index]) == 47 and i64(source[index + 1]) == 47:
         end = until(&source, index + 2, count, 0)?
         host_start = index + 2
         # Neither userinfo nor a host may contain `@`, so the first one
@@ -150,14 +151,14 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
             case Nothing:
                 pass
         host_end = end
-        if host_start < end and byte(&source, host_start)? == 91:
+        if host_start < end and i64(source[host_start]) == 91:
             match lifted(source.find(93u8, host_start, end))?:
                 case Some(close):
                     host_end = close + 1
                 case Nothing:
                     return Err(UrlError.InvalidHost(host_start))
             if host_end < end:
-                if byte(&source, host_end)? != 58:
+                if i64(source[host_end]) != 58:
                     return Err(UrlError.InvalidHost(host_end))
                 port = port_number(&source, host_end + 1, end)?
         else:
@@ -173,7 +174,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
     check(&source, index, path_end, 2, False)?
     mut query_start = -1
     mut query_end = path_end
-    if path_end < count and byte(&source, path_end)? == 63:
+    if path_end < count and i64(source[path_end]) == 63:
         query_start = path_end + 1
         query_end = until(&source, query_start, count, 2)?
         check(&source, query_start, query_end, 3, False)?
@@ -200,13 +201,13 @@ pub def encode_bytes(source: &Bytes, start: i64, stop: i64, component: Component
     kind = kind_of(component)
     mut size = 0
     for index in range(start, stop):
-        if literal(byte(source, index)?, kind):
+        if literal(i64(source[index]), kind):
             size += 1
         else:
             size += 3
     mut encoded = lifted(std.bytes.with_capacity(size))?
     for index in range(start, stop):
-        code = byte(source, index)?
+        code = i64(source[index])
         if literal(code, kind):
             emit(&mut encoded, code)?
         else:
@@ -216,29 +217,26 @@ pub def encode_bytes(source: &Bytes, start: i64, stop: i64, component: Component
     Ok(encoded)
 
 # Every `%hh` becomes one byte; every other byte is copied, including `+`.
+# Literal runs between escapes are found and copied natively.
 pub def decode_bytes(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, UrlError]:
     if start < 0 or start > stop or stop > source.len():
         return Err(UrlError.OutOfRange)
-    mut size = 0
-    mut index = start
+    # Validate every escape before allocating the exact result.
+    mut size = stop - start
+    mut index = earliest(source, 37u8, start, stop)?
     while index < stop:
-        if byte(source, index)? == 37:
-            if stop - index < 3 or hex_value(byte(source, index + 1)?) < 0 or hex_value(byte(source, index + 2)?) < 0:
-                return Err(UrlError.InvalidEscape(index))
-            index += 3
-        else:
-            index += 1
-        size += 1
+        if stop - index < 3 or hex_value(i64(source[index + 1])) < 0 or hex_value(i64(source[index + 2])) < 0:
+            return Err(UrlError.InvalidEscape(index))
+        size -= 2
+        index = earliest(source, 37u8, index + 3, stop)?
     mut decoded = lifted(std.bytes.with_capacity(size))?
     index = start
     while index < stop:
-        code = byte(source, index)?
-        if code == 37:
-            emit(&mut decoded, hex_value(byte(source, index + 1)?) * 16 + hex_value(byte(source, index + 2)?))?
-            index += 3
-        else:
-            emit(&mut decoded, code)?
-            index += 1
+        escape = earliest(source, 37u8, index, stop)?
+        lifted(decoded.extend_range(source, index, escape))?
+        if escape < stop:
+            emit(&mut decoded, hex_value(i64(source[escape + 1])) * 16 + hex_value(i64(source[escape + 2])))?
+        index = escape + 3
     Ok(decoded)
 
 pub def encode(text: &str, component: Component) -> Result[str, UrlError]:
@@ -314,9 +312,6 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, UrlError]:
         case Err(error):
             Err(UrlError.Allocation(error))
 
-def byte(source: &Bytes, index: i64) -> Result[i64, UrlError]:
-    Ok(i64(lifted(source.get(index))?))
-
 def emit(target: &mut Bytes, value: i64) -> Result[(), UrlError]:
     lifted(target.push(u8(value)))
 
@@ -341,13 +336,24 @@ def bounded(text: &str, max_bytes: i64) -> Result[Bytes, UrlError]:
     lifted(std.bytes.from_text(text))
 
 # First index in the range holding a delimiter, or `stop`. Level 0 stops at
-# `/`, `?`, `#`; 1 at `?`, `#`; 2 at `#`; 3 at `:` as well as level 0.
+# `/`, `?`, `#`; 1 at `?`, `#`; 2 at `#`; 3 at `:` as well as level 0. Each
+# native scan only searches before the earliest delimiter found so far.
 def until(source: &Bytes, start: i64, stop: i64, level: i64) -> Result[i64, UrlError]:
-    for index in range(start, stop):
-        code = byte(source, index)?
-        if code == 35 or (code == 63 and level != 2) or (code == 47 and level != 1 and level != 2) or (code == 58 and level == 3):
-            return Ok(index)
-    Ok(stop)
+    mut end = earliest(source, 35u8, start, stop)?
+    if level != 2:
+        end = earliest(source, 63u8, start, end)?
+    if level == 0 or level == 3:
+        end = earliest(source, 47u8, start, end)?
+    if level == 3:
+        end = earliest(source, 58u8, start, end)?
+    Ok(end)
+
+def earliest(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, UrlError]:
+    match lifted(source.find(value, start, stop))?:
+        case Some(found):
+            Ok(found)
+        case Nothing:
+            Ok(stop)
 
 def alpha(code: i64) -> bool:
     (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
@@ -415,9 +421,9 @@ def hex_value(code: i64) -> i64:
 def check(source: &Bytes, start: i64, stop: i64, kind: i64, colon: bool) -> Result[(), UrlError]:
     mut index = start
     while index < stop:
-        code = byte(source, index)?
+        code = i64(source[index])
         if code == 37:
-            if stop - index < 3 or hex_value(byte(source, index + 1)?) < 0 or hex_value(byte(source, index + 2)?) < 0:
+            if stop - index < 3 or hex_value(i64(source[index + 1])) < 0 or hex_value(i64(source[index + 2])) < 0:
                 return Err(UrlError.InvalidEscape(index))
             index += 3
         elif literal(code, kind) or (colon and code == 58):
@@ -430,7 +436,7 @@ def check_scheme(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
     if start == stop:
         return Err(UrlError.MissingScheme)
     for index in range(start, stop):
-        code = byte(source, index)?
+        code = i64(source[index])
         if not (alpha(code) or (index > start and (digit(code) or code == 43 or code == 45 or code == 46))):
             return Err(UrlError.InvalidByte(index))
     Ok(())
@@ -441,20 +447,20 @@ def port_number(source: &Bytes, start: i64, stop: i64) -> Result[i64, UrlError]:
         return Err(UrlError.InvalidPort(start))
     mut value = 0
     for index in range(start, stop):
-        code = byte(source, index)?
+        code = i64(source[index])
         if not digit(code):
             return Err(UrlError.InvalidPort(start))
         value = value * 10 + code - 48
-    if value > 65535 or (stop - start > 1 and byte(source, start)? == 48):
+    if value > 65535 or (stop - start > 1 and i64(source[start]) == 48):
         return Err(UrlError.InvalidPort(start))
     Ok(value)
 
 def check_host(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
-    if start == stop or byte(source, start)? != 91:
+    if start == stop or i64(source[start]) != 91:
         return check(source, start, stop, 0, False)
-    if stop - start < 2 or byte(source, stop - 1)? != 93:
+    if stop - start < 2 or i64(source[stop - 1]) != 93:
         return Err(UrlError.InvalidHost(start))
-    first = byte(source, start + 1)?
+    first = i64(source[start + 1])
     mut valid = False
     if first == 118 or first == 86:
         valid = future(source, start + 2, stop - 1)?
@@ -467,12 +473,12 @@ def check_host(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
 # RFC 3986 `IPvFuture` after its `v`: hex digits, `.`, then address text.
 def future(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
     mut index = start
-    while index < stop and hex_value(byte(source, index)?) >= 0:
+    while index < stop and hex_value(i64(source[index])) >= 0:
         index += 1
-    if index == start or stop - index < 2 or byte(source, index)? != 46:
+    if index == start or stop - index < 2 or i64(source[index]) != 46:
         return Ok(False)
     for position in range(index + 1, stop):
-        code = byte(source, position)?
+        code = i64(source[position])
         if not (unreserved(code) or sub_delim(code) or code == 58):
             return Ok(False)
     Ok(True)
@@ -485,16 +491,16 @@ def ipv6(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
     mut index = start
     mut groups = 0
     mut compressed = False
-    if byte(source, index)? == 58:
-        if byte(source, index + 1)? != 58:
+    if i64(source[index]) == 58:
+        if i64(source[index + 1]) != 58:
             return Ok(False)
         compressed = True
         index += 2
     while index < stop:
         mut run = index
-        while run < stop and hex_value(byte(source, run)?) >= 0:
+        while run < stop and hex_value(i64(source[run])) >= 0:
             run += 1
-        if run < stop and byte(source, run)? == 46:
+        if run < stop and i64(source[run]) == 46:
             if not ipv4(source, index, stop)?:
                 return Ok(False)
             groups += 2
@@ -506,12 +512,12 @@ def ipv6(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
         index = run
         if index == stop:
             break
-        if byte(source, index)? != 58:
+        if i64(source[index]) != 58:
             return Ok(False)
         index += 1
         if index == stop:
             return Ok(False)
-        if byte(source, index)? == 58:
+        if i64(source[index]) == 58:
             if compressed:
                 return Ok(False)
             compressed = True
@@ -526,17 +532,17 @@ def ipv4(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
     for part in range(4):
         first = index
         mut value = 0
-        while index < stop and digit(byte(source, index)?):
-            value = value * 10 + byte(source, index)? - 48
+        while index < stop and digit(i64(source[index])):
+            value = value * 10 + i64(source[index]) - 48
             index += 1
             if index - first > 3:
                 return Ok(False)
         if index == first or value > 255:
             return Ok(False)
-        if index - first > 1 and byte(source, first)? == 48:
+        if index - first > 1 and i64(source[first]) == 48:
             return Ok(False)
         if part < 3:
-            if index == stop or byte(source, index)? != 46:
+            if index == stop or i64(source[index]) != 46:
                 return Ok(False)
             index += 1
     Ok(index == stop)

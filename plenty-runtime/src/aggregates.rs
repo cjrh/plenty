@@ -1383,7 +1383,7 @@ pub(crate) unsafe extern "C" fn plenty_collection(
             out.write(range as u128);
             return;
         }
-        if matches!(op, 170..=183 | 188..=191 | 230..=236 | 248 | 280) {
+        if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280) {
             // Read every operand first: the fourth and fifth share the
             // scratch words that follow the result slot.
             let operands = [
@@ -1393,7 +1393,7 @@ pub(crate) unsafe extern "C" fn plenty_collection(
                 *args.add(4),
                 *args.add(5),
             ];
-            out.write(byte_storage::call(op, operands, descriptor));
+            out.write(byte_storage::call(op, operands, descriptor, site));
             return;
         }
         if op == 24 {

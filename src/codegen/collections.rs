@@ -227,6 +227,11 @@ impl Lowerer<'_, '_> {
             _ => None,
         };
         let mut arguments = values.clone();
+        // Indexed byte access passes its owner through the borrowed field, so
+        // no reference count changes per access.
+        if matches!(inputs.first(), Some(Ty::Ref(inner, _)) if **inner == Ty::ByteStorage) {
+            arguments[0] = self.read_reference(values[0]);
+        }
         if let CollectionOp::TryCopy(ty) = operation {
             // An inline copy needs its own storage before its children are copied.
             if ty.has_inline_storage() {

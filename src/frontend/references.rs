@@ -714,7 +714,8 @@ impl Lower<'_> {
                     ops.push(Op::ReadRef((*value).clone()));
                     return Ok(((*value).clone(), vec![loan]));
                 }
-                if matches!(self.place_type(base), Some(Ty::List(element))
+                if self.byte_place(base).is_some()
+                    || matches!(self.place_type(base), Some(Ty::List(element))
                     if element.is_numeric() || *element == Ty::Bool)
                 {
                     return self.index(e, ops).map(|ty| (ty, vec![]));
@@ -744,10 +745,20 @@ impl Lower<'_> {
                         return Ok((value, loans));
                     }
                 }
+                if let Some(class) = byte_buffers::byte_buffer(&ty) {
+                    let reads = self.byte_value_item(&class, index, &e.at, ops)?;
+                    let mut loans = loans;
+                    loans.extend(reads);
+                    return Ok((Ty::U8, loans));
+                }
                 let (key, value) = match &ty {
                     Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
                     Ty::List(_) | Ty::Str | Ty::Range(_) => (Ty::I64, ty.element().unwrap()),
-                    _ => return Err(e.at.error("indexing requires list, dict, str, or range")),
+                    _ => {
+                        return Err(e
+                            .at
+                            .error("indexing requires list, dict, str, range, or Bytes"))
+                    }
                 };
                 let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
                 self.same(Some(actual), Some(key), &index.at)?;

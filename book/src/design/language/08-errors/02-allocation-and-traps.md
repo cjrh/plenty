@@ -85,7 +85,7 @@ stack trace; it does not change the trap message into an API-specific error.
 | Shift count negative or not below the integer width | `shift count outside integer width` |
 | Numeric cast to an integer type that cannot represent the value | `integer cast out of range` |
 | `unwrap()` on `Nothing` or `Err` | `unwrap on Nothing`, `unwrap on Err` |
-| List, text, or range index out of range | `index out of bounds: index I, length N` |
+| List, text, range, or `Bytes` index out of range | `index out of bounds: index I, length N` |
 | Absent dictionary key | `dictionary key not found`; indexed assignment adds `; use insert to add a new key` |
 | Zero range step, or a range longer than `i64` | `range step cannot be zero`, `range length exceeds i64` |
 | Empty `split` separator | `string split requires a nonempty separator` |

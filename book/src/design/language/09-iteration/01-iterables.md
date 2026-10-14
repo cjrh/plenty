@@ -12,6 +12,7 @@ elements retain their ordinary copy semantics.
 | Set | Element, with no promised order |
 | Range | Integer of the range's element type |
 | String | Unicode scalar value as `str` |
+| [`std.bytes.Bytes`](../../stdlib/bytes.md#index-syntax-and-iteration) | Byte as `u8` |
 | Generator | Declared yielded value |
 
 Consuming list iteration transfers affine elements. `for item in &list`
@@ -27,9 +28,10 @@ Borrowed temporary iterable owners remain alive through the loop and drop
 when its scope exits, including on early exit.
 
 Borrowed dictionary and set iteration yields shared references to keys or
-elements. Borrowed range and string iteration also yields shared references;
-each refers to a computed value in an iteration-local slot and cannot escape
-that iteration. Comparisons and printing observe references uniformly;
+elements. Borrowed range, string, and `Bytes` iteration also yields shared
+references; each refers to a computed value in an iteration-local slot and
+cannot escape that iteration. `for b in &mut buffer` is rejected for `Bytes`;
+write through an index instead. Comparisons and printing observe references uniformly;
 dereference explicitly when passing an element to a function that takes a value
 or storing it in a new collection. Other arithmetic observes numeric references
 as well.

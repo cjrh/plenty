@@ -310,15 +310,15 @@ for x in methods.reversed():
 #[case("for x in reversed():\n    pass", "reversed requires one iterable")]
 #[case(
     "for x in reversed({1, 2}.unwrap()):\n    pass",
-    "requires a list, str, or range"
+    "requires a list, str, range, or Bytes"
 )]
 #[case(
     "for x in reversed({1: 2}.unwrap()):\n    pass",
-    "requires a list, str, or range"
+    "requires a list, str, range, or Bytes"
 )]
 #[case(
     "def flags() -> Generator[bool]:\n    yield True\nfor x in reversed(flags()):\n    pass",
-    "requires a list, str, or range"
+    "requires a list, str, range, or Bytes"
 )]
 #[case("saved = reversed(range(3))", "supported directly in for loops")]
 #[case("mut values = [1].unwrap()\nfor x in reversed(&values):\n    values.append(2).unwrap()\n    print(*x).unwrap()", "borrow")]

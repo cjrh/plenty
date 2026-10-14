@@ -121,7 +121,14 @@ fn prefixed(bytes: &[u8], offset: usize, other: &[u8]) -> bool {
 
 /// Operands are live values of the statically checked signature. A mutable
 /// operation's first operand is exclusively borrowed and never aliases another.
-pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type) -> u128 {
+/// `site` locates indexed access, the only byte operation a correct program
+/// can trap in; null prints the message alone.
+pub(super) unsafe fn call(
+    op: i64,
+    operands: [u128; 5],
+    descriptor: *const Type,
+    site: *const crate::Site,
+) -> u128 {
     let [a, b, c, d, e] = operands;
     // SAFETY: see above; descriptors are process-lifetime compiler metadata.
     unsafe {
@@ -295,6 +302,23 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type)
                 };
                 (within.start + run) as u128
             }
+            237 => {
+                let bytes = storage(a);
+                let within = range(b, c, bytes.len());
+                bytes[within].fill(d as u8);
+                0
+            }
+            // `b[i]` and `b[i] = v`: list index rules, negatives from the end.
+            238 => {
+                let bytes = view(a);
+                bytes[super::index(b as i64, bytes.len(), site)] as u128
+            }
+            239 => {
+                let bytes = storage(a);
+                let index = super::index(b as i64, bytes.len(), site);
+                bytes[index] = c as u8;
+                0
+            }
             248 => {
                 let bytes = storage(a);
                 let within = range(b, c, bytes.len());
@@ -318,7 +342,7 @@ mod tests {
     }
 
     unsafe fn run(op: i64, operands: [u128; 5]) -> u128 {
-        unsafe { call(op, operands, std::ptr::null()) }
+        unsafe { call(op, operands, std::ptr::null(), std::ptr::null()) }
     }
 
     fn bytes(owner: &Owner) -> &[u8] {
@@ -390,6 +414,21 @@ mod tests {
             assert_eq!(run(236, [mixed.0, 0, 6, 1, 0]), 4);
             assert_eq!(run(236, [mixed.0, 5, 6, 1, 0]), 6);
             assert_eq!(run(236, [mixed.0, 0, 3, 1, 0]), 2);
+        }
+    }
+
+    #[test]
+    fn fill_and_indexed_access_follow_list_index_rules() {
+        unsafe {
+            let owner = Owner(from_slice(&[1, 2, 3, 4, 5]).unwrap());
+            assert_eq!(run(237, [owner.0, 1, 4, 9, 0]), 0);
+            assert_eq!(bytes(&owner), [1, 9, 9, 9, 5]);
+            assert_eq!(run(237, [owner.0, 5, 5, 0, 0]), 0);
+            assert_eq!(run(238, [owner.0, 0, 0, 0, 0]), 1);
+            assert_eq!(run(238, [owner.0, -1i64 as u128, 0, 0, 0]), 5);
+            assert_eq!(run(238, [owner.0, -5i64 as u128, 0, 0, 0]), 1);
+            assert_eq!(run(239, [owner.0, -2i64 as u128, 255, 0, 0]), 0);
+            assert_eq!(bytes(&owner), [1, 9, 9, 255, 5]);
         }
     }
 
