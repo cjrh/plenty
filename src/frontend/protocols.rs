@@ -178,7 +178,7 @@ pub(super) fn check(
                     protocol.name
                 ))
             })?;
-        modules::check_member(access, &class.name, name, bound)?;
+        modules::check_member_at(access, &class.name, name, bound, call)?;
         let expected = signature(requirement, &aliases)?;
         if *method != expected {
             return Err(call.error(format!("{actual} does not satisfy {}: signature of `{name}` does not match (including receiver borrowing and return type)", protocol.name)));

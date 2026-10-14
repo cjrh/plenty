@@ -1447,11 +1447,28 @@ pub(super) fn check_member(
     member: &str,
     at: &Token,
 ) -> Result<()> {
+    check_member_at(access, class, member, at, at)
+}
+
+/// Protocol bounds check access in their defining module, but failures belong
+/// to the call that supplied the concrete type, not to the bound declaration.
+pub(super) fn check_member_at(
+    access: &AccessMap,
+    class: &str,
+    member: &str,
+    context: &Token,
+    diagnostic: &Token,
+) -> Result<()> {
     let class = class.split('[').next().unwrap();
     if let Some(rule) = access.members.get(&(class.into(), member.into())) {
-        if !rule.public && rule.owner != at.source {
-            return Err(at.error(format!(
-                "`{class}.{member}` is private to its defining module"
+        if !rule.public && rule.owner != context.source {
+            if access.types.get(class).is_some_and(|ty| !ty.public) {
+                return Err(diagnostic.error(format!(
+                    "class `{class}` is private to its defining module; declare it `pub class` to allow access to its public members from another module, including a generic function defined there"
+                )));
+            }
+            return Err(diagnostic.error(format!(
+                "`{class}.{member}` is private to its defining module; declare the member public to allow access from another module"
             )));
         }
     }

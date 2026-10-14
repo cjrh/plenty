@@ -12,6 +12,99 @@ fn workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
 }
 
 #[test]
+fn generic_protocol_visibility_uses_definition_scope_and_reports_the_call() {
+    for parameterized in [false, true] {
+        let api = if parameterized {
+            "pub protocol Readable[T]:\n    def read(self) -> T:\n        pass\npub def read[T, R: Readable[T]](source: &R) -> T:\n    source.read()\n"
+        } else {
+            "pub protocol Readable:\n    def read(self) -> i64:\n        pass\npub def read[R: Readable](source: &R) -> i64:\n    source.read()\n"
+        };
+        for transitive in [false, true] {
+            for (class_visibility, method_visibility, expected) in [
+                ("", "pub ", "class `Cell` is private"),
+                ("pub ", "", "`Cell.read` is private"),
+                ("pub ", "pub ", ""),
+            ] {
+                let call = if transitive {
+                    "bridge.read"
+                } else {
+                    "api.read"
+                };
+                let main = format!(
+                    "import api\nimport bridge\n{class_visibility}class Cell:\n    value: i64\n    {method_visibility}def read(self) -> i64:\n        self.value\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)\n    print({call}(&cell))?\n    Ok(())\n"
+                );
+                let files = [
+                    ("api.plenty", api),
+                    (
+                        "bridge.plenty",
+                        "import api\npub def read[T](source: &T) -> i64:\n    api.read(source)\n",
+                    ),
+                    ("main.plenty", main.as_str()),
+                ];
+                if expected.is_empty() {
+                    run(&files, "main.plenty", "7\n");
+                } else {
+                    let dir = workspace(&files);
+                    let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+                        .unwrap_err()
+                        .to_string();
+                    assert!(error.contains(expected), "{error}");
+                    assert!(
+                        error.lines().next().unwrap().contains("main.plenty:9:"),
+                        "{error}"
+                    );
+                    assert_eq!(
+                        error.contains("declare it `pub class`"),
+                        class_visibility.is_empty(),
+                        "{error}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn std_io_private_stream_diagnostic_points_to_user_call() {
+    let source = "import std.bytes\nimport std.io\nfrom std.bytes import Bytes, BytesError\nfrom std.io import StreamError\nclass Fake:\n    pub def read(self: &mut Fake, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:\n        Ok(0)\ndef main() -> Result[(), BytesError]:\n    mut fake = Fake()\n    mut buffer = std.bytes.empty()?\n    result = std.io.read_exact(&mut fake, &mut buffer, 0, 0)\n    Ok(())\n";
+    let dir = workspace(&[("main.plenty", source)]);
+    let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.starts_with(&format!("{}:11:", dir.path().join("main.plenty").display())),
+        "{error}"
+    );
+    assert!(error.contains("class `Fake` is private"), "{error}");
+    assert!(error.contains("declare it `pub class`"), "{error}");
+    let public = source.replace("class Fake:", "pub class Fake:");
+    let dir = workspace(&[("main.plenty", &public)]);
+    plenty::check_file(&dir.path().join("main.plenty"), None).unwrap();
+}
+
+#[test]
+fn unconstrained_generic_bodies_keep_private_access_lexical() {
+    for (visibility, operation, expected) in [
+        ("", "source.read()", "class `Cell` is private"),
+        ("pub ", "source.hidden()", "`Cell.hidden` is private"),
+        ("pub ", "source.value", "`Cell.value` is private"),
+    ] {
+        let api = format!("pub def read[T](source: &T) -> i64:\n    {operation}\n");
+        let main = format!("import api\n{visibility}class Cell:\n    value: i64\n    pub def read(self) -> i64:\n        self.value\n    def hidden(self) -> i64:\n        self.value\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)\n    print(api.read(&cell))?\n    Ok(())\n");
+        let dir = workspace(&[("api.plenty", &api), ("main.plenty", &main)]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{error}");
+        assert!(
+            error.lines().next().unwrap().contains("main.plenty:10:"),
+            "{error}"
+        );
+    }
+    run(&[("main.plenty", "protocol Readable:\n    def read(self) -> i64:\n        pass\nclass Cell:\n    value: i64\n    def read(self) -> i64:\n        self.value\ndef read[T: Readable](source: &T) -> i64:\n    source.read()\ndef main() -> Result[(), Failure]:\n    cell = Cell(7)\n    print(read(&cell))?\n    Ok(())\n")], "main.plenty", "7\n");
+}
+
+#[test]
 fn structural_aliases_allow_forward_enums_and_preserve_managed_payloads() {
     run(
         &[(

@@ -724,7 +724,13 @@ impl Engine {
                     .collect();
                 substitutions.insert(protocol.name.clone(), type_ref(&actual, at));
                 for requirement in &protocol.methods {
-                    modules::check_member(access, &class.name, &requirement.name, &bound.at)?;
+                    modules::check_member_at(
+                        access,
+                        &class.name,
+                        &requirement.name,
+                        &bound.at,
+                        at,
+                    )?;
                     let (inputs, output) = self
                         .methods
                         .get(&crate::record::method(&class.name, &requirement.name))
