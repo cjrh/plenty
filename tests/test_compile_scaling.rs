@@ -1,16 +1,21 @@
 //! Checking time must grow linearly with the number of declarations. Each
 //! declaration shape below once copied a whole-program table per declaration
 //! (issue #53). The arms of one `if` must cost the same each (issue #70).
+//! Imported modules must not add a whole-program pass per function (issue #57).
 
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 fn fastest(source: &str) -> Duration {
+    fastest_with(|| plenty::check_source(source))
+}
+
+fn fastest_with(check: impl Fn() -> Result<(), Box<dyn std::error::Error>>) -> Duration {
     // The minimum of a few runs discards scheduling noise from parallel tests.
     (0..3)
         .map(|_| {
             let start = Instant::now();
-            plenty::check_source(source).unwrap_or_else(|error| panic!("{error}"));
+            check().unwrap_or_else(|error| panic!("{error}"));
             start.elapsed()
         })
         .min()
@@ -60,6 +65,37 @@ fn checking_functions_is_linear() {
     assert_linear("functions", |i| {
         format!("def work{i}(x: i64) -> i64:\n    x + {i}\n\n")
     });
+}
+
+/// Standard library modules declare protocols, tail calls and threads, which
+/// enable whole-program checks that a program without imports skips.
+#[test]
+fn checking_functions_with_imports_is_linear() {
+    const UNITS: usize = 1500;
+    let workspace = tempfile::tempdir().unwrap();
+    let write = |units: usize| {
+        let mut source =
+            String::from("import std.json\nimport std.math\nimport std.collections\n\n");
+        for i in 0..units {
+            source.push_str(&format!(
+                "def work{i}(x: i64) -> i64:\n    if x > 0:\n        return work{i}(x - 1)\n    x + {i}\n\n"
+            ));
+        }
+        source.push_str("def main() -> ():\n    pass\n");
+        let path = workspace.path().join(format!("main{units}.plenty"));
+        std::fs::write(&path, source).unwrap();
+        path
+    };
+    let (small, large) = (write(UNITS), write(UNITS * 4));
+    let measuring = MEASURING.lock().unwrap_or_else(PoisonError::into_inner);
+    let small = fastest_with(|| plenty::check_file(&small, None));
+    let large = fastest_with(|| plenty::check_file(&large, None));
+    drop(measuring);
+    assert!(
+        large < small * 8,
+        "functions with imports: {UNITS} units took {small:?}, {} took {large:?}",
+        UNITS * 4
+    );
 }
 
 #[test]

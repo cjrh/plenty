@@ -72,3 +72,20 @@ fn constraints_check_every_required_method_and_exact_signature() {
         assert!(support::check_source(source).is_err(), "{source}");
     }
 }
+
+#[test]
+fn protocol_names_conflict_with_functions_and_templates() {
+    let protocol = "protocol Readable:\n    def read(self) -> i64:\n        pass\n";
+    for function in [
+        "def Readable() -> i64:\n    1\n",
+        "def Readable[T](x: T) -> T:\n    x\n",
+    ] {
+        let error = support::check_source(&format!("{protocol}{function}"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("protocol `Readable` is already defined or conflicts"),
+            "{error}"
+        );
+    }
+}

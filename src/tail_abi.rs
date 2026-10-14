@@ -2,7 +2,6 @@
 //! describes representations, not whether a reference outlives the current frame.
 use crate::op::{CompiledFn, ElifArm, FnSig, MatchArm, Op, Ty};
 use cranelift_codegen::ir::{types, Type};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -114,167 +113,195 @@ pub(crate) fn classify(caller: &FnSig, callee: &FnSig) -> Result<TailCallPlan, T
     Ok(TailCallPlan { layout })
 }
 
+/// The signature of a function by name, for the callee of a tail call.
+pub(crate) type Signatures<'a> = dyn Fn(&str) -> Option<Arc<FnSig>> + 'a;
+
 /// Make ordinary fallbacks explicit before native lowering. This runs after the
 /// original operation/loan check, so cleanup insertion cannot hide a loan use.
 ///
-/// Most bodies need no fallback. Those are shared with `ops`, not copied, and
-/// a program without any fallback is returned borrowed: a full copy of every
-/// body was a quarter of the compiler's peak memory (issue #54).
-pub(crate) fn prepare(ops: &[Op]) -> Cow<'_, [Op]> {
-    /// Keys and signatures borrow from `ops`: nothing is copied per function.
-    type Sigs<'a> = HashMap<&'a str, &'a Arc<FnSig>>;
-    fn collect<'a>(ops: &'a [Op], sigs: &mut Sigs<'a>) {
-        for op in ops {
-            match op {
+/// Bodies are rewritten in place. Most need no fallback and keep their shared
+/// operations: a full copy of every body was a quarter of the compiler's peak
+/// memory (issue #54), and a copy of every later definition after the first
+/// fallback cost time per function (issue #57).
+pub(crate) fn prepare(ops: &mut [Op]) {
+    let mut table: HashMap<&str, &Arc<FnSig>> = HashMap::with_capacity(ops.len());
+    collect(ops, &mut table);
+    let signatures = |name: &str| table.get(name).map(|sig| Arc::clone(sig));
+    // Signatures borrow from `ops`, so the rewrites are applied afterwards.
+    let rewrites: Vec<(usize, Op)> = ops
+        .iter()
+        .enumerate()
+        .filter_map(|(index, op)| {
+            let rewritten = match op {
                 Op::DefineFn(name, f) => {
-                    sigs.insert(name, &f.sig);
-                    collect(&f.body, sigs);
-                }
-                Op::Match(arms) => {
-                    for arm in arms.iter() {
-                        collect(&arm.body, sigs);
-                    }
-                }
-                Op::Loop { condition, body } => {
-                    collect(condition, sigs);
-                    collect(body, sigs);
-                }
-                Op::If {
-                    then,
-                    elifs,
-                    otherwise,
-                } => {
-                    collect(then, sigs);
-                    for arm in elifs.iter() {
-                        collect(&arm.condition, sigs);
-                        collect(&arm.body, sigs);
-                    }
-                    collect(otherwise, sigs);
-                }
-                _ => {}
-            }
-        }
-    }
-    /// The rewritten nested body, or the shared original when nothing changed.
-    fn shared(
-        nested: &Arc<[Op]>,
-        caller: Option<&CompiledFn>,
-        sigs: &Sigs<'_>,
-        changed: &mut bool,
-    ) -> Arc<[Op]> {
-        match body(nested, caller, sigs) {
-            Some(rewritten) => {
-                *changed = true;
-                rewritten.into()
-            }
-            None => Arc::clone(nested),
-        }
-    }
-    /// `None` means that no operation in `ops` changes. The result starts as a
-    /// copy of the operations before the first change.
-    fn body(ops: &[Op], caller: Option<&CompiledFn>, sigs: &Sigs<'_>) -> Option<Vec<Op>> {
-        let mut result: Option<Vec<Op>> = None;
-        for (index, op) in ops.iter().enumerate() {
-            let mut changed = false;
-            let nested = match op {
-                Op::DefineFn(name, f) => body(&f.body, Some(f), sigs).map(|rewritten| {
                     let mut f = f.clone();
-                    f.body = rewritten.into();
+                    f.body = prepare_function(&f, &signatures)?.into();
                     Op::DefineFn(name.clone(), f)
-                }),
-                Op::Match(arms) => {
-                    let rewritten: Arc<[MatchArm]> = arms
-                        .iter()
-                        .map(|arm| MatchArm {
-                            pattern: arm.pattern,
-                            body: shared(&arm.body, caller, sigs, &mut changed),
-                        })
-                        .collect();
-                    changed.then_some(Op::Match(rewritten))
                 }
-                Op::Loop {
-                    condition,
-                    body: nested,
-                } => {
-                    let condition = shared(condition, caller, sigs, &mut changed);
-                    let body = shared(nested, caller, sigs, &mut changed);
-                    changed.then_some(Op::Loop { condition, body })
+                op => body(std::slice::from_ref(op), None, &signatures)?.pop()?,
+            };
+            Some((index, rewritten))
+        })
+        .collect();
+    drop(table);
+    for (index, op) in rewrites {
+        ops[index] = op;
+    }
+}
+
+/// The body of `f` with its fallbacks made explicit, or `None` when it needs
+/// none. This is the normalization [`prepare`] applies to each definition.
+pub(crate) fn prepare_function(f: &CompiledFn, signatures: &Signatures<'_>) -> Option<Vec<Op>> {
+    body(&f.body, Some(f), signatures)
+}
+
+/// Signatures of every definition in `ops`, nested ones included. Keys and
+/// signatures borrow from `ops`: nothing is copied per function.
+fn collect<'a>(ops: &'a [Op], sigs: &mut HashMap<&'a str, &'a Arc<FnSig>>) {
+    for op in ops {
+        match op {
+            Op::DefineFn(name, f) => {
+                sigs.insert(name, &f.sig);
+                collect(&f.body, sigs);
+            }
+            Op::Match(arms) => {
+                for arm in arms.iter() {
+                    collect(&arm.body, sigs);
                 }
-                Op::If {
+            }
+            Op::Loop { condition, body } => {
+                collect(condition, sigs);
+                collect(body, sigs);
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                collect(then, sigs);
+                for arm in elifs.iter() {
+                    collect(&arm.condition, sigs);
+                    collect(&arm.body, sigs);
+                }
+                collect(otherwise, sigs);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The rewritten nested body, or the shared original when nothing changed.
+fn shared(
+    nested: &Arc<[Op]>,
+    caller: Option<&CompiledFn>,
+    sigs: &Signatures<'_>,
+    changed: &mut bool,
+) -> Arc<[Op]> {
+    match body(nested, caller, sigs) {
+        Some(rewritten) => {
+            *changed = true;
+            rewritten.into()
+        }
+        None => Arc::clone(nested),
+    }
+}
+
+/// `None` means that no operation in `ops` changes. The result starts as a
+/// copy of the operations before the first change.
+fn body(ops: &[Op], caller: Option<&CompiledFn>, sigs: &Signatures<'_>) -> Option<Vec<Op>> {
+    let mut result: Option<Vec<Op>> = None;
+    for (index, op) in ops.iter().enumerate() {
+        let mut changed = false;
+        let nested = match op {
+            Op::DefineFn(name, f) => body(&f.body, Some(f), sigs).map(|rewritten| {
+                let mut f = f.clone();
+                f.body = rewritten.into();
+                Op::DefineFn(name.clone(), f)
+            }),
+            Op::Match(arms) => {
+                let rewritten: Arc<[MatchArm]> = arms
+                    .iter()
+                    .map(|arm| MatchArm {
+                        pattern: arm.pattern,
+                        body: shared(&arm.body, caller, sigs, &mut changed),
+                    })
+                    .collect();
+                changed.then_some(Op::Match(rewritten))
+            }
+            Op::Loop {
+                condition,
+                body: nested,
+            } => {
+                let condition = shared(condition, caller, sigs, &mut changed);
+                let body = shared(nested, caller, sigs, &mut changed);
+                changed.then_some(Op::Loop { condition, body })
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                let then = shared(then, caller, sigs, &mut changed);
+                let elifs = elifs
+                    .iter()
+                    .map(|arm| ElifArm {
+                        condition: shared(&arm.condition, caller, sigs, &mut changed),
+                        body: shared(&arm.body, caller, sigs, &mut changed),
+                    })
+                    .collect();
+                let otherwise = shared(otherwise, caller, sigs, &mut changed);
+                changed.then_some(Op::If {
                     then,
                     elifs,
                     otherwise,
-                } => {
-                    let then = shared(then, caller, sigs, &mut changed);
-                    let elifs = elifs
-                        .iter()
-                        .map(|arm| ElifArm {
-                            condition: shared(&arm.condition, caller, sigs, &mut changed),
-                            body: shared(&arm.body, caller, sigs, &mut changed),
-                        })
-                        .collect();
-                    let otherwise = shared(otherwise, caller, sigs, &mut changed);
-                    changed.then_some(Op::If {
-                        then,
-                        elifs,
-                        otherwise,
-                    })
-                }
-                _ => None,
-            };
-            let callee = match op {
-                Op::TailCall(name) => sigs.get(name.as_str()).map(|sig| Arc::clone(sig)),
-                Op::TailCallIndirect(sig) => Some(Arc::new(sig.function())),
-                _ => None,
-            };
-            if let (Some(caller), Some(callee)) = (caller, callee) {
-                // ABI compatibility alone cannot authorize removing a frame
-                // that an argument might borrow. Only the frontend's fact
-                // does: without it, a reference may point at a caller local.
-                let previous = match &result {
-                    Some(result) => result.last(),
-                    None => index.checked_sub(1).map(|previous| &ops[previous]),
-                };
-                let forwards = matches!(previous, Some(Op::ForwardsReferences));
-                let borrowed =
-                    !forwards && callee.inputs.iter().any(|(_, ty)| ty.contains_reference());
-                if classify(&caller.sig, &callee).is_err() || borrowed {
-                    let result = result.get_or_insert_with(|| ops[..index].to_vec());
-                    if !borrowed {
-                        // Keep the fact next to its call, after the cleanup.
-                        if forwards {
-                            result.pop();
-                        }
-                        let count = caller.sig.inputs.len() + caller.locals.len();
-                        result.extend((0..count).rev().map(|i| Op::DropLocal(i as u8)));
-                        if forwards {
-                            result.push(Op::ForwardsReferences);
-                        }
-                    }
-                    result.push(match op {
-                        Op::TailCall(name) => Op::Call(name.clone()),
-                        Op::TailCallIndirect(sig) => Op::CallIndirect(sig.clone()),
-                        _ => unreachable!(),
-                    });
-                    result.push(Op::Return);
-                    continue;
-                }
+                })
             }
-            if let Some(op) = nested {
-                result.get_or_insert_with(|| ops[..index].to_vec()).push(op);
-            } else if let Some(result) = &mut result {
-                result.push(op.clone());
+            _ => None,
+        };
+        let callee = match op {
+            Op::TailCall(name) => sigs(name),
+            Op::TailCallIndirect(sig) => Some(Arc::new(sig.function())),
+            _ => None,
+        };
+        if let (Some(caller), Some(callee)) = (caller, callee) {
+            // ABI compatibility alone cannot authorize removing a frame
+            // that an argument might borrow. Only the frontend's fact
+            // does: without it, a reference may point at a caller local.
+            let previous = match &result {
+                Some(result) => result.last(),
+                None => index.checked_sub(1).map(|previous| &ops[previous]),
+            };
+            let forwards = matches!(previous, Some(Op::ForwardsReferences));
+            let borrowed = !forwards && callee.inputs.iter().any(|(_, ty)| ty.contains_reference());
+            if classify(&caller.sig, &callee).is_err() || borrowed {
+                let result = result.get_or_insert_with(|| ops[..index].to_vec());
+                if !borrowed {
+                    // Keep the fact next to its call, after the cleanup.
+                    if forwards {
+                        result.pop();
+                    }
+                    let count = caller.sig.inputs.len() + caller.locals.len();
+                    result.extend((0..count).rev().map(|i| Op::DropLocal(i as u8)));
+                    if forwards {
+                        result.push(Op::ForwardsReferences);
+                    }
+                }
+                result.push(match op {
+                    Op::TailCall(name) => Op::Call(name.clone()),
+                    Op::TailCallIndirect(sig) => Op::CallIndirect(sig.clone()),
+                    _ => unreachable!(),
+                });
+                result.push(Op::Return);
+                continue;
             }
         }
-        result
+        if let Some(op) = nested {
+            result.get_or_insert_with(|| ops[..index].to_vec()).push(op);
+        } else if let Some(result) = &mut result {
+            result.push(op.clone());
+        }
     }
-    // Nearly every top-level operation defines a function.
-    let mut sigs = HashMap::with_capacity(ops.len());
-    collect(ops, &mut sigs);
-    match body(ops, None, &sigs) {
-        Some(rewritten) => Cow::Owned(rewritten),
-        None => Cow::Borrowed(ops),
-    }
+    result
 }
 
 #[cfg(test)]
@@ -349,7 +376,8 @@ mod tests {
         let mut heap = crate::value::Heap::default();
         let program = crate::frontend::compile(source, &mut heap).unwrap();
         crate::op::check(&program.ops).unwrap();
-        let ops = prepare(&program.ops);
+        let mut ops = program.ops;
+        prepare(&mut ops);
         let function = |name: &str| {
             ops.iter()
                 .find_map(|op| match op {
@@ -380,7 +408,8 @@ mod tests {
                 })
                 .unwrap()
         };
-        let prepared = prepare(&program.ops);
+        let mut prepared = program.ops.clone();
+        prepare(&mut prepared);
         assert!(matches!(
             body(&prepared, "forwards")[..],
             [.., Op::ForwardsReferences, Op::TailCall(_)]
@@ -399,7 +428,7 @@ mod tests {
         ));
         // Without the fact the reference may point at a caller local, so the
         // locals are dropped only by the return.
-        let unproven: Vec<Op> = program
+        let mut unproven: Vec<Op> = program
             .ops
             .iter()
             .map(|op| match op {
@@ -416,13 +445,14 @@ mod tests {
                 op => op.clone(),
             })
             .collect();
-        let forwards = body(&prepare(&unproven), "forwards");
+        prepare(&mut unproven);
+        let forwards = body(&unproven, "forwards");
         assert!(matches!(forwards[..], [.., Op::Call(_), Op::Return]));
         assert!(!forwards.iter().any(|op| matches!(op, Op::DropLocal(_))));
     }
 
     /// Copying every body here was a quarter of the compiler's peak memory
-    /// (issue #54).
+    /// (issue #54); copying every later definition cost time (issue #57).
     #[test]
     fn only_a_body_with_a_fallback_is_copied() {
         let source = "def consume(r: range[i64]) -> i64:\n    len(r)\ndef fallback(r: range[i64]) -> i64:\n    consume(r)\ndef result(n: i64) -> range[i64]:\n    result(n)\ndef main() -> ():\n    pass\n";
@@ -436,15 +466,19 @@ mod tests {
                 })
                 .unwrap()
         };
-        let prepared = prepare(&program.ops);
-        for (name, shared) in [("result", true), ("consume", true), ("fallback", false)] {
+        let mut prepared = program.ops.clone();
+        prepare(&mut prepared);
+        for (name, shared) in [
+            ("result", true),
+            ("consume", true),
+            ("fallback", false),
+            ("main", true),
+        ] {
             assert_eq!(
                 Arc::ptr_eq(&body(&prepared, name), &body(&program.ops, name)),
                 shared,
                 "{name}"
             );
         }
-        let program = crate::frontend::compile("def main() -> ():\n    pass\n", &mut heap).unwrap();
-        assert!(matches!(prepare(&program.ops), Cow::Borrowed(_)));
     }
 }

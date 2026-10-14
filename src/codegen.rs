@@ -310,18 +310,14 @@ fn object_bytes(
 /// release each function's operations once its code is built, rather than hold
 /// them all until the last function is (issue #54).
 fn object_module(
-    ops: Vec<Op>,
+    mut ops: Vec<Op>,
     heap: &Heap,
     entry: Option<bool>,
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
     workers: usize,
 ) -> Result<Output> {
-    let rewritten = match crate::tail_abi::prepare(&ops) {
-        std::borrow::Cow::Owned(rewritten) => Some(rewritten),
-        std::borrow::Cow::Borrowed(_) => None,
-    };
-    let mut ops = rewritten.unwrap_or(ops);
+    crate::tail_abi::prepare(&mut ops);
     let targets = output::Targets {
         ordinary: host_isa()?,
         single_pass: target_isa("single_pass")?,

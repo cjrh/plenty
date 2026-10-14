@@ -198,61 +198,92 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
     if generics.tail_candidates.is_empty() {
         return Ok(());
     }
+    // Every definition by name. Generators are not part of the call graph,
+    // but their signatures are visible to the normalization below.
+    let mut definitions: HashMap<&str, usize> = HashMap::with_capacity(ops.len());
+    for (index, op) in ops.iter().enumerate() {
+        if let Op::DefineFn(name, _) = op {
+            definitions.insert(name, index);
+        }
+    }
+    let function_at = |index: usize| match &ops[index] {
+        Op::DefineFn(name, function) => (name.as_str(), &**function),
+        _ => unreachable!("definitions index function definitions"),
+    };
+    let node = |name: &str| {
+        definitions
+            .get(name)
+            .copied()
+            .filter(|&index| function_at(index).1.generator.is_none())
+    };
+    let mut callers: Vec<usize> = generics
+        .tail_candidates
+        .keys()
+        .filter_map(|name| node(name))
+        .collect();
+    // Report the first failure in program order, whatever the table order.
+    callers.sort_unstable();
+    // A candidate is checked only when its callee is in the caller's
+    // recursion cycle, and a cycle lies within what the caller reaches. Only
+    // that part of the call graph is built: walking every body cost time per
+    // function in every program that imports a module with a tail call
+    // (issue #57).
+    let mut nodes: Vec<usize> = Vec::new();
+    let mut local: HashMap<usize, usize> = HashMap::new();
+    for &caller in &callers {
+        if let std::collections::hash_map::Entry::Vacant(entry) = local.entry(caller) {
+            entry.insert(nodes.len());
+            nodes.push(caller);
+        }
+    }
+    let mut graph: Vec<Vec<usize>> = Vec::new();
+    while graph.len() < nodes.len() {
+        let mut edges = Vec::new();
+        crate::threading::walk(&function_at(nodes[graph.len()]).1.body, &mut |op| {
+            if let Op::Call(name) | Op::TailCall(name) = op {
+                if let Some(index) = node(name) {
+                    let next = nodes.len();
+                    edges.push(*local.entry(index).or_insert_with(|| {
+                        nodes.push(index);
+                        next
+                    }));
+                }
+            }
+        });
+        edges.sort_unstable();
+        edges.dedup();
+        graph.push(edges);
+    }
+    let components = components(&graph);
     // This is the same normalization codegen consumes. A raw TailCall marker
     // alone does not prove that its reference/storage transfer was approved.
-    let prepared = crate::tail_abi::prepare(ops);
-    let mut prepared_functions = HashMap::with_capacity(generics.tail_candidates.len());
-    prepared_functions.extend(prepared.iter().filter_map(|op| match op {
-        Op::DefineFn(name, function) if generics.tail_candidates.contains_key(name) => {
-            Some((name.as_str(), function))
-        }
-        _ => None,
-    }));
-    let functions: Vec<_> = ops
-        .iter()
-        .filter_map(|op| match op {
-            Op::DefineFn(name, function) if function.generator.is_none() => {
-                Some((name.as_str(), function))
-            }
-            _ => None,
-        })
-        .collect();
-    let indices: HashMap<_, _> = functions
-        .iter()
-        .enumerate()
-        .map(|(index, (name, _))| (*name, index))
-        .collect();
-    let graph: Vec<Vec<usize>> = functions
-        .iter()
-        .map(|(_, function)| {
-            let mut edges = Vec::new();
-            crate::threading::walk(&function.body, &mut |op| {
-                if let Op::Call(name) | Op::TailCall(name) = op {
-                    if let Some(index) = indices.get(name.as_str()) {
-                        edges.push(*index);
-                    }
-                }
-            });
-            edges.sort_unstable();
-            edges.dedup();
-            edges
-        })
-        .collect();
-    let components = components(&graph);
-    for (caller_index, (name, function)) in functions.iter().enumerate() {
-        let Some(candidates) = generics.tail_candidates.get(*name) else {
-            continue;
-        };
+    let signatures = |name: &str| {
+        definitions
+            .get(name)
+            .map(|&index| Arc::clone(&function_at(index).1.sig))
+    };
+    for caller in callers {
+        let (name, function) = function_at(caller);
+        let candidates = &generics.tail_candidates[name];
+        let caller_index = local[&caller];
+        let prepared = crate::tail_abi::prepare_function(function, &signatures);
         let mut native = HashSet::new();
-        tail_sites(&prepared_functions[name].body, None, &mut native);
+        tail_sites(
+            prepared.as_deref().unwrap_or(&function.body),
+            None,
+            &mut native,
+        );
         for candidate in candidates {
-            let Some(&callee_index) = indices.get(candidate.callee.as_str()) else {
+            let Some(callee) = node(&candidate.callee) else {
+                continue;
+            };
+            let Some(&callee_index) = local.get(&callee) else {
                 continue;
             };
             if components[caller_index] != components[callee_index] {
                 continue;
             }
-            let reason = crate::tail_abi::classify(&function.sig, &functions[callee_index].1.sig)
+            let reason = crate::tail_abi::classify(&function.sig, &function_at(callee).1.sig)
                 .err()
                 .map(|reason| reason.to_string())
                 .or_else(|| {
@@ -273,7 +304,7 @@ pub(super) fn validate(ops: &[Op], generics: &generics::Engine) -> Result<()> {
                     )
                 };
                 let message = format!("recursive call to `{}`{cycle} is in tail position but cannot be a tail call: {reason}", generics.diagnostic_name(&candidate.callee));
-                return Err(match generics.required.get(*name) {
+                return Err(match generics.required.get(name) {
                     Some(required) => required
                         .report(&format!("{}: ", candidate.at.location()), &message)
                         .into(),
