@@ -827,7 +827,7 @@ impl Lower<'_> {
             let arguments: Vec<_> = std::iter::once(receiver)
                 .chain(args.iter().cloned())
                 .collect();
-            return self.generic_call(&callee, types, &arguments, &base.at, ops);
+            return self.generic_method_call(&callee, types, &arguments, &base.at, ops);
         }
         if types.is_some() {
             return Err(base.at.error(format!("`{name}` is not a generic method")));
@@ -851,8 +851,15 @@ impl Lower<'_> {
         };
         let (reference, loan) = self.borrow(base, *mutable, ops)?;
         self.unbox_reference(reference, ops);
+        if *mutable {
+            self.reserve_receiver(loan, ops);
+        }
         let mut loans = vec![loan];
         loans.extend(self.call_arguments(args, &sig.inputs[1..], ops)?);
+        if *mutable {
+            self.mark(&base.at, ops);
+            loans[0] = self.activate_receiver(loan, ops);
+        }
         self.record_direct_call(&callee, &base.at, &loans, ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&callee, &sig, &loans, ops);
@@ -868,7 +875,7 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if let Some(Ty::Class(class)) = self.place_type(base) {
+        if let Some(Ty::Class(class)) = self.place_type(base).map(unbox) {
             return self.class_method(base, class, name, Some(types), args, ops);
         }
         let observed = self.observe(base, ops)?;

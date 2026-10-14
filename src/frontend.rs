@@ -3296,6 +3296,16 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        self.call_named_with_receiver(name, args, at, false, ops)
+    }
+    fn call_named_with_receiver(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        at: &Token,
+        method: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
         self.sync_data()?;
         if self.generics.templates.contains_key(name) {
             return self.generic_call(name, None, args, at, ops);
@@ -3305,7 +3315,7 @@ impl Lower<'_> {
             .get(name)
             .is_some_and(|s| s.inputs.iter().any(|(_, t)| t.unresolved_generator()))
         {
-            return self.frame_call(name, args, at, ops);
+            return self.frame_call_with_receiver(name, args, at, method, ops);
         }
         self.ensure_concrete_output(name, at)?;
         let sig = self
@@ -3325,7 +3335,17 @@ impl Lower<'_> {
                 at.error("legacy multi-result functions cannot be called from modern Plenty")
             );
         }
-        let argument_loans = self.call_arguments(args, &sig.inputs, ops)?;
+        let argument_loans = if method && matches!(sig.inputs.first(), Some((_, Ty::Ref(_, true))))
+        {
+            let mut loans = self.call_arguments(&args[..1], &sig.inputs[..1], ops)?;
+            self.reserve_receiver(loans[0], ops);
+            loans.extend(self.call_arguments(&args[1..], &sig.inputs[1..], ops)?);
+            self.mark(at, ops);
+            loans[0] = self.activate_receiver(loans[0], ops);
+            loans
+        } else {
+            self.call_arguments(args, &sig.inputs, ops)?
+        };
         self.record_direct_call(name, at, &argument_loans, ops);
         self.push_call(Op::Call(name.to_owned()), &sig.inputs, &argument_loans, ops);
         self.call_reference_result(name, &sig, &argument_loans, ops);

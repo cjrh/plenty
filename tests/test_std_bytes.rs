@@ -256,7 +256,7 @@ fn growth_mutation_and_movement_are_rejected_while_a_view_is_live() {
     );
     check(
         "mut buffer = std.bytes.from_text(\"abc\")?\nbuffer.extend(&buffer)?",
-        "cannot read or borrow `buffer` while it is exclusively borrowed",
+        modify,
     );
     check(
         "buffer = std.bytes.from_text(\"abc\")?\nbuffer.push(1u8)?",

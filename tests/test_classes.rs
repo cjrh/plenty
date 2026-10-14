@@ -426,8 +426,13 @@ print(n).unwrap()
 print(other).unwrap()
 "#;
     run(source, "6\n2\n");
+    // The argument's last shared use finishes before receiver activation.
+    run(
+        &format!("{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x)\nprint(p.x).unwrap()"),
+        "2\n",
+    );
     reject(
-        &format!("{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x)"),
+        &format!("{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x)\nprint(r.x).unwrap()"),
         "conflicting borrow",
     );
 }

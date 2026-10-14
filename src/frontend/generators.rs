@@ -267,11 +267,12 @@ impl Lower<'_> {
         Ok(symbol)
     }
 
-    pub(super) fn frame_call(
+    pub(super) fn frame_call_with_receiver(
         &mut self,
         name: &str,
         args: &[Expr],
         at: &Token,
+        method: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let signature = self.sigs[name].clone();
@@ -284,7 +285,8 @@ impl Lower<'_> {
         }
         let mut actual = Vec::new();
         let mut loans = Vec::new();
-        for (arg, (_, expected)) in args.iter().zip(&signature.inputs) {
+        let mut reservation = None;
+        for (index, (arg, (_, expected))) in args.iter().zip(&signature.inputs).enumerate() {
             let ty = if let Ty::Ref(inner, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
                 loans.push(loan);
@@ -301,9 +303,17 @@ impl Lower<'_> {
                 return Err(arg.at.error("cannot infer a concrete generator argument; pass a value with a known producer"));
             }
             actual.push(ty);
+            if method && index == 0 && matches!(actual[0], Ty::Ref(_, true)) {
+                reservation = Some(loans[0]);
+                self.reserve_receiver(loans[0], ops);
+            }
         }
         let symbol = self.specialize_frames(name, actual, at)?;
         let sig = self.sigs[&symbol].clone();
+        if let Some(loan) = reservation {
+            self.mark(at, ops);
+            loans[0] = self.activate_receiver(loan, ops);
+        }
         self.record_direct_call(&symbol, at, &loans, ops);
         self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&symbol, &sig, &loans, ops);
