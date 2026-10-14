@@ -526,6 +526,32 @@ print(runs, mismatches)?
 }
 
 #[test]
+fn lines_inside_quoted_fields_are_counted_the_same_for_every_buffer_size() {
+    // CR, LF and CRLF each count once, wherever the buffer boundary falls.
+    native(
+        r#"
+text = "\"a\r\nb\rc\nd\r\re\n\nf\n\rg\r\n\"\r\n\"\r\"\"\n\"\r\nx,\"\n\",y\r\nz"
+mut lines = 0
+mut starts = 0
+mut mismatches = 0
+for capacity in range(1, 40):
+    mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), &loose(), capacity)?
+    mut record = std.csv.record()?
+    mut seen = 0
+    while input.read(&mut record)?:
+        seen = seen * 100 + record.line()
+    if capacity == 1:
+        lines = input.line()
+        starts = seen
+    elif input.line() != lines or seen != starts:
+        mismatches += 1
+print(lines, starts, mismatches)?
+"#,
+        "17 1121517 0",
+    );
+}
+
+#[test]
 fn fields_are_read_as_ranges_copies_or_validated_text() {
     native(
         r#"

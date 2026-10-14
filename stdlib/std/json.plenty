@@ -250,8 +250,39 @@ def push_scalar(target: &mut Bytes, code: i64) -> Result[(), JsonFault]:
     push_byte(target, 128 | ((code >> 6) & 63))?
     push_byte(target, 128 | (code & 63))
 
-# A byte-at-a-time recognizer whose whole state lives in these fields, so
-# input may stop and resume between any two bytes. `_window` holds input not
+# The bytes in [low, high) other than a quotation mark and a reverse solidus.
+def byte_set(low: i64, high: i64, target: &mut Bytes) -> Result[(), JsonFault]:
+    for value in range(low, high):
+        if value != 34 and value != 92:
+            push_byte(target, value)?
+    Ok(())
+
+# String content that is copied unchanged: ASCII from space upward, less the
+# two bytes that end the run.
+def plain_bytes() -> Result[Bytes, JsonFault]:
+    mut set = faulted(std.bytes.with_capacity(96))?
+    byte_set(32, 128, &mut set)?
+    Ok(set)
+
+# The bytes an encoded string must escape.
+def escaped_bytes() -> Result[Bytes, JsonFault]:
+    mut set = faulted(std.bytes.with_capacity(34))?
+    byte_set(0, 32, &mut set)?
+    push_byte(&mut set, 34)?
+    push_byte(&mut set, 92)?
+    Ok(set)
+
+# The first index in [start, stop) that `found` located, or `stop`.
+def run_end(found: Result[Option[i64], BytesError], stop: i64) -> Result[i64, JsonFault]:
+    match faulted(found)?:
+        case Some(index):
+            Ok(index)
+        case Nothing:
+            Ok(stop)
+
+# A recognizer whose whole state lives in these fields, so input may stop and
+# resume between any two bytes. It examines one byte at a time, except that a
+# run of plain string content is taken in one step. `_window` holds input not
 # yet examined; `_scratch` holds the decoded content of the current token;
 # `_stack` holds one byte per open container.
 pub class Decoder:
@@ -268,6 +299,7 @@ pub class Decoder:
     _token_column: i64
     _stack: Bytes
     _scratch: Bytes
+    _plain: Bytes
     _expect: i64
     _mode: i64
     _is_key: bool
@@ -531,8 +563,18 @@ pub class Decoder:
             self._utf8_low = low
             self._utf8_high = high
             self._mode = mode_utf8
-        push_byte(&mut self._scratch, byte)?
-        self.bump(byte)
+            push_byte(&mut self._scratch, byte)?
+            self.bump(byte)
+            return Ok(Nothing)
+        # Plain content: one scan and one copy for the whole run. Each byte is
+        # one column, and none is a line feed.
+        available = self._window.len()
+        stop = run_end(self._window.find_not_in(&self._plain, self._at, available), available)?
+        faulted(self._scratch.extend_range(&self._window, self._at, stop))?
+        count = stop - self._at
+        self._at = stop
+        self._offset += count
+        self._column += count
         Ok(Nothing)
 
     def continuation(self: &mut Decoder, byte: i64) -> Result[(), JsonFault]:
@@ -662,7 +704,8 @@ pub def decoder(bounds: &Limits) -> Result[Decoder, JsonError]:
     window = unplaced(faulted(std.bytes.empty()))?
     stack = unplaced(faulted(std.bytes.empty()))?
     scratch = unplaced(faulted(std.bytes.empty()))?
-    Ok(Decoder(window, 0, 0, False, False, 0, 1, 1, 0, 1, 1, stack, scratch, expect_value, mode_none, False, 0, 0, 0, 0, 0, 0, 0, 0, 0, bounds.max_depth, bounds.max_input))
+    plain = unplaced(plain_bytes())?
+    Ok(Decoder(window, 0, 0, False, False, 0, 1, 1, 0, 1, 1, stack, scratch, plain, expect_value, mode_none, False, 0, 0, 0, 0, 0, 0, 0, 0, 0, bounds.max_depth, bounds.max_input))
 
 def is_pending(event: &Event) -> bool:
     match event:
@@ -918,6 +961,7 @@ pub def find(members: &list[Member], key: &str) -> Option[i64]:
 pub class Encoder:
     _out: Bytes
     _stack: Bytes
+    _escaped: Bytes
     _state: i64
     _written: i64
     _broken: bool
@@ -991,30 +1035,31 @@ pub class Encoder:
         count = source.len()
         self.put(34)?
         mut run = 0
-        for index in range(count):
+        mut index = run_end(source.find_in(&self._escaped, 0, count), count)?
+        while index < count:
             byte = i64(faulted(source.get(index))?)
-            if byte < 32 or byte == 34 or byte == 92:
-                self.extend(&source, run, index)?
-                run = index + 1
-                self.put(92)?
-                if byte == 34 or byte == 92:
-                    self.put(byte)?
-                elif byte == 8:
-                    self.put(98)?
-                elif byte == 12:
-                    self.put(102)?
-                elif byte == 10:
-                    self.put(110)?
-                elif byte == 13:
-                    self.put(114)?
-                elif byte == 9:
-                    self.put(116)?
-                else:
-                    self.put(117)?
-                    self.put(48)?
-                    self.put(48)?
-                    self.put(hex_digit(byte >> 4))?
-                    self.put(hex_digit(byte & 15))?
+            self.extend(&source, run, index)?
+            self.put(92)?
+            if byte == 34 or byte == 92:
+                self.put(byte)?
+            elif byte == 8:
+                self.put(98)?
+            elif byte == 12:
+                self.put(102)?
+            elif byte == 10:
+                self.put(110)?
+            elif byte == 13:
+                self.put(114)?
+            elif byte == 9:
+                self.put(116)?
+            else:
+                self.put(117)?
+                self.put(48)?
+                self.put(48)?
+                self.put(hex_digit(byte >> 4))?
+                self.put(hex_digit(byte & 15))?
+            run = index + 1
+            index = run_end(source.find_in(&self._escaped, run, count), count)?
         self.extend(&source, run, count)?
         self.put(34)
 
@@ -1225,7 +1270,8 @@ pub def encoder(bounds: &Limits) -> Result[Encoder, JsonError]:
         return Err(JsonError(JsonFault.InvalidLimits, 0, 0, 0))
     out = unplaced(faulted(std.bytes.empty()))?
     stack = unplaced(faulted(std.bytes.empty()))?
-    Ok(Encoder(out, stack, emit_top, 0, False, bounds.max_depth, bounds.max_output))
+    escaped = unplaced(escaped_bytes())?
+    Ok(Encoder(out, stack, escaped, emit_top, 0, False, bounds.max_depth, bounds.max_output))
 
 # Delivers every pending byte to `writer` and keeps the buffer's capacity.
 # Does not flush. On failure only the bytes the writer did not accept stay

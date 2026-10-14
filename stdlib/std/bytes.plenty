@@ -95,12 +95,57 @@ pub class Bytes:
     pub def copy(self) -> Result[Bytes, BytesError]:
         self.slice(0, __bytes_len(self._owner))
 
+    # Bulk scans. Each is one native call over the checked range, so prefer
+    # them to a loop of `get` calls. An index result is absolute, not relative
+    # to `start`.
     pub def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        for index in range(start, stop):
-            if __bytes_get(self._owner, index) == value:
-                return Ok(Some(index))
-        Ok(Nothing)
+        Ok(located(__bytes_find(self._owner, value, start, stop)))
+
+    # The first byte that equals any byte of `set`. An empty set finds nothing.
+    pub def find_in(self, set: &Bytes, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(located(__bytes_find_in(self._owner, set._owner, start, stop, 1u8)))
+
+    # The first byte that equals no byte of `set`: the end of a run.
+    pub def find_not_in(self, set: &Bytes, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(located(__bytes_find_in(self._owner, set._owner, start, stop, 0u8)))
+
+    # The first position where all of `needle` occurs inside the range. An
+    # empty needle is found at `start`.
+    pub def find_bytes(self, needle: &Bytes, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(located(__bytes_find_bytes(self._owner, needle._owner, start, stop)))
+
+    pub def count(self, value: u8, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(__bytes_count(self._owner, value, start, stop))
+
+    # Whether source[start:stop] occurs at `offset`. Too few bytes after
+    # `offset` is False, not an error.
+    pub def matches(self, offset: i64, source: &Bytes, start: i64, stop: i64) -> Result[bool, BytesError]:
+        checked(start, stop, __bytes_len(source._owner))?
+        if offset < 0 or offset > __bytes_len(self._owner):
+            return Err(BytesError.OutOfRange)
+        Ok(__bytes_matches(self._owner, offset, source._owner, start, stop))
+
+    # Whether the UTF-8 bytes of `text` occur at `offset`.
+    pub def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]:
+        if offset < 0 or offset > __bytes_len(self._owner):
+            return Err(BytesError.OutOfRange)
+        Ok(__bytes_matches_text(self._owner, offset, text))
+
+    # The index after the run of bytes below 128 that begins at `start`.
+    pub def ascii_run(self, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(__bytes_run(self._owner, start, stop, 0u8))
+
+    # The index after the longest valid UTF-8 that begins at `start`. A
+    # sequence cut off by `stop` is not included.
+    pub def utf8_run(self, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(__bytes_run(self._owner, start, stop, 1u8))
 
     pub def to_list(self) -> Result[list[u8], BytesError]:
         allocated(__bytes_to_list(self._owner))
@@ -146,6 +191,11 @@ def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)
     Ok(())
+
+def located(index: i64) -> Option[i64]:
+    if index < 0:
+        return Nothing
+    Some(index)
 
 # The one range rule: 0 <= start <= stop <= count. No clamping, no negatives.
 def checked(start: i64, stop: i64, count: i64) -> Result[(), BytesError]:

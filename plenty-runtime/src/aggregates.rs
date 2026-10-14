@@ -7,6 +7,7 @@ use crate::strings::{self, Text};
 use std::cmp::Ordering;
 use std::io::Write;
 
+mod byte_scan;
 mod byte_storage;
 mod bytes;
 mod entry_error;
@@ -1346,7 +1347,7 @@ pub(crate) unsafe extern "C" fn plenty_collection(
             out.write(range as u128);
             return;
         }
-        if matches!(op, 170..=183 | 188..=191 | 248 | 280) {
+        if matches!(op, 170..=183 | 188..=191 | 230..=236 | 248 | 280) {
             // Read every operand first: the fourth and fifth share the
             // scratch words that follow the result slot.
             let operands = [

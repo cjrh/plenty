@@ -140,6 +140,40 @@ def at(buffer: &Bytes, index: i64) -> u8:
         case Err(_):
             0u8
 
+# The first index in [start, stop) holding `value`, or `stop`. One native scan;
+# callers pass a range they have already bounded.
+def first(buffer: &Bytes, value: u8, start: i64, stop: i64) -> i64:
+    match buffer.find(value, start, stop):
+        case Ok(found):
+            match found:
+                case Some(index):
+                    index
+                case Nothing:
+                    stop
+        case Err(_):
+            stop
+
+# As `first`, for any byte of `set`.
+def first_in(buffer: &Bytes, set: &Bytes, start: i64, stop: i64) -> i64:
+    match buffer.find_in(set, start, stop):
+        case Ok(found):
+            match found:
+                case Some(index):
+                    index
+                case Nothing:
+                    stop
+        case Err(_):
+            stop
+
+# The bytes that end an unquoted field or force a written field to be quoted.
+def special(dialect: &Dialect) -> Result[Bytes, CsvError]:
+    mut set = allocated(std.bytes.with_capacity(4))?
+    stored(set.push(dialect.delimiter))?
+    stored(set.push(dialect.quote))?
+    stored(set.push(line_feed))?
+    stored(set.push(carriage_return))?
+    Ok(set)
+
 def mark(index: i64) -> u8:
     if index == 0:
         239u8
@@ -221,6 +255,8 @@ pub def record() -> Result[Record, CsvError]:
 pub class Reader[R]:
     pub inner: R
     _buffer: Bytes
+    _special: Bytes
+    _breaks: Bytes
     _start: i64
     _stop: i64
     _delimiter: u8
@@ -333,17 +369,18 @@ pub class Reader[R]:
                 mut limit = self._start + self.room(record, begin)?
                 if limit > self._stop:
                     limit = self._stop
-                mut end = self._start
-                while end < limit:
-                    value = at(&self._buffer, end)
-                    if value == self._quote:
-                        break
-                    if value == carriage_return:
+                end = first(&self._buffer, self._quote, self._start, limit)
+                # Count lines by visiting only the line breaks in the run.
+                mut cursor = first_in(&self._buffer, &self._breaks, self._start, end)
+                while cursor < end:
+                    mut after_return = self._after_return
+                    if cursor > self._start:
+                        after_return = at(&self._buffer, cursor - 1) == carriage_return
+                    if at(&self._buffer, cursor) == carriage_return or not after_return:
                         self._line += 1
-                    elif value == line_feed and not self._after_return:
-                        self._line += 1
-                    self._after_return = value == carriage_return
-                    end += 1
+                    cursor = first_in(&self._buffer, &self._breaks, cursor + 1, end)
+                if end > self._start:
+                    self._after_return = at(&self._buffer, end - 1) == carriage_return
                 stored(record._data.extend_range(&self._buffer, self._start, end))?
                 self._start = end
                 continue
@@ -383,12 +420,7 @@ pub class Reader[R]:
             mut limit = self._start + self.room(record, begin)?
             if limit > self._stop:
                 limit = self._stop
-            mut end = self._start + 1
-            while end < limit:
-                value = at(&self._buffer, end)
-                if value == self._delimiter or value == self._quote or value == line_feed or value == carriage_return:
-                    break
-                end += 1
+            end = first_in(&self._buffer, &self._special, self._start + 1, limit)
             stored(record._data.extend_range(&self._buffer, self._start, end))?
             self._start = end
             state = 1
@@ -434,7 +466,10 @@ pub def reader[R](inner: R, dialect: &Dialect, capacity: i64) -> Result[Reader[R
     mut matched = 3
     if dialect.skip_bom:
         matched = 0
-    Ok(Reader(inner, buffer, 0, 0, dialect.delimiter, dialect.quote, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields, matched, 0, 1, 0, False, False, False))
+    mut breaks = allocated(std.bytes.with_capacity(2))?
+    stored(breaks.push(line_feed))?
+    stored(breaks.push(carriage_return))?
+    Ok(Reader(inner, buffer, special(dialect)?, breaks, 0, 0, dialect.delimiter, dialect.quote, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields, matched, 0, 1, 0, False, False, False))
 
 # Encodes records for `inner`. A finished record is delivered at once; bytes
 # the stream did not accept stay held and are delivered first by the next call.
@@ -442,6 +477,7 @@ pub def reader[R](inner: R, dialect: &Dialect, capacity: i64) -> Result[Reader[R
 pub class Writer[W]:
     pub inner: W
     _pending: Bytes
+    _special: Bytes
     _sent: i64
     _ready: i64
     _fields: i64
@@ -484,11 +520,7 @@ pub class Writer[W]:
     def quoted(self, source: &Bytes, start: i64, stop: i64) -> bool:
         if self._always:
             return True
-        for index in range(start, stop):
-            value = at(source, index)
-            if value == self._delimiter or value == self._quote or value == line_feed or value == carriage_return:
-                return True
-        False
+        first_in(source, &self._special, start, stop) < stop
 
     def encode(self: &mut Writer[W], source: &Bytes, start: i64, stop: i64) -> Result[(), CsvError]:
         if self._fields > 0:
@@ -497,11 +529,12 @@ pub class Writer[W]:
             return stored(self._pending.extend_range(source, start, stop))
         stored(self._pending.push(self._quote))?
         mut copied = start
-        for index in range(start, stop):
-            if at(source, index) == self._quote:
-                stored(self._pending.extend_range(source, copied, index + 1))?
-                stored(self._pending.push(self._quote))?
-                copied = index + 1
+        mut index = first(source, self._quote, start, stop)
+        while index < stop:
+            stored(self._pending.extend_range(source, copied, index + 1))?
+            stored(self._pending.push(self._quote))?
+            copied = index + 1
+            index = first(source, self._quote, copied, stop)
         stored(self._pending.extend_range(source, copied, stop))?
         stored(self._pending.push(self._quote))
 
@@ -621,4 +654,4 @@ pub def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]:
             always = True
         case Quoting.Needed:
             pass
-    Ok(Writer(inner, allocated(std.bytes.empty())?, 0, 0, 0, 0, 0, dialect.delimiter, dialect.quote, return_first, always, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields))
+    Ok(Writer(inner, allocated(std.bytes.empty())?, special(dialect)?, 0, 0, 0, 0, 0, dialect.delimiter, dialect.quote, return_first, always, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields))

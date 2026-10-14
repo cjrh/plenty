@@ -2,7 +2,7 @@
 //! buffer acquisition fallible. `std.bytes` validates ranges and reports them as
 //! values; a violated precondition here is a library bug and stops the process.
 //! No pointer into the buffer crosses the ABI, so growth can relocate freely.
-use super::{wrap, Collection, OwnedValue, Type};
+use super::{byte_scan, wrap, Collection, OwnedValue, Type};
 use crate::memory::{self, AllocError, Header};
 use crate::strings;
 use crate::text_io;
@@ -96,10 +96,24 @@ fn range(start: u128, stop: u128, len: usize) -> std::ops::Range<usize> {
     start..stop
 }
 
+/// A found index, or -1: `std.bytes` turns the sentinel into an `Option`.
+fn found(index: Option<usize>, base: usize) -> u128 {
+    index.map_or(-1i64, |index| (base + index) as i64) as u128
+}
+
 fn result(value: Result<u128, AllocError>) -> u128 {
     match value {
         Ok(value) => wrap(value, 0),
         Err(error) => wrap(wrap(0, error as u64), 1),
+    }
+}
+
+/// Whether `bytes` holds `other` at `offset`. Too few remaining bytes is a
+/// mismatch; an offset past the end is a skipped check in `std.bytes`.
+fn prefixed(bytes: &[u8], offset: usize, other: &[u8]) -> bool {
+    match bytes.get(offset..) {
+        Some(tail) => tail.starts_with(other),
+        None => crate::fail("byte offset out of bounds"),
     }
 }
 
@@ -110,6 +124,8 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type)
     // SAFETY: see above; descriptors are process-lifetime compiler metadata.
     unsafe {
         let storage = |value: u128| &mut (*(value as *mut Storage)).bytes;
+        // Scans only read, and their operands may be the same buffer.
+        let view = |value: u128| (*(value as *const Storage)).bytes.as_slice();
         match op {
             170 => result(create(size(a)).map(|owner| owner as u128)),
             280 => crate::formatting::write_float(storage(a), f64::from_bits(b as u64)) as u128,
@@ -229,6 +245,54 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type)
                 };
                 crate::io::io_result(written.map(|count| count as u128))
             }
+            230 => {
+                let bytes = view(a);
+                let within = range(c, d, bytes.len());
+                found(
+                    byte_scan::find(&bytes[within.clone()], b as u8),
+                    within.start,
+                )
+            }
+            231 => {
+                let bytes = view(a);
+                let within = range(c, d, bytes.len());
+                found(
+                    byte_scan::find_in(&bytes[within.clone()], view(b), e != 0),
+                    within.start,
+                )
+            }
+            232 => {
+                let bytes = view(a);
+                let within = range(c, d, bytes.len());
+                found(
+                    byte_scan::find_bytes(&bytes[within.clone()], view(b)),
+                    within.start,
+                )
+            }
+            233 => {
+                let bytes = view(a);
+                byte_scan::count(&bytes[range(c, d, bytes.len())], b as u8) as u128
+            }
+            234 => {
+                let other = view(c);
+                let other = &other[range(d, e, other.len())];
+                prefixed(view(a), size(b), other) as u128
+            }
+            235 => prefixed(
+                view(a),
+                size(b),
+                strings::bytes(&(c as *const strings::Text)),
+            ) as u128,
+            236 => {
+                let bytes = view(a);
+                let within = range(b, c, bytes.len());
+                let run = if d == 0 {
+                    byte_scan::ascii_run(&bytes[within.clone()])
+                } else {
+                    byte_scan::utf8_run(&bytes[within.clone()])
+                };
+                (within.start + run) as u128
+            }
             248 => {
                 let bytes = storage(a);
                 let within = range(b, c, bytes.len());
@@ -290,6 +354,40 @@ mod tests {
             let mut out = crate::render_buffer::Buffer::default();
             render(source.0, &mut out);
             assert_eq!(out.finish().unwrap(), br#"b"\x00\xff\x80\x0a\x00""#);
+        }
+    }
+
+    #[test]
+    fn scans_report_absolute_indices_or_the_missing_sentinel() {
+        const NONE: u128 = -1i64 as u128;
+        unsafe {
+            let data = Owner(from_slice(b"key=\"a,b\";\r\nnext line").unwrap());
+            let set = Owner(from_slice(b",;").unwrap());
+            let len = bytes(&data).len() as u128;
+            assert_eq!(run(230, [data.0, b'=' as u128, 0, len, 0]), 3);
+            assert_eq!(run(230, [data.0, b'=' as u128, 4, len, 0]), NONE);
+            assert_eq!(run(231, [data.0, set.0, 0, len, 1]), 6);
+            assert_eq!(run(231, [data.0, set.0, 7, len, 1]), 9);
+            assert_eq!(run(231, [data.0, set.0, 10, len, 1]), NONE);
+            assert_eq!(run(231, [data.0, set.0, 6, len, 0]), 7);
+            assert_eq!(run(231, [data.0, data.0, 0, len, 0]), NONE);
+            let line = Owner(from_slice(b"\r\n").unwrap());
+            assert_eq!(run(232, [data.0, line.0, 0, len, 0]), 10);
+            assert_eq!(run(232, [data.0, line.0, 0, 11, 0]), NONE);
+            assert_eq!(run(233, [data.0, b'e' as u128, 0, len, 0]), 3);
+            assert_eq!(run(234, [data.0, 10, line.0, 0, 2]), 1);
+            assert_eq!(run(234, [data.0, 9, line.0, 0, 2]), 0);
+            assert_eq!(run(234, [data.0, len - 1, line.0, 0, 2]), 0);
+            assert_eq!(run(234, [data.0, len, line.0, 1, 1]), 1);
+            let text = strings::try_new("next").unwrap();
+            assert_eq!(run(235, [data.0, 12, text as u128, 0, 0]), 1);
+            assert_eq!(run(235, [data.0, 13, text as u128, 0, 0]), 0);
+            memory::plenty_release(text as *mut Header);
+            let mixed = Owner(from_slice(&[b'a', b'b', 0xc3, 0xa9, 0xff, b'c']).unwrap());
+            assert_eq!(run(236, [mixed.0, 0, 6, 0, 0]), 2);
+            assert_eq!(run(236, [mixed.0, 0, 6, 1, 0]), 4);
+            assert_eq!(run(236, [mixed.0, 5, 6, 1, 0]), 6);
+            assert_eq!(run(236, [mixed.0, 0, 3, 1, 0]), 2);
         }
     }
 

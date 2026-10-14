@@ -32,6 +32,14 @@ constructor allocates and can report `Allocation`.
 | `capacity()` | shared | `i64` | Bytes storable without reallocating |
 | `get(index)` | shared | `Result[u8, BytesError]` | Read one byte |
 | `find(value, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index of `value` within the range |
+| `find_in(set, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index holding any byte of `set` |
+| `find_not_in(set, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index holding no byte of `set`: the end of a run |
+| `find_bytes(needle, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index where all of `needle` occurs inside the range |
+| `count(value, start, stop)` | shared | `Result[i64, BytesError]` | Occurrences of `value` within the range |
+| `matches(offset, source, start, stop)` | shared | `Result[bool, BytesError]` | Whether `source[start:stop]` occurs at `offset` |
+| `matches_text(offset, text: &str)` | shared | `Result[bool, BytesError]` | Whether the UTF-8 bytes of `text` occur at `offset` |
+| `ascii_run(start, stop)` | shared | `Result[i64, BytesError]` | Index after the run of bytes below 128 that begins at `start` |
+| `utf8_run(start, stop)` | shared | `Result[i64, BytesError]` | Index after the longest valid UTF-8 that begins at `start` |
 | `slice(start, stop)` | shared | `Result[Bytes, BytesError]` | Independent copy of a range, with exact capacity |
 | `copy()` | shared | `Result[Bytes, BytesError]` | Independent copy of the whole buffer |
 | `to_list()` | shared | `Result[list[u8], BytesError]` | Independent `list[u8]` for the transport builtins |
@@ -49,7 +57,7 @@ constructor allocates and can report `Allocation`.
 | `pop()` | exclusive | `Option[u8]` | Remove and return the last byte, or `Nothing` |
 | `clear()` | exclusive | `()` | Set the length to zero, keeping capacity |
 
-`source` parameters are `&Bytes`. `==` and `!=` compare contents. Printing a
+`source`, `set`, and `needle` parameters are `&Bytes`. `==` and `!=` compare contents. Printing a
 buffer shows printable ASCII and writes every other byte as `\xhh`; it is a
 diagnostic form, not a conversion.
 
@@ -58,6 +66,29 @@ diagnostic form, not a conversion.
 method. It has no index syntax, iteration protocol, or hashing. A buffer can be
 stored in collections, sent through channels, and moved into worker threads.
 
+## Scanning
+
+`find`, `find_in`, `find_not_in`, `find_bytes`, `count`, `matches`,
+`matches_text`, `ascii_run`, and `utf8_run` each make one native call over
+their range. A parser uses them to step from one significant byte to the next
+without a `get` call per byte.
+
+- A found index is absolute, never relative to `start`. `Nothing` means the
+  range holds no match.
+- A `set` is a `Bytes` whose elements are the members; order and repeats do not
+  matter. An empty set matches no byte, so `find_in` returns `Nothing` and
+  `find_not_in` returns `start` for a nonempty range. Build a set once and
+  reuse it. The set, needle, or source may be the buffer being scanned.
+- `find_bytes` reports a match only when the whole needle lies inside the
+  range. An empty needle is found at `start`.
+- `matches` and `matches_text` require `0 <= offset <= len`. When fewer bytes
+  remain after `offset` than the comparison needs, the result is `False`, not
+  an error. An empty comparison is `True`.
+- `ascii_run` and `utf8_run` return an index from `start` to `stop`; equal to
+  `start` when the first byte does not qualify and to `stop` when every byte
+  does. `utf8_run` accepts exactly what `to_text` accepts and excludes a
+  sequence that `stop` cuts short.
+
 ## The range rule
 
 Every range must satisfy `0 <= start <= stop <= len`, and every index
@@ -65,7 +96,9 @@ Every range must satisfy `0 <= start <= stop <= len`, and every index
 [list slicing](../facilities/01-builtins/lists.md). A violation returns
 `Err(BytesError.OutOfRange)` and changes nothing. A zero-length range is valid
 anywhere from `0` to `len` inclusive. `overwrite` additionally requires
-`offset + (stop - start) <= len` of the destination.
+`offset + (stop - start) <= len` of the destination. `matches` and
+`matches_text` take an `offset` from `0` to `len` inclusive and never report a
+short remainder as an error.
 
 ## Errors
 
@@ -116,14 +149,22 @@ may over-reserve; `reserve` requests an exact total.
 
 | Allocates | Does not allocate |
 |---|---|
-| Constructors, `slice`, `copy`, `to_list`, `to_text` | `len`, `is_empty`, `capacity`, `get`, `find`, `==`, transport |
+| Constructors, `slice`, `copy`, `to_list`, `to_text` | `len`, `is_empty`, `capacity`, `get`, every scan, `==`, transport |
 | `push`, `extend`, `extend_range`, `resize`, `reserve` beyond capacity | The same operations within capacity |
 | | `set`, `fill`, `overwrite`, `truncate`, `pop`, `clear` |
 
 `get`, `set`, `push` within capacity, `pop`, `truncate`, and `clear` take
 constant time. Range operations take time linear in the range; `extend`,
-`overwrite`, `slice`, `copy`, and `resize` use bulk copies. `fill` and `find`
-are loops over single checked accesses.
+`overwrite`, `slice`, `copy`, and `resize` use bulk copies. `fill` is a loop
+over single checked accesses.
+
+The scans run natively. `find` and `find_in` with a set of at most four bytes
+examine eight bytes per step. `find_in` with a larger set and `find_not_in`
+build a 256-entry table on each call, then examine one byte per step. `count`,
+`ascii_run`, `utf8_run`, `matches`, and `matches_text` are linear in the bytes
+examined. `find_bytes` searches for the needle's first byte and compares at
+each candidate: linear for ordinary data, and at most the range length times
+the needle length when the needle's first byte repeats throughout the range.
 
 Measured with a release compiler on x86-64 Linux, 8,388,608 elements, pinned to
 one core:
@@ -138,6 +179,18 @@ one core:
 
 An empty program peaks at 2.4 MB. A single-element call costs roughly 70 to
 85 ns here, so prefer the bulk operations; the saving is storage and copying.
+
+A scan call costs about the same as a `get` call, however long its range.
+Finding the only comma at the end of a 67,108,864-byte buffer, same machine,
+pinned to one core:
+
+| Program | Wall time |
+|---|---|
+| `find(44u8, 0, len)` | 4 ms |
+| `find_in` with a four-byte set | 18 ms |
+| `find_not_in` with a 94-byte set | 15 ms |
+| `count(44u8, 0, len)` | 17 ms |
+| A `get` loop over the same range | 2.3 s |
 
 ## Transport
 

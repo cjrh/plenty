@@ -79,5 +79,39 @@ def main() -> Result[(), Failure]:
 name=7 Option[i64].Some(4)
 ```
 
+A parser should not call `get` once per byte: each call costs far more than
+the comparison it feeds. The scans search a whole range in one call and return
+an absolute index. `find_in` stops at any byte of a set, `find_not_in` at the
+end of a run, and `matches_text` compares in place without copying:
+
+```plenty
+import std.bytes
+
+def main() -> Result[(), Failure]:
+    line = std.bytes.from_text("name=Ada;  role=engineer")?
+    stops = std.bytes.from_text("=;")?
+    blank = std.bytes.from_text(" ")?
+    mut at = 0
+    while at < line.len():
+        match line.find_in(&stops, at, line.len())?:
+            case Some(index):
+                print(index, line.slice(at, index)?.to_text()?)?
+                at = index + 1
+            case Nothing:
+                print("rest", line.slice(at, line.len())?.to_text()?)?
+                at = line.len()
+    print(line.find_not_in(&blank, 9, line.len())?)?
+    print(line.matches_text(11, "role")?, line.count(32u8, 0, line.len())?)?
+    Ok(())
+```
+```output
+4 name
+8 Ada
+15   role
+rest engineer
+Option[i64].Some(11)
+True 2
+```
+
 See [the module reference](../../design/stdlib/bytes.md) for every operation,
 its costs, and what views cannot do yet.
