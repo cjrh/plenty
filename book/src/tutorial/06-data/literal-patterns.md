@@ -89,8 +89,9 @@ off
 
 An integer literal takes the type of the value it matches and must fit it:
 `case 300:` is an error for a `u8`. A float is not a pattern; compare floats
-with `if`. A name still binds only at a payload position, so the catch-all for
-the whole value is `case _:`.
+with `if`. A bare name still binds only at a payload position, so the catch-all for
+the whole value is `case _:`, or [`case _ as name:`](bind-the-rest.md) to bind
+it.
 
 Each literal case costs one comparison, tried from the top, exactly like an
 `if`/`elif` chain. Put the common cases first in a long match.

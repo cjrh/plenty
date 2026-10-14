@@ -22,6 +22,7 @@ A case holds one pattern. A pattern is one of:
 |---|---|
 | `_` | any value, binding nothing |
 | `name` | any payload, bound to an immutable local |
+| `_ as name` | the whole matched value, bound to an immutable local |
 | `Enum.Variant` or `Enum.Variant(p, ...)` | that variant, with one pattern per payload position |
 | `Some(p)`, `Nothing`, `Ok(p)`, `Err(p)` | that standard variant |
 | `1`, `-1`, `0u8` | an integer equal to the literal |
@@ -35,9 +36,10 @@ module path to it, or an alias of the matched type. `Some`, `Nothing`, `Ok`, and
 matched value supplies them: `case Choice.Value(v)` matches a `Choice[i64]` and
 a `Choice[str]` alike, and `case Choice[i64].Value(v)` is an error.
 
-A name binds only at a payload position; the case's own pattern is a variant,
-a literal, `_`, or alternatives of those. A payload name equal to a variant of that
-payload's enum is rejected, so a forgotten qualifier cannot silently bind
+A bare name binds only at a payload position; the case's own pattern is a
+variant, a literal, `_`, alternatives of those, or `_ as name`. A bare name as
+the case's own pattern is an error, and a payload name equal to a variant of
+that payload's enum is rejected, so a forgotten qualifier cannot silently bind
 everything. A variant pattern at a `Box[T]` payload matches the box's contents.
 Patterns nest to at most 64 levels.
 
@@ -80,6 +82,22 @@ def describe(reading: Option[i64]) -> str:
             "missing"
 ```
 
+`case _ as name:` matches every value the earlier cases leave and binds the
+whole matched value, for any scrutinee type. It is accepted only as a case's
+entire pattern: not as a `|` alternative, and not at a payload position, where
+the name alone binds. Because it matches everything, a case after it is
+unreachable, and it is itself unreachable when earlier cases are exhaustive.
+`name` cannot be a variant of the matched enum, `_`, or `mut`.
+
+```python
+def forward(shape: Shape) -> i64:
+    match shape:
+        case Shape.Dot:
+            0
+        case _ as other:
+            size(Some(other))
+```
+
 Every alternative of `p | q` binds the same names with the same types, at any
 depth. Cases are tried in order and the first match runs. Bindings stay within
 the arm and may shadow outer names.
@@ -99,12 +117,12 @@ Literal cases are tested in source order, one comparison each; a `str` case
 compares lengths and then bytes. No jump table or hash is built, so a match
 with many literal cases costs as much as the equivalent `if`/`elif` chain.
 
-Guards, tuple patterns, float patterns, range patterns, and whole-value
-bindings are unsupported. A scrutinee of any other type, such as a float or a
+Guards, tuple patterns, float patterns, range patterns, and `pattern as name`
+for any pattern other than the case's own `_` are unsupported. A scrutinee of any other type, such as a float or a
 collection, is rejected with advice to use an `if`/`elif` chain.
 
-Payload bindings cannot be declared `mut`. To change an owned payload, move it
-into a mutable local inside the arm (`mut local = payload`); to change it in
+Payload and whole-value bindings cannot be declared `mut`. To change an owned
+payload, move it into a mutable local inside the arm (`mut local = payload`); to change it in
 place, match `&mut value`.
 
 Continuing arms must agree on their result type. Arms ending in `return`, `break`,
@@ -112,7 +130,8 @@ or `continue` contribute no join value. A function-tail match supplies the final
 expression of its selected arm, just like a tail conditional.
 
 Owned matching consumes the scrutinee: bound payloads move into their bindings
-and every part no pattern binds is destroyed. Testing a literal copies the
+and every part no pattern binds is destroyed. `_ as name` moves the whole value
+into `name`, with no copy or allocation. Testing a literal copies the
 integer, `str`, or `bool` it compares, so a later pattern can still bind or
 move the value; for a `str` the copy shares the text and allocates nothing. Matching a shared or exclusive
 reference binds shared or exclusive payload references instead; see

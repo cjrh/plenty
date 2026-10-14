@@ -23,6 +23,7 @@ pub(super) struct Pat {
 #[derive(Clone)]
 pub(super) enum PatKind {
     Wildcard,
+    /// A bare name at a payload position, or `_ as name` at the case position.
     Binding(String),
     /// Qualifier (absent for `Some`, `Nothing`, `Ok`, and `Err`), variant name,
     /// and payload patterns (absent without parentheses).
@@ -93,7 +94,8 @@ impl Pat {
 }
 
 impl Parser {
-    /// `depth` is 0 at the case position, where a bare name cannot bind.
+    /// `depth` is 0 at the case position, where a bare name cannot bind and
+    /// `_ as name` binds the whole value.
     pub(super) fn pattern(&mut self, depth: usize) -> Result<Pat> {
         let first = self.pattern_alternative(depth)?;
         if !self.peek().is("|") {
@@ -103,6 +105,22 @@ impl Parser {
         let mut alternatives = vec![first];
         while self.eat("|") {
             alternatives.push(self.pattern_alternative(depth)?);
+        }
+        if depth == 0 {
+            // Only `_ as name` yields a binding here. It matches every value,
+            // so beside it any other alternative would be dead or would leave
+            // the name unbound.
+            if let Some(Pat {
+                at,
+                kind: PatKind::Binding(name),
+            }) = alternatives
+                .iter()
+                .find(|p| matches!(p.kind, PatKind::Binding(_)))
+            {
+                return Err(at.error(format!(
+                    "`_ as {name}` cannot be a `|` alternative; give it a case of its own"
+                )));
+            }
         }
         Ok(Pat {
             at,
@@ -116,9 +134,31 @@ impl Parser {
             return Err(at.error("pattern nesting exceeds the implementation limit of 64"));
         }
         if self.eat("_") {
+            if !self.peek().is("as") {
+                return Ok(Pat {
+                    at,
+                    kind: PatKind::Wildcard,
+                });
+            }
+            let keyword = self.take();
+            let at = self.peek().clone();
+            if at.is("mut") {
+                return Err(at.error(
+                    "a whole-value binding cannot be declared `mut`; move it into a mutable local in the arm, as in `mut local = name`, or match `&mut value` to change it in place",
+                ));
+            }
+            let name = self.name()?;
+            if depth != 0 {
+                return Err(keyword.error(format!(
+                    "`_ as {name}` binds only the whole matched value; bind a payload with the name alone, as in `{name}`"
+                )));
+            }
+            if name == "_" {
+                return Err(at.error("`_ as` needs a name; match any value with `_` alone"));
+            }
             return Ok(Pat {
                 at,
-                kind: PatKind::Wildcard,
+                kind: PatKind::Binding(name),
             });
         }
         if let Some(literal) = self.literal_pattern()? {
@@ -159,7 +199,7 @@ impl Parser {
             }
             if depth == 0 {
                 return Err(at.error(format!(
-                    "a case cannot bind the whole value to `{name}`; match any value with `_`, or qualify a variant with its enum type"
+                    "a case cannot bind the whole value to the bare name `{name}`; bind it with `_ as {name}`, match any value with `_`, or qualify a variant with its enum type"
                 )));
             }
             return Ok(Pat {
@@ -796,8 +836,13 @@ impl Lower<'_> {
                 if let Ty::Enum(t) = content {
                     if t.get().tag(name).is_some() {
                         let owner = t.display_name().split('[').next().unwrap_or_default();
+                        let role = if root {
+                            "the matched value"
+                        } else {
+                            "a payload binding"
+                        };
                         return Err(pattern.at.error(format!(
-                            "`{name}` is a variant of `{owner}`, so it cannot name a payload binding; write `{owner}.{name}` to match the variant"
+                            "`{name}` is a variant of `{owner}`, so it cannot name {role}; write `{owner}.{name}` to match the variant"
                         )));
                     }
                 }
@@ -1444,6 +1489,11 @@ fn owned_root(
     single: bool,
     ops: &mut Vec<Op>,
 ) {
+    // `_ as name` takes the whole value.
+    if let Checked::Binding(name) = pattern {
+        ops.extend([Op::MoveLocal(source), Op::StoreLocal(slots[name.as_str()])]);
+        return;
+    }
     let Checked::Variant { fields, .. } = pattern else {
         return;
     };

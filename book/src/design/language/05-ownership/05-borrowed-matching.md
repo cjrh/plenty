@@ -3,7 +3,8 @@
 `match &value`, or matching an existing `&E`, inspects an enum without consuming
 it. Named payload bindings have type `&T`, even for scalar or unit payloads.
 `match &mut value`, or matching an existing `&mut E`, binds `&mut T` payloads.
-`_` creates no binding and moves no borrowed payload. The scrutinee evaluates
+`_` creates no binding and moves no borrowed payload. `_ as name` binds `&E` or
+`&mut E`: a reborrow of the whole scrutinee, whose loan protects all of it. The scrutinee evaluates
 once; patterns, coverage, and arm scope follow ordinary
 [matching](../04-expressions/index.md). A binding inside a nested pattern is a
 reference to that inner payload, through boxes as well, and a name bound by
