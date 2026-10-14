@@ -1,0 +1,557 @@
+import std.bytes
+from std.bytes import Bytes, BytesError
+
+# Absolute URLs in the RFC 3986 generic syntax, split into components without
+# normalization, plus component-aware percent encoding. Everything here is
+# checked Plenty over the validated `Bytes` operations. Nothing is repaired:
+# input outside the grammar is an error naming the offending byte.
+pub enum UrlError:
+    InvalidLimit
+    LimitExceeded
+    OutOfRange
+    MissingScheme
+    MissingHost
+    InvalidByte(i64)
+    InvalidEscape(i64)
+    InvalidHost(i64)
+    InvalidPort(i64)
+    InvalidUtf8
+    Allocation(AllocError)
+
+# Where a piece of data is going. Each component leaves a different set of
+# characters unescaped.
+pub enum Component:
+    Userinfo
+    Segment
+    Path
+    Query
+    QueryPart
+    Fragment
+
+# Components are stored exactly as written, still percent-encoded. `host` is
+# `Nothing` when the URL has no `//authority`; `Some("")` is an empty host.
+pub class Url:
+    pub scheme: str
+    pub userinfo: Option[str]
+    pub host: Option[str]
+    pub port: Option[i64]
+    pub path: str
+    pub query: Option[str]
+    pub fragment: Option[str]
+
+    # Validates every component with the rules `parse` uses, so the result
+    # always parses back to equal components. Error indexes are byte offsets
+    # in the text that would have been produced.
+    pub def format(self) -> Result[str, UrlError]:
+        mut out = lifted(std.bytes.empty())?
+        put(&mut out, self.scheme)?
+        scheme_end = out.len()
+        emit(&mut out, 58)?
+        mut user_start = -1
+        mut user_end = -1
+        mut host_start = -1
+        mut host_end = -1
+        match self.host:
+            case Some(host):
+                emit(&mut out, 47)?
+                emit(&mut out, 47)?
+                match self.userinfo:
+                    case Some(userinfo):
+                        user_start = out.len()
+                        put(&mut out, userinfo)?
+                        user_end = out.len()
+                        emit(&mut out, 64)?
+                    case Nothing:
+                        pass
+                host_start = out.len()
+                put(&mut out, host)?
+                host_end = out.len()
+                match self.port:
+                    case Some(port):
+                        if port < 0 or port > 65535:
+                            return Err(UrlError.InvalidPort(out.len() + 1))
+                        emit(&mut out, 58)?
+                        digits = allocated(str.repr(port))?
+                        put(&mut out, &digits)?
+                    case Nothing:
+                        pass
+            case Nothing:
+                match self.userinfo:
+                    case Some(_):
+                        return Err(UrlError.MissingHost)
+                    case Nothing:
+                        pass
+                match self.port:
+                    case Some(_):
+                        return Err(UrlError.MissingHost)
+                    case Nothing:
+                        pass
+        path_start = out.len()
+        put(&mut out, self.path)?
+        path_end = out.len()
+        mut query_start = -1
+        mut query_end = -1
+        match self.query:
+            case Some(query):
+                emit(&mut out, 63)?
+                query_start = out.len()
+                put(&mut out, query)?
+                query_end = out.len()
+            case Nothing:
+                pass
+        mut fragment_start = -1
+        match self.fragment:
+            case Some(fragment):
+                emit(&mut out, 35)?
+                fragment_start = out.len()
+                put(&mut out, fragment)?
+            case Nothing:
+                pass
+        check_scheme(&out, 0, scheme_end)?
+        if user_start >= 0:
+            check(&out, user_start, user_end, 0, True)?
+        if host_start >= 0:
+            check_host(&out, host_start, host_end)?
+            # After an authority the path is empty or starts with `/`.
+            if path_end > path_start and byte(&out, path_start)? != 47:
+                return Err(UrlError.InvalidByte(path_start))
+        elif path_end - path_start >= 2 and byte(&out, path_start)? == 47 and byte(&out, path_start + 1)? == 47:
+            # Without an authority, a leading `//` would be read as one.
+            return Err(UrlError.InvalidByte(path_start + 1))
+        check(&out, path_start, path_end, 2, False)?
+        if query_start >= 0:
+            check(&out, query_start, query_end, 3, False)?
+        if fragment_start >= 0:
+            check(&out, fragment_start, out.len(), 3, False)?
+        lifted(out.to_text())
+
+pub class Pair:
+    pub key: str
+    pub value: str
+
+# `max_bytes` bounds the UTF-8 length of `text`; nothing proportional to a
+# longer input is allocated.
+pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
+    source = bounded(text, max_bytes)?
+    count = source.len()
+    colon = until(&source, 0, count, 3)?
+    if colon == 0 or colon == count or byte(&source, colon)? != 58:
+        return Err(UrlError.MissingScheme)
+    check_scheme(&source, 0, colon)?
+    mut index = colon + 1
+    mut user_start = -1
+    mut user_end = -1
+    mut host_start = -1
+    mut host_end = -1
+    mut port = -1
+    if count - index >= 2 and byte(&source, index)? == 47 and byte(&source, index + 1)? == 47:
+        end = until(&source, index + 2, count, 0)?
+        host_start = index + 2
+        # Neither userinfo nor a host may contain `@`, so the first one
+        # separates them and any other is an error in the host.
+        match lifted(source.find(64u8, host_start, end))?:
+            case Some(at):
+                user_start = host_start
+                user_end = at
+                host_start = at + 1
+                check(&source, user_start, user_end, 0, True)?
+            case Nothing:
+                pass
+        host_end = end
+        if host_start < end and byte(&source, host_start)? == 91:
+            match lifted(source.find(93u8, host_start, end))?:
+                case Some(close):
+                    host_end = close + 1
+                case Nothing:
+                    return Err(UrlError.InvalidHost(host_start))
+            if host_end < end:
+                if byte(&source, host_end)? != 58:
+                    return Err(UrlError.InvalidHost(host_end))
+                port = port_number(&source, host_end + 1, end)?
+        else:
+            match lifted(source.find(58u8, host_start, end))?:
+                case Some(separator):
+                    host_end = separator
+                    port = port_number(&source, separator + 1, end)?
+                case Nothing:
+                    pass
+        check_host(&source, host_start, host_end)?
+        index = end
+    path_end = until(&source, index, count, 1)?
+    check(&source, index, path_end, 2, False)?
+    mut query_start = -1
+    mut query_end = path_end
+    if path_end < count and byte(&source, path_end)? == 63:
+        query_start = path_end + 1
+        query_end = until(&source, query_start, count, 2)?
+        check(&source, query_start, query_end, 3, False)?
+    mut fragment_start = -1
+    if query_end < count:
+        fragment_start = query_end + 1
+        check(&source, fragment_start, count, 3, False)?
+    scheme = text_of(&source, 0, colon)?
+    userinfo = optional(&source, user_start, user_end)?
+    host = optional(&source, host_start, host_end)?
+    path = text_of(&source, index, path_end)?
+    query = optional(&source, query_start, query_end)?
+    fragment = optional(&source, fragment_start, count)?
+    mut port_value = Option[i64].Nothing
+    if port >= 0:
+        port_value = Some(port)
+    Ok(Url(scheme, userinfo, host, port_value, path, query, fragment))
+
+# Uppercase escapes. `%` is always escaped, so encoding is never a no-op on
+# text that already looks encoded.
+pub def encode_bytes(source: &Bytes, start: i64, stop: i64, component: Component) -> Result[Bytes, UrlError]:
+    if start < 0 or start > stop or stop > source.len():
+        return Err(UrlError.OutOfRange)
+    kind = kind_of(component)
+    mut size = 0
+    for index in range(start, stop):
+        if literal(byte(source, index)?, kind):
+            size += 1
+        else:
+            size += 3
+    mut encoded = lifted(std.bytes.with_capacity(size))?
+    for index in range(start, stop):
+        code = byte(source, index)?
+        if literal(code, kind):
+            emit(&mut encoded, code)?
+        else:
+            emit(&mut encoded, 37)?
+            emit(&mut encoded, hex_digit(code >> 4))?
+            emit(&mut encoded, hex_digit(code & 15))?
+    Ok(encoded)
+
+# Every `%hh` becomes one byte; every other byte is copied, including `+`.
+pub def decode_bytes(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, UrlError]:
+    if start < 0 or start > stop or stop > source.len():
+        return Err(UrlError.OutOfRange)
+    mut size = 0
+    mut index = start
+    while index < stop:
+        if byte(source, index)? == 37:
+            if stop - index < 3 or hex_value(byte(source, index + 1)?) < 0 or hex_value(byte(source, index + 2)?) < 0:
+                return Err(UrlError.InvalidEscape(index))
+            index += 3
+        else:
+            index += 1
+        size += 1
+    mut decoded = lifted(std.bytes.with_capacity(size))?
+    index = start
+    while index < stop:
+        code = byte(source, index)?
+        if code == 37:
+            emit(&mut decoded, hex_value(byte(source, index + 1)?) * 16 + hex_value(byte(source, index + 2)?))?
+            index += 3
+        else:
+            emit(&mut decoded, code)?
+            index += 1
+    Ok(decoded)
+
+pub def encode(text: &str, component: Component) -> Result[str, UrlError]:
+    source = lifted(std.bytes.from_text(text))?
+    lifted(encode_bytes(&source, 0, source.len(), component)?.to_text())
+
+# `InvalidUtf8` when the decoded bytes are not UTF-8; use `decode_bytes` for
+# data that is not text.
+pub def decode(text: &str) -> Result[str, UrlError]:
+    source = lifted(std.bytes.from_text(text))?
+    lifted(decode_bytes(&source, 0, source.len())?.to_text())
+
+# One pair per `&`-separated piece, split at its first `=`, then decoded. A
+# piece without `=` has an empty value. The empty query has no pairs.
+pub def query_pairs(query: &str) -> Result[list[Pair], UrlError]:
+    source = lifted(std.bytes.from_text(query))?
+    count = source.len()
+    mut pairs = allocated(list[Pair]())?
+    if count == 0:
+        return Ok(pairs)
+    mut start = 0
+    while start <= count:
+        mut stop = count
+        match lifted(source.find(38u8, start, count))?:
+            case Some(found):
+                stop = found
+            case Nothing:
+                pass
+        mut split = stop
+        match lifted(source.find(61u8, start, stop))?:
+            case Some(found):
+                split = found
+            case Nothing:
+                pass
+        key = lifted(decode_bytes(&source, start, split)?.to_text())?
+        mut value = ""
+        if split < stop:
+            value = lifted(decode_bytes(&source, split + 1, stop)?.to_text())?
+        allocated(pairs.append(Pair(key, value)))?
+        start = stop + 1
+    Ok(pairs)
+
+# `key=value` joined with `&`, each side encoded as `Component.QueryPart`.
+pub def query_text(pairs: &list[Pair]) -> Result[str, UrlError]:
+    mut out = lifted(std.bytes.empty())?
+    for index in range(len(pairs)):
+        if index > 0:
+            emit(&mut out, 38)?
+        key = lifted(std.bytes.from_text(pairs[index].key))?
+        lifted(out.extend(&encode_bytes(&key, 0, key.len(), Component.QueryPart)?))?
+        emit(&mut out, 61)?
+        value = lifted(std.bytes.from_text(pairs[index].value))?
+        lifted(out.extend(&encode_bytes(&value, 0, value.len(), Component.QueryPart)?))?
+    lifted(out.to_text())
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, UrlError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(UrlError.Allocation(cause))
+                case BytesError.InvalidUtf8:
+                    Err(UrlError.InvalidUtf8)
+                case BytesError.OutOfRange:
+                    Err(UrlError.OutOfRange)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, UrlError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(UrlError.Allocation(error))
+
+def byte(source: &Bytes, index: i64) -> Result[i64, UrlError]:
+    Ok(i64(lifted(source.get(index))?))
+
+def emit(target: &mut Bytes, value: i64) -> Result[(), UrlError]:
+    lifted(target.push(u8(value)))
+
+def put(target: &mut Bytes, text: &str) -> Result[(), UrlError]:
+    piece = lifted(std.bytes.from_text(text))?
+    lifted(target.extend(&piece))
+
+def text_of(source: &Bytes, start: i64, stop: i64) -> Result[str, UrlError]:
+    lifted(lifted(source.slice(start, stop))?.to_text())
+
+def optional(source: &Bytes, start: i64, stop: i64) -> Result[Option[str], UrlError]:
+    if start < 0:
+        return Ok(Nothing)
+    Ok(Some(text_of(source, start, stop)?))
+
+# A scalar is at least one byte, so counting scalars first means the copy
+# below is at most four times the limit.
+def bounded(text: &str, max_bytes: i64) -> Result[Bytes, UrlError]:
+    if max_bytes < 0:
+        return Err(UrlError.InvalidLimit)
+    mut scalars = 0
+    for _ in text:
+        if scalars == max_bytes:
+            return Err(UrlError.LimitExceeded)
+        scalars += 1
+    source = lifted(std.bytes.from_text(text))?
+    if source.len() > max_bytes:
+        return Err(UrlError.LimitExceeded)
+    Ok(source)
+
+# First index in the range holding a delimiter, or `stop`. Level 0 stops at
+# `/`, `?`, `#`; 1 at `?`, `#`; 2 at `#`; 3 at `:` as well as level 0.
+def until(source: &Bytes, start: i64, stop: i64, level: i64) -> Result[i64, UrlError]:
+    for index in range(start, stop):
+        code = byte(source, index)?
+        if code == 35 or (code == 63 and level != 2) or (code == 47 and level != 1 and level != 2) or (code == 58 and level == 3):
+            return Ok(index)
+    Ok(stop)
+
+def alpha(code: i64) -> bool:
+    (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
+
+def digit(code: i64) -> bool:
+    code >= 48 and code <= 57
+
+# RFC 3986 `unreserved`.
+def unreserved(code: i64) -> bool:
+    alpha(code) or digit(code) or code == 45 or code == 46 or code == 95 or code == 126
+
+# RFC 3986 `sub-delims`: ! $ & ' ( ) * + , ; =
+def sub_delim(code: i64) -> bool:
+    code == 33 or code == 36 or (code >= 38 and code <= 44) or code == 59 or code == 61
+
+def kind_of(component: Component) -> i64:
+    match component:
+        case Component.Userinfo:
+            0
+        case Component.Segment:
+            1
+        case Component.Path:
+            2
+        case Component.Query:
+            3
+        case Component.QueryPart:
+            4
+        case Component.Fragment:
+            3
+
+# Whether `code` appears unescaped in a component of this kind. Kind 0 is
+# also the `reg-name` set.
+def literal(code: i64, kind: i64) -> bool:
+    if unreserved(code):
+        return True
+    if kind == 4:
+        # No `&`, `=`, or `+`: the first two delimit pairs, and form decoders
+        # read `+` as a space.
+        return sub_delim(code) and code != 38 and code != 61 and code != 43 or code == 58 or code == 64 or code == 47 or code == 63
+    if sub_delim(code):
+        return True
+    if kind == 0:
+        return False
+    if code == 58 or code == 64:
+        return True
+    if code == 47:
+        return kind >= 2
+    code == 63 and kind == 3
+
+def hex_digit(value: i64) -> i64:
+    if value < 10:
+        return 48 + value
+    55 + value
+
+def hex_value(code: i64) -> i64:
+    if digit(code):
+        return code - 48
+    if code >= 97 and code <= 102:
+        return code - 87
+    if code >= 65 and code <= 70:
+        return code - 55
+    -1
+
+# A component as written: literals of its kind and well-formed escapes.
+def check(source: &Bytes, start: i64, stop: i64, kind: i64, colon: bool) -> Result[(), UrlError]:
+    mut index = start
+    while index < stop:
+        code = byte(source, index)?
+        if code == 37:
+            if stop - index < 3 or hex_value(byte(source, index + 1)?) < 0 or hex_value(byte(source, index + 2)?) < 0:
+                return Err(UrlError.InvalidEscape(index))
+            index += 3
+        elif literal(code, kind) or (colon and code == 58):
+            index += 1
+        else:
+            return Err(UrlError.InvalidByte(index))
+    Ok(())
+
+def check_scheme(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
+    if start == stop:
+        return Err(UrlError.MissingScheme)
+    for index in range(start, stop):
+        code = byte(source, index)?
+        if not (alpha(code) or (index > start and (digit(code) or code == 43 or code == 45 or code == 46))):
+            return Err(UrlError.InvalidByte(index))
+    Ok(())
+
+# One to five digits with no leading zero, at most 65535.
+def port_number(source: &Bytes, start: i64, stop: i64) -> Result[i64, UrlError]:
+    if stop == start or stop - start > 5:
+        return Err(UrlError.InvalidPort(start))
+    mut value = 0
+    for index in range(start, stop):
+        code = byte(source, index)?
+        if not digit(code):
+            return Err(UrlError.InvalidPort(start))
+        value = value * 10 + code - 48
+    if value > 65535 or (stop - start > 1 and byte(source, start)? == 48):
+        return Err(UrlError.InvalidPort(start))
+    Ok(value)
+
+def check_host(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
+    if start == stop or byte(source, start)? != 91:
+        return check(source, start, stop, 0, False)
+    if stop - start < 2 or byte(source, stop - 1)? != 93:
+        return Err(UrlError.InvalidHost(start))
+    first = byte(source, start + 1)?
+    mut valid = False
+    if first == 118 or first == 86:
+        valid = future(source, start + 2, stop - 1)?
+    else:
+        valid = ipv6(source, start + 1, stop - 1)?
+    if not valid:
+        return Err(UrlError.InvalidHost(start))
+    Ok(())
+
+# RFC 3986 `IPvFuture` after its `v`: hex digits, `.`, then address text.
+def future(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
+    mut index = start
+    while index < stop and hex_value(byte(source, index)?) >= 0:
+        index += 1
+    if index == start or stop - index < 2 or byte(source, index)? != 46:
+        return Ok(False)
+    for position in range(index + 1, stop):
+        code = byte(source, position)?
+        if not (unreserved(code) or sub_delim(code) or code == 58):
+            return Ok(False)
+    Ok(True)
+
+# RFC 3986 `IPv6address`: eight 16-bit groups, where one `::` stands for one
+# or more zero groups and a dotted IPv4 address may replace the last two.
+def ipv6(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
+    if stop - start < 2:
+        return Ok(False)
+    mut index = start
+    mut groups = 0
+    mut compressed = False
+    if byte(source, index)? == 58:
+        if byte(source, index + 1)? != 58:
+            return Ok(False)
+        compressed = True
+        index += 2
+    while index < stop:
+        mut run = index
+        while run < stop and hex_value(byte(source, run)?) >= 0:
+            run += 1
+        if run < stop and byte(source, run)? == 46:
+            if not ipv4(source, index, stop)?:
+                return Ok(False)
+            groups += 2
+            index = stop
+            break
+        if run == index or run - index > 4:
+            return Ok(False)
+        groups += 1
+        index = run
+        if index == stop:
+            break
+        if byte(source, index)? != 58:
+            return Ok(False)
+        index += 1
+        if index == stop:
+            return Ok(False)
+        if byte(source, index)? == 58:
+            if compressed:
+                return Ok(False)
+            compressed = True
+            index += 1
+    if compressed:
+        return Ok(groups <= 7)
+    Ok(groups == 8)
+
+# Four decimal octets, each 0 to 255 with no leading zero.
+def ipv4(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
+    mut index = start
+    for part in range(4):
+        first = index
+        mut value = 0
+        while index < stop and digit(byte(source, index)?):
+            value = value * 10 + byte(source, index)? - 48
+            index += 1
+            if index - first > 3:
+                return Ok(False)
+        if index == first or value > 255:
+            return Ok(False)
+        if index - first > 1 and byte(source, first)? == 48:
+            return Ok(False)
+        if part < 3:
+            if index == stop or byte(source, index)? != 46:
+                return Ok(False)
+            index += 1
+    Ok(index == stop)
