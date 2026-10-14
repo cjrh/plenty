@@ -1,0 +1,247 @@
+from std.path import Path, from_bytes
+
+pub enum Kind:
+    Flag
+    Integer
+    Text
+    Path
+
+pub class Spec:
+    pub name: str
+    pub kind: Kind
+    pub positional: bool
+    pub required: bool
+    pub repeatable: bool
+    pub help: str
+
+pub enum Value:
+    Flag
+    Integer(i64)
+    Text(str)
+    Path(Path)
+
+pub class Entry:
+    pub spec: i64
+    pub value: Value
+
+pub class Parsed:
+    pub help_requested: bool
+    pub entries: list[Entry]
+
+pub enum CliError:
+    Schema(i64)
+    UnknownOption(i64)
+    UnexpectedArgument(i64)
+    MissingValue(i64)
+    Duplicate(i64)
+    Missing(i64)
+    InvalidInteger(i64)
+    InvalidUtf8(i64)
+    Allocation(AllocError)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, CliError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(CliError.Allocation(error))
+
+def decoded(bytes: &list[u8], argument: i64) -> Result[str, CliError]:
+    match decode_utf8(bytes):
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            match error:
+                case IoError.Data(DataError.Allocation(cause)):
+                    Err(CliError.Allocation(cause))
+                case _:
+                    Err(CliError.InvalidUtf8(argument))
+
+def encoded(text: &str) -> Result[list[u8], CliError]:
+    match encode_utf8(text):
+        case Ok(bytes):
+            Ok(bytes)
+        case Err(error):
+            match error:
+                case IoError.Data(DataError.Allocation(cause)):
+                    Err(CliError.Allocation(cause))
+                case _:
+                    Err(CliError.Schema(-1))
+
+# Required positionals precede optional ones; only the final positional may
+# repeat. Options may appear anywhere in the schema and input.
+pub def validate(schema: &list[Spec]) -> Result[(), CliError]:
+    mut optional = False
+    mut repeated = False
+    for index in range(len(schema)):
+        spec = &schema[index]
+        name = encoded(spec.name)?
+        mut start = 0
+        if not spec.positional:
+            if len(name) < 3:
+                return Err(CliError.Schema(index))
+            if name[0] != 45u8 or name[1] != 45u8 or spec.name == "--help":
+                return Err(CliError.Schema(index))
+            start = 2
+        elif len(name) == 0:
+            return Err(CliError.Schema(index))
+        for offset in range(start, len(name)):
+            byte = name[offset]
+            if not ((byte >= 65u8 and byte <= 90u8) or (byte >= 97u8 and byte <= 122u8) or (byte >= 48u8 and byte <= 57u8) or byte == 95u8 or (offset > start and byte == 45u8)):
+                return Err(CliError.Schema(index))
+        for before in range(index):
+            if schema[before].name == spec.name:
+                return Err(CliError.Schema(index))
+        if spec.positional:
+            if spec.kind == Kind.Flag or repeated or (optional and spec.required):
+                return Err(CliError.Schema(index))
+            optional = not spec.required
+            repeated = spec.repeatable
+    Ok(())
+
+def option_token(bytes: &list[u8]) -> bool:
+    if len(bytes) < 2 or bytes[0] != 45u8:
+        return False
+    # Negative numbers remain positional values; option values are always
+    # consumed verbatim, even when they start with a dash.
+    not (bytes[1] >= 48u8 and bytes[1] <= 57u8)
+
+def converted(kind: Kind, bytes: &list[u8], argument: i64) -> Result[Value, CliError]:
+    match kind:
+        case Kind.Flag:
+            Ok(Value.Flag)
+        case Kind.Path:
+            Ok(Value.Path(from_bytes(allocated(copy(bytes))?)))
+        case Kind.Text:
+            Ok(Value.Text(decoded(bytes, argument)?))
+        case Kind.Integer:
+            text = decoded(bytes, argument)?
+            match i64.parse(&text):
+                case Ok(value):
+                    Ok(Value.Integer(value))
+                case Err(_):
+                    Err(CliError.InvalidInteger(argument))
+
+# Borrow the schema and raw input; returned values own their storage. `start`
+# permits passing args_bytes() directly with start=1, or fixture tokens with 0.
+pub def parse(schema: &list[Spec], arguments: &list[list[u8]], start: i64) -> Result[Parsed, CliError]:
+    validate(schema)?
+    if start < 0 or start > len(arguments):
+        return Err(CliError.UnexpectedArgument(start))
+    mut counts = allocated(list[i64]())?
+    for spec in schema:
+        allocated(counts.append(0))?
+    mut entries = allocated(list[Entry]())?
+    mut terminated = False
+    mut index = start
+    while index < len(arguments):
+        bytes = &arguments[index]
+        mut chosen = -1
+        if not terminated and len(bytes) == 2 and bytes[0] == 45u8 and bytes[1] == 45u8:
+            terminated = True
+            index += 1
+            continue
+        if not terminated and option_token(bytes):
+            name = decoded(bytes, index)?
+            if name == "--help":
+                return Ok(Parsed(True, entries))
+            for candidate in range(len(schema)):
+                if not schema[candidate].positional and schema[candidate].name == name:
+                    chosen = candidate
+                    break
+            if chosen < 0:
+                return Err(CliError.UnknownOption(index))
+            if not schema[chosen].repeatable and counts[chosen] > 0:
+                return Err(CliError.Duplicate(chosen))
+            if schema[chosen].kind != Kind.Flag:
+                index += 1
+                if index == len(arguments):
+                    return Err(CliError.MissingValue(chosen))
+        else:
+            for candidate in range(len(schema)):
+                if schema[candidate].positional and (counts[candidate] == 0 or schema[candidate].repeatable):
+                    chosen = candidate
+                    break
+            if chosen < 0:
+                return Err(CliError.UnexpectedArgument(index))
+        value = converted(schema[chosen].kind, &arguments[index], index)?
+        allocated(entries.append(Entry(chosen, value)))?
+        counts[chosen] += 1
+        index += 1
+    for candidate in range(len(schema)):
+        if schema[candidate].required and counts[candidate] == 0:
+            return Err(CliError.Missing(candidate))
+    Ok(Parsed(False, entries))
+
+pub def help(schema: &list[Spec], program: &str) -> Result[str, CliError]:
+    validate(schema)?
+    mut text = allocated("Usage: ".concat(program))?
+    text = allocated(text.concat(" [--help]\n"))?
+    for spec in schema:
+        text = allocated(text.concat("  "))?
+        text = allocated(text.concat(spec.name))?
+        match spec.kind:
+            case Kind.Flag:
+                pass
+            case Kind.Integer:
+                text = allocated(text.concat(" <integer>"))?
+            case Kind.Text:
+                text = allocated(text.concat(" <text>"))?
+            case Kind.Path:
+                text = allocated(text.concat(" <path>"))?
+        if spec.required:
+            text = allocated(text.concat(" (required)"))?
+        if spec.repeatable:
+            text = allocated(text.concat(" (repeatable)"))?
+        text = allocated(text.concat("  "))?
+        text = allocated(text.concat(spec.help))?
+        text = allocated(text.concat("\n"))?
+    allocated(text.concat("  --help  Show this help\n"))
+
+pub def exit_status(error: &CliError) -> i32:
+    match error:
+        case CliError.Allocation(_):
+            1i32
+        case CliError.Schema(_):
+            1i32
+        case _:
+            2i32
+
+pub def describe(error: &CliError) -> Result[str, AllocError]:
+    match error:
+        case CliError.Schema(index):
+            "invalid schema at index ".concat(&str.repr(index)?)
+        case CliError.UnknownOption(index):
+            "unknown option at argument ".concat(&str.repr(index)?)
+        case CliError.UnexpectedArgument(index):
+            "unexpected argument at index ".concat(&str.repr(index)?)
+        case CliError.MissingValue(index):
+            "missing value for schema entry ".concat(&str.repr(index)?)
+        case CliError.Duplicate(index):
+            "duplicate option for schema entry ".concat(&str.repr(index)?)
+        case CliError.Missing(index):
+            "missing required schema entry ".concat(&str.repr(index)?)
+        case CliError.InvalidInteger(index):
+            "invalid or out-of-range integer at argument ".concat(&str.repr(index)?)
+        case CliError.InvalidUtf8(index):
+            "invalid UTF-8 at argument ".concat(&str.repr(index)?)
+        case CliError.Allocation(_):
+            Ok("no memory to parse arguments")
+
+def named(prefix: &str, index: i64, schema: &list[Spec]) -> Result[str, AllocError]:
+    if index >= 0 and index < len(schema):
+        return prefix.concat(schema[index].name)
+    prefix.concat(&str.repr(index)?)
+
+pub def describe_for(error: &CliError, schema: &list[Spec]) -> Result[str, AllocError]:
+    match error:
+        case CliError.Schema(index):
+            named("invalid schema entry ", *index, schema)
+        case CliError.MissingValue(index):
+            named("missing value for ", *index, schema)
+        case CliError.Duplicate(index):
+            named("duplicate option ", *index, schema)
+        case CliError.Missing(index):
+            named("missing required argument ", *index, schema)
+        case _:
+            describe(error)

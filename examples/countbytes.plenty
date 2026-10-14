@@ -1,0 +1,47 @@
+from std.cli import Spec, Kind, Value, parse, help, describe_for, exit_status
+from std.error import Context, Subject, path_context
+
+# Compile, then run: ./countbytes --total first.bin second.bin
+def run() -> Result[i32, Failure]:
+    schema = [
+        Spec("--total", Kind.Flag, False, False, False, "also print the total"),
+        Spec("FILE", Kind.Path, True, True, True, "files to count")
+    ]?
+    raw = args_bytes()?
+    match parse(&schema, &raw, 1):
+        case Err(error):
+            status = exit_status(&error)
+            context = Context("arguments", Subject.Absent, error)
+            context.report_with(describe_for(&context.cause, &schema))
+            Ok(status)
+        case Ok(parsed):
+            if parsed.help_requested:
+                drop(write_stdout(help(&schema, "countbytes")?))
+                return Ok(0i32)
+            mut show_total = False
+            mut total = 0
+            for entry in &parsed.entries:
+                match &entry.value:
+                    case Value.Flag:
+                        show_total = True
+                    case Value.Path(path):
+                        match path_context(read_bytes(path.as_bytes()), "read", path):
+                            case Ok(bytes):
+                                print(len(bytes), path.display()?)?
+                                total += len(bytes)
+                            case Err(error):
+                                error.report()
+                                return Ok(1i32)
+                    case _:
+                        pass
+            if show_total:
+                print(total, "total")?
+            Ok(0i32)
+
+def main() -> i32:
+    match run():
+        case Ok(status):
+            status
+        case Err(error):
+            Context("countbytes", Subject.Absent, error).report()
+            1i32
