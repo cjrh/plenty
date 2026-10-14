@@ -37,6 +37,7 @@ constructor allocates and can report `Allocation`.
 | `to_list()` | shared | `Result[list[u8], BytesError]` | Independent `list[u8]` for the transport builtins |
 | `to_text()` | shared | `Result[str, BytesError]` | Strictly validated UTF-8 copy; otherwise `InvalidUtf8` |
 | `set(index, value)` | exclusive | `Result[(), BytesError]` | Replace one byte |
+| `write_float(value: f64)` | exclusive | `Result[i64, BytesError]` | Write shortest scientific ASCII into existing bytes at zero; requires `len() >= 32`, returns bytes written, never allocates or changes length |
 | `fill(start, stop, value)` | exclusive | `Result[(), BytesError]` | Replace every byte of a range |
 | `overwrite(offset, source, start, stop)` | exclusive | `Result[(), BytesError]` | Copy `source[start:stop]` over existing bytes at `offset`; never grows |
 | `push(value)` | exclusive | `Result[(), BytesError]` | Append one byte |

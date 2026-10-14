@@ -112,6 +112,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type)
         let storage = |value: u128| &mut (*(value as *mut Storage)).bytes;
         match op {
             170 => result(create(size(a)).map(|owner| owner as u128)),
+            280 => crate::formatting::write_float(storage(a), f64::from_bits(b as u64)) as u128,
             171 => storage(a).len() as u128,
             172 => storage(a).capacity() as u128,
             173 => match storage(a).get(size(b)) {

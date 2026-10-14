@@ -16,6 +16,12 @@ pub class Bytes:
     pub def is_empty(self) -> bool:
         __bytes_len(self._owner) == 0
 
+    # Bounded scientific f64 spelling for reusable output scratch buffers.
+    pub def write_float(self: &mut Bytes, value: f64) -> Result[i64, BytesError]:
+        if self.len() < 32:
+            return Err(BytesError.OutOfRange)
+        Ok(__bytes_write_float(self._owner, value))
+
     pub def capacity(self) -> i64:
         __bytes_capacity(self._owner)
 

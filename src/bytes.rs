@@ -20,6 +20,7 @@ pub enum BytesOp {
     ToList,
     FromText,
     ToText,
+    WriteFloat,
 }
 
 impl BytesOp {
@@ -39,6 +40,7 @@ impl BytesOp {
             "__bytes_to_list" => Self::ToList,
             "__bytes_from_text" => Self::FromText,
             "__bytes_to_text" => Self::ToText,
+            "__bytes_write_float" => Self::WriteFloat,
             _ => return None,
         })
     }
@@ -50,6 +52,7 @@ impl BytesOp {
             Self::Len | Self::Capacity => return (vec![storage()], Ty::I64),
             Self::Get => return (vec![storage(), Ty::I64], Ty::U8),
             Self::Set => return (vec![storage(), Ty::I64, Ty::U8], Ty::Unit),
+            Self::WriteFloat => return (vec![storage(), Ty::F64], Ty::I64),
             Self::Overwrite => {
                 return (
                     vec![storage(), Ty::I64, storage(), Ty::I64, Ty::I64],
@@ -73,11 +76,20 @@ impl BytesOp {
     pub fn mutable(self) -> bool {
         matches!(
             self,
-            Self::Set | Self::Reserve | Self::Resize | Self::Push | Self::Append | Self::Overwrite
+            Self::Set
+                | Self::Reserve
+                | Self::Resize
+                | Self::Push
+                | Self::Append
+                | Self::Overwrite
+                | Self::WriteFloat
         )
     }
 
     pub fn opcode(self) -> i64 {
-        170 + self as i64
+        match self {
+            Self::WriteFloat => 280,
+            _ => 170 + self as i64,
+        }
     }
 }
