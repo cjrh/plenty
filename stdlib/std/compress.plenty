@@ -94,8 +94,9 @@ def leveled(level: i64) -> Result[(), CompressError]:
 
 # A decoder with its output limit and the policy for what follows a stream:
 # a further gzip member is decoded, anything else is TrailingData. The caller
-# empties the state's pending output before each step.
-class Inflater:
+# empties the pending output before each step. Readers that own their input
+# use it directly, as std.archive does for zip entries.
+pub class Inflater:
     _state: Bytes
     _gzip: bool
     _limit: i64
@@ -103,7 +104,7 @@ class Inflater:
 
     # Consumes from input[start:stop] and leaves new output pending in the
     # state. Returns the count consumed; 0 means more input is needed.
-    def step(self: &mut Inflater, input: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
+    pub def step(self: &mut Inflater, input: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
         if start == stop:
             return Ok(0)
         if self._state.compress_ended():
@@ -123,10 +124,17 @@ class Inflater:
         Ok(consumed)
 
     # Whether the input seen so far is a complete stream.
-    def complete(self) -> bool:
+    pub def complete(self) -> bool:
         self._state.compress_ended()
 
-def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
+    # The output of the last step, at most 16384 bytes.
+    pub def output(self) -> &Bytes:
+        &self._state
+
+    pub def clear(self: &mut Inflater) -> ():
+        self._state.clear()
+
+pub def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
     if limit < 0:
         return Err(CompressError.OutOfRange)
     state = reported(std.bytes.compress_state(kind(format, True), 0, window))?

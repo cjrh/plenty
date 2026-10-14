@@ -17,6 +17,7 @@ GNU target.
 | `decompress(format: Format, data: &Bytes, limit: i64)` | `Result[Bytes, CompressError]` | The contents of `data`, at most `limit` bytes |
 | `compressor(format: Format, inner: W, level: i64)` | `Result[Compressor[W], CompressError]` | A writer that compresses into `inner` |
 | `decompressor(format: Format, inner: R, limit: i64)` | `Result[Decompressor[R], CompressError]` | A reader of the decompressed contents of `inner` |
+| `inflater(format: Format, limit: i64)` | `Result[Inflater, CompressError]` | A step-by-step decoder; see [Inflater](#inflater) |
 | `crc32(seed: i64, data: &Bytes, start: i64, stop: i64)` | `Result[i64, CompressError]` | The CRC-32 of `data[start:stop]`, continuing from `seed` |
 | `stream_error(error: CompressError)` | `StreamError` | How a `Decompressor` reports `error` |
 
@@ -109,6 +110,24 @@ have returned bytes when it finds a `Checksum` failure. Treat decoded output
 as unverified until `read` has returned 0. Bytes decoded in the step that
 fails are discarded. `decompress` returns nothing on any error.
 
+## Inflater
+
+`Inflater` is the decoder inside `Decompressor`, for a reader that owns its
+input and cannot hand over an `inner` stream, as
+[`std.archive`](archive.md) does for ZIP entries. It applies the same
+[input policy](#input-policy) and limit.
+
+| Method | Result | Contract |
+|---|---|---|
+| `step(input: &Bytes, start: i64, stop: i64)` | `Result[i64, CompressError]` | Decode from `input[start:stop]`; returns the count consumed |
+| `output()` | `&Bytes` | The output of the last step, at most 16384 bytes |
+| `clear()` | `()` | Empty the pending output |
+| `complete()` | `bool` | Whether the input so far is a complete stream |
+
+Empty the output with `clear` before each `step`; a step that returns 0
+with no output needs more input. Errors are not sticky: after a failure,
+discard the `Inflater`.
+
 ## Errors
 
 ```text
@@ -198,7 +217,8 @@ through their own runtime entry, so a program that does not use
 
 ## Limits
 
-- No zip, tar, bzip2, xz, zstd, brotli, or lz4.
+- No bzip2, xz, zstd, brotli, or lz4. ZIP and TAR are in
+  [`std.archive`](archive.md).
 - No preset dictionaries, compression strategies, or window and memory
   settings; every encoder uses a 32 KiB window and zlib's default memory
   level.

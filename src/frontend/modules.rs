@@ -62,6 +62,9 @@ impl ModuleSource {
             Self::Standard("std.compress") => {
                 Ok(include_str!("../../stdlib/std/compress.plenty").into())
             }
+            Self::Standard("std.archive") => {
+                Ok(include_str!("../../stdlib/std/archive.plenty").into())
+            }
             Self::Standard("std.crypto") => {
                 Ok(include_str!("../../stdlib/std/crypto.plenty").into())
             }
@@ -587,13 +590,14 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.secrets" => Ok(ModuleSource::Standard("std.secrets")),
                     "std.crypto" => Ok(ModuleSource::Standard("std.crypto")),
                     "std.compress" => Ok(ModuleSource::Standard("std.compress")),
+                    "std.archive" => Ok(ModuleSource::Standard("std.archive")),
                     "std.json" => Ok(ModuleSource::Standard("std.json")),
                     "std.log" => Ok(ModuleSource::Standard("std.log")),
                     "std.toml" => Ok(ModuleSource::Standard("std.toml")),
                     "std.env" => Ok(ModuleSource::Standard("std.env")),
                     "std.process" => Ok(ModuleSource::Standard("std.process")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.json, std.log, std.toml, std.env, std.process",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.json, std.log, std.toml, std.env, std.process",
                         import.module
                 ))),
                 };
