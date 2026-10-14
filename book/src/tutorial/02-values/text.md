@@ -10,6 +10,7 @@ def main() -> Result[(), IoError]:
     print(name)?
     print(contains(name, "lent"))?
     print(len("hé"))?
+    print("hé".byte_len())?
     Ok(())
 ```
 
@@ -17,11 +18,14 @@ def main() -> Result[(), IoError]:
 Plenty
 True
 2
+3
 ```
 
 `print` displays text without quotes. `contains(text, part)` tests for a
 substring. `len` counts Unicode scalar values, so the accented character above
-counts once; this is not a byte count or a count of visible grapheme clusters.
+counts once; this is not a count of visible grapheme clusters. `byte_len()`
+gives the size of the UTF-8 encoding instead, which is what a file, a buffer,
+or a size limit measures.
 
 Strings are immutable. A `mut` binding allows replacing a string, rather than
 editing its bytes.

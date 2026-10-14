@@ -7,7 +7,11 @@ Ordering (`<`, `<=`, `>`, `>=`) is lexicographic by Unicode scalar value,
 matching the order used by `list[str].sort()`. Prefixes precede longer strings;
 comparison observes both inputs and allocates nothing.
 `len(text)` counts scalars, including combining marks individually, rather than
-bytes or grapheme clusters.
+bytes or grapheme clusters. `text.byte_len() -> i64` is the length of the UTF-8
+encoding in bytes: `len("héllo")` is `5` and `"héllo".byte_len()` is `6`. It
+observes the receiver, takes constant time, and allocates nothing; use it to
+enforce a size limit before copying or encoding text. `str` has no `len`
+method, so the two counts cannot be confused at a call site.
 
 String literals require no allocation. Results of at most seven UTF-8 bytes,
 including every single character and the empty string, also require no heap

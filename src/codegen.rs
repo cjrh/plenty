@@ -1735,6 +1735,9 @@ impl Lowerer<'_, '_> {
             IntegerOp::WrappingAdd => self.bcx.ins().iadd(a, b),
             IntegerOp::WrappingSub => self.bcx.ins().isub(a, b),
             IntegerOp::WrappingMul => self.bcx.ins().imul(a, b),
+            // Cranelift masks the count to the operand width.
+            IntegerOp::RotateLeft => self.bcx.ins().rotl(a, b),
+            IntegerOp::RotateRight => self.bcx.ins().rotr(a, b),
             IntegerOp::Not => unreachable!(),
         };
         self.stack.push((result, ty));

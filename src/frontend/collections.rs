@@ -2129,6 +2129,60 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(ty));
         }
+        if ty.is_int() && matches!(name, "rotate_left" | "rotate_right") {
+            let [count] = args else {
+                return Err(base
+                    .at
+                    .error(format!("{name} takes one count of the receiver's type")));
+            };
+            let argument = self.expr_expected(count, Some(ty.clone()), ops)?;
+            self.same(argument, Some(ty.clone()), &count.at)?;
+            ops.push(Op::Integer(if name == "rotate_left" {
+                IntegerOp::RotateLeft
+            } else {
+                IntegerOp::RotateRight
+            }));
+            Self::end_reads(loans, ops);
+            return Ok(Some(ty));
+        }
+        if let Some(tag) = presence_tag(&ty, name) {
+            let Ty::Enum(t) = ty else { unreachable!() };
+            if !args.is_empty() {
+                return Err(base.at.error(format!("{name} takes no arguments")));
+            }
+            ops.extend([
+                Op::Enum(crate::sum::EnumOp::Tag(t)),
+                Op::PushInt(Value::I64(tag)),
+                Op::Eq,
+            ]);
+            Self::end_reads(loans, ops);
+            return Ok(Some(Ty::Bool));
+        }
+        if let (Ty::Enum(t), "is_ok" | "is_err" | "is_some" | "is_none") = (&ty, name) {
+            if t.is_result() {
+                return Err(base.at.error(format!(
+                    "{name} requires an Option, got {ty}; a Result provides `is_ok` and `is_err`"
+                )));
+            }
+            if t.is_option() {
+                return Err(base.at.error(format!(
+                    "{name} requires a Result, got {ty}; an Option provides `is_some` and `is_none`"
+                )));
+            }
+        }
+        if ty == Ty::Str && name == "len" {
+            return Err(base.at.error(
+                "str has no `len` method; `len(text)` counts scalars and `text.byte_len()` counts UTF-8 bytes",
+            ));
+        }
+        if ty == Ty::Str && name == "byte_len" {
+            if !args.is_empty() {
+                return Err(base.at.error("byte_len takes no arguments"));
+            }
+            ops.push(Op::Collection(CollectionOp::TextByteLen));
+            Self::end_reads(loans, ops);
+            return Ok(Some(Ty::I64));
+        }
         if ty.is_numeric() && numeric::method(name) {
             return self
                 .numeric_method(base, name, args, (ty, loans), ops)
@@ -3032,4 +3086,17 @@ fn increment(index: u8, ops: &mut Vec<Op>) {
         Op::Add,
         Op::StoreLocal(index),
     ]);
+}
+
+/// The variant tag a `Result`/`Option` predicate named `name` tests for.
+/// `Result` stores `Ok` first; `Option` stores `Nothing` first.
+fn presence_tag(ty: &Ty, name: &str) -> Option<i64> {
+    let Ty::Enum(t) = ty else { return None };
+    match name {
+        "is_ok" if t.is_result() => Some(0),
+        "is_err" if t.is_result() => Some(1),
+        "is_none" if t.is_option() => Some(0),
+        "is_some" if t.is_option() => Some(1),
+        _ => None,
+    }
 }

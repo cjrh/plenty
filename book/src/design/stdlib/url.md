@@ -177,7 +177,7 @@ Every operation is linear in its input and allocates in proportion to it.
 
 | Operation | Allocates |
 |---|---|
-| `parse` | One copy of the text, then one string per present component. A text of more than `max_bytes` characters is rejected before the copy, so the copy never exceeds four times `max_bytes` |
+| `parse` | One copy of the text, then one string per present component. A text of more than `max_bytes` UTF-8 bytes is rejected before the copy, so the copy never exceeds `max_bytes` |
 | `format` | One growing buffer, a temporary per component, and the result |
 | `encode_bytes`, `decode_bytes` | One buffer of exactly the output size, after validation |
 | `encode`, `decode` | A `Bytes` copy of the text, the coded buffer, then the `str` |
