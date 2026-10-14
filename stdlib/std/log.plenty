@@ -1,0 +1,381 @@
+from std.bytes import Bytes, BytesError, with_capacity
+from std.fmt import Formatter, FormatError, formatter
+from std.io import Writer, StreamError, write_all
+from std.time import Timestamp, wall_now
+
+pub enum LogError:
+    InvalidSpec
+    InvalidKey
+    UnknownLevel
+    TooLarge
+    Full
+    Closed
+    Format(FormatError)
+    Output(StreamError)
+    Allocation(AllocError)
+
+pub enum Level:
+    Trace
+    Debug
+    Info
+    Warn
+    Error
+
+def rank(level: &Level) -> i64:
+    match level:
+        case Level.Trace:
+            0
+        case Level.Debug:
+            1
+        case Level.Info:
+            2
+        case Level.Warn:
+            3
+        case Level.Error:
+            4
+
+pub def level_name(level: &Level) -> str:
+    match level:
+        case Level.Trace:
+            "trace"
+        case Level.Debug:
+            "debug"
+        case Level.Info:
+            "info"
+        case Level.Warn:
+            "warn"
+        case Level.Error:
+            "error"
+
+# Exact lowercase names only, so configuration typos are reported instead of
+# silently selecting a default threshold.
+pub def parse_level(name: &str) -> Result[Level, LogError]:
+    if name == "trace":
+        return Ok(Level.Trace)
+    if name == "debug":
+        return Ok(Level.Debug)
+    if name == "info":
+        return Ok(Level.Info)
+    if name == "warn":
+        return Ok(Level.Warn)
+    if name == "error":
+        return Ok(Level.Error)
+    Err(LogError.UnknownLevel)
+
+pub enum Value:
+    Text(str)
+    Integer(i64)
+    Unsigned(u64)
+    Floating(f64)
+    Boolean(bool)
+
+pub class Field:
+    pub key: str
+    pub value: Value
+
+pub def text(key: str, value: str) -> Field:
+    Field(key, Value.Text(value))
+
+pub def integer(key: str, value: i64) -> Field:
+    Field(key, Value.Integer(value))
+
+pub def unsigned(key: str, value: u64) -> Field:
+    Field(key, Value.Unsigned(value))
+
+pub def floating(key: str, value: f64) -> Field:
+    Field(key, Value.Floating(value))
+
+pub def boolean(key: str, value: bool) -> Field:
+    Field(key, Value.Boolean(value))
+
+# Events are wholly owned so a sink may keep them or move them to another
+# thread. Fields keep the caller's order.
+pub class Event:
+    pub level: Level
+    pub message: str
+    pub fields: list[Field]
+    pub time: Option[Timestamp]
+
+pub def event(level: Level, message: str, fields: list[Field]) -> Event:
+    Event(level, message, fields, Nothing)
+
+pub protocol Sink:
+    def emit(self: &mut Sink, event: Event) -> Result[(), LogError]:
+        pass
+
+pub enum Clock:
+    Off
+    Wall
+    Fixed(Timestamp)
+
+# No global logger exists: libraries take `&mut Logger[S]` (or a sink) from
+# their caller, so configuration stays explicit and testable.
+pub class Logger[S]:
+    pub sink: S
+    _threshold: i64
+    _clock: Clock
+    _emitted: u64
+    _filtered: u64
+    _failed: u64
+
+    pub def enabled(self, level: &Level) -> bool:
+        rank(level) >= self._threshold
+
+    pub def emitted(self) -> u64:
+        self._emitted
+
+    pub def filtered(self) -> u64:
+        self._filtered
+
+    pub def failed(self) -> u64:
+        self._failed
+
+    pub def emit(self: &mut Logger[S], event: Event) -> Result[(), LogError]:
+        if rank(&event.level) < self._threshold:
+            self._filtered += 1u64
+            return Ok(())
+        mut stamped = event
+        mut unstamped = False
+        match &stamped.time:
+            case Nothing:
+                unstamped = True
+            case Some(_):
+                pass
+        if unstamped:
+            match &self._clock:
+                case Clock.Off:
+                    pass
+                case Clock.Wall:
+                    stamped.time = Some(wall_now())
+                case Clock.Fixed(at):
+                    stamped.time = Some(Timestamp(at.seconds, at.nanoseconds))
+        match self.sink.emit(stamped):
+            case Ok(_):
+                self._emitted += 1u64
+                Ok(())
+            case Err(error):
+                self._failed += 1u64
+                Err(error)
+
+    pub def log(self: &mut Logger[S], level: Level, message: str, fields: list[Field]) -> Result[(), LogError]:
+        self.emit(Event(level, message, fields, Nothing))
+
+    pub def debug(self: &mut Logger[S], message: str, fields: list[Field]) -> Result[(), LogError]:
+        self.emit(Event(Level.Debug, message, fields, Nothing))
+
+    pub def info(self: &mut Logger[S], message: str, fields: list[Field]) -> Result[(), LogError]:
+        self.emit(Event(Level.Info, message, fields, Nothing))
+
+    pub def warn(self: &mut Logger[S], message: str, fields: list[Field]) -> Result[(), LogError]:
+        self.emit(Event(Level.Warn, message, fields, Nothing))
+
+    pub def error(self: &mut Logger[S], message: str, fields: list[Field]) -> Result[(), LogError]:
+        self.emit(Event(Level.Error, message, fields, Nothing))
+
+pub def logger[S: Sink](sink: S, threshold: Level, clock: Clock) -> Logger[S]:
+    Logger(sink, rank(&threshold), clock, 0u64, 0u64, 0u64)
+
+def fields_of[T](result: Result[T, FormatError]) -> Result[T, LogError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(LogError.Format(error))
+
+def stored[T](result: Result[T, BytesError]) -> Result[T, LogError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(LogError.Allocation(cause))
+                case _:
+                    Err(LogError.InvalidSpec)
+
+# A fixed-capacity writer for one line. Refusing a write that would pass the
+# limit is what bounds formatting; nothing grows after construction.
+pub class LineBuffer:
+    pub data: Bytes
+    _limit: i64
+    _overflow: bool
+
+    pub def write(self: &mut LineBuffer, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start < 0 or start > stop or stop > source.len():
+            return Err(StreamError.OutOfRange)
+        if stop - start > self._limit - self.data.len():
+            self._overflow = True
+            return Err(StreamError.OutOfRange)
+        match self.data.extend_range(source, start, stop):
+            case Ok(_):
+                Ok(stop - start)
+            case Err(_):
+                Err(StreamError.OutOfRange)
+
+    pub def flush(self: &mut LineBuffer) -> Result[(), StreamError]:
+        Ok(())
+
+    def reset(self: &mut LineBuffer) -> ():
+        self.data.clear()
+        self._overflow = False
+
+def valid_key(key: &str) -> bool:
+    if key == "" or key == "time" or key == "level" or key == "msg":
+        return False
+    for scalar in key:
+        code = ord(scalar).unwrap()
+        letter = (code >= 97u32 and code <= 122u32) or (code >= 65u32 and code <= 90u32)
+        digit = code >= 48u32 and code <= 57u32
+        if not letter and not digit and scalar != "_" and scalar != "." and scalar != "-":
+            return False
+    True
+
+def render(out: &mut Formatter[LineBuffer], event: &Event) -> Result[(), FormatError]:
+    match &event.time:
+        case Some(at):
+            out.text("time=")?
+            out.integer(at.seconds, 0)?
+            out.text(".")?
+            mut divisor = 100000000u32
+            while divisor > 0u32:
+                out.unsigned(u64(at.nanoseconds // divisor % 10u32), 10, 0)?
+                divisor //= 10u32
+            out.text(" ")?
+        case Nothing:
+            pass
+    out.text("level=")?
+    out.text(&level_name(&event.level))?
+    out.text(" msg=")?
+    out.debug_text(&event.message)?
+    for field in &event.fields:
+        out.text(" ")?
+        out.text(&field.key)?
+        out.text("=")?
+        match &field.value:
+            case Value.Text(value):
+                out.debug_text(value)?
+            case Value.Integer(value):
+                out.integer(*value, 0)?
+            case Value.Unsigned(value):
+                out.unsigned(*value, 10, 0)?
+            case Value.Floating(value):
+                out.floating(*value, 0)?
+            case Value.Boolean(value):
+                if *value:
+                    out.text("true")?
+                else:
+                    out.text("false")?
+    out.text("\n")
+
+# One event becomes one logfmt line, delivered with one `write_all` and a
+# flush, so a line is never interleaved with another sink's output.
+pub class TextSink[W]:
+    pub writer: W
+    _out: Formatter[LineBuffer]
+
+    pub def emit(self: &mut TextSink[W], event: Event) -> Result[(), LogError]:
+        for field in &event.fields:
+            if not valid_key(&field.key):
+                return Err(LogError.InvalidKey)
+        self._out.writer.reset()
+        match render(&mut self._out, &event):
+            case Ok(_):
+                pass
+            case Err(error):
+                if self._out.writer._overflow:
+                    return Err(LogError.TooLarge)
+                return Err(LogError.Format(error))
+        match write_all(&mut self.writer, &self._out.writer.data, 0, self._out.writer.data.len()):
+            case Ok(_):
+                pass
+            case Err(partial):
+                return Err(LogError.Output(partial.cause))
+        match self.writer.flush():
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(LogError.Output(error))
+
+pub def text_sink[W: Writer](writer: W, max_line: i64) -> Result[TextSink[W], LogError]:
+    if max_line < 1:
+        return Err(LogError.InvalidSpec)
+    mut scratch = stored(with_capacity(32))?
+    stored(scratch.resize(32, 0u8))?
+    line = LineBuffer(stored(with_capacity(max_line))?, max_line, False)
+    out = fields_of(formatter(line, scratch, i64.MAX, 0))?
+    Ok(TextSink(writer, out))
+
+# Keeps at most `capacity` events in memory; later events are rejected as
+# `Full` rather than growing the list.
+pub class MemorySink:
+    pub events: list[Event]
+    _capacity: i64
+
+    pub def emit(self: &mut MemorySink, event: Event) -> Result[(), LogError]:
+        if len(self.events) >= self._capacity:
+            return Err(LogError.Full)
+        match self.events.append(event):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(LogError.Allocation(error))
+
+pub def memory_sink(capacity: i64) -> Result[MemorySink, LogError]:
+    if capacity < 0:
+        return Err(LogError.InvalidSpec)
+    match list[Event].with_capacity(capacity):
+        case Ok(events):
+            Ok(MemorySink(events, capacity))
+        case Err(error):
+            Err(LogError.Allocation(error))
+
+pub class Discard:
+    pub def emit(self: &mut Discard, event: Event) -> Result[(), LogError]:
+        drop(event)
+        Ok(())
+
+pub def discard() -> Discard:
+    Discard()
+
+# Never waits: a full queue drops the event as `Full`, so a slow consumer
+# cannot stall the producing thread. Each thread holds its own shared handle.
+pub class ChannelSink:
+    _sender: Sender[Event]
+
+    pub def share(self) -> ChannelSink:
+        ChannelSink(self._sender.share())
+
+    pub def emit(self: &mut ChannelSink, event: Event) -> Result[(), LogError]:
+        match self._sender.send_nowait(event):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                match error:
+                    case SendError.Full(_):
+                        Err(LogError.Full)
+                    case SendError.Disconnected(_):
+                        Err(LogError.Closed)
+
+pub def channel_sink(sender: Sender[Event]) -> ChannelSink:
+    ChannelSink(sender)
+
+pub class Drained:
+    pub delivered: u64
+    pub failed: u64
+
+# Delivers queued events until every sender is gone. A failing event is
+# counted and skipped so one bad write does not stop the consumer.
+pub def drain[S: Sink](receiver: &Receiver[Event], sink: &mut S) -> Drained:
+    mut delivered = 0u64
+    mut failed = 0u64
+    while True:
+        match receiver.recv():
+            case Ok(event):
+                match sink.emit(event):
+                    case Ok(_):
+                        delivered += 1u64
+                    case Err(_):
+                        failed += 1u64
+            case Err(_):
+                return Drained(delivered, failed)
+    Drained(delivered, failed)
