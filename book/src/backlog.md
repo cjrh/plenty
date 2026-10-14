@@ -178,7 +178,7 @@ Plenty; approved platform/backend boundaries remain narrow.
 | B64 | HTTP server — issue #101 | Typed handlers/routing, bounded admission/backpressure, stream controls, observability and graceful drain/cancellation. Depends on B62/B61/B58/B46. |
 | B65 | HTTP/deployment helpers — issue #102 | JSON/forms/cookies, bounded multipart cleanup, explicit trusted proxies and filesystem-aware static-file decision. Depends on B64/B51/B55/B60. |
 | B66 | HTTP production qualification — issue #103 | Conformance/fuzzing, slow-client/cancellation/load/leak suites, measured baselines and security maintenance; installed CLI/API workflows. Depends on B63/B65/B57. |
-| B67 | Curated crypto — issue #104 | Maintained digests/HMAC/constant-time comparison; encryption requires separate API/use-case review. Depends on B40. |
+| B67 | Curated crypto — issue #104 | Done: `std.crypto` SHA-256/SHA-512 digests, HMAC, and constant-time `equal`/`verify` over vendored RustCrypto crates. Remaining: key derivation (HKDF/PBKDF2) and encryption need separate API/use-case review. |
 | B68 | Compression — issue #105 | Bounded gzip/deflate streams, expansion/checksum/partial-output policy and maintained backend. Depends on B40. |
 | B69 | Archives — issue #106 | ZIP/TAR reading/writing and filesystem-aware extraction roots/links/limits/cleanup. Depends on B68/B55. |
 | B70 | SQLite — issue #107 | Typed binding, prepared statements, owned transactions and thread/row lifetimes; maintained SQLite, no ORM. Depends on B40/B55/B58. |
