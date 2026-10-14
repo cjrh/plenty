@@ -562,6 +562,30 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        self.generic_call_inner(name, types, args, at, false, ops)
+    }
+
+    pub(super) fn generic_method_call(
+        &mut self,
+        name: &str,
+        types: Option<&[TypeRef]>,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        self.generic_call_inner(name, types, args, at, true, ops)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn generic_call_inner(
+        &mut self,
+        name: &str,
+        types: Option<&[TypeRef]>,
+        args: &[Expr],
+        at: &Token,
+        method: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
         if self.names.contains_key(name) {
             return Err(at.error(format!("binding `{name}` is not callable")));
         }
@@ -571,7 +595,7 @@ impl Lower<'_> {
                 .map(|t| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<_>>()?;
             let symbol = self.specialize(name, actual, at)?;
-            return self.call_named(&symbol, args, at, ops);
+            return self.call_named_with_receiver(&symbol, args, at, method, ops);
         }
         let template = self.generics.templates[name].clone();
         if args.len() != template.inputs.len() {
@@ -586,7 +610,8 @@ impl Lower<'_> {
         let mut arguments = Vec::new();
         // Lower once, left to right, using ordinary ownership and borrow rules.
         // Generic positions get no contextual type: literals use their defaults.
-        for (arg, (_, pattern)) in args.iter().zip(&template.inputs) {
+        let mut reservation = None;
+        for (index, (arg, (_, pattern))) in args.iter().zip(&template.inputs).enumerate() {
             let callback_bound = template.type_params.iter().find_map(|(name, bound)| {
                 (pattern.name.as_ref() == Some(name))
                     .then_some(bound.as_ref())
@@ -631,6 +656,10 @@ impl Lower<'_> {
                 &arg.at,
             )?;
             arguments.push(ty);
+            if method && index == 0 && matches!(arguments[0], Ty::Ref(_, true)) {
+                reservation = Some(loans[0]);
+                self.reserve_receiver(loans[0], ops);
+            }
         }
         self.sync_data()?;
         self.generics
@@ -641,6 +670,10 @@ impl Lower<'_> {
         let symbol = self.specialize(name, actual, at)?;
         let callee = self.specialize_frames(&symbol, arguments, at)?;
         let sig = self.sigs[&callee].clone();
+        if let Some(loan) = reservation {
+            self.mark(at, ops);
+            loans[0] = self.activate_receiver(loan, ops);
+        }
         self.record_direct_call(&callee, at, &loans, ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
         self.call_reference_result(&callee, &sig, &loans, ops);

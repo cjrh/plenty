@@ -35,6 +35,19 @@ and `inspect(&value)` lend the same owner. An `&mut T` parameter requires
 borrow their receivers according to their declared `self` parameter. Generic
 calls and callbacks follow the same signature-based rules.
 
+A class method with an exclusive receiver reserves its place before evaluating
+arguments, then activates exclusive access just before entering the method.
+The receiver and arguments still evaluate once, left to right. During argument
+evaluation the reserved place permits shared reads, but cannot be moved,
+replaced, or mutably borrowed. Thus `buffer.fill(0, buffer.len(), 0u8)` works
+even when `buffer` is an `&mut Bytes`: the length is a completed value before
+the exclusive call starts. Generic methods use the same rule. A shared
+reference into the receiver that remains live as an argument still conflicts
+with activation; a nested mutation of that receiver also conflicts. Bind a
+nested mutation's result to a local before the outer call when sequential
+mutations are intended. Explicit function arguments such as `f(&mut x, &x)`
+do not receive this implicit receiver reservation.
+
 Shared call arguments may be literals or owned temporaries. They evaluate once
 in argument order and stay alive through later arguments and the containing
 full expression, including cleanup on `?`. A reference returned into such a

@@ -50,6 +50,26 @@ pub(super) fn returned_fields(function: &Function, sig: &FnSig) -> Option<Vec<us
 }
 
 impl Lower<'_> {
+    /// Keep a method's already-evaluated place stable while arguments run.
+    /// Runtime reference construction stays in source order; only exclusivity
+    /// starts later, so argument reads may finish before the call.
+    pub(super) fn reserve_receiver(&mut self, loan: usize, ops: &mut [Op]) {
+        self.loans[loan].mutable = false;
+        for op in ops.iter_mut().rev() {
+            if let Op::Loan(fact) = op {
+                if fact.id == loan {
+                    fact.mutable = false;
+                    return;
+                }
+            }
+        }
+        unreachable!("receiver loan was just emitted")
+    }
+
+    pub(super) fn activate_receiver(&mut self, loan: usize, ops: &mut Vec<Op>) -> usize {
+        self.new_loan(self.loans[loan].root, true, Some(loan), ops)
+    }
+
     /// Signature-directed shared arguments lend places, forward references, or
     /// materialize an owner until the end of the containing full expression.
     pub(super) fn shared_argument(
