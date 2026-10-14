@@ -63,6 +63,7 @@ impl ModuleSource {
                 Ok(include_str!("../../stdlib/std/crypto.plenty").into())
             }
             Self::Standard("std.json") => Ok(include_str!("../../stdlib/std/json.plenty").into()),
+            Self::Standard("std.log") => Ok(include_str!("../../stdlib/std/log.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -582,10 +583,11 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.secrets" => Ok(ModuleSource::Standard("std.secrets")),
                     "std.crypto" => Ok(ModuleSource::Standard("std.crypto")),
                     "std.json" => Ok(ModuleSource::Standard("std.json")),
+                    "std.log" => Ok(ModuleSource::Standard("std.log")),
                     "std.env" => Ok(ModuleSource::Standard("std.env")),
                     "std.process" => Ok(ModuleSource::Standard("std.process")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.json, std.env, std.process",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.json, std.log, std.env, std.process",
                         import.module
                 ))),
                 };
