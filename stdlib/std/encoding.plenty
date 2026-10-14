@@ -1,0 +1,344 @@
+import std.bytes
+from std.bytes import Bytes, BytesError
+
+# Binary-to-text codecs and fixed-width integer packing over `std.bytes`.
+# Everything here is checked Plenty: each access goes through the validated
+# `Bytes` operations, so no offset reaches storage unchecked. Each codec has
+# one accepted form; nothing is skipped, trimmed, or repaired.
+pub enum EncodingError:
+    OutOfRange
+    InvalidLength
+    InvalidByte(i64)
+    InvalidPadding(i64)
+    NonCanonical(i64)
+    Allocation(AllocError)
+
+pub enum Endian:
+    Little
+    Big
+
+# Lowercase digits. Sizes below cannot overflow: a buffer large enough to make
+# them wrap cannot have been allocated.
+pub def hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    mut encoded = lifted(std.bytes.with_capacity((stop - start) * 2))?
+    for index in range(start, stop):
+        value = byte(source, index)?
+        emit(&mut encoded, hex_digit(value >> 4))?
+        emit(&mut encoded, hex_digit(value & 15))?
+    Ok(encoded)
+
+# Accepts either digit case; the length must be even.
+pub def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    if (stop - start) % 2 != 0:
+        return Err(EncodingError.InvalidLength)
+    mut decoded = lifted(std.bytes.with_capacity((stop - start) // 2))?
+    for pair in range((stop - start) // 2):
+        index = start + pair * 2
+        high = hex_value(byte(source, index)?)
+        if high < 0:
+            return Err(EncodingError.InvalidByte(index))
+        low = hex_value(byte(source, index + 1)?)
+        if low < 0:
+            return Err(EncodingError.InvalidByte(index + 1))
+        emit(&mut decoded, high * 16 + low)?
+    Ok(decoded)
+
+pub def hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
+    lifted(hex_encode(source, start, stop)?.to_text())
+
+pub def hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
+    source = lifted(std.bytes.from_text(text))?
+    hex_decode(&source, 0, source.len())
+
+# RFC 4648 section 4: `+` and `/`, always padded with `=` to a multiple of four.
+pub def base64_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    encode64(source, start, stop, False)
+
+pub def base64_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    decode64(source, start, stop, False)
+
+pub def base64_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
+    lifted(encode64(source, start, stop, False)?.to_text())
+
+pub def base64_from_text(text: &str) -> Result[Bytes, EncodingError]:
+    source = lifted(std.bytes.from_text(text))?
+    decode64(&source, 0, source.len(), False)
+
+# RFC 4648 section 5: `-` and `_`, never padded.
+pub def base64url_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    encode64(source, start, stop, True)
+
+pub def base64url_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
+    decode64(source, start, stop, True)
+
+pub def base64url_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
+    lifted(encode64(source, start, stop, True)?.to_text())
+
+pub def base64url_from_text(text: &str) -> Result[Bytes, EncodingError]:
+    source = lifted(std.bytes.from_text(text))?
+    decode64(&source, 0, source.len(), True)
+
+# `pack_` overwrites existing bytes and never grows the buffer; `append_`
+# grows it by exactly the width, or not at all.
+pub def pack_u16(target: &mut Bytes, offset: i64, value: u16, order: Endian) -> Result[(), EncodingError]:
+    store(target, offset, u64(value), 2, order)
+
+pub def pack_u32(target: &mut Bytes, offset: i64, value: u32, order: Endian) -> Result[(), EncodingError]:
+    store(target, offset, u64(value), 4, order)
+
+pub def pack_u64(target: &mut Bytes, offset: i64, value: u64, order: Endian) -> Result[(), EncodingError]:
+    store(target, offset, value, 8, order)
+
+# Signed values are stored in two's complement.
+pub def pack_i16(target: &mut Bytes, offset: i64, value: i16, order: Endian) -> Result[(), EncodingError]:
+    store(target, offset, u64.wrapping_from(value), 2, order)
+
+pub def pack_i32(target: &mut Bytes, offset: i64, value: i32, order: Endian) -> Result[(), EncodingError]:
+    store(target, offset, u64.wrapping_from(value), 4, order)
+
+pub def pack_i64(target: &mut Bytes, offset: i64, value: i64, order: Endian) -> Result[(), EncodingError]:
+    store(target, offset, u64.wrapping_from(value), 8, order)
+
+pub def append_u16(target: &mut Bytes, value: u16, order: Endian) -> Result[(), EncodingError]:
+    grow(target, u64(value), 2, order)
+
+pub def append_u32(target: &mut Bytes, value: u32, order: Endian) -> Result[(), EncodingError]:
+    grow(target, u64(value), 4, order)
+
+pub def append_u64(target: &mut Bytes, value: u64, order: Endian) -> Result[(), EncodingError]:
+    grow(target, value, 8, order)
+
+pub def append_i16(target: &mut Bytes, value: i16, order: Endian) -> Result[(), EncodingError]:
+    grow(target, u64.wrapping_from(value), 2, order)
+
+pub def append_i32(target: &mut Bytes, value: i32, order: Endian) -> Result[(), EncodingError]:
+    grow(target, u64.wrapping_from(value), 4, order)
+
+pub def append_i64(target: &mut Bytes, value: i64, order: Endian) -> Result[(), EncodingError]:
+    grow(target, u64.wrapping_from(value), 8, order)
+
+pub def unpack_u16(source: &Bytes, offset: i64, order: Endian) -> Result[u16, EncodingError]:
+    Ok(u16.wrapping_from(load(source, offset, 2, order)?))
+
+pub def unpack_u32(source: &Bytes, offset: i64, order: Endian) -> Result[u32, EncodingError]:
+    Ok(u32.wrapping_from(load(source, offset, 4, order)?))
+
+pub def unpack_u64(source: &Bytes, offset: i64, order: Endian) -> Result[u64, EncodingError]:
+    load(source, offset, 8, order)
+
+pub def unpack_i16(source: &Bytes, offset: i64, order: Endian) -> Result[i16, EncodingError]:
+    Ok(i16.wrapping_from(load(source, offset, 2, order)?))
+
+pub def unpack_i32(source: &Bytes, offset: i64, order: Endian) -> Result[i32, EncodingError]:
+    Ok(i32.wrapping_from(load(source, offset, 4, order)?))
+
+pub def unpack_i64(source: &Bytes, offset: i64, order: Endian) -> Result[i64, EncodingError]:
+    Ok(i64.wrapping_from(load(source, offset, 8, order)?))
+
+# The `std.bytes` range rule: 0 <= start <= stop <= count.
+def checked(start: i64, stop: i64, count: i64) -> Result[(), EncodingError]:
+    if start < 0 or start > stop or stop > count:
+        return Err(EncodingError.OutOfRange)
+    Ok(())
+
+# Ranges are validated before any `Bytes` call and encoder output is ASCII, so
+# only `Allocation` reaches here in practice.
+def lifted[T](result: Result[T, BytesError]) -> Result[T, EncodingError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(EncodingError.Allocation(cause))
+                case _:
+                    Err(EncodingError.OutOfRange)
+
+def byte(source: &Bytes, index: i64) -> Result[i64, EncodingError]:
+    Ok(i64(lifted(source.get(index))?))
+
+# Output buffers are created with their exact final capacity, so this never
+# allocates.
+def emit(target: &mut Bytes, value: i64) -> Result[(), EncodingError]:
+    lifted(target.push(u8(value)))
+
+def hex_digit(value: i64) -> i64:
+    if value < 10:
+        return 48 + value
+    87 + value
+
+def hex_value(code: i64) -> i64:
+    if code >= 48 and code <= 57:
+        return code - 48
+    if code >= 97 and code <= 102:
+        return code - 87
+    if code >= 65 and code <= 70:
+        return code - 55
+    -1
+
+def symbol(value: i64, url: bool) -> i64:
+    if value < 26:
+        return 65 + value
+    if value < 52:
+        return 71 + value
+    if value < 62:
+        return value - 4
+    if value == 62:
+        if url:
+            return 45
+        return 43
+    if url:
+        return 95
+    47
+
+def sextet(code: i64, url: bool) -> i64:
+    if code >= 65 and code <= 90:
+        return code - 65
+    if code >= 97 and code <= 122:
+        return code - 71
+    if code >= 48 and code <= 57:
+        return code + 4
+    if url:
+        if code == 45:
+            return 62
+        if code == 95:
+            return 63
+        return -1
+    if code == 43:
+        return 62
+    if code == 47:
+        return 63
+    -1
+
+def encode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    groups = (stop - start) // 3
+    tail = (stop - start) % 3
+    mut size = groups * 4
+    if tail > 0:
+        if url:
+            size += tail + 1
+        else:
+            size += 4
+    mut encoded = lifted(std.bytes.with_capacity(size))?
+    for group in range(groups):
+        index = start + group * 3
+        first = byte(source, index)?
+        second = byte(source, index + 1)?
+        third = byte(source, index + 2)?
+        emit(&mut encoded, symbol(first >> 2, url))?
+        emit(&mut encoded, symbol((first & 3) << 4 | second >> 4, url))?
+        emit(&mut encoded, symbol((second & 15) << 2 | third >> 6, url))?
+        emit(&mut encoded, symbol(third & 63, url))?
+    if tail > 0:
+        index = stop - tail
+        first = byte(source, index)?
+        emit(&mut encoded, symbol(first >> 2, url))?
+        if tail == 1:
+            emit(&mut encoded, symbol((first & 3) << 4, url))?
+        else:
+            second = byte(source, index + 1)?
+            emit(&mut encoded, symbol((first & 3) << 4 | second >> 4, url))?
+            emit(&mut encoded, symbol((second & 15) << 2, url))?
+        if not url:
+            for _ in range(3 - tail):
+                emit(&mut encoded, 61)?
+    Ok(encoded)
+
+# One symbol, or the error naming its index. `=` is a padding error wherever
+# the caller did not already strip it.
+def symbol_at(source: &Bytes, index: i64, url: bool) -> Result[i64, EncodingError]:
+    code = byte(source, index)?
+    value = sextet(code, url)
+    if value >= 0:
+        return Ok(value)
+    if code == 61:
+        return Err(EncodingError.InvalidPadding(index))
+    Err(EncodingError.InvalidByte(index))
+
+def decode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    mut end = stop
+    if url:
+        if (stop - start) % 4 == 1:
+            return Err(EncodingError.InvalidLength)
+    else:
+        if (stop - start) % 4 != 0:
+            return Err(EncodingError.InvalidLength)
+        # At most two trailing `=` are padding. Any other `=` is reported by
+        # `symbol_at`.
+        if end > start:
+            if byte(source, end - 1)? == 61:
+                end -= 1
+                if byte(source, end - 1)? == 61:
+                    end -= 1
+    groups = (end - start) // 4
+    tail = (end - start) % 4
+    mut size = groups * 3
+    if tail > 0:
+        size += tail - 1
+    mut decoded = lifted(std.bytes.with_capacity(size))?
+    for group in range(groups):
+        index = start + group * 4
+        first = symbol_at(source, index, url)?
+        second = symbol_at(source, index + 1, url)?
+        third = symbol_at(source, index + 2, url)?
+        fourth = symbol_at(source, index + 3, url)?
+        emit(&mut decoded, first << 2 | second >> 4)?
+        emit(&mut decoded, (second & 15) << 4 | third >> 2)?
+        emit(&mut decoded, (third & 3) << 6 | fourth)?
+    if tail > 0:
+        index = end - tail
+        first = symbol_at(source, index, url)?
+        second = symbol_at(source, index + 1, url)?
+        emit(&mut decoded, first << 2 | second >> 4)?
+        if tail == 2:
+            # Bits that encode no byte must be zero, so each value has one text.
+            if second & 15 != 0:
+                return Err(EncodingError.NonCanonical(index + 1))
+        else:
+            third = symbol_at(source, index + 2, url)?
+            if third & 3 != 0:
+                return Err(EncodingError.NonCanonical(index + 2))
+            emit(&mut decoded, (second & 15) << 4 | third >> 2)?
+    Ok(decoded)
+
+def big(order: Endian) -> bool:
+    match order:
+        case Endian.Big:
+            True
+        case Endian.Little:
+            False
+
+def place(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
+    forward = big(order)
+    for index in range(width):
+        mut shift = index
+        if forward:
+            shift = width - 1 - index
+        lifted(target.set(offset + index, u8.wrapping_from(bits >> u64(shift * 8))))?
+    Ok(())
+
+def store(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
+    if offset < 0 or offset > target.len() - width:
+        return Err(EncodingError.OutOfRange)
+    place(target, offset, bits, width, order)
+
+def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
+    offset = target.len()
+    lifted(target.resize(offset + width, 0u8))?
+    place(target, offset, bits, width, order)
+
+def load(source: &Bytes, offset: i64, width: i64, order: Endian) -> Result[u64, EncodingError]:
+    if offset < 0 or offset > source.len() - width:
+        return Err(EncodingError.OutOfRange)
+    forward = big(order)
+    mut bits = 0u64
+    for index in range(width):
+        mut position = width - 1 - index
+        if forward:
+            position = index
+        bits = bits << 8 | u64(lifted(source.get(offset + position))?)
+    Ok(bits)
