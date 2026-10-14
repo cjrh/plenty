@@ -409,7 +409,7 @@ fn vendored_runtime_crates_match_the_lockfile() {
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
     vendored.sort();
-    assert_eq!(vendored.len(), 10, "{vendored:?}");
+    assert_eq!(vendored.len(), 11, "{vendored:?}");
     for directory in vendored {
         let (name, version) = directory.rsplit_once('-').unwrap();
         let entry = format!("name = \"{name}\"\nversion = \"{version}\"\n");

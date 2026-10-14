@@ -17,3 +17,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(plenty_runtime_embedded)']
 hmac = "=0.12.1"
 sha2 = { version = "=0.10.9", default-features = false }
 subtle = { version = "=2.6.1", default-features = false }
+# `__internal-api` exposes the zlib-style init/step/end calls, which report
+# allocation failure instead of aborting; see src/aggregates/compress.rs.
+zlib-rs = { version = "=0.6.8", default-features = false, features = ["std", "__internal-api"] }

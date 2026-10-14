@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The runtime's only third-party code: RustCrypto digests, HMAC and
-/// constant-time comparison for `std.crypto`, copied unmodified from crates.io
-/// into `plenty-runtime/vendor`. Versions match `Cargo.lock`, which the Cargo
+/// constant-time comparison for `std.crypto`, and zlib-rs for `std.compress`,
+/// copied unmodified from crates.io into `plenty-runtime/vendor`. Versions match `Cargo.lock`, which the Cargo
 /// build of the same crate uses; `tests/test_std_crypto.rs` checks they agree.
 /// Each entry: directory, crate name, edition, features, extra cfgs, externs.
 type Vendored = (
@@ -65,8 +65,17 @@ const VENDORED: &[Vendored] = &[
         &["cfg_if", "digest", "cpufeatures"],
     ),
     ("hmac-0.12.1", "hmac", "2018", &[], &[], &["digest"]),
+    (
+        "zlib-rs-0.6.8",
+        "zlib_rs",
+        "2021",
+        // Cargo's `std` feature implies `rust-allocator`.
+        &["std", "rust-allocator", "__internal-api"],
+        &[],
+        &[],
+    ),
 ];
-const RUNTIME_EXTERNS: &[&str] = &["sha2", "hmac", "subtle"];
+const RUNTIME_EXTERNS: &[&str] = &["sha2", "hmac", "subtle", "zlib_rs"];
 
 fn main() {
     println!("cargo:rerun-if-changed=plenty-runtime/src");

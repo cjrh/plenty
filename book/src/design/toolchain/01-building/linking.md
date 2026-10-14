@@ -40,7 +40,8 @@ target support. Failures report its identity, status, and diagnostics.
 application object, followed by the runtime archive extracted from the same
 compiler build and its native arguments, one per line in `link-args.txt`. The
 first argument is `-Wl,--gc-sections`, which leaves unused runtime code, such
-as the [`std.crypto`](../../stdlib/crypto.md) hashes, out of the executable. The
+as the [`std.crypto`](../../stdlib/crypto.md) hashes and the
+[`std.compress`](../../stdlib/compress.md) codecs, out of the executable. The
 runtime supplies C `main`. Neither object emission nor runtime extraction needs
 Cargo or rustc on `PATH`.
 

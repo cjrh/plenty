@@ -73,6 +73,8 @@ impl Lowerer<'_, '_> {
         }
         let callee = if (300..320).contains(&opcode) {
             self.runtime.crypto
+        } else if (320..340).contains(&opcode) {
+            self.runtime.compress
         } else {
             self.runtime.collection
         };
@@ -182,6 +184,7 @@ impl Lowerer<'_, '_> {
             CollectionOp::Filesystem(_)
             | CollectionOp::Bytes(_)
             | CollectionOp::Crypto(_)
+            | CollectionOp::Compress(_)
             | CollectionOp::Process(_) => Some(&output),
             CollectionOp::Args
             | CollectionOp::ArgsBytes

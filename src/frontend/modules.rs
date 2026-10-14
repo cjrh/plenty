@@ -59,6 +59,9 @@ impl ModuleSource {
             Self::Standard("std.secrets") => {
                 Ok(include_str!("../../stdlib/std/secrets.plenty").into())
             }
+            Self::Standard("std.compress") => {
+                Ok(include_str!("../../stdlib/std/compress.plenty").into())
+            }
             Self::Standard("std.crypto") => {
                 Ok(include_str!("../../stdlib/std/crypto.plenty").into())
             }
@@ -581,11 +584,12 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.random" => Ok(ModuleSource::Standard("std.random")),
                     "std.secrets" => Ok(ModuleSource::Standard("std.secrets")),
                     "std.crypto" => Ok(ModuleSource::Standard("std.crypto")),
+                    "std.compress" => Ok(ModuleSource::Standard("std.compress")),
                     "std.json" => Ok(ModuleSource::Standard("std.json")),
                     "std.env" => Ok(ModuleSource::Standard("std.env")),
                     "std.process" => Ok(ModuleSource::Standard("std.process")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.json, std.env, std.process",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.json, std.env, std.process",
                         import.module
                 ))),
                 };

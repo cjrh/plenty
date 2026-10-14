@@ -10,6 +10,7 @@ use std::io::Write;
 mod byte_scan;
 mod byte_storage;
 mod bytes;
+mod compress;
 mod crypto;
 mod entry_error;
 pub(crate) mod executor_map;
@@ -1320,6 +1321,22 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
         let collection = &*owner.cast::<Collection>();
         let i = index(i, collection.entries.len(), site);
         collection.entries.get(i).key as u64
+    }
+}
+
+/// `std.compress` operations under their own symbol, as for `plenty_crypto`:
+/// a program that never compresses links without zlib-rs.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_compress(
+    op: i64,
+    args: *const u128,
+    _descriptor: *const Type,
+    _site: *const crate::Site,
+) {
+    // SAFETY: as for `plenty_crypto`.
+    unsafe {
+        let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
+        args.add(3).cast_mut().write(compress::call(op, operands));
     }
 }
 

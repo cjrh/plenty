@@ -214,6 +214,28 @@ pub class Bytes:
     pub def crypto_equal(self, other: &Bytes) -> bool:
         __crypto_equal(self._owner, other._owner)
 
+    # std.compress's native back end; import that module instead. A receiver
+    # that did not come from `compress_state` stops the process. Its bytes are
+    # the codec's pending output, which a step never grows past the capacity
+    # reserved at creation.
+    pub def compress_step(self: &mut Bytes, input: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(input._owner))?
+        Ok(__compress_step(self._owner, input._owner, start, stop))
+
+    pub def compress_flush(self: &mut Bytes, mode: i64) -> i64:
+        __compress_flush(self._owner, mode)
+
+    pub def compress_ended(self) -> bool:
+        __compress_ended(self._owner)
+
+    pub def compress_restart(self: &mut Bytes) -> bool:
+        __compress_restart(self._owner)
+
+    # The CRC-32 of self[start:stop], continuing from `seed`.
+    pub def compress_crc32(self, seed: i64, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(__compress_crc32(seed, self._owner, start, stop))
+
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)
@@ -266,3 +288,9 @@ pub def crypto_state(kind: u8) -> Result[Bytes, BytesError]:
 pub def crypto_keyed_state(kind: u8, key: &Bytes, start: i64, stop: i64) -> Result[Bytes, BytesError]:
     checked(start, stop, __bytes_len(key._owner))?
     Ok(Bytes(allocated(__crypto_new_keyed(kind, key._owner, start, stop))?))
+
+# std.compress's codec states. Import std.compress instead.
+pub def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, BytesError]:
+    if capacity < 0:
+        return Err(BytesError.OutOfRange)
+    Ok(Bytes(allocated(__compress_new(kind, level, capacity))?))

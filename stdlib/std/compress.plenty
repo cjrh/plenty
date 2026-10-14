@@ -1,0 +1,345 @@
+# DEFLATE, zlib and gzip compression over std.bytes buffers and std.io
+# streams. The codecs are zlib-rs code in the runtime; this module owns the
+# buffering, the output limit and the trailing-data policy. See
+# book/src/design/stdlib/compress.md.
+import std.bytes
+from std.bytes import Bytes, BytesError
+from std.io import StreamError
+
+pub enum Format:
+    Deflate
+    Zlib
+    Gzip
+
+pub enum CompressError:
+    OutOfRange
+    Corrupt
+    Checksum
+    Truncated
+    TrailingData
+    LimitExceeded
+    Allocation(AllocError)
+
+# Pending output and input buffers are fixed at this size.
+const window: i64 = 16384
+# The first byte of every gzip member.
+const gzip_magic: u8 = 31u8
+const sync_flush: i64 = 2
+const finish_flush: i64 = 4
+
+def kind(format: Format, decoding: bool) -> u8:
+    base = match format:
+        case Format.Deflate:
+            1u8
+        case Format.Zlib:
+            2u8
+        case Format.Gzip:
+            3u8
+    if decoding:
+        return base + 3u8
+    base
+
+def reported[T](result: Result[T, BytesError]) -> Result[T, CompressError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(CompressError.Allocation(cause))
+                case _:
+                    Err(CompressError.OutOfRange)
+
+# The runtime's negative step and flush results.
+def failed(code: i64) -> CompressError:
+    match code:
+        case -2:
+            CompressError.Checksum
+        case -3:
+            CompressError.Allocation(AllocError.OutOfMemory)
+        case _:
+            CompressError.Corrupt
+
+# How a reader reports each failure through the Reader protocol;
+# Decompressor.failure keeps the precise cause.
+pub def stream_error(error: CompressError) -> StreamError:
+    match error:
+        case CompressError.Truncated:
+            StreamError.UnexpectedEof
+        case CompressError.OutOfRange:
+            StreamError.OutOfRange
+        case CompressError.Allocation(cause):
+            StreamError.Allocation(cause)
+        case _:
+            StreamError.Io(IoError.InvalidInput)
+
+def streamed[T](result: Result[T, CompressError]) -> Result[T, StreamError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(stream_error(error))
+
+def interrupted(cause: &StreamError) -> bool:
+    match cause:
+        case StreamError.Interrupted:
+            True
+        case _:
+            False
+
+def leveled(level: i64) -> Result[(), CompressError]:
+    if level < 0 or level > 9:
+        return Err(CompressError.OutOfRange)
+    Ok(())
+
+# A decoder with its output limit and the policy for what follows a stream:
+# a further gzip member is decoded, anything else is TrailingData. The caller
+# empties the state's pending output before each step.
+class Inflater:
+    _state: Bytes
+    _gzip: bool
+    _limit: i64
+    _produced: i64
+
+    # Consumes from input[start:stop] and leaves new output pending in the
+    # state. Returns the count consumed; 0 means more input is needed.
+    def step(self: &mut Inflater, input: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
+        if start == stop:
+            return Ok(0)
+        if self._state.compress_ended():
+            if not self._gzip or reported(input.get(start))? != gzip_magic:
+                return Err(CompressError.TrailingData)
+            self._state.compress_restart()
+        consumed = reported(self._state.compress_step(input, start, stop))?
+        if consumed < 0:
+            return Err(failed(consumed))
+        produced = self._state.len()
+        if produced > self._limit - self._produced:
+            return Err(CompressError.LimitExceeded)
+        self._produced += produced
+        # zlib-rs consumes or produces whenever input and output room remain.
+        if consumed == 0 and produced == 0 and not self._state.compress_ended():
+            return Err(CompressError.Corrupt)
+        Ok(consumed)
+
+    # Whether the input seen so far is a complete stream.
+    def complete(self) -> bool:
+        self._state.compress_ended()
+
+def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
+    if limit < 0:
+        return Err(CompressError.OutOfRange)
+    state = reported(std.bytes.compress_state(kind(format, True), 0, window))?
+    gzip = match format:
+        case Format.Gzip:
+            True
+        case _:
+            False
+    Ok(Inflater(state, gzip, limit, 0))
+
+# Compresses all of `data` at `level`, 0 (stored) to 9 (smallest).
+pub def compress(format: Format, data: &Bytes, level: i64) -> Result[Bytes, CompressError]:
+    leveled(level)?
+    mut state = reported(std.bytes.compress_state(kind(format, False), level, window))?
+    mut out = reported(std.bytes.empty())?
+    mut at = 0
+    total = data.len()
+    while at < total:
+        consumed = reported(state.compress_step(data, at, total))?
+        if consumed < 0:
+            return Err(failed(consumed))
+        at += consumed
+        reported(out.extend(&state))?
+        state.clear()
+    while True:
+        done = state.compress_flush(finish_flush)
+        if done < 0:
+            return Err(failed(done))
+        reported(out.extend(&state))?
+        state.clear()
+        if done == 1:
+            return Ok(out)
+    Ok(out)
+
+# Decompresses all of `data`, which must hold exactly one stream (or, for
+# gzip, a sequence of members). More than `limit` output bytes is
+# LimitExceeded; nothing is returned on any error.
+pub def decompress(format: Format, data: &Bytes, limit: i64) -> Result[Bytes, CompressError]:
+    mut decoder = inflater(format, limit)?
+    mut out = reported(std.bytes.empty())?
+    mut at = 0
+    total = data.len()
+    while at < total:
+        at += decoder.step(data, at, total)?
+        reported(out.extend(&decoder._state))?
+        decoder._state.clear()
+    if not decoder.complete():
+        return Err(CompressError.Truncated)
+    Ok(out)
+
+# The CRC-32 (as in gzip and zip) of data[start:stop], continuing from
+# `seed`; start from 0.
+pub def crc32(seed: i64, data: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
+    if seed < 0 or seed > 4294967295:
+        return Err(CompressError.OutOfRange)
+    reported(data.compress_crc32(seed, start, stop))
+
+# A Writer that compresses into `inner`. Input is accepted once the codec has
+# consumed it; output reaches `inner` on later writes, `flush` and `finish`.
+# Call `finish` to write the stream's end: dropping the compressor without
+# it leaves `inner` with an incomplete stream.
+pub class Compressor[W]:
+    pub inner: W
+    _state: Bytes
+    _start: i64
+    _finished: bool
+
+    # Delivers pending output. A failure keeps the undelivered tail, so a
+    # later call resumes exactly where this one stopped.
+    def drain(self: &mut Compressor[W]) -> Result[(), StreamError]:
+        total = self._state.len()
+        while self._start < total:
+            match self.inner.write(&self._state, self._start, total):
+                case Ok(count):
+                    if count == 0:
+                        return Err(StreamError.WriteZero)
+                    if count < 0 or count > total - self._start:
+                        return Err(StreamError.InvalidProgress)
+                    self._start += count
+                case Err(cause):
+                    if not interrupted(&cause):
+                        return Err(cause)
+        self._state.clear()
+        self._start = 0
+        Ok(())
+
+    pub def write(self: &mut Compressor[W], source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start < 0 or start > stop or stop > source.len():
+            return Err(StreamError.OutOfRange)
+        if self._finished or self._state.compress_ended():
+            return Err(StreamError.Io(IoError.Closed))
+        if start == stop:
+            return Ok(0)
+        while True:
+            self.drain()?
+            consumed = streamed(reported(self._state.compress_step(source, start, stop)))?
+            if consumed < 0:
+                return Err(stream_error(failed(consumed)))
+            if consumed > 0:
+                return Ok(consumed)
+            # Nothing consumed: the step filled the output buffer first.
+            if self._state.len() == 0:
+                return Err(StreamError.InvalidProgress)
+        Ok(0)
+
+    # Runs one flush mode until the codec reports it complete. An ended
+    # codec (finish failed while delivering) has nothing left to flush.
+    def flushed(self: &mut Compressor[W], mode: i64) -> Result[(), StreamError]:
+        while True:
+            self.drain()?
+            if self._state.compress_ended():
+                return Ok(())
+            done = self._state.compress_flush(mode)
+            if done < 0:
+                return Err(stream_error(failed(done)))
+            if done == 1:
+                return self.drain()
+        Ok(())
+
+    # Delivers everything written so far as complete blocks, then flushes
+    # `inner`. Frequent flushes cost compression ratio.
+    pub def flush(self: &mut Compressor[W]) -> Result[(), StreamError]:
+        if not self._finished:
+            self.flushed(sync_flush)?
+        self.drain()?
+        self.inner.flush()
+
+    # Writes the stream's end and checksum, then flushes `inner`. Later
+    # writes report IoError.Closed. After a failure, call it again to resume.
+    pub def finish(self: &mut Compressor[W]) -> Result[(), StreamError]:
+        if not self._finished:
+            self.flushed(finish_flush)?
+            self._finished = True
+        self.drain()?
+        self.inner.flush()
+
+pub def compressor[W](format: Format, inner: W, level: i64) -> Result[Compressor[W], CompressError]:
+    leveled(level)?
+    state = reported(std.bytes.compress_state(kind(format, False), level, window))?
+    Ok(Compressor(inner, state, 0, False))
+
+# A Reader of the decompressed contents of `inner`. A failure other than an
+# inner read error ends the stream: every later read repeats it, and
+# `failure` names the precise cause. Bytes already returned may precede a
+# checksum failure, which gzip and zlib detect only at the stream's end.
+pub class Decompressor[R]:
+    pub inner: R
+    _decoder: Inflater
+    _start: i64
+    _input: Bytes
+    _in_start: i64
+    _in_stop: i64
+    _eof: bool
+    _failure: Option[CompressError]
+
+    pub def failure(self) -> Option[CompressError]:
+        self._failure
+
+    def fail(self: &mut Decompressor[R], error: CompressError) -> Result[i64, StreamError]:
+        self._failure = Some(error)
+        Err(stream_error(error))
+
+    pub def read(self: &mut Decompressor[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start < 0 or start > stop or stop > buffer.len():
+            return Err(StreamError.OutOfRange)
+        match self._failure:
+            case Some(error):
+                return Err(stream_error(error))
+            case Nothing:
+                pass
+        if start == stop:
+            return Ok(0)
+        while True:
+            pending = self._decoder._state.len() - self._start
+            if pending > 0:
+                mut count = stop - start
+                if count > pending:
+                    count = pending
+                match buffer.overwrite(start, &self._decoder._state, self._start, self._start + count):
+                    case Ok(_):
+                        pass
+                    case Err(_):
+                        return Err(StreamError.OutOfRange)
+                self._start += count
+                if self._start == self._decoder._state.len():
+                    self._decoder._state.clear()
+                    self._start = 0
+                return Ok(count)
+            if self._in_start == self._in_stop:
+                if self._eof:
+                    if self._decoder.complete():
+                        return Ok(0)
+                    return self.fail(CompressError.Truncated)
+                size = self._input.len()
+                # Inner errors leave this reader intact, so Interrupted and
+                # other transient failures can be retried.
+                count = self.inner.read(&mut self._input, 0, size)?
+                if count < 0 or count > size:
+                    return Err(StreamError.InvalidProgress)
+                self._in_start = 0
+                self._in_stop = count
+                if count == 0:
+                    self._eof = True
+            else:
+                match self._decoder.step(&self._input, self._in_start, self._in_stop):
+                    case Ok(consumed):
+                        self._in_start += consumed
+                    case Err(error):
+                        return self.fail(error)
+        Ok(0)
+
+pub def decompressor[R](format: Format, inner: R, limit: i64) -> Result[Decompressor[R], CompressError]:
+    decoder = inflater(format, limit)?
+    mut input = reported(std.bytes.with_capacity(window))?
+    reported(input.resize(window, 0u8))?
+    Ok(Decompressor(inner, decoder, 0, input, 0, 0, False, Nothing))
