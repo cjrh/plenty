@@ -1,0 +1,1275 @@
+# RFC 8259 JSON: a resumable event decoder, an event encoder, and a value tree
+# built on both. Everything is checked Plenty over `std.bytes`; nothing is
+# skipped or repaired. Every size the input controls is bounded by `Limits`.
+# See book/src/design/stdlib/json.md.
+import std.bytes
+import std.io
+from std.bytes import Bytes, BytesError
+from std.io import Reader, Writer, StreamError
+
+pub enum JsonFault:
+    UnexpectedByte
+    UnexpectedEnd
+    TrailingData
+    InvalidLiteral
+    InvalidNumber
+    NumberOutOfRange
+    InvalidEscape
+    InvalidSurrogate
+    ControlCharacter
+    InvalidUtf8
+    DuplicateKey
+    DepthExceeded
+    InputTooLarge
+    OutputTooLarge
+    NonFiniteNumber
+    InvalidState
+    InvalidLimits
+    OutOfRange
+    Stream(StreamError)
+    Allocation(AllocError)
+
+# Decoder errors locate the offending input byte: `offset` counts bytes from
+# zero, `line` and `column` count from one, and a column is one Unicode scalar.
+# Encoder errors carry the output bytes produced so far and zero for both.
+pub class JsonError:
+    pub fault: JsonFault
+    pub offset: i64
+    pub line: i64
+    pub column: i64
+
+pub enum DuplicateKeys:
+    Reject
+    Keep
+
+pub class Limits:
+    pub max_depth: i64
+    pub max_input: i64
+    pub max_output: i64
+    pub duplicate_keys: DuplicateKeys
+
+pub enum Json:
+    Null
+    Bool(bool)
+    Int(i64)
+    Float(f64)
+    Text(str)
+    Array(list[Json])
+    Object(list[Member])
+
+# Members keep their source order.
+pub class Member:
+    pub key: str
+    pub value: Json
+
+# `Number` carries the validated source text so a typed codec chooses its own
+# width. `Pending` asks for more input; `End` follows a complete document.
+pub enum Event:
+    Pending
+    End
+    Null
+    Bool(bool)
+    Number(str)
+    Text(str)
+    Key(str)
+    StartArray
+    EndArray
+    StartObject
+    EndObject
+
+# Encoder recursion over a tree is bounded by the depth limit, so the limit
+# itself is capped to keep that recursion within the native stack.
+const depth_ceiling: i64 = 1024
+const read_chunk: i64 = 4096
+const default_size: i64 = 67108864
+
+const expect_value: i64 = 0
+const expect_first_item: i64 = 1
+const expect_first_key: i64 = 2
+const expect_key: i64 = 3
+const expect_colon: i64 = 4
+const expect_after: i64 = 5
+const expect_done: i64 = 6
+
+const mode_none: i64 = 0
+const mode_string: i64 = 1
+const mode_escape: i64 = 2
+const mode_unicode: i64 = 3
+const mode_low_slash: i64 = 4
+const mode_low_u: i64 = 5
+const mode_utf8: i64 = 6
+const mode_number: i64 = 7
+const mode_literal: i64 = 8
+
+const in_array: i64 = 0
+const in_object: i64 = 1
+
+const emit_top: i64 = 0
+const emit_first_item: i64 = 1
+const emit_first_key: i64 = 2
+const emit_next_item: i64 = 3
+const emit_next_key: i64 = 4
+const emit_member_value: i64 = 5
+const emit_done: i64 = 6
+
+pub def limits() -> Limits:
+    Limits(64, default_size, default_size, DuplicateKeys.Reject)
+
+def valid(bounds: &Limits) -> bool:
+    bounds.max_depth >= 0 and bounds.max_depth <= depth_ceiling and bounds.max_input >= 0 and bounds.max_output >= 0
+
+def faulted[T](result: Result[T, BytesError]) -> Result[T, JsonFault]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(JsonFault.Allocation(cause))
+                case BytesError.InvalidUtf8:
+                    Err(JsonFault.InvalidUtf8)
+                case BytesError.OutOfRange:
+                    Err(JsonFault.OutOfRange)
+
+def reserved[T](result: Result[T, AllocError]) -> Result[T, JsonFault]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(JsonFault.Allocation(cause))
+
+def unplaced[T](result: Result[T, JsonFault]) -> Result[T, JsonError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(fault):
+            Err(JsonError(fault, 0, 0, 0))
+
+# The number grammar as one transition: the next state, 0 when `byte` cannot
+# belong to a number, or -1 when it can but not here. States: 0 start,
+# 1 after `-`, 2 after a leading `0`, 3 integer digits, 4 after `.`,
+# 5 fraction digits, 6 after `e`, 7 after the exponent sign, 8 exponent digits.
+def number_step(state: i64, byte: i64) -> i64:
+    if byte >= 48 and byte <= 57:
+        if state == 0 or state == 1:
+            if byte == 48:
+                return 2
+            return 3
+        if state == 2:
+            return -1
+        if state == 3:
+            return 3
+        if state == 4 or state == 5:
+            return 5
+        return 8
+    if byte == 46:
+        if state == 2 or state == 3:
+            return 4
+        return -1
+    if byte == 101 or byte == 69:
+        if state == 2 or state == 3 or state == 5:
+            return 6
+        return -1
+    if byte == 45:
+        if state == 0:
+            return 1
+        if state == 6:
+            return 7
+        return -1
+    if byte == 43:
+        if state == 6:
+            return 7
+        return -1
+    0
+
+def number_complete(state: i64) -> bool:
+    state == 2 or state == 3 or state == 5 or state == 8
+
+def hex_value(code: i64) -> i64:
+    if code >= 48 and code <= 57:
+        return code - 48
+    if code >= 97 and code <= 102:
+        return code - 87
+    if code >= 65 and code <= 70:
+        return code - 55
+    -1
+
+def hex_digit(value: i64) -> i64:
+    if value < 10:
+        return 48 + value
+    87 + value
+
+# The byte at `index` of `true`, `false`, or `null`, or -1 past its end.
+def literal_byte(which: i64, index: i64) -> i64:
+    if which == 0:
+        if index == 0:
+            return 116
+        if index == 1:
+            return 114
+        if index == 2:
+            return 117
+        if index == 3:
+            return 101
+        return -1
+    if which == 1:
+        if index == 0:
+            return 102
+        if index == 1:
+            return 97
+        if index == 2:
+            return 108
+        if index == 3:
+            return 115
+        if index == 4:
+            return 101
+        return -1
+    if index == 0:
+        return 110
+    if index == 1:
+        return 117
+    if index == 2 or index == 3:
+        return 108
+    -1
+
+def push_byte(target: &mut Bytes, value: i64) -> Result[(), JsonFault]:
+    faulted(target.push(u8(value)))
+
+# `code` is a Unicode scalar value; the caller has excluded surrogates.
+def push_scalar(target: &mut Bytes, code: i64) -> Result[(), JsonFault]:
+    if code < 128:
+        return push_byte(target, code)
+    if code < 2048:
+        push_byte(target, 192 | (code >> 6))?
+        return push_byte(target, 128 | (code & 63))
+    if code < 65536:
+        push_byte(target, 224 | (code >> 12))?
+        push_byte(target, 128 | ((code >> 6) & 63))?
+        return push_byte(target, 128 | (code & 63))
+    push_byte(target, 240 | (code >> 18))?
+    push_byte(target, 128 | ((code >> 12) & 63))?
+    push_byte(target, 128 | ((code >> 6) & 63))?
+    push_byte(target, 128 | (code & 63))
+
+# A byte-at-a-time recognizer whose whole state lives in these fields, so
+# input may stop and resume between any two bytes. `_window` holds input not
+# yet examined; `_scratch` holds the decoded content of the current token;
+# `_stack` holds one byte per open container.
+pub class Decoder:
+    _window: Bytes
+    _at: i64
+    _fed: i64
+    _finished: bool
+    _broken: bool
+    _offset: i64
+    _line: i64
+    _column: i64
+    _token_offset: i64
+    _token_line: i64
+    _token_column: i64
+    _stack: Bytes
+    _scratch: Bytes
+    _expect: i64
+    _mode: i64
+    _is_key: bool
+    _number: i64
+    _literal: i64
+    _literal_at: i64
+    _hex_count: i64
+    _hex_value: i64
+    _high: i64
+    _utf8_need: i64
+    _utf8_low: i64
+    _utf8_high: i64
+    _max_depth: i64
+    _max_input: i64
+
+    # Bytes examined so far.
+    pub def offset(self) -> i64:
+        self._offset
+
+    pub def depth(self) -> i64:
+        self._stack.len()
+
+    # A fault placed at the first byte of the most recent event's token, for
+    # codecs that reject a value after reading it.
+    pub def reject(self, fault: JsonFault) -> JsonError:
+        JsonError(fault, self._token_offset, self._token_line, self._token_column)
+
+    def here(self, fault: JsonFault) -> JsonError:
+        JsonError(fault, self._offset, self._line, self._column)
+
+    # Appends source[start:stop] to the unexamined input.
+    pub def feed(self: &mut Decoder, source: &Bytes, start: i64, stop: i64) -> Result[(), JsonError]:
+        if self._broken or self._finished:
+            return Err(self.here(JsonFault.InvalidState))
+        if start < 0 or start > stop or stop > source.len():
+            return Err(self.here(JsonFault.OutOfRange))
+        if stop - start > self._max_input - self._fed:
+            self._broken = True
+            return Err(JsonError(JsonFault.InputTooLarge, self._max_input, 0, 0))
+        if self._at == self._window.len():
+            self._window.clear()
+            self._at = 0
+        match faulted(self._window.extend_range(source, start, stop)):
+            case Ok(_):
+                self._fed += stop - start
+                Ok(())
+            case Err(fault):
+                Err(self.here(fault))
+
+    # Declares that no more input will arrive.
+    pub def finish(self: &mut Decoder) -> ():
+        self._finished = True
+
+    # The next event. `Pending` means every fed byte has been examined and the
+    # document is incomplete: feed more or finish. After an error the decoder
+    # only reports `InvalidState`.
+    pub def next(self: &mut Decoder) -> Result[Event, JsonError]:
+        if self._broken:
+            return Err(self.here(JsonFault.InvalidState))
+        outcome = self.advance()
+        match outcome:
+            case Ok(event):
+                Ok(event)
+            case Err(fault):
+                self._broken = True
+                Err(self.here(fault))
+
+    def bump(self: &mut Decoder, byte: i64) -> ():
+        self._at += 1
+        self._offset += 1
+        if byte == 10:
+            self._line += 1
+            self._column = 1
+        elif byte & 192 != 128:
+            self._column += 1
+
+    def mark(self: &mut Decoder) -> ():
+        self._token_offset = self._offset
+        self._token_line = self._line
+        self._token_column = self._column
+
+    # A fault leaves the offending byte unconsumed, so the position reported
+    # by `next` is that byte's.
+    def advance(self: &mut Decoder) -> Result[Event, JsonFault]:
+        while True:
+            if self._expect == expect_done:
+                return Ok(Event.End)
+            if self._at >= self._window.len():
+                if not self._finished:
+                    return Ok(Event.Pending)
+                return self.at_end()
+            byte = i64(faulted(self._window.get(self._at))?)
+            mode = self._mode
+            mut step: Option[Event] = Nothing
+            if mode == mode_none:
+                if byte == 32 or byte == 10 or byte == 13 or byte == 9:
+                    self.bump(byte)
+                else:
+                    step = self.token(byte)?
+            elif mode == mode_string:
+                step = self.string(byte)?
+            elif mode == mode_utf8:
+                self.continuation(byte)?
+            elif mode == mode_number:
+                step = self.number(byte)?
+            elif mode == mode_literal:
+                step = self.literal(byte)?
+            else:
+                self.escape(byte)?
+            match step:
+                case Some(event):
+                    return Ok(event)
+                case Nothing:
+                    pass
+        Ok(Event.End)
+
+    def at_end(self: &mut Decoder) -> Result[Event, JsonFault]:
+        if self._mode == mode_number and number_complete(self._number):
+            return self.end_number()
+        if self._mode == mode_none and self._expect == expect_after and self._stack.len() == 0:
+            self._expect = expect_done
+            return Ok(Event.End)
+        Err(JsonFault.UnexpectedEnd)
+
+    # One byte between tokens that is not whitespace.
+    def token(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
+        expect = self._expect
+        if expect == expect_after:
+            return self.separator(byte)
+        if expect == expect_colon:
+            if byte != 58:
+                return Err(JsonFault.UnexpectedByte)
+            self.bump(byte)
+            self._expect = expect_value
+            return Ok(Nothing)
+        if expect == expect_key or expect == expect_first_key:
+            if byte == 34:
+                return self.open_string(byte, True)
+            if byte == 125 and expect == expect_first_key:
+                return self.close(byte)
+            return Err(JsonFault.UnexpectedByte)
+        if byte == 93 and expect == expect_first_item:
+            return self.close(byte)
+        if byte == 34:
+            return self.open_string(byte, False)
+        if byte == 123:
+            return self.open(byte, in_object)
+        if byte == 91:
+            return self.open(byte, in_array)
+        if byte == 45 or (byte >= 48 and byte <= 57):
+            self.mark()
+            self._number = number_step(0, byte)
+            push_byte(&mut self._scratch, byte)?
+            self.bump(byte)
+            self._mode = mode_number
+            return Ok(Nothing)
+        mut which = -1
+        if byte == 116:
+            which = 0
+        elif byte == 102:
+            which = 1
+        elif byte == 110:
+            which = 2
+        if which < 0:
+            return Err(JsonFault.UnexpectedByte)
+        self.mark()
+        self.bump(byte)
+        self._literal = which
+        self._literal_at = 1
+        self._mode = mode_literal
+        Ok(Nothing)
+
+    # After a complete value: a comma or the closing bracket of its container.
+    def separator(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
+        count = self._stack.len()
+        if count == 0:
+            return Err(JsonFault.TrailingData)
+        top = i64(faulted(self._stack.get(count - 1))?)
+        if byte == 44:
+            self.bump(byte)
+            if top == in_object:
+                self._expect = expect_key
+            else:
+                self._expect = expect_value
+            return Ok(Nothing)
+        if (byte == 93 and top == in_array) or (byte == 125 and top == in_object):
+            return self.close(byte)
+        Err(JsonFault.UnexpectedByte)
+
+    def open(self: &mut Decoder, byte: i64, kind: i64) -> Result[Option[Event], JsonFault]:
+        if self._stack.len() >= self._max_depth:
+            return Err(JsonFault.DepthExceeded)
+        push_byte(&mut self._stack, kind)?
+        self.mark()
+        self.bump(byte)
+        if kind == in_object:
+            self._expect = expect_first_key
+            return Ok(Some(Event.StartObject))
+        self._expect = expect_first_item
+        Ok(Some(Event.StartArray))
+
+    def close(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
+        drop(self._stack.pop())
+        self.mark()
+        self.bump(byte)
+        self._expect = expect_after
+        if byte == 93:
+            return Ok(Some(Event.EndArray))
+        Ok(Some(Event.EndObject))
+
+    def open_string(self: &mut Decoder, byte: i64, is_key: bool) -> Result[Option[Event], JsonFault]:
+        self.mark()
+        self.bump(byte)
+        self._is_key = is_key
+        self._mode = mode_string
+        Ok(Nothing)
+
+    # One byte of string content. UTF-8 is validated here, byte by byte, so a
+    # malformed sequence is reported at its own offset.
+    def string(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
+        if byte == 34:
+            text = faulted(self._scratch.to_text())?
+            self._scratch.clear()
+            self.bump(byte)
+            self._mode = mode_none
+            if self._is_key:
+                self._expect = expect_colon
+                return Ok(Some(Event.Key(text)))
+            self._expect = expect_after
+            return Ok(Some(Event.Text(text)))
+        if byte == 92:
+            self.bump(byte)
+            self._mode = mode_escape
+            return Ok(Nothing)
+        if byte < 32:
+            return Err(JsonFault.ControlCharacter)
+        if byte >= 128:
+            # The first continuation byte has a narrower range for the lead
+            # bytes that could otherwise encode an overlong form, a surrogate,
+            # or a value above U+10FFFF.
+            mut need = 1
+            mut low = 128
+            mut high = 191
+            if byte >= 194 and byte <= 223:
+                pass
+            elif byte >= 224 and byte <= 239:
+                need = 2
+                if byte == 224:
+                    low = 160
+                elif byte == 237:
+                    high = 159
+            elif byte >= 240 and byte <= 244:
+                need = 3
+                if byte == 240:
+                    low = 144
+                elif byte == 244:
+                    high = 143
+            else:
+                return Err(JsonFault.InvalidUtf8)
+            self._utf8_need = need
+            self._utf8_low = low
+            self._utf8_high = high
+            self._mode = mode_utf8
+        push_byte(&mut self._scratch, byte)?
+        self.bump(byte)
+        Ok(Nothing)
+
+    def continuation(self: &mut Decoder, byte: i64) -> Result[(), JsonFault]:
+        if byte < self._utf8_low or byte > self._utf8_high:
+            return Err(JsonFault.InvalidUtf8)
+        push_byte(&mut self._scratch, byte)?
+        self.bump(byte)
+        self._utf8_need -= 1
+        self._utf8_low = 128
+        self._utf8_high = 191
+        if self._utf8_need == 0:
+            self._mode = mode_string
+        Ok(())
+
+    # Everything between a backslash and the end of its escape. A high
+    # surrogate must be followed at once by an escaped low surrogate.
+    def escape(self: &mut Decoder, byte: i64) -> Result[(), JsonFault]:
+        mode = self._mode
+        if mode == mode_low_slash:
+            if byte != 92:
+                return Err(JsonFault.InvalidSurrogate)
+            self.bump(byte)
+            self._mode = mode_low_u
+            return Ok(())
+        if mode == mode_low_u:
+            if byte != 117:
+                return Err(JsonFault.InvalidSurrogate)
+            self.bump(byte)
+            self._hex_count = 0
+            self._hex_value = 0
+            self._mode = mode_unicode
+            return Ok(())
+        if mode == mode_unicode:
+            return self.unicode(byte)
+        mut plain = -1
+        if byte == 34 or byte == 92 or byte == 47:
+            plain = byte
+        elif byte == 98:
+            plain = 8
+        elif byte == 102:
+            plain = 12
+        elif byte == 110:
+            plain = 10
+        elif byte == 114:
+            plain = 13
+        elif byte == 116:
+            plain = 9
+        elif byte == 117:
+            self.bump(byte)
+            self._hex_count = 0
+            self._hex_value = 0
+            self._mode = mode_unicode
+            return Ok(())
+        if plain < 0:
+            return Err(JsonFault.InvalidEscape)
+        push_byte(&mut self._scratch, plain)?
+        self.bump(byte)
+        self._mode = mode_string
+        Ok(())
+
+    def unicode(self: &mut Decoder, byte: i64) -> Result[(), JsonFault]:
+        digit = hex_value(byte)
+        if digit < 0:
+            return Err(JsonFault.InvalidEscape)
+        code = self._hex_value * 16 + digit
+        if self._hex_count < 3:
+            self.bump(byte)
+            self._hex_value = code
+            self._hex_count += 1
+            return Ok(())
+        if self._high != 0:
+            if code < 56320 or code > 57343:
+                return Err(JsonFault.InvalidSurrogate)
+            push_scalar(&mut self._scratch, 65536 + ((self._high - 55296) << 10) + (code - 56320))?
+            self._high = 0
+            self._mode = mode_string
+        elif code >= 55296 and code <= 56319:
+            self._high = code
+            self._mode = mode_low_slash
+        elif code >= 56320 and code <= 57343:
+            return Err(JsonFault.InvalidSurrogate)
+        else:
+            push_scalar(&mut self._scratch, code)?
+            self._mode = mode_string
+        self.bump(byte)
+        Ok(())
+
+    def number(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
+        state = number_step(self._number, byte)
+        if state < 0:
+            return Err(JsonFault.InvalidNumber)
+        if state == 0:
+            return Ok(Some(self.end_number()?))
+        push_byte(&mut self._scratch, byte)?
+        self.bump(byte)
+        self._number = state
+        Ok(Nothing)
+
+    # The byte that ends a number is left for the next step.
+    def end_number(self: &mut Decoder) -> Result[Event, JsonFault]:
+        if not number_complete(self._number):
+            return Err(JsonFault.InvalidNumber)
+        text = faulted(self._scratch.to_text())?
+        self._scratch.clear()
+        self._mode = mode_none
+        self._expect = expect_after
+        Ok(Event.Number(text))
+
+    def literal(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
+        if byte != literal_byte(self._literal, self._literal_at):
+            return Err(JsonFault.InvalidLiteral)
+        self.bump(byte)
+        self._literal_at += 1
+        if literal_byte(self._literal, self._literal_at) >= 0:
+            return Ok(Nothing)
+        self._mode = mode_none
+        self._expect = expect_after
+        if self._literal == 0:
+            return Ok(Some(Event.Bool(True)))
+        if self._literal == 1:
+            return Ok(Some(Event.Bool(False)))
+        Ok(Some(Event.Null))
+
+pub def decoder(bounds: &Limits) -> Result[Decoder, JsonError]:
+    if not valid(bounds):
+        return Err(JsonError(JsonFault.InvalidLimits, 0, 0, 0))
+    window = unplaced(faulted(std.bytes.empty()))?
+    stack = unplaced(faulted(std.bytes.empty()))?
+    scratch = unplaced(faulted(std.bytes.empty()))?
+    Ok(Decoder(window, 0, 0, False, False, 0, 1, 1, 0, 1, 1, stack, scratch, expect_value, mode_none, False, 0, 0, 0, 0, 0, 0, 0, 0, 0, bounds.max_depth, bounds.max_input))
+
+def is_pending(event: &Event) -> bool:
+    match event:
+        case Event.Pending:
+            True
+        case _:
+            False
+
+def is_end(event: &Event) -> bool:
+    match event:
+        case Event.End:
+            True
+        case _:
+            False
+
+# One read into the emptied window. End of input finishes the decoder.
+def refill[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[(), JsonFault]:
+    mut room = source._max_input - source._fed
+    # One byte past the limit is enough to tell a full document from an
+    # oversized one.
+    if room < read_chunk:
+        room += 1
+    else:
+        room = read_chunk
+    faulted(source._window.resize(room, 0u8))?
+    source._at = 0
+    while True:
+        outcome = reader.read(&mut source._window, 0, room)
+        match outcome:
+            case Ok(count):
+                if count < 0 or count > room:
+                    source._window.clear()
+                    return Err(JsonFault.Stream(StreamError.InvalidProgress))
+                drop(source._window.truncate(count))
+                if count == 0:
+                    source._finished = True
+                elif count > source._max_input - source._fed:
+                    source._window.clear()
+                    return Err(JsonFault.InputTooLarge)
+                source._fed += count
+                return Ok(())
+            case Err(cause):
+                match cause:
+                    case StreamError.Interrupted:
+                        pass
+                    case _:
+                        source._window.clear()
+                        return Err(JsonFault.Stream(cause))
+    Ok(())
+
+# The next event, reading from `reader` whenever the decoder runs dry. Never
+# returns `Pending`. Memory stays bounded by the read window, the current
+# token, and the depth limit, whatever the document size.
+pub def read_event[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[Event, JsonError]:
+    while True:
+        event = source.next()?
+        if not is_pending(&event):
+            return Ok(event)
+        outcome = refill(source, reader)
+        match outcome:
+            case Ok(_):
+                pass
+            case Err(fault):
+                source._broken = True
+                match fault:
+                    case JsonFault.InputTooLarge:
+                        return Err(JsonError(fault, source._max_input, 0, 0))
+                    case _:
+                        return Err(source.here(fault))
+    Ok(Event.End)
+
+enum Frame:
+    Items(list[Json])
+    Members(list[Member], set[str])
+
+# Assembles events into a tree without recursion: open containers wait in
+# `frames`, and each object's pending key waits in `keys`.
+class Builder:
+    frames: list[Frame]
+    keys: list[str]
+    root: list[Json]
+    reject: bool
+
+    def accept(self: &mut Builder, event: Event) -> Result[(), JsonFault]:
+        match event:
+            case Event.Null:
+                self.attach(Json.Null)
+            case Event.Bool(value):
+                self.attach(Json.Bool(value))
+            case Event.Number(text):
+                self.attach(number_value(&text)?)
+            case Event.Text(text):
+                self.attach(Json.Text(text))
+            case Event.Key(name):
+                self.key(name)
+            case Event.StartArray:
+                items = reserved(list[Json]())?
+                reserved(self.frames.append(Frame.Items(items)))
+            case Event.StartObject:
+                members = reserved(list[Member]())?
+                seen = reserved(set[str]())?
+                reserved(self.frames.append(Frame.Members(members, seen)))
+            case Event.EndArray:
+                self.finish()
+            case Event.EndObject:
+                self.finish()
+            case Event.Pending:
+                Ok(())
+            case Event.End:
+                Ok(())
+
+    def key(self: &mut Builder, name: str) -> Result[(), JsonFault]:
+        if self.reject:
+            match self.frames.pop():
+                case Some(frame):
+                    match frame:
+                        case Frame.Members(members, had):
+                            mut seen = had
+                            if name in seen:
+                                return Err(JsonFault.DuplicateKey)
+                            reserved(seen.add(name))?
+                            reserved(self.frames.append(Frame.Members(members, seen)))?
+                        case Frame.Items(items):
+                            reserved(self.frames.append(Frame.Items(items)))?
+                case Nothing:
+                    pass
+        reserved(self.keys.append(name))
+
+    def finish(self: &mut Builder) -> Result[(), JsonFault]:
+        match self.frames.pop():
+            case Some(frame):
+                match frame:
+                    case Frame.Items(items):
+                        self.attach(Json.Array(items))
+                    case Frame.Members(members, _):
+                        self.attach(Json.Object(members))
+            case Nothing:
+                Err(JsonFault.InvalidState)
+
+    def attach(self: &mut Builder, value: Json) -> Result[(), JsonFault]:
+        match self.frames.pop():
+            case Some(frame):
+                match frame:
+                    case Frame.Items(had):
+                        mut items = had
+                        reserved(items.append(value))?
+                        reserved(self.frames.append(Frame.Items(items)))
+                    case Frame.Members(had, seen):
+                        mut members = had
+                        match self.keys.pop():
+                            case Some(name):
+                                reserved(members.append(Member(name, value)))?
+                            case Nothing:
+                                return Err(JsonFault.InvalidState)
+                        reserved(self.frames.append(Frame.Members(members, seen)))
+            case Nothing:
+                reserved(self.root.append(value))
+
+# Integer syntax must fit `i64` exactly; a fraction or exponent selects `f64`,
+# which must be finite. Nothing is rounded to fit an integer.
+def number_value(text: &str) -> Result[Json, JsonFault]:
+    if "." in text or "e" in text or "E" in text:
+        match f64.parse(text):
+            case Ok(value):
+                Ok(Json.Float(value))
+            case Err(_):
+                Err(JsonFault.NumberOutOfRange)
+    else:
+        match i64.parse(text):
+            case Ok(value):
+                Ok(Json.Int(value))
+            case Err(_):
+                Err(JsonFault.NumberOutOfRange)
+
+def builder(bounds: &Limits) -> Result[Builder, JsonFault]:
+    frames = reserved(list[Frame]())?
+    keys = reserved(list[str]())?
+    root = reserved(list[Json]())?
+    mut reject = False
+    match bounds.duplicate_keys:
+        case DuplicateKeys.Reject:
+            reject = True
+        case DuplicateKeys.Keep:
+            pass
+    Ok(Builder(frames, keys, root, reject))
+
+def rooted(tree: Builder) -> Result[Json, JsonFault]:
+    mut done = tree
+    match done.root.pop():
+        case Some(value):
+            Ok(value)
+        case Nothing:
+            Err(JsonFault.InvalidState)
+
+# Decodes one document that occupies the whole of `source`.
+pub def parse(source: &Bytes, bounds: &Limits) -> Result[Json, JsonError]:
+    mut events = decoder(bounds)?
+    events.feed(source, 0, source.len())?
+    events.finish()
+    mut tree = unplaced(builder(bounds))?
+    while True:
+        event = events.next()?
+        if is_end(&event):
+            break
+        outcome = tree.accept(event)
+        match outcome:
+            case Ok(_):
+                pass
+            case Err(fault):
+                return Err(events.reject(fault))
+    outcome = rooted(tree)
+    match outcome:
+        case Ok(value):
+            Ok(value)
+        case Err(fault):
+            Err(events.reject(fault))
+
+pub def parse_text(text: &str, bounds: &Limits) -> Result[Json, JsonError]:
+    source = unplaced(faulted(std.bytes.from_text(text)))?
+    parse(&source, bounds)
+
+# Decodes one document from `reader`, reading to end of input.
+pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Json, JsonError]:
+    mut events = decoder(bounds)?
+    mut tree = unplaced(builder(bounds))?
+    while True:
+        event = read_event(&mut events, reader)?
+        if is_end(&event):
+            break
+        outcome = tree.accept(event)
+        match outcome:
+            case Ok(_):
+                pass
+            case Err(fault):
+                return Err(events.reject(fault))
+    outcome = rooted(tree)
+    match outcome:
+        case Ok(value):
+            Ok(value)
+        case Err(fault):
+            Err(events.reject(fault))
+
+# The index of the first member named `key`.
+pub def find(members: &list[Member], key: &str) -> Option[i64]:
+    for index in range(len(members)):
+        if members[index].key == key:
+            return Some(index)
+    Nothing
+
+# Writes compact JSON into an owned buffer and checks that calls arrive in an
+# order that forms one document. `_written` counts every byte produced, so
+# the output limit also covers bytes already taken or written out.
+pub class Encoder:
+    _out: Bytes
+    _stack: Bytes
+    _state: i64
+    _written: i64
+    _broken: bool
+    _max_depth: i64
+    _max_output: i64
+
+    # Bytes produced and not yet taken.
+    pub def pending(self) -> i64:
+        self._out.len()
+
+    # Bytes produced since the encoder was created.
+    pub def written(self) -> i64:
+        self._written
+
+    pub def is_complete(self) -> bool:
+        self._state == emit_done and not self._broken
+
+    def settle(self: &mut Encoder, result: Result[(), JsonFault]) -> Result[(), JsonError]:
+        match result:
+            case Ok(_):
+                Ok(())
+            case Err(fault):
+                self._broken = True
+                Err(JsonError(fault, self._written, 0, 0))
+
+    def put(self: &mut Encoder, byte: i64) -> Result[(), JsonFault]:
+        if self._written >= self._max_output:
+            return Err(JsonFault.OutputTooLarge)
+        push_byte(&mut self._out, byte)?
+        self._written += 1
+        Ok(())
+
+    def extend(self: &mut Encoder, source: &Bytes, start: i64, stop: i64) -> Result[(), JsonFault]:
+        if stop - start > self._max_output - self._written:
+            return Err(JsonFault.OutputTooLarge)
+        faulted(self._out.extend_range(source, start, stop))?
+        self._written += stop - start
+        Ok(())
+
+    def raw(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
+        source = faulted(std.bytes.from_text(text))?
+        self.extend(&source, 0, source.len())
+
+    def top(self) -> Result[i64, JsonFault]:
+        count = self._stack.len()
+        if count == 0:
+            return Err(JsonFault.InvalidState)
+        Ok(i64(faulted(self._stack.get(count - 1))?))
+
+    def before_value(self: &mut Encoder) -> Result[(), JsonFault]:
+        if self._broken:
+            return Err(JsonFault.InvalidState)
+        state = self._state
+        if state == emit_next_item:
+            return self.put(44)
+        if state == emit_top or state == emit_first_item or state == emit_member_value:
+            return Ok(())
+        Err(JsonFault.InvalidState)
+
+    def after_value(self: &mut Encoder) -> Result[(), JsonFault]:
+        if self._stack.len() == 0:
+            self._state = emit_done
+        elif self.top()? == in_object:
+            self._state = emit_next_key
+        else:
+            self._state = emit_next_item
+        Ok(())
+
+    def quote(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
+        source = faulted(std.bytes.from_text(text))?
+        count = source.len()
+        self.put(34)?
+        mut run = 0
+        for index in range(count):
+            byte = i64(faulted(source.get(index))?)
+            if byte < 32 or byte == 34 or byte == 92:
+                self.extend(&source, run, index)?
+                run = index + 1
+                self.put(92)?
+                if byte == 34 or byte == 92:
+                    self.put(byte)?
+                elif byte == 8:
+                    self.put(98)?
+                elif byte == 12:
+                    self.put(102)?
+                elif byte == 10:
+                    self.put(110)?
+                elif byte == 13:
+                    self.put(114)?
+                elif byte == 9:
+                    self.put(116)?
+                else:
+                    self.put(117)?
+                    self.put(48)?
+                    self.put(48)?
+                    self.put(hex_digit(byte >> 4))?
+                    self.put(hex_digit(byte & 15))?
+        self.extend(&source, run, count)?
+        self.put(34)
+
+    def scalar(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
+        self.before_value()?
+        self.raw(text)?
+        self.after_value()
+
+    def emit_integer(self: &mut Encoder, value: i64) -> Result[(), JsonFault]:
+        text = reserved(str.from(value))?
+        self.scalar(&text)
+
+    def emit_unsigned(self: &mut Encoder, value: u64) -> Result[(), JsonFault]:
+        text = reserved(str.from(value))?
+        self.scalar(&text)
+
+    def emit_decimal(self: &mut Encoder, value: f64) -> Result[(), JsonFault]:
+        if value != value or value == f64.INF or value == -f64.INF:
+            return Err(JsonFault.NonFiniteNumber)
+        text = reserved(str.from(value))?
+        self.scalar(&text)
+
+    def emit_number(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
+        source = faulted(std.bytes.from_text(text))?
+        mut state = 0
+        for index in range(source.len()):
+            state = number_step(state, i64(faulted(source.get(index))?))
+            if state <= 0:
+                return Err(JsonFault.InvalidNumber)
+        if not number_complete(state):
+            return Err(JsonFault.InvalidNumber)
+        self.before_value()?
+        self.extend(&source, 0, source.len())?
+        self.after_value()
+
+    def emit_text(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
+        self.before_value()?
+        self.quote(text)?
+        self.after_value()
+
+    def emit_key(self: &mut Encoder, name: &str) -> Result[(), JsonFault]:
+        if self._broken:
+            return Err(JsonFault.InvalidState)
+        if self._state == emit_next_key:
+            self.put(44)?
+        elif self._state != emit_first_key:
+            return Err(JsonFault.InvalidState)
+        self.quote(name)?
+        self.put(58)?
+        self._state = emit_member_value
+        Ok(())
+
+    def emit_open(self: &mut Encoder, kind: i64) -> Result[(), JsonFault]:
+        self.before_value()?
+        if self._stack.len() >= self._max_depth:
+            return Err(JsonFault.DepthExceeded)
+        push_byte(&mut self._stack, kind)?
+        if kind == in_object:
+            self._state = emit_first_key
+            return self.put(123)
+        self._state = emit_first_item
+        self.put(91)
+
+    def emit_close(self: &mut Encoder, kind: i64) -> Result[(), JsonFault]:
+        if self._broken:
+            return Err(JsonFault.InvalidState)
+        state = self._state
+        if kind == in_object:
+            if state != emit_first_key and state != emit_next_key:
+                return Err(JsonFault.InvalidState)
+            self.put(125)?
+        else:
+            if state != emit_first_item and state != emit_next_item:
+                return Err(JsonFault.InvalidState)
+            self.put(93)?
+        drop(self._stack.pop())
+        self.after_value()
+
+    def emit_event(self: &mut Encoder, event: &Event) -> Result[(), JsonFault]:
+        match event:
+            case Event.Null:
+                self.scalar("null")
+            case Event.Bool(value):
+                if *value:
+                    self.scalar("true")
+                else:
+                    self.scalar("false")
+            case Event.Number(text):
+                self.emit_number(text)
+            case Event.Text(text):
+                self.emit_text(text)
+            case Event.Key(name):
+                self.emit_key(name)
+            case Event.StartArray:
+                self.emit_open(in_array)
+            case Event.EndArray:
+                self.emit_close(in_array)
+            case Event.StartObject:
+                self.emit_open(in_object)
+            case Event.EndObject:
+                self.emit_close(in_object)
+            case Event.Pending:
+                Ok(())
+            case Event.End:
+                Ok(())
+
+    # Recursion depth equals container depth, which `emit_open` bounds.
+    def emit_value(self: &mut Encoder, value: &Json) -> Result[(), JsonFault]:
+        match value:
+            case Json.Null:
+                self.scalar("null")
+            case Json.Bool(flag):
+                if *flag:
+                    self.scalar("true")
+                else:
+                    self.scalar("false")
+            case Json.Int(number):
+                self.emit_integer(*number)
+            case Json.Float(number):
+                self.emit_decimal(*number)
+            case Json.Text(text):
+                self.emit_text(text)
+            case Json.Array(items):
+                self.emit_open(in_array)?
+                for item in items:
+                    self.emit_value(item)?
+                self.emit_close(in_array)
+            case Json.Object(members):
+                self.emit_open(in_object)?
+                for member in members:
+                    self.emit_key(&member.key)?
+                    self.emit_value(&member.value)?
+                self.emit_close(in_object)
+
+    pub def null(self: &mut Encoder) -> Result[(), JsonError]:
+        result = self.scalar("null")
+        self.settle(result)
+
+    pub def boolean(self: &mut Encoder, value: bool) -> Result[(), JsonError]:
+        mut text = "false"
+        if value:
+            text = "true"
+        result = self.scalar(&text)
+        self.settle(result)
+
+    pub def integer(self: &mut Encoder, value: i64) -> Result[(), JsonError]:
+        result = self.emit_integer(value)
+        self.settle(result)
+
+    pub def unsigned(self: &mut Encoder, value: u64) -> Result[(), JsonError]:
+        result = self.emit_unsigned(value)
+        self.settle(result)
+
+    # Shortest text that reads back as the same `f64`. NaN and the infinities
+    # have no JSON form and are `NonFiniteNumber`.
+    pub def decimal(self: &mut Encoder, value: f64) -> Result[(), JsonError]:
+        result = self.emit_decimal(value)
+        self.settle(result)
+
+    # A number already in JSON syntax, copied unchanged.
+    pub def number(self: &mut Encoder, text: &str) -> Result[(), JsonError]:
+        result = self.emit_number(text)
+        self.settle(result)
+
+    pub def text(self: &mut Encoder, value: &str) -> Result[(), JsonError]:
+        result = self.emit_text(value)
+        self.settle(result)
+
+    pub def key(self: &mut Encoder, name: &str) -> Result[(), JsonError]:
+        result = self.emit_key(name)
+        self.settle(result)
+
+    pub def start_array(self: &mut Encoder) -> Result[(), JsonError]:
+        result = self.emit_open(in_array)
+        self.settle(result)
+
+    pub def end_array(self: &mut Encoder) -> Result[(), JsonError]:
+        result = self.emit_close(in_array)
+        self.settle(result)
+
+    pub def start_object(self: &mut Encoder) -> Result[(), JsonError]:
+        result = self.emit_open(in_object)
+        self.settle(result)
+
+    pub def end_object(self: &mut Encoder) -> Result[(), JsonError]:
+        result = self.emit_close(in_object)
+        self.settle(result)
+
+    # Writes what a decoder reported. `Pending` and `End` write nothing.
+    pub def event(self: &mut Encoder, event: &Event) -> Result[(), JsonError]:
+        result = self.emit_event(event)
+        self.settle(result)
+
+    pub def value(self: &mut Encoder, value: &Json) -> Result[(), JsonError]:
+        result = self.emit_value(value)
+        self.settle(result)
+
+    # Removes and returns the bytes produced so far.
+    pub def take(self: &mut Encoder) -> Result[Bytes, JsonError]:
+        match faulted(std.bytes.empty()):
+            case Ok(fresh):
+                Ok(replace(self._out, fresh))
+            case Err(fault):
+                Err(JsonError(fault, self._written, 0, 0))
+
+pub def encoder(bounds: &Limits) -> Result[Encoder, JsonError]:
+    if not valid(bounds):
+        return Err(JsonError(JsonFault.InvalidLimits, 0, 0, 0))
+    out = unplaced(faulted(std.bytes.empty()))?
+    stack = unplaced(faulted(std.bytes.empty()))?
+    Ok(Encoder(out, stack, emit_top, 0, False, bounds.max_depth, bounds.max_output))
+
+# Delivers every pending byte to `writer` and keeps the buffer's capacity.
+# Does not flush. On failure only the bytes the writer did not accept stay
+# pending, so a retry cannot repeat output.
+pub def write_pending[W: Writer](source: &mut Encoder, writer: &mut W) -> Result[(), JsonError]:
+    outcome = std.io.write_all(writer, &source._out, 0, source._out.len())
+    match outcome:
+        case Ok(_):
+            source._out.clear()
+            Ok(())
+        case Err(partial):
+            kept = source._out.len() - partial.completed
+            # Shifted in place: a failure path must not need memory.
+            for index in range(kept):
+                match source._out.get(partial.completed + index):
+                    case Ok(byte):
+                        drop(source._out.set(index, byte))
+                    case Err(_):
+                        pass
+            drop(source._out.truncate(kept))
+            Err(JsonError(JsonFault.Stream(partial.cause), source._written, 0, 0))
+
+def complete(source: &Encoder) -> Result[(), JsonError]:
+    if source.is_complete():
+        return Ok(())
+    Err(JsonError(JsonFault.InvalidState, source._written, 0, 0))
+
+pub def encode(value: &Json, bounds: &Limits) -> Result[Bytes, JsonError]:
+    mut target = encoder(bounds)?
+    target.value(value)?
+    complete(&target)?
+    target.take()
+
+pub def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]:
+    encoded = encode(value, bounds)?
+    match faulted(encoded.to_text()):
+        case Ok(text):
+            Ok(text)
+        case Err(fault):
+            Err(JsonError(fault, encoded.len(), 0, 0))
+
+# Encodes the whole value, then writes it. Does not flush.
+pub def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits) -> Result[(), JsonError]:
+    mut target = encoder(bounds)?
+    target.value(value)?
+    complete(&target)?
+    write_pending(&mut target, writer)
