@@ -12,6 +12,58 @@ pub(crate) struct File {
     writable: bool,
     readable: bool,
     skip_lf: bool,
+    /// The write end of a child's stdin: a reader that has gone must be an
+    /// error value here, not a SIGPIPE that ends this program.
+    pipe: bool,
+}
+
+/// Runs `write` with SIGPIPE blocked on this thread. The signal a failed
+/// write raised is consumed before the mask is restored; one that was already
+/// pending is left for whoever expects it.
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+    // glibc's sigset_t is 1024 bits; signal 13 is bit 12 of the first word.
+    type Set = [u64; 16];
+    #[repr(C)]
+    struct Timespec {
+        seconds: i64,
+        nanoseconds: i64,
+    }
+    extern "C" {
+        fn pthread_sigmask(how: i32, set: *const Set, previous: *mut Set) -> i32;
+        fn sigpending(set: *mut Set) -> i32;
+        fn sigtimedwait(
+            set: *const Set,
+            info: *mut std::ffi::c_void,
+            timeout: *const Timespec,
+        ) -> i32;
+    }
+    const SIGPIPE: u64 = 1 << 12;
+    const BROKEN_PIPE: i32 = 32;
+    let mut only: Set = [0; 16];
+    only[0] = SIGPIPE;
+    let (mut pending, mut previous): (Set, Set) = ([0; 16], [0; 16]);
+    let now = Timespec {
+        seconds: 0,
+        nanoseconds: 0,
+    };
+    // SAFETY: every set is a full sigset_t; SIG_BLOCK is 0 and SIG_SETMASK 2.
+    unsafe {
+        sigpending(&mut pending);
+        pthread_sigmask(0, &only, &mut previous);
+        let result = write();
+        let raised = matches!(&result, Err(error) if error.raw_os_error() == Some(BROKEN_PIPE));
+        if raised && pending[0] & SIGPIPE == 0 {
+            sigtimedwait(&only, std::ptr::null_mut(), &now);
+        }
+        pthread_sigmask(2, &previous, std::ptr::null_mut());
+        result
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
+fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+    write()
 }
 
 pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Error> {
@@ -32,6 +84,7 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
                     writable,
                     readable,
                     skip_lf: false,
+                    pipe: false,
                 });
             }
             Ok(pointer as u128)
@@ -44,6 +97,25 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
             Err(error)
         }
     }
+}
+
+/// Wraps an already open descriptor, such as one end of a child's pipe. A
+/// failed owner allocation closes it.
+pub(crate) fn adopt(file: std::fs::File, readable: bool, ty: &'static Type) -> Result<u128, Error> {
+    let pointer = memory::try_allocate::<File, u8>(0)?;
+    // SAFETY: fresh storage has the exact File layout and no prior value.
+    unsafe {
+        pointer.write(File {
+            header: Header::new(destroy),
+            ty,
+            file: Some(file),
+            writable: !readable,
+            readable,
+            skip_lf: false,
+            pipe: !readable,
+        });
+    }
+    Ok(pointer as u128)
 }
 
 pub(crate) unsafe fn close(pointer: *mut File) -> Result<u128, Error> {
@@ -117,7 +189,11 @@ pub(crate) unsafe fn write(pointer: *mut File, text: &str) -> Result<u128, Error
     if !text.is_empty() {
         owner.skip_lf = false;
     }
-    file.write_all(text.as_bytes())?;
+    if owner.pipe {
+        without_sigpipe(|| file.write_all(text.as_bytes()))?;
+    } else {
+        file.write_all(text.as_bytes())?;
+    }
     Ok(text.chars().count() as u128)
 }
 
@@ -179,7 +255,11 @@ pub(crate) unsafe fn write_bytes(pointer: *mut File, source: &[u8]) -> Result<u1
     if !owner.writable {
         return Err(Kind::NotWritable.into());
     }
-    let count = file.write(source)?;
+    let count = if owner.pipe {
+        without_sigpipe(|| file.write(source))?
+    } else {
+        file.write(source)?
+    };
     owner.skip_lf = false;
     Ok(count as u128)
 }
@@ -275,6 +355,7 @@ mod tests {
                 writable: false,
                 readable: true,
                 skip_lf: false,
+                pipe: false,
             });
             memory::plenty_retain(pointer.cast());
             memory::plenty_release(pointer.cast());

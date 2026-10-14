@@ -7,6 +7,7 @@ pub enum CollectionOp {
     Filesystem(crate::filesystem::FsOp),
     Bytes(crate::bytes::BytesOp),
     Stream(crate::stream::StreamOp),
+    Process(crate::process::ProcessOp),
     Time(crate::time::TimeOp),
     Unicode(crate::unicode::UnicodeOp),
     OpenFile,
@@ -182,6 +183,7 @@ impl CollectionOp {
             Filesystem(op) => op.signature(),
             Bytes(op) => op.signature(),
             Stream(op) => op.signature(),
+            Process(op) => op.signature(),
             Time(op) => op.signature(),
             Unicode(op) => op.signature(),
             OpenFile => (
@@ -523,6 +525,7 @@ impl CollectionOp {
             Self::Filesystem(op) => op.opcode(),
             Self::Bytes(op) => op.opcode(),
             Self::Stream(op) => op.opcode(),
+            Self::Process(op) => op.opcode(),
             Self::Time(op) => op.opcode(),
             Self::Unicode(op) => op.opcode(),
             Self::WriteStdout => 80,

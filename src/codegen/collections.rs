@@ -176,7 +176,9 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         let descriptor = match operation {
-            CollectionOp::Filesystem(_) | CollectionOp::Bytes(_) => Some(&output),
+            CollectionOp::Filesystem(_) | CollectionOp::Bytes(_) | CollectionOp::Process(_) => {
+                Some(&output)
+            }
             CollectionOp::Args
             | CollectionOp::ArgsBytes
             | CollectionOp::InputBytes

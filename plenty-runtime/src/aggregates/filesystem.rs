@@ -17,7 +17,7 @@ fn reserve(bytes: &mut Vec<u8>, count: usize) -> Result<(), Error> {
     Ok(())
 }
 
-unsafe fn contiguous(value: u128) -> Result<Vec<u8>, Error> {
+pub(super) unsafe fn contiguous(value: u128) -> Result<Vec<u8>, Error> {
     // SAFETY: the compiler supplies a live borrowed list[u8].
     let list = unsafe { &*(value as *const Collection) };
     let mut bytes = Vec::new();
@@ -26,7 +26,7 @@ unsafe fn contiguous(value: u128) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
-unsafe fn byte_list(bytes: &[u8], ty: &'static Type) -> Result<u128, Error> {
+pub(super) unsafe fn byte_list(bytes: &[u8], ty: &'static Type) -> Result<u128, Error> {
     // SAFETY: metadata describes list[u8]; guard releases partial construction.
     unsafe {
         let owner = OwnedValue {
