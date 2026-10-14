@@ -69,7 +69,7 @@ impl Lower<'_> {
                     },
                 );
             }
-            let result = self.block_inner(body, ops, false)?;
+            let result = self.block_inner(body, ops, &Tail::Discard)?;
             if matches!(result, BlockResult::Continues(_)) {
                 self.cleanup(start, ops);
             }
@@ -176,7 +176,7 @@ impl Lower<'_> {
         } else if entry.is_some() {
             ops.push(Op::Drop);
         }
-        let result = self.block_inner(body, ops, false)?;
+        let result = self.block_inner(body, ops, &Tail::Discard)?;
         if matches!(result, BlockResult::Continues(_)) {
             self.cleanup(start, ops);
         }

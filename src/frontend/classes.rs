@@ -402,6 +402,16 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                     self.expr(yes, initialized)?;
                     self.expr(no, initialized)?;
                 }
+                // Fields a case initializes are not credited to what follows.
+                Expression::Match(value, cases) => {
+                    self.expr(value, initialized)?;
+                    for case in cases {
+                        for n in case.pattern.bindings() {
+                            self.binding(n, &e.at)?;
+                        }
+                        self.block(&case.body, initialized.clone())?;
+                    }
+                }
                 Expression::Collection {
                     entries, clauses, ..
                 } => {

@@ -10,6 +10,12 @@ pub(super) fn yields(body: &[Stmt]) -> bool {
         | Statement::While { body, .. }
         | Statement::With { body, .. } => yields(body),
         Statement::Match { cases, .. } => cases.iter().any(|case| yields(&case.body)),
+        Statement::Assign { value, .. }
+        | Statement::SetIndex { value, .. }
+        | Statement::Return(Some(value)) => {
+            matches!(&value.kind, Expression::Match(_, cases)
+                if cases.iter().any(|case| yields(&case.body)))
+        }
         _ => false,
     })
 }
@@ -451,6 +457,7 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
             }
         }
         Expression::Ambiguous { .. } => unreachable!("module resolution precedes lowering"),
+        Expression::Match(..) => unreachable!("a match block is a statement's whole value"),
         Expression::ClassNew(_)
         | Expression::Type(_)
         | Expression::Number(_)

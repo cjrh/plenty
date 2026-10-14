@@ -858,6 +858,10 @@ enum Expression {
         yes: Box<Expr>,
         no: Box<Expr>,
     },
+    /// A `match` block used as a value. The parser accepts it only as the
+    /// whole value of a binding, an assignment, or a `return`, where the
+    /// statement can end with the block.
+    Match(Box<Expr>, Vec<enums::Case>),
 }
 
 #[derive(Clone)]
@@ -1627,7 +1631,7 @@ impl Parser {
             Statement::Return(if self.peek().kind == Kind::Newline {
                 None
             } else {
-                Some(self.expr(0)?)
+                Some(self.statement_value()?)
             })
         } else if self.eat("yield") {
             Statement::Yield(self.expr(0)?)
@@ -1676,7 +1680,7 @@ impl Parser {
                     name,
                     mutable,
                     annotation,
-                    value: self.expr(0)?,
+                    value: self.statement_value()?,
                 }
             } else {
                 let target = self.expr(0)?;
@@ -1713,7 +1717,7 @@ impl Parser {
                 } else if self.eat("=") {
                     Statement::SetIndex {
                         target,
-                        value: self.expr(0)?,
+                        value: self.statement_value()?,
                     }
                 } else if matches!(&self.peek().kind, Kind::Symbol(s)
                     if matches!(s.as_str(), "+=" | "-=" | "*=" | "/=" | "//=" | "%="))
@@ -1736,6 +1740,18 @@ impl Parser {
             self.kind(Kind::Newline, "the end of the statement")?;
         }
         Ok(Stmt { at, kind })
+    }
+    /// The value that ends a binding, an assignment, or a `return`: an
+    /// expression, or a `match` block whose selected case supplies it.
+    fn statement_value(&mut self) -> Result<Expr> {
+        if !self.peek().is("match") {
+            return self.expr(0);
+        }
+        let (at, value, cases) = self.match_block()?;
+        Ok(Expr {
+            at,
+            kind: Expression::Match(Box::new(value), cases),
+        })
     }
     /// The right side of an assignment to several targets: one expression, or
     /// a tuple written without its parentheses.
@@ -1861,6 +1877,7 @@ impl Parser {
                     Expression::Name(s.clone())
                 }
             }
+            _ if at.is("match") => return Err(at.error(MATCH_VALUE_POSITION)),
             _ => return Err(at.error("expected an expression")),
         };
         let mut left = Expr { at, kind };
@@ -2252,6 +2269,23 @@ struct Local {
     slot: u8,
     ty: Ty,
     mutable: bool,
+}
+
+const MATCH_VALUE_POSITION: &str = "a `match` block is a value only as the whole right side of a binding, a single-target assignment, or `return`; bind its value to a name first";
+
+/// What becomes of the value of a suite's final expression.
+#[derive(Clone)]
+enum Tail {
+    /// It is destroyed, and a `Result` cannot be discarded this way.
+    Discard,
+    /// It is the function's result, and the function's cleanup follows.
+    Function,
+    /// It is the value of a `match` block, with the type the block's context
+    /// expects. The suite's own locals are cleaned up beneath it.
+    Value(Type),
+    /// It is returned from the function, as the value of a case of
+    /// `return match`. A suite that ends without one returns unit.
+    Return,
 }
 
 /// An exited branch has no value to unify with paths that continue.
@@ -2659,6 +2693,7 @@ impl Lower<'_> {
                 }
             }
             Expression::Try(value) => self.propagate(e, value, None, ops)?,
+            Expression::Match(value, cases) => self.match_value(&e.at, value, cases, None, ops)?,
             Expression::Type(_) => {
                 return Err(e.at.error("a type is not a value; select a variant"))
             }
@@ -3416,19 +3451,102 @@ impl Lower<'_> {
         }
         ops.push(call);
     }
-    fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: bool) -> Result<BlockResult> {
+    /// Lowers `return` with its value, the function's cleanup, and the exit.
+    fn return_statement(
+        &mut self,
+        e: Option<&Expr>,
+        at: &Token,
+        temporary_start: usize,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        if self.yield_type.is_some() && e.is_some() {
+            return Err(at.error("a generator may only use bare return"));
+        }
+        let expected = self
+            .return_type
+            .clone()
+            .ok_or_else(|| at.error("return outside a function"))?;
+        let mut returned = Vec::new();
+        let ty = match e {
+            Some(e) => self.tail_expression(
+                e,
+                expected.clone(),
+                &mut returned,
+                self.yield_type.is_none(),
+            )?,
+            None => None,
+        };
+        self.refine_return(ty, at)?;
+        let returned_loan = if self.return_origin.is_some() {
+            Some(self.check_return_reference(e.unwrap(), &returned)?)
+        } else {
+            None
+        };
+        // A returned reference normally stays borrowed across this
+        // frame's cleanup. A forwarding call returns it from storage
+        // that cleanup cannot reach, so it may still be a tail call.
+        if self.contexts.is_empty()
+            && (returned_loan.is_none() || forwarding_call(&returned).is_some())
+        {
+            returned.extend(returned_loan.map(Op::UseLoan));
+            self.finish_tail_temporaries(temporary_start, &mut returned);
+            finish_return(&mut returned);
+        } else {
+            self.finish_temporaries(temporary_start, &mut returned);
+            self.cleanup(0, &mut returned);
+            if let Some(loan) = returned_loan {
+                returned.push(Op::UseLoan(loan));
+            }
+            returned.push(Op::Return);
+        }
+        ops.extend(returned);
+        Ok(())
+    }
+    fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: &Tail) -> Result<BlockResult> {
         let start = self.locals.len();
         let result = self.block_inner(body, ops, tail)?;
-        if !tail && matches!(result, BlockResult::Continues(_)) {
+        if matches!(tail, Tail::Discard | Tail::Value(_))
+            && matches!(result, BlockResult::Continues(_))
+        {
             self.cleanup(start, ops);
         }
         Ok(result)
     }
-    fn block_inner(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: bool) -> Result<BlockResult> {
+    /// A suite of `return match` that ends without returning a value returns
+    /// unit, so no case continues past the statement.
+    fn returning_block(
+        &mut self,
+        body: &[Stmt],
+        at: &Token,
+        ops: &mut Vec<Op>,
+        tail: &Tail,
+    ) -> Result<BlockResult> {
+        let result = self.block(body, ops, tail)?;
+        if !matches!(tail, Tail::Return) {
+            return Ok(result);
+        }
+        if let BlockResult::Continues(ty) = result {
+            debug_assert!(ty.is_none(), "a returning suite leaves no value");
+            let temporary_start = self.expression_temps.len();
+            self.return_statement(None, at, temporary_start, ops)?;
+        }
+        Ok(BlockResult::Exits)
+    }
+    fn block_inner(
+        &mut self,
+        body: &[Stmt],
+        ops: &mut Vec<Op>,
+        tail: &Tail,
+    ) -> Result<BlockResult> {
         let mut result = None;
         for (i, stmt) in body.iter().enumerate() {
             let temporary_start = self.expression_temps.len();
-            let last = tail && i + 1 == body.len();
+            let tail = if i + 1 == body.len() {
+                tail
+            } else {
+                &Tail::Discard
+            };
+            let last = matches!(tail, Tail::Function);
             if !matches!(stmt.kind, Statement::Pass) {
                 self.mark(&stmt.at, ops);
             }
@@ -3470,22 +3588,35 @@ impl Lower<'_> {
                     None
                 }
                 Statement::Match { value, cases } => {
-                    match self.match_cases(value, cases, last, ops)? {
+                    match self.match_cases(value, cases, tail, ops)? {
                         BlockResult::Continues(ty) => ty,
                         BlockResult::Exits => return exited_block(body, i),
                     }
                 }
+                Statement::Expr(e) if matches!(tail, Tail::Return) => {
+                    self.return_statement(Some(e), &e.at, temporary_start, ops)?;
+                    return exited_block(body, i);
+                }
                 Statement::Expr(e) => {
                     let ty = self.tail_expression(
                         e,
-                        if last {
-                            self.return_type.clone().flatten()
-                        } else {
-                            None
+                        match tail {
+                            Tail::Function => self.return_type.clone().flatten(),
+                            Tail::Value(expected) => expected.clone(),
+                            Tail::Discard | Tail::Return => None,
                         },
                         ops,
                         last && self.yield_type.is_none(),
                     )?;
+                    if matches!(tail, Tail::Value(_))
+                        && ty.as_ref().is_some_and(Ty::contains_reference)
+                    {
+                        // The case's bindings and locals end before the value
+                        // is used, and no loan follows it out of the suite.
+                        return Err(e.at.error(
+                            "a `match` block used as a value cannot produce a reference or a closure with borrowed captures; produce an owned value, or assign in each case",
+                        ));
+                    }
                     if last && self.return_origin.is_some() && matches!(ty, Some(Ty::Ref(..))) {
                         let loan = self.check_return_reference(e, ops)?;
                         ops.push(Op::UseLoan(loan));
@@ -3495,48 +3626,24 @@ impl Lower<'_> {
                     }
                     ty
                 }
-                Statement::Return(e) => {
-                    if self.yield_type.is_some() && e.is_some() {
+                // `return match ...:` returns the final expression of the
+                // selected case, so a call there is a tail call like any other
+                // returned call.
+                Statement::Return(Some(Expr {
+                    kind: Expression::Match(value, cases),
+                    ..
+                })) => {
+                    if self.yield_type.is_some() {
                         return Err(stmt.at.error("a generator may only use bare return"));
                     }
-                    let expected = self
-                        .return_type
-                        .clone()
-                        .ok_or_else(|| stmt.at.error("return outside a function"))?;
-                    let mut returned = Vec::new();
-                    let ty = match e {
-                        Some(e) => self.tail_expression(
-                            e,
-                            expected.clone(),
-                            &mut returned,
-                            self.yield_type.is_none(),
-                        )?,
-                        None => None,
-                    };
-                    self.refine_return(ty, &stmt.at)?;
-                    let returned_loan = if self.return_origin.is_some() {
-                        Some(self.check_return_reference(e.as_ref().unwrap(), &returned)?)
-                    } else {
-                        None
-                    };
-                    // A returned reference normally stays borrowed across this
-                    // frame's cleanup. A forwarding call returns it from storage
-                    // that cleanup cannot reach, so it may still be a tail call.
-                    if self.contexts.is_empty()
-                        && (returned_loan.is_none() || forwarding_call(&returned).is_some())
-                    {
-                        returned.extend(returned_loan.map(Op::UseLoan));
-                        self.finish_tail_temporaries(temporary_start, &mut returned);
-                        finish_return(&mut returned);
-                    } else {
-                        self.finish_temporaries(temporary_start, &mut returned);
-                        self.cleanup(0, &mut returned);
-                        if let Some(loan) = returned_loan {
-                            returned.push(Op::UseLoan(loan));
-                        }
-                        returned.push(Op::Return);
+                    if self.return_type.is_none() {
+                        return Err(stmt.at.error("return outside a function"));
                     }
-                    ops.extend(returned);
+                    self.match_cases(value, cases, &Tail::Return, ops)?;
+                    return exited_block(body, i);
+                }
+                Statement::Return(e) => {
+                    self.return_statement(e.as_ref(), &stmt.at, temporary_start, ops)?;
                     return exited_block(body, i);
                 }
                 Statement::Pass => None,
@@ -3565,7 +3672,7 @@ impl Lower<'_> {
                     self.loop_steps.push(Vec::new());
                     self.loop_scopes.push(self.locals.len());
                     let mut lowered = Vec::new();
-                    let result = self.block(body, &mut lowered, false);
+                    let result = self.block(body, &mut lowered, &Tail::Discard);
                     self.loop_steps.pop();
                     self.loop_scopes.pop();
                     self.names = saved;
@@ -3694,7 +3801,7 @@ impl Lower<'_> {
                     self.finish_temporaries(temporary_start, ops);
                     let saved = self.names.clone();
                     let mut then = Vec::new();
-                    let yes_result = self.block(yes, &mut then, last)?;
+                    let yes_result = self.returning_block(yes, &stmt.at, &mut then, tail)?;
                     let elif_start = self.locals.len();
                     let mut arms = Vec::with_capacity(elifs.len());
                     let mut results = Vec::with_capacity(elifs.len());
@@ -3706,7 +3813,7 @@ impl Lower<'_> {
                         let cond = self.expr(&elif.condition, &mut test)?;
                         self.same(cond, Some(Ty::Bool), &elif.condition.at)?;
                         self.finish_temporaries(temporary_start, &mut test);
-                        results.push(self.block(&elif.body, &mut arm, last)?);
+                        results.push(self.returning_block(&elif.body, &elif.at, &mut arm, tail)?);
                         arms.push(ElifArm {
                             condition: test.into(),
                             body: arm.into(),
@@ -3714,7 +3821,7 @@ impl Lower<'_> {
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
-                    let mut result = self.block(no, &mut otherwise, last)?;
+                    let mut result = self.returning_block(no, &stmt.at, &mut otherwise, tail)?;
                     self.names = saved;
                     ops.push(Op::If {
                         then: then.into(),
@@ -3754,7 +3861,7 @@ impl Lower<'_> {
                     ty
                 }
             };
-            if !last {
+            if matches!(tail, Tail::Discard) {
                 if let Some(ty @ Ty::Enum(t)) = &result {
                     if t.is_result() {
                         let can_propagate = self.result_success(ty).is_some_and(
@@ -4187,7 +4294,15 @@ fn lower_body(
             lower.reference_locals.insert(i as u8, loan);
         }
     }
-    if let BlockResult::Continues(output) = lower.block(&f.body, &mut body, yield_type.is_none())? {
+    if let BlockResult::Continues(output) = lower.block(
+        &f.body,
+        &mut body,
+        if yield_type.is_none() {
+            &Tail::Function
+        } else {
+            &Tail::Discard
+        },
+    )? {
         if let Some(doc_at) = f
             .doc_at
             .as_ref()

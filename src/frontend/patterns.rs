@@ -1014,7 +1014,7 @@ impl Lower<'_> {
         cases: &[enums::Case],
         matched: &Ty,
         subject: Subject,
-        tail: bool,
+        tail: &Tail,
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
         let mut checked = Vec::with_capacity(cases.len());
@@ -1176,8 +1176,10 @@ impl Lower<'_> {
                 alternative,
                 &mut body,
             );
-            if let BlockResult::Continues(ty) = self.block(&case.body, &mut body, tail)? {
-                if !tail {
+            if let BlockResult::Continues(ty) =
+                self.returning_block(&case.body, &case.at, &mut body, tail)?
+            {
+                if !matches!(tail, Tail::Function) {
                     self.cleanup(case_start, &mut body);
                 }
                 if let Some(expected) = &joined {
@@ -1236,7 +1238,7 @@ impl Lower<'_> {
             };
             self.emit_tree(&tree, &subject, &mut inline, ops);
         }
-        if !tail && joined.is_some() {
+        if !matches!(tail, Tail::Function) && joined.is_some() {
             ops.push(Op::DropLocal(subject.source));
         }
         Ok(joined.map_or(BlockResult::Exits, BlockResult::Continues))

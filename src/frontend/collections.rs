@@ -410,7 +410,7 @@ impl Lower<'_> {
                 at: target.at.clone(),
                 kind,
             };
-            self.block_inner(std::slice::from_ref(&assignment), ops, false)?;
+            self.block_inner(std::slice::from_ref(&assignment), ops, &Tail::Discard)?;
             self.names.remove(&component);
             // A copied component must not stay alive until the block ends.
             ops.push(Op::DropLocal(slot));
@@ -521,6 +521,7 @@ impl Lower<'_> {
                     .map(Some)
             }
             Expression::Try(value) => self.propagate(e, value, expected, ops),
+            Expression::Match(value, cases) => self.match_value(&e.at, value, cases, expected, ops),
             Expression::Method(base, name, args)
                 if matches!(name.as_str(), "unwrap_or" | "ok_or")
                     && !matches!(
@@ -1579,7 +1580,7 @@ impl Lower<'_> {
         } = self.iteration(name, iterable, None, ops)?;
         self.loop_steps.push(step.clone());
         self.loop_scopes.push(self.locals.len());
-        let result = self.block(statements, &mut body, false);
+        let result = self.block(statements, &mut body, &Tail::Discard);
         self.loop_steps.pop();
         self.loop_scopes.pop();
         self.names = saved;
