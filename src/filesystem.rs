@@ -19,6 +19,19 @@ pub enum FsOp {
     Lexical,
     Components,
     Display,
+    Root,
+    Child,
+    ReadFile,
+    MakeDir,
+    RemoveFile,
+    RemoveDir,
+    Move,
+    RootEntries,
+    Anonymous,
+    Publish,
+    SameDir,
+    DuplicateRoot,
+    MakeTemporaryDir,
 }
 
 impl FsOp {
@@ -39,6 +52,19 @@ impl FsOp {
             "__path_lexical" => Self::Lexical,
             "__path_components" => Self::Components,
             "__path_display" => Self::Display,
+            "__fs_root" => Self::Root,
+            "__fs_child" => Self::Child,
+            "__fs_read_file" => Self::ReadFile,
+            "__fs_make_dir" => Self::MakeDir,
+            "__fs_remove_file" => Self::RemoveFile,
+            "__fs_remove_dir" => Self::RemoveDir,
+            "__fs_move" => Self::Move,
+            "__fs_root_entries" => Self::RootEntries,
+            "__fs_anonymous" => Self::Anonymous,
+            "__fs_publish" => Self::Publish,
+            "__fs_same_dir" => Self::SameDir,
+            "__fs_duplicate_root" => Self::DuplicateRoot,
+            "__fs_make_temporary_dir" => Self::MakeTemporaryDir,
             _ => return None,
         })
     }
@@ -60,6 +86,18 @@ impl FsOp {
             Self::Lexical => (vec![bytes(), Ty::U8], sum::option(bytes())),
             Self::Components => (vec![bytes()], Ty::List(Arc::new(bytes()))),
             Self::Display => (vec![bytes()], Ty::Str),
+            Self::Root => (vec![bytes()], Ty::File),
+            Self::Child | Self::ReadFile | Self::MakeTemporaryDir => {
+                (vec![Ty::File, bytes()], Ty::File)
+            }
+            Self::MakeDir | Self::RemoveFile | Self::RemoveDir => {
+                (vec![Ty::File, bytes()], Ty::Unit)
+            }
+            Self::Move => (vec![Ty::File, bytes(), bytes()], Ty::Unit),
+            Self::RootEntries => (vec![Ty::File], Ty::FsReadDir),
+            Self::Anonymous | Self::DuplicateRoot => (vec![Ty::File], Ty::File),
+            Self::Publish => (vec![Ty::File, Ty::File, bytes()], Ty::Unit),
+            Self::SameDir => (vec![Ty::File, Ty::File, bytes()], Ty::Bool),
         };
         (inputs, sum::result(output, sum::io_error()))
     }
@@ -69,6 +107,9 @@ impl FsOp {
     }
 
     pub fn opcode(self) -> i64 {
-        150 + self as i64
+        match self as i64 {
+            index @ 0..=14 => 150 + index,
+            index => 260 + index - 15,
+        }
     }
 }

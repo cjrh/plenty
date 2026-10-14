@@ -102,7 +102,26 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
 /// Wraps an already open descriptor, such as one end of a child's pipe. A
 /// failed owner allocation closes it.
 pub(crate) fn adopt(file: std::fs::File, readable: bool, ty: &'static Type) -> Result<u128, Error> {
+    prepare(readable, ty, || Ok(file))
+}
+
+/// Reserve owner storage before a filesystem operation creates a named object.
+pub(crate) fn prepare(
+    readable: bool,
+    ty: &'static Type,
+    open: impl FnOnce() -> Result<std::fs::File, Error>,
+) -> Result<u128, Error> {
     let pointer = memory::try_allocate::<File, u8>(0)?;
+    let file = match open() {
+        Ok(file) => file,
+        Err(error) => {
+            // SAFETY: this allocation has not been initialized yet.
+            unsafe {
+                memory::free::<File, u8>(pointer, 0);
+            }
+            return Err(error);
+        }
+    };
     // SAFETY: fresh storage has the exact File layout and no prior value.
     unsafe {
         pointer.write(File {
@@ -116,6 +135,20 @@ pub(crate) fn adopt(file: std::fs::File, readable: bool, ty: &'static Type) -> R
         });
     }
     Ok(pointer as u128)
+}
+
+/// Borrow only the descriptor; directory-relative operations never change a
+/// file cursor or outlive the compiler's shared loan.
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+pub(crate) unsafe fn descriptor(pointer: *const File) -> Result<i32, Error> {
+    use std::os::fd::AsRawFd;
+    unsafe {
+        (*pointer)
+            .file
+            .as_ref()
+            .map(AsRawFd::as_raw_fd)
+            .ok_or_else(|| Kind::Closed.into())
+    }
 }
 
 pub(crate) unsafe fn close(pointer: *mut File) -> Result<u128, Error> {
