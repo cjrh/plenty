@@ -121,6 +121,7 @@ pub(super) struct AccessMap {
 }
 
 pub(super) struct Resolved {
+    pub(super) standard_sources: HashSet<Arc<str>>,
     pub(super) source_paths: Vec<PathBuf>,
     pub(super) source_root: Option<PathBuf>,
     pub(super) functions: Vec<Function>,
@@ -631,6 +632,14 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
     };
     let (_, at) = loader.file(ModuleSource::File(entry), String::new())?;
     let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
+    result.standard_sources = loader
+        .loaded
+        .keys()
+        .filter_map(|source| match source {
+            ModuleSource::Standard(_) => Some(source.path().to_string_lossy().into_owned().into()),
+            ModuleSource::File(_) => None,
+        })
+        .collect();
     result.source_paths = loader
         .loaded
         .into_keys()
@@ -1181,6 +1190,7 @@ fn resolve(
         })
         .collect();
     let mut result = Resolved {
+        standard_sources: HashSet::new(),
         source_paths: vec![],
         source_root: None,
         protocols: vec![],

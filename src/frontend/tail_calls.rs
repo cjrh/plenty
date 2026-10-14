@@ -82,6 +82,9 @@ impl Lower<'_> {
         loans: &[usize],
         ops: &mut Vec<Op>,
     ) {
+        // Argument evaluation may have left a different position. Calls also
+        // need their own site for std caller notes, even outside tail position.
+        self.mark_call(at, ops);
         if !self.source_tail.contains(&site(at, false)) {
             return;
         }
@@ -155,10 +158,12 @@ fn expression_endings(
             }
         })
         .or(inherited);
-    let last = ops
-        .iter()
-        .rev()
-        .find(|op| !matches!(op, Op::Loan(_) | Op::UseLoan(_) | Op::Site(_)));
+    let last = ops.iter().rev().find(|op| {
+        !matches!(
+            op,
+            Op::Loan(_) | Op::UseLoan(_) | Op::Site(_) | Op::CallerSite(_)
+        )
+    });
     match last {
         Some(Op::Call(name)) => {
             if let Some(at) = site {

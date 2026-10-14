@@ -2336,6 +2336,9 @@ impl Lower<'_> {
             _ => ops.push(Op::Site(site)),
         }
     }
+    fn mark_call(&self, at: &Token, ops: &mut Vec<Op>) {
+        ops.push(Op::CallerSite(site(at, false)));
+    }
     /// `slot_names` keeps every binding this function has made, so a name
     /// found there but no longer in `names` left scope with its block.
     fn unknown_binding(&self, name: &str) -> String {
@@ -4262,6 +4265,11 @@ fn lower_body(
             .as_ref()
             .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
         origins: Arc::new(crate::ownership::Origins {
+            standard_library: f
+                .at
+                .source
+                .as_ref()
+                .is_some_and(|source| lower.generics.standard_sources.contains(source)),
             source: f.at.source.clone(),
             trap_file: f
                 .at
@@ -4287,6 +4295,7 @@ fn lower_body(
 
 fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let modules::Resolved {
+        standard_sources,
         source_paths,
         source_root,
         mut functions,
@@ -4310,6 +4319,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     )?);
     let mut generics = generics::prepare(functions, &aliases, protocols)?;
     generics.source_root = source_root;
+    generics.standard_sources = standard_sources;
     while !generics.expand_data(&aliases)?.is_empty() {}
     // One entry per function: sized up front, the table is not rehashed key by
     // key at every doubling while the program is lowered (issue #57).

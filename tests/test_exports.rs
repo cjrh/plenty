@@ -48,6 +48,75 @@ pub def hidden() -> i32:
     99
 "#;
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn c_entries_restore_caller_context_after_tail_destructors_and_failed_marshaling() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let (library, artifacts) = build(
+        root,
+        r#"
+from std.time import Duration, seconds, sleep
+class Resource:
+    delay: Duration
+    def __del__(self) -> ():
+        sleep(&self.delay)
+export def create() -> Result[Resource, AllocError] = "calc_create":
+    Ok(Resource(seconds(0)))
+export def identity(owner: Resource) -> Result[Resource, AllocError] = "calc_identity":
+    Ok(owner)
+export def limit() -> () = "calc_limit":
+    print("__test_warm_io__").unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+export def restore() -> () = "calc_restore":
+    print("__test_restore_allocations__").unwrap()
+"#,
+        LibraryKind::Static,
+    );
+    let source = root.join("caller.c");
+    std::fs::write(
+        &source,
+        r#"
+#include "calc.h"
+#include <assert.h>
+extern const void *plenty_caller_enter(const void *site);
+extern void plenty_caller_leave(const void *site);
+int main(void) {
+    static const int sentinel = 0;
+    const void *saved = plenty_caller_enter(&sentinel);
+    calc_Resource *owner = 0, *returned = 0;
+    uint32_t error = 99;
+    assert(calc_create(&owner, &error) == 0);
+    assert(plenty_caller_enter(0) == &sentinel);
+    calc_Resource_destroy(owner);
+    assert(plenty_caller_enter(0) == &sentinel);
+    assert(calc_create(&owner, &error) == 0);
+    calc_limit();
+    assert(calc_identity(owner, &returned, &error) == 1);
+    assert(plenty_caller_enter(0) == &sentinel);
+    calc_restore();
+    plenty_caller_leave(saved);
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let executable = root.join("caller");
+    let args = std::fs::read_to_string(artifacts.link_args).unwrap();
+    success(
+        Command::new("cc")
+            .args(["-Wall", "-Wextra", "-Werror"])
+            .arg(source)
+            .arg(library)
+            .args(args.lines())
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap(),
+    );
+    success(Command::new(executable).output().unwrap());
+}
+
 #[test]
 fn recursive_owners_keep_the_opaque_c_handle_and_generated_wrapper_contract() {
     let source = r#"

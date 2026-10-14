@@ -56,8 +56,10 @@ remain the system's limits, and core-file policy follows the system.
 
 An operation that can [trap](../../language/08-errors/02-allocation-and-traps.md)
 passes its runtime helper a pointer to its source position. Positions are
-twelve-byte records (line, column, and the offset to a length-prefixed file
-name) in one read-only table per object, deduplicated by position. File names
+sixteen-byte records (line, column, the offset to a length-prefixed file
+name, and an embedded-standard-library flag) in one read-only table per object,
+deduplicated by position and provenance. The module loader supplies provenance;
+a filename that resembles a standard module cannot acquire it. File names
 are relative to the source root, which keeps objects
 [independent of the source directory](../01-building/linking.md). The table is
 a local symbol with no relocations, so each Plenty library in a program keeps
@@ -71,6 +73,17 @@ a fixed offset in the argument block, which frees its fourth argument for the
 site. Iteration reads and operations that cannot trap pass null. The runtime
 reads the record only when the trap fires and formats the report directly to
 standard error.
+
+For objects containing embedded std functions, calls crossing between std and
+user code save and restore a thread-local pointer to the nearest user call site.
+Indirect and synthetic calls, generator advancement, and cleanup also preserve
+this context where callbacks can run. Ordinary std-to-std calls also restore
+context because their callee may tail-call through a user callback. Direct
+user-to-user calls need no context operations. Tail calls transfer the pointer without retaining
+the discarded frame. A std trap prints the original site and a caller note;
+ordinary user traps ignore this context. Site records are immutable, so the
+context needs no allocation. Worker threads start without a caller, and executor
+jobs clear the context between jobs. The pointer names a site, not a stack trace.
 
 A null site prints the message alone. Stack overflow, the token front end, and
 runtime contract failures such as a library object from another loaded instance

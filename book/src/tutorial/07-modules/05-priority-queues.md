@@ -29,6 +29,8 @@ Option[i64].Nothing
 Construction and `push` return `Result` with `AllocError`. `pop` returns
 `Option` and transfers the element. `peek` borrows the first element and traps
 on an empty heap, so test `is_empty()` first.
+The trap report names the library operation and adds `note: called from` with
+the position of your `peek()` call.
 
 `Heap` orders integers, floats, and strings with `<`. For any other element,
 `HeapBy` takes a function that says which of two elements leaves first:

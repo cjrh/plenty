@@ -23,6 +23,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     functions.insert(
         "callee".into(),
         UserFn {
+            standard_library: false,
             drop_callback: None,
             generator: None,
             resume: None,

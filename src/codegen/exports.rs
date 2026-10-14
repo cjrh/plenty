@@ -41,6 +41,7 @@ pub(super) fn emit(
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
         b.seal_block(block);
+        let caller = save_caller(&mut b, module, runtime);
         let mut arguments = b.block_params(block).to_vec();
         let outputs = arguments.split_off(export.signature.inputs.len());
         // Allocate a returned instance's handle before calling Plenty, so an
@@ -72,6 +73,7 @@ pub(super) fn emit(
                 0,
             );
             let status = b.ins().iconst(types::I32, 1);
+            restore_caller(&mut b, module, runtime, caller);
             b.ins().return_(&[status]);
             b.switch_to_block(ready);
             b.seal_block(ready);
@@ -253,9 +255,11 @@ pub(super) fn emit(
                         0,
                     );
                 }
+                restore_caller(&mut b, module, runtime, caller);
                 b.ins().return_(&[tag]);
             }
         } else {
+            restore_caller(&mut b, module, runtime, caller);
             b.ins().return_(&results);
         }
         b.finalize();
@@ -358,12 +362,43 @@ fn emit_destroy(
     b.switch_to_block(block);
     b.seal_block(block);
     let owner = b.block_params(block)[0];
+    let caller = save_caller(&mut b, module, runtime);
     let release = module.declare_func_in_func(runtime.release, b.func);
     b.ins().call(release, &[owner]);
+    restore_caller(&mut b, module, runtime, caller);
     b.ins().return_(&[]);
     b.finalize();
     out.define(id, func)?;
     Ok(())
+}
+
+// C entries must restore context even when allocation-failure cleanup or a
+// handle destructor tail-calls Plenty. No pointer into an unloaded library
+// may remain in TLS after the host regains control.
+fn save_caller(
+    b: &mut FunctionBuilder<'_>,
+    module: &mut ObjectModule,
+    runtime: &Runtime,
+) -> Option<cranelift_codegen::ir::Value> {
+    if !runtime.standard_calls {
+        return None;
+    }
+    let enter = module.declare_func_in_func(runtime.caller_enter, b.func);
+    let unknown = b.ins().iconst(PTR_TY, 0);
+    let saved = b.ins().call(enter, &[unknown]);
+    Some(b.inst_results(saved)[0])
+}
+
+fn restore_caller(
+    b: &mut FunctionBuilder<'_>,
+    module: &mut ObjectModule,
+    runtime: &Runtime,
+    saved: Option<cranelift_codegen::ir::Value>,
+) {
+    if let Some(saved) = saved {
+        let leave = module.declare_func_in_func(runtime.caller_leave, b.func);
+        b.ins().call(leave, &[saved]);
+    }
 }
 
 fn emit_interface(interface: &crate::exports::Interface, out: &mut Output) -> Result<()> {

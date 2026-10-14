@@ -76,9 +76,18 @@ impl Lowerer<'_, '_> {
             .declare_func_in_func(self.runtime.collection, self.bcx.func);
         // The runtime writes the result after the three inputs, which leaves
         // the fourth argument for the trap site.
+        // Advancing a generator or dropping a value can enter std without a
+        // source-level call. Within std, runtime callbacks must not overwrite
+        // the surrounding caller, including callbacks that tail-call std.
+        let saved = if self.in_standard_library() || matches!(opcode, 24 | 27) {
+            self.enter_call()?
+        } else {
+            None
+        };
         self.bcx
             .ins()
             .call(f, &[code, args, descriptor, site.unwrap_or(zero)]);
+        self.leave_call(saved);
         Ok(self.bcx.ins().load(
             types::I128,
             cranelift_codegen::ir::MemFlags::trusted(),

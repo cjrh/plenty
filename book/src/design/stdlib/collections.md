@@ -41,7 +41,9 @@ Both types share one interface. `heap` is `Heap[T]` or `HeapBy[T, F]`.
 
 Mutation requires a mutable owner or exclusive reference. An empty `pop`
 returns `Nothing`. `peek` on an empty heap traps with an index-out-of-bounds
-report, as indexing an empty list does; test `is_empty()` first. Its reference
+report, as indexing an empty list does; test `is_empty()` first. The report adds
+the nearest user caller position after the standard-library failure position.
+Its reference
 borrows the heap, so the heap cannot change while the reference is live.
 
 Elements that compare equal leave in an unspecified order. For first-in,

@@ -122,6 +122,7 @@ pub(super) fn prepare(
         frames: HashMap::new(),
         required: HashMap::new(),
         source_root: None,
+        standard_sources: HashSet::new(),
         trap_file: None,
     };
     for f in functions {
@@ -162,6 +163,7 @@ pub(super) struct Engine {
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<String, Arc<Instantiation>>,
     pub(super) source_root: Option<std::path::PathBuf>,
+    pub(super) standard_sources: HashSet<Arc<str>>,
     /// The last source `trap_file` made relative, and the result. Functions
     /// arrive module by module, so this spares a path copy per function.
     trap_file: Option<(Arc<str>, Arc<str>)>,
