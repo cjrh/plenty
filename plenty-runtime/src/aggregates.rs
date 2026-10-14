@@ -1345,7 +1345,7 @@ pub(crate) unsafe extern "C" fn plenty_collection(
             out.write(range as u128);
             return;
         }
-        if matches!(op, 170..=183 | 188..=191) {
+        if matches!(op, 170..=183 | 188..=191 | 248) {
             // Read every operand first: the fourth and fifth share the
             // scratch words that follow the result slot.
             let operands = [

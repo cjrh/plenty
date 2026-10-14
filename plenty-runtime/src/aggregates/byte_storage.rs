@@ -228,6 +228,11 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type)
                 };
                 crate::io::io_result(written.map(|count| count as u128))
             }
+            248 => {
+                let bytes = storage(a);
+                let within = range(b, c, bytes.len());
+                crate::io::io_result(crate::entropy::read(&mut bytes[within]))
+            }
             _ => unreachable!("byte storage opcode"),
         }
     }

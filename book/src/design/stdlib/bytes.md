@@ -150,6 +150,7 @@ as `Result[i64, IoError]`, and never changes the buffer's length or capacity.
 | `write_file(file: &mut File, start, stop)` | shared | Write a prefix of `self[start:stop]` |
 | `read_stdin(start, stop)` | exclusive | Read standard input into `self[start:stop]` |
 | `write_stdout(start, stop)`, `write_stderr(start, stop)` | shared | Write a prefix of the range to the process stream's buffer |
+| `read_os_entropy(start, stop)` | exclusive | One `getrandom(2)` request into `self[start:stop]` |
 
 A count below the range length is normal. A range outside the buffer is
 `IoError.InvalidInput`; a closed file is `Closed`, and the open mode is
@@ -157,7 +158,9 @@ enforced with `NotReadable` and `NotWritable`. An interrupted call is
 `IoError.System(4)`. File transfers are raw bytes with no newline translation.
 
 Programs normally use these through [`std.io`](io.md), which adds retry, end
-of input, seeking, and bounded buffering on top.
+of input, seeking, and bounded buffering on top. `read_os_entropy` is the
+single native primitive behind [`std.secrets`](secrets.md); import that module
+for secret bytes and tokens.
 
 The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
