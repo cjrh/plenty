@@ -2970,7 +2970,8 @@ impl Lower<'_> {
                 } else {
                     if !a.is_numeric()
                         && !(matches!(op.as_str(), "==" | "!=")
-                            || (a == Ty::Str && (op == "+" || is_comparison(op))))
+                            || (a == Ty::Str && op == "+")
+                            || (a.is_orderable() && is_comparison(op)))
                     {
                         return Err(e.at.error(format!(
                             "operator `{op}` does not accept {}",

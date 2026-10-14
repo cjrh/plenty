@@ -118,6 +118,15 @@ impl Ty {
     pub fn is_numeric(&self) -> bool {
         self.is_int() || self.is_float()
     }
+    /// Types covered by the runtime's total sorting order. Tuple ordering
+    /// recursively uses that same order, including for floating-point fields.
+    pub fn is_orderable(&self) -> bool {
+        match self {
+            Self::Str => true,
+            Self::Enum(t) if t.tuple() => t.get().variants[0].fields.iter().all(Self::is_orderable),
+            _ => self.is_numeric(),
+        }
+    }
     pub fn layout_depth(&self) -> usize {
         match self {
             Self::Closure(t) => t.depth,
@@ -2182,13 +2191,14 @@ fn arith(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     Ok(())
 }
 
-/// Stack effect for numeric ordering: same-typed numbers in, Bool out.
+/// Stack effect for ordering: matching orderable operands in, Bool out.
 fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     let (a, b) = pop2(stack, op_label)?;
-    if !(a.is_numeric() || a == Ty::Str) || a != b {
-        return Err(
-            format!("`{op_label}` requires same-typed numbers or strings, got ({a} {b})").into(),
-        );
+    if !a.is_orderable() || a != b {
+        return Err(format!(
+            "`{op_label}` requires same-typed numbers, strings, or orderable tuples, got ({a} {b})"
+        )
+        .into());
     }
     stack.push(Ty::Bool);
     Ok(())

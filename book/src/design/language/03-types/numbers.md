@@ -71,8 +71,9 @@ numeric type; and the float methods `sqrt`, `exp`, `log`, `sin`, `cos`,
 operators do, and an integer result outside its type is the same overflow
 error.
 
-Comparisons require matching types; ordering accepts integers, floats, and
-[strings](../../facilities/01-builtins/text.md). NaN is
+Comparisons require matching types; ordering accepts integers, floats,
+[strings](../../facilities/01-builtins/text.md), and [tuples](tuples.md) of those.
+For scalar floats, NaN is
 unequal to every value, including itself, and all ordered comparisons with it are
 false. These rules also apply to structural equality and membership. Floats cannot
 be dictionary keys or set elements.

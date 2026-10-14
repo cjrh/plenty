@@ -1845,15 +1845,20 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Lower numeric ordering with IEEE float or signedness-aware integer comparisons.
+    /// Tuples share sorting's lexicographic total order. Scalar floats retain
+    /// IEEE comparisons, and scalar integers use their declared signedness.
     fn int_cmp(&mut self, signed: IntCC, unsigned: IntCC) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
-        if ty == Ty::Str {
-            let order = self.collection_call(
-                crate::collection::CollectionOp::TextCompare.opcode(),
-                &[a, b],
-                None,
-            )?;
+        if ty == Ty::Str || matches!(&ty, Ty::Enum(t) if t.tuple()) {
+            let (operation, descriptor) = if ty == Ty::Str {
+                (crate::collection::CollectionOp::TextCompare, None)
+            } else {
+                (
+                    crate::collection::CollectionOp::OrderCompare(ty.clone()),
+                    Some(&ty),
+                )
+            };
+            let order = self.collection_call(operation.opcode(), &[a, b], descriptor)?;
             let order = self.bcx.ins().ireduce(types::I64, order);
             let value = self.bcx.ins().icmp_imm(signed, order, 0);
             self.release(a, &ty);

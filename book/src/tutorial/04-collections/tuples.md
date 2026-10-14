@@ -25,6 +25,27 @@ cm
 Creating `(a, b)` does not allocate a tuple, so it needs no `?`. Operations that
 produce its components, such as the list construction below, can still fail.
 
+Tuples of numbers, strings, or nested tuples of those can be compared. The first
+differing component decides the result, just as in `sort()`. Comparisons leave
+both values available:
+
+```plenty
+def main() -> Result[(), Failure]:
+    first = (1, "apple")
+    second = (1, "pear")
+    print(first < second, first <= first)?
+    print(first, second)?
+    Ok(())
+```
+```output
+True True
+(1, "apple") (1, "pear")
+```
+
+Tuple float components follow sorting's total order: `-0.0` precedes `0.0`, and
+NaNs come last. This differs from scalar float comparison; tuple equality still
+uses the components' ordinary equality.
+
 Distinct tuple components can be borrowed and read independently. The borrow
 below protects component 1 while component 0 remains readable:
 

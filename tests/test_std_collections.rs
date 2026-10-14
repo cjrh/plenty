@@ -439,7 +439,7 @@ fn unsupported_orders_sources_and_escaping_borrows_are_rejected() {
         unordered.contains("operator `<` does not accept Guard"),
         "{unordered}"
     );
-    let tuple = rejected("mut heap = Heap[(i64, i64)]()?");
+    let tuple = rejected("mut heap = Heap[(i64, bool)]()?");
     assert!(tuple.contains("operator `<` does not accept"), "{tuple}");
     let reference = rejected("mut heap = Heap[&i64]()?");
     assert!(
@@ -473,5 +473,20 @@ fn unsupported_orders_sources_and_escaping_borrows_are_rejected() {
     assert!(
         view.contains("generator expressions require owned inputs"),
         "{view}"
+    );
+}
+
+#[test]
+fn heap_orders_tuple_priorities_lexicographically() {
+    native(
+        r#"
+mut heap = Heap[(i64, str)]()?
+for value in [(2, "a"), (1, "z"), (1, "a"), (1, "a")]?:
+    heap.push(value)?
+print(*heap.peek())?
+for value in drain(heap):
+    print(value)?
+"#,
+        "(1, \"a\")\n(1, \"a\")\n(1, \"a\")\n(1, \"z\")\n(2, \"a\")",
     );
 }
