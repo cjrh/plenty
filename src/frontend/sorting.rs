@@ -44,7 +44,7 @@ impl Lower<'_> {
         let Ty::List(element) = &ty else {
             unreachable!()
         };
-        if !Self::sortable(element) {
+        if !element.is_orderable() {
             return Err(base.at.error(format!(
                 "sort does not order {element} elements; it orders integers, floats, str, and tuples of those"
             )));
@@ -95,7 +95,7 @@ impl Lower<'_> {
                 .at
                 .error(format!("sort_by_key callback must take &{element}")));
         }
-        let key = sig.output.clone().filter(Self::sortable).ok_or_else(|| {
+        let key = sig.output.clone().filter(Ty::is_orderable).ok_or_else(|| {
             args[0]
                 .at
                 .error("sort_by_key callback must return an integer, float, str, or tuple of those")

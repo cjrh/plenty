@@ -2598,16 +2598,6 @@ impl Lower<'_> {
         Ok(None)
     }
 
-    /// Whether the runtime's total order covers `ty`. Tuples order by their
-    /// components from left to right.
-    pub(super) fn sortable(ty: &Ty) -> bool {
-        match ty {
-            Ty::Str => true,
-            Ty::Enum(t) if t.tuple() => t.get().variants[0].fields.iter().all(Self::sortable),
-            _ => ty.is_numeric(),
-        }
-    }
-
     fn list_swap(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
         if args.len() != 2 {
             return Err(base.at.error("swap requires two i64 indices"));

@@ -6,13 +6,15 @@ private `list[T]`; no native code or runtime primitive is involved.
 
 | Type | First element | Element types |
 |---|---|---|
-| `Heap[T]` | Least by `<` | Integers, floats, and `str` |
+| `Heap[T]` | Least by `<` | Integers, floats, `str`, and tuples of those |
 | `HeapBy[T, F]` | The one the comparator puts before all others | Any storable type |
 
-`Heap[T]` uses the element type's own `<`. Tuples, classes, enums, and
-collections have none, so such an instance is rejected at compile time with
-"operator `<` does not accept" the type. A NaN element compares false against
-everything and leaves the removal order unspecified.
+`Heap[T]` uses the element type's own `<`. Classes, ordinary enums, collections,
+and tuples containing unordered fields are rejected at compile time with
+"operator `<` does not accept" the type. A scalar NaN element compares false
+against everything and leaves the removal order unspecified. Tuples use the
+[lexicographic total sorting order](../language/03-types/tuples.md), including
+signed zeros and NaNs, so `Heap[(i64, str)]` orders by priority then text.
 
 `HeapBy(before)` stores a comparator `F: Callable[[&T, &T], bool]`: a named
 function or an owned closure. `before(a, b)` returns whether `a` must leave
@@ -84,6 +86,5 @@ Supported target: `x86_64-unknown-linux-gnu`. See the runnable
 
 There is no construction from an existing list, bulk insertion, merging,
 indexed access, borrowed iteration, removal of an arbitrary element, or
-priority update. `Heap[T]` cannot hold tuples until tuples support `<`; use
-`HeapBy`. A comparator cannot fail; one that reports inconsistent answers
+priority update. A comparator cannot fail; one that reports inconsistent answers
 gives an unspecified order but cannot break memory safety.

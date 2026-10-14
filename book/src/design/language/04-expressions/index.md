@@ -28,6 +28,11 @@ that `**` is unsupported and names
 type matching, casts, overflow, and float behavior. Membership follows the
 container's [facilities contract](../../facilities/index.md).
 
+Ordering operators accept matching integers, floats, strings, and
+[orderable tuples](../03-types/tuples.md). Tuple operators use the same
+lexicographic total order as `sort()`, including its signed-zero and NaN rules;
+scalar float comparisons retain IEEE behavior.
+
 Suites and conditionals have [value and exit rules](branches.md). Enums support
 [exhaustive matching](matching.md); [loops](loops.md) provide repeated execution.
 Postfix `?` follows [error propagation](../08-errors/index.md), and resource scopes

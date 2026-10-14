@@ -37,6 +37,19 @@ Tuples of integers, `bool`, strings, and nested tuples of those types are
 copyable dictionary keys and set members. Hashing and equality use their
 contents, with no formatting or string-key encoding.
 
+Tuples whose components are integers, floats, strings, or recursively orderable
+tuples support `<`, `<=`, `>`, and `>=`. Both operands must have exactly the same
+type. They compare lexicographically, using the first differing component, with
+the same allocation-free total order as `list.sort()`. This also works through
+references and in generic functions; comparison observes both operands.
+Booleans, unit, classes, ordinary enums, and collections are not orderable fields.
+
+Floating-point tuple fields use the sorting order: negative zero precedes positive
+zero, and all NaNs compare equal in order and follow every number. Structural `==`
+and `!=` still use IEEE equality. Consequently, `(-0.0,) == (0.0,)` and
+`(-0.0,) < (0.0,)` are both true; a NaN tuple is `<=` itself but not `==` itself.
+Scalar float operators keep their [IEEE behavior](numbers.md).
+
 Distinct components of a named tuple can be borrowed independently. Reads of
 one component can continue while another is exclusively borrowed; whole-tuple
 access overlaps all components. See [borrowing](../05-ownership/index.md) for
