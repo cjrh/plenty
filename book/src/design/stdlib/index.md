@@ -21,6 +21,8 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |
 | [`std.time`](time.md) | Checked durations, monotonic instants and deadlines, wall timestamps, and sleep | `RangeError` |
 | [`std.cli`](cli.md) | Explicit typed options/positionals, repeatable values, generated help and lossless path arguments | `CliError` |
+| [`std.text`](text.md) | Bounded reusable builders, joining, and scalar wrapping | `TextError` |
+| [`std.unicode`](unicode.md) | Unicode 17 normalization, combining classes, and Mark classification | `TextError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in

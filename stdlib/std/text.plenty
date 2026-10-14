@@ -1,0 +1,87 @@
+import std.bytes
+from std.bytes import Bytes, BytesError
+
+pub enum TextError:
+    InvalidLimit
+    LimitExceeded
+    Allocation(AllocError)
+    Bytes(BytesError)
+
+def byte_result[T](value: Result[T, BytesError]) -> Result[T, TextError]:
+    match value:
+        case Ok(result):
+            Ok(result)
+        case Err(error):
+            Err(TextError.Bytes(error))
+
+# Count UTF-8 bytes without allocating a temporary encoding of an unbounded input.
+def byte_count(text: &str, limit: i64) -> Result[i64, TextError]:
+    mut count = 0
+    for scalar in text:
+        code = ord(scalar).unwrap()
+        mut size = 1
+        if code >= 65536u32:
+            size = 4
+        elif code >= 2048u32:
+            size = 3
+        elif code >= 128u32:
+            size = 2
+        if size > limit - count:
+            return Err(TextError.LimitExceeded)
+        count += size
+    Ok(count)
+
+pub class Builder:
+    _bytes: Bytes
+    _limit: i64
+
+    pub def byte_len(self) -> i64:
+        self._bytes.len()
+
+    pub def limit(self) -> i64:
+        self._limit
+
+    pub def append(self: &mut Builder, text: &str) -> Result[(), TextError]:
+        drop(byte_count(text, self._limit - self._bytes.len())?)
+        encoded = byte_result(std.bytes.from_text(text))?
+        byte_result(self._bytes.extend(&encoded))
+
+    pub def clear(self: &mut Builder) -> ():
+        self._bytes.clear()
+
+    pub def to_text(self) -> Result[str, TextError]:
+        byte_result(self._bytes.to_text())
+
+pub def builder(max_bytes: i64) -> Result[Builder, TextError]:
+    if max_bytes < 0:
+        return Err(TextError.InvalidLimit)
+    Ok(Builder(byte_result(std.bytes.empty())?, max_bytes))
+
+pub def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str, TextError]:
+    mut output = builder(max_bytes)?
+    mut first = True
+    for piece in pieces:
+        if not first:
+            output.append(separator)?
+        output.append(piece)?
+        first = False
+    output.to_text()
+
+# Hard wrap by Unicode scalar count, preserving explicit LF and every input
+# scalar. This is deliberately not display-width or grapheme/word wrapping.
+pub def wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]:
+    if width <= 0:
+        return Err(TextError.InvalidLimit)
+    mut output = builder(max_bytes)?
+    mut column = 0
+    for scalar in text:
+        if scalar == "\n":
+            output.append(scalar)?
+            column = 0
+        else:
+            if column == width:
+                output.append("\n")?
+                column = 0
+            output.append(scalar)?
+            column += 1
+    output.to_text()

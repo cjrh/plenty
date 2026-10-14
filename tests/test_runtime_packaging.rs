@@ -56,6 +56,8 @@ exec {} "$@"
     std::fs::write(
         &source,
         r#"
+import std.text
+import std.unicode
 class Resource:
     name: str
     def __del__(self) -> ():
@@ -66,6 +68,9 @@ def values() -> Generator[str]:
 def main() -> ():
     print(list(values()).unwrap()).unwrap()
     drop(Resource("done"))
+    mut text = std.text.builder(64).unwrap()
+    text.append("éﬃ").unwrap()
+    print(std.unicode.nfkc(&text.to_text().unwrap(), 64).unwrap()).unwrap()
 "#,
     )
     .unwrap();
@@ -100,6 +105,6 @@ def main() -> ():
     );
     assert_eq!(
         String::from_utf8_lossy(&result.stdout),
-        "[\"é\\0🦀\"]\ndone\n"
+        "[\"é\\0🦀\"]\ndone\néffi\n"
     );
 }

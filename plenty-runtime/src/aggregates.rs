@@ -1433,6 +1433,7 @@ pub(crate) unsafe fn collection_at(
         match op {
             150..=164 => filesystem::call(op, a, b, descriptor),
             184..=187 => crate::time::call(op, a),
+            224..=227 => crate::unicode::call(op, a, b, value),
             112 => {
                 let owner = *(a as *const u128);
                 let c = &mut *(owner as *mut Collection);

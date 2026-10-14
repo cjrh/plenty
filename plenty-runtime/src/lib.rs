@@ -36,6 +36,9 @@ mod text_io;
 mod text_lines;
 mod threads;
 mod time;
+mod unicode;
+// Upstream vendor files retain their original crate-relative imports.
+pub(crate) use unicode::vendor::{lookups, perfect_hash, quick_check, tables};
 
 fn fail(message: &str) -> ! {
     io::flush();

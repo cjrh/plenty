@@ -1,0 +1,87 @@
+import std.text
+from std.text import TextError
+
+pub def version() -> str:
+    return "17.0.0"
+
+# All public classification accepts exactly one scalar, not an arbitrary string.
+pub def combining_class(scalar: &str) -> Option[u32]:
+    match ord(scalar):
+        case Ok(code):
+            Some(__unicode_ccc(code))
+        case Err(_):
+            Nothing
+
+pub def is_mark(scalar: &str) -> Option[bool]:
+    match ord(scalar):
+        case Ok(code):
+            Some(__unicode_is_mark(code))
+        case Err(_):
+            Nothing
+
+def allocated[T](value: Result[T, AllocError]) -> Result[T, TextError]:
+    match value:
+        case Ok(result):
+            Ok(result)
+        case Err(error):
+            Err(TextError.Allocation(error))
+
+# A caller-selected scalar bound covers input, full decomposition and output.
+# Stable insertion ordering follows UAX #15 D109; zero classes are boundaries.
+def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Result[str, TextError]:
+    if limit < 0 or limit > i64.MAX // 4:
+        return Err(TextError.InvalidLimit)
+    if len(text) > limit:
+        return Err(TextError.LimitExceeded)
+    mut ordered = allocated(list[u32].new())?
+    for scalar in text:
+        code = ord(scalar).unwrap()
+        mut part = 0
+        mut value = __unicode_decompose_at(code, compatible, part)
+        while value != 1114112u32:
+            if len(ordered) == limit:
+                return Err(TextError.LimitExceeded)
+            allocated(ordered.append(value))?
+            class_value = __unicode_ccc(value)
+            mut index = len(ordered) - 1
+            if class_value != 0u32:
+                while index > 0:
+                    previous = __unicode_ccc(ordered[index - 1])
+                    if previous == 0u32 or previous <= class_value:
+                        break
+                    ordered.swap(index, index - 1)
+                    index -= 1
+            part += 1
+            value = __unicode_decompose_at(code, compatible, part)
+    mut result = allocated(list[u32].new())?
+    mut starter = -1
+    mut previous_class = 0u32
+    for code in ordered:
+        class_value = __unicode_ccc(code)
+        mut combined = 1114112u32
+        if compose and starter >= 0 and (previous_class == 0u32 or previous_class < class_value):
+            combined = __unicode_compose(result[starter], code)
+        if combined != 1114112u32:
+            replace(result[starter], combined)
+        else:
+            if class_value == 0u32:
+                starter = len(result)
+            allocated(result.append(code))?
+            previous_class = class_value
+    mut output = std.text.builder(limit * 4)?
+    for code in result:
+        scalar = chr(code).unwrap()
+        output.append(&scalar)?
+    output.to_text()
+
+pub def nfd(text: &str, max_scalars: i64) -> Result[str, TextError]:
+    normalized(text, max_scalars, False, False)
+
+pub def nfc(text: &str, max_scalars: i64) -> Result[str, TextError]:
+    normalized(text, max_scalars, False, True)
+
+pub def nfkd(text: &str, max_scalars: i64) -> Result[str, TextError]:
+    normalized(text, max_scalars, True, False)
+
+pub def nfkc(text: &str, max_scalars: i64) -> Result[str, TextError]:
+    normalized(text, max_scalars, True, True)

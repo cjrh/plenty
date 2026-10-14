@@ -31,6 +31,10 @@ impl ModuleSource {
             Self::Standard("std.bytes") => Ok(include_str!("../../stdlib/std/bytes.plenty").into()),
             Self::Standard("std.time") => Ok(include_str!("../../stdlib/std/time.plenty").into()),
             Self::Standard("std.cli") => Ok(include_str!("../../stdlib/std/cli.plenty").into()),
+            Self::Standard("std.text") => Ok(include_str!("../../stdlib/std/text.plenty").into()),
+            Self::Standard("std.unicode") => {
+                Ok(include_str!("../../stdlib/std/unicode.plenty").into())
+            }
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -494,10 +498,12 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.bytes" => Ok(ModuleSource::Standard("std.bytes")),
                     "std.time" => Ok(ModuleSource::Standard("std.time")),
                     "std.cli" => Ok(ModuleSource::Standard("std.cli")),
+                    "std.text" => Ok(ModuleSource::Standard("std.text")),
+                    "std.unicode" => Ok(ModuleSource::Standard("std.unicode")),
                     _ => Err(import.at.error(format!(
-                        "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli",
+                    "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.unicode",
                         import.module
-                    ))),
+                ))),
                 };
             }
             let mut path = self.root.clone();

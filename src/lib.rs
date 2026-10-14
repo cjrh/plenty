@@ -34,6 +34,7 @@ mod threading;
 mod time;
 mod toolchain;
 mod type_facts;
+mod unicode;
 mod value;
 
 pub use codegen::{
