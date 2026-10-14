@@ -210,6 +210,20 @@ in runs. Writing examines each field byte once to decide quoting, and once
 more when quoting to double quote bytes. Both are linear in the bytes
 processed. Field access by index is constant time.
 
+The reader and writer find the next delimiter, quote, or line break with the
+[`std.bytes` scans](bytes.md#scanning), so the work in Plenty code is per
+field and per quote, not per byte. Measured with a release compiler on x86-64
+Linux, pinned to one core, reading 64 MB from standard input into one reused
+`Record`:
+
+| Input | Before the scans | Now |
+|---|---|---|
+| 3,234,608 fields of about 19 bytes, some quoted | 4.73 s (14 MB/s) | 2.00 s (32 MB/s) |
+| 376,760 fields of about 180 bytes, some quoted | 3.37 s (19 MB/s) | 0.30 s (213 MB/s) |
+
+Short fields are bounded by the cost of the calls made per field, about
+600 ns, not by scanning.
+
 | Allocates | Does not allocate |
 |---|---|
 | `reader`: one buffer; `record`, `writer`: empty storage | `Reader.read` once the record's capacity covers the record |

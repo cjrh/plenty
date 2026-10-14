@@ -557,6 +557,34 @@ fn malformed_documents_report_the_offending_byte() {
 }
 
 #[test]
+fn long_string_runs_keep_content_and_positions() {
+    // Runs longer than the native scan step, ended by each kind of byte.
+    table(
+        &[
+            (
+                b"\"abcdefghijklmnop\\tqrstuvwxyz 0123456789\"",
+                "\"abcdefghijklmnop\\tqrstuvwxyz 0123456789\"",
+            ),
+            (
+                "[\"plain run then \u{e9} and more plain text\", \"~\u{7f} {}[]:,\"]".as_bytes(),
+                "[\"plain run then \u{e9} and more plain text\",\"~\u{7f} {}[]:,\"]",
+            ),
+            (
+                b"{\"a long plain key\":\"with \\\"quotes\\\" and \\\\ inside it\"}",
+                "{\"a long plain key\":\"with \\\"quotes\\\" and \\\\ inside it\"}",
+            ),
+            (b"\"abcdefghijklmnop\x01\"", "ControlCharacter 17 1 18"),
+            (b"\"abcdefghijklmnop\nq\"", "ControlCharacter 17 1 18"),
+            (b"\"abcdefghij\xff\"", "InvalidUtf8 11 1 12"),
+            (b"\n\"abcdefghijklmnop\\q\"", "InvalidEscape 19 2 19"),
+            (b"\"abcdefghijkl", "UnexpectedEnd 13 1 14"),
+            (b"[\"abcdefghijklmnop\" 1]", "UnexpectedByte 20 1 21"),
+        ],
+        "",
+    );
+}
+
+#[test]
 fn every_truncation_is_an_unexpected_end_at_its_length() {
     let document =
         "{\"key\":[1,-2.5e+3,true,false,null,\"s\\u00e9\\ud83d\\ude00\\n\u{e9}\",{\"n\":{}}],\"\u{20ac}\":[]}";

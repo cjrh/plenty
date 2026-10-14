@@ -529,3 +529,155 @@ print(str.repr(source.write_file(&mut file, 0, 5))?)?
     );
     assert_eq!(std::fs::read(path).unwrap(), [255, 13, 10, 65]);
 }
+
+#[test]
+fn scans_find_bytes_sets_and_subsequences_at_absolute_offsets() {
+    native(
+        r#"
+data = std.bytes.from_text("key = \"a,b\"; next\r\nrest")?
+count = data.len()
+print(str.repr(data.find(61u8, 0, count)?)?, str.repr(data.find(61u8, 5, count)?)?)?
+print(str.repr(data.find(61u8, 0, 4)?)?, str.repr(data.find(116u8, 16, count)?)?)?
+stops = std.bytes.from_text(",;\"")?
+print(str.repr(data.find_in(&stops, 0, count)?)?, str.repr(data.find_in(&stops, 7, count)?)?)?
+print(str.repr(data.find_in(&stops, 12, count)?)?, str.repr(data.find_in(&stops, 0, 6)?)?)?
+blank = std.bytes.from_text(" \r\n")?
+print(str.repr(data.find_not_in(&blank, 3, count)?)?, str.repr(data.find_not_in(&blank, 18, count)?)?)?
+print(str.repr(data.find_not_in(&blank, 17, 19)?)?)?
+none = std.bytes.empty()?
+print(str.repr(data.find_in(&none, 0, count)?)?, str.repr(data.find_not_in(&none, 4, count)?)?)?
+print(str.repr(data.find_in(&data, 9, count)?)?, str.repr(data.find_not_in(&data, 0, count)?)?)?
+line = std.bytes.from_text("\r\n")?
+print(str.repr(data.find_bytes(&line, 0, count)?)?, str.repr(data.find_bytes(&line, 0, 18)?)?)?
+print(str.repr(data.find_bytes(&none, 7, count)?)?, str.repr(data.find_bytes(&data, 0, count)?)?)?
+print(str.repr(none.find_bytes(&none, 0, 0)?)?, str.repr(none.find_bytes(&line, 0, 0)?)?)?
+"#,
+        "Option[i64].Some(4) Option[i64].Nothing\n\
+         Option[i64].Nothing Option[i64].Some(16)\n\
+         Option[i64].Some(6) Option[i64].Some(8)\n\
+         Option[i64].Nothing Option[i64].Nothing\n\
+         Option[i64].Some(4) Option[i64].Some(19)\n\
+         Option[i64].Nothing\n\
+         Option[i64].Nothing Option[i64].Some(4)\n\
+         Option[i64].Some(9) Option[i64].Nothing\n\
+         Option[i64].Some(17) Option[i64].Nothing\n\
+         Option[i64].Some(7) Option[i64].Some(0)\n\
+         Option[i64].Some(0) Option[i64].Nothing",
+    );
+}
+
+#[test]
+fn scans_agree_with_a_byte_loop_on_every_range_of_a_long_buffer() {
+    // Longer than the native eight-byte step, with every byte value present.
+    native(
+        r#"
+mut data = std.bytes.with_capacity(300)?
+for n in range(300):
+    data.push(u8((n * 7) % 256))?
+set = std.bytes.from_list(&[0u8, 255u8, 128u8, 44u8, 45u8]?)?
+mut wrong = 0
+for start in range(0, 300, 13):
+    for stop in range(start, 300, 17):
+        mut first = -1
+        mut inside = -1
+        mut outside = -1
+        mut total = 0
+        for index in range(start, stop):
+            value = data.get(index)?
+            member = value == 0u8 or value == 255u8 or value == 128u8 or value == 44u8 or value == 45u8
+            if value == 44u8:
+                total += 1
+                if first < 0:
+                    first = index
+            if member and inside < 0:
+                inside = index
+            if not member and outside < 0:
+                outside = index
+        match data.find(44u8, start, stop)?:
+            case Some(index):
+                if index != first:
+                    wrong += 1
+            case Nothing:
+                if first >= 0:
+                    wrong += 1
+        match data.find_in(&set, start, stop)?:
+            case Some(index):
+                if index != inside:
+                    wrong += 1
+            case Nothing:
+                if inside >= 0:
+                    wrong += 1
+        match data.find_not_in(&set, start, stop)?:
+            case Some(index):
+                if index != outside:
+                    wrong += 1
+            case Nothing:
+                if outside >= 0:
+                    wrong += 1
+        if data.count(44u8, start, stop)? != total:
+            wrong += 1
+print(wrong, data.count(44u8, 0, 300)?, data.count(1u8, 0, 0)?)?
+"#,
+        "0 1 0",
+    );
+}
+
+#[test]
+fn ranges_are_compared_with_bytes_and_text_without_copying() {
+    native(
+        r#"
+data = std.bytes.from_text("true,false,né")?
+word = std.bytes.from_text("xfalsey")?
+print(data.matches(5, &word, 1, 6)?, data.matches(4, &word, 1, 6)?, data.matches(5, &word, 1, 7)?)?
+print(data.matches(0, &word, 3, 3)?, data.matches(data.len(), &word, 3, 3)?)?
+print(data.matches(11, &word, 1, 6)?, data.matches(data.len(), &word, 1, 2)?, data.matches(0, &data, 0, data.len())?)?
+print(data.matches_text(0, "true")?, data.matches_text(0, "true,")?, data.matches_text(1, "true")?)?
+print(data.matches_text(11, "né")?, data.matches_text(11, "néx")?, data.matches_text(data.len(), "")?)?
+print(data.matches_text(data.len(), "x")?)?
+"#,
+        "True False False\nTrue True\nFalse False True\nTrue True False\nTrue False True\nFalse",
+    );
+}
+
+#[test]
+fn runs_stop_at_the_first_non_ascii_or_invalid_byte() {
+    native(
+        r#"
+mut data = std.bytes.from_text("plain text, then né and 日本")?
+count = data.len()
+print(count, data.ascii_run(0, count)?, data.ascii_run(18, count)?, data.ascii_run(19, count)?)?
+print(data.ascii_run(5, 9)?, data.ascii_run(count, count)?)?
+print(data.utf8_run(0, count)?, data.utf8_run(0, 18)?, data.utf8_run(0, 19)?, data.utf8_run(18, count)?)?
+print(data.utf8_run(19, count)?, data.utf8_run(0, count - 1)?)?
+data.set(3, 255u8)?
+print(data.utf8_run(0, count)?, data.utf8_run(4, count)?, data.ascii_run(0, count)?)?
+"#,
+        "31 18 18 19\n9 31\n31 18 18 31\n19 28\n3 31 3",
+    );
+}
+
+#[test]
+fn scans_reject_ranges_outside_the_buffer() {
+    native(
+        r#"
+data = std.bytes.from_text("abcd")?
+set = std.bytes.from_text("b")?
+print(str.repr(data.find(98u8, -1, 2))?, str.repr(data.find(98u8, 3, 2))?)?
+print(str.repr(data.find_in(&set, 0, 5))?, str.repr(data.find_not_in(&set, 5, 5))?)?
+print(str.repr(data.find_bytes(&set, 2, 1))?)?
+print(str.repr(data.count(98u8, 0, 5))?, str.repr(data.ascii_run(-1, 0))?, str.repr(data.utf8_run(4, 5))?)?
+print(str.repr(data.matches(-1, &set, 0, 1))?, str.repr(data.matches(5, &set, 0, 0))?)?
+print(str.repr(data.matches(0, &set, 0, 2))?, str.repr(data.matches(0, &set, 1, 0))?)?
+print(str.repr(data.matches_text(-1, "a"))?, str.repr(data.matches_text(5, ""))?)?
+"#,
+        &{
+            let found = format!("Result[Option[i64], {OUT_OF_RANGE}");
+            let counted = format!("Result[i64, {OUT_OF_RANGE}");
+            let matched = format!("Result[bool, {OUT_OF_RANGE}");
+            format!(
+                "{found} {found}\n{found} {found}\n{found}\n{counted} {counted} {counted}\n\
+                 {matched} {matched}\n{matched} {matched}\n{matched} {matched}"
+            )
+        },
+    );
+}

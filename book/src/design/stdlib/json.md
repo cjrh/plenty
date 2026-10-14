@@ -273,19 +273,21 @@ An event loop that drains `next` to `Pending` before each `feed`, or uses
 stack, whatever the document size. A tree costs more than its text: each value
 is an enum cell and each string and container its own allocation.
 
-Every byte goes through a checked single-element `Bytes` call. Measured with a
-release compiler on x86-64 Linux, pinned to one core, on a 1,116,003-byte
-document of 12,000 small objects (180,003 events):
+The decoder takes a run of unescaped ASCII string content, and the encoder a
+run of bytes that need no escape, with one [`std.bytes` scan](bytes.md#scanning)
+each. Structural bytes, whitespace, numbers, literals, escapes, and non-ASCII
+string bytes still go through a checked single-element `Bytes` call. Measured
+with a release compiler on x86-64 Linux, pinned to one core, on an
+8,388,872-byte document of 34,393 objects (687,862 events):
 
-| Operation | Wall time |
-|---|---|
-| `Decoder.next` over the whole buffer | 0.52 s |
-| `parse` | 0.98 s |
-| `read_value` from a `Cursor` | 0.99 s |
-| `encode` of the tree | 0.24 s |
+| Operation | Before the scans | Now |
+|---|---|---|
+| `Decoder.next` over the whole buffer | 2.55 s | 1.58 s |
+| `parse` | 3.59 s | 2.65 s |
+| `parse`, then `encode` of the tree | 4.56 s | 3.28 s |
 
-That is roughly 1 to 5 megabytes per second. Bulk native scanning would be
-faster and is not implemented.
+That is roughly 2 to 5 megabytes per second. The remaining time is the calls
+made per token and per event, not byte access.
 
 ## Limits
 

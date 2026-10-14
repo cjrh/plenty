@@ -196,8 +196,8 @@ process buffer, but their order is unspecified.
 
 Each `read` or `write` on `FileStream` or `Stdin` is one system call. Buffered
 adapters make one bulk copy per call between the caller's range and the fixed
-buffer. `read_until` searches held bytes with `Bytes.find`, one checked access
-per byte. Seeking a `BufReader` discards up to `capacity` bytes already read.
+buffer. `read_until` searches held bytes with `Bytes.find`, one native scan
+per call. Seeking a `BufReader` discards up to `capacity` bytes already read.
 
 | Allocates | Does not allocate |
 |---|---|
