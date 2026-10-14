@@ -65,9 +65,12 @@ impl Lower<'_> {
         Ok(Some(output))
     }
 
-    pub(super) fn stream_call(
+    /// A native primitive whose `exclusive` operands are written through and
+    /// need exclusive loans; the rest are observed.
+    pub(super) fn exclusive_call(
         &mut self,
-        operation: crate::stream::StreamOp,
+        operation: CollectionOp,
+        exclusive: &dyn Fn(usize) -> bool,
         args: &[Expr],
         at: &Token,
         ops: &mut Vec<Op>,
@@ -82,7 +85,7 @@ impl Lower<'_> {
         }
         let (mut loans, mut reads) = (Vec::new(), Vec::new());
         for (index, (arg, expected)) in args.iter().zip(inputs).enumerate() {
-            if operation.exclusive(index) {
+            if exclusive(index) {
                 let (_, loan) = self.borrow(arg, true, ops)?;
                 self.same(self.place_type(arg), Some(expected.clone()), &arg.at)?;
                 ops.push(Op::ReadRef(expected));
@@ -93,7 +96,7 @@ impl Lower<'_> {
                 reads.extend(observed);
             }
         }
-        ops.push(Op::Collection(CollectionOp::Stream(operation)));
+        ops.push(Op::Collection(operation));
         for loan in loans.into_iter().rev() {
             ops.push(Op::UseLoan(loan));
         }

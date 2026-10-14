@@ -56,6 +56,9 @@ exec {} "$@"
     std::fs::write(
         &source,
         r#"
+import std.bytes
+import std.crypto
+import std.encoding
 import std.text
 import std.unicode
 class Resource:
@@ -71,6 +74,9 @@ def main() -> ():
     mut text = std.text.builder(64).unwrap()
     text.append("éﬃ").unwrap()
     print(std.unicode.nfkc(&text.to_text().unwrap(), 64).unwrap()).unwrap()
+    data = std.bytes.from_text("abc").unwrap()
+    tag = std.crypto.hmac_sha256(&data, &data).unwrap()
+    print(std.encoding.hex_text(&tag, 0, 4).unwrap()).unwrap()
 "#,
     )
     .unwrap();
@@ -105,6 +111,6 @@ def main() -> ():
     );
     assert_eq!(
         String::from_utf8_lossy(&result.stdout),
-        "[\"é\\0🦀\"]\ndone\néffi\n"
+        "[\"é\\0🦀\"]\ndone\néffi\n2f02e24a\n"
     );
 }

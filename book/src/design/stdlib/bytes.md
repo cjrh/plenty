@@ -216,6 +216,10 @@ of input, seeking, and bounded buffering on top. `read_os_entropy` is the
 single native primitive behind [`std.secrets`](secrets.md); import that module
 for secret bytes and tokens.
 
+Methods named `crypto_*`, and the functions `crypto_state` and
+`crypto_keyed_state`, are the native back end of [`std.crypto`](crypto.md).
+They operate only on states that module creates; import it instead.
+
 The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
 `from_list` and `to_list`; each conversion allocates and copies.

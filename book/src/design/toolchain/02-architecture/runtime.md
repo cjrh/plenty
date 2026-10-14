@@ -1,7 +1,8 @@
 # Runtime packaging
 
-`plenty-runtime` is a dependency-free Rust workspace crate using the standard
-library. Its private C ABI accepts fixed-width scalars and pointers to typed
+`plenty-runtime` is a Rust workspace crate using the standard library. Its only
+external code is the RustCrypto hashing crates behind [`std.crypto`](../../stdlib/crypto.md#supply),
+built from vendored sources. Its private C ABI accepts fixed-width scalars and pointers to typed
 storage. Generated code supplies valid initialized fields, bounded immutable
 metadata, and checked ownership transfers; Rust owns buffers and narrowly scoped
 unsafe operations handle raw storage, packed pointers, counts, and callbacks.

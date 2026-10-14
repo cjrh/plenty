@@ -2092,6 +2092,7 @@ pub(crate) fn builtin(name: &str) -> bool {
         || crate::filesystem::FsOp::named(name).is_some()
         || crate::bytes::BytesOp::named(name).is_some()
         || crate::stream::StreamOp::named(name).is_some()
+        || crate::crypto::CryptoOp::named(name).is_some()
         || crate::process::ProcessOp::named(name).is_some()
         || crate::time::TimeOp::named(name).is_some()
         || crate::unicode::UnicodeOp::named(name).is_some()
@@ -3189,7 +3190,14 @@ impl Lower<'_> {
                     return self.bytes_call(operation, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::stream::StreamOp::named(name) {
-                    return self.stream_call(operation, args, &e.at, ops);
+                    let exclusive = |index| operation.exclusive(index);
+                    let call = CollectionOp::Stream(operation);
+                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                }
+                if let Some(operation) = crate::crypto::CryptoOp::named(name) {
+                    let exclusive = |index| operation.exclusive(index);
+                    let call = CollectionOp::Crypto(operation);
+                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::process::ProcessOp::named(name) {
                     return self.system_call(CollectionOp::Process(operation), args, &e.at, ops);

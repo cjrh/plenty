@@ -10,6 +10,7 @@ use std::io::Write;
 mod byte_scan;
 mod byte_storage;
 mod bytes;
+mod crypto;
 mod entry_error;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
@@ -1319,6 +1320,24 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
         let collection = &*owner.cast::<Collection>();
         let i = index(i, collection.entries.len(), site);
         collection.entries.get(i).key as u64
+    }
+}
+
+/// `std.crypto` operations under their own symbol, with `plenty_collection`'s
+/// argument layout. Nothing else refers to it, so a program that never hashes
+/// links without the hashing code.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_crypto(
+    op: i64,
+    args: *const u128,
+    _descriptor: *const Type,
+    _site: *const crate::Site,
+) {
+    // SAFETY: as for `plenty_collection`: three inputs, the output slot, then
+    // the fourth operand in the first scratch word.
+    unsafe {
+        let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
+        args.add(3).cast_mut().write(crypto::call(op, operands));
     }
 }
 

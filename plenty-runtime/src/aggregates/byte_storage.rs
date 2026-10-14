@@ -8,10 +8,12 @@ use crate::strings;
 use crate::text_io;
 use std::io::{Read, Write};
 
+/// `crypto::State` begins with this layout, so byte operations on a crypto
+/// state see an empty, ordinary buffer.
 #[repr(C)]
-struct Storage {
-    header: Header,
-    bytes: Vec<u8>,
+pub(super) struct Storage {
+    pub(super) header: Header,
+    pub(super) bytes: Vec<u8>,
 }
 
 unsafe extern "C" fn destroy(pointer: *mut Header) {
@@ -84,11 +86,11 @@ pub(super) unsafe fn render(value: u128, out: &mut crate::render_buffer::Buffer)
     out.push(b'"');
 }
 
-fn size(value: u128) -> usize {
+pub(super) fn size(value: u128) -> usize {
     usize::try_from(value as i64).unwrap_or_else(|_| crate::fail("negative byte offset"))
 }
 
-fn range(start: u128, stop: u128, len: usize) -> std::ops::Range<usize> {
+pub(super) fn range(start: u128, stop: u128, len: usize) -> std::ops::Range<usize> {
     let (start, stop) = (size(start), size(stop));
     if start > stop || stop > len {
         crate::fail("byte range out of bounds");
@@ -101,7 +103,7 @@ fn found(index: Option<usize>, base: usize) -> u128 {
     index.map_or(-1i64, |index| (base + index) as i64) as u128
 }
 
-fn result(value: Result<u128, AllocError>) -> u128 {
+pub(super) fn result(value: Result<u128, AllocError>) -> u128 {
     match value {
         Ok(value) => wrap(value, 0),
         Err(error) => wrap(wrap(0, error as u64), 1),

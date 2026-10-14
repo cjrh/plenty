@@ -477,6 +477,9 @@ struct Runtime {
     /// `__del__` adapters by method name, linked into class descriptors.
     drop_hooks: HashMap<String, FuncId>,
     collection: FuncId,
+    /// `std.crypto` primitives: the `plenty_collection` ABI under a separate
+    /// symbol, so programs that never call them can drop the code at link.
+    crypto: FuncId,
     list_len: FuncId,
     list_scalar_get: FuncId,
     channel: FuncId,
@@ -633,6 +636,12 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
             // Opcode, arguments, descriptor, trap site.
             sig.params.extend([AbiParam::new(PTR_TY); 4]);
             module.declare_function("plenty_collection", Linkage::Import, &sig)?
+        },
+        crypto: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([AbiParam::new(PTR_TY); 4]);
+            module.declare_function("plenty_crypto", Linkage::Import, &sig)?
         },
         list_len: {
             let mut sig = module.make_signature();
