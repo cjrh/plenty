@@ -27,11 +27,26 @@ impl Lowerer<'_, '_> {
         if ty.flat_record() {
             return self.copy_flat_record(value, ty, destination);
         }
+        // A null value word owns no inline payload, and the runtime returns
+        // such a value unchanged. Testing it here keeps calls out of the
+        // common payload-free cases, such as `Ok(())` returned as a
+        // `Result[(), E]` whose error holds a record (issue #121).
         let packed = self.pack(value, ty);
+        let word = self.raw_word(packed);
+        let copy = self.bcx.create_block();
+        let done = self.bcx.create_block();
+        self.bcx.append_block_param(done, types::I128);
+        self.bcx.ins().brif(word, copy, &[], done, &[packed.into()]);
+        self.bcx.switch_to_block(copy);
+        self.bcx.seal_block(copy);
         let copied = self
             .collection_call(117, &[packed, destination], Some(ty))
             .expect("inline payload metadata");
-        self.unpack(copied, ty)
+        self.bcx.ins().jump(done, &[copied.into()]);
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
+        let result = self.bcx.block_params(done)[0];
+        self.unpack(result, ty)
     }
 
     /// Copy a record whose fields keep no inline data of their own: its bytes

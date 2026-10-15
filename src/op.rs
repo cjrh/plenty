@@ -724,6 +724,12 @@ pub enum Op {
     /// `Err(RangeError.OutOfRange)` otherwise. Unlike `Cast`, it never
     /// changes the value's mathematical meaning.
     TryCast(Ty),
+    /// Pop `start stop step` (two integers of the given type and an `i64`
+    /// step); push the `i64` element count of `range(start, stop, step)`.
+    /// A zero step or a count above `i64::MAX` fails with the same message
+    /// as constructing the range value. Counted `for` loops over a `range`
+    /// call use this instead of a range value (issue #121).
+    RangeLength(Ty),
     /// Read one newline-terminated line from stdin into the heap and push
     /// (line, got-line?). On EOF, line is the empty string and the Bool
     /// is `false`; the user is expected to discriminate via `match` on
@@ -2125,6 +2131,19 @@ fn step(
                 .into());
             }
             stack.push(target.clone());
+        }
+        Op::RangeLength(element) => {
+            let step = stack.pop();
+            let stop = stack.pop();
+            let start = stack.pop();
+            if !element.is_int()
+                || step != Some(Ty::I64)
+                || stop.as_ref() != Some(element)
+                || start.as_ref() != Some(element)
+            {
+                return Err(format!("range length requires ({element} {element} i64)").into());
+            }
+            stack.push(Ty::I64);
         }
         Op::CheckedCast(target) => {
             let top = stack.pop().ok_or("stack underflow on cast")?;

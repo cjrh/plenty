@@ -877,7 +877,7 @@ class Vm:
             self._sparse[base + pc] = count
             self._dense[base + count] = pc
             self._count[set] = count + 1
-            # Inline: a call returning `Result` here costs an aggregate per step.
+            # Inline: a call returning `Result` adds about 4% instructions here.
             self._work += 1
             if self._work > self._max_work:
                 return Err(RegexError.LimitExceeded(Limit.Work))
@@ -904,10 +904,8 @@ class Vm:
                     depth += 1
             else:
                 into = (base + pc) * slots
-                mut k = 0
-                while k < slots:
+                for k in range(slots):
                     self._caps[into + k] = self._cur[k]
-                    k += 1
         Ok(())
 
     # Finds the leftmost-first match starting at or after `start` and leaves
@@ -931,10 +929,8 @@ class Vm:
                         break
                     at = found
             if not matched:
-                mut k = 0
-                while k < slots:
+                for k in range(slots):
                     self._cur[k] = -1
-                    k += 1
                 self.add(program, current, 0, at, text, data, textual)?
             unit = unit_at(text, data, textual, at)
             next = 1 - current
@@ -951,19 +947,15 @@ class Vm:
                     if early:
                         return Ok(True)
                     source = (current * n + pc) * slots
-                    mut k = 0
-                    while k < slots:
+                    for k in range(slots):
                         self._found[k] = self._caps[source + k]
-                        k += 1
                     matched = True
                     # Leftmost-first: lower-priority threads are cut.
                     break
                 if op <= op_any and unit >= 0 and program.accepts(pc, unit >> 3):
                     source = (current * n + pc) * slots
-                    mut k = 0
-                    while k < slots:
+                    for k in range(slots):
                         self._cur[k] = self._caps[source + k]
-                        k += 1
                     self.add(program, next, pc + 1, at + (unit & 7), text, data, textual)?
             current = next
             if unit < 0:
@@ -1072,10 +1064,7 @@ pub class Regex:
     def in_class(self, id: i64, code: i64) -> bool:
         first = self._class_start[id]
         stop = first + self._class_count[id]
-        mut index = first
-        while index < stop:
-            item = index
-            index += 1
+        for item in range(first, stop):
             kind = self._item_kind[item]
             low = self._item_low[item]
             if kind == item_range:
