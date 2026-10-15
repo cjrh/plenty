@@ -105,6 +105,7 @@ test area ... ok
 test result: ok. 1 passed; 0 failed
 ```
 
+[A later lesson](18-standard-test.md) shows test functions and `std.test`.
 `plenty check` type-checks every target without linking. `plenty clean`
 removes `target/`. Single files still run with `plenty FILE`; the compiler is
 also available alone as `plentyc`.

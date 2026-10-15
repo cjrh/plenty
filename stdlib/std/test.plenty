@@ -1,0 +1,202 @@
+# Assertions and fixtures for the tests that `plenty test` runs. A failed
+# assertion writes its explanation to standard error at once and returns
+# Err(TestError.Assertion), so the explanation survives `?` erasing the error
+# into Failure. See book/src/design/stdlib/test.md.
+import std.env
+import std.fs
+import std.random
+from std.fs import FsError, Root, TempDir
+from std.path import Path, from_text
+from std.random import Rng
+from std.sync import CancellationToken
+
+pub enum TestError:
+    # The explanation is already on standard error.
+    Assertion
+    Fixture(FsError)
+    Allocation(AllocError)
+    # PLENTY_TEST_SEED is set but is not a decimal u64.
+    InvalidSeed
+
+# Removal budgets for a scratch directory: beyond them cleanup reports
+# FsError.Limit and leaves the remaining entries in place.
+const max_scratch_entries: i64 = 100000
+const max_scratch_depth: i64 = 64
+
+# Standard error is the report channel; a write that fails cannot be reported
+# anywhere, so it is dropped. Several small writes need no allocation.
+def say(text: &str) -> ():
+    drop(write_stderr(text))
+
+def heading(what: &str) -> ():
+    drop(flush_stdout())
+    say("assertion failed: ")
+    say(what)
+    say("\n")
+
+def shown[T](label: &str, value: &T) -> ():
+    say(label)
+    match str.repr(value):
+        case Ok(text):
+            say(&text)
+        case Err(_):
+            say("<no memory to show the value>")
+    say("\n")
+
+def failed() -> Result[(), TestError]:
+    Err(TestError.Assertion)
+
+pub def fail(message: &str) -> Result[(), TestError]:
+    heading(message)
+    failed()
+
+pub def check(condition: bool, message: &str) -> Result[(), TestError]:
+    if condition:
+        return Ok(())
+    fail(message)
+
+pub def equal[T](left: &T, right: &T) -> Result[(), TestError]:
+    if left == right:
+        return Ok(())
+    heading("left == right")
+    shown("  left: ", left)
+    shown(" right: ", right)
+    failed()
+
+pub def not_equal[T](left: &T, right: &T) -> Result[(), TestError]:
+    if left != right:
+        return Ok(())
+    heading("left != right")
+    shown("  both: ", left)
+    failed()
+
+pub def less[T](left: &T, right: &T) -> Result[(), TestError]:
+    if left < right:
+        return Ok(())
+    heading("left < right")
+    shown("  left: ", left)
+    shown(" right: ", right)
+    failed()
+
+# NaN is never close to anything, so a NaN on either side fails.
+pub def close(left: f64, right: f64, tolerance: f64) -> Result[(), TestError]:
+    difference = left - right
+    if difference <= tolerance and difference >= -tolerance:
+        return Ok(())
+    heading("|left - right| <= tolerance")
+    shown("      left: ", &left)
+    shown("     right: ", &right)
+    shown(" tolerance: ", &tolerance)
+    failed()
+
+pub def is_ok[T, E](result: &Result[T, E]) -> Result[(), TestError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            heading("result is Ok")
+            shown("  error: ", error)
+            failed()
+
+pub def is_err[T, E](result: &Result[T, E]) -> Result[(), TestError]:
+    match result:
+        case Ok(value):
+            heading("result is Err")
+            shown("  value: ", value)
+            failed()
+        case Err(_):
+            Ok(())
+
+def fixture[T](result: Result[T, FsError]) -> Result[T, TestError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(TestError.Fixture(error))
+
+def fixture_io[T](result: Result[T, IoError]) -> Result[T, TestError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(TestError.Fixture(FsError.Io(error)))
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, TestError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(TestError.Allocation(error))
+
+# A directory that exists for one test. Destruction removes it and everything
+# in it, dropping any error; call cleanup to observe one.
+pub class Scratch:
+    _parent: Root
+    _directory: TempDir
+    _path: Path
+    _active: bool
+
+    # Absolute, for operations that take a path.
+    pub def path(self) -> &Path:
+        &self._path
+
+    # Anchors operations to the directory itself; see std.fs.Root.
+    pub def root(self) -> &Root:
+        self._directory.root()
+
+    # The absolute path text of `name` inside the directory, for builtins such
+    # as write_text and open that take a str.
+    pub def file(self, name: &str) -> Result[str, TestError]:
+        leaf = fixture_io(from_text(name))?
+        joined = fixture_io(self._path.join(&leaf))?
+        fixture_io(joined.to_text())
+
+    pub def cleanup(self: &mut Scratch) -> Result[(), TestError]:
+        if not self._active:
+            return Ok(())
+        token = allocated(CancellationToken())?
+        fixture(std.fs.remove_tree(&self._parent, self._directory.name(), max_scratch_entries, max_scratch_depth, &token))?
+        self._directory.keep()
+        self._active = False
+        Ok(())
+
+    def __del__(self) -> ():
+        drop(self.cleanup())
+
+# TMPDIR when it is set to an absolute path, otherwise /tmp.
+def temporary_base() -> Result[Path, TestError]:
+    match fixture_io(std.env.get("TMPDIR"))?:
+        case Some(text):
+            path = fixture_io(from_text(&text))?
+            if path.is_absolute():
+                return Ok(path)
+        case Nothing:
+            pass
+    fixture_io(from_text("/tmp"))
+
+# Creates an empty directory with an unpredictable `plenty-test-` name.
+pub def scratch() -> Result[Scratch, TestError]:
+    base = temporary_base()?
+    parent = fixture_io(std.fs.root(&base))?
+    prefix = fixture_io(from_text("plenty-test-"))?
+    directory = fixture(std.fs.temporary_dir(&parent, &prefix, 16))?
+    path = fixture_io(base.join(directory.name()))?
+    Ok(Scratch(parent, directory, path, True))
+
+# The seed `plenty test --seed N` passes in PLENTY_TEST_SEED; 0 without it.
+pub def seed() -> Result[u64, TestError]:
+    match fixture_io(std.env.get("PLENTY_TEST_SEED"))?:
+        case Some(text):
+            match u64.parse(text):
+                case Ok(value):
+                    Ok(value)
+                case Err(_):
+                    drop(flush_stdout())
+                    say("PLENTY_TEST_SEED is not a decimal u64\n")
+                    Err(TestError.InvalidSeed)
+        case Nothing:
+            Ok(0u64)
+
+# A generator seeded from seed(), so a run repeats exactly under one seed.
+pub def rng() -> Result[Rng, TestError]:
+    Ok(std.random.seeded(seed()?))

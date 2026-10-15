@@ -4106,6 +4106,27 @@ pub(crate) fn compile_graph(
     lower(modules::load_graph(path, graph, require_main)?, heap)
 }
 
+pub(crate) use modules::harness::{TestFile, TestReturn};
+
+/// What `plenty test` runs from the test file at `path`; see [`modules::harness`].
+pub(crate) fn discover_tests(path: &std::path::Path) -> Result<TestFile> {
+    modules::harness::discover(path)
+}
+
+/// Compile a file of test functions with the generated `main` that runs them.
+pub(crate) fn compile_test_graph(
+    path: &std::path::Path,
+    graph: &crate::project::SourceGraph,
+    tests: &[(String, TestReturn)],
+    heap: &mut Heap,
+) -> Result<Program> {
+    let appendix = modules::harness::appendix(tests);
+    lower(
+        modules::load_graph_with(path, graph, true, Some(&appendix))?,
+        heap,
+    )
+}
+
 pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
     let mut heap = Heap::default();
     let program = lower(modules::generated_interface(source)?, &mut heap)?;

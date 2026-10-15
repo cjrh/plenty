@@ -5,6 +5,8 @@
 use super::*;
 use std::path::{Path, PathBuf};
 
+pub(super) mod harness;
+
 /// Toolchain sources have stable identities and never participate in filesystem
 /// search. Keeping them in the compiler also makes installation relocatable.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -73,6 +75,7 @@ impl ModuleSource {
             Self::Standard("std.log") => Ok(include_str!("../../stdlib/std/log.plenty").into()),
             Self::Standard("std.toml") => Ok(include_str!("../../stdlib/std/toml.plenty").into()),
             Self::Standard("std.ready") => Ok(include_str!("../../stdlib/std/ready.plenty").into()),
+            Self::Standard("std.test") => Ok(include_str!("../../stdlib/std/test.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -533,6 +536,18 @@ pub(super) fn load_graph(
     graph: &crate::project::SourceGraph,
     require_main: bool,
 ) -> Result<Resolved> {
+    load_graph_with(path, graph, require_main, None)
+}
+
+/// [`load_graph`], with `appendix` added to the end of the entry file's text.
+/// `plenty test` appends a generated `main`; the entry's own lines keep their
+/// positions in diagnostics.
+pub(super) fn load_graph_with(
+    path: &Path,
+    graph: &crate::project::SourceGraph,
+    require_main: bool,
+    appendix: Option<&str>,
+) -> Result<Resolved> {
     let entry = path
         .canonicalize()
         .map_err(|e| format!("reading {}: {e}", path.display()))?;
@@ -622,6 +637,8 @@ pub(super) fn load_graph(
         loaded: HashMap<ModuleSource, usize>,
         modules: Vec<Module>,
         dependencies: Vec<Vec<usize>>,
+        /// Taken by the first file read, which is the entry.
+        appendix: Option<String>,
     }
     impl Loader {
         fn file(
@@ -646,7 +663,11 @@ pub(super) fn load_graph(
                 );
             }
             self.active.push(source.clone());
-            let (mut module, at) = parse(&source.read()?, Some(&source.path()), name)?;
+            let mut text = source.read()?;
+            if let Some(appendix) = self.appendix.take() {
+                text.push_str(&appendix);
+            }
+            let (mut module, at) = parse(&text, Some(&source.path()), name)?;
             if let ModuleSource::Standard(name) = &source {
                 module.facility_exports = facility_exports(name);
             }
@@ -729,8 +750,9 @@ pub(super) fn load_graph(
                     "std.env" => Ok(ModuleSource::Standard("std.env")),
                     "std.process" => Ok(ModuleSource::Standard("std.process")),
                     "std.ready" => Ok(ModuleSource::Standard("std.ready")),
+                    "std.test" => Ok(ModuleSource::Standard("std.test")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready, std.test",
                         import.module
                 ))),
                 };
@@ -827,6 +849,7 @@ pub(super) fn load_graph(
         loaded: HashMap::new(),
         modules: vec![],
         dependencies: vec![],
+        appendix: appendix.map(str::to_owned),
     };
     let (_, at) = loader.file(ModuleSource::File(entry), 0, String::new())?;
     let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
