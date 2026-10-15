@@ -71,10 +71,32 @@ area:
 `plenty run` compiles into `target/debug/app` and runs it. Progress messages go
 to standard error; program arguments follow `--`, as in `plenty run -- a b`.
 `plenty build --release` writes an optimized executable to `target/release/`.
+A later build with no changed source reports `Fresh` and reuses the executable.
 
 The first build also writes `plenty.lock`, which records the resolved packages.
 Commit it with the manifest. `--locked` makes a build fail instead of changing
 it.
+
+A dependency can also come from a Git repository, at a tag or a commit:
+
+```toml
+[dependencies]
+audio = { git = "https://example.com/audio.git", tag = "v1.2.0", version = "1.2.0" }
+```
+
+The first build fetches the repository into `.pkg/` and records the exact
+commit in `plenty.lock`. Later builds use that commit even if the tag moves
+upstream, until `plenty update` resolves it again. The optional `version`
+checks that the dependency's own version is compatible. `plenty add` writes
+these entries and updates the lockfile:
+
+```text
+plenty add geometry --path ../shapes
+plenty add audio --git https://example.com/audio.git --tag v1.2.0
+```
+
+Several related packages can share one lockfile and `target/` as a
+[workspace](../../design/toolchain/01-building/packages.md#workspaces).
 
 A dependency's name belongs only to the package that declares it. `app` cannot
 import what `shapes` depends on without declaring it too, and a local module

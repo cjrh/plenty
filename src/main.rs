@@ -1,5 +1,6 @@
 //! `plenty`: project commands over `plenty.toml`, plus the single-file
 //! compiler interface that `plentyc` also provides.
+use plenty::project::manifest::{Dependency, GitSelector, Source, VersionReq};
 use plenty::project::{self, BuildOptions, Profile, Template, TestOptions};
 use std::error::Error;
 use std::path::Path;
@@ -11,10 +12,15 @@ const PROJECT_USAGE: &str = "\
 Project commands (run inside a directory containing plenty.toml or below it):
        plenty new PATH [--lib] [--name NAME]
        plenty init [--lib] [--name NAME]
-       plenty check [--locked]
-       plenty build [--release] [--locked]
-       plenty run [--release] [--locked] [--bin NAME] [-- ARGS...]
-       plenty test [--release] [--locked] [--no-capture] [--seed N] [--list] [FILTER...]
+       plenty check [--locked] [--offline]
+       plenty build [--release] [--locked] [--offline]
+       plenty run [--release] [--locked] [--offline] [--bin NAME] [-- ARGS...]
+       plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list] [FILTER...]
+       plenty add [ALIAS] (--path DIR | --git URL (--tag TAG | --rev COMMIT) [--subdir DIR])
+                  [--version REQ] [--offline]
+       plenty fetch [--locked] [--offline]
+       plenty update [PACKAGE...] [--offline]
+       plenty graph [--locked] [--offline]
        plenty clean
 
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
@@ -24,7 +30,13 @@ ARGS. test: run each test_* function in tests/*.plenty in its own process, or
 each tests/*.plenty program that defines main; a FILTER keeps the tests whose
 FILE::NAME contains it. Output is shown only for failing tests unless
 --no-capture. --seed N sets PLENTY_TEST_SEED for std.test.rng.
+add: add a dependency to plenty.toml and lock it. fetch: download and lock
+every dependency without compiling. update: move Git dependencies (all, or the
+named packages) to the commits their tags and revisions name now. graph: print
+the package graph file that plentyc --package-graph reads.
+In a workspace root these commands act on every member.
 --locked: fail instead of creating or updating plenty.lock.
+--offline: never fetch; use only the package cache in .pkg/.
 A file whose name matches a command runs as ./NAME.
 
 Single-file compiler (also available as plentyc):
@@ -90,6 +102,39 @@ fn run(args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
                 return Ok(ExitCode::FAILURE);
             }
         }
+        "add" => {
+            let (alias, dependency, offline) = add_options(rest)?;
+            let alias = project::add(here, alias.as_deref(), dependency, offline)?;
+            eprintln!("{:>10} dependency `{alias}`", "Added");
+        }
+        "fetch" => {
+            let (options, _, _) = build_options(rest, false, false)?;
+            project::fetch(here, &options)?;
+        }
+        "update" => {
+            let mut offline = false;
+            let mut packages = vec![];
+            for arg in rest {
+                match arg.as_str() {
+                    "--offline" => offline = true,
+                    flag if flag.starts_with('-') => {
+                        return Err(format!("unknown option {flag}").into())
+                    }
+                    name => packages.push(name.to_owned()),
+                }
+            }
+            for (name, old, new) in project::update(here, &packages, offline)? {
+                if old.is_empty() {
+                    eprintln!("{:>10} {name} at {new}", "Locking");
+                } else {
+                    eprintln!("{:>10} {name} {old} -> {new}", "Updating");
+                }
+            }
+        }
+        "graph" => {
+            let (options, _, _) = build_options(rest, false, false)?;
+            print!("{}", project::graph(here, &options)?);
+        }
         "clean" => {
             if !rest.is_empty() {
                 return Err("usage: plenty clean".into());
@@ -124,6 +169,7 @@ fn test_options(args: &[String]) -> Result<TestOptions, String> {
         match arg.as_str() {
             "--release" => options.build.profile = Profile::Release,
             "--locked" => options.build.locked = true,
+            "--offline" => options.build.offline = true,
             "--no-capture" => options.no_capture = true,
             "--list" => options.list = true,
             "--seed" => {
@@ -155,6 +201,7 @@ fn build_options(
         match arg.as_str() {
             "--release" if profiles => options.profile = Profile::Release,
             "--locked" => options.locked = true,
+            "--offline" => options.offline = true,
             "--bin" if running => {
                 binary = Some(args.next().ok_or("--bin requires a name")?.clone());
             }
@@ -173,4 +220,57 @@ fn build_options(
         }
     }
     Ok((options, binary, forwarded))
+}
+
+const ADD_USAGE: &str = "usage: plenty add [ALIAS] (--path DIR | --git URL (--tag TAG | --rev COMMIT) [--subdir DIR]) [--version REQ] [--offline]";
+
+/// Parse `plenty add`: the alias, the dependency, and `--offline`.
+fn add_options(args: &[String]) -> Result<(Option<String>, Dependency, bool), String> {
+    let mut alias = None;
+    let (mut path, mut url, mut tag, mut rev, mut subdir, mut version) =
+        (None, None, None, None, None, None);
+    let mut offline = false;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        let mut value = |slot: &mut Option<String>| -> Result<(), String> {
+            let value = args.next().ok_or(format!("{arg} requires a value"))?;
+            if slot.replace(value.clone()).is_some() {
+                return Err(format!("{arg} is given twice"));
+            }
+            Ok(())
+        };
+        match arg.as_str() {
+            "--path" => value(&mut path)?,
+            "--git" => value(&mut url)?,
+            "--tag" => value(&mut tag)?,
+            "--rev" => value(&mut rev)?,
+            "--subdir" => value(&mut subdir)?,
+            "--version" => value(&mut version)?,
+            "--offline" => offline = true,
+            flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
+            name if alias.is_none() => alias = Some(name.to_owned()),
+            _ => return Err(ADD_USAGE.into()),
+        }
+    }
+    let source = match (path, url, tag, rev) {
+        (Some(path), None, None, None) if subdir.is_none() => Source::Path(path.into()),
+        (None, Some(url), Some(tag), None) => Source::Git {
+            url,
+            subdir,
+            selector: GitSelector::Tag(tag),
+        },
+        (None, Some(url), None, Some(rev)) => Source::Git {
+            url,
+            subdir,
+            selector: GitSelector::Rev(rev),
+        },
+        _ => return Err(ADD_USAGE.into()),
+    };
+    let version = match version {
+        None => None,
+        Some(text) => Some(VersionReq::parse(&text).ok_or(format!(
+            "--version {text:?} must be X.Y.Z, ^X.Y.Z, =X.Y.Z, or >=X.Y.Z"
+        ))?),
+    };
+    Ok((alias, Dependency { source, version }, offline))
 }

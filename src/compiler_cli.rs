@@ -23,6 +23,8 @@ Usage: {0} FILE
 FILE: compile to a temporary executable and run it.
 Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --module-root DIR: resolve absolute imports here (default: FILE's directory).
+--package-graph GRAPH: resolve imports through a package graph file, as
+  `plenty graph` writes it, for FILE, --check, --check-module, or --compile.
 --check: parse and type-check without executing the program.
 --check-module: check a library module without requiring main.
 --compile: emit a native executable with Cranelift.
@@ -106,6 +108,18 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     } else {
         None
     };
+    let graph = if let Some(index) = args.iter().position(|a| a == "--package-graph") {
+        args.remove(index);
+        if index == args.len() {
+            return Err("--package-graph requires a file".into());
+        }
+        Some(std::path::PathBuf::from(args.remove(index)))
+    } else {
+        None
+    };
+    if graph.is_some() && (legacy || root.is_some()) {
+        return Err("--package-graph excludes --module-root and --legacy".into());
+    }
     if let Some(index) = args.iter().position(|a| a == "--release") {
         args.remove(index);
         let compiles = match args.as_slice() {
@@ -152,6 +166,9 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             }))
     {
         return Err("linker options require compilation or execution".into());
+    }
+    if let Some(graph) = graph {
+        return with_graph(program, &graph, &args, &options);
     }
     match args.as_slice() {
         [flag, source, option, output]
@@ -253,6 +270,49 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             return Ok(exit_code(status));
         }
         _ => return Err(format!("unrecognised arguments\n{}", usage(program)).into()),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The modes that accept `--package-graph`. The graph's first package must
+/// contain FILE.
+fn with_graph(
+    program: &str,
+    graph: &Path,
+    args: &[String],
+    options: &plenty::CompileOptions,
+) -> Result<ExitCode, Box<dyn Error>> {
+    let graph = plenty::project::SourceGraph::read(graph)?;
+    match args {
+        [flag, source] if flag == "--check" || flag == "--check-module" => {
+            plenty::project::check_entry(Path::new(source), &graph, flag == "--check")?;
+        }
+        [flag, source, option, output]
+            if flag == "--compile" && (option == "-o" || option == "--output") =>
+        {
+            plenty::compile_package_to_executable(
+                Path::new(source),
+                &graph,
+                Path::new(output),
+                options,
+            )?;
+        }
+        [source] if !source.starts_with('-') => {
+            let workspace = tempfile::tempdir()?;
+            let executable = workspace
+                .path()
+                .join(format!("program{}", std::env::consts::EXE_SUFFIX));
+            plenty::compile_package_to_executable(Path::new(source), &graph, &executable, options)?;
+            let status = Command::new(&executable).status()?;
+            return Ok(exit_code(status));
+        }
+        _ => {
+            return Err(format!(
+                "--package-graph requires FILE, --check, --check-module, or --compile\n{}",
+                usage(program)
+            )
+            .into())
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

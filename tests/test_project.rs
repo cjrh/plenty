@@ -3,12 +3,29 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+/// Git settings that make fixture repositories independent of the user's
+/// configuration (signing, tag editors, default branch names).
+fn isolate_git(command: &mut Command) -> &mut Command {
+    command
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_TERMINAL_PROMPT", "0")
+}
+
 fn plenty(directory: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_plenty"))
+    isolate_git(&mut Command::new(env!("CARGO_BIN_EXE_plenty")))
         .args(args)
         .current_dir(directory)
         .output()
         .unwrap()
+}
+
+/// Standard error of a successful command, for its status lines.
+fn status_lines(directory: &Path, args: &[&str]) -> String {
+    let output = plenty(directory, args);
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(output.status.success(), "{args:?}: {stderr}");
+    stderr
 }
 
 fn succeeds(directory: &Path, args: &[&str]) -> String {
@@ -215,9 +232,9 @@ fn graph_errors_are_reported() {
             "has no plenty.toml",
         ),
         (
-            "util = { git = \"https://example.invalid/util\", tag = \"v1\" }\n",
+            "util = { path = \"../util\", version = \"^0.2.0\" }\n",
             vec![main],
-            "git dependencies are not supported yet",
+            "package `app` requires `util` ^0.2.0, but",
         ),
         (
             "util = { path = \"../util\" }\n",
@@ -381,4 +398,593 @@ fn plentyc_is_the_single_file_compiler_and_names_that_match_commands_need_a_path
         &["--release", "--check", "run"],
         "--release requires FILE or --compile",
     );
+}
+
+/// Run `git` in `directory` and return its trimmed standard output.
+fn git(directory: &Path, args: &[&str]) -> String {
+    let output = isolate_git(&mut Command::new("git"))
+        .args([
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "tag.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
+        ])
+        .args(args)
+        .current_dir(directory)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+/// Write `files` into the repository at `repo` (creating it if needed),
+/// commit them, and return the commit.
+fn commit(repo: &Path, files: &[(&str, &str)]) -> String {
+    if !repo.join(".git").exists() {
+        std::fs::create_dir_all(repo).unwrap();
+        git(repo, &["init", "--quiet"]);
+    }
+    for (path, text) in files {
+        write(&repo.join(path), text);
+    }
+    git(repo, &["add", "--all"]);
+    git(repo, &["commit", "--quiet", "--message", "change"]);
+    git(repo, &["rev-parse", "HEAD"])
+}
+
+fn url(path: &Path) -> String {
+    format!("file://{}", path.display())
+}
+
+fn library_manifest(name: &str, version: &str, dependencies: &str) -> String {
+    format!(
+        "manifest-version = 1\n[package]\nname = \"{name}\"\nversion = \"{version}\"\n\n[dependencies]\n{dependencies}"
+    )
+}
+
+fn twice_application(root: &Path, dependency: &str) -> std::path::PathBuf {
+    package(
+        root,
+        "app",
+        dependency,
+        &[(
+            "src/main.plenty",
+            "import util\n\ndef main() -> Result[(), Failure]:\n    print(util.twice(21))?\n    Ok(())\n",
+        )],
+    );
+    root.join("app")
+}
+
+#[test]
+fn git_dependencies_pin_commits_in_the_lockfile() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("util-repo");
+    let first = commit(
+        &repo,
+        &[
+            ("plenty.toml", &library_manifest("util", "1.0.0", "")),
+            (
+                "src/lib.plenty",
+                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+            ),
+        ],
+    );
+    git(&repo, &["tag", "v1"]);
+    let app = twice_application(
+        dir.path(),
+        &format!("util = {{ git = \"{}\", tag = \"v1\" }}\n", url(&repo)),
+    );
+    fails(&app, &["check", "--locked"], "plenty.lock is missing");
+    fails(
+        &app,
+        &["check", "--offline"],
+        "is not in the package cache, and --offline forbids fetching it",
+    );
+    let stderr = status_lines(&app, &["build"]);
+    assert_eq!(stderr.matches("Fetching").count(), 1, "{stderr}");
+    assert_eq!(succeeds(&app, &["run"]), "42\n");
+    let lock = std::fs::read_to_string(app.join("plenty.lock")).unwrap();
+    assert!(
+        lock.contains(&format!(
+            "source = \"git+{}\"\ncommit = \"{first}\"\nselectors = [\"tag=v1\"]\n",
+            url(&repo)
+        )),
+        "{lock}"
+    );
+
+    // Moving the tag upstream does not move the locked build.
+    let second = commit(
+        &repo,
+        &[(
+            "src/lib.plenty",
+            "pub def twice(x: i64) -> i64:\n    x * 3\n",
+        )],
+    );
+    git(&repo, &["tag", "--force", "v1"]);
+    assert_eq!(succeeds(&app, &["run", "--locked"]), "42\n");
+    assert_eq!(succeeds(&app, &["run", "--offline"]), "42\n");
+
+    // A deleted cache is refetched at the same commit.
+    std::fs::remove_dir_all(app.join(".pkg")).unwrap();
+    fails(&app, &["run", "--offline"], "--offline forbids fetching it");
+    assert_eq!(succeeds(&app, &["run", "--locked"]), "42\n");
+    assert_eq!(
+        std::fs::read_to_string(app.join("plenty.lock")).unwrap(),
+        lock
+    );
+
+    // `plenty update` follows the tag.
+    let stderr = status_lines(&app, &["update"]);
+    assert!(
+        stderr.contains(&format!(
+            "Updating util {} -> {}",
+            &first[..12],
+            &second[..12]
+        )),
+        "{stderr}"
+    );
+    assert_eq!(succeeds(&app, &["run"]), "63\n");
+    fails(&app, &["update", "nothing"], "no package named `nothing`");
+
+    // An exact revision, abbreviated.
+    write(
+        &app.join("plenty.toml"),
+        &library_manifest(
+            "app",
+            "0.1.0",
+            &format!(
+                "util = {{ git = \"{}\", rev = \"{}\" }}\n",
+                url(&repo),
+                &first[..10]
+            ),
+        ),
+    );
+    fails(
+        &app,
+        &["check", "--locked"],
+        "pins no commit for dependency `util`",
+    );
+    assert_eq!(succeeds(&app, &["run"]), "42\n");
+    let lock = std::fs::read_to_string(app.join("plenty.lock")).unwrap();
+    assert!(
+        lock.contains(&format!(
+            "commit = \"{first}\"\nselectors = [\"rev={}\"]",
+            &first[..10]
+        )),
+        "{lock}"
+    );
+
+    for (selector, message) in [
+        ("tag = \"v9\"", "has no tag `v9`"),
+        ("rev = \"0000000\"", "has no commit 0000000"),
+    ] {
+        write(
+            &app.join("plenty.toml"),
+            &library_manifest(
+                "app",
+                "0.1.0",
+                &format!("util = {{ git = \"{}\", {selector} }}\n", url(&repo)),
+            ),
+        );
+        fails(&app, &["check"], message);
+    }
+}
+
+#[test]
+fn a_locked_commit_that_upstream_deleted_is_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("util-repo");
+    commit(
+        &repo,
+        &[
+            ("plenty.toml", &library_manifest("util", "1.0.0", "")),
+            (
+                "src/lib.plenty",
+                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+            ),
+        ],
+    );
+    git(&repo, &["checkout", "--quiet", "-b", "side"]);
+    let side = commit(
+        &repo,
+        &[(
+            "src/lib.plenty",
+            "pub def twice(x: i64) -> i64:\n    x + x\n",
+        )],
+    );
+    git(&repo, &["checkout", "--quiet", "main"]);
+    let app = twice_application(
+        dir.path(),
+        &format!("util = {{ git = \"{}\", rev = \"{side}\" }}\n", url(&repo)),
+    );
+    assert_eq!(succeeds(&app, &["run"]), "42\n");
+
+    git(&repo, &["branch", "--quiet", "-D", "side"]);
+    git(&repo, &["reflog", "expire", "--expire=now", "--all"]);
+    git(&repo, &["gc", "--quiet", "--prune=now"]);
+    std::fs::remove_dir_all(app.join(".pkg")).unwrap();
+    fails(
+        &app,
+        &["check"],
+        &format!("the locked commit {side} is no longer available from"),
+    );
+}
+
+#[test]
+fn git_subdirectories_share_one_commit_per_package() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("mono");
+    let geo = (
+        "geo/src/lib.plenty",
+        "pub def scale(x: i64) -> i64:\n    x * 10\n",
+    );
+    commit(
+        &repo,
+        &[
+            ("geo/plenty.toml", &library_manifest("geo", "1.4.0", "")),
+            geo,
+            (
+                "shapes/plenty.toml",
+                &library_manifest("shapes", "1.0.0", "geo = { path = \"../geo\" }\n"),
+            ),
+            (
+                "shapes/src/lib.plenty",
+                "import geo\n\npub def area(x: i64) -> i64:\n    geo.scale(x) * x\n",
+            ),
+        ],
+    );
+    git(&repo, &["tag", "v1"]);
+    let mono = url(&repo);
+    let dependencies = |geo_tag: &str, extra: &str| {
+        format!(
+            "geo = {{ git = \"{mono}\", subdir = \"geo\", tag = \"{geo_tag}\"{extra} }}\nshapes = {{ git = \"{mono}\", subdir = \"shapes\", tag = \"v1\" }}\n"
+        )
+    };
+    package(
+        dir.path(),
+        "app",
+        &dependencies("v1", ", version = \"1.2.0\""),
+        &[(
+            "src/main.plenty",
+            "import geo\nimport shapes\n\ndef main() -> Result[(), Failure]:\n    print(shapes.area(2) + geo.scale(1))?\n    Ok(())\n",
+        )],
+    );
+    let app = dir.path().join("app");
+    let stderr = status_lines(&app, &["build"]);
+    assert_eq!(stderr.matches("Fetching").count(), 1, "{stderr}");
+    assert_eq!(succeeds(&app, &["run"]), "50\n");
+    let lock = std::fs::read_to_string(app.join("plenty.lock")).unwrap();
+    assert_eq!(lock.matches("[[package]]").count(), 3, "{lock}");
+    assert!(lock.contains("subdir = \"geo\""), "{lock}");
+
+    // A second tag at a different commit cannot join the same graph.
+    commit(
+        &repo,
+        &[(
+            "geo/src/lib.plenty",
+            "pub def scale(x: i64) -> i64:\n    x * 100\n",
+        )],
+    );
+    git(&repo, &["tag", "v2"]);
+    write(
+        &app.join("plenty.toml"),
+        &library_manifest("app", "0.1.0", &dependencies("v2", "")),
+    );
+    fails(
+        &app,
+        &["check"],
+        "conflicting requirements for package `geo`",
+    );
+    fails(&app, &["check"], "app -> shapes requires");
+
+    write(
+        &app.join("plenty.toml"),
+        &library_manifest(
+            "app",
+            "0.1.0",
+            &dependencies("v1", ", version = \"^2.0.0\""),
+        ),
+    );
+    fails(&app, &["check"], "requires `geo` ^2.0.0, but");
+
+    // Path dependencies inside a repository cannot leave it.
+    commit(
+        &repo,
+        &[(
+            "shapes/plenty.toml",
+            &library_manifest("shapes", "1.0.0", "geo = { path = \"../../outside\" }\n"),
+        )],
+    );
+    git(&repo, &["tag", "v3"]);
+    package(dir.path(), "outside", "", &[geo]);
+    write(
+        &app.join("plenty.toml"),
+        &library_manifest(
+            "app",
+            "0.1.0",
+            &format!("shapes = {{ git = \"{mono}\", subdir = \"shapes\", tag = \"v3\" }}\n"),
+        ),
+    );
+    fails(&app, &["check"], "leaves its repository");
+}
+
+#[test]
+fn add_edits_the_manifest_and_lockfile() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("util-repo");
+    commit(
+        &repo,
+        &[
+            ("plenty.toml", &library_manifest("util", "1.0.0", "")),
+            (
+                "src/lib.plenty",
+                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+            ),
+        ],
+    );
+    git(&repo, &["tag", "v1"]);
+    package(
+        dir.path(),
+        "local",
+        "",
+        &[("src/lib.plenty", "pub def one() -> i64:\n    1\n")],
+    );
+    let app = twice_application(dir.path(), "");
+    let manifest = std::fs::read_to_string(app.join("plenty.toml")).unwrap();
+
+    // A failed resolution leaves the manifest unchanged.
+    fails(
+        &app,
+        &[
+            "add",
+            "util",
+            "--git",
+            &url(&dir.path().join("missing")),
+            "--tag",
+            "v1",
+        ],
+        "fetching",
+    );
+    fails(
+        &app,
+        &[
+            "add",
+            "util",
+            "--git",
+            &url(&repo),
+            "--tag",
+            "v1",
+            "--version",
+            "2.0.0",
+        ],
+        "requires `util` ^2.0.0, but",
+    );
+    assert_eq!(
+        std::fs::read_to_string(app.join("plenty.toml")).unwrap(),
+        manifest
+    );
+    fails(&app, &["add", "--git", &url(&repo)], "usage: plenty add");
+
+    let stderr = status_lines(&app, &["add", "--git", &url(&repo), "--tag", "v1"]);
+    assert!(stderr.contains("Added dependency `util`"), "{stderr}");
+    assert_eq!(stderr.matches("Fetching").count(), 1, "{stderr}");
+    assert_eq!(succeeds(&app, &["run", "--locked"]), "42\n");
+    fails(
+        &app,
+        &["add", "util", "--path", "../local"],
+        "already has a dependency named `util`",
+    );
+
+    // `--path` is relative to the current directory, not the manifest.
+    let stderr = status_lines(&app.join("src"), &["add", "--path", "../../local"]);
+    assert!(stderr.contains("Added dependency `local`"), "{stderr}");
+    let manifest = std::fs::read_to_string(app.join("plenty.toml")).unwrap();
+    assert!(
+        manifest.ends_with(&format!(
+            "[dependencies]\nutil = {{ git = \"{}\", tag = \"v1\" }}\nlocal = {{ path = \"../local\" }}\n",
+            url(&repo)
+        )),
+        "{manifest}"
+    );
+    succeeds(&app, &["check", "--locked"]);
+}
+
+#[test]
+fn builds_reuse_up_to_date_outputs() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "util",
+        "",
+        &[(
+            "src/lib.plenty",
+            "pub def twice(x: i64) -> i64:\n    x * 2\n",
+        )],
+    );
+    let app = twice_application(dir.path(), "util = { path = \"../util\" }\n");
+    write(
+        &app.join("tests/math.plenty"),
+        "import std.test\nimport util\n\ndef test_twice() -> Result[(), Failure]:\n    std.test.equal(&util.twice(2), &5)?\n    Ok(())\n",
+    );
+    assert!(status_lines(&app, &["build"]).contains("Compiling app v0.1.0 (debug)"));
+    let stderr = status_lines(&app, &["build"]);
+    assert!(stderr.contains("Fresh app v0.1.0 (debug)"), "{stderr}");
+    assert!(!stderr.contains("Compiling"), "{stderr}");
+    assert!(status_lines(&app, &["build", "--release"]).contains("Compiling"));
+
+    // A dependency's source is an input.
+    write(
+        &dir.path().join("util/src/lib.plenty"),
+        "pub def twice(x: i64) -> i64:\n    x + x + 1\n",
+    );
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    assert_eq!(succeeds(&app, &["run"]), "43\n");
+
+    // A deleted output is rebuilt, and a failed build is not recorded.
+    std::fs::remove_file(app.join("target/debug/app")).unwrap();
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    write(
+        &app.join("src/extra.plenty"),
+        "pub def broken() -> i64:\n    nope\n",
+    );
+    write(
+        &app.join("src/main.plenty"),
+        "import extra\n\ndef main() -> ():\n    pass\n",
+    );
+    fails(&app, &["build"], "nope");
+    fails(&app, &["build"], "nope");
+    std::fs::remove_file(app.join("src/extra.plenty")).unwrap();
+    write(
+        &app.join("src/main.plenty"),
+        "def main() -> ():\n    pass\n",
+    );
+
+    let first = plenty(&app, &["test"]);
+    assert!(first.status.success());
+    let second = plenty(&app, &["test"]);
+    assert!(String::from_utf8_lossy(&second.stderr).contains("Fresh"));
+    assert_eq!(first.stdout, second.stdout);
+    assert!(app.join("target/debug/tests/app/math").is_file());
+}
+
+#[test]
+fn workspaces_share_a_lockfile_and_target_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        &root.join("plenty.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"util\", \"app\"]\n",
+    );
+    package(
+        root,
+        "util",
+        "",
+        &[
+            ("src/lib.plenty", "pub def twice(x: i64) -> i64:\n    x * 2\n"),
+            (
+                "tests/unit.plenty",
+                "import std.test\nimport util\n\ndef test_twice() -> Result[(), Failure]:\n    std.test.equal(&util.twice(1), &2)?\n    Ok(())\n",
+            ),
+        ],
+    );
+    twice_application(root, "util = { path = \"../util\" }\n");
+    write(
+        &root.join("app/tests/smoke.plenty"),
+        "def main() -> i32:\n    0\n",
+    );
+
+    assert_eq!(succeeds(root, &["run"]), "42\n");
+    assert!(root.join("plenty.lock").is_file());
+    assert!(root.join("target/debug/app").is_file());
+    let stdout = succeeds(root, &["test"]);
+    assert!(
+        stdout.starts_with(
+            "running 2 tests\ntest util/unit::test_twice ... ok\ntest app/smoke ... ok\n"
+        ),
+        "{stdout}"
+    );
+    let stdout = succeeds(&root.join("app/src"), &["test"]);
+    assert!(
+        stdout.starts_with("running 1 test\ntest smoke ... ok\n"),
+        "{stdout}"
+    );
+    assert!(!root.join("app/plenty.lock").exists());
+    assert!(!root.join("app/target").exists());
+    succeeds(&root.join("util"), &["check", "--locked"]);
+    fails(
+        root,
+        &["add", "--path", "util"],
+        "a workspace manifest is not a package",
+    );
+    fails(
+        root,
+        &["graph"],
+        "run `plenty graph` in one member's directory",
+    );
+    succeeds(root, &["clean"]);
+    assert!(!root.join("target").exists());
+
+    write(
+        &root.join("plenty.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"util\", \"missing\"]\n",
+    );
+    fails(root, &["check"], "member missing has no plenty.toml");
+    write(
+        &root.join("plenty.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"../elsewhere\"]\n",
+    );
+    fails(root, &["check"], "relative directories below the workspace");
+}
+
+#[test]
+fn plentyc_compiles_through_a_package_graph() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "util",
+        "",
+        &[(
+            "src/lib.plenty",
+            "pub def twice(x: i64) -> i64:\n    x * 2\n",
+        )],
+    );
+    let app = twice_application(dir.path(), "util = { path = \"../util\" }\n");
+    write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
+    let plentyc = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_plentyc"))
+            .args(args)
+            .current_dir(&app)
+            .output()
+            .unwrap()
+    };
+    let run = plentyc(&["--package-graph", "graph.toml", "src/main.plenty"]);
+    assert_eq!(
+        run.stdout,
+        b"42\n",
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(plentyc(&[
+        "--package-graph",
+        "graph.toml",
+        "--check",
+        "src/main.plenty"
+    ])
+    .status
+    .success());
+    let compile = plentyc(&[
+        "--package-graph",
+        "graph.toml",
+        "--compile",
+        "src/main.plenty",
+        "-o",
+        "out",
+    ]);
+    assert!(compile.status.success());
+    assert_eq!(
+        Command::new(app.join("out")).output().unwrap().stdout,
+        b"42\n"
+    );
+
+    // Without the graph, `util` is just a missing module.
+    assert!(!plentyc(&["--check", "src/main.plenty"]).status.success());
+    let both = plentyc(&[
+        "--package-graph",
+        "graph.toml",
+        "--module-root",
+        "src",
+        "--check",
+        "src/main.plenty",
+    ]);
+    assert!(String::from_utf8_lossy(&both.stderr).contains("excludes --module-root"));
 }

@@ -22,7 +22,9 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 optimizations, like the [release profile](packages.md#profiles).
 
 With no arguments, `plenty` displays help. `--module-root DIR` selects the source
-root for file commands. Library builds do not require `main`; their exported
+root for file commands. `--package-graph GRAPH` instead resolves imports through
+a [package graph file](packages.md#package-graph-files) for `FILE`, `--check`,
+`--check-module`, and `--compile`. Library builds do not require `main`; their exported
 contracts follow the [C interface rules](../../facilities/04-interop/index.md).
 
 Compile-and-run inherits standard streams, environment, and working directory.
