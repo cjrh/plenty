@@ -71,6 +71,7 @@ impl ModuleSource {
             Self::Standard("std.json") => Ok(include_str!("../../stdlib/std/json.plenty").into()),
             Self::Standard("std.log") => Ok(include_str!("../../stdlib/std/log.plenty").into()),
             Self::Standard("std.toml") => Ok(include_str!("../../stdlib/std/toml.plenty").into()),
+            Self::Standard("std.ready") => Ok(include_str!("../../stdlib/std/ready.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
                 .map_err(|e| format!("reading {}: {e}", path.display()).into()),
@@ -596,8 +597,9 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     "std.toml" => Ok(ModuleSource::Standard("std.toml")),
                     "std.env" => Ok(ModuleSource::Standard("std.env")),
                     "std.process" => Ok(ModuleSource::Standard("std.process")),
+                    "std.ready" => Ok(ModuleSource::Standard("std.ready")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.json, std.log, std.toml, std.env, std.process",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.json, std.log, std.toml, std.env, std.process, std.ready",
                         import.module
                 ))),
                 };

@@ -7,6 +7,12 @@ alone do not permit mutable sharing. The
 [concurrency contracts](../../facilities/03-concurrency/index.md) define allowed
 effects, owned jobs, blocking, and shutdown.
 
+Each native primitive (`CollectionOp`) reports an effect from one exhaustive
+match in `src/effects.rs`; the certification walk rejects a worker that can
+reach a denied effect and names the call. Primitives without a native contract,
+such as foreign calls, are rejected separately. See
+[native effects on worker threads](../../facilities/03-concurrency/effects.md).
+
 ## Tasks and queues
 
 Scoped tasks pin argument/result storage in the parent's frame. Generated C

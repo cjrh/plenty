@@ -12,6 +12,7 @@ pub enum StreamOp {
     StdWrite,
     FileSeek,
     EntropyRead,
+    Wait,
 }
 
 impl StreamOp {
@@ -23,6 +24,7 @@ impl StreamOp {
             "__io_std_write" => Self::StdWrite,
             "__io_file_seek" => Self::FileSeek,
             "__io_entropy_read" => Self::EntropyRead,
+            "__io_wait" => Self::Wait,
             _ => return None,
         })
     }
@@ -34,6 +36,9 @@ impl StreamOp {
             Self::StdinRead | Self::EntropyRead => range(),
             Self::StdWrite => [range(), vec![Ty::U8]].concat(),
             Self::FileSeek => vec![Ty::File, Ty::U8, Ty::I64],
+            // Interest mask and a timeout in nanoseconds; readiness only
+            // observes the handle.
+            Self::Wait => vec![Ty::File, Ty::U8, Ty::U64],
         };
         (inputs, sum::result(Ty::I64, sum::io_error()))
     }
@@ -45,7 +50,7 @@ impl StreamOp {
             Self::FileRead => operand == 0 || operand == 3,
             Self::FileWrite => operand == 3,
             Self::StdinRead | Self::FileSeek | Self::EntropyRead => operand == 0,
-            Self::StdWrite => false,
+            Self::StdWrite | Self::Wait => false,
         }
     }
 
@@ -53,6 +58,7 @@ impl StreamOp {
         match self {
             // Outside the contiguous stream block, which later opcodes follow.
             Self::EntropyRead => 248,
+            Self::Wait => 390,
             _ => 188 + self as i64,
         }
     }

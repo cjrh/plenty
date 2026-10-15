@@ -76,14 +76,14 @@ with spawn(transfer, &mut jobs).unwrap() as task:
 
 #[test]
 fn stored_callback_capture_and_body_effects_are_checked_transitively() {
-    let definitions = "def unsafe_job(n: i64) -> Closure[[], i64]:\n    def [n]() -> i64:\n        file = open(\"unused\", \"r\").unwrap()\n        n\n";
+    let definitions = "def seven() -> i64:\n    7\ndef unsafe_job(n: i64) -> Closure[[], i64]:\n    def [n]() -> i64:\n        callback: Callable[[], i64] = seven\n        n + callback()\n";
     for body in [
         "callbacks = [unsafe_job(1)].unwrap()\nwith spawn(&callbacks[0]).unwrap():\n    pass",
         "class Holder[F]:\n    callback: F\nholder = Holder(unsafe_job(1))\nwith spawn(&holder.callback).unwrap():\n    pass",
         "with spawn(unsafe_job, 1).unwrap():\n    pass",
     ] {
         let error = support::check_source(&format!("{definitions}{body}\n")).unwrap_err().to_string();
-        assert!(error.contains("worker") && error.contains("File"), "{error}");
+        assert!(error.contains("worker") && error.contains("indirect callable"), "{error}");
     }
 }
 
@@ -170,11 +170,14 @@ with spawn(owned_result).unwrap() as task:
 #[test]
 fn callback_worker_results_do_not_escape_borrowed_captures_or_hide_destructors() {
     let source = r#"
+def seven() -> i64:
+    7
 class Guard:
     id: i64
     def __del__(self) -> ():
-        file = open("unused", "r").unwrap()
-        drop(file)
+        callback: Callable[[], i64] = seven
+        callback()
+        pass
 def make() -> Result[Closure[[], i64], AllocError]:
     guard = Guard(1)
     callback = def [guard]() -> i64:
@@ -185,7 +188,7 @@ with spawn(make).unwrap():
 "#;
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(
-        error.contains("worker") && error.contains("File"),
+        error.contains("worker") && error.contains("indirect callable"),
         "{error}"
     );
     let source = "def invalid(value: &i64) -> Closure[[], i64]:\n    def [&value]() -> i64:\n        value\nn = 1\nwith spawn(invalid, &n).unwrap():\n    pass\n";

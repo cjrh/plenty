@@ -56,7 +56,9 @@ been removed. `set_current_dir` reports a missing directory as
 The working directory is shared by every thread, and relative paths resolve
 against it at the moment of each call. Prefer absolute paths, or
 [`Command.current_dir`](process.md#building-a-command) for a child, over
-changing it in a program with more than one thread.
+changing it in a program with more than one thread. A worker thread may not
+call `set_current_dir` at all; the compiler rejects any worker that can reach
+it (see [native effects](../facilities/03-concurrency/effects.md)).
 
 ## Limits
 

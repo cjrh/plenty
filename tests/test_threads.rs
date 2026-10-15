@@ -308,10 +308,13 @@ fn rejects_worker_effects_in_helpers_destructors_and_stored_data() {
     for (source, expected) in [
         (
             r#"
+def seven() -> i64:
+    7
 class Resource:
     value: i64
     def __del__(self: &mut Resource) -> ():
-        file = open("unused", "r").unwrap()
+        callback: Callable[[], i64] = seven
+        callback()
         pass
 def worker(value: &Resource) -> i64:
     value.value
@@ -321,7 +324,7 @@ def main() -> Result[(), Failure]:
         pass
     Ok(())
 "#,
-            "File has no cross-thread",
+            "indirect callable effects",
         ),
         (
             r#"

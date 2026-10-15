@@ -44,6 +44,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.toml`](toml.md) | Strict TOML 1.0 parsing into a value tree and writing back as text, under depth, input, and output limits | `TomlError` |
 | [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
 | [`std.process`](process.md) | Children spawned from an argument vector with no implicit shell, piped streams, bounded output collection, signals, and explicit reaping | `IoError`, `StreamError` |
+| [`std.ready`](ready.md) | Readiness waits on pipes and other handles, bounded by a deadline and a cancellation token | `WaitError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in

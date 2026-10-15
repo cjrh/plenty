@@ -138,7 +138,10 @@ fn check_type(
         {
             return Err(format!("recursive channel ownership through {ty} could retain its own receiver; keep receiving handles outside queued message cycles"));
         }
-        Ty::File | Ty::FsReadDir | Ty::FsDirEntry | Ty::FsMetadata | Ty::ForeignPtr(_) => {
+        // Native handles are affine owners whose mutating operations need an
+        // exclusive loan, so a worker can own or borrow one like any value.
+        // Their operations are certified per call in `inspect`.
+        Ty::ForeignPtr(_) => {
             return Err(format!("{ty} has no cross-thread ownership contract"))
         }
         Ty::Callable(_) => {
@@ -296,6 +299,9 @@ fn inspect(
             error = Some("indirect callable effects are not certified for worker threads")
         }
         Op::Collection(op) => {
+            if let Some(reason) = op.effect().worker_denial() {
+                error = Some(reason);
+            }
             let (inputs, output) = op.signature();
             types.extend(inputs);
             types.push(output);

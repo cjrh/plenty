@@ -15,6 +15,7 @@ mod collection;
 mod compress;
 mod control;
 mod crypto;
+mod effects;
 mod executor;
 mod exports;
 mod filesystem;

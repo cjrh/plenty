@@ -69,7 +69,7 @@ def main() -> Result[(), Failure]:
 Pool jobs own their inputs; use `spawn` when a worker needs to borrow local data.
 A worker may use channels, but cannot hold an executor or future.
 Keep submission and future waits on the owning thread to avoid pool dependency
-deadlocks. Files and foreign effects have the same restrictions as scoped workers.
+deadlocks. Files, native effects and foreign calls follow the same rules as for scoped workers.
 
 Dropping a future leaves its job running; an unclaimed result is cleaned up.
 A future may also outlive the pool's scope: shutdown finishes the job, and the

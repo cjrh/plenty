@@ -437,19 +437,27 @@ fn relocated_compiler_keeps_filesystem_helpers_embedded() {
 
 #[test]
 fn filesystem_owners_keep_normal_move_and_worker_checks() {
+    // A root is an owned handle, so it can move into a worker; see
+    // design/facilities/03-concurrency/effects.md.
     for (body, expected) in [
-        ("    moved = owner\n    drop(owner)\n", "moved"),
+        ("    moved = owner\n    drop(owner)\n", Some("moved")),
         (
             "    with spawn(worker, owner)? as task:\n        task.join()\n",
-            "cross-thread ownership",
+            None,
         ),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let entry = directory.path().join("main.plenty");
         let source = format!("from std.fs import Root, root\nfrom std.path import from_text\nfrom std.thread import spawn\ndef worker(owner: Root) -> i64:\n    0\ndef main() -> Result[(), Failure]:\n    location = from_text(\".\")?\n    owner = root(&location)?\n{body}    Ok(())\n");
         std::fs::write(&entry, source).unwrap();
-        let error = plenty::check_file(&entry, None).unwrap_err().to_string();
-        assert!(error.contains(expected), "{error}");
+        let checked = plenty::check_file(&entry, None);
+        match expected {
+            Some(expected) => {
+                let error = checked.unwrap_err().to_string();
+                assert!(error.contains(expected), "{error}");
+            }
+            None => checked.unwrap(),
+        }
     }
 }
 
