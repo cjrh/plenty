@@ -58,7 +58,7 @@ fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
         ("job = def once [value](n: i64) -> i64:\n    n + value\n", "reusable immutable closure"),
         ("mut job = def [mut value](n: i64) -> i64:\n    value = value + n\n    value\n", "reusable immutable closure"),
         ("job = def [&value](n: i64) -> i64:\n    n + value\n", "must own their captures"),
-        ("job = def [value](n: i64) -> i64:\n    f = open(\"unused\", \"r\").unwrap()\n    n + value\n", "File has no cross-thread"),
+        ("def seven() -> i64:\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    n + value + f()\n", "indirect callable effects"),
         ("def identity(n: i64) -> i64:\n    n\njob = identity\n", "lack worker eligibility evidence"),
         ("job = def [value](n: &i64) -> i64:\n    *n + value\n", "one owned input"),
     ] {

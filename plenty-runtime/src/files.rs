@@ -151,6 +151,76 @@ pub(crate) unsafe fn descriptor(pointer: *const File) -> Result<i32, Error> {
     }
 }
 
+/// One `ppoll` on the descriptor for at most `timeout` nanoseconds. Interest
+/// bit 0 asks for input, bit 1 for output. The result has bit 0 readable,
+/// bit 1 writable, bit 2 hang-up and bit 3 error; zero means the timeout
+/// elapsed. Deadlines, retries and cancellation are std.ready policy.
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+pub(crate) unsafe fn wait_ready(
+    pointer: *const File,
+    interest: u8,
+    timeout: u64,
+) -> Result<u128, Error> {
+    #[repr(C)]
+    struct PollFd {
+        fd: i32,
+        events: i16,
+        revents: i16,
+    }
+    #[repr(C)]
+    struct Timespec {
+        seconds: i64,
+        nanoseconds: i64,
+    }
+    extern "C" {
+        fn ppoll(
+            fds: *mut PollFd,
+            count: u64,
+            timeout: *const Timespec,
+            mask: *const std::ffi::c_void,
+        ) -> i32;
+    }
+    const IN: i16 = 0x1;
+    const OUT: i16 = 0x4;
+    const ERR: i16 = 0x8;
+    const HUP: i16 = 0x10;
+    const INVALID: i16 = 0x20;
+    if interest == 0 || interest > 3 {
+        return Err(Kind::InvalidInput.into());
+    }
+    // SAFETY: the caller holds a live shared loan; only the number is used.
+    let fd = unsafe { descriptor(pointer)? };
+    let mut entry = PollFd {
+        fd,
+        events: if interest & 1 != 0 { IN } else { 0 } | if interest & 2 != 0 { OUT } else { 0 },
+        revents: 0,
+    };
+    let span = Timespec {
+        seconds: (timeout / 1_000_000_000) as i64,
+        nanoseconds: (timeout % 1_000_000_000) as i64,
+    };
+    // SAFETY: one initialized entry and a valid relative timeout; a null mask
+    // leaves the thread's signal mask unchanged.
+    if unsafe { ppoll(&mut entry, 1, &span, std::ptr::null()) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    if entry.revents & INVALID != 0 {
+        return Err(Kind::Closed.into());
+    }
+    let mut ready = 0;
+    for (flag, bit) in [(IN, 1), (OUT, 2), (HUP, 4), (ERR, 8)] {
+        if entry.revents & flag != 0 {
+            ready |= bit;
+        }
+    }
+    Ok(ready)
+}
+
+#[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
+pub(crate) unsafe fn wait_ready(_: *const File, _: u8, _: u64) -> Result<u128, Error> {
+    Err(Kind::Unsupported.into())
+}
+
 pub(crate) unsafe fn close(pointer: *mut File) -> Result<u128, Error> {
     // SAFETY: the compiler holds exclusive access and supplies a live owner.
     // Taking first makes repeated close and destruction safe, even after error.
@@ -395,6 +465,35 @@ mod tests {
             assert!(closed(pointer));
             assert_eq!(close(pointer).unwrap(), 0);
             memory::plenty_release(pointer.cast());
+        }
+    }
+
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    #[test]
+    fn wait_ready_reports_timeout_input_hangup_and_closed_owners() {
+        use std::io::Write;
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        let mut owner = File {
+            header: Header::new(destroy),
+            ty: &TYPE,
+            file: Some(std::fs::File::from(std::os::fd::OwnedFd::from(reader))),
+            writable: false,
+            readable: true,
+            skip_lf: false,
+            pipe: true,
+        };
+        let invalid = |error: Error| matches!(error, Error::Kind(Kind::InvalidInput));
+        let closed = |error: Error| matches!(error, Error::Kind(Kind::Closed));
+        // SAFETY: the owner is a live local for every call.
+        unsafe {
+            assert_eq!(wait_ready(&owner, 1, 1_000_000).ok(), Some(0));
+            writer.write_all(b"x").unwrap();
+            assert_eq!(wait_ready(&owner, 1, 1_000_000).ok(), Some(1));
+            drop(writer);
+            assert_eq!(wait_ready(&owner, 1, 0).ok().map(|bits| bits & 4), Some(4));
+            assert!(wait_ready(&owner, 0, 0).is_err_and(invalid));
+            owner.file = None;
+            assert!(wait_ready(&owner, 1, 0).is_err_and(closed));
         }
     }
 }

@@ -37,7 +37,7 @@ fn consuming_submission_rejects_moved_jobs_borrowed_environments_and_effects() {
     for (source, expected) in [
         ("n = 1\njob = def once [n]() -> i64:\n    n\nwith spawn(job).unwrap():\n    job()\n", "moved"),
         ("n = 1\njob = def [&n]() -> i64:\n    n\nwith spawn(job).unwrap():\n    pass\n", "wholly owned"),
-        ("n = 1\njob = def [n]() -> i64:\n    file = open(\"unused\", \"r\").unwrap()\n    drop(file)\n    n\nwith spawn(job).unwrap():\n    pass\n", "File"),
+        ("def seven() -> i64:\n    7\nn = 1\njob = def [n]() -> i64:\n    f: Callable[[], i64] = seven\n    n + f()\nwith spawn(job).unwrap():\n    pass\n", "indirect callable"),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");

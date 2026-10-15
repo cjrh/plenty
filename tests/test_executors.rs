@@ -205,7 +205,7 @@ fn handles_are_affine_and_worker_dependencies_are_rejected() {
         ("pool = ThreadPoolExecutor(1, 1).unwrap()\ncopy(pool).unwrap()\n", "copied"),
         ("n = 1\njob = def [&n]() -> i64:\n    n\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(job).unwrap()\n", "wholly owned"),
         ("def work() -> ():\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n", "cannot enter worker"),
-        ("def work() -> ():\n    f = open(\"unused\", \"r\").unwrap()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n", "File"),
+        ("def seven() -> i64:\n    7\ndef work() -> ():\n    f: Callable[[], i64] = seven\n    f()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n", "indirect callable"),
         ("def work(future: Future[i64]) -> i64:\n    future.result().unwrap()\ndef one() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nf = pool.submit(one).unwrap()\npool.submit(work, f).unwrap()\n", "cannot enter worker"),
         ("def borrowed(f: &Future[i64]) -> &Future[i64]:\n    f\ndef one() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nf = pool.submit(one).unwrap()\nborrowed(&f).result().unwrap()\n", "owned Future"),
     ] {

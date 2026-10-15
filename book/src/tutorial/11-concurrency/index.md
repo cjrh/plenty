@@ -21,3 +21,4 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Map fallible work in parallel](parallel-fallible-map.md)
 - [Combine values in parallel](parallel-reduction.md)
 - [Receive from either channel](channel-selection.md)
+- [Wait for I/O with a deadline](bounded-io.md)

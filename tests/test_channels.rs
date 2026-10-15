@@ -124,7 +124,6 @@ print(str.repr(receiver.recv()).unwrap()).unwrap()
 #[test]
 fn channel_messages_reject_uncertified_effects_and_endpoint_copy_or_equality() {
     for (source, expected) in [
-        ("sender, receiver = channel[File](1).unwrap()\n", "cross-thread"),
         ("sender, receiver = channel[Callable[[], i64]](1).unwrap()\n", "indirect callable"),
         ("sender, receiver = channel[&i64](1).unwrap()\n", "wholly owned"),
         ("sender, receiver = channel[i64](1).unwrap()\nother = copy(sender)\n", "cannot be copied"),
@@ -134,6 +133,8 @@ fn channel_messages_reject_uncertified_effects_and_endpoint_copy_or_equality() {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }
+    // Native handles are owned values; see design/facilities/03-concurrency/effects.md.
+    support::check_source("sender, receiver = channel[File](1).unwrap()\n").unwrap();
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -237,27 +238,32 @@ print(exercise(make(0), make(100))).unwrap()
 fn channel_messages_do_not_hide_bad_destructors_or_bad_callback_bodies() {
     for source in [
         r#"
+def seven() -> i64:
+    7
 class Guard:
     n: i64
     def __del__(self) -> ():
-        file = open("unused", "r").unwrap()
-        drop(file)
+        callback: Callable[[], i64] = seven
+        callback()
+        pass
 sender, receiver = channel[Guard](1).unwrap()
 "#,
         r#"
 def queue[F](job: F) -> ():
     sender, receiver = channel[F](1).unwrap()
     sender.send(job).unwrap()
+def seven() -> i64:
+    7
 n = 1
 job = def [n]() -> i64:
-    file = open("unused", "r").unwrap()
-    n
+    callback: Callable[[], i64] = seven
+    n + callback()
 queue(job)
 "#,
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(
-            error.contains("channel") && error.contains("File"),
+            error.contains("channel") && error.contains("indirect callable"),
             "{error}"
         );
     }

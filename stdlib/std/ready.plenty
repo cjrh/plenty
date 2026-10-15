@@ -1,0 +1,119 @@
+# Bounded readiness waits on native handles. The runtime makes one ppoll per
+# call with a nanosecond timeout. Deadlines, interruption retries and
+# cooperative cancellation are the checked policy below: a cancellable wait
+# blocks for at most one slice before it observes its token again.
+# See book/src/design/stdlib/ready.md.
+from std.bytes import Bytes
+from std.io import FileStream, StreamError, classify
+from std.sync import CancellationToken
+from std.time import Deadline, Duration, monotonic_now, nanoseconds
+
+# The longest a cancellable wait blocks without observing its token.
+const slice: u64 = 10000000
+# A pipe or socket that polls writable has room for this many bytes, so a
+# write of at most this size cannot block.
+const pipe_page: i64 = 4096
+
+pub enum Interest:
+    Read
+    Write
+    ReadWrite
+
+# What the descriptor reported. Hang-up and error are reported whatever the
+# interest: a read then returns end of input or the pending error.
+pub class Readiness:
+    pub readable: bool
+    pub writable: bool
+    pub hangup: bool
+    pub error: bool
+
+pub enum WaitError:
+    TimedOut
+    Cancelled
+    Stream(StreamError)
+
+pub def cancellation_slice() -> Duration:
+    nanoseconds(slice)
+
+def mask(interest: &Interest) -> u8:
+    match interest:
+        case Interest.Read:
+            1u8
+        case Interest.Write:
+            2u8
+        case Interest.ReadWrite:
+            3u8
+
+def bit(bits: i64, value: i64) -> bool:
+    (bits // value) % 2 == 1
+
+# One native wait. An interrupted wait reports nothing ready; the caller's
+# loop then rechecks its deadline and token.
+def once(file: &File, wanted: u8, timeout: u64) -> Result[i64, WaitError]:
+    match __io_wait(file, wanted, timeout):
+        case Ok(bits):
+            Ok(bits)
+        case Err(error):
+            match classify(error):
+                case StreamError.Interrupted:
+                    Ok(0)
+                case _ as other:
+                    Err(WaitError.Stream(other))
+
+def ready(bits: i64) -> Readiness:
+    Readiness(bit(bits, 1), bit(bits, 2), bit(bits, 4), bit(bits, 8))
+
+# Waits until `file` is ready for `interest` or the deadline passes. A handle
+# that is already ready succeeds even when the deadline has passed.
+pub def wait_until(file: &File, interest: Interest, deadline: &Deadline) -> Result[Readiness, WaitError]:
+    wanted = mask(&interest)
+    while True:
+        now = monotonic_now()
+        bits = once(file, wanted, deadline.remaining(&now).as_nanoseconds())?
+        if bits != 0:
+            return Ok(ready(bits))
+        if deadline.expired(&monotonic_now()):
+            return Err(WaitError.TimedOut)
+    Err(WaitError.TimedOut)
+
+# As wait_until, and also stops with Cancelled once `cancel` is requested.
+# The token is observed before every native wait, so a request made before
+# the call wins and one made during it is seen within one slice.
+pub def wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]:
+    wanted = mask(&interest)
+    while True:
+        if cancel.is_cancelled():
+            return Err(WaitError.Cancelled)
+        now = monotonic_now()
+        mut budget = deadline.remaining(&now).as_nanoseconds()
+        if budget > slice:
+            budget = slice
+        bits = once(file, wanted, budget)?
+        if bits != 0:
+            return Ok(ready(bits))
+        if deadline.expired(&monotonic_now()):
+            return Err(WaitError.TimedOut)
+    Err(WaitError.TimedOut)
+
+def moved(result: Result[i64, StreamError]) -> Result[i64, WaitError]:
+    match result:
+        case Ok(count):
+            Ok(count)
+        case Err(cause):
+            Err(WaitError.Stream(cause))
+
+# Waits for input, then makes one read into buffer[start:stop]. Zero is end of
+# input. With a single reader of a pipe, terminal or socket the read does not
+# block; a regular file is always ready.
+pub def read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]:
+    wait(&stream.file, Interest.Read, deadline, cancel)?
+    moved(stream.read(buffer, start, stop))
+
+# Waits for space, then makes one write of at most 4096 bytes from
+# source[start:stop] and reports the bytes it moved.
+pub def write_before(stream: &mut FileStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]:
+    mut end = stop
+    if start >= 0 and stop - start > pipe_page:
+        end = start + pipe_page
+    wait(&stream.file, Interest.Write, deadline, cancel)?
+    moved(stream.write(source, start, end))
