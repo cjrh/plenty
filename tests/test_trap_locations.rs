@@ -129,6 +129,14 @@ fn bounds_traps_print_the_index_and_length(#[case] body: &str, #[case] expected:
     "    print(len(range(-9223372036854775808, 9223372036854775807)))?\n",
     "2:15: range length exceeds i64"
 )]
+#[case::range_loop_length(
+    "    for i in range(-9223372036854775808, 9223372036854775807):\n        print(i)?\n",
+    "2:14: range length exceeds i64"
+)]
+#[case::reversed_range_step(
+    "    zero = 0\n    for i in reversed(range(3, 9, zero)):\n        print(i)?\n",
+    "3:23: range step cannot be zero"
+)]
 #[case::split_separator(
     "    parts = \"a,b\".split(\"\")?\n    print(len(parts))?\n",
     "2:13: string split requires a nonempty separator"

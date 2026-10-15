@@ -1010,20 +1010,25 @@ impl Lower<'_> {
             }
             _ => None,
         };
-        let (ty, loans) = if let Some(args) = range_args {
+        let range_element = range_args.map(|args| {
+            hint.unwrap_or_else(|| {
+                args.iter()
+                    .take(2)
+                    .find_map(|e| self.numeric_hint(e))
+                    .filter(Ty::is_int)
+                    .unwrap_or(Ty::I64)
+            })
+        });
+        // A direct `range(...)` call needs no range value.
+        let counted = range_args
+            .zip(range_element.clone())
+            .filter(|(_, element)| std::ptr::eq(range_expr, iterable) && element.is_int());
+        let (ty, loans) = if let Some((_, element)) = &counted {
+            (Ty::Range(Arc::new(element.clone())), vec![])
+        } else if let Some(element) = range_element {
             (
-                self.expr_expected(
-                    iterable,
-                    Some(Ty::Range(Arc::new(hint.unwrap_or_else(|| {
-                        args.iter()
-                            .take(2)
-                            .find_map(|e| self.numeric_hint(e))
-                            .filter(Ty::is_int)
-                            .unwrap_or(Ty::I64)
-                    })))),
-                    ops,
-                )?
-                .ok_or_else(|| iterable.at.error("expected a range value"))?,
+                self.expr_expected(iterable, Some(Ty::Range(Arc::new(element))), ops)?
+                    .ok_or_else(|| iterable.at.error("expected a range value"))?,
                 vec![],
             )
         } else if mutable {
@@ -1077,7 +1082,9 @@ impl Lower<'_> {
         if borrowed && !references && element.as_ref().is_some_and(Ty::affine) {
             return Err(iterable.at.error("borrowed iteration of owned elements is not supported; iterate an owned collection or copy it"));
         }
-        let mut plan = if references {
+        let mut plan = if let Some((args, element)) = counted {
+            self.counted_range_iteration(args, element, reverse, &iterable.at, ops)?
+        } else if references {
             self.borrowed_collection_iteration(ty.clone(), mutable, reverse, &iterable.at, ops)?
         } else {
             self.iteration_on_stack_direction(ty.clone(), reverse, &iterable.at, ops)?
@@ -2840,6 +2847,20 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        self.range_operands(args, &element, at, ops)?;
+        ops.push(Op::Collection(CollectionOp::Range(element.clone())));
+        Ok(Ty::Range(Arc::new(element)))
+    }
+
+    /// Push `start stop step` for `range(args)`, filling the defaults, and
+    /// mark the call for parameter failures.
+    fn range_operands(
+        &mut self,
+        args: &[Expr],
+        element: &Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
         if args.is_empty() || args.len() > 3 {
             return Err(at.error("range takes one to three arguments"));
         }
@@ -2855,8 +2876,84 @@ impl Lower<'_> {
             ops.push(Op::PushInt(Value::I64(1)));
         }
         self.mark(at, ops);
-        ops.push(Op::Collection(CollectionOp::Range(element.clone())));
-        Ok(Ty::Range(Arc::new(element)))
+        Ok(())
+    }
+
+    /// Iterate `range(args)` as a counted loop, without a range value or a
+    /// runtime call per element (issue #121). The arguments are evaluated
+    /// once, before the loop, as for a range value. The loop variable is
+    /// immutable, so its slot also holds the next element: each step adds
+    /// the step with wrapping arithmetic, which the count keeps exact.
+    fn counted_range_iteration(
+        &mut self,
+        args: &[Expr],
+        element: Ty,
+        reverse: bool,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        let target = self.slot(element.clone(), at)?;
+        let step = self.slot(Ty::I64, at)?;
+        let remaining = self.slot(Ty::I64, at)?;
+        self.range_operands(args, &element, at, ops)?;
+        // Keep `start` as the first element while computing the count.
+        ops.extend([
+            Op::StoreLocal(step),
+            Op::Swap,
+            Op::Dup,
+            Op::StoreLocal(target),
+            Op::Swap,
+            Op::LoadLocal(step),
+            Op::RangeLength(element.clone()),
+            Op::StoreLocal(remaining),
+        ]);
+        // The step at the element's width: modular addition of the
+        // truncated step equals adding the full step and truncating.
+        let advance = if element == Ty::I64 {
+            step
+        } else {
+            let advance = self.slot(element.clone(), at)?;
+            ops.extend([
+                Op::LoadLocal(step),
+                Op::Cast(element.clone()),
+                Op::StoreLocal(advance),
+            ]);
+            advance
+        };
+        if reverse {
+            // Start from `start + (count - 1) * step` and walk backwards.
+            ops.extend([
+                Op::LoadLocal(target),
+                Op::LoadLocal(remaining),
+                Op::PushInt(Value::I64(1)),
+                Op::Integer(IntegerOp::WrappingSub),
+                Op::Cast(element.clone()),
+                Op::LoadLocal(advance),
+                Op::Integer(IntegerOp::WrappingMul),
+                Op::Integer(IntegerOp::WrappingAdd),
+                Op::StoreLocal(target),
+                Op::PushInt(integer(&format!("0{element}"), false, at)?),
+                Op::LoadLocal(advance),
+                Op::Integer(IntegerOp::WrappingSub),
+                Op::StoreLocal(advance),
+            ]);
+        }
+        Ok(Iteration {
+            condition: vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt],
+            absent: vec![],
+            body: vec![],
+            step: vec![
+                Op::LoadLocal(remaining),
+                Op::PushInt(Value::I64(1)),
+                Op::Integer(IntegerOp::WrappingSub),
+                Op::StoreLocal(remaining),
+                Op::LoadLocal(target),
+                Op::LoadLocal(advance),
+                Op::Integer(IntegerOp::WrappingAdd),
+                Op::StoreLocal(target),
+            ],
+            target,
+        })
     }
 
     pub(super) fn builtin_collection(

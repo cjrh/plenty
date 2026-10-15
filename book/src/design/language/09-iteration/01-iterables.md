@@ -5,6 +5,14 @@ generators transfer into the loop's hidden owner; it drops on exhaustion or
 early exit. There is no implicit snapshot. Ranges, strings, and copyable
 elements retain their ordinary copy semantics.
 
+A `range(...)` call written directly as the source of `for`, `reversed`,
+`enumerate`, `zip`, a comprehension, or a generator expression compiles to a
+counted loop. The element count is computed once, before the first iteration,
+and no step calls the runtime, so it costs no more than the equivalent `while`
+loop. Changing a bound variable inside the body does not change the count. A
+range stored in a variable or returned by a call is iterated through the
+runtime.
+
 | Iterable | Yielded value |
 | --- | --- |
 | List | Element |

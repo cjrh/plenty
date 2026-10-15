@@ -1590,6 +1590,7 @@ impl Lowerer<'_, '_> {
             }
             Op::CheckedCast(target) => self.lower_checked_cast(target)?,
             Op::TryCast(target) => self.lower_try_cast(target)?,
+            Op::RangeLength(element) => self.lower_range_length(element)?,
             Op::Display => self.lower_display()?,
             Op::Clear => self.release_stack(),
             Op::LoadLocal(i) => self.lower_load_local(*i)?,

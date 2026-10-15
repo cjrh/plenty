@@ -11,6 +11,86 @@ impl Lowerer<'_, '_> {
         self.collection_call_at(opcode, values, ty, None)
     }
 
+    /// The element count of `range(start, stop, step)`, computed inline for
+    /// counted loops. Invalid parameters take a cold call to the range
+    /// constructor, so its zero-step and oversized-length failures keep
+    /// their messages and site.
+    pub(super) fn lower_range_length(&mut self, element: &Ty) -> Result<()> {
+        let (step, _) = self.pop_typed(Ty::I64)?;
+        let (stop, _) = self.pop_typed(element.clone())?;
+        let (start, _) = self.pop_typed(element.clone())?;
+        let signed = is_signed(element.clone());
+        let narrow = clif_type(element.clone()) != types::I64;
+        let b = &mut self.bcx;
+        let widen = |b: &mut FunctionBuilder<'_>, value| match (narrow, signed) {
+            (false, _) => value,
+            (true, true) => b.ins().sextend(types::I64, value),
+            (true, false) => b.ins().uextend(types::I64, value),
+        };
+        let first = widen(b, start);
+        let bound = widen(b, stop);
+        let forward = b.ins().icmp_imm(IntCC::SignedGreaterThan, step, 0);
+        let low = b.ins().select(forward, first, bound);
+        let high = b.ins().select(forward, bound, first);
+        let order = if signed {
+            IntCC::SignedLessThan
+        } else {
+            IntCC::UnsignedLessThan
+        };
+        let nonempty = b.ins().icmp(order, low, high);
+        // Both bounds fit in 64 bits, so their distance is exact as u64, and
+        // so is the magnitude of `i64::MIN`.
+        let distance = b.ins().isub(high, low);
+        let negated = b.ins().ineg(step);
+        let magnitude = b.ins().select(forward, step, negated);
+        let zero_step = b.ins().icmp_imm(IntCC::Equal, step, 0);
+        let one = b.ins().iconst(types::I64, 1);
+        // Cranelift keeps a division by a constant 1, and most loops use the
+        // default step.
+        let unit = match b.func.dfg.value_def(step) {
+            cranelift_codegen::ir::ValueDef::Result(inst, _) => matches!(
+                b.func.dfg.insts[inst],
+                cranelift_codegen::ir::InstructionData::UnaryImm {
+                    opcode: cranelift_codegen::ir::Opcode::Iconst,
+                    imm,
+                } if imm.bits() == 1
+            ),
+            _ => false,
+        };
+        let count = if unit {
+            distance
+        } else {
+            let divisor = b.ins().select(zero_step, one, magnitude);
+            let last = b.ins().isub(distance, one);
+            let quotient = b.ins().udiv(last, divisor);
+            b.ins().iadd(quotient, one)
+        };
+        let zero = b.ins().iconst(types::I64, 0);
+        let length = b.ins().select(nonempty, count, zero);
+        let oversized = b.ins().icmp_imm(IntCC::SignedLessThan, length, 0);
+        let invalid = b.ins().bor(zero_step, oversized);
+        let cold = b.create_block();
+        let after = b.create_block();
+        b.ins().brif(invalid, cold, &[], after, &[]);
+        b.switch_to_block(cold);
+        b.seal_block(cold);
+        b.set_cold_block(cold);
+        let arguments = [
+            self.pack(start, element),
+            self.pack(stop, element),
+            self.pack(step, &Ty::I64),
+        ];
+        let site = self.trap_site()?;
+        let range = CollectionOp::Range(element.clone());
+        let descriptor = Ty::Range(Arc::new(element.clone()));
+        self.collection_call_at(range.opcode(), &arguments, Some(&descriptor), Some(site))?;
+        self.bcx.ins().trap(TrapCode::unwrap_user(3));
+        self.bcx.switch_to_block(after);
+        self.bcx.seal_block(after);
+        self.stack.push((length, Ty::I64));
+        Ok(())
+    }
+
     /// `site` is the trap site of an operation that can trap.
     fn collection_call_at(
         &mut self,
