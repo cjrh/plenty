@@ -194,6 +194,20 @@ pub fn compile_package_to_executable(
     compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
 }
 
+/// Compile a file of test functions with the runner's generated `main`.
+pub(crate) fn compile_tests_to_executable(
+    path: &Path,
+    graph: &crate::project::SourceGraph,
+    tests: &[(String, crate::frontend::TestReturn)],
+    output: &Path,
+    options: &crate::CompileOptions,
+) -> Result<()> {
+    crate::validate_target(options.target.as_deref())?;
+    let mut heap = Heap::default();
+    let program = crate::frontend::compile_test_graph(path, graph, tests, &mut heap)?;
+    compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
+}
+
 /// Historical stack syntax, retained for backend regression tests.
 pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Result<()> {
     compile_legacy_source_to_executable_with_options(

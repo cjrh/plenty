@@ -1,6 +1,6 @@
 //! `plenty`: project commands over `plenty.toml`, plus the single-file
 //! compiler interface that `plentyc` also provides.
-use plenty::project::{self, BuildOptions, Profile, Template};
+use plenty::project::{self, BuildOptions, Profile, Template, TestOptions};
 use std::error::Error;
 use std::path::Path;
 use std::process::ExitCode;
@@ -14,13 +14,16 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty check [--locked]
        plenty build [--release] [--locked]
        plenty run [--release] [--locked] [--bin NAME] [-- ARGS...]
-       plenty test [--release] [--locked]
+       plenty test [--release] [--locked] [--no-capture] [--seed N] [--list] [FILTER...]
        plenty clean
 
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
 check: type-check every target. build: compile executables into target/debug,
 or target/release with --release. run: build one executable and run it with
-ARGS. test: compile and run each tests/*.plenty program; nonzero exit fails.
+ARGS. test: run each test_* function in tests/*.plenty in its own process, or
+each tests/*.plenty program that defines main; a FILTER keeps the tests whose
+FILE::NAME contains it. Output is shown only for failing tests unless
+--no-capture. --seed N sets PLENTY_TEST_SEED for std.test.rng.
 --locked: fail instead of creating or updating plenty.lock.
 A file whose name matches a command runs as ./NAME.
 
@@ -81,7 +84,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
             return project::run(here, binary.as_deref(), &arguments, &options);
         }
         "test" => {
-            let (options, _, _) = build_options(rest, true, false)?;
+            let options = test_options(rest)?;
             let summary = project::test(here, &options)?;
             if !summary.failed.is_empty() {
                 return Ok(ExitCode::FAILURE);
@@ -112,6 +115,30 @@ fn template_options(args: &[String]) -> Result<(Template, Option<String>, Vec<St
         }
     }
     Ok((template, name, positional))
+}
+
+fn test_options(args: &[String]) -> Result<TestOptions, String> {
+    let mut options = TestOptions::default();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--release" => options.build.profile = Profile::Release,
+            "--locked" => options.build.locked = true,
+            "--no-capture" => options.no_capture = true,
+            "--list" => options.list = true,
+            "--seed" => {
+                let value = args.next().ok_or("--seed requires a value")?;
+                options.seed = Some(
+                    value
+                        .parse()
+                        .map_err(|_| format!("--seed {value:?} is not a u64"))?,
+                );
+            }
+            flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
+            filter => options.filters.push(filter.to_owned()),
+        }
+    }
+    Ok(options)
 }
 
 /// Parse build flags. Arguments after `--` belong to the program for `run`.

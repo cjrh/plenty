@@ -575,67 +575,194 @@ pub fn exit_code(status: std::process::ExitStatus) -> ExitCode {
 pub struct TestSummary {
     pub passed: Vec<String>,
     pub failed: Vec<String>,
+    /// Tests that a filter excluded.
+    pub filtered: usize,
 }
 
-/// Compile every `tests/*.plenty` program and run each from the package
-/// directory. A test passes when its program exits with status zero. Files in
-/// subdirectories of `tests/` are helper modules, not tests.
-pub fn test(directory: &Path, options: &BuildOptions) -> Result<TestSummary> {
-    let project = open(directory, options)?;
-    let root = project.root();
-    let tests_directory = root.directory.join("tests");
-    let mut tests = vec![];
+/// Options for [`test`].
+#[derive(Clone, Debug, Default)]
+pub struct TestOptions {
+    pub build: BuildOptions,
+    /// Run only tests whose name contains one of these; all when empty.
+    pub filters: Vec<String>,
+    /// Let tests write straight to the terminal instead of capturing their
+    /// output and showing it only when they fail.
+    pub no_capture: bool,
+    /// Passed to every test as `PLENTY_TEST_SEED`, which `std.test.seed`
+    /// reads.
+    pub seed: Option<u64>,
+    /// Print the selected tests' names instead of running them.
+    pub list: bool,
+}
+
+/// One test: a whole program, or one function of a file of test functions.
+struct TestCase {
+    name: String,
+    file: usize,
+    function: Option<String>,
+}
+
+/// A test file and what it defines.
+type TestSource = (PathBuf, crate::frontend::TestFile);
+
+/// Collect the tests in `tests/`. A file that defines `main` is one test
+/// named after the file; otherwise each `test_*` function is a test named
+/// `FILE::FUNCTION`. Files in subdirectories are helper modules.
+fn discover_tests(tests_directory: &Path) -> Result<(Vec<TestSource>, Vec<TestCase>)> {
+    let mut paths = vec![];
     if tests_directory.is_dir() {
-        for entry in std::fs::read_dir(&tests_directory)? {
+        for entry in std::fs::read_dir(tests_directory)? {
             let path = entry?.path();
             if path.is_file() && path.extension().is_some_and(|e| e == "plenty") {
-                tests.push(path);
+                paths.push(path);
             }
         }
     }
-    tests.sort();
+    paths.sort();
+    let mut files = vec![];
+    let mut cases = vec![];
+    for (index, path) in paths.into_iter().enumerate() {
+        let kind = crate::frontend::discover_tests(&path)?;
+        let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
+        match &kind {
+            crate::frontend::TestFile::Program => cases.push(TestCase {
+                name: stem,
+                file: index,
+                function: None,
+            }),
+            crate::frontend::TestFile::Functions(functions) => {
+                for (function, _) in functions {
+                    cases.push(TestCase {
+                        name: format!("{stem}::{function}"),
+                        file: index,
+                        function: Some(function.clone()),
+                    });
+                }
+            }
+        }
+        files.push((path, kind));
+    }
+    Ok((files, cases))
+}
+
+/// Compile the selected tests and run each in its own process from the
+/// package directory. A test passes when its process exits with status zero.
+pub fn test(directory: &Path, options: &TestOptions) -> Result<TestSummary> {
+    let project = open(directory, &options.build)?;
+    let root = project.root();
+    let (files, cases) = discover_tests(&root.directory.join("tests"))?;
+    let total = cases.len();
+    let cases: Vec<_> = cases
+        .into_iter()
+        .filter(|case| {
+            options.filters.is_empty() || options.filters.iter().any(|f| case.name.contains(f))
+        })
+        .collect();
+    let mut summary = TestSummary {
+        filtered: total - cases.len(),
+        ..TestSummary::default()
+    };
+    if options.list {
+        for case in &cases {
+            println!("{}", case.name);
+        }
+        return Ok(summary);
+    }
     status(
         "Compiling",
         format!(
             "{} v{} tests ({})",
             root.manifest.name,
             root.manifest.version,
-            options.profile.name()
+            options.build.profile.name()
         ),
     );
-    let output = output_directory(&project, options.profile).join("tests");
+    let output = output_directory(&project, options.build.profile).join("tests");
     std::fs::create_dir_all(&output)?;
     let graph = project.test_graph();
-    let compile = compile_options(options);
-    let mut executables = vec![];
-    for test in &tests {
-        let name = test.file_stem().unwrap().to_string_lossy().into_owned();
-        let executable = output.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-        crate::compile_package_to_executable(test, &graph, &executable, &compile)?;
-        executables.push((name, executable));
+    let compile = compile_options(&options.build);
+    let mut executables = vec![None; files.len()];
+    for case in &cases {
+        if executables[case.file].is_some() {
+            continue;
+        }
+        let (path, kind) = &files[case.file];
+        let stem = path.file_stem().unwrap().to_string_lossy();
+        let executable = output.join(format!("{stem}{}", std::env::consts::EXE_SUFFIX));
+        match kind {
+            crate::frontend::TestFile::Program => {
+                crate::compile_package_to_executable(path, &graph, &executable, &compile)?
+            }
+            crate::frontend::TestFile::Functions(functions) => {
+                crate::codegen::compile_tests_to_executable(
+                    path,
+                    &graph,
+                    functions,
+                    &executable,
+                    &compile,
+                )?
+            }
+        }
+        executables[case.file] = Some(executable);
     }
-    let mut summary = TestSummary::default();
-    let plural = if executables.len() == 1 { "" } else { "s" };
-    println!("running {} test{plural}", executables.len());
-    for (name, executable) in executables {
-        let status = Command::new(&executable)
+    let plural = if cases.len() == 1 { "" } else { "s" };
+    println!("running {} test{plural}", cases.len());
+    let mut failures = vec![];
+    for case in &cases {
+        let executable = executables[case.file].as_ref().unwrap();
+        let mut command = Command::new(executable);
+        command
             .current_dir(&root.directory)
-            .status()
-            .map_err(|e| format!("running {}: {e}", executable.display()))?;
-        if status.success() {
-            println!("test {name} ... ok");
-            summary.passed.push(name);
+            .stdin(std::process::Stdio::null());
+        if let Some(function) = &case.function {
+            command.arg(function);
+        }
+        if let Some(seed) = options.seed {
+            command.env("PLENTY_TEST_SEED", seed.to_string());
+        }
+        let run = |e: std::io::Error| format!("running {}: {e}", executable.display());
+        let (status, captured) = if options.no_capture {
+            (command.status().map_err(run)?, vec![])
         } else {
-            let detail = match status.code() {
-                Some(code) => format!("exit status {code}"),
-                None => "terminated by a signal".into(),
-            };
-            println!("test {name} ... FAILED ({detail})");
-            summary.failed.push(name);
+            // One file for both streams keeps their interleaving, and unlike
+            // a pipe it cannot fill up and stall the test.
+            let mut log = tempfile::tempfile()?;
+            command.stdout(log.try_clone()?).stderr(log.try_clone()?);
+            let status = command.status().map_err(run)?;
+            let mut captured = vec![];
+            std::io::Seek::rewind(&mut log)?;
+            std::io::Read::read_to_end(&mut log, &mut captured)?;
+            (status, captured)
+        };
+        if status.success() {
+            println!("test {} ... ok", case.name);
+            summary.passed.push(case.name.clone());
+        } else {
+            println!("test {} ... FAILED ({})", case.name, describe(status));
+            summary.failed.push(case.name.clone());
+            failures.push((case.name.clone(), captured));
         }
     }
+    if !options.no_capture && failures.iter().any(|(_, output)| !output.is_empty()) {
+        println!("\nfailures:");
+        for (name, captured) in &failures {
+            if captured.is_empty() {
+                continue;
+            }
+            println!("\n---- {name} output ----");
+            print!("{}", String::from_utf8_lossy(captured));
+            if !captured.ends_with(b"\n") {
+                println!();
+            }
+        }
+    }
+    let filtered = if options.filters.is_empty() {
+        String::new()
+    } else {
+        format!("; {} filtered out", summary.filtered)
+    };
     println!(
-        "\ntest result: {}. {} passed; {} failed",
+        "\ntest result: {}. {} passed; {} failed{filtered}",
         if summary.failed.is_empty() {
             "ok"
         } else {
@@ -645,6 +772,20 @@ pub fn test(directory: &Path, options: &BuildOptions) -> Result<TestSummary> {
         summary.failed.len()
     );
     Ok(summary)
+}
+
+fn describe(status: std::process::ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("exit status {code}");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return format!("terminated by signal {signal}");
+        }
+    }
+    "terminated abnormally".into()
 }
 
 /// Remove `target/` from the project at or above `directory`.
