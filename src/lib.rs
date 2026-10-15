@@ -34,6 +34,7 @@ mod process;
 pub mod project;
 mod record;
 mod regex;
+mod sqlite;
 mod stream;
 mod sum;
 mod tail_abi;

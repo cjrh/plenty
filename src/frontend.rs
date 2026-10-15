@@ -2099,6 +2099,7 @@ pub(crate) fn builtin(name: &str) -> bool {
         || crate::time::TimeOp::named(name).is_some()
         || crate::unicode::UnicodeOp::named(name).is_some()
         || crate::regex::RegexOp::named(name).is_some()
+        || crate::sqlite::SqliteOp::named(name).is_some()
         || matches!(
             name,
             "print"
@@ -3224,6 +3225,9 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::regex::RegexOp::named(name) {
                     return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
+                }
+                if let Some(operation) = crate::sqlite::SqliteOp::named(name) {
+                    return self.system_call(CollectionOp::Sqlite(operation), args, &e.at, ops);
                 }
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));

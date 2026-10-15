@@ -11,7 +11,7 @@ crate-type = ["rlib", "staticlib"]
 allocation-checks = []
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(plenty_runtime_embedded)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(plenty_runtime_embedded)', 'cfg(plenty_runtime_sqlite)'] }
 
 [dependencies]
 hmac = "=0.12.1"

@@ -117,6 +117,7 @@ impl CollectionOp {
             Filesystem(op) => op.effect(),
             Stream(op) => op.effect(),
             Process(op) => op.effect(),
+            Sqlite(op) => op.effect(),
             Time(_) => Effect::Clock,
             // These primitive families transform caller-owned memory only.
             Bytes(_) | Crypto(_) | Compress(_) | Regex(_) | Unicode(_) => Effect::Compute,

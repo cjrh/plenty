@@ -75,6 +75,8 @@ impl Lowerer<'_, '_> {
             self.runtime.crypto
         } else if (320..340).contains(&opcode) {
             self.runtime.compress
+        } else if (440..470).contains(&opcode) {
+            self.runtime.sqlite
         } else {
             self.runtime.collection
         };
@@ -185,6 +187,7 @@ impl Lowerer<'_, '_> {
             | CollectionOp::Bytes(_)
             | CollectionOp::Crypto(_)
             | CollectionOp::Compress(_)
+            | CollectionOp::Sqlite(_)
             | CollectionOp::Process(_) => Some(&output),
             CollectionOp::Args
             | CollectionOp::ArgsBytes

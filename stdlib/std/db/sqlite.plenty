@@ -1,0 +1,389 @@
+# SQLite databases through prepared statements with typed parameters and
+# typed, copied-out column values. SQLite itself is vendored C in the runtime;
+# this module owns the error model, row state and transaction ownership. See
+# book/src/design/stdlib/sqlite.md.
+import std.bytes
+from std.bytes import Bytes, BytesError
+
+pub enum Mode:
+    ReadOnly
+    ReadWrite
+    Create
+
+pub enum Begin:
+    Deferred
+    Immediate
+    Exclusive
+
+pub enum ValueType:
+    Integer
+    Real
+    Text
+    Blob
+    Null
+
+# A failure SQLite reported: its extended result code and message.
+pub class SqliteError:
+    pub code: i64
+    pub message: str
+
+    # The primary result code, such as `busy` or `constraint`.
+    pub def primary(self) -> i64:
+        self.code % 256
+
+pub enum DbError:
+    Sqlite(SqliteError)
+    Closed
+    InUse
+    EmptySql
+    TrailingSql
+    TransactionActive
+    TransactionFinished
+    InvalidPath
+    OutOfRange
+    NoRow
+    TypeMismatch(ValueType)
+    TooLarge
+    InvalidUtf8
+    Allocation(AllocError)
+
+# Primary result codes worth naming; compare with SqliteError.primary().
+pub const error: i64 = 1
+pub const busy: i64 = 5
+pub const locked: i64 = 6
+pub const read_only: i64 = 8
+pub const cant_open: i64 = 14
+pub const constraint: i64 = 19
+pub const mismatch: i64 = 20
+
+# The range of length limits `connect` and `memory` accept. The upper bound
+# is SQLite's own maximum.
+pub const min_length_limit: i64 = 1024
+pub const max_length_limit: i64 = 1000000000
+
+const row_code: i64 = 100
+const done_code: i64 = 101
+
+def message() -> str:
+    match __sqlite_message():
+        case Ok(text):
+            text
+        case Err(_):
+            ""
+
+def failure(code: i64) -> DbError:
+    match code:
+        case -1:
+            DbError.TrailingSql
+        case -2:
+            DbError.EmptySql
+        case -3:
+            DbError.TransactionActive
+        case -4:
+            DbError.InvalidUtf8
+        case -5:
+            DbError.InUse
+        case -6:
+            DbError.Closed
+        case -7:
+            DbError.TransactionFinished
+        case -8:
+            DbError.InvalidPath
+        case _:
+            match code % 256:
+                case 7:
+                    DbError.Allocation(AllocError.OutOfMemory)
+                case 18:
+                    DbError.TooLarge
+                case 25:
+                    DbError.OutOfRange
+                case _:
+                    DbError.Sqlite(SqliteError(code, message()))
+
+def status(code: i64) -> Result[(), DbError]:
+    if code != 0:
+        return Err(failure(code))
+    Ok(())
+
+def handle(result: Result[ByteStorage, i64]) -> Result[ByteStorage, DbError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(code):
+            Err(failure(code))
+
+def blob(result: Result[Bytes, BytesError]) -> Result[Bytes, DbError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(DbError.Allocation(cause))
+                case _:
+                    Err(DbError.OutOfRange)
+
+def value_type(code: i64) -> ValueType:
+    match code:
+        case 1:
+            ValueType.Integer
+        case 2:
+            ValueType.Real
+        case 3:
+            ValueType.Text
+        case 4:
+            ValueType.Blob
+        case _:
+            ValueType.Null
+
+# A connection to one database. Statements and transactions keep it open;
+# `close` reports InUse while any is alive, and dropping the last owner
+# closes it.
+pub class Connection:
+    _handle: ByteStorage
+
+    # Runs every statement in `sql` to completion, discarding rows. For
+    # schema and fixed SQL; anything with values belongs in `prepare`.
+    pub def execute(self: &mut Connection, sql: &str) -> Result[(), DbError]:
+        status(__sqlite_execute(self._handle, sql))
+
+    # Compiles exactly one statement; more is TrailingSql, none EmptySql.
+    pub def prepare(self: &mut Connection, sql: &str) -> Result[Statement, DbError]:
+        owner = handle(__sqlite_prepare(self._handle, sql))?
+        columns = __sqlite_column_count(owner)
+        Ok(Statement(owner, columns, False, False))
+
+    # Starts a transaction. Dropping it without `commit` rolls back.
+    pub def begin(self: &mut Connection, mode: Begin) -> Result[Transaction, DbError]:
+        code = match mode:
+            case Begin.Deferred:
+                0
+            case Begin.Immediate:
+                1
+            case Begin.Exclusive:
+                2
+        Ok(Transaction(handle(__sqlite_begin(self._handle, code))?))
+
+    # Rows changed by the most recent INSERT, UPDATE or DELETE.
+    pub def changes(self) -> i64:
+        __sqlite_changes(self._handle)
+
+    pub def last_insert_rowid(self) -> i64:
+        __sqlite_last_rowid(self._handle)
+
+    # How long a locked database is retried before Busy. The default, 0,
+    # fails at once.
+    pub def set_busy_timeout(self: &mut Connection, milliseconds: i64) -> Result[(), DbError]:
+        if milliseconds < 0 or milliseconds > 2147483647:
+            return Err(DbError.OutOfRange)
+        status(__sqlite_busy_timeout(self._handle, milliseconds))
+
+    # Closes now, reporting failure. Later operations report Closed.
+    pub def close(self: &mut Connection) -> Result[(), DbError]:
+        status(__sqlite_close(self._handle))
+
+def opened(path: &str, flags: i64, limit: i64) -> Result[Connection, DbError]:
+    if limit < min_length_limit or limit > max_length_limit:
+        return Err(DbError.OutOfRange)
+    Ok(Connection(handle(__sqlite_open(path, flags, limit))?))
+
+# Opens the database file at `path`. No text, blob or row longer than
+# `max_length` bytes can be stored or read through the connection.
+pub def connect(path: &str, mode: Mode, max_length: i64) -> Result[Connection, DbError]:
+    if path == "" or path == ":memory:":
+        return Err(DbError.InvalidPath)
+    flags = match mode:
+        case Mode.ReadOnly:
+            1
+        case Mode.ReadWrite:
+            2
+        case Mode.Create:
+            6
+    opened(path, flags, max_length)
+
+# A private database in memory, gone when the connection closes.
+pub def memory(max_length: i64) -> Result[Connection, DbError]:
+    opened(":memory:", 6, max_length)
+
+# One compiled statement. Parameters are numbered from 1, columns from 0.
+# Binding after a step resets the statement first. A statement that has
+# finished stays finished until `reset`.
+pub class Statement:
+    _handle: ByteStorage
+    _columns: i64
+    _stepped: bool
+    _row: bool
+
+    def rewound(self: &mut Statement) -> ():
+        if self._stepped:
+            __sqlite_reset(self._handle)
+            self._stepped = False
+            self._row = False
+
+    pub def parameter_count(self) -> i64:
+        __sqlite_parameter_count(self._handle)
+
+    # The number of a named parameter such as `:name`, including its prefix.
+    pub def parameter_index(self, name: &str) -> Result[i64, DbError]:
+        index = __sqlite_parameter_index(self._handle, name)
+        if index < 0:
+            return Err(DbError.Allocation(AllocError.OutOfMemory))
+        if index == 0:
+            return Err(DbError.OutOfRange)
+        Ok(index)
+
+    pub def bind_null(self: &mut Statement, index: i64) -> Result[(), DbError]:
+        self.rewound()
+        status(__sqlite_bind_null(self._handle, index))
+
+    pub def bind_integer(self: &mut Statement, index: i64, value: i64) -> Result[(), DbError]:
+        self.rewound()
+        status(__sqlite_bind_integer(self._handle, index, value))
+
+    # NaN is OutOfRange: SQLite would store it as NULL.
+    pub def bind_real(self: &mut Statement, index: i64, value: f64) -> Result[(), DbError]:
+        if value != value:
+            return Err(DbError.OutOfRange)
+        self.rewound()
+        status(__sqlite_bind_real(self._handle, index, value))
+
+    pub def bind_text(self: &mut Statement, index: i64, value: &str) -> Result[(), DbError]:
+        self.rewound()
+        status(__sqlite_bind_text(self._handle, index, value))
+
+    pub def bind_blob(self: &mut Statement, index: i64, value: &Bytes) -> Result[(), DbError]:
+        self.rewound()
+        status(value.sqlite_bind(&self._handle, index))
+
+    # Sets every parameter back to NULL.
+    pub def clear_bindings(self: &mut Statement) -> Result[(), DbError]:
+        self.rewound()
+        status(__sqlite_clear_bindings(self._handle))
+
+    # Advances to the next row: True when one is current, False once the
+    # statement has finished.
+    pub def step(self: &mut Statement) -> Result[bool, DbError]:
+        if self._stepped and not self._row:
+            return Ok(False)
+        code = __sqlite_step(self._handle)
+        self._stepped = True
+        self._row = code == row_code
+        if self._row:
+            return Ok(True)
+        if code == done_code:
+            return Ok(False)
+        # A failed step leaves the statement ready to run again.
+        self.rewound()
+        Err(failure(code))
+
+    # Rewinds to run again with the same bindings.
+    pub def reset(self: &mut Statement) -> ():
+        self._stepped = True
+        self.rewound()
+
+    # Resets, runs to completion discarding rows, and resets again.
+    pub def run(self: &mut Statement) -> Result[(), DbError]:
+        self.reset()
+        while self.step()?:
+            pass
+        self.reset()
+        Ok(())
+
+    pub def column_count(self) -> i64:
+        self._columns
+
+    pub def column_name(self, column: i64) -> Result[str, DbError]:
+        if column < 0 or column >= self._columns:
+            return Err(DbError.OutOfRange)
+        match __sqlite_column_name(self._handle, column):
+            case Ok(name):
+                Ok(name)
+            case Err(code):
+                Err(failure(code))
+
+    # The storage class of a column of the current row.
+    pub def kind(self, column: i64) -> Result[ValueType, DbError]:
+        if not self._row:
+            return Err(DbError.NoRow)
+        if column < 0 or column >= self._columns:
+            return Err(DbError.OutOfRange)
+        Ok(value_type(__sqlite_column_type(self._handle, column)))
+
+    pub def is_null(self, column: i64) -> Result[bool, DbError]:
+        match self.kind(column)?:
+            case ValueType.Null:
+                Ok(True)
+            case _:
+                Ok(False)
+
+    # Each typed read requires that storage class exactly: no conversion.
+    pub def integer(self, column: i64) -> Result[i64, DbError]:
+        found = self.kind(column)?
+        match found:
+            case ValueType.Integer:
+                Ok(__sqlite_column_integer(self._handle, column))
+            case _:
+                Err(DbError.TypeMismatch(found))
+
+    pub def real(self, column: i64) -> Result[f64, DbError]:
+        found = self.kind(column)?
+        match found:
+            case ValueType.Real:
+                Ok(__sqlite_column_real(self._handle, column))
+            case _:
+                Err(DbError.TypeMismatch(found))
+
+    pub def text(self, column: i64) -> Result[str, DbError]:
+        found = self.kind(column)?
+        match found:
+            case ValueType.Text:
+                pass
+            case _:
+                return Err(DbError.TypeMismatch(found))
+        match __sqlite_column_text(self._handle, column):
+            case Ok(text):
+                Ok(text)
+            case Err(code):
+                Err(failure(code))
+
+    pub def blob(self, column: i64) -> Result[Bytes, DbError]:
+        found = self.kind(column)?
+        match found:
+            case ValueType.Blob:
+                pass
+            case _:
+                return Err(DbError.TypeMismatch(found))
+        blob(std.bytes.sqlite_column(&self._handle, column))
+
+    # The optional reads give Nothing for NULL and otherwise match the
+    # strict reads.
+    pub def optional_integer(self, column: i64) -> Result[Option[i64], DbError]:
+        if self.is_null(column)?:
+            return Ok(Nothing)
+        Ok(Some(self.integer(column)?))
+
+    pub def optional_real(self, column: i64) -> Result[Option[f64], DbError]:
+        if self.is_null(column)?:
+            return Ok(Nothing)
+        Ok(Some(self.real(column)?))
+
+    pub def optional_text(self, column: i64) -> Result[Option[str], DbError]:
+        if self.is_null(column)?:
+            return Ok(Nothing)
+        Ok(Some(self.text(column)?))
+
+    pub def optional_blob(self, column: i64) -> Result[Option[Bytes], DbError]:
+        if self.is_null(column)?:
+            return Ok(Nothing)
+        Ok(Some(self.blob(column)?))
+
+# An open transaction. `commit` or `rollback` finishes it; dropping it
+# unfinished rolls back. A Busy commit leaves it open to retry.
+pub class Transaction:
+    _handle: ByteStorage
+
+    pub def commit(self: &mut Transaction) -> Result[(), DbError]:
+        status(__sqlite_commit(self._handle))
+
+    pub def rollback(self: &mut Transaction) -> Result[(), DbError]:
+        status(__sqlite_rollback(self._handle))

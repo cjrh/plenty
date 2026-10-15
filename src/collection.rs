@@ -13,6 +13,7 @@ pub enum CollectionOp {
     Time(crate::time::TimeOp),
     Unicode(crate::unicode::UnicodeOp),
     Regex(crate::regex::RegexOp),
+    Sqlite(crate::sqlite::SqliteOp),
     OpenFile,
     FileClose,
     FileClosed,
@@ -192,6 +193,7 @@ impl CollectionOp {
             Time(op) => op.signature(),
             Unicode(op) => op.signature(),
             Regex(op) => op.signature(),
+            Sqlite(op) => op.signature(),
             OpenFile => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::File, crate::sum::io_error()),
@@ -537,6 +539,7 @@ impl CollectionOp {
             Self::Time(op) => op.opcode(),
             Self::Unicode(op) => op.opcode(),
             Self::Regex(op) => op.opcode(),
+            Self::Sqlite(op) => op.opcode(),
             Self::WriteStdout => 80,
             Self::FlushStdout => 81,
             Self::WriteStderr => 82,

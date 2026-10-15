@@ -66,6 +66,9 @@ impl ModuleSource {
                 Ok(include_str!("../../stdlib/std/archive.plenty").into())
             }
             Self::Standard("std.regex") => Ok(include_str!("../../stdlib/std/regex.plenty").into()),
+            Self::Standard("std.db.sqlite") => {
+                Ok(include_str!("../../stdlib/std/db/sqlite.plenty").into())
+            }
             Self::Standard("std.crypto") => {
                 Ok(include_str!("../../stdlib/std/crypto.plenty").into())
             }
@@ -729,8 +732,9 @@ pub(super) fn load_graph(
                     "std.env" => Ok(ModuleSource::Standard("std.env")),
                     "std.process" => Ok(ModuleSource::Standard("std.process")),
                     "std.ready" => Ok(ModuleSource::Standard("std.ready")),
+                    "std.db.sqlite" => Ok(ModuleSource::Standard("std.db.sqlite")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready, std.db.sqlite",
                         import.module
                 ))),
                 };
