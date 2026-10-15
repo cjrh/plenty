@@ -12,6 +12,7 @@ pub enum CollectionOp {
     Process(crate::process::ProcessOp),
     Time(crate::time::TimeOp),
     Unicode(crate::unicode::UnicodeOp),
+    Regex(crate::regex::RegexOp),
     OpenFile,
     FileClose,
     FileClosed,
@@ -190,6 +191,7 @@ impl CollectionOp {
             Process(op) => op.signature(),
             Time(op) => op.signature(),
             Unicode(op) => op.signature(),
+            Regex(op) => op.signature(),
             OpenFile => (
                 vec![Ty::Str, Ty::Str],
                 crate::sum::result(Ty::File, crate::sum::io_error()),
@@ -534,6 +536,7 @@ impl CollectionOp {
             Self::Process(op) => op.opcode(),
             Self::Time(op) => op.opcode(),
             Self::Unicode(op) => op.opcode(),
+            Self::Regex(op) => op.opcode(),
             Self::WriteStdout => 80,
             Self::FlushStdout => 81,
             Self::WriteStderr => 82,

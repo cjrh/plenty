@@ -31,6 +31,7 @@ mod ownership;
 mod parallel;
 mod process;
 mod record;
+mod regex;
 mod stream;
 mod sum;
 mod tail_abi;

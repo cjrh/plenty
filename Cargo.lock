@@ -572,6 +572,7 @@ dependencies = [
  "log",
  "object",
  "pretty_env_logger",
+ "regex",
  "rstest",
  "sha2",
  "target-lexicon",
