@@ -51,7 +51,7 @@ fn create(capacity: usize) -> Result<*mut Storage, AllocError> {
     Ok(owner)
 }
 
-fn from_slice(source: &[u8]) -> Result<u128, AllocError> {
+pub(super) fn from_slice(source: &[u8]) -> Result<u128, AllocError> {
     let owner = create(source.len())?;
     // SAFETY: `create` reserved the full length for its sole owner.
     unsafe { (*owner).bytes.extend_from_slice(source) };

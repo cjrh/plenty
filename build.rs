@@ -87,8 +87,62 @@ fn main() {
         std::env::var("TARGET").unwrap()
     );
     let vendor = build_vendored(&out);
+    build_sqlite(&vendor);
     build_runtime(&out, &vendor, true);
     build_runtime(&out, &vendor, false);
+}
+
+/// The SQLite amalgamation behind `std.db.sqlite`, unmodified C from
+/// sqlite.org. Both runtime archives bundle it. Function and data sections
+/// let `--gc-sections` drop it from programs that never call `plenty_sqlite`.
+/// See book/src/design/stdlib/sqlite.md for the options and update policy.
+const SQLITE: &str = "plenty-runtime/native/sqlite-3.54.0";
+const SQLITE_OPTIONS: &[&str] = &[
+    "-DSQLITE_THREADSAFE=1",
+    "-DSQLITE_DEFAULT_MEMSTATUS=0",
+    "-DSQLITE_DQS=0",
+    "-DSQLITE_LIKE_DOESNT_MATCH_BLOBS",
+    "-DSQLITE_OMIT_DEPRECATED",
+    "-DSQLITE_OMIT_LOAD_EXTENSION",
+    "-DSQLITE_OMIT_SHARED_CACHE",
+];
+
+fn build_sqlite(dir: &Path) {
+    println!("cargo:rerun-if-changed={SQLITE}");
+    println!("cargo:rerun-if-env-changed=CC");
+    println!("cargo:rerun-if-env-changed=AR");
+    let object = dir.join("sqlite3.o");
+    let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
+    let output = Command::new(&cc)
+        .args(["-c", "-O2", "-fPIC", "-g0", "-w"])
+        .args(["-ffunction-sections", "-fdata-sections"])
+        .arg(format!("-ffile-prefix-map={}=/plenty", manifest.display()))
+        .args(SQLITE_OPTIONS)
+        .arg(format!("{SQLITE}/sqlite3.c"))
+        .arg("-o")
+        .arg(&object)
+        .output()
+        .expect("invoke the C compiler for SQLite; std.db.sqlite needs `cc`");
+    assert!(
+        output.status.success(),
+        "compiling SQLite failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let archive = dir.join("libplenty_sqlite.a");
+    let _ = std::fs::remove_file(&archive);
+    let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
+    let output = Command::new(&ar)
+        .arg("crsD")
+        .arg(&archive)
+        .arg(&object)
+        .output()
+        .expect("invoke `ar` to archive SQLite");
+    assert!(
+        output.status.success(),
+        "archiving SQLite failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn remap(rustc: &mut Command, out: &Path) {
@@ -191,12 +245,18 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
         "cfg(plenty_runtime_embedded)",
         "--check-cfg",
         "cfg(feature, values(\"allocation-checks\"))",
+        "--check-cfg",
+        "cfg(plenty_runtime_sqlite)",
+        "--cfg",
+        "plenty_runtime_sqlite",
+        "-lstatic=plenty_sqlite",
         "--print",
         "native-static-libs",
         "-o",
     ]);
     rustc.arg(&archive);
     rustc.arg(format!("-Ldependency={}", vendor.display()));
+    rustc.arg(format!("-Lnative={}", vendor.display()));
     for name in RUNTIME_EXTERNS {
         rustc.arg(extern_arg(vendor, name));
     }

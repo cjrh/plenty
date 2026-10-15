@@ -235,6 +235,11 @@ pub class Bytes:
         checked(start, stop, __bytes_len(self._owner))?
         Ok(__compress_crc32(seed, self._owner, start, stop))
 
+    # std.db.sqlite's blob binding; import that module instead. A handle
+    # that is not a prepared statement stops the process.
+    pub def sqlite_bind(self, statement: &ByteStorage, index: i64) -> i64:
+        __sqlite_bind_blob(statement, index, self._owner)
+
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)
@@ -293,3 +298,7 @@ pub def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, Byt
     if capacity < 0:
         return Err(BytesError.OutOfRange)
     Ok(Bytes(allocated(__compress_new(kind, level, capacity))?))
+
+# std.db.sqlite's blob column read. Import std.db.sqlite instead.
+pub def sqlite_column(statement: &ByteStorage, column: i64) -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__sqlite_column_blob(statement, column))?))

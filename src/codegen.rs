@@ -529,6 +529,9 @@ struct Runtime {
     crypto: FuncId,
     /// `std.compress` primitives, separate for the same reason.
     compress: FuncId,
+    /// `std.db.sqlite` primitives, separate so SQLite stays out of programs
+    /// that never open a database.
+    sqlite: FuncId,
     list_len: FuncId,
     list_scalar_get: FuncId,
     channel: FuncId,
@@ -697,6 +700,12 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
             sig.call_conv = CallConv::SystemV;
             sig.params.extend([AbiParam::new(PTR_TY); 4]);
             module.declare_function("plenty_compress", Linkage::Import, &sig)?
+        },
+        sqlite: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([AbiParam::new(PTR_TY); 4]);
+            module.declare_function("plenty_sqlite", Linkage::Import, &sig)?
         },
         list_len: {
             let mut sig = module.make_signature();

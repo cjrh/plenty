@@ -19,6 +19,8 @@ mod filesystem;
 mod process;
 #[cfg(test)]
 mod removal_tests;
+#[cfg(plenty_runtime_sqlite)]
+mod sqlite;
 
 #[repr(C)]
 pub(crate) struct Variant {
@@ -1337,6 +1339,23 @@ pub(crate) unsafe extern "C" fn plenty_compress(
     unsafe {
         let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
         args.add(3).cast_mut().write(compress::call(op, operands));
+    }
+}
+
+/// `std.db.sqlite` operations under their own symbol, as for
+/// `plenty_crypto`: a program that never opens a database links without SQLite.
+#[cfg(plenty_runtime_sqlite)]
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_sqlite(
+    op: i64,
+    args: *const u128,
+    _descriptor: *const Type,
+    _site: *const crate::Site,
+) {
+    // SAFETY: as for `plenty_crypto`.
+    unsafe {
+        let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
+        args.add(3).cast_mut().write(sqlite::call(op, operands));
     }
 }
 

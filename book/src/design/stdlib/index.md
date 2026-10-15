@@ -41,6 +41,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.archive`](archive.md) | TAR and ZIP readers and writers over `std.io`, and extraction into a new directory under explicit path, link, and size limits | `ArchiveError` |
 | [`std.regex`](regex.md) | Linear-time regular expressions over text and bytes: search, captures, iteration, split, and replacement under explicit pattern, memory, and work limits | `RegexError` |
 | [`std.test`](test.md) | Assertions that explain their failure on standard error, self-removing scratch directories, and the seeded generator for `plenty test` | `TestError` |
+| [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
 | [`std.log`](log.md) | Leveled events with typed fields, delivered to caller-chosen sinks: logfmt lines, bounded memory, or a nonblocking channel | `LogError` |
 | [`std.toml`](toml.md) | Strict TOML 1.0 parsing into a value tree and writing back as text, under depth, input, and output limits | `TomlError` |
