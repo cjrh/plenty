@@ -25,21 +25,116 @@ pub struct Manifest {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Dependency {
+pub struct Dependency {
+    pub source: Source,
+    /// Checked against the resolved package's version; never selects one.
+    pub version: Option<VersionReq>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Source {
     /// A live local directory, relative to the declaring manifest.
     Path(PathBuf),
     /// A Git repository at an exact tag or revision.
     Git {
         url: String,
+        /// Relative directory of the package inside the repository.
         subdir: Option<String>,
         selector: GitSelector,
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GitSelector {
     Tag(String),
     Rev(String),
+}
+
+impl std::fmt::Display for GitSelector {
+    /// The spelling `plenty.lock` records: `tag=NAME` or `rev=HEX`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GitSelector::Tag(tag) => write!(f, "tag={tag}"),
+            GitSelector::Rev(rev) => write!(f, "rev={rev}"),
+        }
+    }
+}
+
+/// A requirement on a dependency's `version`: `X.Y.Z` or `^X.Y.Z` (the same
+/// leftmost nonzero component and at least `X.Y.Z`), `=X.Y.Z`, or `>=X.Y.Z`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VersionReq {
+    pub op: VersionOp,
+    pub version: [u64; 3],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VersionOp {
+    Compatible,
+    Exact,
+    AtLeast,
+}
+
+impl VersionReq {
+    pub fn parse(text: &str) -> Option<VersionReq> {
+        let (op, rest) = if let Some(rest) = text.strip_prefix(">=") {
+            (VersionOp::AtLeast, rest)
+        } else if let Some(rest) = text.strip_prefix('=') {
+            (VersionOp::Exact, rest)
+        } else if let Some(rest) = text.strip_prefix('^') {
+            (VersionOp::Compatible, rest)
+        } else {
+            (VersionOp::Compatible, text)
+        };
+        Some(VersionReq {
+            op,
+            version: parse_version(rest)?,
+        })
+    }
+
+    pub fn matches(&self, version: [u64; 3]) -> bool {
+        let want = self.version;
+        match self.op {
+            VersionOp::Exact => version == want,
+            VersionOp::AtLeast => version >= want,
+            VersionOp::Compatible => {
+                // Cargo's caret rule: components up to the first nonzero one
+                // must match exactly.
+                let fixed = want.iter().position(|&c| c != 0).unwrap_or(2);
+                version >= want && version[..=fixed] == want[..=fixed]
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for VersionReq {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [major, minor, patch] = self.version;
+        let op = match self.op {
+            VersionOp::Compatible => "^",
+            VersionOp::Exact => "=",
+            VersionOp::AtLeast => ">=",
+        };
+        write!(f, "{op}{major}.{minor}.{patch}")
+    }
+}
+
+/// A manifest file: a package, a workspace, or both.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Document {
+    pub package: Option<Manifest>,
+    /// `[workspace] members`: package directories relative to this manifest.
+    pub members: Option<Vec<PathBuf>>,
+}
+
+/// A relative path of plain components, such as a repository `subdir` or a
+/// workspace member: it cannot climb out of the directory it is relative to.
+pub fn plain_relative(text: &str) -> bool {
+    let path = Path::new(text);
+    !text.is_empty()
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
 /// Package names and dependency aliases are import roots, so they must be
@@ -132,15 +227,30 @@ impl Reader<'_> {
     }
 }
 
-/// Parse a manifest. `name` labels diagnostics; `directory` locates default
-/// targets, which exist only if their files do.
+/// Parse a package manifest. `name` labels diagnostics; `directory` locates
+/// default targets, which exist only if their files do.
 pub fn parse(text: &str, name: &str, directory: &Path) -> Result<Manifest, String> {
+    parse_document(text, name, directory)?
+        .package
+        .ok_or_else(|| format!("{name}: missing [package] table"))
+}
+
+/// Parse a manifest that may declare a `[workspace]` instead of, or as well
+/// as, a package.
+pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Document, String> {
     let document = toml::parse(text, name)?;
     let reader = Reader { name };
     reader.known(
         &document,
         "the manifest",
-        &["manifest-version", "package", "lib", "bin", "dependencies"],
+        &[
+            "manifest-version",
+            "package",
+            "lib",
+            "bin",
+            "dependencies",
+            "workspace",
+        ],
     )?;
     match document.get("manifest-version") {
         None => {
@@ -161,8 +271,51 @@ pub fn parse(text: &str, name: &str, directory: &Path) -> Result<Manifest, Strin
             )
         }
     }
+    let members = match document.get("workspace") {
+        None => None,
+        Some(entry) => {
+            let table = reader.table("workspace", entry)?;
+            reader.known(table, "[workspace]", &["members"])?;
+            let Some(members) = table.get("members") else {
+                return reader.error(entry, "[workspace] requires `members`");
+            };
+            let paths = match &members.value {
+                Value::Array(items) => items
+                    .iter()
+                    .map(|item| match item {
+                        Value::String(text) if plain_relative(text) => Ok(PathBuf::from(text)),
+                        _ => Err(()),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .ok(),
+                _ => None,
+            };
+            let Some(paths) = paths else {
+                return reader.error(
+                    members,
+                    "`members` must be an array of relative directories below the workspace",
+                );
+            };
+            Some(paths)
+        }
+    };
     let Some(package) = document.get("package") else {
-        return Err(format!("{name}: missing [package] table"));
+        if members.is_none() {
+            return Err(format!("{name}: missing [package] table"));
+        }
+        if let Some(key) = ["lib", "bin", "dependencies"]
+            .into_iter()
+            .find(|k| document.contains_key(*k))
+        {
+            return reader.error(
+                &document[key],
+                format!("`{key}` requires a [package] table; a workspace without one has no targets or dependencies"),
+            );
+        }
+        return Ok(Document {
+            package: None,
+            members,
+        });
     };
     let package_entry = package;
     let package = reader.table("package", package)?;
@@ -302,10 +455,24 @@ pub fn parse(text: &str, name: &str, directory: &Path) -> Result<Manifest, Strin
             reader.known(
                 table,
                 &format!("dependency `{alias}`"),
-                &["path", "git", "subdir", "tag", "rev"],
+                &["path", "git", "subdir", "tag", "rev", "version"],
             )?;
             let field = |key: &str| table.get(key).map(|e| reader.string(key, e)).transpose();
-            let dependency = match (field("path")?, field("git")?) {
+            let version_req = match field("version")? {
+                None => None,
+                Some(text) => Some(VersionReq::parse(&text).map_or_else(
+                    || {
+                        reader.error(
+                            &table["version"],
+                            format!(
+                                "dependency `{alias}`: version requirement {text:?} must be X.Y.Z, ^X.Y.Z, =X.Y.Z, or >=X.Y.Z"
+                            ),
+                        )
+                    },
+                    Ok,
+                )?),
+            };
+            let source = match (field("path")?, field("git")?) {
                 (Some(path), None) => {
                     if let Some(key) = ["subdir", "tag", "rev"]
                         .into_iter()
@@ -321,12 +488,45 @@ pub fn parse(text: &str, name: &str, directory: &Path) -> Result<Manifest, Strin
                     if path.is_empty() {
                         return reader.error(entry, format!("dependency `{alias}`: empty path"));
                     }
-                    Dependency::Path(PathBuf::from(path))
+                    Source::Path(PathBuf::from(path))
                 }
                 (None, Some(url)) => {
+                    // `git` takes these as arguments, so a leading `-` must
+                    // never reach it as an option.
+                    if url.is_empty() || url.starts_with('-') {
+                        return reader.error(
+                            &table["git"],
+                            format!("dependency `{alias}`: invalid git URL {url:?}"),
+                        );
+                    }
                     let selector = match (field("tag")?, field("rev")?) {
-                        (Some(tag), None) => GitSelector::Tag(tag),
-                        (None, Some(rev)) => GitSelector::Rev(rev),
+                        (Some(tag), None) => {
+                            if tag.is_empty()
+                                || tag.starts_with('-')
+                                || tag.chars().any(|c| c.is_whitespace() || c.is_control())
+                            {
+                                return reader.error(
+                                    &table["tag"],
+                                    format!("dependency `{alias}`: invalid tag {tag:?}"),
+                                );
+                            }
+                            GitSelector::Tag(tag)
+                        }
+                        (None, Some(rev)) => {
+                            if !(7..=40).contains(&rev.len())
+                                || !rev
+                                    .bytes()
+                                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                            {
+                                return reader.error(
+                                    &table["rev"],
+                                    format!(
+                                        "dependency `{alias}`: rev {rev:?} must be a commit ID of 7 to 40 lowercase hexadecimal digits"
+                                    ),
+                                );
+                            }
+                            GitSelector::Rev(rev)
+                        }
                         _ => {
                             return reader.error(
                                 entry,
@@ -336,9 +536,20 @@ pub fn parse(text: &str, name: &str, directory: &Path) -> Result<Manifest, Strin
                             )
                         }
                     };
-                    Dependency::Git {
+                    let subdir = field("subdir")?;
+                    if let Some(subdir) = &subdir {
+                        if !plain_relative(subdir) {
+                            return reader.error(
+                                &table["subdir"],
+                                format!(
+                                    "dependency `{alias}`: subdir {subdir:?} must be a relative directory inside the repository"
+                                ),
+                            );
+                        }
+                    }
+                    Source::Git {
                         url,
-                        subdir: field("subdir")?,
+                        subdir,
                         selector,
                     }
                 }
@@ -355,19 +566,28 @@ pub fn parse(text: &str, name: &str, directory: &Path) -> Result<Manifest, Strin
                     )
                 }
             };
-            dependencies.insert(alias.clone(), dependency);
+            dependencies.insert(
+                alias.clone(),
+                Dependency {
+                    source,
+                    version: version_req,
+                },
+            );
         }
     }
-    Ok(Manifest {
-        name: package_name,
-        version,
-        description: optional("description")?,
-        authors,
-        license: optional("license")?,
-        plenty_version,
-        library,
-        binaries,
-        dependencies,
+    Ok(Document {
+        package: Some(Manifest {
+            name: package_name,
+            version,
+            description: optional("description")?,
+            authors,
+            license: optional("license")?,
+            plenty_version,
+            library,
+            binaries,
+            dependencies,
+        }),
+        members,
     })
 }
 
@@ -380,9 +600,93 @@ pub fn template(name: &str) -> String {
     )
 }
 
+/// `alias = { ... }`, the inline-table line `plenty add` writes.
+pub fn dependency_line(alias: &str, dependency: &Dependency) -> String {
+    let mut fields = vec![];
+    match &dependency.source {
+        Source::Path(path) => {
+            fields.push(format!(
+                "path = {}",
+                toml::quote(&path.to_string_lossy().replace('\\', "/"))
+            ));
+        }
+        Source::Git {
+            url,
+            subdir,
+            selector,
+        } => {
+            fields.push(format!("git = {}", toml::quote(url)));
+            fields.push(match selector {
+                GitSelector::Tag(tag) => format!("tag = {}", toml::quote(tag)),
+                GitSelector::Rev(rev) => format!("rev = {}", toml::quote(rev)),
+            });
+            if let Some(subdir) = subdir {
+                fields.push(format!("subdir = {}", toml::quote(subdir)));
+            }
+        }
+    }
+    if let Some(version) = &dependency.version {
+        fields.push(format!("version = {}", toml::quote(&version.to_string())));
+    }
+    format!("{alias} = {{ {} }}", fields.join(", "))
+}
+
+/// `text` with `line` added as the last entry of its `[dependencies]` table,
+/// or in a new table at the end. Everything else, including comments and
+/// layout, is kept.
+pub fn insert_dependency(text: &str, line: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let header = lines.iter().position(|l| {
+        l.trim()
+            .strip_prefix("[dependencies]")
+            .is_some_and(|rest| rest.is_empty() || rest.trim_start().starts_with('#'))
+    });
+    let Some(header) = header else {
+        let mut out = text.to_owned();
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&format!("\n[dependencies]\n{line}\n"));
+        return out;
+    };
+    let end = lines[header + 1..]
+        .iter()
+        .position(|l| l.trim_start().starts_with('['))
+        .map_or(lines.len(), |i| header + 1 + i);
+    // After the table's last entry, so blank lines before the next table stay.
+    let at = (header + 1..end)
+        .rev()
+        .find(|&i| {
+            let l = lines[i].trim();
+            !l.is_empty() && !l.starts_with('#')
+        })
+        .map_or(header + 1, |i| i + 1);
+    let mut out: Vec<&str> = lines[..at].to_vec();
+    out.push(line);
+    out.extend(&lines[at..]);
+    out.join("\n") + "\n"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inserting_dependencies_keeps_the_rest() {
+        let line = "x = { path = \"../x\" }";
+        assert_eq!(
+            insert_dependency("a = 1\n\n[dependencies]\ny = 2\n\n# next\n[lib]\n", line),
+            "a = 1\n\n[dependencies]\ny = 2\nx = { path = \"../x\" }\n\n# next\n[lib]\n"
+        );
+        assert_eq!(
+            insert_dependency("a = 1\n[dependencies]\n", line),
+            "a = 1\n[dependencies]\nx = { path = \"../x\" }\n"
+        );
+        assert_eq!(
+            insert_dependency("a = 1", line),
+            "a = 1\n\n[dependencies]\nx = { path = \"../x\" }\n"
+        );
+    }
 
     fn manifest(body: &str) -> Result<Manifest, String> {
         let dir = tempfile::tempdir().unwrap();
@@ -405,15 +709,71 @@ mod tests {
         .unwrap();
         assert_eq!(m.binaries, vec![("app".into(), "src/main.plenty".into())]);
         assert_eq!(m.library, None);
-        assert_eq!(m.dependencies["util"], Dependency::Path("../util".into()));
         assert_eq!(
-            m.dependencies["audio"],
-            Dependency::Git {
+            m.dependencies["util"].source,
+            Source::Path("../util".into())
+        );
+        assert_eq!(
+            m.dependencies["audio"].source,
+            Source::Git {
                 url: "file:///r".into(),
                 subdir: Some("packages/audio".into()),
                 selector: GitSelector::Tag("v1".into()),
             }
         );
+        let m = manifest("[dependencies]\nutil = { path = \"../util\", version = \"0.3.1\" }\n")
+            .unwrap();
+        assert_eq!(
+            m.dependencies["util"].version.unwrap().to_string(),
+            "^0.3.1"
+        );
+    }
+
+    #[test]
+    fn version_requirements() {
+        let req = |text| VersionReq::parse(text).unwrap();
+        assert!(req("1.2.0").matches([1, 9, 0]));
+        assert!(!req("1.2.0").matches([2, 0, 0]));
+        assert!(!req("1.2.0").matches([1, 1, 9]));
+        assert!(req("0.3.1").matches([0, 3, 5]));
+        assert!(!req("0.3.1").matches([0, 4, 0]));
+        assert!(!req("^0.0.3").matches([0, 0, 4]));
+        assert!(req("=1.0.0").matches([1, 0, 0]));
+        assert!(!req("=1.0.0").matches([1, 0, 1]));
+        assert!(req(">=1.0.0").matches([7, 0, 0]));
+        for bad in ["", "1.2", "~1.2.3", "> 1.0.0", "^"] {
+            assert_eq!(VersionReq::parse(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn workspaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let document = parse_document(
+            "manifest-version = 1\n[workspace]\nmembers = [\"app\", \"libs/util\"]\n",
+            "plenty.toml",
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(document.package, None);
+        assert_eq!(
+            document.members,
+            Some(vec!["app".into(), "libs/util".into()])
+        );
+        for (text, message) in [
+            (
+                "manifest-version = 1\n[workspace]\nmembers = [\"../x\"]\n",
+                "relative directories below the workspace",
+            ),
+            ("manifest-version = 1\n[workspace]\n", "requires `members`"),
+            (
+                "manifest-version = 1\n[workspace]\nmembers = []\n[dependencies]\n",
+                "`dependencies` requires a [package] table",
+            ),
+        ] {
+            let error = parse_document(text, "plenty.toml", dir.path()).unwrap_err();
+            assert!(error.contains(message), "{text:?}: {error}");
+        }
     }
 
     #[test]
@@ -453,6 +813,22 @@ mod tests {
             (
                 "[dependencies]\nx = { path = \"a\", branch = \"main\" }\n",
                 "unknown key `branch`",
+            ),
+            (
+                "[dependencies]\nx = { git = \"b\", rev = \"main\" }\n",
+                "lowercase hexadecimal digits",
+            ),
+            (
+                "[dependencies]\nx = { git = \"b\", tag = \"v1\", subdir = \"../up\" }\n",
+                "relative directory inside the repository",
+            ),
+            (
+                "[dependencies]\nx = { git = \"--upload-pack=x\", tag = \"v1\" }\n",
+                "invalid git URL",
+            ),
+            (
+                "[dependencies]\nx = { path = \"a\", version = \"1.x\" }\n",
+                "version requirement",
             ),
         ] {
             let error = manifest(body).unwrap_err();
