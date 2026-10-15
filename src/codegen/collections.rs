@@ -102,7 +102,7 @@ impl Lowerer<'_, '_> {
         let zero = self.bcx.ins().iconst(types::I64, 0);
         let code = self.bcx.ins().iconst(types::I64, opcode);
         let descriptor = if let Some(ty) = ty {
-            let id = metadata::declare(self.module, self.runtime, ty)?;
+            let id = self.module.metadata(ty);
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
             self.bcx.ins().global_value(PTR_TY, gv)
         } else {

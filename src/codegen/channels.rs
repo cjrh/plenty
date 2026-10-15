@@ -18,7 +18,7 @@ impl Lowerer<'_, '_> {
                 .store(MemFlags::trusted(), *value, args, (i * 16) as i32);
         }
         let out = self.inline_storage(output.slot_bytes());
-        let id = metadata::declare(self.module, self.runtime, &output)?;
+        let id = self.module.metadata(&output);
         let gv = self.module.declare_data_in_func(id, self.bcx.func);
         let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
         let code = self.bcx.ins().iconst(types::I64, operation.opcode());

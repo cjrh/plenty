@@ -1,11 +1,13 @@
-//! The object under construction and the functions waiting to be compiled.
+//! The object under construction and the threads building its functions.
 //!
-//! Building a function's IR reads the frontend's tables and declares symbols
-//! in the module, so it stays on the calling thread. Turning finished IR into
-//! machine code needs only that IR and the target, so each batch of functions
-//! is compiled on helper threads while the caller builds the next batch.
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
+//! Each function's IR is built and compiled to machine code on a worker
+//! thread. The calling thread places the results in the object strictly in
+//! the order the functions were queued, declaring the symbols their bodies
+//! requested as it goes ([`symbols`]), so the object is the same for every
+//! worker count.
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::Function;
@@ -15,14 +17,8 @@ use cranelift_frontend::FunctionBuilderContext;
 use cranelift_module::{FuncId, Module, ModuleReloc};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
-use super::Result;
-
-/// IR instructions queued before a batch is handed to the helpers. This
-/// bounds the IR held at once. It must not depend on the worker count: batch
-/// boundaries decide when definitions reach the module relative to later
-/// declarations, and that sequence has to be the same on every machine for
-/// the object to be.
-const BATCH_INSTRUCTIONS: usize = 1 << 16;
+use super::symbols::{self, Declared, Request, Symbols};
+use super::{Result, Runtime};
 
 /// Branch arguments in one function above which Cranelift's single-pass
 /// register allocator compiles it. The backtracking allocator re-sorts a block
@@ -31,7 +27,7 @@ const BATCH_INSTRUCTIONS: usize = 1 << 16;
 /// time grows with the square of this count (issue #56). The single-pass
 /// allocator is linear but emits larger, slower code, so the limit is far above
 /// what hand-written functions reach. The count is a property of the function
-/// alone: the choice cannot depend on batching or on the worker count.
+/// alone: the choice cannot depend on the worker count.
 const SINGLE_PASS_BRANCH_ARGUMENTS: usize = 2048;
 
 /// One target, once per register allocator.
@@ -69,14 +65,11 @@ fn branch_arguments(func: &Function) -> usize {
 
 pub(super) struct Output {
     pub module: ObjectModule,
-    /// Scratch storage for building one function; `finalize` empties it for
-    /// the next.
+    /// Scratch storage for building a function on the calling thread;
+    /// `finalize` empties it for the next.
     pub builder: FunctionBuilderContext,
     targets: Targets,
-    pending: Vec<(FuncId, Function)>,
-    pending_instructions: usize,
-    compiling: Option<Batch>,
-    workers: usize,
+    context: Context,
 }
 
 struct Code {
@@ -86,16 +79,19 @@ struct Code {
 }
 
 type Compiled = std::result::Result<Code, String>;
-type Queue = Mutex<std::iter::Enumerate<std::vec::IntoIter<(FuncId, Function)>>>;
 
-/// Functions being compiled by helper threads.
-struct Batch {
-    queue: Arc<Queue>,
-    helpers: Vec<JoinHandle<Vec<(usize, FuncId, Compiled)>>>,
+/// A function compiled by a worker, waiting to be placed in the object.
+struct Built {
+    id: FuncId,
+    code: Compiled,
+    requests: Vec<Request>,
 }
 
+/// A job's functions, or why the job failed. Errors cross threads as text.
+type Finished = std::result::Result<Vec<Built>, String>;
+
 impl Output {
-    pub(super) fn new(targets: Targets, workers: usize) -> Result<Self> {
+    pub(super) fn new(targets: Targets) -> Result<Self> {
         let builder = ObjectBuilder::new(
             targets.ordinary.clone(),
             "plenty",
@@ -105,103 +101,181 @@ impl Output {
             module: ObjectModule::new(builder),
             builder: FunctionBuilderContext::new(),
             targets,
-            pending: Vec::new(),
-            pending_instructions: 0,
-            compiling: None,
-            workers,
+            context: Context::new(),
         })
     }
 
-    /// Queue `func` as the body of the declared function `id`. A compilation
-    /// error surfaces from a later call or from [`Output::finish`].
+    /// Compile `func` on this thread as the body of the declared function
+    /// `id`. Its IR must name only symbols declared in the module.
     pub(super) fn define(&mut self, id: FuncId, func: Function) -> Result<()> {
-        self.pending_instructions += func.dfg.num_insts();
-        self.pending.push((id, func));
-        if self.pending_instructions >= BATCH_INSTRUCTIONS {
-            self.start_batch()?;
-        }
-        Ok(())
+        let code = compile(
+            &mut self.context,
+            self.targets.for_function(&func),
+            id,
+            func,
+        );
+        self.place(id, code, |_, _| Ok(()))
     }
 
-    /// Compile what is still queued and serialize the object.
-    pub(super) fn finish(mut self) -> Result<cranelift_object::ObjectProduct> {
-        self.start_batch()?;
-        self.define_compiled()?;
-        Ok(self.module.finish())
+    pub(super) fn finish(self) -> cranelift_object::ObjectProduct {
+        self.module.finish()
     }
 
-    /// Hand the queued functions to helpers. The batch before them is defined
-    /// first, so definitions happen at points fixed by the program alone.
-    fn start_batch(&mut self) -> Result<()> {
-        self.define_compiled()?;
-        self.pending_instructions = 0;
-        let functions = std::mem::take(&mut self.pending);
-        self.compiling = Some(Batch::start(&self.targets, functions, self.workers));
-        Ok(())
-    }
-
-    fn define_compiled(&mut self) -> Result<()> {
-        let Some(batch) = self.compiling.take() else {
-            return Ok(());
-        };
-        for (id, code) in batch.finish(&self.targets) {
-            let code = code.map_err(|error| {
-                let declaration = self.module.declarations().get_function_decl(id);
-                format!("compiling `{}`: {error}", declaration.linkage_name(id))
-            })?;
-            self.module
-                .define_function_bytes(id, code.alignment, &code.bytes, &code.relocs)?;
-        }
-        Ok(())
-    }
-}
-
-impl Batch {
-    fn start(targets: &Targets, functions: Vec<(FuncId, Function)>, workers: usize) -> Self {
-        // The calling thread is the remaining worker: it drains the queue in
-        // `finish`, so a helper that cannot be spawned only costs speed.
-        let helpers = workers.min(functions.len()).saturating_sub(1);
-        let queue = Arc::new(Mutex::new(functions.into_iter().enumerate()));
-        let helpers = (0..helpers)
-            .filter_map(|_| {
-                let (queue, targets) = (Arc::clone(&queue), targets.clone());
-                std::thread::Builder::new()
+    /// Run `build` on each job across `workers` threads, placing the
+    /// functions each job defines in job order. The first error in job order
+    /// is returned, whichever thread hit an error first.
+    pub(super) fn build<J: Send>(
+        &mut self,
+        jobs: Vec<J>,
+        workers: usize,
+        runtime: &Runtime,
+        build: impl Fn(J, &mut Worker) -> Result<()> + Sync,
+    ) -> Result<()> {
+        let declared = Arc::new(Declared::snapshot(
+            &self.module,
+            self.targets.ordinary.clone(),
+        ));
+        let total = jobs.len();
+        let queue = Mutex::new(jobs.into_iter().enumerate());
+        let stop = AtomicBool::new(false);
+        let (finished, results) = mpsc::channel::<(usize, Finished)>();
+        let targets = self.targets.clone();
+        std::thread::scope(|scope| {
+            let shared = (&queue, &stop, &build, &targets, &declared);
+            let mut helpers = 0;
+            for _ in 0..workers.min(total) {
+                let finished = finished.clone();
+                let spawned = std::thread::Builder::new()
                     .stack_size(crate::parallel::HELPER_STACK_BYTES)
-                    .spawn(move || drain(&queue, &targets))
-                    .ok()
-            })
-            .collect();
-        Self { queue, helpers }
+                    .spawn_scoped(scope, move || {
+                        let (queue, stop, build, targets, declared) = shared;
+                        let mut worker = Worker::new(targets.clone(), Arc::clone(declared));
+                        work(queue, stop, build, &mut worker, &finished);
+                    });
+                // A helper that cannot be spawned only costs speed.
+                if spawned.is_ok() {
+                    helpers += 1;
+                }
+            }
+            if helpers == 0 {
+                let mut worker = Worker::new(targets.clone(), Arc::clone(&declared));
+                work(&queue, &stop, &build, &mut worker, &finished);
+            }
+            drop(finished);
+            let placed = self.place_in_order(total, &results, runtime);
+            if placed.is_err() {
+                stop.store(true, Ordering::Relaxed);
+            }
+            placed
+        })
     }
 
-    /// Wait for every function, returning the results in the order the
-    /// functions were queued whichever thread compiled them.
-    fn finish(self, targets: &Targets) -> Vec<(FuncId, Compiled)> {
-        let mut done = drain(&self.queue, targets);
-        for helper in self.helpers {
-            done.extend(
-                helper
-                    .join()
-                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
-            );
+    fn place_in_order(
+        &mut self,
+        total: usize,
+        results: &mpsc::Receiver<(usize, Finished)>,
+        runtime: &Runtime,
+    ) -> Result<()> {
+        let mut early = HashMap::new();
+        for index in 0..total {
+            let finished = loop {
+                if let Some(finished) = early.remove(&index) {
+                    break finished;
+                }
+                // Every sender is gone only if a worker panicked; the scope
+                // raises that panic once this returns.
+                let Ok((done, finished)) = results.recv() else {
+                    return Err("a code generation thread stopped".into());
+                };
+                early.insert(done, finished);
+            };
+            for built in finished? {
+                self.place(built.id, built.code, |module, relocs| {
+                    symbols::resolve(module, runtime, &built.requests, relocs)
+                })?;
+            }
         }
-        done.sort_unstable_by_key(|(index, ..)| *index);
-        done.into_iter().map(|(_, id, code)| (id, code)).collect()
+        Ok(())
+    }
+
+    fn place(
+        &mut self,
+        id: FuncId,
+        code: Compiled,
+        relocate: impl FnOnce(&mut ObjectModule, &mut [ModuleReloc]) -> Result<()>,
+    ) -> Result<()> {
+        let mut code = code.map_err(|error| {
+            let declaration = self.module.declarations().get_function_decl(id);
+            format!("compiling `{}`: {error}", declaration.linkage_name(id))
+        })?;
+        relocate(&mut self.module, &mut code.relocs)?;
+        self.module
+            .define_function_bytes(id, code.alignment, &code.bytes, &code.relocs)?;
+        Ok(())
     }
 }
 
-fn drain(queue: &Queue, targets: &Targets) -> Vec<(usize, FuncId, Compiled)> {
-    let mut context = Context::new();
-    let mut done = Vec::new();
-    loop {
+/// Take jobs in queue order until none remain or one fails. Jobs are claimed
+/// in order, so every job before a failed one still finishes.
+fn work<J>(
+    queue: &Mutex<std::iter::Enumerate<std::vec::IntoIter<J>>>,
+    stop: &AtomicBool,
+    build: &impl Fn(J, &mut Worker) -> Result<()>,
+    worker: &mut Worker,
+    finished: &mpsc::Sender<(usize, Finished)>,
+) {
+    while !stop.load(Ordering::Relaxed) {
         // The guard is a temporary of this statement, so the lock is not held
-        // while compiling.
+        // while building.
         let next = queue.lock().unwrap().next();
-        let Some((index, (id, func))) = next else {
-            break done;
+        let Some((index, job)) = next else {
+            break;
         };
-        let isa = targets.for_function(&func);
-        done.push((index, id, compile(&mut context, isa, id, func)));
+        let result = build(job, worker).map_err(|error| error.to_string());
+        let built = std::mem::take(&mut worker.built);
+        if result.is_err() {
+            stop.store(true, Ordering::Relaxed);
+        }
+        if finished.send((index, result.map(|()| built))).is_err() {
+            break;
+        }
+    }
+}
+
+/// One thread's state for building and compiling functions.
+pub(super) struct Worker {
+    pub builder: FunctionBuilderContext,
+    context: Context,
+    targets: Targets,
+    declared: Arc<Declared>,
+    built: Vec<Built>,
+}
+
+impl Worker {
+    fn new(targets: Targets, declared: Arc<Declared>) -> Self {
+        Self {
+            builder: FunctionBuilderContext::new(),
+            context: Context::new(),
+            targets,
+            declared,
+            built: Vec::new(),
+        }
+    }
+
+    /// The module view for building one function.
+    pub(super) fn symbols(&self) -> Symbols {
+        Symbols::new(Arc::clone(&self.declared))
+    }
+
+    /// Compile `func`, built against `symbols`, as the body of `id`.
+    pub(super) fn define(&mut self, id: FuncId, func: Function, symbols: Symbols) {
+        let isa = self.targets.for_function(&func);
+        let code = compile(&mut self.context, isa, id, func);
+        self.built.push(Built {
+            id,
+            code,
+            requests: symbols.into_requests(),
+        });
     }
 }
 
@@ -280,11 +354,14 @@ mod tests {
             .bytes
     }
 
-    /// What a batch produces for `func`, through the same path as a program.
-    fn batch_machine_code(targets: &Targets, func: &Function) -> Vec<u8> {
-        let functions = vec![(FuncId::from_u32(0), func.clone())];
-        let mut compiled = Batch::start(targets, functions, 1).finish(targets);
-        compiled.pop().unwrap().1.unwrap().bytes
+    /// What a worker produces for `func`, through the same path as a program.
+    fn worker_machine_code(targets: &Targets, func: &Function) -> Vec<u8> {
+        let output = Output::new(targets.clone()).unwrap();
+        let declared = Declared::snapshot(&output.module, targets.ordinary.clone());
+        let mut worker = Worker::new(targets.clone(), Arc::new(declared));
+        let symbols = worker.symbols();
+        worker.define(FuncId::from_u32(0), func.clone(), symbols);
+        worker.built.pop().unwrap().code.unwrap().bytes
     }
 
     /// The backtracking allocator's time is quadratic in a function's branch
@@ -297,15 +374,15 @@ mod tests {
         assert_eq!(branch_arguments(&at_limit), SINGLE_PASS_BRANCH_ARGUMENTS);
         let ordinary = machine_code(&*targets.ordinary, &at_limit);
         assert!(ordinary != machine_code(&*targets.single_pass, &at_limit));
-        assert!(batch_machine_code(&targets, &at_limit) == ordinary);
+        assert!(worker_machine_code(&targets, &at_limit) == ordinary);
 
         let over_limit = conditional_assignments(&targets, SINGLE_PASS_BRANCH_ARGUMENTS / 2 + 1);
         let single_pass = machine_code(&*targets.single_pass, &over_limit);
         assert!(single_pass != machine_code(&*targets.ordinary, &over_limit));
-        assert!(batch_machine_code(&targets, &over_limit) == single_pass);
+        assert!(worker_machine_code(&targets, &over_limit) == single_pass);
     }
 
-    /// Enough declarations to span several batches of `BATCH_INSTRUCTIONS`.
+    /// Enough functions that workers finish them out of order.
     const UNITS: usize = 400;
 
     fn unit(i: usize) -> String {
@@ -329,8 +406,8 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
         )
     }
 
-    /// Helper threads finish in any order, and the frontend's maps iterate in
-    /// a different order on every run. Neither may reach the object.
+    /// Workers finish in any order, and the frontend's maps iterate in a
+    /// different order on every run. Neither may reach the object.
     #[test]
     fn object_does_not_depend_on_worker_count() {
         let mut source: String = (0..UNITS).map(unit).collect();
@@ -341,6 +418,10 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
             source.push_str(&format!("    if y > {i}:\n        y = y + 3\n"));
         }
         source.push_str("    y\n\n");
+        assert_same_object_for_any_worker_count(source);
+    }
+
+    fn assert_same_object_for_any_worker_count(mut source: String) {
         source.push_str("def main() -> ():\n    pass\n");
         let mut heap = Heap::default();
         let program = crate::frontend::compile(&source, &mut heap).unwrap();
@@ -351,5 +432,45 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
         let serial = object(1);
         assert!(serial == object(2), "two workers changed the object");
         assert!(serial == object(8), "eight workers changed the object");
+    }
+
+    /// Symbols a body declares on first use: type metadata, trap-site tables,
+    /// thread and executor adapters, generator frames, runtime imports.
+    fn declaring_unit(i: usize) -> String {
+        format!(
+            "def count{i}(start: i64) -> Generator[i64]:
+    mut remaining = start
+    while remaining > 0:
+        yield remaining // {i} + 1
+        remaining = remaining - 1
+
+def table{i}(n: i64) -> Result[dict[str, list[i64]], AllocError]:
+    mut table: dict[str, list[i64]] = {{}}?
+    table[\"k{i}\"] = [n, n + {i}]?
+    Ok(table)
+
+def worker{i}(n: i64) -> Result[list[i64], AllocError]:
+    [x * {i} for x in range(n)]
+
+def scaled{i}(n: i64) -> i64:
+    n * {i} + 1
+
+def run{i}(n: i64) -> Result[(), Failure]:
+    for value in count{i}(n):
+        print(value)?
+    print(table{i}(n)?[\"k{i}\"][1] // n)?
+    with spawn(worker{i}, n)? as task:
+        print(task.join()?)?
+    with ThreadPoolExecutor(2, 2)? as pool:
+        print(pool.map(scaled{i}, range(n))?)?
+    Ok(())
+
+"
+        )
+    }
+
+    #[test]
+    fn declarations_do_not_depend_on_worker_count() {
+        assert_same_object_for_any_worker_count((0..UNITS / 4).map(declaring_unit).collect());
     }
 }

@@ -46,11 +46,11 @@ fn reserve(
     ty: &Ty,
     pending: &mut Vec<Ty>,
 ) -> Result<DataId> {
-    if let Some(id) = runtime.type_data.borrow().get(ty) {
+    if let Some(id) = runtime.type_data.lock().unwrap().get(ty) {
         return Ok(*id);
     }
     let id = module.declare_anonymous_data(false, false)?;
-    runtime.type_data.borrow_mut().insert(ty.clone(), id);
+    runtime.type_data.lock().unwrap().insert(ty.clone(), id);
     pending.push(ty.clone());
     Ok(id)
 }
@@ -61,7 +61,7 @@ fn define_type(
     ty: &Ty,
     pending: &mut Vec<Ty>,
 ) -> Result<()> {
-    let id = runtime.type_data.borrow()[ty];
+    let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
     let mut bytes = vec![0; 64];
     bytes[0] = match ty {

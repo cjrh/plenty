@@ -9,17 +9,17 @@ dependencies. A compilation allows 256 generic function/method instances in tota
 and a separate 256 generic data instances. Repeated calls and alias-equivalent
 arguments reuse cached specializations.
 
-Native emission builds function IR on one thread in declaration order, then
-compiles batches of fixed IR size on all available cores. Definitions enter the
-object in build order, preserving byte-for-byte output across core counts. There
-is no worker-count flag. Tests compare one, two, and eight workers.
+Native emission builds and compiles each function on any available core. The
+main thread places finished functions in the object in declaration order,
+preserving byte-for-byte output across core counts. There is no worker-count
+flag. Tests compare one, two, and eight workers.
 
-Building IR declares symbols in the object as it meets them: type descriptors,
-trap-site records, foreign imports. Their order decides the object's bytes, so
-building stays on one thread. It is about 7% of emission's CPU time, and the
-building thread compiles too whenever a batch is ready before the previous one
-is done, so building limits emission only above roughly fourteen cores
-(measurement below).
+A body can need symbols that are declared on first use: type descriptors, its
+trap-site table, foreign imports. Their order decides the object's bytes, so a
+worker building IR does not declare them. It names each in a placeholder
+namespace, and the main thread declares them in declaration order as it places
+the function, then points the function's relocations at them. If any function
+fails, emission reports the error of the first failing function in that order.
 
 The worker count is the number of processors the process may run on. Restricting
 its CPU affinity, for example with `taskset`, restricts the workers.
@@ -87,6 +87,16 @@ With all 16 hardware threads the same emission took 9.9 s, against 4.2 s on
 the eight cores. The instruction count was the same; above about ten busy
 threads this machine ran at 1.1 GHz instead of 3.9 GHz. Measure on a fixed set
 of cores, for example `taskset -c 0,2,4,6,8,10,12,14`.
+
+The 2026-10-15 release measurement used the same eight cores while other
+builds loaded the machine, with paired runs of the compiler before and after
+building IR on worker threads. Object emission of 5,000 units took 6.0 to 6.5 s
+before and 5.7 to 5.9 s after (three runs each); 20,000 units took 25.8 to
+26.7 s and 23.2 to 24.4 s (two each). CPU time and peak memory were unchanged.
+The per-function trap-site tables added 0.4 MB of read-only data to the
+5,000-unit object (66.6 MB) and 0.2% to a linked 1,000-unit program's code
+and data. The remaining serial work is the frontend, about 1.9 s of the
+5,000-unit emission.
 
 Report build mode, machine, input size, repetitions, and included phases with
 new results. Measure checking, IR construction, native emission, runtime

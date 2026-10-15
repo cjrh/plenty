@@ -9,56 +9,70 @@ pub(super) struct GeneratorContext {
     pub continuations: Vec<Block>,
 }
 
-pub(super) fn resume_signature(module: &ObjectModule) -> Signature {
-    let mut sig = module.make_signature();
-    sig.call_conv = CallConv::SystemV;
+pub(super) fn resume_signature() -> Signature {
+    let mut sig = Signature::new(CallConv::SystemV);
     sig.params.extend([AbiParam::new(PTR_TY); 2]);
     sig.returns.push(AbiParam::new(types::I8));
     sig
 }
 
-pub(super) fn emit_generator(
-    name: &str,
-    body: &[Op],
-    fns: &HashMap<String, UserFn>,
-    str_data: &HashMap<StrId, DataId>,
-    eof_empty_str: DataId,
-    runtime: &Runtime,
-    out: &mut Output,
-) -> Result<()> {
-    let module = &mut out.module;
-    let decl = &fns[name];
-    let resume_id = decl.resume.unwrap();
-    let slot_types: Vec<_> = decl
-        .sig
+/// The input and local types of a generator's frame.
+fn slot_types(decl: &UserFn) -> Vec<Ty> {
+    decl.sig
         .inputs
         .iter()
         .map(|(_, t)| t.clone())
         .chain(decl.locals.iter().cloned())
-        .collect();
+        .collect()
+}
+
+/// Define the type metadata of each slot in `name`'s frame. Declared before
+/// bodies are built, since data defined while building would be requested.
+pub(super) fn declare_frame_mask(
+    name: &str,
+    decl: &UserFn,
+    module: &mut ObjectModule,
+    runtime: &Runtime,
+) -> Result<DataId> {
+    let slot_types = slot_types(decl);
     let mask_id = module.declare_data(
         &format!("__plenty_frame_{name}"),
         Linkage::Local,
         false,
         false,
     )?;
-    {
-        let mut mask = DataDescription::new();
-        mask.define(vec![0; slot_types.len().max(1) * 8].into_boxed_slice());
-        mask.set_align(8);
-        for (i, ty) in slot_types.iter().enumerate() {
-            let id = metadata::declare(module, runtime, ty)?;
-            let reference = module.declare_data_in_data(id, &mut mask);
-            mask.write_data_addr((i * 8) as u32, reference, 0);
-        }
-        module.define_data(mask_id, &mask)?;
+    let mut mask = DataDescription::new();
+    mask.define(vec![0; slot_types.len().max(1) * 8].into_boxed_slice());
+    mask.set_align(8);
+    for (i, ty) in slot_types.iter().enumerate() {
+        let id = metadata::declare(module, runtime, ty)?;
+        let reference = module.declare_data_in_data(id, &mut mask);
+        mask.write_data_addr((i * 8) as u32, reference, 0);
     }
+    module.define_data(mask_id, &mask)?;
+    Ok(mask_id)
+}
+
+pub(super) fn build_generator(
+    name: &str,
+    body: &[Op],
+    fns: &HashMap<String, UserFn>,
+    str_data: &HashMap<StrId, DataId>,
+    eof_empty_str: DataId,
+    runtime: &Runtime,
+    out: &mut Worker,
+) -> Result<()> {
+    let mut module = out.symbols();
+    let decl = &fns[name];
+    let resume_id = decl.resume.unwrap();
+    let mask_id = decl.frame_mask.unwrap();
+    let slot_types = slot_types(decl);
 
     // Constructor: transfer arguments into zero-initialized frame slots. No
     // source body instruction runs until the first next/iteration.
     let mut func = Function::with_name_signature(
         UserFuncName::user(0, decl.id.as_u32()),
-        user_fn_signature(module, &decl.sig),
+        user_fn_signature(&decl.sig),
     );
     {
         let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
@@ -92,12 +106,12 @@ pub(super) fn emit_generator(
         b.ins().return_(&[frame]);
         b.finalize();
     }
-    out.define(decl.id, func)?;
-    let module = &mut out.module;
+    out.define(decl.id, func, module);
+    let mut module = out.symbols();
 
     let mut func = Function::with_name_signature(
         UserFuncName::user(0, resume_id.as_u32()),
-        resume_signature(module),
+        resume_signature(),
     );
     {
         let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
@@ -116,7 +130,7 @@ pub(super) fn emit_generator(
             .collect::<Vec<_>>();
         let mut lower = Lowerer {
             bcx: &mut b,
-            module,
+            module: &mut module,
             runtime,
             user_fns: fns,
             str_data,
@@ -158,7 +172,8 @@ pub(super) fn emit_generator(
         b.seal_all_blocks();
         b.finalize();
     }
-    out.define(resume_id, func)
+    out.define(resume_id, func, module);
+    Ok(())
 }
 
 impl Lowerer<'_, '_> {
