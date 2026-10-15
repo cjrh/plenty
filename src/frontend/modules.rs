@@ -482,7 +482,131 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
         .unwrap_or_else(|| entry.parent().unwrap())
         .canonicalize()
         .map_err(|e| format!("source root: {e}"))?;
-    if !root.is_dir() || !entry.starts_with(&root) {
+    let graph = crate::project::SourceGraph {
+        packages: vec![crate::project::SourcePackage {
+            identity: String::new(),
+            root,
+            library: None,
+            dependencies: vec![],
+        }],
+    };
+    load_graph(&entry, &graph, require_main)
+}
+
+/// A file's path below its source root as a dotted module path, if every
+/// component is an identifier and the file is a `.plenty` source or interface.
+fn module_path_of(relative: &Path) -> Option<String> {
+    if relative
+        .extension()
+        .is_none_or(|e| e != "plenty" && e != "plentyi")
+    {
+        return None;
+    }
+    let names = relative
+        .with_extension("")
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    names
+        .iter()
+        .all(|name| {
+            let mut chars = name.chars();
+            chars
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+        .then(|| names.join("."))
+}
+
+/// Load the program whose entry file belongs to `graph.packages[0]`.
+///
+/// Each package resolves imports against its own source root, `std`, and the
+/// aliases of its direct dependencies only. Modules of packages other than the
+/// entry package are qualified by the package identity, so equal module and
+/// type names in unrelated packages stay distinct and an alias never becomes
+/// part of a declaration's identity.
+pub(super) fn load_graph(
+    path: &Path,
+    graph: &crate::project::SourceGraph,
+    require_main: bool,
+) -> Result<Resolved> {
+    let entry = path
+        .canonicalize()
+        .map_err(|e| format!("reading {}: {e}", path.display()))?;
+    let mut packages = graph.packages.clone();
+    for package in &mut packages {
+        package.root = package
+            .root
+            .canonicalize()
+            .map_err(|e| format!("source root {}: {e}", package.root.display()))?;
+        let root = &package.root;
+        if !root.is_dir() {
+            return Err(format!("source root {} is not a directory", root.display()).into());
+        }
+        if ["std", "std.plenty", "std.plentyi"]
+            .iter()
+            .any(|name| root.join(name).exists())
+        {
+            return Err(format!(
+                "`std` is reserved for the toolchain standard library; rename the local module or namespace in {}",
+                root.display()
+            )
+            .into());
+        }
+        for (alias, _) in &package.dependencies {
+            if alias == "std" {
+                return Err("`std` is reserved for the toolchain standard library and cannot name a dependency".into());
+            }
+            if let Some(local) = [
+                alias.clone(),
+                format!("{alias}.plenty"),
+                format!("{alias}.plentyi"),
+            ]
+            .iter()
+            .map(|name| root.join(name))
+            .find(|path| path.exists())
+            {
+                return Err(format!(
+                    "dependency `{alias}` collides with the local module {}; rename the module or the dependency",
+                    local.display()
+                )
+                .into());
+            }
+        }
+        if let Some(library) = &mut package.library {
+            *library = library
+                .canonicalize()
+                .map_err(|e| format!("library {}: {e}", library.display()))?;
+            if library
+                .strip_prefix(root)
+                .ok()
+                .and_then(module_path_of)
+                .is_none()
+            {
+                return Err(format!(
+                    "library {} must be a .plenty module with identifier components inside {}",
+                    library.display(),
+                    root.display()
+                )
+                .into());
+            }
+        }
+    }
+    for (i, a) in packages.iter().enumerate() {
+        for b in &packages[i + 1..] {
+            if a.root.starts_with(&b.root) || b.root.starts_with(&a.root) {
+                return Err(format!(
+                    "package source roots {} and {} overlap",
+                    a.root.display(),
+                    b.root.display()
+                )
+                .into());
+            }
+        }
+    }
+    let root = packages[0].root.clone();
+    if !entry.starts_with(&root) {
         return Err(format!(
             "entry {} must be inside source root {}",
             entry.display(),
@@ -490,21 +614,20 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
         )
         .into());
     }
-    if ["std", "std.plenty", "std.plentyi"]
-        .iter()
-        .any(|name| root.join(name).exists())
-    {
-        return Err("`std` is reserved for the toolchain standard library; rename the local module or namespace".into());
-    }
     struct Loader {
-        root: PathBuf,
+        packages: Vec<crate::project::SourcePackage>,
         active: Vec<ModuleSource>,
         loaded: HashMap<ModuleSource, usize>,
         modules: Vec<Module>,
         dependencies: Vec<Vec<usize>>,
     }
     impl Loader {
-        fn file(&mut self, source: ModuleSource, name: String) -> Result<(usize, Token)> {
+        fn file(
+            &mut self,
+            source: ModuleSource,
+            package: usize,
+            name: String,
+        ) -> Result<(usize, Token)> {
             if let Some(start) = self.active.iter().position(|p| p == &source) {
                 let cycle = self.active[start..]
                     .iter()
@@ -527,23 +650,28 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
             }
             let mut deps = Vec::new();
             for import in &module.imports {
-                let dependency = self.import_path(import)?;
+                let (dependency, owner) = self.import_path(import, package)?;
                 let index = if let Some(index) = self.loaded.get(&dependency) {
                     *index
                 } else {
                     // Canonical relative paths make alternate spellings refer to one module.
                     let identity = match &dependency {
                         ModuleSource::Standard(name) => (*name).into(),
-                        ModuleSource::File(path) => path
-                            .strip_prefix(&self.root)
-                            .unwrap()
-                            .with_extension("")
-                            .components()
-                            .map(|c| c.as_os_str().to_string_lossy())
-                            .collect::<Vec<_>>()
-                            .join("."),
+                        ModuleSource::File(path) => {
+                            let package = &self.packages[owner];
+                            let relative =
+                                module_path_of(path.strip_prefix(&package.root).unwrap()).unwrap();
+                            // `::` cannot occur in a source module path, so
+                            // dependency modules never share a key with entry
+                            // package modules.
+                            if owner == 0 {
+                                relative
+                            } else {
+                                format!("{}::{relative}", package.identity)
+                            }
+                        }
                     };
-                    self.file(dependency, identity)
+                    self.file(dependency, owner, identity)
                         .map_err(|e| import.at.error(e))?
                         .0
                 };
@@ -562,9 +690,10 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
             Ok((index, at))
         }
 
-        fn import_path(&self, import: &Import) -> Result<ModuleSource> {
-            if import.module.split('.').next() == Some("std") {
-                return match import.module.as_str() {
+        fn import_path(&self, import: &Import, package: usize) -> Result<(ModuleSource, usize)> {
+            let first = import.module.split('.').next().unwrap();
+            if first == "std" {
+                let standard = match import.module.as_str() {
                     "std.math" => Ok(ModuleSource::Standard("std.math")),
                     "std.fs" => Ok(ModuleSource::Standard("std.fs")),
                     "std.path" => Ok(ModuleSource::Standard("std.path")),
@@ -601,9 +730,49 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                         import.module
                 ))),
                 };
+                return standard.map(|source| (source, package));
             }
-            let mut path = self.root.clone();
             let parts: Vec<_> = import.module.split('.').collect();
+            let current = &self.packages[package];
+            if let Some(&(_, owner)) = current
+                .dependencies
+                .iter()
+                .find(|(alias, _)| alias == first)
+            {
+                let dependency = &self.packages[owner];
+                if parts.len() == 1 {
+                    let library = dependency.library.clone().ok_or_else(|| {
+                        import.at.error(format!(
+                            "dependency `{first}` (package `{}`) has no library target",
+                            dependency.identity
+                        ))
+                    })?;
+                    return Ok((ModuleSource::File(library), owner));
+                }
+                return Ok((
+                    ModuleSource::File(Self::local(&dependency.root, &parts[1..], import)?),
+                    owner,
+                ));
+            }
+            Ok((
+                ModuleSource::File(Self::local(&current.root, &parts, import).map_err(|e| {
+                    if self.packages.len() > 1 && !current.root.join(first).exists() {
+                        format!(
+                            "{e}\nnote: `{first}` is neither a local module nor a dependency declared by package `{}`",
+                            if current.identity.is_empty() { "<entry>" } else { &current.identity }
+                        )
+                        .into()
+                    } else {
+                        e
+                    }
+                })?),
+                package,
+            ))
+        }
+
+        /// Resolve `parts` below `root`, confined to that root.
+        fn local(root: &Path, parts: &[&str], import: &Import) -> Result<PathBuf> {
+            let mut path = root.to_path_buf();
             for (i, part) in parts.iter().enumerate() {
                 path.push(part);
                 let file = path.with_extension("plenty");
@@ -637,38 +806,25 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
                     file.display()
                 ))
             })?;
-            if !canonical.starts_with(&self.root) {
+            if !canonical.starts_with(root) {
                 return Err(import.at.error("import resolves outside the source root"));
             }
-            let relative = canonical.strip_prefix(&self.root).unwrap();
-            let stem = relative.with_extension("");
-            if relative
-                .extension()
-                .is_none_or(|e| e != "plenty" && e != "plentyi")
-                || !stem.components().all(|component| {
-                    let name = component.as_os_str().to_string_lossy();
-                    let mut chars = name.chars();
-                    chars
-                        .next()
-                        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-                })
-            {
+            if module_path_of(canonical.strip_prefix(root).unwrap()).is_none() {
                 return Err(import.at.error(
                     "canonical imported paths must be .plenty files or .plentyi interfaces with identifier components",
                 ));
             }
-            Ok(ModuleSource::File(canonical))
+            Ok(canonical)
         }
     }
     let mut loader = Loader {
-        root,
+        packages,
         active: vec![],
         loaded: HashMap::new(),
         modules: vec![],
         dependencies: vec![],
     };
-    let (_, at) = loader.file(ModuleSource::File(entry), String::new())?;
+    let (_, at) = loader.file(ModuleSource::File(entry), 0, String::new())?;
     let mut result = resolve(loader.modules, loader.dependencies, at, require_main)?;
     result.standard_sources = loader
         .loaded
@@ -687,7 +843,7 @@ pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Resu
         })
         .collect();
     result.source_paths.sort();
-    result.source_root = Some(loader.root);
+    result.source_root = Some(root);
     Ok(result)
 }
 

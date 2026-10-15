@@ -19,7 +19,10 @@ transitive imports are unsupported. Directories are namespaces, without
 `__init__` execution.
 
 The source root defaults to the entry file's canonical directory; `--module-root
-DIR` selects another root. `a.b` resolves to `<root>/a/b.plenty` or the trusted
+DIR` selects another root. In a [package](../../toolchain/01-building/packages.md),
+the root is `src/`, and the first component of an import may instead be a
+declared dependency alias, which names that dependency's library; an alias may
+not match a local top-level module. `a.b` resolves to `<root>/a/b.plenty` or the trusted
 interface `<root>/a/b.plentyi`. Having both is ambiguous. Imported canonical
 filenames and directories must have identifier components and cannot escape
 the root. File/directory name collisions and import cycles are errors; a cycle

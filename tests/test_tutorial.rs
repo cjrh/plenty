@@ -5,6 +5,10 @@
 //! note without the temporary path between its lines. Preceding `plenty-file path.plenty` fences on the same page
 //! supply modules for that one example.
 //! `sh plenty-build` fences run explicit library/interface build commands.
+//! `LANG project-file DIR/PATH` fences write files of a package project, and a
+//! following `sh plenty-project DIR` fence runs one `plenty` project command in
+//! `DIR`; the next `output` fence is its exact standard output. Each command
+//! runs in a fresh copy of every project file written so far on its page.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -118,9 +122,78 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
     let mut index = 0;
     let mut modules = Vec::new();
     let mut builds = Vec::new();
+    let mut project_files: Vec<(PathBuf, &Fence)> = Vec::new();
+    let mut project_used = false;
+    let mut projects = 0;
     let mut failures = Vec::new();
     while index < fences.len() {
         let source = &fences[index];
+        if let Some((_, path)) = source.language.split_once(" project-file ") {
+            assert!(
+                Path::new(path)
+                    .components()
+                    .all(|c| matches!(c, std::path::Component::Normal(_))),
+                "invalid project file path at {}",
+                source.line
+            );
+            if project_files
+                .first()
+                .is_some_and(|(_, file)| page_of(&file.line) != page_of(&source.line))
+            {
+                assert!(project_used, "orphan project files before {}", source.line);
+                project_files.clear();
+                project_used = false;
+            }
+            project_files.push((PathBuf::from(path), source));
+            index += 1;
+            continue;
+        }
+        if let Some(directory) = source.language.strip_prefix("sh plenty-project ") {
+            let expected = fences
+                .get(index + 1)
+                .filter(|fence| fence.language == "output")
+                .unwrap_or_else(|| {
+                    panic!("{}: project command needs an output fence", source.line)
+                });
+            let project_dir = workspace.0.join(format!("project-{projects}"));
+            for (path, file) in &project_files {
+                assert_eq!(page_of(&file.line), page_of(&source.line), "{}", file.line);
+                let path = project_dir.join(path);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, &file.body).unwrap();
+            }
+            project_used = true;
+            // One fixed command, without a shell, so lessons show the exact
+            // public interface.
+            let words: Vec<_> = source.body.split_whitespace().collect();
+            assert!(
+                matches!(
+                    words.as_slice(),
+                    ["plenty", "run" | "test" | "check" | "build"]
+                ),
+                "unsupported project command at {}",
+                source.line
+            );
+            let output = Command::new(binary)
+                .arg(words[1])
+                .current_dir(project_dir.join(directory))
+                .output()
+                .unwrap();
+            if !output.status.success() || String::from_utf8_lossy(&output.stdout) != expected.body
+            {
+                eprintln!(
+                    "{}: status {}\nstdout:\n{}\nstderr:\n{}",
+                    source.line,
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                failures.push(source.line.clone());
+            }
+            projects += 1;
+            index += 2;
+            continue;
+        }
         if let Some(path) = source.language.strip_prefix("plenty-file ") {
             let path = PathBuf::from(path);
             assert!(
@@ -333,6 +406,10 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
     assert!(
         builds.is_empty(),
         "orphan tutorial library build without an example"
+    );
+    assert!(
+        project_files.is_empty() || project_used,
+        "orphan tutorial project file without a project command"
     );
     assert!(
         failures.is_empty(),

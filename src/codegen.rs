@@ -180,6 +180,20 @@ pub fn compile_file_to_executable_with_options(
     compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
 }
 
+/// Compile the entry file of `graph.packages[0]`; each package sees only its
+/// own modules, `std`, and its direct dependencies' aliases.
+pub fn compile_package_to_executable(
+    path: &Path,
+    graph: &crate::project::SourceGraph,
+    output: &Path,
+    options: &crate::CompileOptions,
+) -> Result<()> {
+    crate::validate_target(options.target.as_deref())?;
+    let mut heap = Heap::default();
+    let program = crate::frontend::compile_graph(path, graph, true, &mut heap)?;
+    compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
+}
+
 /// Historical stack syntax, retained for backend regression tests.
 pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Result<()> {
     compile_legacy_source_to_executable_with_options(
@@ -214,7 +228,7 @@ fn compile_ops_to_executable(
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
     let rt_path = workspace.path().join("libplenty_runtime.a");
-    compile_to_object(ops, heap, &obj_path, returns_status)?;
+    compile_to_object(ops, heap, &obj_path, returns_status, options.optimize)?;
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
     crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, options)
 }
@@ -233,7 +247,7 @@ pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
     op::check(&program.ops)?;
-    compile_to_object(program.ops, &heap, output, program.returns_status)
+    compile_to_object(program.ops, &heap, output, program.returns_status, false)
 }
 
 /// Emit an application object, resolving absolute Plenty imports.
@@ -242,7 +256,7 @@ pub fn compile_file_to_object(path: &Path, output: &Path, root: Option<&Path>) -
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
     op::check(&program.ops)?;
-    compile_to_object(program.ops, &heap, output, program.returns_status)
+    compile_to_object(program.ops, &heap, output, program.returns_status, false)
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -255,8 +269,14 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// Link the object with the packaged `plenty-runtime` archive to produce an
 /// executable. With `returns_status`, the final `i32` operand is the process
 /// status; unit entrypoints and legacy programs return zero on completion.
-fn compile_to_object(ops: Vec<Op>, heap: &Heap, output: &Path, returns_status: bool) -> Result<()> {
-    emit_object(ops, heap, output, Some(returns_status), &[], None)
+fn compile_to_object(
+    ops: Vec<Op>,
+    heap: &Heap,
+    output: &Path,
+    returns_status: bool,
+    optimize: bool,
+) -> Result<()> {
+    emit_object(ops, heap, output, Some(returns_status), &[], None, optimize)
 }
 
 pub(crate) fn emit_library_object(
@@ -266,7 +286,7 @@ pub(crate) fn emit_library_object(
     output: &Path,
     interface: &crate::exports::Interface,
 ) -> Result<()> {
-    emit_object(ops, heap, output, None, exports, Some(interface))
+    emit_object(ops, heap, output, None, exports, Some(interface), false)
 }
 
 fn emit_object(
@@ -276,6 +296,7 @@ fn emit_object(
     entry: Option<bool>,
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
+    optimize: bool,
 ) -> Result<()> {
     let product = object_module(
         ops,
@@ -284,6 +305,7 @@ fn emit_object(
         exports,
         interface,
         crate::parallel::workers(),
+        optimize,
     )?
     .finish()?;
     // Written section by section: the file's bytes are never all in memory
@@ -302,7 +324,7 @@ fn object_bytes(
     interface: Option<&crate::exports::Interface>,
     workers: usize,
 ) -> Result<Vec<u8>> {
-    let module = object_module(ops, heap, entry, exports, interface, workers)?;
+    let module = object_module(ops, heap, entry, exports, interface, workers, false)?;
     Ok(module.finish()?.emit()?)
 }
 
@@ -316,11 +338,13 @@ fn object_module(
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
     workers: usize,
+    optimize: bool,
 ) -> Result<Output> {
     crate::tail_abi::prepare(&mut ops);
+    let opt_level = if optimize { "speed" } else { "none" };
     let targets = output::Targets {
-        ordinary: host_isa()?,
-        single_pass: target_isa("single_pass")?,
+        ordinary: optimized_isa("backtracking", opt_level)?,
+        single_pass: optimized_isa("single_pass", opt_level)?,
     };
     let mut out = Output::new(targets, workers)?;
 
@@ -406,19 +430,32 @@ fn object_module(
     Ok(out)
 }
 
-/// Build the target's baseline ISA without inspecting the running CPU.
-/// On x86-64 this is the original SSE2 baseline, not host-specific extensions.
+/// The unoptimized baseline ISA used by backend unit tests.
+#[cfg(test)]
 fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     target_isa("backtracking")
 }
 
-/// [`host_isa`] with the named Cranelift `regalloc_algorithm`.
+#[cfg(test)]
 fn target_isa(
     regalloc_algorithm: &str,
+) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
+    optimized_isa(regalloc_algorithm, "none")
+}
+
+/// Build the target's baseline ISA without inspecting the running CPU.
+/// On x86-64 this is the original SSE2 baseline, not host-specific extensions.
+/// `opt_level` is `none` for debug builds, which favor compilation speed, and
+/// `speed` for release builds. Language checks are part of the IR, so both
+/// levels keep identical semantics.
+fn optimized_isa(
+    regalloc_algorithm: &str,
+    opt_level: &str,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::validate_target(None)?;
     let mut flags = settings::builder();
     flags.set("regalloc_algorithm", regalloc_algorithm)?;
+    flags.set("opt_level", opt_level)?;
     // `is_pic` so the object can be linked into a position-independent
     // executable, which is what every modern Linux/macOS toolchain
     // produces by default.
