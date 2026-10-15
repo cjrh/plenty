@@ -62,7 +62,7 @@ impl Lowerer<'_, '_> {
     pub(super) fn lower_closure_new(&mut self, t: &Arc<ClosureType>) -> Result<()> {
         let ty = Ty::Closure(t.clone());
         let storage = self.inline_storage(t.bytes());
-        let id = metadata::declare(self.module, self.runtime, &ty)?;
+        let id = self.module.metadata(&ty);
         let gv = self.module.declare_data_in_func(id, self.bcx.func);
         let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
         self.bcx

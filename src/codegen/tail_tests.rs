@@ -17,7 +17,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     let mut module = ObjectModule::new(builder);
     let runtime = declare_runtime(&mut module).unwrap();
     let id = module
-        .declare_function("callee", Linkage::Local, &user_fn_signature(&module, &sig))
+        .declare_function("callee", Linkage::Local, &user_fn_signature(&sig))
         .unwrap();
     let mut functions = HashMap::new();
     functions.insert(
@@ -27,6 +27,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
             drop_callback: None,
             generator: None,
             resume: None,
+            frame_mask: None,
             id,
             sig: sig.clone(),
             locals: Arc::from([]),
@@ -36,8 +37,12 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     let empty = module
         .declare_data("empty", Linkage::Local, false, false)
         .unwrap();
+    let mut symbols = symbols::Symbols::new(Arc::new(symbols::Declared::snapshot(
+        &module,
+        host_isa().unwrap(),
+    )));
     let mut function =
-        Function::with_name_signature(UserFuncName::user(0, 0), user_fn_signature(&module, &sig));
+        Function::with_name_signature(UserFuncName::user(0, 0), user_fn_signature(&sig));
     let mut context = cranelift_frontend::FunctionBuilderContext::new();
     let mut bcx = FunctionBuilder::new(&mut function, &mut context);
     let entry = bcx.create_block();
@@ -48,7 +53,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     let strings = HashMap::new();
     let mut lower = Lowerer {
         bcx: &mut bcx,
-        module: &mut module,
+        module: &mut symbols,
         runtime: &runtime,
         user_fns: &functions,
         str_data: &strings,

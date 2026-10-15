@@ -1,16 +1,14 @@
 //! Monomorphic worker callbacks with input, output, and shared-environment slots.
 use super::*;
-use crate::executor::ExecutorOp;
+use crate::executor::{ExecutorOp, Job};
 use cranelift_codegen::ir::MemFlags;
 
-pub(super) fn emit_adapters(
+/// Declare one adapter per executor job, in name order.
+pub(super) fn declare_adapters(
     ops: &[Op],
-    functions: &HashMap<String, UserFn>,
-    str_data: &HashMap<StrId, DataId>,
-    eof_empty_str: DataId,
-    runtime: &Runtime,
-    out: &mut Output,
-) -> Result<()> {
+    module: &mut ObjectModule,
+    adapters: &mut HashMap<String, FuncId>,
+) -> Result<Vec<(Arc<Job>, FuncId)>> {
     let mut jobs = std::collections::BTreeMap::new();
     crate::threading::walk(ops, &mut |op| {
         if let Op::Executor(operation) = op {
@@ -19,16 +17,38 @@ pub(super) fn emit_adapters(
             }
         }
     });
+    let mut declared = Vec::new();
     for (name, job) in jobs {
-        let module = &mut out.module;
-        let mut signature = module.make_signature();
-        signature.params.extend([
-            AbiParam::new(PTR_TY),
-            AbiParam::new(PTR_TY),
-            AbiParam::new(PTR_TY),
-        ]);
-        let id = module.declare_function(&name, Linkage::Local, &signature)?;
-        runtime.thread_adapters.borrow_mut().insert(name, id);
+        let id =
+            module.declare_function(&name, Linkage::Local, &signature(module.make_signature()))?;
+        adapters.insert(name, id);
+        declared.push((job, id));
+    }
+    Ok(declared)
+}
+
+/// Input, output, and shared-environment slots.
+fn signature(mut signature: Signature) -> Signature {
+    signature.params.extend([
+        AbiParam::new(PTR_TY),
+        AbiParam::new(PTR_TY),
+        AbiParam::new(PTR_TY),
+    ]);
+    signature
+}
+
+pub(super) fn build_adapter(
+    job: &Job,
+    id: FuncId,
+    functions: &HashMap<String, UserFn>,
+    str_data: &HashMap<StrId, DataId>,
+    eof_empty_str: DataId,
+    runtime: &Runtime,
+    out: &mut Worker,
+) -> Result<()> {
+    {
+        let mut module = out.symbols();
+        let signature = signature(module.make_signature());
         let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
         let mut bcx = FunctionBuilder::new(&mut func, &mut out.builder);
         let entry = bcx.create_block();
@@ -40,7 +60,7 @@ pub(super) fn emit_adapters(
         let shared = bcx.block_params(entry)[2];
         let mut lower = Lowerer {
             bcx: &mut bcx,
-            module,
+            module: &mut module,
             runtime,
             user_fns: functions,
             str_data,
@@ -95,7 +115,7 @@ pub(super) fn emit_adapters(
         lower.store_slot(output, value, &job.output);
         lower.bcx.ins().return_(&[]);
         bcx.finalize();
-        out.define(id, func)?;
+        out.define(id, func, module);
     }
     Ok(())
 }
@@ -116,7 +136,7 @@ impl Lowerer<'_, '_> {
                 .store(MemFlags::trusted(), *value, args, (i * 16) as i32);
         }
         if let Some(job) = operation.job() {
-            let id = self.runtime.thread_adapters.borrow()[&job.adapter];
+            let id = self.runtime.thread_adapters[&job.adapter];
             let callback = self.module.declare_func_in_func(id, self.bcx.func);
             let callback = self.bcx.ins().func_addr(PTR_TY, callback);
             let callback = self.bcx.ins().uextend(types::I128, callback);
@@ -142,7 +162,7 @@ impl Lowerer<'_, '_> {
             self.bcx.ins().store(MemFlags::trusted(), shared, args, 96);
         }
         if let ExecutorOp::Map(job, input, _) | ExecutorOp::Reduce(job, input) = operation {
-            let id = metadata::declare(self.module, self.runtime, input)?;
+            let id = self.module.metadata(input);
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
             let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
             let descriptor = self.bcx.ins().uextend(types::I128, descriptor);
@@ -154,7 +174,7 @@ impl Lowerer<'_, '_> {
             } else {
                 &job.output
             };
-            let id = metadata::declare(self.module, self.runtime, job_type)?;
+            let id = self.module.metadata(job_type);
             let gv = self.module.declare_data_in_func(id, self.bcx.func);
             let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
             let descriptor = self.bcx.ins().uextend(types::I128, descriptor);
@@ -163,7 +183,7 @@ impl Lowerer<'_, '_> {
                 .store(MemFlags::trusted(), descriptor, args, 64);
         }
         let out = self.inline_storage(output.slot_bytes());
-        let id = metadata::declare(self.module, self.runtime, &output)?;
+        let id = self.module.metadata(&output);
         let gv = self.module.declare_data_in_func(id, self.bcx.func);
         let descriptor = self.bcx.ins().global_value(PTR_TY, gv);
         let code = self.bcx.ins().iconst(types::I64, operation.opcode());

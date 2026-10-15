@@ -77,13 +77,14 @@ mod numeric;
 mod output;
 mod references;
 mod sites;
+mod symbols;
 #[cfg(test)]
 mod tail_tests;
 mod threads;
 use crate::op::{self, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
-use output::Output;
+use output::{Output, Worker};
 
 // ---- Cranelift API reference ----
 //
@@ -321,7 +322,7 @@ fn emit_object(
         crate::parallel::workers(),
         optimize,
     )?
-    .finish()?;
+    .finish();
     // Written section by section: the file's bytes are never all in memory
     // beside the sections (issue #54).
     let file = std::io::BufWriter::new(std::fs::File::create(output)?);
@@ -339,7 +340,7 @@ fn object_bytes(
     workers: usize,
 ) -> Result<Vec<u8>> {
     let module = object_module(ops, heap, entry, exports, interface, workers, false)?;
-    Ok(module.finish()?.emit()?)
+    Ok(module.finish().emit()?)
 }
 
 /// Every definition of the object, not yet serialized. Takes the program to
@@ -360,14 +361,13 @@ fn object_module(
         ordinary: optimized_isa("backtracking", opt_level)?,
         single_pass: optimized_isa("single_pass", opt_level)?,
     };
-    let mut out = Output::new(targets, workers)?;
+    let mut out = Output::new(targets)?;
 
     let mut runtime = declare_runtime(&mut out.module)?;
 
-    // Pass 1: collect every user-defined function reachable from `ops`
-    // (top-level, nested under another definition, or inside a match
-    // arm), declare each as a Cranelift symbol with the tail-call
-    // convention so its body can `return_call` other user functions.
+    // Every symbol a body refers to by name is declared before any body is
+    // built, so forward references and mutual recursion resolve, and the
+    // threads building bodies only read the declarations.
     let mut user_fns: HashMap<String, UserFn> = HashMap::new();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
@@ -376,72 +376,101 @@ fn object_module(
         .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
         .collect();
     runtime.standard_calls = user_fns.values().any(|f| f.standard_library);
+    let threads = threads::declare_adapters(&ops, &mut out.module, &mut runtime.thread_adapters)?;
+    let executors =
+        executors::declare_adapters(&ops, &mut out.module, &mut runtime.thread_adapters)?;
     let runtime = runtime;
+    // `bodies` is in declaration order, as `FuncId`s are. The map's own order
+    // changes from run to run, which would make the object differ between
+    // identical builds.
+    for (name, _) in &bodies {
+        let decl = user_fns.get_mut(name).unwrap();
+        if decl.generator.is_some() {
+            decl.frame_mask = Some(generators::declare_frame_mask(
+                name,
+                decl,
+                &mut out.module,
+                &runtime,
+            )?);
+        }
+    }
+    let main_id = match entry {
+        Some(_) => Some(out.module.declare_function(
+            "plenty_main",
+            Linkage::Export,
+            &main_signature(),
+        )?),
+        None => None,
+    };
 
-    // Pass 1b: emit one read-only data symbol per source string literal.
-    // We walk the ops (recursing into bodies and match arms) collecting
-    // every `StrId` referenced by `PushStr` or `Pattern::Str`, then
-    // declare and define each one. The compiler's string pool is the
+    // One read-only data symbol per source string literal, collected from
+    // every `PushStr` or `Pattern::Str`. The compiler's string pool is the
     // source of truth for the literal bytes.
     let str_data = declare_str_data(&ops, heap, &mut out.module)?;
 
     // An immortal empty string substitutes for the legacy input helper's EOF.
     let eof_empty_str = declare_eof_empty_str(&mut out.module)?;
-    threads::emit_adapters(
-        &ops,
-        &user_fns,
-        &str_data,
-        eof_empty_str,
-        &runtime,
-        &mut out,
-    )?;
-    executors::emit_adapters(
-        &ops,
-        &user_fns,
-        &str_data,
-        eof_empty_str,
-        &runtime,
-        &mut out,
-    )?;
 
-    // Pass 2: emit each user function's body. Bodies can refer to each
-    // other (forward references, mutual recursion) because every callee
-    // is already declared.
-    // `bodies` is in declaration order, as `FuncId`s are. The map's own order
-    // changes from run to run, which would make the object differ between
-    // identical builds.
     // From here `bodies` alone holds the top-level functions' operations, so
-    // each function's are released as the loop passes it.
+    // each function's are released once its job is built, rather than held
+    // until the last function is (issue #54). Top-level `DefineFn`s are
+    // no-ops in `plenty_main`.
     ops.retain(|op| !matches!(op, Op::DefineFn(..)));
-    for (name, body) in bodies {
-        emit_user_function(
-            &name,
-            &body,
-            &user_fns,
-            &str_data,
-            eof_empty_str,
-            &runtime,
-            &mut out,
-        )?;
+    let mut jobs: Vec<Job> = threads
+        .into_iter()
+        .map(|(task, id)| Job::Thread(task, id))
+        .chain(
+            executors
+                .into_iter()
+                .map(|(job, id)| Job::Executor(job, id)),
+        )
+        .chain(
+            bodies
+                .into_iter()
+                .map(|(name, body)| Job::Function(name, body)),
+        )
+        .collect();
+    if let (Some(returns_status), Some(id)) = (entry, main_id) {
+        jobs.push(Job::Main(ops, returns_status, id));
     }
-
-    // Pass 3: emit `plenty_main`. Top-level `DefineFn`s are skipped
-    // here — their bodies were emitted by Pass 2; at runtime a
-    // definition is a no-op (it does not touch the data stack).
-    if let Some(returns_status) = entry {
-        emit_main(
-            &ops,
-            returns_status,
-            &user_fns,
-            &str_data,
-            eof_empty_str,
-            &runtime,
-            &mut out,
-        )?;
-    }
+    let (fns, str_data) = (&user_fns, &str_data);
+    out.build(jobs, workers, &runtime, |job, worker| {
+        let runtime = &runtime;
+        match job {
+            Job::Thread(task, id) => {
+                threads::build_adapter(&task, id, fns, str_data, eof_empty_str, runtime, worker)
+            }
+            Job::Executor(job, id) => {
+                executors::build_adapter(&job, id, fns, str_data, eof_empty_str, runtime, worker)
+            }
+            Job::Function(name, body) => {
+                build_user_function(&name, &body, fns, str_data, eof_empty_str, runtime, worker)
+            }
+            Job::Main(ops, returns_status, id) => build_main(
+                &ops,
+                returns_status,
+                id,
+                fns,
+                str_data,
+                eof_empty_str,
+                runtime,
+                worker,
+            ),
+        }
+    })?;
     exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
-    runtime.sites.borrow().define(&mut out.module)?;
     Ok(out)
+}
+
+/// Functions built together on one thread, in the order they are placed in
+/// the object.
+enum Job {
+    Thread(Arc<crate::threading::Task>, FuncId),
+    Executor(Arc<crate::executor::Job>, FuncId),
+    /// A user function, with its drop callback or, for a generator, its
+    /// resume function.
+    Function(String, Arc<[Op]>),
+    Main(Vec<Op>, bool, FuncId),
 }
 
 /// The unoptimized baseline ISA used by backend unit tests.
@@ -517,10 +546,11 @@ struct Runtime {
     caller_leave: FuncId,
     thread_start: FuncId,
     thread_join: FuncId,
-    thread_adapters: std::cell::RefCell<HashMap<String, FuncId>>,
-    type_data: std::cell::RefCell<HashMap<Ty, DataId>>,
-    /// Source positions passed to helpers that may trap.
-    sites: std::cell::RefCell<sites::Sites>,
+    thread_adapters: HashMap<String, FuncId>,
+    /// Type metadata declared so far. Only the thread placing code in the
+    /// object declares symbols; the lock lets threads building IR share the
+    /// rest of `Runtime`.
+    type_data: std::sync::Mutex<HashMap<Ty, DataId>>,
     /// `__del__` adapters by method name, linked into class descriptors.
     drop_hooks: HashMap<String, FuncId>,
     collection: FuncId,
@@ -678,7 +708,6 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         },
         generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
-        sites: Default::default(),
         drop_hooks: HashMap::new(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
@@ -861,6 +890,9 @@ struct UserFn {
     drop_callback: Option<FuncId>,
     generator: Option<Ty>,
     resume: Option<FuncId>,
+    /// A generator's frame slot types, defined by
+    /// [`generators::declare_frame_mask`].
+    frame_mask: Option<DataId>,
     id: FuncId,
     sig: Arc<FnSig>,
     locals: Arc<[Ty]>,
@@ -877,9 +909,8 @@ struct UserFn {
 /// `return_call`), so `plenty_main` — which has SystemV convention,
 /// because it is called from C — invokes user functions with a regular
 /// `call` instruction.
-fn user_fn_signature(module: &ObjectModule, sig: &FnSig) -> Signature {
-    let mut cl = module.make_signature();
-    cl.call_conv = CallConv::Tail;
+fn user_fn_signature(sig: &FnSig) -> Signature {
+    let mut cl = Signature::new(CallConv::Tail);
     let layout = crate::tail_abi::layout(sig);
     cl.params
         .extend(layout.inputs.into_iter().map(AbiParam::new));
@@ -907,7 +938,7 @@ fn collect_user_fns(
                         format!("AOT compilation does not allow redefining `{name}`").into(),
                     );
                 }
-                let cl_sig = user_fn_signature(module, &f.sig);
+                let cl_sig = user_fn_signature(&f.sig);
                 // Source names must never alias runtime helpers or the C entry
                 // point (a user may legitimately define `plenty_main`).
                 let symbol = format!("__plenty_fn_{name}");
@@ -934,11 +965,12 @@ fn collect_user_fns(
                             Some(module.declare_function(
                                 &format!("__plenty_resume_{name}"),
                                 Linkage::Local,
-                                &generators::resume_signature(module),
+                                &generators::resume_signature(),
                             )?)
                         } else {
                             None
                         },
+                        frame_mask: None,
                         sig: Arc::clone(&f.sig),
                         locals: Arc::clone(&f.locals),
                         source: f.origins.trap_file.clone(),
@@ -999,21 +1031,21 @@ fn needs_local_addresses(ops: &[Op]) -> bool {
     })
 }
 
-fn emit_user_function(
+fn build_user_function(
     name: &str,
     body: &[Op],
     fns: &HashMap<String, UserFn>,
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
     runtime: &Runtime,
-    out: &mut Output,
+    out: &mut Worker,
 ) -> Result<()> {
     let decl = &fns[name];
     if decl.generator.is_some() {
-        return generators::emit_generator(name, body, fns, str_data, eof_empty_str, runtime, out);
+        return generators::build_generator(name, body, fns, str_data, eof_empty_str, runtime, out);
     }
-    let module = &mut out.module;
-    let cl_sig = user_fn_signature(module, &decl.sig);
+    let mut module = out.symbols();
+    let cl_sig = user_fn_signature(&decl.sig);
 
     let mut func = Function::with_name_signature(UserFuncName::user(0, decl.id.as_u32()), cl_sig);
     {
@@ -1088,7 +1120,7 @@ fn emit_user_function(
             .then(|| bcx.block_params(entry)[decl.sig.inputs.len()]);
         let mut lower = Lowerer {
             bcx: &mut bcx,
-            module,
+            module: &mut module,
             runtime,
             user_fns: fns,
             str_data,
@@ -1129,9 +1161,9 @@ fn emit_user_function(
         }
         bcx.finalize();
     }
-    out.define(decl.id, func)?;
+    out.define(decl.id, func, module);
     if let Some(id) = decl.drop_callback {
-        let module = &mut out.module;
+        let mut module = out.symbols();
         let mut signature = module.make_signature();
         signature.params.push(AbiParam::new(PTR_TY));
         let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
@@ -1146,35 +1178,40 @@ fn emit_user_function(
         b.ins().call(callee, &[receiver]);
         b.ins().return_(&[]);
         b.finalize();
-        out.define(id, func)?;
+        out.define(id, func, module);
     }
     Ok(())
 }
 
-/// Emit `plenty_main` — the entry point the Rust runtime forwards to.
-/// Top-level `DefineFn` ops are skipped (their bodies are emitted
-/// separately by [`emit_user_function`]); everything else lowers
+/// `plenty_main`: exported, no arguments, returns `i32`. The Rust
+/// runtime's native `main` forwards into this and returns its result as the
+/// process exit code. SystemV convention because the caller (the Rust
+/// runtime) speaks the host's C ABI; user functions use `CallConv::Tail` and
+/// can still be invoked from here via a regular `call`.
+fn main_signature() -> Signature {
+    let mut signature = Signature::new(CallConv::SystemV);
+    signature.returns.push(AbiParam::new(types::I32));
+    signature
+}
+
+/// Build `plenty_main` — the entry point the Rust runtime forwards to.
+/// Top-level `DefineFn` ops are already removed (their bodies are built
+/// separately by [`build_user_function`]); everything else lowers
 /// against an initially-empty compile-time stack, with no locals
 /// in scope.
-fn emit_main(
+#[allow(clippy::too_many_arguments)]
+fn build_main(
     ops: &[Op],
     returns_status: bool,
+    main_id: FuncId,
     fns: &HashMap<String, UserFn>,
     str_data: &HashMap<StrId, DataId>,
     eof_empty_str: DataId,
     runtime: &Runtime,
-    out: &mut Output,
+    out: &mut Worker,
 ) -> Result<()> {
-    let module = &mut out.module;
-    // `plenty_main`: exported, no arguments, returns `i32`. The Rust
-    // runtime's native `main` forwards into this and returns
-    // its result as the process exit code. SystemV convention because
-    // the caller (the Rust runtime) speaks the host's C ABI; user
-    // functions use `CallConv::Tail` and can still be invoked from here
-    // via a regular `call`.
-    let mut main_sig = module.make_signature();
-    main_sig.returns.push(AbiParam::new(types::I32));
-    let main_id = module.declare_function("plenty_main", Linkage::Export, &main_sig)?;
+    let mut module = out.symbols();
+    let main_sig = main_signature();
 
     let mut func = Function::with_name_signature(UserFuncName::user(0, main_id.as_u32()), main_sig);
     {
@@ -1186,7 +1223,7 @@ fn emit_main(
 
         let mut lower = Lowerer {
             bcx: &mut bcx,
-            module,
+            module: &mut module,
             runtime,
             user_fns: fns,
             str_data,
@@ -1216,7 +1253,8 @@ fn emit_main(
         lower.bcx.ins().return_(&[status]);
         bcx.finalize();
     }
-    out.define(main_id, func)
+    out.define(main_id, func, module);
+    Ok(())
 }
 
 /// The CLIF type backing each Plenty value. Plenty's signed/unsigned
@@ -1289,7 +1327,7 @@ enum TrapKind {
 
 struct Lowerer<'a, 'b> {
     bcx: &'a mut FunctionBuilder<'b>,
-    module: &'a mut ObjectModule,
+    module: &'a mut symbols::Symbols,
     runtime: &'a Runtime,
     /// Every user function callable from anywhere in the source.
     /// Populated by Pass 1 before any body is emitted, so forward
@@ -2346,7 +2384,7 @@ impl Lowerer<'_, '_> {
         let sig = signature.function();
         if tail {
             self.tail_arguments(&sig, &mut args)?;
-            let native = user_fn_signature(self.module, &sig);
+            let native = user_fn_signature(&sig);
             let reference = self.bcx.import_signature(native);
             self.release_locals();
             self.enter_call()?;
@@ -2360,7 +2398,7 @@ impl Lowerer<'_, '_> {
         if bytes != 0 {
             args.push(self.inline_storage(bytes));
         }
-        let native = user_fn_signature(self.module, &sig);
+        let native = user_fn_signature(&sig);
         let reference = self.bcx.import_signature(native);
         let saved = self.enter_call()?;
         let call = self.bcx.ins().call_indirect(reference, callee, &args);

@@ -3,27 +3,46 @@ use super::*;
 use crate::threading::{Task, ThreadOp};
 use cranelift_codegen::ir::{MemFlags, StackSlotData, StackSlotKind};
 
-pub(super) fn emit_adapters(
+/// Declare one adapter per scoped task's entry, in name order.
+pub(super) fn declare_adapters(
     ops: &[Op],
-    functions: &HashMap<String, UserFn>,
-    str_data: &HashMap<StrId, DataId>,
-    eof_empty_str: DataId,
-    runtime: &Runtime,
-    out: &mut Output,
-) -> Result<()> {
+    module: &mut ObjectModule,
+    adapters: &mut HashMap<String, FuncId>,
+) -> Result<Vec<(Arc<Task>, FuncId)>> {
     let mut tasks = std::collections::BTreeMap::new();
     crate::threading::walk(ops, &mut |op| {
         if let Op::Thread(ThreadOp::Start(task, _)) = op {
             tasks.insert(task.adapter.clone(), task.clone());
         }
     });
+    let mut declared = Vec::new();
     for (name, task) in tasks {
-        let module = &mut out.module;
-        let mut signature = module.make_signature();
-        signature.params.push(AbiParam::new(PTR_TY));
-        signature.returns.push(AbiParam::new(PTR_TY));
-        let id = module.declare_function(&name, Linkage::Local, &signature)?;
-        runtime.thread_adapters.borrow_mut().insert(name, id);
+        let id =
+            module.declare_function(&name, Linkage::Local, &signature(module.make_signature()))?;
+        adapters.insert(name, id);
+        declared.push((task, id));
+    }
+    Ok(declared)
+}
+
+fn signature(mut signature: Signature) -> Signature {
+    signature.params.push(AbiParam::new(PTR_TY));
+    signature.returns.push(AbiParam::new(PTR_TY));
+    signature
+}
+
+pub(super) fn build_adapter(
+    task: &Task,
+    id: FuncId,
+    functions: &HashMap<String, UserFn>,
+    str_data: &HashMap<StrId, DataId>,
+    eof_empty_str: DataId,
+    runtime: &Runtime,
+    out: &mut Worker,
+) -> Result<()> {
+    {
+        let mut module = out.symbols();
+        let signature = signature(module.make_signature());
         let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
         let mut bcx = FunctionBuilder::new(&mut func, &mut out.builder);
         let entry = bcx.create_block();
@@ -33,7 +52,7 @@ pub(super) fn emit_adapters(
         let storage = bcx.block_params(entry)[0];
         let mut lower = Lowerer {
             bcx: &mut bcx,
-            module,
+            module: &mut module,
             runtime,
             user_fns: functions,
             str_data,
@@ -95,7 +114,7 @@ pub(super) fn emit_adapters(
         let zero = lower.bcx.ins().iconst(PTR_TY, 0);
         lower.bcx.ins().return_(&[zero]);
         bcx.finalize();
-        out.define(id, func)?;
+        out.define(id, func, module);
     }
     Ok(())
 }
@@ -123,7 +142,7 @@ impl Lowerer<'_, '_> {
                         .iadd_imm(storage, task.argument_offset(i) as i64);
                     self.store_slot(dest, *value, ty);
                 }
-                let id = self.runtime.thread_adapters.borrow()[&task.adapter];
+                let id = self.runtime.thread_adapters[&task.adapter];
                 let callback = self.module.declare_func_in_func(id, self.bcx.func);
                 let callback = self.bcx.ins().func_addr(PTR_TY, callback);
                 let start = self
