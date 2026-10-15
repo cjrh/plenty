@@ -1,5 +1,8 @@
 # Compiler commands
 
+These commands compile single files. `plentyc` accepts exactly these commands;
+`plenty` accepts them too, alongside the [project commands](packages.md).
+
 | Command | Behavior |
 |---|---|
 | `plenty FILE` | Compile in a private temporary directory, run, then remove it |
@@ -14,6 +17,9 @@
 | `plenty --runtime-interface FILE --library-name NAME -o OUT.plentyi` | Generate a typed runtime loader from checked export source, without loading a library or invoking native tools |
 | `plenty --emit-runtime DIR` | Extract `libplenty_runtime.a`, `link-args.txt`, and `target.txt` |
 | `plenty --print-target` | Print the packaged runtime's target and CPU baseline |
+
+`--release` before `FILE` or `--compile` selects Cranelift's speed
+optimizations, like the [release profile](packages.md#profiles).
 
 With no arguments, `plenty` displays help. `--module-root DIR` selects the source
 root for file commands. Library builds do not require `main`; their exported

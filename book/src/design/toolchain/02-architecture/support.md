@@ -5,7 +5,8 @@ restrictions live with their contracts.
 
 | Area | Contract and principal limits |
 |---|---|
-| Source and modules | [Declarations, imports, visibility, and entrypoints](../../language/02-source/index.md); one source root, no import cycles or re-exports |
+| Source and modules | [Declarations, imports, visibility, and entrypoints](../../language/02-source/index.md); one source root per package, no import cycles or re-exports |
+| Packages | [`plenty.toml`, path dependencies, `plenty.lock`, and debug/release profiles](../01-building/packages.md); git dependencies are validated but not fetched; no build cache |
 | Types and data | [Types](../../language/03-types/index.md); fixed layouts and recursive data through heap boundaries |
 | Expressions | [Operators, assignment, and control flow](../../language/04-expressions/index.md); blocks and expressions [nest to 64 levels](../../language/04-expressions/index.md#nesting) |
 | Ownership | [Moves, checked borrows, returned references, and cleanup](../../language/05-ownership/index.md); general stored references unsupported |

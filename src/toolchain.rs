@@ -68,6 +68,9 @@ pub struct CompileOptions {
     pub linker: PathBuf,
     /// Additional driver arguments, each passed verbatim after the inputs.
     pub link_args: Vec<OsString>,
+    /// Ask Cranelift to optimize generated code for speed (the release
+    /// profile). Off by default, which favors compilation speed.
+    pub optimize: bool,
 }
 
 impl Default for CompileOptions {
@@ -76,6 +79,7 @@ impl Default for CompileOptions {
             target: None,
             linker: "cc".into(),
             link_args: Vec::new(),
+            optimize: false,
         }
     }
 }

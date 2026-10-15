@@ -4093,6 +4093,15 @@ pub(crate) fn compile_file(
     lower(modules::load(path, root, require_main)?, heap)
 }
 
+pub(crate) fn compile_graph(
+    path: &std::path::Path,
+    graph: &crate::project::SourceGraph,
+    require_main: bool,
+    heap: &mut Heap,
+) -> Result<Program> {
+    lower(modules::load_graph(path, graph, require_main)?, heap)
+}
+
 pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
     let mut heap = Heap::default();
     let program = lower(modules::generated_interface(source)?, &mut heap)?;
