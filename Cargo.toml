@@ -12,6 +12,7 @@ runtime-checks = []
 
 [dev-dependencies]
 rstest = "0.23.0"
+regex = "1.12.3"
 
 [dependencies]
 log = "0.4.22"

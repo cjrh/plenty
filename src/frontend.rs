@@ -2098,6 +2098,7 @@ pub(crate) fn builtin(name: &str) -> bool {
         || crate::process::ProcessOp::named(name).is_some()
         || crate::time::TimeOp::named(name).is_some()
         || crate::unicode::UnicodeOp::named(name).is_some()
+        || crate::regex::RegexOp::named(name).is_some()
         || matches!(
             name,
             "print"
@@ -3220,6 +3221,9 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::unicode::UnicodeOp::named(name) {
                     return self.system_call(CollectionOp::Unicode(operation), args, &e.at, ops);
+                }
+                if let Some(operation) = crate::regex::RegexOp::named(name) {
+                    return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
                 }
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));

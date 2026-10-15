@@ -1479,6 +1479,7 @@ pub(crate) unsafe fn collection_at(
                 b as u8,
                 value as u64,
             )),
+            360..=365 => crate::regex::call(op, a, b, value),
             192 => crate::text_io::result(crate::files::seek_bytes(
                 a as *mut crate::files::File,
                 b as u8,

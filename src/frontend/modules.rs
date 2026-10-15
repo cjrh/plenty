@@ -65,6 +65,7 @@ impl ModuleSource {
             Self::Standard("std.archive") => {
                 Ok(include_str!("../../stdlib/std/archive.plenty").into())
             }
+            Self::Standard("std.regex") => Ok(include_str!("../../stdlib/std/regex.plenty").into()),
             Self::Standard("std.crypto") => {
                 Ok(include_str!("../../stdlib/std/crypto.plenty").into())
             }
@@ -721,6 +722,7 @@ pub(super) fn load_graph(
                     "std.crypto" => Ok(ModuleSource::Standard("std.crypto")),
                     "std.compress" => Ok(ModuleSource::Standard("std.compress")),
                     "std.archive" => Ok(ModuleSource::Standard("std.archive")),
+                    "std.regex" => Ok(ModuleSource::Standard("std.regex")),
                     "std.json" => Ok(ModuleSource::Standard("std.json")),
                     "std.log" => Ok(ModuleSource::Standard("std.log")),
                     "std.toml" => Ok(ModuleSource::Standard("std.toml")),
@@ -728,7 +730,7 @@ pub(super) fn load_graph(
                     "std.process" => Ok(ModuleSource::Standard("std.process")),
                     "std.ready" => Ok(ModuleSource::Standard("std.ready")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.json, std.log, std.toml, std.env, std.process, std.ready",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready",
                         import.module
                 ))),
                 };

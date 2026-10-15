@@ -33,6 +33,7 @@ mod parallel;
 mod process;
 pub mod project;
 mod record;
+mod regex;
 mod stream;
 mod sum;
 mod tail_abi;

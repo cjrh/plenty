@@ -1,0 +1,1364 @@
+# Regular expressions: a parser that emits a small instruction program, run
+# by a Pike VM. For a compiled program, matching time is linear in the input:
+# each input position visits each instruction at most once. Pattern size,
+# nesting, repetition counts, program size, matcher memory, and matcher work
+# are bounded by `Limits`. See book/src/design/stdlib/regex.md.
+import std.bytes
+from std.bytes import Bytes
+
+pub enum Limit:
+    PatternBytes
+    Nesting
+    Repetition
+    Instructions
+    Memory
+    Work
+    Output
+    Matches
+
+# `offset` is a byte offset into the pattern or replacement template.
+pub class SyntaxError:
+    pub offset: i64
+    pub message: str
+
+pub enum RegexError:
+    Syntax(SyntaxError)
+    LimitExceeded(Limit)
+    InvalidLimits
+    OutOfRange
+    Allocation(AllocError)
+
+pub class Limits:
+    pub max_pattern_bytes: i64
+    pub max_nesting: i64
+    pub max_repeat: i64
+    pub max_instructions: i64
+    pub max_memory: i64
+    pub max_work: i64
+
+# Parsing recurses once per group, so nesting is capped to keep that
+# recursion within the native stack.
+const nesting_ceiling: i64 = 1000
+
+pub def limits() -> Limits:
+    Limits(65536, 128, 1000, 100000, 67108864, 100000000)
+
+def valid(bounds: &Limits) -> bool:
+    bounds.max_pattern_bytes >= 0 and bounds.max_nesting >= 0 and bounds.max_nesting <= nesting_ceiling and bounds.max_repeat >= 0 and bounds.max_instructions >= 0 and bounds.max_memory >= 0 and bounds.max_work >= 0
+
+# Consuming instructions come first: `op <= op_any` tests for one.
+const op_char: i64 = 0
+const op_class: i64 = 1
+const op_any: i64 = 2
+const op_split: i64 = 3
+const op_jump: i64 = 4
+const op_save: i64 = 5
+const op_assert: i64 = 6
+const op_match: i64 = 7
+
+const assert_text_start: i64 = 0
+const assert_text_end: i64 = 1
+const assert_line_start: i64 = 2
+const assert_line_end: i64 = 3
+const assert_word: i64 = 4
+const assert_not_word: i64 = 5
+
+const flag_fold: i64 = 1
+const flag_lines: i64 = 2
+const flag_dot_all: i64 = 4
+
+# Class items: a scalar range, a property, or a negated property.
+const item_range: i64 = 0
+const item_property: i64 = 1
+const item_not_property: i64 = 2
+
+# Properties below 10 are decided here; the rest by `__regex_property`.
+const prop_mark: i64 = 1
+const prop_ascii: i64 = 2
+const prop_any: i64 = 3
+const prop_digit: i64 = 4
+const prop_word: i64 = 5
+const prop_space: i64 = 6
+const prop_alphabetic: i64 = 10
+const prop_lowercase: i64 = 11
+const prop_uppercase: i64 = 12
+const prop_white_space: i64 = 13
+const prop_numeric: i64 = 14
+const prop_control: i64 = 15
+
+# What `Compiler.escape` read; the detail is left in `Compiler._value`.
+const escaped_literal: i64 = 0
+const escaped_item: i64 = 1
+const escaped_assert: i64 = 2
+
+# Input that is not UTF-8 decodes one byte at a time to this unit, which no
+# literal, class, or `.` accepts.
+const invalid_unit: i64 = 1114112
+
+def held[T](result: Result[T, AllocError]) -> Result[T, RegexError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(RegexError.Allocation(cause))
+
+def zeros(count: i64) -> Result[list[i64], RegexError]:
+    held([0 for _ in range(count)])
+
+def integers() -> Result[list[i64], RegexError]:
+    held(list[i64].new())
+
+def no_bytes() -> Result[Bytes, RegexError]:
+    match std.bytes.with_capacity(0):
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(RegexError.OutOfRange)
+
+def hex_value(code: i64) -> i64:
+    if code >= 48 and code <= 57:
+        return code - 48
+    if code >= 97 and code <= 102:
+        return code - 87
+    if code >= 65 and code <= 70:
+        return code - 55
+    -1
+
+def is_digit(code: i64) -> bool:
+    code >= 48 and code <= 57
+
+def is_name_start(code: i64) -> bool:
+    (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or code == 95
+
+def is_word(code: i64) -> bool:
+    is_digit(code) or is_name_start(code)
+
+def is_punctuation(code: i64) -> bool:
+    (code >= 33 and code <= 47) or (code >= 58 and code <= 64) or (code >= 91 and code <= 96) or (code >= 123 and code <= 126)
+
+def is_quantifier(code: i64) -> bool:
+    code == 42 or code == 43 or code == 63 or code == 123
+
+def is_scalar(code: i64) -> bool:
+    code >= 0 and code <= 1114111 and (code < 55296 or code > 57343)
+
+def lower(code: i64) -> i64:
+    i64(__regex_case(u32(code), False))
+
+def upper(code: i64) -> i64:
+    i64(__regex_case(u32(code), True))
+
+def has_case(code: i64) -> bool:
+    lower(code) != code or upper(code) != code
+
+def same_folded(left: i64, right: i64) -> bool:
+    left == right or lower(left) == lower(right) or upper(left) == upper(right)
+
+def property_holds(property: i64, code: i64) -> bool:
+    if property == prop_mark:
+        return __unicode_is_mark(u32(code))
+    if property == prop_ascii:
+        return code < 128
+    if property == prop_any:
+        return True
+    if property == prop_digit:
+        return is_digit(code)
+    if property == prop_word:
+        return is_word(code)
+    if property == prop_space:
+        return code == 32 or (code >= 9 and code <= 13)
+    __regex_property(u32(code), property)
+
+def property_named(name: &str) -> i64:
+    if name == "Alphabetic":
+        return prop_alphabetic
+    if name == "Lowercase":
+        return prop_lowercase
+    if name == "Uppercase":
+        return prop_uppercase
+    if name == "White_Space":
+        return prop_white_space
+    if name == "Numeric":
+        return prop_numeric
+    if name == "Control":
+        return prop_control
+    if name == "Mark":
+        return prop_mark
+    if name == "ASCII":
+        return prop_ascii
+    if name == "Any":
+        return prop_any
+    -1
+
+# The byte at `at`, or -1 outside the input.
+def byte_at(text: &str, data: &Bytes, textual: bool, at: i64) -> i64:
+    if textual:
+        return __regex_text_byte(text, at)
+    if at < 0 or at >= data.len():
+        return -1
+    match data.get(at):
+        case Ok(value):
+            i64(value)
+        case Err(_):
+            -1
+
+# The unit at `at`: `code * 8 + width`, or -1 at the end of the input.
+# Bytes decode as strict UTF-8; each byte that does not begin a well-formed
+# sequence is one `invalid_unit` of width 1.
+def unit_at(text: &str, data: &Bytes, textual: bool, at: i64) -> i64:
+    if textual:
+        return __regex_text_at(text, at)
+    if at >= data.len():
+        return -1
+    lead = byte_at(text, data, False, at)
+    if lead < 128:
+        return lead * 8 + 1
+    mut need = 0
+    mut low = 128
+    mut high = 191
+    mut code = 0
+    if lead >= 194 and lead <= 223:
+        need = 1
+        code = lead & 31
+    elif lead >= 224 and lead <= 239:
+        need = 2
+        code = lead & 15
+        if lead == 224:
+            low = 160
+        if lead == 237:
+            high = 159
+    elif lead >= 240 and lead <= 244:
+        need = 3
+        code = lead & 7
+        if lead == 240:
+            low = 144
+        if lead == 244:
+            high = 143
+    else:
+        return invalid_unit * 8 + 1
+    for index in range(1, need + 1):
+        next = byte_at(text, data, False, at + index)
+        if next < low or next > high:
+            return invalid_unit * 8 + 1
+        low = 128
+        high = 191
+        code = code * 64 + (next & 63)
+    code * 8 + need + 1
+
+def input_len(text: &str, data: &Bytes, textual: bool) -> i64:
+    if textual:
+        return text.byte_len()
+    data.len()
+
+def valid_start(text: &str, data: &Bytes, textual: bool, start: i64) -> bool:
+    if start < 0 or start > input_len(text, data, textual):
+        return False
+    not textual or __regex_text_at(text, start) != -2
+
+def pop_to(items: &mut list[i64], size: i64) -> ():
+    while len(items) > size:
+        match items.pop():
+            case Some(_):
+                pass
+            case Nothing:
+                pass
+
+# A run of instructions taken out of the program to be emitted again.
+# Jump targets inside it are relative to `origin`.
+class Fragment:
+    op: list[i64]
+    x: list[i64]
+    y: list[i64]
+    origin: i64
+
+# Recursive descent over the pattern that emits instructions directly.
+# Alternation and repetition take an emitted fragment back and re-emit it
+# with relocated jump targets, so no syntax tree is kept.
+class Compiler:
+    _op: list[i64]
+    _x: list[i64]
+    _y: list[i64]
+    _class_start: list[i64]
+    _class_count: list[i64]
+    _class_negated: list[i64]
+    _class_fold: list[i64]
+    _item_kind: list[i64]
+    _item_low: list[i64]
+    _item_high: list[i64]
+    _names: list[str]
+    _at: i64
+    _flags: i64
+    _depth: i64
+    _value: i64
+    _max_nesting: i64
+    _max_repeat: i64
+    _max_instructions: i64
+
+    def peek(self, pattern: &str) -> i64:
+        __regex_text_at(pattern, self._at)
+
+    def peek_code(self, pattern: &str) -> i64:
+        unit = self.peek(pattern)
+        if unit < 0:
+            return -1
+        unit >> 3
+
+    def bump(self: &mut Compiler, pattern: &str) -> ():
+        unit = self.peek(pattern)
+        if unit >= 0:
+            self._at += unit & 7
+
+    def eat(self: &mut Compiler, pattern: &str, code: i64) -> bool:
+        if self.peek_code(pattern) == code:
+            self.bump(pattern)
+            return True
+        False
+
+    def emit(self: &mut Compiler, op: i64, x: i64, y: i64) -> Result[i64, RegexError]:
+        pc = len(self._op)
+        if pc >= self._max_instructions:
+            return Err(RegexError.LimitExceeded(Limit.Instructions))
+        held(self._op.append(op))?
+        held(self._x.append(x))?
+        held(self._y.append(y))?
+        Ok(pc)
+
+    def alternation(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
+        self._depth += 1
+        if self._depth > self._max_nesting:
+            return Err(RegexError.LimitExceeded(Limit.Nesting))
+        start = len(self._op)
+        mut ends = integers()?
+        self.concat(pattern)?
+        while self.eat(pattern, 124):
+            held(ends.append(len(self._op)))?
+            self.concat(pattern)?
+        if len(ends) > 0:
+            self.alternate(start, &ends)?
+        self._depth -= 1
+        Ok(())
+
+    def concat(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
+        mut code = self.peek_code(pattern)
+        while code != -1 and code != 124 and code != 41:
+            self.repeat(pattern)?
+            code = self.peek_code(pattern)
+        Ok(())
+
+    def repeat(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
+        start = len(self._op)
+        if not self.atom(pattern)?:
+            return Ok(())
+        mut quantified = False
+        while is_quantifier(self.peek_code(pattern)):
+            offset = self._at
+            if quantified:
+                return Err(RegexError.Syntax(SyntaxError(offset, "repetition of a repetition; use a group")))
+            quantified = True
+            code = self.peek_code(pattern)
+            self.bump(pattern)
+            mut low = 0
+            mut high = -1
+            if code == 43:
+                low = 1
+            elif code == 63:
+                high = 1
+            elif code == 123:
+                low = self.count(pattern, offset)?
+                high = low
+                if self.eat(pattern, 44):
+                    high = -1
+                    if self.peek_code(pattern) != 125:
+                        high = self.count(pattern, offset)?
+                if not self.eat(pattern, 125):
+                    return Err(RegexError.Syntax(SyntaxError(offset, "invalid repetition; expected `{n}`, `{n,}`, or `{n,m}`")))
+                if high != -1 and high < low:
+                    return Err(RegexError.Syntax(SyntaxError(offset, "invalid repetition; the minimum exceeds the maximum")))
+            greedy = not self.eat(pattern, 63)
+            self.repeated(start, low, high, greedy)?
+        Ok(())
+
+    def count(self: &mut Compiler, pattern: &str, offset: i64) -> Result[i64, RegexError]:
+        if not is_digit(self.peek_code(pattern)):
+            return Err(RegexError.Syntax(SyntaxError(offset, "invalid repetition; expected `{n}`, `{n,}`, or `{n,m}`")))
+        mut value = 0
+        while is_digit(self.peek_code(pattern)):
+            if value <= self._max_repeat:
+                value = value * 10 + self.peek_code(pattern) - 48
+            self.bump(pattern)
+        if value > self._max_repeat:
+            return Err(RegexError.LimitExceeded(Limit.Repetition))
+        Ok(value)
+
+    # Emits one atom and reports whether it can be repeated: a flag group
+    # such as `(?i)` emits nothing.
+    def atom(self: &mut Compiler, pattern: &str) -> Result[bool, RegexError]:
+        offset = self._at
+        code = self.peek_code(pattern)
+        if code == 40:
+            return self.group(pattern)
+        if code == 91:
+            self.bracket(pattern)?
+            return Ok(True)
+        if is_quantifier(code):
+            return Err(RegexError.Syntax(SyntaxError(offset, "repetition operator missing expression")))
+        self.bump(pattern)
+        if code == 46:
+            mut dot_all = 0
+            if self._flags & flag_dot_all != 0:
+                dot_all = 1
+            self.emit(op_any, dot_all, 0)?
+        elif code == 94:
+            if self._flags & flag_lines != 0:
+                self.emit(op_assert, assert_line_start, 0)?
+            else:
+                self.emit(op_assert, assert_text_start, 0)?
+        elif code == 36:
+            if self._flags & flag_lines != 0:
+                self.emit(op_assert, assert_line_end, 0)?
+            else:
+                self.emit(op_assert, assert_text_end, 0)?
+        elif code == 92:
+            kind = self.escape(pattern, offset)?
+            if kind == escaped_literal:
+                self.literal(self._value)?
+            elif kind == escaped_assert:
+                self.emit(op_assert, self._value, 0)?
+            else:
+                id = self.open_class(False)?
+                self.add_item(self._value // 100, self._value % 100, 0)?
+                self.emit(op_class, id, 0)?
+        else:
+            self.literal(code)?
+        Ok(True)
+
+    def literal(self: &mut Compiler, code: i64) -> Result[(), RegexError]:
+        mut fold = 0
+        if self._flags & flag_fold != 0 and has_case(code):
+            fold = 1
+        self.emit(op_char, code, fold)?
+        Ok(())
+
+    # Reads the escape after a consumed `\`. A literal leaves its scalar in
+    # `_value`, a class item `kind * 100 + property`, an assertion its kind.
+    def escape(self: &mut Compiler, pattern: &str, offset: i64) -> Result[i64, RegexError]:
+        code = self.peek_code(pattern)
+        if code == -1:
+            return Err(RegexError.Syntax(SyntaxError(offset, "incomplete escape")))
+        self.bump(pattern)
+        mut item = -1
+        if code == 100:
+            item = item_property * 100 + prop_digit
+        elif code == 68:
+            item = item_not_property * 100 + prop_digit
+        elif code == 119:
+            item = item_property * 100 + prop_word
+        elif code == 87:
+            item = item_not_property * 100 + prop_word
+        elif code == 115:
+            item = item_property * 100 + prop_space
+        elif code == 83:
+            item = item_not_property * 100 + prop_space
+        elif code == 112:
+            item = item_property * 100 + self.property(pattern, offset)?
+        elif code == 80:
+            item = item_not_property * 100 + self.property(pattern, offset)?
+        if item >= 0:
+            self._value = item
+            return Ok(escaped_item)
+        mut assertion = -1
+        if code == 98:
+            assertion = assert_word
+        elif code == 66:
+            assertion = assert_not_word
+        elif code == 65:
+            assertion = assert_text_start
+        elif code == 122:
+            assertion = assert_text_end
+        if assertion >= 0:
+            self._value = assertion
+            return Ok(escaped_assert)
+        mut value = -1
+        if code == 110:
+            value = 10
+        elif code == 116:
+            value = 9
+        elif code == 114:
+            value = 13
+        elif code == 102:
+            value = 12
+        elif code == 118:
+            value = 11
+        elif code == 120:
+            value = self.hex(pattern, offset)?
+        elif is_punctuation(code):
+            value = code
+        elif is_digit(code):
+            return Err(RegexError.Syntax(SyntaxError(offset, "backreferences are not supported")))
+        else:
+            return Err(RegexError.Syntax(SyntaxError(offset, "unknown escape")))
+        self._value = value
+        Ok(escaped_literal)
+
+    def hex(self: &mut Compiler, pattern: &str, offset: i64) -> Result[i64, RegexError]:
+        braced = self.eat(pattern, 123)
+        mut value = 0
+        mut digits = 0
+        while True:
+            if not braced and digits == 2:
+                break
+            if braced and self.peek_code(pattern) == 125:
+                break
+            digit = hex_value(self.peek_code(pattern))
+            if digit < 0 or digits == 6:
+                return Err(RegexError.Syntax(SyntaxError(offset, "invalid hexadecimal escape; expected `\\xHH` or `\\x{H...}`")))
+            value = value * 16 + digit
+            digits += 1
+            self.bump(pattern)
+        if braced:
+            self.bump(pattern)
+            if digits == 0:
+                return Err(RegexError.Syntax(SyntaxError(offset, "invalid hexadecimal escape; expected `\\xHH` or `\\x{H...}`")))
+        if not is_scalar(value):
+            return Err(RegexError.Syntax(SyntaxError(offset, "escape is not a Unicode scalar value")))
+        Ok(value)
+
+    def property(self: &mut Compiler, pattern: &str, offset: i64) -> Result[i64, RegexError]:
+        if not self.eat(pattern, 123):
+            return Err(RegexError.Syntax(SyntaxError(offset, "expected `{` after `\\p` or `\\P`")))
+        start = self._at
+        while self.peek_code(pattern) != 125:
+            if self.peek_code(pattern) == -1:
+                return Err(RegexError.Syntax(SyntaxError(offset, "unclosed property name")))
+            self.bump(pattern)
+        name = held(__regex_text_slice(pattern, start, self._at))?
+        self.bump(pattern)
+        property = property_named(&name)
+        if property < 0:
+            return Err(RegexError.Syntax(SyntaxError(offset, "unknown property; expected Alphabetic, Lowercase, Uppercase, White_Space, Numeric, Control, Mark, ASCII, or Any")))
+        Ok(property)
+
+    def open_class(self: &mut Compiler, negated: bool) -> Result[i64, RegexError]:
+        id = len(self._class_start)
+        held(self._class_start.append(len(self._item_kind)))?
+        held(self._class_count.append(0))?
+        mut flag = 0
+        if negated:
+            flag = 1
+        held(self._class_negated.append(flag))?
+        mut fold = 0
+        if self._flags & flag_fold != 0:
+            fold = 1
+        held(self._class_fold.append(fold))?
+        Ok(id)
+
+    # Items count against the instruction limit too: each is matcher work.
+    def add_item(self: &mut Compiler, kind: i64, low: i64, high: i64) -> Result[(), RegexError]:
+        if len(self._item_kind) >= self._max_instructions:
+            return Err(RegexError.LimitExceeded(Limit.Instructions))
+        held(self._item_kind.append(kind))?
+        held(self._item_low.append(low))?
+        held(self._item_high.append(high))?
+        last = len(self._class_count) - 1
+        self._class_count[last] += 1
+        Ok(())
+
+    def bracket(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
+        open = self._at
+        self.bump(pattern)
+        negated = self.eat(pattern, 94)
+        id = self.open_class(negated)?
+        mut first = True
+        while True:
+            offset = self._at
+            code = self.peek_code(pattern)
+            if code == -1:
+                return Err(RegexError.Syntax(SyntaxError(open, "unclosed class")))
+            if code == 93:
+                if first:
+                    return Err(RegexError.Syntax(SyntaxError(offset, "empty class; write a literal `]` as `\\]`")))
+                self.bump(pattern)
+                break
+            if code == 91:
+                return Err(RegexError.Syntax(SyntaxError(offset, "nested class; write a literal `[` as `\\[`")))
+            first = False
+            low = self.class_scalar(pattern)?
+            if low >= 0:
+                mut high = low
+                if self.peek_code(pattern) == 45 and __regex_text_at(pattern, self._at + 1) >> 3 != 93:
+                    self.bump(pattern)
+                    if self.peek_code(pattern) == -1:
+                        return Err(RegexError.Syntax(SyntaxError(open, "unclosed class")))
+                    high = self.class_scalar(pattern)?
+                    if high < 0:
+                        return Err(RegexError.Syntax(SyntaxError(offset, "invalid range; a range joins two scalars")))
+                    if high < low:
+                        return Err(RegexError.Syntax(SyntaxError(offset, "invalid range; the start exceeds the end")))
+                self.add_item(item_range, low, high)?
+            elif self.peek_code(pattern) == 45 and __regex_text_at(pattern, self._at + 1) >> 3 != 93:
+                return Err(RegexError.Syntax(SyntaxError(self._at, "invalid range; a range joins two scalars")))
+        self.emit(op_class, id, 0)?
+        Ok(())
+
+    # One class member: a scalar, or -1 after adding a property item.
+    def class_scalar(self: &mut Compiler, pattern: &str) -> Result[i64, RegexError]:
+        offset = self._at
+        code = self.peek_code(pattern)
+        self.bump(pattern)
+        if code != 92:
+            return Ok(code)
+        kind = self.escape(pattern, offset)?
+        if kind == escaped_assert:
+            return Err(RegexError.Syntax(SyntaxError(offset, "assertion inside a class")))
+        if kind == escaped_item:
+            self.add_item(self._value // 100, self._value % 100, 0)?
+            return Ok(-1)
+        Ok(self._value)
+
+    def group(self: &mut Compiler, pattern: &str) -> Result[bool, RegexError]:
+        open = self._at
+        self.bump(pattern)
+        saved = self._flags
+        mut capture = -1
+        if self.eat(pattern, 63):
+            code = self.peek_code(pattern)
+            if code == 80 or code == 60:
+                self.bump(pattern)
+                if code == 80 and not self.eat(pattern, 60):
+                    return Err(RegexError.Syntax(SyntaxError(open, "expected `<` after `(?P`")))
+                next = self.peek_code(pattern)
+                if next == 61 or next == 33:
+                    return Err(RegexError.Syntax(SyntaxError(open, "look-around is not supported")))
+                capture = self.named_group(pattern, open)?
+            elif code == 61 or code == 33:
+                return Err(RegexError.Syntax(SyntaxError(open, "look-around is not supported")))
+            elif not self.eat(pattern, 58):
+                if self.flag_group(pattern, open)?:
+                    return Ok(False)
+        else:
+            capture = len(self._names)
+            held(self._names.append(""))?
+        if capture >= 0:
+            self.emit(op_save, capture * 2, 0)?
+        self.alternation(pattern)?
+        if not self.eat(pattern, 41):
+            return Err(RegexError.Syntax(SyntaxError(open, "unclosed group")))
+        self._flags = saved
+        if capture >= 0:
+            self.emit(op_save, capture * 2 + 1, 0)?
+        Ok(True)
+
+    def named_group(self: &mut Compiler, pattern: &str, open: i64) -> Result[i64, RegexError]:
+        start = self._at
+        if not is_name_start(self.peek_code(pattern)):
+            return Err(RegexError.Syntax(SyntaxError(open, "invalid group name; expected `[A-Za-z_][A-Za-z0-9_]*`")))
+        while is_word(self.peek_code(pattern)):
+            self.bump(pattern)
+        stop = self._at
+        if not self.eat(pattern, 62):
+            return Err(RegexError.Syntax(SyntaxError(open, "invalid group name; expected `[A-Za-z_][A-Za-z0-9_]*`")))
+        name = held(__regex_text_slice(pattern, start, stop))?
+        for index in range(len(self._names)):
+            if self._names[index] == name:
+                return Err(RegexError.Syntax(SyntaxError(open, "duplicate group name")))
+        capture = len(self._names)
+        held(self._names.append(name))?
+        Ok(capture)
+
+    # Flags after `(?`. Ending in `)` sets them for the rest of the enclosing
+    # group and returns True; ending in `:` scopes them to the group that
+    # follows.
+    def flag_group(self: &mut Compiler, pattern: &str, open: i64) -> Result[bool, RegexError]:
+        mut flags = self._flags
+        mut negate = False
+        mut letters = 0
+        mut code = self.peek_code(pattern)
+        while code != 41 and code != 58:
+            self.bump(pattern)
+            if code == 45:
+                if negate:
+                    return Err(RegexError.Syntax(SyntaxError(open, "repeated `-` in flags")))
+                negate = True
+            else:
+                mut flag = 0
+                if code == 105:
+                    flag = flag_fold
+                elif code == 109:
+                    flag = flag_lines
+                elif code == 115:
+                    flag = flag_dot_all
+                else:
+                    return Err(RegexError.Syntax(SyntaxError(open, "unknown flag; expected `i`, `m`, or `s`")))
+                letters += 1
+                if negate:
+                    flags = flags & (7 - flag)
+                else:
+                    flags = flags | flag
+            code = self.peek_code(pattern)
+        self.bump(pattern)
+        if letters == 0:
+            return Err(RegexError.Syntax(SyntaxError(open, "empty flag group")))
+        self._flags = flags
+        Ok(code == 41)
+
+    def take(self: &mut Compiler, start: i64) -> Result[Fragment, RegexError]:
+        mut op = integers()?
+        mut x = integers()?
+        mut y = integers()?
+        for pc in range(start, len(self._op)):
+            held(op.append(self._op[pc]))?
+            held(x.append(self._x[pc]))?
+            held(y.append(self._y[pc]))?
+        pop_to(&mut self._op, start)
+        pop_to(&mut self._x, start)
+        pop_to(&mut self._y, start)
+        Ok(Fragment(op, x, y, start))
+
+    # Re-emits piece[first:stop] at the end of the program.
+    def put(self: &mut Compiler, piece: &Fragment, first: i64, stop: i64) -> Result[(), RegexError]:
+        delta = len(self._op) - first - piece.origin
+        for index in range(first, stop):
+            op = piece.op[index]
+            mut x = piece.x[index]
+            mut y = piece.y[index]
+            if op == op_split or op == op_jump:
+                x += delta
+                y += delta
+            self.emit(op, x, y)?
+        Ok(())
+
+    # `ends` holds where each alternative but the last ended.
+    def alternate(self: &mut Compiler, start: i64, ends: &list[i64]) -> Result[(), RegexError]:
+        piece = self.take(start)?
+        mut jumps = integers()?
+        mut first = 0
+        for index in range(len(ends) + 1):
+            mut stop = len(piece.op)
+            if index < len(ends):
+                stop = ends[index] - start
+                split = self.emit(op_split, len(self._op) + 1, 0)?
+                self.put(&piece, first, stop)?
+                held(jumps.append(self.emit(op_jump, 0, 0)?))?
+                self._y[split] = len(self._op)
+            else:
+                self.put(&piece, first, stop)?
+            first = stop
+        end = len(self._op)
+        for index in range(len(jumps)):
+            self._x[jumps[index]] = end
+        Ok(())
+
+    # `high` is -1 for no maximum.
+    def repeated(self: &mut Compiler, start: i64, low: i64, high: i64, greedy: bool) -> Result[(), RegexError]:
+        piece = self.take(start)?
+        size = len(piece.op)
+        mut last = len(self._op)
+        for _ in range(low):
+            last = len(self._op)
+            self.put(&piece, 0, size)?
+        if high == -1:
+            # `x*` is compiled as `(x+)?` so that a body that matches empty
+            # still records its groups, as the `regex` crate does.
+            if low == 0:
+                skip = self.emit(op_split, 0, 0)?
+                last = len(self._op)
+                self.put(&piece, 0, size)?
+                split = self.emit(op_split, 0, 0)?
+                self.choose(split, last, split + 1, greedy)
+                self.choose(skip, skip + 1, len(self._op), greedy)
+            else:
+                split = self.emit(op_split, 0, 0)?
+                self.choose(split, last, split + 1, greedy)
+            return Ok(())
+        mut splits = integers()?
+        for _ in range(low, high):
+            held(splits.append(self.emit(op_split, 0, 0)?))?
+            self.put(&piece, 0, size)?
+        end = len(self._op)
+        for index in range(len(splits)):
+            self.choose(splits[index], splits[index] + 1, end, greedy)
+        Ok(())
+
+    def choose(self: &mut Compiler, split: i64, more: i64, done: i64, greedy: bool) -> ():
+        if greedy:
+            self._x[split] = more
+            self._y[split] = done
+        else:
+            self._x[split] = done
+            self._y[split] = more
+
+# A match as byte offsets into the searched input.
+pub class Match:
+    pub start: i64
+    pub end: i64
+
+    pub def len(self) -> i64:
+        self.end - self.start
+
+    pub def is_empty(self) -> bool:
+        self.end == self.start
+
+    # A copy of the matched text. `haystack` must be the searched text.
+    pub def text(self, haystack: &str) -> Result[str, RegexError]:
+        if self.start < 0 or self.start > self.end or self.end > haystack.byte_len():
+            return Err(RegexError.OutOfRange)
+        if __regex_text_at(haystack, self.start) == -2 or __regex_text_at(haystack, self.end) == -2:
+            return Err(RegexError.OutOfRange)
+        held(__regex_text_slice(haystack, self.start, self.end))
+
+    # A copy of the matched bytes. `data` must be the searched bytes.
+    pub def bytes(self, data: &Bytes) -> Result[Bytes, RegexError]:
+        match data.slice(self.start, self.end):
+            case Ok(value):
+                Ok(value)
+            case Err(_):
+                Err(RegexError.OutOfRange)
+
+# Group matches; group 0 is the whole match.
+pub class Captures:
+    _slots: list[i64]
+    _names: list[str]
+
+    pub def len(self) -> i64:
+        len(self._slots) // 2
+
+    # The group's match, or Nothing when the group did not take part.
+    pub def get(self, index: i64) -> Option[Match]:
+        if index < 0 or index * 2 >= len(self._slots):
+            return Nothing
+        start = self._slots[index * 2]
+        end = self._slots[index * 2 + 1]
+        if start < 0 or end < 0:
+            return Nothing
+        Some(Match(start, end))
+
+    pub def name(self, name: &str) -> Option[Match]:
+        for index in range(1, len(self._names)):
+            if self._names[index] == name:
+                return self.get(index)
+        Nothing
+
+# Matcher scratch for one program: two sparse thread sets, each thread's
+# capture slots, and the explicit stack of the epsilon closure.
+class Vm:
+    _n: i64
+    _slots: i64
+    _dense: list[i64]
+    _sparse: list[i64]
+    _count: list[i64]
+    _caps: list[i64]
+    _stack: list[i64]
+    _cur: list[i64]
+    _found: list[i64]
+    _work: i64
+    _max_work: i64
+
+    # Adds the threads reachable from `start` without consuming input, in
+    # priority order. Each instruction enters a set once, which bounds both
+    # the work and the stack. A SAVE pushes a restore frame (old value, then
+    # -(slot + 1)) under its continuation so later paths see the old slot.
+    def add(self: &mut Vm, program: &Regex, set: i64, start: i64, at: i64, text: &str, data: &Bytes, textual: bool) -> Result[(), RegexError]:
+        base = set * self._n
+        slots = self._slots
+        self._stack[0] = start
+        mut depth = 1
+        while depth > 0:
+            depth -= 1
+            top = self._stack[depth]
+            if top < 0:
+                depth -= 1
+                self._cur[-top - 1] = self._stack[depth]
+                continue
+            pc = top
+            count = self._count[set]
+            index = self._sparse[base + pc]
+            if index < count and self._dense[base + index] == pc:
+                continue
+            self._sparse[base + pc] = count
+            self._dense[base + count] = pc
+            self._count[set] = count + 1
+            # Inline: a call returning `Result` here costs an aggregate per step.
+            self._work += 1
+            if self._work > self._max_work:
+                return Err(RegexError.LimitExceeded(Limit.Work))
+            op = program._op[pc]
+            if op == op_jump:
+                self._stack[depth] = program._x[pc]
+                depth += 1
+            elif op == op_split:
+                self._stack[depth] = program._y[pc]
+                self._stack[depth + 1] = program._x[pc]
+                depth += 2
+            elif op == op_save:
+                slot = program._x[pc]
+                if slot < slots:
+                    self._stack[depth] = self._cur[slot]
+                    self._stack[depth + 1] = -slot - 1
+                    depth += 2
+                    self._cur[slot] = at
+                self._stack[depth] = pc + 1
+                depth += 1
+            elif op == op_assert:
+                if program.holds(program._x[pc], at, text, data, textual):
+                    self._stack[depth] = pc + 1
+                    depth += 1
+            else:
+                into = (base + pc) * slots
+                mut k = 0
+                while k < slots:
+                    self._caps[into + k] = self._cur[k]
+                    k += 1
+        Ok(())
+
+    # Finds the leftmost-first match starting at or after `start` and leaves
+    # its slots in `_found`. With `early`, stops at the first match of any
+    # length without recording it.
+    def search(self: &mut Vm, program: &Regex, text: &str, data: &Bytes, textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
+        n = self._n
+        slots = self._slots
+        self._count[0] = 0
+        self._count[1] = 0
+        mut current = 0
+        mut matched = False
+        mut at = start
+        while True:
+            if self._count[current] == 0:
+                if matched:
+                    break
+                if textual and program._prefix.byte_len() > 0:
+                    found = __regex_text_find(text, &program._prefix, at)
+                    if found < 0:
+                        break
+                    at = found
+            if not matched:
+                mut k = 0
+                while k < slots:
+                    self._cur[k] = -1
+                    k += 1
+                self.add(program, current, 0, at, text, data, textual)?
+            unit = unit_at(text, data, textual, at)
+            next = 1 - current
+            self._count[next] = 0
+            mut index = 0
+            while index < self._count[current]:
+                pc = self._dense[current * n + index]
+                index += 1
+                self._work += 1
+                if self._work > self._max_work:
+                    return Err(RegexError.LimitExceeded(Limit.Work))
+                op = program._op[pc]
+                if op == op_match:
+                    if early:
+                        return Ok(True)
+                    source = (current * n + pc) * slots
+                    mut k = 0
+                    while k < slots:
+                        self._found[k] = self._caps[source + k]
+                        k += 1
+                    matched = True
+                    # Leftmost-first: lower-priority threads are cut.
+                    break
+                if op <= op_any and unit >= 0 and program.accepts(pc, unit >> 3):
+                    source = (current * n + pc) * slots
+                    mut k = 0
+                    while k < slots:
+                        self._cur[k] = self._caps[source + k]
+                        k += 1
+                    self.add(program, next, pc + 1, at + (unit & 7), text, data, textual)?
+            current = next
+            if unit < 0:
+                break
+            at += unit & 7
+        Ok(matched)
+
+# Iteration state for `next_match`: matcher scratch, the next search start,
+# and where the previous match ended.
+pub class Cursor:
+    _vm: Vm
+    _at: i64
+    _last_end: i64
+    _done: bool
+
+class Template:
+    kind: list[i64]
+    start: list[i64]
+    stop: list[i64]
+
+    # Kind 0 is a literal byte range of the template; kind 1 a group.
+    def push(self: &mut Template, kind: i64, start: i64, stop: i64) -> Result[(), RegexError]:
+        if kind == 0 and start == stop:
+            return Ok(())
+        held(self.kind.append(kind))?
+        held(self.start.append(start))?
+        held(self.stop.append(stop))?
+        Ok(())
+
+class Output:
+    pieces: list[str]
+    size: i64
+    max: i64
+
+    def add(self: &mut Output, source: &str, start: i64, stop: i64) -> Result[(), RegexError]:
+        if start == stop:
+            return Ok(())
+        if stop - start > self.max - self.size:
+            return Err(RegexError.LimitExceeded(Limit.Output))
+        self.size += stop - start
+        held(self.pieces.append(held(__regex_text_slice(source, start, stop))?))?
+        Ok(())
+
+pub class Regex:
+    _op: list[i64]
+    _x: list[i64]
+    _y: list[i64]
+    _class_start: list[i64]
+    _class_count: list[i64]
+    _class_negated: list[i64]
+    _class_fold: list[i64]
+    _item_kind: list[i64]
+    _item_low: list[i64]
+    _item_high: list[i64]
+    _names: list[str]
+    _prefix: str
+    _max_work: i64
+    _empty: Bytes
+
+    # Groups including group 0, the whole match.
+    pub def group_count(self) -> i64:
+        len(self._names)
+
+    pub def group_index(self, name: &str) -> Option[i64]:
+        for index in range(1, len(self._names)):
+            if self._names[index] == name:
+                return Some(index)
+        Nothing
+
+    # Instructions in the compiled program.
+    pub def instructions(self) -> i64:
+        len(self._op)
+
+    def holds(self, kind: i64, at: i64, text: &str, data: &Bytes, textual: bool) -> bool:
+        if kind == assert_text_start:
+            return at == 0
+        if kind == assert_text_end:
+            return at == input_len(text, data, textual)
+        if kind == assert_line_start:
+            return at == 0 or byte_at(text, data, textual, at - 1) == 10
+        if kind == assert_line_end:
+            return at == input_len(text, data, textual) or byte_at(text, data, textual, at) == 10
+        # ASCII word bytes never occur inside a multi-byte sequence, so the
+        # adjacent bytes decide an ASCII word boundary.
+        before = is_word(byte_at(text, data, textual, at - 1))
+        after = is_word(byte_at(text, data, textual, at))
+        if kind == assert_word:
+            return before != after
+        before == after
+
+    def accepts(self, pc: i64, code: i64) -> bool:
+        op = self._op[pc]
+        if op == op_char:
+            x = self._x[pc]
+            return x == code or (self._y[pc] == 1 and code < invalid_unit and same_folded(x, code))
+        if op == op_any:
+            return code < invalid_unit and (self._x[pc] == 1 or code != 10)
+        if code >= invalid_unit:
+            return False
+        id = self._x[pc]
+        mut member = self.in_class(id, code)
+        if not member and self._class_fold[id] == 1:
+            member = self.in_class(id, lower(code)) or self.in_class(id, upper(code))
+        member != (self._class_negated[id] == 1)
+
+    def in_class(self, id: i64, code: i64) -> bool:
+        first = self._class_start[id]
+        stop = first + self._class_count[id]
+        mut index = first
+        while index < stop:
+            item = index
+            index += 1
+            kind = self._item_kind[item]
+            low = self._item_low[item]
+            if kind == item_range:
+                if code >= low and code <= self._item_high[item]:
+                    return True
+            elif property_holds(low, code) == (kind == item_property):
+                return True
+        False
+
+    def machine(self, slots: i64) -> Result[Vm, RegexError]:
+        n = len(self._op)
+        mut width = slots
+        if width == 0:
+            width = 1
+        Ok(Vm(n, slots, zeros(2 * n)?, zeros(2 * n)?, zeros(2)?, zeros(2 * n * slots)?, zeros(3 * n + 4)?, zeros(width)?, zeros(width)?, 0, self._max_work))
+
+    def first(self, text: &str, data: &Bytes, textual: bool, start: i64, slots: i64) -> Result[Option[Vm], RegexError]:
+        if not valid_start(text, data, textual, start):
+            return Err(RegexError.OutOfRange)
+        mut vm = self.machine(slots)?
+        if vm.search(self, text, data, textual, start, False)?:
+            return Ok(Some(vm))
+        Ok(Nothing)
+
+    def found(self, text: &str, data: &Bytes, textual: bool, start: i64) -> Result[Option[Match], RegexError]:
+        match self.first(text, data, textual, start, 2)?:
+            case Some(vm):
+                Ok(Some(Match(vm._found[0], vm._found[1])))
+            case Nothing:
+                Ok(Nothing)
+
+    def captured(self, text: &str, data: &Bytes, textual: bool, start: i64) -> Result[Option[Captures], RegexError]:
+        match self.first(text, data, textual, start, 2 * len(self._names))?:
+            case Some(vm):
+                Ok(Some(self.captures_of(&vm)?))
+            case Nothing:
+                Ok(Nothing)
+
+    def captures_of(self, vm: &Vm) -> Result[Captures, RegexError]:
+        mut slots = integers()?
+        for k in range(vm._slots):
+            held(slots.append(vm._found[k]))?
+        mut names = held(list[str].new())?
+        for index in range(len(self._names)):
+            held(names.append(held(copy(self._names[index]))?))?
+        Ok(Captures(slots, names))
+
+    def matches(self, text: &str, data: &Bytes, textual: bool) -> Result[bool, RegexError]:
+        mut vm = self.machine(0)?
+        vm.search(self, text, data, textual, 0, True)
+
+    pub def is_match(self, text: &str) -> Result[bool, RegexError]:
+        self.matches(text, &self._empty, True)
+
+    pub def is_match_bytes(self, data: &Bytes) -> Result[bool, RegexError]:
+        self.matches("", data, False)
+
+    pub def find(self, text: &str) -> Result[Option[Match], RegexError]:
+        self.found(text, &self._empty, True, 0)
+
+    # Searches from byte offset `start`, which must be a scalar boundary.
+    # Assertions still see the text before `start`.
+    pub def find_at(self, text: &str, start: i64) -> Result[Option[Match], RegexError]:
+        self.found(text, &self._empty, True, start)
+
+    pub def find_bytes(self, data: &Bytes, start: i64) -> Result[Option[Match], RegexError]:
+        self.found("", data, False, start)
+
+    pub def captures(self, text: &str) -> Result[Option[Captures], RegexError]:
+        self.captured(text, &self._empty, True, 0)
+
+    pub def captures_at(self, text: &str, start: i64) -> Result[Option[Captures], RegexError]:
+        self.captured(text, &self._empty, True, start)
+
+    pub def captures_bytes(self, data: &Bytes, start: i64) -> Result[Option[Captures], RegexError]:
+        self.captured("", data, False, start)
+
+    def scan(self, slots: i64) -> Result[Cursor, RegexError]:
+        Ok(Cursor(self.machine(slots)?, 0, -1, False))
+
+    # A cursor for `next_match`, holding matcher scratch sized for this regex.
+    pub def cursor(self) -> Result[Cursor, RegexError]:
+        self.scan(2)
+
+    # The next match, or Nothing after the last. `max_work` applies to each
+    # call. An empty match where the previous match ended is skipped.
+    pub def next_match(self, text: &str, cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
+        cursor._vm._work = 0
+        self.advance(cursor, text, &self._empty, True)
+
+    pub def next_match_bytes(self, data: &Bytes, cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
+        cursor._vm._work = 0
+        self.advance(cursor, "", data, False)
+
+    def advance(self, cursor: &mut Cursor, text: &str, data: &Bytes, textual: bool) -> Result[Option[Match], RegexError]:
+        if cursor._vm._n != len(self._op) or cursor._vm._slots < 2:
+            return Err(RegexError.OutOfRange)
+        while not cursor._done:
+            if not valid_start(text, data, textual, cursor._at):
+                return Err(RegexError.OutOfRange)
+            if not cursor._vm.search(self, text, data, textual, cursor._at, False)?:
+                cursor._done = True
+                return Ok(Nothing)
+            start = cursor._vm._found[0]
+            end = cursor._vm._found[1]
+            if start == end and end == cursor._last_end:
+                unit = unit_at(text, data, textual, cursor._at)
+                if unit < 0:
+                    cursor._done = True
+                    return Ok(Nothing)
+                cursor._at += unit & 7
+            else:
+                cursor._at = end
+                cursor._last_end = end
+                return Ok(Some(Match(start, end)))
+        Ok(Nothing)
+
+    # Every match in order. More than `max_matches` is an error; `max_work`
+    # applies to the whole call.
+    pub def find_all(self, text: &str, max_matches: i64) -> Result[list[Match], RegexError]:
+        self.all(text, &self._empty, True, max_matches)
+
+    pub def find_all_bytes(self, data: &Bytes, max_matches: i64) -> Result[list[Match], RegexError]:
+        self.all("", data, False, max_matches)
+
+    def all(self, text: &str, data: &Bytes, textual: bool, max_matches: i64) -> Result[list[Match], RegexError]:
+        mut cursor = self.scan(2)?
+        mut found = held(list[Match].new())?
+        while not cursor._done:
+            match self.advance(&mut cursor, text, data, textual)?:
+                case Some(item):
+                    if len(found) >= max_matches:
+                        return Err(RegexError.LimitExceeded(Limit.Matches))
+                    held(found.append(item))?
+                case Nothing:
+                    pass
+        Ok(found)
+
+    # The text around matches. More than `max_pieces` pieces is an error.
+    pub def split(self, text: &str, max_pieces: i64) -> Result[list[str], RegexError]:
+        mut cursor = self.scan(2)?
+        mut pieces = held(list[str].new())?
+        mut last = 0
+        while not cursor._done:
+            match self.advance(&mut cursor, text, &self._empty, True)?:
+                case Some(item):
+                    if len(pieces) + 1 >= max_pieces:
+                        return Err(RegexError.LimitExceeded(Limit.Matches))
+                    held(pieces.append(held(__regex_text_slice(text, last, item.start))?))?
+                    last = item.end
+                case Nothing:
+                    pass
+        if len(pieces) >= max_pieces:
+            return Err(RegexError.LimitExceeded(Limit.Matches))
+        held(pieces.append(held(__regex_text_slice(text, last, text.byte_len()))?))?
+        Ok(pieces)
+
+    # Replaces the first match. In `template`, `$n` and `${n}` insert group
+    # n, `${name}` a named group, and `$$` a `$`; a group that did not take
+    # part inserts nothing. A result over `max_bytes` bytes is an error.
+    pub def replace(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]:
+        self.substitute(text, template, max_bytes, 1)
+
+    pub def replace_all(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]:
+        self.substitute(text, template, max_bytes, -1)
+
+    def substitute(self, text: &str, template: &str, max_bytes: i64, limit: i64) -> Result[str, RegexError]:
+        parts = self.template(template)?
+        mut cursor = self.scan(2 * len(self._names))?
+        mut out = Output(held(list[str].new())?, 0, max_bytes)
+        mut last = 0
+        mut replaced = 0
+        while limit < 0 or replaced < limit:
+            match self.advance(&mut cursor, text, &self._empty, True)?:
+                case Some(item):
+                    out.add(text, last, item.start)?
+                    for index in range(len(parts.kind)):
+                        if parts.kind[index] == 0:
+                            out.add(template, parts.start[index], parts.stop[index])?
+                        else:
+                            group = parts.start[index]
+                            start = cursor._vm._found[group * 2]
+                            stop = cursor._vm._found[group * 2 + 1]
+                            if start >= 0 and stop >= 0:
+                                out.add(text, start, stop)?
+                    last = item.end
+                    replaced += 1
+                case Nothing:
+                    break
+        out.add(text, last, text.byte_len())?
+        held("".join(out.pieces))
+
+    def template(self, template: &str) -> Result[Template, RegexError]:
+        mut parts = Template(integers()?, integers()?, integers()?)
+        size = template.byte_len()
+        mut run = 0
+        mut at = 0
+        while at < size:
+            if __regex_text_byte(template, at) != 36:
+                at += __regex_text_at(template, at) & 7
+                continue
+            parts.push(0, run, at)?
+            offset = at
+            next = __regex_text_byte(template, at + 1)
+            if next == 36:
+                parts.push(0, at + 1, at + 2)?
+                at += 2
+            elif is_digit(next):
+                at += 1
+                mut stop = at
+                while is_digit(__regex_text_byte(template, stop)):
+                    stop += 1
+                parts.push(1, self.reference(template, at, stop, offset)?, 0)?
+                at = stop
+            elif next == 123:
+                at += 2
+                mut stop = at
+                while stop < size and __regex_text_byte(template, stop) != 125:
+                    stop += 1
+                if stop == size:
+                    return Err(RegexError.Syntax(SyntaxError(offset, "unclosed `${`")))
+                parts.push(1, self.reference(template, at, stop, offset)?, 0)?
+                at = stop + 1
+            else:
+                return Err(RegexError.Syntax(SyntaxError(offset, "`$` must be followed by a group number, `{name}`, or `$`")))
+            run = at
+        parts.push(0, run, size)?
+        Ok(parts)
+
+    def reference(self, template: &str, start: i64, stop: i64, offset: i64) -> Result[i64, RegexError]:
+        if start == stop:
+            return Err(RegexError.Syntax(SyntaxError(offset, "empty group reference")))
+        if is_digit(__regex_text_byte(template, start)):
+            mut value = 0
+            for at in range(start, stop):
+                code = __regex_text_byte(template, at)
+                if not is_digit(code):
+                    return Err(RegexError.Syntax(SyntaxError(offset, "invalid group reference")))
+                if value < len(self._names):
+                    value = value * 10 + code - 48
+            if value >= len(self._names):
+                return Err(RegexError.Syntax(SyntaxError(offset, "unknown group")))
+            return Ok(value)
+        name = held(__regex_text_slice(template, start, stop))?
+        match self.group_index(&name):
+            case Some(index):
+                Ok(index)
+            case Nothing:
+                Err(RegexError.Syntax(SyntaxError(offset, "unknown group name")))
+
+# Compiles `pattern`, or reports the first problem: a syntax error with its
+# byte offset, or the first limit the pattern would exceed.
+pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
+    if not valid(bounds):
+        return Err(RegexError.InvalidLimits)
+    if pattern.byte_len() > bounds.max_pattern_bytes:
+        return Err(RegexError.LimitExceeded(Limit.PatternBytes))
+    mut groups = held(list[str].new())?
+    held(groups.append(""))?
+    mut compiler = Compiler(integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, groups, 0, 0, 0, 0, bounds.max_nesting, bounds.max_repeat, bounds.max_instructions)
+    compiler.emit(op_save, 0, 0)?
+    compiler.alternation(pattern)?
+    if compiler._at < pattern.byte_len():
+        return Err(RegexError.Syntax(SyntaxError(compiler._at, "unopened group")))
+    compiler.emit(op_save, 1, 0)?
+    compiler.emit(op_match, 0, 0)?
+    n = len(compiler._op)
+    slots = 2 * len(compiler._names)
+    # Matcher words with every capture slot: sparse sets, thread slots,
+    # closure stack, and working slots.
+    words = 7 * n + 2 * n * slots + 2 * slots + 8
+    if words > bounds.max_memory // 8:
+        return Err(RegexError.LimitExceeded(Limit.Memory))
+    prefix = prefix_of(&compiler)?
+    names = replace(compiler._names, held(list[str].new())?)
+    Ok(Regex(replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, bounds.max_work, no_bytes()?))
+
+# The case-sensitive literals that directly follow the opening SAVE: every
+# match starts with them, so a search skips ahead to them.
+def prefix_of(compiler: &Compiler) -> Result[str, RegexError]:
+    mut pieces = held(list[str].new())?
+    mut pc = 1
+    while compiler._op[pc] == op_char and compiler._y[pc] == 0:
+        held(pieces.append(chr(u32(compiler._x[pc])).unwrap()))?
+        pc += 1
+    held("".join(pieces))

@@ -29,6 +29,7 @@ mod memory;
 mod numbers;
 mod open_modes;
 mod ranges;
+mod regex;
 mod render_buffer;
 mod stack_overflow;
 mod strings;

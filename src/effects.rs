@@ -119,7 +119,7 @@ impl CollectionOp {
             Process(op) => op.effect(),
             Time(_) => Effect::Clock,
             // These primitive families transform caller-owned memory only.
-            Bytes(_) | Crypto(_) | Compress(_) | Unicode(_) => Effect::Compute,
+            Bytes(_) | Crypto(_) | Compress(_) | Regex(_) | Unicode(_) => Effect::Compute,
             OpenFile | ReadBytes | WriteBytes | ReadText | WriteText | AppendText => Effect::Path,
             FileClose | FileClosed | FileRead | FileWrite | FileFlush | FileSync | FileReadLine
             | FileReadSized | FileReadLineSized | FileReadable | FileWritable | FileTell
