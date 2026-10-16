@@ -1326,6 +1326,24 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
     }
 }
 
+/// Stores the low 64 payload bits of an integer, float, or boolean list row,
+/// exactly as a write through the generic `ElementRef` would.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_list_scalar_set(
+    owner: *mut u8,
+    i: i64,
+    value: u64,
+    site: *const crate::Site,
+) {
+    // SAFETY: generated callers hold an exclusive loan of a live list of
+    // scalars. Bounds use the same normalization as the generic dispatcher.
+    unsafe {
+        let collection = &mut *owner.cast::<Collection>();
+        let i = index(i, collection.entries.len(), site);
+        *collection.entries.slot(i, false) = value as u128;
+    }
+}
+
 /// `std.compress` operations under their own symbol, as for `plenty_crypto`:
 /// a program that never compresses links without zlib-rs.
 #[no_mangle]

@@ -104,6 +104,27 @@ fn bounds_traps_print_the_index_and_length(#[case] body: &str, #[case] expected:
     assert_eq!(main_trap(body), format!("error: main.plenty:{expected}\n"));
 }
 
+// Scalar rows reached through fields use narrow helpers (issue #122); the
+// reported site and message match the generic element path.
+#[rstest]
+#[case::field_read(
+    "    print(h.xs[3])?\n",
+    "5:11: index out of bounds: index 3, length 2"
+)]
+#[case::field_assignment("    h.xs[-3] = 1\n", "5:5: index out of bounds: index -3, length 2")]
+#[case::field_augmented("    h.xs[2] += 1\n", "5:5: index out of bounds: index 2, length 2")]
+#[case::nested_assignment(
+    "    mut grid = [[1]?]?\n    grid[0][1] = 2\n",
+    "6:5: index out of bounds: index 1, length 1"
+)]
+fn field_element_traps_keep_their_sites(#[case] body: &str, #[case] expected: &str) {
+    let source = format!(
+        "class Holder:\n    xs: list[i64]\ndef main() -> Result[(), Failure]:\n    mut h = Holder([1, 2]?)\n{body}    Ok(())\n"
+    );
+    let error = trap(&[("main.plenty", &source)]);
+    assert_eq!(error, format!("error: main.plenty:{expected}\n"));
+}
+
 #[rstest]
 #[case::dictionary_read(
     "    ages = {\"a\": 1}?\n    print(ages[\"b\"])?\n",

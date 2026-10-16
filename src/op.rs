@@ -1697,7 +1697,9 @@ fn step(
                 crate::collection::CollectionOp::ListLenRef(ty) if !matches!(ty, Ty::List(_)) => {
                     return Err("list length requires a list reference".into());
                 }
-                crate::collection::CollectionOp::ListScalarGetRef(ty) if !matches!(ty, Ty::List(element) if element.is_numeric() || **element == Ty::Bool) =>
+                crate::collection::CollectionOp::ListScalarGetRef(ty)
+                | crate::collection::CollectionOp::ListScalarSetRef(ty)
+                    if !matches!(ty, Ty::List(element) if element.is_numeric() || **element == Ty::Bool) =>
                 {
                     return Err("scalar list access requires a scalar list reference".into());
                 }

@@ -154,7 +154,11 @@ impl Lower<'_> {
         }
         let (_, read) =
             self.borrow_with_indices(target, false, &mut Some(read_indices.iter()), ops)?;
-        ops.push(Op::ReadRef(ty.clone()));
+        if let Some(list) = scalar_element_ref(ops) {
+            ops.push(Op::Collection(CollectionOp::ListScalarGetRef(list)));
+        } else {
+            ops.push(Op::ReadRef(ty.clone()));
+        }
         // Keep the shared loan through RHS evaluation: it permits observation
         // but prevents replacing or resizing the owner behind the saved path.
         let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
@@ -165,9 +169,17 @@ impl Lower<'_> {
         ops.push(Op::StoreLocal(result));
         ops.push(Op::UseLoan(read));
         let (_, write) = self.borrow_with_indices(target, true, &mut Some(indices.iter()), ops)?;
-        ops.push(Op::MoveLocal(result));
-        ops.push(Op::Swap);
-        ops.push(Op::WriteRef(ty));
+        if let Some(list) = scalar_element_ref(ops) {
+            ops.extend([
+                Op::MoveLocal(result),
+                Op::Collection(CollectionOp::ListScalarSetRef(list)),
+                Op::Drop,
+            ]);
+        } else {
+            ops.push(Op::MoveLocal(result));
+            ops.push(Op::Swap);
+            ops.push(Op::WriteRef(ty));
+        }
         ops.push(Op::UseLoan(write));
         Ok(())
     }
@@ -3224,6 +3236,23 @@ pub(super) fn decrement(index: u8, ops: &mut Vec<Op>) {
         Op::Sub,
         Op::StoreLocal(index),
     ]);
+}
+
+/// Removes a just-emitted `ElementRef` into a list of scalars and returns the
+/// list type. Its operands (list reference, index) stay on the stack for the
+/// narrow `ListScalarGetRef`/`ListScalarSetRef` helpers, which trap at the
+/// same mark with the same diagnostic (issue #122).
+pub(super) fn scalar_element_ref(ops: &mut Vec<Op>) -> Option<Ty> {
+    let Some(Op::Collection(CollectionOp::ElementRef(list @ Ty::List(element), _))) = ops.last()
+    else {
+        return None;
+    };
+    if !(element.is_numeric() || **element == Ty::Bool) {
+        return None;
+    }
+    let list = list.clone();
+    ops.pop();
+    Some(list)
 }
 
 pub(super) fn increment(index: u8, ops: &mut Vec<Op>) {

@@ -184,6 +184,25 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
+        if let CollectionOp::ListScalarSetRef(ty) = operation {
+            let element = ty.element().unwrap();
+            let (value, _) = self.pop_typed(element.clone())?;
+            let (index, _) = self.pop_typed(Ty::I64)?;
+            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
+            let packed = self.read_reference(receiver);
+            let owner = self.raw_word(packed);
+            let packed = self.pack(value, &element);
+            let bits = self.raw_word(packed);
+            let site = self.trap_site()?;
+            let function = self
+                .module
+                .declare_func_in_func(self.runtime.list_scalar_set, self.bcx.func);
+            self.bcx.ins().call(function, &[owner, index, bits, site]);
+            let unit = self.bcx.ins().iconst(types::I64, 0);
+            let unit = self.unpack(unit, &Ty::Unit);
+            self.stack.push((unit, Ty::Unit));
+            return Ok(());
+        }
         let fast = match operation {
             CollectionOp::ListLenRef(_) => Some((self.runtime.list_len, true)),
             CollectionOp::ListScalarGetRef(_) => Some((self.runtime.list_scalar_get, true)),

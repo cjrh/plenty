@@ -172,6 +172,7 @@ impl CollectionOp {
             | Len(_)
             | ListLenRef(_)
             | ListScalarGetRef(_)
+            | ListScalarSetRef(_)
             | IterGet(_)
             | HashIterFirst(_)
             | HashIterNext(_)

@@ -564,6 +564,7 @@ struct Runtime {
     sqlite: FuncId,
     list_len: FuncId,
     list_scalar_get: FuncId,
+    list_scalar_set: FuncId,
     channel: FuncId,
     control: FuncId,
     executor: FuncId,
@@ -754,6 +755,18 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
             ]);
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_scalar_get", Linkage::Import, &sig)?
+        },
+        list_scalar_set: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            // List, index, payload bits, trap site.
+            sig.params.extend([
+                AbiParam::new(PTR_TY),
+                AbiParam::new(types::I64),
+                AbiParam::new(types::I64),
+                AbiParam::new(PTR_TY),
+            ]);
+            module.declare_function("plenty_list_scalar_set", Linkage::Import, &sig)?
         },
         print_i8: one_arg(module, "plenty_print_i8", types::I8)?,
         print_i16: one_arg(module, "plenty_print_i16", types::I16)?,
