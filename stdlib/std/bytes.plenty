@@ -2,6 +2,8 @@
 # here and reported as a value; the native primitives only repeat the check.
 # A view is an ordinary `&Bytes` or `&mut Bytes` loan plus explicit offsets, so
 # the borrow checker already rejects growth or movement while one is live.
+from std.sync import CancellationToken
+
 pub enum BytesError:
     OutOfRange
     InvalidUtf8
@@ -249,6 +251,11 @@ pub class Bytes:
     pub def net_receive_from(self: &mut Bytes, socket: &mut File, start: i64, stop: i64, sender: &mut Bytes) -> Result[i64, IoError]:
         transported(start, stop, __bytes_len(self._owner))?
         __net_receive_from(self._owner, start, stop, socket, sender._owner)
+
+    # std.ready's selector wait; import that module instead. Events are
+    # written as 16-byte records from offset 0.
+    pub def ready_select(self: &mut Bytes, selector: &File, timeout: u64, cancel: &CancellationToken) -> Result[i64, IoError]:
+        __ready_select(self._owner, selector, timeout, cancel)
 
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:

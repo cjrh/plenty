@@ -1,0 +1,103 @@
+# Serving many idle TCP connections from one worker: a std.ready selector
+# against a loop that polls each connection with an expired deadline.
+#
+# The client sends one byte at a time on each of `count` loopback
+# connections in turn and waits for the echo, so the server must find the
+# one ready connection among them. Run it with
+#
+#     cargo run --release -- examples/net_wait_bench.plenty
+#
+# Results are recorded in book/src/design/stdlib/ready.md.
+import std.bytes
+from std.bytes import Bytes
+from std.net import NetError, TcpListener, TcpStream, connect, listen, loopback_v4
+from std.ready import Interest, selector
+from std.sync import CancellationToken
+from std.time import Deadline, deadline_after, milliseconds, monotonic_now
+
+const rounds: i64 = 20000
+
+def within(ms: u32) -> Deadline:
+    deadline_after(&monotonic_now(), &milliseconds(ms)).unwrap()
+
+def accepted(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Result[list[TcpStream], NetError]:
+    mut streams = list[TcpStream].with_capacity(count).unwrap()
+    for _ in range(count):
+        streams.append(listener.accept(&within(5000u32), cancel)?).unwrap()
+    Ok(streams)
+
+def echo_one(stream: &mut TcpStream, buffer: &mut Bytes, cancel: &CancellationToken) -> Result[(), NetError]:
+    deadline = within(5000u32)
+    stream.read_before(buffer, 0, 1, &deadline, cancel)?
+    stream.write_all_before(buffer, 0, 1, &deadline, cancel)
+
+def selected(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
+    cancel = CancellationToken().unwrap()
+    mut streams = accepted(listener, count, &cancel)?
+    mut chosen = selector(64).unwrap()
+    for index in range(count):
+        streams[index].watch(&mut chosen, u64(index), Interest.Read)?
+    mut buffer = std.bytes.with_capacity(1).unwrap()
+    buffer.resize(1, 0u8).unwrap()
+    mut served = 0
+    while served < rounds:
+        ready = match chosen.wait(&within(5000u32), &cancel):
+            case Ok(n):
+                n
+            case Err(_):
+                return Err(NetError.TimedOut)
+        for slot in range(ready):
+            key = chosen.event(slot).unwrap().key
+            echo_one(&mut streams[i64(key)], &mut buffer, &cancel)?
+            served += 1
+    Ok(served)
+
+def polled(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
+    cancel = CancellationToken().unwrap()
+    mut streams = accepted(listener, count, &cancel)?
+    mut buffer = std.bytes.with_capacity(1).unwrap()
+    buffer.resize(1, 0u8).unwrap()
+    expired = within(0u32)
+    mut served = 0
+    while served < rounds:
+        for index in range(count):
+            match streams[index].read_before(&mut buffer, 0, 1, &expired, &cancel):
+                case Ok(_):
+                    streams[index].write_all_before(&buffer, 0, 1, &within(5000u32), &cancel)?
+                    served += 1
+                case Err(NetError.TimedOut):
+                    pass
+                case Err(error):
+                    return Err(error)
+    Ok(served)
+
+def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Result[i64, Failure]:
+    address = listener.local_address().unwrap()
+    mut streams = list[TcpStream].with_capacity(count)?
+    for _ in range(count):
+        streams.append(connect(&address, &within(5000u32), cancel).unwrap())?
+    mut buffer = std.bytes.with_capacity(1)?
+    buffer.resize(1, 120u8)?
+    start = monotonic_now()
+    for round in range(rounds):
+        stream = &mut streams[round % count]
+        deadline = within(5000u32)
+        stream.write_all_before(&buffer, 0, 1, &deadline, cancel).unwrap()
+        stream.read_before(&mut buffer, 0, 1, &deadline, cancel).unwrap()
+    Ok(i64(monotonic_now().saturating_duration_since(&start).as_nanoseconds()) // rounds)
+
+def main() -> Result[(), Failure]:
+    cancel = CancellationToken()?
+    print("connections", "selector ns", "polling ns")?
+    for count in [1, 16, 128, 1024]?:
+        listener = listen(&loopback_v4(0u16), 1024).unwrap()
+        mut by_selector = 0
+        with spawn(selected, &listener, count)? as task:
+            by_selector = drive(&listener, count, &cancel)?
+            task.join().unwrap()
+        mut by_polling = 0
+        with spawn(polled, &listener, count)? as task:
+            by_polling = drive(&listener, count, &cancel)?
+            task.join().unwrap()
+        print(count, by_selector, by_polling)?
+    Ok(())

@@ -1,15 +1,17 @@
-# Bounded readiness waits on native handles. The runtime makes one ppoll per
-# call with a nanosecond timeout. Deadlines, interruption retries and
-# cooperative cancellation are the checked policy below: a cancellable wait
-# blocks for at most one slice before it observes its token again.
-# See book/src/design/stdlib/ready.md.
-from std.bytes import Bytes
+# Bounded readiness waits on native handles, one at a time or through a
+# selector. The runtime makes one ppoll per call with a nanosecond timeout; a
+# cancellable wait also polls the token's wake descriptor, so `cancel()` ends
+# it at once. Deadlines, interruption retries and event decoding are the
+# checked policy below. See book/src/design/stdlib/ready.md.
+import std.bytes
+from std.bytes import Bytes, BytesError
 from std.io import FileStream, StreamError, classify
 from std.sync import CancellationToken
-from std.time import Deadline, Duration, monotonic_now, nanoseconds
+from std.time import Deadline, monotonic_now
 
-# The longest a cancellable wait blocks without observing its token.
-const slice: u64 = 10000000
+# Bytes per event record that the runtime writes, and records per wait.
+const event_size: i64 = 16
+const most_events: i64 = 64
 # A pipe or socket that polls writable has room for this many bytes, so a
 # write of at most this size cannot block.
 const pipe_page: i64 = 4096
@@ -32,9 +34,6 @@ pub enum WaitError:
     Cancelled
     Stream(StreamError)
 
-pub def cancellation_slice() -> Duration:
-    nanoseconds(slice)
-
 def mask(interest: &Interest) -> u8:
     match interest:
         case Interest.Read:
@@ -47,10 +46,10 @@ def mask(interest: &Interest) -> u8:
 def bit(bits: i64, value: i64) -> bool:
     (bits // value) % 2 == 1
 
-# One native wait. An interrupted wait reports nothing ready; the caller's
-# loop then rechecks its deadline and token.
-def once(file: &File, wanted: u8, timeout: u64) -> Result[i64, WaitError]:
-    match __io_wait(file, wanted, timeout):
+# One native wait's outcome. An interrupted wait reports nothing ready; the
+# caller's loop then rechecks its deadline and token.
+def polled(result: Result[i64, IoError]) -> Result[i64, WaitError]:
+    match result:
         case Ok(bits):
             Ok(bits)
         case Err(error):
@@ -69,7 +68,7 @@ pub def wait_until(file: &File, interest: Interest, deadline: &Deadline) -> Resu
     wanted = mask(&interest)
     while True:
         now = monotonic_now()
-        bits = once(file, wanted, deadline.remaining(&now).as_nanoseconds())?
+        bits = polled(__io_wait(file, wanted, deadline.remaining(&now).as_nanoseconds()))?
         if bits != 0:
             return Ok(ready(bits))
         if deadline.expired(&monotonic_now()):
@@ -77,20 +76,19 @@ pub def wait_until(file: &File, interest: Interest, deadline: &Deadline) -> Resu
     Err(WaitError.TimedOut)
 
 # As wait_until, and also stops with Cancelled once `cancel` is requested.
-# The token is observed before every native wait, so a request made before
-# the call wins and one made during it is seen within one slice.
+# A request made before the call wins even over a ready handle; one made
+# during the wait wakes it at once.
 pub def wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]:
     wanted = mask(&interest)
     while True:
         if cancel.is_cancelled():
             return Err(WaitError.Cancelled)
         now = monotonic_now()
-        mut budget = deadline.remaining(&now).as_nanoseconds()
-        if budget > slice:
-            budget = slice
-        bits = once(file, wanted, budget)?
+        bits = polled(__ready_wait(file, wanted, deadline.remaining(&now).as_nanoseconds(), cancel))?
         if bits != 0:
             return Ok(ready(bits))
+        if cancel.is_cancelled():
+            return Err(WaitError.Cancelled)
         if deadline.expired(&monotonic_now()):
             return Err(WaitError.TimedOut)
     Err(WaitError.TimedOut)
@@ -117,3 +115,99 @@ pub def write_before(stream: &mut FileStream, source: &Bytes, start: i64, stop: 
         end = start + pipe_page
     wait(&stream.file, Interest.Write, deadline, cancel)?
     moved(stream.write(source, start, end))
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, WaitError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(WaitError.Stream(StreamError.Allocation(cause)))
+                case _:
+                    Err(WaitError.Stream(StreamError.OutOfRange))
+
+def changed(result: Result[i64, IoError]) -> Result[(), WaitError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(WaitError.Stream(classify(error)))
+
+# One handle the last selector wait found ready, under the key it was
+# registered with.
+pub class Event:
+    pub key: u64
+    pub readiness: Readiness
+
+# Waits on many handles in one call. Registrations are level-triggered: a
+# handle stays reported while it is ready. Closing a registered handle
+# removes it.
+pub class Selector:
+    _file: File
+    _events: Bytes
+    _count: i64
+
+    # Registers `file` under `key`, or changes its key and interest.
+    pub def watch(self: &mut Selector, file: &File, key: u64, interest: Interest) -> Result[(), WaitError]:
+        changed(__ready_watch(self._file, file, key, mask(&interest)))
+
+    # Removes `file`; a handle that is not registered is not an error.
+    pub def unwatch(self: &mut Selector, file: &File) -> Result[(), WaitError]:
+        changed(__ready_watch(self._file, file, 0u64, 0u8))
+
+    # Waits until at least one registered handle is ready and returns how
+    # many events `event` can read, at most the selector's capacity. A ready
+    # handle is reported even when the deadline has passed; a cancellation
+    # requested before the call wins.
+    pub def wait(self: &mut Selector, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]:
+        self._count = 0
+        while True:
+            if cancel.is_cancelled():
+                return Err(WaitError.Cancelled)
+            now = monotonic_now()
+            budget = deadline.remaining(&now).as_nanoseconds()
+            count = polled(self._events.ready_select(&self._file, budget, cancel))?
+            if count > 0:
+                self._count = count
+                return Ok(count)
+            if cancel.is_cancelled():
+                return Err(WaitError.Cancelled)
+            if deadline.expired(&monotonic_now()):
+                return Err(WaitError.TimedOut)
+        Err(WaitError.TimedOut)
+
+    # Event `index` of the last wait, for 0 <= index < its count.
+    pub def event(self, index: i64) -> Result[Event, WaitError]:
+        if index < 0 or index >= self._count:
+            return Err(WaitError.Stream(StreamError.OutOfRange))
+        at = index * event_size
+        mut key = 0u64
+        for offset in range(8):
+            key = (key << 8u64) | u64(self._events[at + 7 - offset])
+        Ok(Event(key, ready(i64(self._events[at + 8]))))
+
+    pub def close(self: &mut Selector) -> Result[(), WaitError]:
+        self._count = 0
+        match self._file.close():
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(WaitError.Stream(classify(error)))
+
+# A selector that reports up to `capacity` ready handles per wait; capacity
+# is clamped to 1..64. It owns one descriptor and a buffer of 16 bytes per
+# event.
+pub def selector(capacity: i64) -> Result[Selector, WaitError]:
+    mut size = capacity
+    if size < 1:
+        size = 1
+    if size > most_events:
+        size = most_events
+    mut events = lifted(std.bytes.with_capacity(size * event_size))?
+    lifted(events.resize(size * event_size, 0u8))?
+    match __ready_selector():
+        case Ok(file):
+            Ok(Selector(file, events, 0))
+        case Err(error):
+            Err(WaitError.Stream(classify(error)))

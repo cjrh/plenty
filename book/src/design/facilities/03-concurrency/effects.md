@@ -13,7 +13,7 @@ the same walk as user code, and a foreign call is still rejected.
 | Entropy | `std.secrets` reads | Allowed |
 | Process stream | Standard input, output and error, `print`, `args` | Allowed; no ordering between threads |
 | Path | `open`, `read_text`, metadata, `read_dir`, `std.fs.root` | Allowed; a relative path resolves against the working directory at the call |
-| Handle | Methods of `File`, `ReadDir` and `std.fs.Root`, rooted mutation, `std.ready` waits, operations on an open socket | Allowed under the loan rules below |
+| Handle | Methods of `File`, `ReadDir` and `std.fs.Root`, rooted mutation, `std.ready` waits and selectors, operations on an open socket | Allowed under the loan rules below |
 | Environment | `std.env.get`, `vars`, `current_dir` | Allowed; reads only |
 | Child | `std.process` spawn, wait, poll and signal | Allowed; the runtime's child table is synchronized |
 | Network | Opening a `std.net` socket, name lookup | Allowed; the kernel and C library synchronize sockets and the resolver |
@@ -54,8 +54,8 @@ whether a foreign resource tolerates use from another thread.
 Blocking calls stay ordinary function calls; there is no `async` syntax. A
 worker that must not block indefinitely waits with a deadline through
 [`std.ready`](../../stdlib/ready.md), which makes one bounded `ppoll` per step
-and checks a [cancellation token](cancellation.md) at least every 10
-milliseconds. A deadline that passes leaves the handle and any borrowed buffer
+on the handle and the [cancellation token](cancellation.md)'s wake
+descriptor, so cancelling the token wakes the wait at once. A deadline that passes leaves the handle and any borrowed buffer
 intact; the caller decides whether to retry, close or return. A token still
 does not interrupt an unbounded `read`, `write`, `recv` or child `wait`.
 
@@ -63,8 +63,11 @@ does not interrupt an unbounded `read`, `write`, `recv` or child `wait`.
 
 Each worker is one native thread, started explicitly by `spawn`, an executor or
 a parallel operation, so a program's thread count is what it asks for. No
-facility starts a thread per handle or per connection. An idle `std.ready`
-waiter wakes about 100 times a second and does no other work. Descriptors are
+facility starts a thread per handle or per connection; a
+[`std.ready` selector](../../stdlib/ready.md#selectors) lets one worker wait on
+many. An idle `std.ready` waiter does not wake until its handle is ready, its
+deadline passes or its token is cancelled. `std.net.resolve` is the exception:
+each lookup runs on a short-lived helper thread, at most 32 at once. Descriptors are
 released when their owner closes or drops them, on whichever thread that is.
 
 Supported target: x86_64 Linux GNU. Elsewhere `std.ready` waits report

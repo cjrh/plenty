@@ -250,11 +250,12 @@ def main() -> Result[(), Failure]:
         with spawn(consume, short.take_stdout().unwrap())? as task:
             task.join()
         short.wait()?
+    # Still open: the pipe and the token's wake descriptor.
     print(count("/proc/self/fd")? - descriptors, count("/proc/self/task")? - threads)?
     Ok(())
 "#,
         ),
-        "True True\nTrue\n1 0\n",
+        "True True\nTrue\n2 0\n",
     );
 }
 
@@ -363,5 +364,78 @@ def main() -> Result[(), Failure]:
 "#,
         ),
         "__test_fail_thread_starts__\nResult[bool, Failure].Err(Failure.Unspecified)\n__test_restore_thread_starts__\n0\n",
+    );
+}
+
+#[test]
+fn a_selector_waits_on_several_pipes() {
+    runs(
+        &with_show(
+            r#"
+from std.ready import Selector, selector
+
+def keys(chosen: &mut Selector, deadline: &Deadline, cancel: &CancellationToken) -> Result[u64, Failure]:
+    ready = chosen.wait(deadline, cancel).unwrap()
+    mut total = 0u64
+    for index in range(ready):
+        event = chosen.event(index).unwrap()
+        print(event.key, event.readiness.readable)?
+        total += event.key
+    Ok(total)
+
+def main() -> Result[(), Failure]:
+    mut slow = piped("sleep 5")?
+    mut quick = piped("printf x")?
+    slow_out = slow.take_stdout().unwrap()
+    quick_out = quick.take_stdout().unwrap()
+    cancel = CancellationToken()?
+    long = deadline_after(&monotonic_now(), &milliseconds(5000))?
+    print(outcome_of(selector(0)), outcome_of(selector(1000)))?
+    mut chosen = selector(4).unwrap()
+    chosen.watch(&slow_out, 1u64, Interest.Read).unwrap()
+    chosen.watch(&quick_out, 2u64, Interest.Read).unwrap()
+    keys(&mut chosen, &long, &cancel)?
+    chosen.unwatch(&quick_out).unwrap()
+    chosen.unwatch(&quick_out).unwrap()
+    expired = deadline_after(&monotonic_now(), &milliseconds(0))?
+    match chosen.wait(&expired, &cancel):
+        case Err(WaitError.TimedOut):
+            print("timed out")?
+        case _:
+            print("unexpected")?
+    cancel.cancel()
+    match chosen.wait(&long, &cancel):
+        case Err(WaitError.Cancelled):
+            print("cancelled")?
+        case _:
+            print("unexpected")?
+    slow.kill()?
+    slow.wait()?
+    quick.wait()?
+    Ok(())
+
+def outcome_of(result: Result[Selector, WaitError]) -> bool:
+    result.is_ok()
+"#,
+        ),
+        "True True\n2 True\ntimed out\ncancelled\n",
+    );
+}
+
+#[test]
+fn a_selector_wait_needs_the_selector_exclusively() {
+    rejected(
+        &with_show(
+            r#"
+from std.ready import Selector, selector
+
+def both(chosen: &Selector, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]:
+    chosen.wait(deadline, cancel)
+
+def main() -> ():
+    pass
+"#,
+        ),
+        "cannot borrow shared reference as mutable",
     );
 }

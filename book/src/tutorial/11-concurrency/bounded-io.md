@@ -54,8 +54,8 @@ cancelled
 ```
 
 The child writes nothing, so the first worker's 20-millisecond deadline passes.
-The second worker has a minute, but the parent cancels it, and it returns
-within one 10-millisecond slice. Either way the worker returns normally and
+The second worker has a minute, but the parent cancels it, and the
+cancellation wakes its wait at once. Either way the worker returns normally and
 the scope joins it; the pipe and buffer are unchanged.
 
 A worker may not change the working directory, because every thread resolves

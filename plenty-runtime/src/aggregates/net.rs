@@ -18,9 +18,11 @@ mod native {
     use super::super::byte_storage::{self, Storage};
     use super::*;
     use crate::memory::AllocError;
-    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const AF_UNSPEC: i32 = 0;
+    const AF_UNIX: i32 = 1;
     const AF_INET: i32 = 2;
     const AF_INET6: i32 = 10;
     const SOCK_STREAM: i32 = 1;
@@ -103,6 +105,8 @@ mod native {
             result: *mut *mut AddrInfo,
         ) -> i32;
         fn freeaddrinfo(result: *mut AddrInfo);
+        fn socketpair(domain: i32, kind: i32, protocol: i32, ends: *mut i32) -> i32;
+        fn send(fd: i32, data: *const u8, length: usize, flags: i32) -> isize;
     }
 
     fn checked(status: i32) -> Result<i32, Error> {
@@ -320,15 +324,34 @@ mod native {
         Ok(received as u128)
     }
 
-    fn resolve(host: &str, ty: &'static Type) -> Result<u128, Error> {
-        if host.is_empty() || host.contains('\0') {
-            return Err(Kind::InvalidInput.into());
-        }
-        let mut name = Vec::new();
-        name.try_reserve(host.len() + 1)
-            .map_err(|_| AllocError::OutOfMemory)?;
-        name.extend_from_slice(host.as_bytes());
-        name.push(0);
+    /// Lookups whose helper thread has not finished, including abandoned ones.
+    static LOOKUPS: AtomicUsize = AtomicUsize::new(0);
+    /// Further lookups are `EAGAIN` (`TryAgain`) until one finishes.
+    const MAX_LOOKUPS: usize = 32;
+    /// Enough for glibc's resolver and NSS modules; untouched pages cost no
+    /// memory.
+    const LOOKUP_STACK: usize = 1 << 20;
+
+    // Reply status bytes. A reply is a five-byte header, the status and a
+    // big-endian native error code (zero unless `SYSTEM`), then for `FOUND`
+    // the encoded addresses.
+    const FOUND: u8 = 0;
+    const NONE: u8 = 1;
+    const AGAIN: u8 = 2;
+    const MEMORY: u8 = 3;
+    const SYSTEM: u8 = 4;
+    const OTHER: u8 = 5;
+
+    /// One `getaddrinfo` for a NUL-terminated name: the reply header and the
+    /// encoded addresses.
+    /// A lookup's reply: the status header, then the encoded addresses.
+    pub(super) type Reply = ([u8; 5], Vec<u8>);
+
+    pub(super) fn lookup(name: &[u8]) -> Reply {
+        let header = |status: u8, code: i32| {
+            let code = code.to_be_bytes();
+            [status, code[0], code[1], code[2], code[3]]
+        };
         let hints = AddrInfo {
             flags: 0,
             family: AF_UNSPEC,
@@ -342,17 +365,23 @@ mod native {
         let mut list = std::ptr::null_mut();
         // SAFETY: a NUL-terminated name, no service and zeroed hints.
         let status = unsafe { getaddrinfo(name.as_ptr(), std::ptr::null(), &hints, &mut list) };
-        match status {
-            0 => {}
-            EAI_NONAME | EAI_NODATA => return unsafe { byte_list(&[], ty) },
-            EAI_AGAIN => return Err(std::io::Error::from_raw_os_error(EAGAIN).into()),
-            EAI_MEMORY => return Err(AllocError::OutOfMemory.into()),
-            EAI_SYSTEM => return Err(std::io::Error::last_os_error().into()),
-            _ => return Err(Kind::Other.into()),
+        let status = match status {
+            0 => FOUND,
+            EAI_NONAME | EAI_NODATA => NONE,
+            EAI_AGAIN => AGAIN,
+            EAI_MEMORY => MEMORY,
+            EAI_SYSTEM => {
+                let code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                return (header(SYSTEM, code), Vec::new());
+            }
+            _ => OTHER,
+        };
+        if status != FOUND {
+            return (header(status, 0), Vec::new());
         }
         let mut out = Vec::new();
-        let mut entry = list;
         let mut outcome = Ok(());
+        let mut entry = list;
         while !entry.is_null() && outcome.is_ok() {
             // SAFETY: entries of the list getaddrinfo returned, freed below.
             unsafe {
@@ -365,9 +394,74 @@ mod native {
         }
         // SAFETY: the list getaddrinfo returned, freed exactly once.
         unsafe { freeaddrinfo(list) };
-        outcome?;
-        // SAFETY: `ty` describes list[u8].
-        unsafe { byte_list(&out, ty) }
+        match outcome {
+            Ok(()) => (header(FOUND, 0), out),
+            Err(_) => (header(MEMORY, 0), Vec::new()),
+        }
+    }
+
+    /// Sends all of `data`; false once the reader has gone (EPIPE) or failed.
+    fn send_all(fd: &OwnedFd, data: &[u8]) -> bool {
+        let mut sent = 0;
+        while sent < data.len() {
+            // SAFETY: a live slice and the sender's own descriptor.
+            let count = unsafe {
+                send(
+                    fd.as_raw_fd(),
+                    data[sent..].as_ptr(),
+                    data.len() - sent,
+                    MSG_NOSIGNAL,
+                )
+            };
+            if count <= 0 {
+                return false;
+            }
+            sent += count as usize;
+        }
+        true
+    }
+
+    /// Starts `lookup` on a helper thread and returns the read end of a
+    /// socket pair that carries its reply and then end of input. The caller
+    /// waits on it with a deadline and token; dropping it abandons the
+    /// lookup, whose thread then exits once the resolver returns.
+    pub(super) fn start_lookup(host: &str, lookup: fn(&[u8]) -> Reply) -> Result<OwnedFd, Error> {
+        if host.is_empty() || host.contains('\0') {
+            return Err(Kind::InvalidInput.into());
+        }
+        let mut name = Vec::new();
+        name.try_reserve(host.len() + 1)
+            .map_err(|_| AllocError::OutOfMemory)?;
+        name.extend_from_slice(host.as_bytes());
+        name.push(0);
+        let again = || Error::from(std::io::Error::from_raw_os_error(EAGAIN));
+        let finished = || LOOKUPS.fetch_sub(1, Ordering::AcqRel);
+        if LOOKUPS.fetch_add(1, Ordering::AcqRel) >= MAX_LOOKUPS {
+            finished();
+            return Err(again());
+        }
+        let mut ends = [0i32; 2];
+        // SAFETY: room for two descriptors.
+        if unsafe { socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, ends.as_mut_ptr()) } < 0 {
+            finished();
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: socketpair returned two fresh descriptors owned here only.
+        let (reader, writer) =
+            unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
+        let spawned = std::thread::Builder::new()
+            .stack_size(LOOKUP_STACK)
+            .spawn(move || {
+                let (header, addresses) = lookup(&name);
+                let _ = send_all(&writer, &header) && send_all(&writer, &addresses);
+                drop(writer);
+                finished();
+            });
+        if spawned.is_err() {
+            finished();
+            return Err(again());
+        }
+        Ok(reader)
     }
 
     pub(super) unsafe fn call(
@@ -409,13 +503,60 @@ mod native {
                     let from = &mut (*(e as *mut Storage)).bytes;
                     receive_from(fd, &mut bytes[within], from)
                 }
-                418 => resolve(
-                    crate::strings::utf8(&(a as *const crate::strings::Text)),
-                    output,
-                ),
+                418 => {
+                    let text = a as *const crate::strings::Text;
+                    let reader = start_lookup(crate::strings::utf8(&text), lookup)?;
+                    crate::files::adopt_socket(std::fs::File::from(reader), output)
+                }
                 _ => crate::fail("invalid network operation"),
             }
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux", target_pointer_width = "64"))]
+mod tests {
+    use super::native::{start_lookup, Reply};
+    use std::io::Read;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    static SLOW_DONE: AtomicBool = AtomicBool::new(false);
+
+    fn slow(_: &[u8]) -> Reply {
+        std::thread::sleep(Duration::from_millis(300));
+        SLOW_DONE.store(true, Ordering::Release);
+        ([0; 5], vec![4, 0, 80, 127, 0, 0, 1])
+    }
+
+    fn quick(name: &[u8]) -> Reply {
+        assert_eq!(name, b"example\0");
+        ([0; 5], vec![4, 0, 80, 127, 0, 0, 1])
+    }
+
+    #[test]
+    fn a_lookup_reply_ends_with_end_of_input() {
+        let reader = start_lookup("example", quick).unwrap();
+        let mut reply = Vec::new();
+        std::fs::File::from(reader).read_to_end(&mut reply).unwrap();
+        assert_eq!(reply, [0, 0, 0, 0, 0, 4, 0, 80, 127, 0, 0, 1]);
+        assert!(start_lookup("", quick).is_err());
+        assert!(start_lookup("a\0b", quick).is_err());
+    }
+
+    #[test]
+    fn an_abandoned_lookup_finishes_without_its_reader() {
+        let started = Instant::now();
+        let reader = start_lookup("slow", slow).unwrap();
+        // Closing the reader before the reply exists must not wait for the
+        // lookup, and its later send must not raise SIGPIPE.
+        drop(reader);
+        assert!(started.elapsed() < Duration::from_millis(250));
+        while !SLOW_DONE.load(Ordering::Acquire) {
+            assert!(started.elapsed() < Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 

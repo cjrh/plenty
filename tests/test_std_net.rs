@@ -10,15 +10,29 @@ fn written(dir: &Path, source: &str) -> std::path::PathBuf {
 }
 
 fn runs(body: &str, expected: &str) {
+    runs_with(body, expected, None);
+}
+
+/// Runs the program with at most `descriptors` open files, when given.
+fn runs_with(body: &str, expected: &str, descriptors: Option<u32>) {
     let source = format!("{PRELUDE}{body}");
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("program");
     plenty::compile_file_to_executable(&written(dir.path(), &source), &executable, None)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    let output = Command::new(executable)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let mut command = match descriptors {
+        Some(limit) => {
+            let mut shell = Command::new("sh");
+            shell.args([
+                "-c",
+                &format!("ulimit -n {limit} && exec \"$0\""),
+                executable.to_str().unwrap(),
+            ]);
+            shell
+        }
+        None => Command::new(executable),
+    };
+    let output = command.stdin(Stdio::null()).output().unwrap();
     assert!(
         output.status.success(),
         "status {:?}; {}",
@@ -31,9 +45,10 @@ fn runs(body: &str, expected: &str) {
 const PRELUDE: &str = r#"
 import std.bytes
 from std.bytes import Bytes
+from std.ready import Interest, WaitError, selector
 from std.net import Datagram, IpAddress, NetError, Shutdown, SocketAddress, TcpListener, TcpStream, UdpSocket, any_v4, bind_udp, connect, format_ip, ipv4, listen, loopback_v4, loopback_v6, parse_address, parse_ip, resolve, socket_address
 from std.sync import CancellationToken
-from std.time import Deadline, deadline_after, milliseconds, monotonic_now, sleep
+from std.time import Deadline, Instant, deadline_after, milliseconds, monotonic_now, sleep
 
 def within(ms: u32) -> Result[Deadline, Failure]:
     Ok(deadline_after(&monotonic_now(), &milliseconds(ms))?)
@@ -301,19 +316,23 @@ fn names_resolve_through_the_system_resolver() {
     runs(
         r#"
 def main() -> Result[(), Failure]:
+    cancel = CancellationToken()?
     deadline = within(5000u32)?
-    literal = resolve("10.1.2.3", 53u16, &deadline).unwrap()
+    literal = resolve("10.1.2.3", 53u16, &deadline, &cancel).unwrap()
     print(len(literal), literal[0].format()?)?
-    local = resolve("localhost", 8080u16, &deadline).unwrap()
+    local = resolve("localhost", 8080u16, &deadline, &cancel).unwrap()
     mut loopback = False
     for address in &local:
         loopback = loopback or address.format()? == "127.0.0.1:8080" or address.format()? == "[::1]:8080"
     print(len(local) > 0, loopback)?
-    print(outcome(resolve("localhost", 1u16, &within(0u32)?))?)?
-    print(outcome(resolve("", 1u16, &deadline))?)?
+    print(outcome(resolve("localhost", 1u16, &within(0u32)?, &cancel))?)?
+    print(outcome(resolve("", 1u16, &deadline, &cancel))?)?
+    cancel.cancel()
+    print(outcome(resolve("localhost", 1u16, &deadline, &cancel))?)?
     Ok(())
 "#,
-        "1 10.1.2.3:53\nTrue True\nstd.net.NetError.TimedOut\nstd.net.NetError.InvalidAddress\n",
+        "1 10.1.2.3:53\nTrue True\nstd.net.NetError.TimedOut\nstd.net.NetError.InvalidAddress\n\
+std.net.NetError.Cancelled\n",
     );
 }
 
@@ -341,6 +360,8 @@ def round(deadline: &Deadline, cancel: &CancellationToken) -> Result[(), Failure
 def main() -> Result[(), Failure]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
+    # The first wait gives the token its wake descriptor, which it keeps.
+    round(&deadline, &cancel)?
     before = count()?
     for _ in range(50):
         round(&deadline, &cancel)?
@@ -358,7 +379,7 @@ fn workers_may_open_sockets_and_resolve_names() {
 def client(port: u16) -> Result[i64, NetError]:
     cancel = CancellationToken().unwrap()
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000u32)).unwrap()
-    addresses = resolve("127.0.0.1", port, &deadline)?
+    addresses = resolve("127.0.0.1", port, &deadline, &cancel)?
     mut stream = connect(&addresses[0], &deadline, &cancel)?
     message = std.bytes.from_text("from a worker").unwrap()
     stream.write_all_before(&message, 0, message.len(), &deadline, &cancel)?
@@ -406,5 +427,163 @@ def main() -> Result[(), Failure]:
     Ok(())
 "#,
         "ping\nping\n8\n",
+    );
+}
+
+#[test]
+fn a_selector_reports_which_sockets_are_ready() {
+    runs(
+        r#"
+def main() -> Result[(), Failure]:
+    cancel = CancellationToken()?
+    long = within(5000u32)?
+    listener = listen(&loopback_v4(0u16), 4).unwrap()
+    address = listener.local_address().unwrap()
+    mut chosen = selector(4).unwrap()
+    listener.watch(&mut chosen, 100u64).unwrap()
+    match chosen.wait(&within(20u32)?, &cancel):
+        case Err(WaitError.TimedOut):
+            print("timed out")?
+        case _:
+            print("unexpected")?
+    mut one = connect(&address, &long, &cancel).unwrap()
+    mut two = connect(&address, &long, &cancel).unwrap()
+    print(chosen.wait(&long, &cancel).unwrap(), chosen.event(0).unwrap().key)?
+    mut first = listener.accept(&long, &cancel).unwrap()
+    mut second = listener.accept(&long, &cancel).unwrap()
+    listener.unwatch(&mut chosen).unwrap()
+    first.watch(&mut chosen, 1u64, Interest.Read).unwrap()
+    second.watch(&mut chosen, 2u64, Interest.Read).unwrap()
+    message = std.bytes.from_text("x")?
+    two.write_all_before(&message, 0, 1, &long, &cancel).unwrap()
+    ready = chosen.wait(&long, &cancel).unwrap()
+    event = chosen.event(0).unwrap()
+    print(ready, event.key, event.readiness.readable)?
+    one.close().unwrap()
+    mut keys = 0u64
+    ready_both = chosen.wait(&long, &cancel).unwrap()
+    for index in range(ready_both):
+        keys += chosen.event(index).unwrap().key
+    print(ready_both, keys)?
+    print(chosen.event(ready_both).is_err())?
+    second.watch(&mut chosen, 2u64, Interest.Write).unwrap()
+    first.unwatch(&mut chosen).unwrap()
+    print(chosen.wait(&long, &cancel).unwrap(), chosen.event(0).unwrap().readiness.writable)?
+    chosen.close().unwrap()
+    Ok(())
+"#,
+        "timed out\n1 100\n1 2 True\n2 3\nTrue\n1 True\n",
+    );
+}
+
+#[test]
+fn cancellation_wakes_a_blocked_wait_at_once() {
+    runs(
+        r#"
+def waiter(listener: &TcpListener, cancel: CancellationToken) -> Result[Instant, NetError]:
+    deadline = deadline_after(&monotonic_now(), &milliseconds(5000u32)).unwrap()
+    match listener.accept(&deadline, &cancel):
+        case Err(NetError.Cancelled):
+            Ok(monotonic_now())
+        case _:
+            Err(NetError.TimedOut)
+
+def selecting(cancel: CancellationToken) -> Result[Instant, WaitError]:
+    mut chosen = selector(1).unwrap()
+    deadline = deadline_after(&monotonic_now(), &milliseconds(5000u32)).unwrap()
+    match chosen.wait(&deadline, &cancel):
+        case Err(WaitError.Cancelled):
+            Ok(monotonic_now())
+        case _:
+            Err(WaitError.TimedOut)
+
+def main() -> Result[(), Failure]:
+    listener = listen(&loopback_v4(0u16), 1).unwrap()
+    mut worst = 0u64
+    for _ in range(20):
+        cancel = CancellationToken()?
+        with spawn(waiter, &listener, cancel.share())? as task:
+            sleep(&milliseconds(5u32))
+            at = monotonic_now()
+            cancel.cancel()
+            latency = task.join().unwrap().saturating_duration_since(&at).as_milliseconds()
+            if latency > worst:
+                worst = latency
+        other = CancellationToken()?
+        with spawn(selecting, other.share())? as task:
+            sleep(&milliseconds(5u32))
+            at = monotonic_now()
+            other.cancel()
+            latency = task.join().unwrap().saturating_duration_since(&at).as_milliseconds()
+            if latency > worst:
+                worst = latency
+    # Far below the 5-second deadline; a sliced wait would also pass 10 ms
+    # bounds, so this only checks that the wake does not wait for the deadline.
+    print(worst < 1000u64)?
+    Ok(())
+"#,
+        "True\n",
+    );
+}
+
+#[test]
+fn accept_reports_the_handle_limit_and_keeps_the_connection() {
+    runs_with(
+        r#"
+def main() -> Result[(), Failure]:
+    cancel = CancellationToken()?
+    long = within(5000u32)?
+    listener = listen(&loopback_v4(0u16), 64).unwrap()
+    address = listener.local_address().unwrap()
+    mut clients = list[TcpStream].with_capacity(64)?
+    mut limited = False
+    while not limited:
+        match connect(&address, &long, &cancel):
+            case Ok(stream):
+                clients.append(stream)?
+            case Err(NetError.HandleLimit):
+                limited = True
+            case Err(error):
+                print(str.repr(error)?)?
+                return Ok(())
+    print(len(clients) > 2)?
+    print(outcome(listener.accept(&long, &cancel))?)?
+    clients.pop()
+    print(outcome(listener.accept(&long, &cancel))?)?
+    Ok(())
+"#,
+        "True\nstd.net.NetError.HandleLimit\nok\n",
+        Some(24),
+    );
+}
+
+#[test]
+fn the_accept_queue_holds_about_backlog_connections() {
+    runs(
+        r#"
+def main() -> Result[(), Failure]:
+    cancel = CancellationToken()?
+    listener = listen(&loopback_v4(0u16), 2).unwrap()
+    address = listener.local_address().unwrap()
+    mut clients = list[TcpStream].with_capacity(8)?
+    mut refused = 0
+    for _ in range(5):
+        match connect(&address, &within(100u32)?, &cancel):
+            case Ok(stream):
+                clients.append(stream)?
+            case Err(NetError.TimedOut):
+                refused += 1
+            case Err(error):
+                print(str.repr(error)?)?
+                return Ok(())
+    # Linux queues one more than the backlog and then drops further SYNs,
+    # so a connect waits for its deadline instead of failing fast.
+    print(len(clients) >= 2, len(clients) <= 3, refused >= 2)?
+    long = within(5000u32)?
+    for _ in range(len(clients)):
+        listener.accept(&long, &cancel).unwrap()
+    Ok(())
+"#,
+        "True True True\n",
     );
 }
