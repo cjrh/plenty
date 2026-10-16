@@ -1,6 +1,8 @@
 # Bundled HTTP acceptance
 
-> **Status: Not implemented.** No HTTP/network/TLS module ships today. Existing
+> **Status: Partly implemented.** [`std.net`](../design/stdlib/net.md) and the
+> [`std.http`](../design/stdlib/http.md) message-framing layer ship; no HTTP
+> client, server, or TLS module does. Existing
 > [concurrency](../design/facilities/03-concurrency/index.md) and
 > [I/O](../design/facilities/02-io/index.md) references own the primitives and
 > their current limits. Issue #49's production-server requirement is preserved

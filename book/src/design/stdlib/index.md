@@ -49,6 +49,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.process`](process.md) | Children spawned from an argument vector with no implicit shell, piped streams, bounded output collection, signals, and explicit reaping | `IoError`, `StreamError` |
 | [`std.ready`](ready.md) | Readiness waits on pipes and other handles, bounded by a deadline and a cancellation token | `WaitError` |
 | [`std.net`](net.md) | TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadlines and cancellation | `NetError` |
+| [`std.http`](http.md) | Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams | `HttpError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in
