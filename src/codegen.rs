@@ -563,6 +563,9 @@ struct Runtime {
     /// `std.db.sqlite` primitives, separate so SQLite stays out of programs
     /// that never open a database.
     sqlite: FuncId,
+    /// `std.tls` primitives, separate so rustls and ring stay out of
+    /// programs that never start a session.
+    tls: FuncId,
     list_len: FuncId,
     list_scalar_get: FuncId,
     list_scalar_set: FuncId,
@@ -737,6 +740,12 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
             sig.call_conv = CallConv::SystemV;
             sig.params.extend([AbiParam::new(PTR_TY); 4]);
             module.declare_function("plenty_sqlite", Linkage::Import, &sig)?
+        },
+        tls: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([AbiParam::new(PTR_TY); 4]);
+            module.declare_function("plenty_tls", Linkage::Import, &sig)?
         },
         list_len: {
             let mut sig = module.make_signature();

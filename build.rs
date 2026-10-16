@@ -6,10 +6,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The runtime's only third-party code: RustCrypto digests, HMAC and
-/// constant-time comparison for `std.crypto`, and zlib-rs for `std.compress`,
-/// copied unmodified from crates.io into `plenty-runtime/vendor`. Versions match `Cargo.lock`, which the Cargo
-/// build of the same crate uses; `tests/test_std_crypto.rs` checks they agree.
+/// constant-time comparison for `std.crypto`, zlib-rs for `std.compress`, and
+/// rustls with its ring provider for `std.tls`, copied unmodified from
+/// crates.io into `plenty-runtime/vendor` (tests, benchmarks and other
+/// platforms' pregenerated assembly omitted). Versions match `Cargo.lock`,
+/// which the Cargo build of the same crate uses; `tests/test_std_crypto.rs`
+/// checks they agree.
 /// Each entry: directory, crate name, edition, features, extra cfgs, externs.
+/// An extern written `alias=crate` is a dependency renamed in the manifest.
 type Vendored = (
     &'static str,
     &'static str,
@@ -74,8 +78,67 @@ const VENDORED: &[Vendored] = &[
         &[],
         &[],
     ),
+    // `std.tls`. libc's build script sets no cfg for x86_64 Linux GNU.
+    ("libc-0.2.186", "libc", "2021", &[], &[], &[]),
+    (
+        "getrandom-0.2.17",
+        "getrandom",
+        "2018",
+        &[],
+        &[],
+        &["cfg_if", "libc"],
+    ),
+    ("untrusted-0.9.0", "untrusted", "2018", &[], &[], &[]),
+    ("zeroize-1.9.1", "zeroize", "2024", &["alloc"], &[], &[]),
+    (
+        "once_cell-1.21.4",
+        "once_cell",
+        "2021",
+        &["alloc", "race", "std"],
+        &[],
+        &[],
+    ),
+    (
+        "ring-0.17.14",
+        "ring",
+        "2021",
+        &["alloc", "default", "dev_urandom_fallback"],
+        &[],
+        &["cfg_if", "getrandom", "untrusted"],
+    ),
+    (
+        "rustls-pki-types-1.15.1",
+        "rustls_pki_types",
+        "2021",
+        &["alloc", "default", "std"],
+        &[],
+        &["zeroize"],
+    ),
+    (
+        "rustls-webpki-0.103.15",
+        "webpki",
+        "2021",
+        &["alloc", "ring", "std"],
+        &[],
+        &["pki_types=rustls_pki_types", "ring", "untrusted"],
+    ),
+    (
+        "rustls-0.23.46",
+        "rustls",
+        "2021",
+        &["ring", "std", "tls12"],
+        &[],
+        &[
+            "once_cell",
+            "pki_types=rustls_pki_types",
+            "ring",
+            "subtle",
+            "webpki",
+            "zeroize",
+        ],
+    ),
 ];
-const RUNTIME_EXTERNS: &[&str] = &["sha2", "hmac", "subtle", "zlib_rs"];
+const RUNTIME_EXTERNS: &[&str] = &["sha2", "hmac", "subtle", "zlib_rs", "rustls"];
 
 fn main() {
     println!("cargo:rerun-if-changed=plenty-runtime/src");
@@ -88,6 +151,7 @@ fn main() {
     );
     let vendor = build_vendored(&out);
     build_sqlite(&vendor);
+    build_ring(&vendor);
     build_runtime(&out, &vendor, true);
     build_runtime(&out, &vendor, false);
 }
@@ -145,6 +209,97 @@ fn build_sqlite(dir: &Path) {
     );
 }
 
+/// ring's C and assembly for x86_64 Linux, as its build script selects them,
+/// with the pregenerated `-elf.S` files its crates.io package ships in place
+/// of the Perl generators. The archive name is the `links` value ring's
+/// symbol prefix expects.
+const RING: &str = "plenty-runtime/vendor/ring-0.17.14";
+const RING_ARCHIVE: &str = "ring_core_0_17_14_";
+const RING_SOURCES: &[&str] = &[
+    "crypto/curve25519/curve25519.c",
+    "crypto/fipsmodule/aes/aes_nohw.c",
+    "crypto/fipsmodule/bn/montgomery.c",
+    "crypto/fipsmodule/bn/montgomery_inv.c",
+    "crypto/fipsmodule/ec/ecp_nistz.c",
+    "crypto/fipsmodule/ec/gfp_p256.c",
+    "crypto/fipsmodule/ec/gfp_p384.c",
+    "crypto/fipsmodule/ec/p256.c",
+    "crypto/limbs/limbs.c",
+    "crypto/mem.c",
+    "crypto/poly1305/poly1305.c",
+    "crypto/crypto.c",
+    "crypto/cpu_intel.c",
+    "crypto/curve25519/curve25519_64_adx.c",
+    "crypto/fipsmodule/ec/p256-nistz.c",
+    "third_party/fiat/asm/fiat_curve25519_adx_mul.S",
+    "third_party/fiat/asm/fiat_curve25519_adx_square.S",
+    "pregenerated/chacha-x86_64-elf.S",
+    "pregenerated/aes-gcm-avx2-x86_64-elf.S",
+    "pregenerated/aesni-gcm-x86_64-elf.S",
+    "pregenerated/aesni-x86_64-elf.S",
+    "pregenerated/ghash-x86_64-elf.S",
+    "pregenerated/vpaes-x86_64-elf.S",
+    "pregenerated/x86_64-mont-elf.S",
+    "pregenerated/x86_64-mont5-elf.S",
+    "pregenerated/p256-x86_64-asm-elf.S",
+    "pregenerated/sha512-x86_64-elf.S",
+    "pregenerated/sha256-x86_64-elf.S",
+    "pregenerated/chacha20_poly1305_x86_64-elf.S",
+];
+
+fn build_ring(dir: &Path) {
+    let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
+    let objects: Vec<PathBuf> = RING_SOURCES
+        .iter()
+        .map(|source| dir.join(format!("ring-{}.o", source.replace('/', "-"))))
+        .collect();
+    // A few compilers at a time: the build shares the machine with Cargo's jobs.
+    for (sources, objects) in RING_SOURCES.chunks(4).zip(objects.chunks(4)) {
+        let children: Vec<_> = sources
+            .iter()
+            .zip(objects)
+            .map(|(source, object)| {
+                Command::new(&cc)
+                    .args(["-c", "-O2", "-fPIC", "-g0", "-w"])
+                    .args(["-ffunction-sections", "-fdata-sections"])
+                    .args(["-fvisibility=hidden", "-std=c1x", "-DNDEBUG"])
+                    .arg(format!("-ffile-prefix-map={}=/plenty", manifest.display()))
+                    .arg(format!("-I{RING}/include"))
+                    .arg(format!("-I{RING}/pregenerated"))
+                    .arg(format!("{RING}/{source}"))
+                    .arg("-o")
+                    .arg(object)
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .expect("invoke the C compiler for ring; std.tls needs `cc`")
+            })
+            .collect();
+        for (child, source) in children.into_iter().zip(sources) {
+            let output = child.wait_with_output().expect("wait for the C compiler");
+            assert!(
+                output.status.success(),
+                "compiling ring's {source} failed:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+    let archive = dir.join(format!("lib{RING_ARCHIVE}.a"));
+    let _ = std::fs::remove_file(&archive);
+    let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
+    let output = Command::new(&ar)
+        .arg("crsD")
+        .arg(&archive)
+        .args(&objects)
+        .output()
+        .expect("invoke `ar` to archive ring");
+    assert!(
+        output.status.success(),
+        "archiving ring failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn remap(rustc: &mut Command, out: &Path) {
     // Precompiled standard-library objects remain toolchain inputs.
     for (path, replacement) in [
@@ -176,10 +331,26 @@ fn remap(rustc: &mut Command, out: &Path) {
 }
 
 fn extern_arg(dir: &Path, name: &str) -> String {
+    let (alias, name) = name.split_once('=').unwrap_or((name, name));
     format!(
-        "--extern={name}={}",
+        "--extern={alias}={}",
         dir.join(format!("lib{name}.rlib")).display()
     )
+}
+
+/// The `CARGO_PKG_*` values a crate may read with `env!`; ring derives its
+/// native symbol prefix from them. Directories are named `<name>-<version>`.
+fn package_env(rustc: &mut Command, path: &str) {
+    let (name, version) = path.rsplit_once('-').unwrap();
+    let (version, pre) = version.split_once('-').unwrap_or((version, ""));
+    let mut parts = version.split('.');
+    rustc
+        .env("CARGO_PKG_NAME", name)
+        .env("CARGO_PKG_VERSION", version)
+        .env("CARGO_PKG_VERSION_MAJOR", parts.next().unwrap())
+        .env("CARGO_PKG_VERSION_MINOR", parts.next().unwrap())
+        .env("CARGO_PKG_VERSION_PATCH", parts.next().unwrap())
+        .env("CARGO_PKG_VERSION_PRE", pre);
 }
 
 /// Compile the vendored crates once into rlibs shared by both runtime builds.
@@ -210,6 +381,7 @@ fn build_vendored(out: &Path) -> PathBuf {
         for name in *externs {
             rustc.arg(extern_arg(&dir, name));
         }
+        package_env(&mut rustc, path);
         remap(&mut rustc, out);
         let output = rustc.output().expect("invoke rustc for a vendored crate");
         assert!(
@@ -250,6 +422,7 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
         "--cfg",
         "plenty_runtime_sqlite",
         "-lstatic=plenty_sqlite",
+        "-lstatic=ring_core_0_17_14_",
         "--print",
         "native-static-libs",
         "-o",

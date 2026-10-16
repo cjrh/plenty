@@ -168,8 +168,8 @@ echo connection on a worker and handles a refused connection.
 
 - x86_64 Linux GNU only; elsewhere every operation reports
   `Stream(StreamError.Io(IoError.Unsupported))`.
-- No TLS, socket timeouts beyond deadlines, multicast, or socket options
-  other than no-delay and broadcast.
+- No socket timeouts beyond deadlines, multicast, or socket options other
+  than no-delay and broadcast. TLS is in [`std.tls`](tls.md).
 - An abandoned name lookup keeps its helper thread until the resolver gives
   up.
 

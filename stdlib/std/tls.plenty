@@ -1,0 +1,393 @@
+# TLS 1.2 and 1.3 over std.net TCP streams, with certificates verified
+# against chosen trust roots. rustls with the ring provider is vendored in the
+# runtime; a session there never touches a socket. This module moves
+# ciphertext between the session and the TCP stream, so the stream's deadlines
+# and cancellation bound every handshake and transfer.
+# See book/src/design/stdlib/tls.md.
+import std.bytes
+from std.bytes import Bytes, BytesError
+from std.io import StreamError
+from std.net import NetError, TcpStream
+from std.sync import CancellationToken
+from std.time import Deadline
+
+pub enum TlsError:
+    Net(NetError)
+    UntrustedCertificate
+    ExpiredCertificate
+    WrongHost
+    InvalidCertificate
+    Rejected
+    Protocol
+    Truncated
+    InvalidName
+    InvalidConfiguration
+    NoTrustRoots
+    Closed
+    Allocation(AllocError)
+
+# Runtime codes; see plenty-runtime/src/aggregates/tls.rs.
+const would_block: i64 = -1
+const untrusted: i64 = -2
+const expired: i64 = -3
+const wrong_host: i64 = -4
+const invalid_certificate: i64 = -5
+const rejected: i64 = -6
+const truncated: i64 = -8
+const invalid_name: i64 = -9
+const invalid_configuration: i64 = -10
+const allocation: i64 = -11
+const no_roots: i64 = -12
+
+# Session state bits.
+const handshaking: i64 = 1
+const wants_write: i64 = 2
+
+# Each stream's ciphertext buffers. A record may span several transfers.
+const buffer_size: i64 = 16384
+
+def failure(code: i64) -> TlsError:
+    match code:
+        case -2:
+            TlsError.UntrustedCertificate
+        case -3:
+            TlsError.ExpiredCertificate
+        case -4:
+            TlsError.WrongHost
+        case -5:
+            TlsError.InvalidCertificate
+        case -6:
+            TlsError.Rejected
+        case -8:
+            TlsError.Truncated
+        case -9:
+            TlsError.InvalidName
+        case -10:
+            TlsError.InvalidConfiguration
+        case -11:
+            TlsError.Allocation(AllocError.OutOfMemory)
+        case -12:
+            TlsError.NoTrustRoots
+        case _:
+            TlsError.Protocol
+
+def opened(result: Result[ByteStorage, i64]) -> Result[ByteStorage, TlsError]:
+    match result:
+        case Ok(handle):
+            Ok(handle)
+        case Err(code):
+            Err(failure(code))
+
+def stored[T](result: Result[T, BytesError]) -> Result[T, TlsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(cause)):
+            Err(TlsError.Allocation(cause))
+        case Err(_):
+            Err(TlsError.Net(NetError.Stream(StreamError.OutOfRange)))
+
+# A count, or a runtime failure code other than `would_block`.
+def counted(result: Result[i64, BytesError]) -> Result[i64, TlsError]:
+    count = stored(result)?
+    if count < 0 and count != would_block:
+        return Err(failure(count))
+    Ok(count)
+
+def net[T](result: Result[T, NetError]) -> Result[T, TlsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(TlsError.Net(error))
+
+# How the std.io methods report a TLS failure.
+def streamed(error: TlsError) -> StreamError:
+    match error:
+        case TlsError.Net(NetError.Stream(cause)):
+            cause
+        case TlsError.Truncated:
+            StreamError.UnexpectedEof
+        case TlsError.Allocation(cause):
+            StreamError.Allocation(cause)
+        case _:
+            StreamError.Io(IoError.Other)
+
+def flowed[T](result: Result[T, TlsError]) -> Result[T, StreamError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(streamed(error))
+
+# Certificate authorities that a client trusts to vouch for servers.
+pub class TrustRoots:
+    _handle: ByteStorage
+
+    pub def len(self) -> i64:
+        __tls_roots_count(self._handle)
+
+# The CERTIFICATE blocks of `pem`; other blocks are skipped. PEM that does
+# not decode is InvalidCertificate. A decoded certificate unusable as a trust
+# anchor is skipped, as system bundles may hold some; none usable is
+# NoTrustRoots.
+pub def roots_from_pem(pem: &str) -> Result[TrustRoots, TlsError]:
+    Ok(TrustRoots(opened(__tls_roots(pem))?))
+
+def bundle(path: &str) -> Option[str]:
+    match read_text(path):
+        case Ok(text):
+            Some(text)
+        case Err(_):
+            Nothing
+
+# The operating system's certificate bundle: the first readable file of
+# /etc/ssl/certs/ca-certificates.crt (Debian, Ubuntu, Arch, Alpine),
+# /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem (Fedora, RHEL),
+# /etc/ssl/ca-bundle.pem (openSUSE) and /etc/ssl/cert.pem. None readable is
+# NoTrustRoots.
+pub def system_roots() -> Result[TrustRoots, TlsError]:
+    match bundle("/etc/ssl/certs/ca-certificates.crt"):
+        case Some(text):
+            return roots_from_pem(&text)
+        case Nothing:
+            pass
+    match bundle("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"):
+        case Some(text):
+            return roots_from_pem(&text)
+        case Nothing:
+            pass
+    match bundle("/etc/ssl/ca-bundle.pem"):
+        case Some(text):
+            return roots_from_pem(&text)
+        case Nothing:
+            pass
+    match bundle("/etc/ssl/cert.pem"):
+        case Some(text):
+            return roots_from_pem(&text)
+        case Nothing:
+            pass
+    Err(TlsError.NoTrustRoots)
+
+# Settings for client sessions: TLS 1.2 and 1.3, rustls's safe default
+# cipher suites, server certificates verified against `roots`.
+pub class ClientConfig:
+    _handle: ByteStorage
+
+pub def client_config(roots: &TrustRoots) -> Result[ClientConfig, TlsError]:
+    Ok(ClientConfig(opened(__tls_client_config(roots._handle))?))
+
+# Settings for server sessions: the server's certificate chain, leaf first,
+# and its private key (PKCS#8, PKCS#1 or SEC1), both PEM. A chain or key that
+# does not parse, or a key that does not match the leaf, is
+# InvalidConfiguration. Clients are not asked for certificates.
+pub class ServerConfig:
+    _handle: ByteStorage
+
+pub def server_config(chain_pem: &str, key_pem: &str) -> Result[ServerConfig, TlsError]:
+    Ok(ServerConfig(opened(__tls_server_config(chain_pem, key_pem))?))
+
+# An encrypted, authenticated stream over a TCP connection. The `_before`
+# methods take a deadline and a cancellation token; `read`, `write`, `flush`
+# and `close` make it a std.io Reader and Writer that block as TcpStream's do.
+pub class TlsStream:
+    _tcp: TcpStream
+    _session: ByteStorage
+    # Ciphertext received; [_in_start, _in_stop) is not yet consumed.
+    _incoming: Bytes
+    _in_start: i64
+    _in_stop: i64
+    _outgoing: Bytes
+    _eof: bool
+    _closed: bool
+
+    # Ciphertext the session has ready, moved into the outgoing buffer.
+    def outgoing(self: &mut TlsStream) -> Result[i64, TlsError]:
+        if (__tls_state(self._session) & wants_write) == 0:
+            return Ok(0)
+        counted(self._outgoing.tls_take(&self._session, 0, buffer_size))
+
+    def flush_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+        while True:
+            count = self.outgoing()?
+            if count == 0:
+                return Ok(())
+            net(self._tcp.write_all_before(&self._outgoing, 0, count, deadline, cancel))?
+        Ok(())
+
+    def flush_blocking(self: &mut TlsStream) -> Result[(), StreamError]:
+        while True:
+            count = flowed(self.outgoing())?
+            mut at = 0
+            if count == 0:
+                return Ok(())
+            while at < count:
+                written = self._tcp.write(&self._outgoing, at, count)?
+                if written == 0:
+                    return Err(StreamError.WriteZero)
+                at += written
+        Ok(())
+
+    # Feeds buffered ciphertext; false when none is buffered.
+    def feed_pending(self: &mut TlsStream) -> Result[bool, TlsError]:
+        if self._in_start == self._in_stop:
+            return Ok(False)
+        used = counted(self._incoming.tls_feed(&self._session, self._in_start, self._in_stop))?
+        self._in_start += used
+        Ok(True)
+
+    # Takes `count` bytes just read into the incoming buffer; 0 is the end
+    # of the peer's stream.
+    def received(self: &mut TlsStream, count: i64) -> Result[(), TlsError]:
+        self._in_start = 0
+        self._in_stop = count
+        if count == 0:
+            self._eof = True
+            counted(self._incoming.tls_feed(&self._session, 0, 0))?
+            return Ok(())
+        self.feed_pending()?
+        Ok(())
+
+    def receive_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+        if self.feed_pending()?:
+            return Ok(())
+        if self._eof:
+            return Err(TlsError.Truncated)
+        count = net(self._tcp.read_before(&mut self._incoming, 0, buffer_size, deadline, cancel))?
+        self.received(count)
+
+    def receive_blocking(self: &mut TlsStream) -> Result[(), TlsError]:
+        if self.feed_pending()?:
+            return Ok(())
+        if self._eof:
+            return Err(TlsError.Truncated)
+        match self._tcp.read(&mut self._incoming, 0, buffer_size):
+            case Ok(count):
+                self.received(count)
+            case Err(cause):
+                Err(TlsError.Net(NetError.Stream(cause)))
+
+    # Runs the handshake to completion. On a TLS failure the alert that
+    # rustls queued is sent if the deadline allows.
+    def handshake_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+        while True:
+            self.flush_before(deadline, cancel)?
+            if (__tls_state(self._session) & handshaking) == 0:
+                return Ok(())
+            match self.receive_before(deadline, cancel):
+                case Ok(_):
+                    pass
+                case Err(TlsError.Net(error)):
+                    return Err(TlsError.Net(error))
+                case Err(error):
+                    match self.flush_before(deadline, cancel):
+                        case _:
+                            pass
+                    return Err(error)
+        Ok(())
+
+    # Decrypted bytes into buffer[start:stop], waiting for at least one.
+    # Zero is the peer's close_notify; a stream that ends without one is
+    # Truncated, since an attacker can cut a connection short.
+    pub def read_before(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+        if start == stop:
+            stored(buffer.slice(start, stop))?
+            return Ok(0)
+        while True:
+            count = counted(buffer.tls_read(&self._session, start, stop))?
+            if count != would_block:
+                return Ok(count)
+            self.flush_before(deadline, cancel)?
+            self.receive_before(deadline, cancel)?
+        Ok(0)
+
+    # Encrypts at most 16 KiB of source[start:stop] and sends it before the
+    # deadline; the count taken. On failure, an unknown prefix has been sent.
+    pub def write_before(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+        if self._closed:
+            return Err(TlsError.Closed)
+        mut end = stop
+        if stop - start > buffer_size:
+            end = start + buffer_size
+        count = counted(source.tls_write(&self._session, start, end))?
+        self.flush_before(deadline, cancel)?
+        Ok(count)
+
+    pub def write_all_before(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+        mut at = start
+        while at < stop:
+            at += self.write_before(source, at, stop, deadline, cancel)?
+        Ok(())
+
+    # Sends close_notify, then closes the TCP stream. The peer's own
+    # close_notify is not awaited.
+    pub def close_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+        if not self._closed:
+            self._closed = True
+            __tls_close(self._session)
+            self.flush_before(deadline, cancel)?
+        net(flowed_net(self._tcp.close()))
+
+    pub def read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start == stop:
+            flowed(stored(buffer.slice(start, stop)))?
+            return Ok(0)
+        while True:
+            count = flowed(counted(buffer.tls_read(&self._session, start, stop)))?
+            if count != would_block:
+                return Ok(count)
+            self.flush_blocking()?
+            flowed(self.receive_blocking())?
+        Ok(0)
+
+    pub def write(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if self._closed:
+            return Err(StreamError.Io(IoError.Closed))
+        mut end = stop
+        if stop - start > buffer_size:
+            end = start + buffer_size
+        count = flowed(counted(source.tls_write(&self._session, start, end)))?
+        self.flush_blocking()?
+        Ok(count)
+
+    # Writes are sent as they are made.
+    pub def flush(self: &mut TlsStream) -> Result[(), StreamError]:
+        Ok(())
+
+    pub def close(self: &mut TlsStream) -> Result[(), StreamError]:
+        if not self._closed:
+            self._closed = True
+            __tls_close(self._session)
+            self.flush_blocking()?
+        self._tcp.close()
+
+def flowed_net(result: Result[(), StreamError]) -> Result[(), NetError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(cause):
+            Err(NetError.Stream(cause))
+
+def started(tcp: TcpStream, session: ByteStorage) -> Result[TlsStream, TlsError]:
+    mut incoming = stored(std.bytes.with_capacity(buffer_size))?
+    stored(incoming.resize(buffer_size, 0u8))?
+    mut outgoing = stored(std.bytes.with_capacity(buffer_size))?
+    stored(outgoing.resize(buffer_size, 0u8))?
+    Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, False, False))
+
+# Starts a client session on a connected stream and completes the handshake
+# before the deadline. The server's certificate must chain to the
+# configuration's roots and name `server_name`, a DNS name or IP address.
+pub def connect(tcp: TcpStream, config: &ClientConfig, server_name: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]:
+    session = opened(__tls_client(config._handle, server_name))?
+    mut stream = started(tcp, session)?
+    stream.handshake_before(deadline, cancel)?
+    Ok(stream)
+
+# Starts a server session on an accepted stream and completes the handshake
+# before the deadline.
+pub def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]:
+    session = opened(__tls_server(config._handle))?
+    mut stream = started(tcp, session)?
+    stream.handshake_before(deadline, cancel)?
+    Ok(stream)
