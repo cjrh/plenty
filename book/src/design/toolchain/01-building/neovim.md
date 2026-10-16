@@ -15,6 +15,9 @@ vim.cmd('syntax enable')
 Restart Neovim and open `examples/classes.plenty`. Check `:set filetype?` if
 highlighting is missing; it should report `plenty`. The plugin directory's
 README also describes native package installation and the headless test command.
+Extension detection takes precedence over generic content detection, including
+for source beginning with comments. An already-open buffer can be corrected with
+`:setlocal filetype=plenty` after the runtime path is available.
 
 Highlighting includes keywords, primitive and collection types, function
 declarations, numbers and suffixes, strings and escapes, operators, and comments.

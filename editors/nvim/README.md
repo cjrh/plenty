@@ -25,6 +25,12 @@ or a new `*.plenty` file. `:set filetype?` should report `plenty` and
 colorscheme's standard colors. Users can override the `plenty*` highlight groups.
 For other indentation preferences, use an `after/ftplugin/plenty.vim` file.
 
+The plugin registers the extension with Neovim's native filetype detector so
+comment-leading source does not fall through to generic `conf` detection. If
+you added the runtime path after opening a file, restart Neovim to load detection;
+for an already-open buffer with the runtime path available, run
+`:setlocal filetype=plenty` to load its syntax and editing settings immediately.
+
 Highlights cover reserved words, primitive and collection types, function
 declarations, booleans, `None`, decimal numbers with type suffixes, operators,
 comments, escapes, and single/double/triple-quoted strings. The patterns follow
