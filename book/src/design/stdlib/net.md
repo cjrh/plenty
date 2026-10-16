@@ -7,6 +7,7 @@ addresses, and name lookup. Every operation that waits for the network takes a
 that serves a connection blocks only in bounded waits.
 
 The runtime supplies one primitive per socket call (opcodes 410–418).
+Selectors and cancellable waits come from `std.ready` (opcodes 419–422).
 Addresses, waits, retries and error naming are checked Plenty in
 `stdlib/std/net.plenty`.
 
@@ -48,7 +49,8 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 | `AddressUnavailable` | The address is not local, or IPv6 is unavailable (`EADDRNOTAVAIL`) |
 | `Unreachable` | No route to the network or host |
 | `NameNotFound` | The resolver found no address for the name |
-| `TryAgain` | The resolver failed temporarily (`EAI_AGAIN`) |
+| `TryAgain` | The resolver failed temporarily (`EAI_AGAIN`), or 32 lookups are already running |
+| `HandleLimit` | The process or system has no free descriptors (`EMFILE`, `ENFILE`) |
 | `InvalidAddress` | Address text outside the grammar, or an empty or NUL-containing host name |
 | `Stream(StreamError)` | Any other failure, with its native code in `StreamError.Io(IoError.System(code))`, or allocation failure |
 
@@ -77,6 +79,13 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 - `accept` borrows the listener shared, so several workers can accept from
   one listener; each connection goes to exactly one of them. A connection
   reset before it was accepted is skipped.
+- At the descriptor limit, `accept` returns `HandleLimit` and the connection
+  stays queued: once the server closes a descriptor, the next `accept` takes
+  it. A server can back off or shed idle connections instead of failing.
+- Linux queues up to `backlog` + 1 unaccepted connections (measured on
+  loopback for backlogs 1, 2, 8 and 64). Further connection attempts are
+  dropped, not refused, so `connect` waits until its deadline and returns
+  `TimedOut`. The kernel also caps `backlog` at `net.core.somaxconn`.
 - `connect` starts a non-blocking connection and waits for it within the
   deadline. A refused or unreachable peer is an error value.
 - An accepted or connected stream blocks. `read_before` and `write_before`
@@ -87,6 +96,25 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 - Writing to a connection the peer has closed is `Reset`, never `SIGPIPE`.
 - On `TimedOut` or `Cancelled` the socket and the caller's buffer are
   unchanged, apart from what earlier steps of `write_all_before` sent.
+
+## Waiting on many sockets
+
+`stream.watch(selector, key, interest)`, `listener.watch(selector, key)` and
+`socket.watch(selector, key, interest)` register a socket with a
+[`std.ready` selector](ready.md#selectors); `unwatch(selector)` removes it. A
+listener is readable while a connection waits to be accepted. After
+`selector.wait`, each `Event` names a ready socket by its key, and the worker
+calls `accept`, `read_before` or `write_before` on it; the call does not wait
+because the socket is ready.
+
+```text
+mut chosen = selector(64).unwrap()
+listener.watch(&mut chosen, 0u64)?
+# ... accept connections, then stream.watch(&mut chosen, key, Interest.Read)
+count = chosen.wait(&deadline, &cancel)?
+for index in range(count):
+    key = chosen.event(index)?.key
+```
 
 ## UDP
 
@@ -106,17 +134,21 @@ split; the rest is discarded. A datagram too large to send is
 
 ## Name lookup
 
-`resolve(host: &str, port: u16, deadline: &Deadline)` returns
-`Result[list[SocketAddress], NetError]`. An IP literal returns that address
-without a lookup. Otherwise the system resolver (`getaddrinfo`) is called once
-and its addresses are returned in its order, each with `port`. No address is
-`NameNotFound`.
+`resolve(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken)`
+returns `Result[list[SocketAddress], NetError]`. An IP literal returns that
+address without a lookup. Otherwise the system resolver (`getaddrinfo`) is
+called once and its addresses are returned in its order, each with `port`. No
+address is `NameNotFound`.
 
-The C resolver cannot be interrupted, so `resolve` checks the deadline only
-before the lookup; a lookup that is already running finishes or fails on the
-resolver's own timeouts (`/etc/resolv.conf`). Callers who need a hard bound
-resolve on a worker and stop waiting for it. The resolver's result list is
-allocated by the C library and freed before `resolve` returns.
+The C resolver cannot be interrupted, so the lookup runs on a helper thread
+with a 1 MiB stack, which writes its result to a socket pair. `resolve` waits
+on the reading end within the deadline and the token, so it returns
+`TimedOut` or `Cancelled` on time even while the resolver is still working.
+An abandoned lookup finishes on the resolver's own timeouts
+(`/etc/resolv.conf`), then discards its result and exits. At most 32 lookups
+run at once in a process, counting abandoned ones; another is `TryAgain`.
+The resolver's result list is allocated by the C library and freed on the
+helper thread.
 
 ## Effects and ownership
 
@@ -124,7 +156,8 @@ Opening a socket and resolving a name have the `Network` effect; operations
 on an existing socket have the `Handle` effect. Both are allowed on workers;
 see [native effects on worker threads](../facilities/03-concurrency/effects.md).
 A listener, stream or socket owns one descriptor, opened close-on-exec, and
-closes it when explicitly closed or dropped. No operation starts a thread.
+closes it when explicitly closed or dropped. Only `resolve` starts a thread,
+as above.
 
 ## Example
 
@@ -135,9 +168,21 @@ echo connection on a worker and handles a refused connection.
 
 - x86_64 Linux GNU only; elsewhere every operation reports
   `Stream(StreamError.Io(IoError.Unsupported))`.
-- No Unix-domain sockets, TLS, socket timeouts beyond deadlines, multicast,
-  or socket options other than no-delay and broadcast.
-- One socket per wait. Serving many connections uses one worker per
-  connection or per group; waiting on several sockets at once is not
-  provided, and a cancelled wait is seen within one 10-millisecond slice.
-- Name lookup is not cancellable once started.
+- No TLS, socket timeouts beyond deadlines, multicast, or socket options
+  other than no-delay and broadcast.
+- An abandoned name lookup keeps its helper thread until the resolver gives
+  up.
+
+### Unix-domain sockets
+
+`std.net` does not provide Unix-domain sockets, by decision rather than as an
+omission. A path socket leaves a file that someone must remove, and a stale
+one makes the next `bind` fail, so it needs a cleanup policy that ownership
+of the socket alone does not give. The abstract namespace avoids files but is
+Linux-only. Their distinctive features, passing descriptors and peer
+credentials, would move ownership of native handles between processes, which
+the [ownership rules](../facilities/03-concurrency/effects.md) do not yet
+describe. Local communication with a child is covered by
+[`std.process`](process.md) pipes, and with another local process by TCP on
+loopback. Revisit this when a scheduled use case, such as talking to a
+system daemon, needs them.

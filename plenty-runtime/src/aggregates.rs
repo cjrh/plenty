@@ -18,6 +18,7 @@ pub(crate) mod executor_reduce;
 mod filesystem;
 mod net;
 mod process;
+mod readiness;
 #[cfg(test)]
 mod removal_tests;
 #[cfg(plenty_runtime_sqlite)]
@@ -1432,6 +1433,17 @@ pub(crate) unsafe extern "C" fn plenty_collection(
                 *args.add(5),
             ];
             out.write(byte_storage::call(op, operands, descriptor, site));
+            return;
+        }
+        if (419..423).contains(&op) {
+            let operands = [
+                *args,
+                *args.add(1),
+                *args.add(2),
+                *args.add(4),
+                *args.add(5),
+            ];
+            out.write(readiness::call(op, operands, descriptor));
             return;
         }
         if (410..440).contains(&op) {

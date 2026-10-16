@@ -63,5 +63,46 @@ the listener is closed, nothing listens on the port, so the last attempt is
 `NetError.Refused`: an error value to handle, not a crash.
 
 `read_before` makes one read, which may return fewer bytes than were sent; a
-real client loops until it has what it needs. Name lookup, UDP datagrams and
-IPv6 addresses are in the [reference](../../design/stdlib/net.md).
+real client loops until it has what it needs.
+
+## Wait on many connections
+
+A worker per connection is simple, but a server with many idle connections
+can wait on all of them in one call with a
+[selector](../../design/stdlib/ready.md#selectors). Each socket is registered
+under a key you choose, and `wait` reports which keys are ready:
+
+```plenty
+import std.bytes
+from std.net import connect, listen, loopback_v4
+from std.ready import Interest, selector
+from std.sync import CancellationToken
+from std.time import deadline_after, milliseconds, monotonic_now
+
+def main() -> Result[(), Failure]:
+    cancel = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
+    listener = listen(&loopback_v4(0u16), 8).unwrap()
+    address = listener.local_address().unwrap()
+    quiet = connect(&address, &deadline, &cancel).unwrap()
+    mut chatty = connect(&address, &deadline, &cancel).unwrap()
+    first = listener.accept(&deadline, &cancel).unwrap()
+    second = listener.accept(&deadline, &cancel).unwrap()
+    mut chosen = selector(8).unwrap()
+    first.watch(&mut chosen, 1u64, Interest.Read).unwrap()
+    second.watch(&mut chosen, 2u64, Interest.Read).unwrap()
+    message = std.bytes.from_text("hi")?
+    chatty.write_all_before(&message, 0, 2, &deadline, &cancel).unwrap()
+    count = chosen.wait(&deadline, &cancel).unwrap()
+    print(count, chosen.event(0).unwrap().key)?
+    Ok(())
+```
+
+```output
+1 2
+```
+
+Only the second connection has input, so the wait reports one event, key 2.
+The server would now call `read_before` on that stream, which returns at once.
+Name lookup, UDP datagrams and IPv6 addresses are in the
+[reference](../../design/stdlib/net.md).

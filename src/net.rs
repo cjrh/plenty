@@ -3,6 +3,9 @@
 //! cancellation, retries and error naming live in `std.net`; see
 //! book/src/design/stdlib/net.md.
 //!
+//! The readiness primitives (`__ready_*`) back `std.ready`: a wait that a
+//! cancellation token ends directly, and epoll selectors owned by a `File`.
+//!
 //! An address crosses the boundary as `list[u8]`: the family (4 or 6), the
 //! port in network order, the address bytes and, for IPv6, the scope id in
 //! network order. That is 7 or 23 bytes.
@@ -21,6 +24,10 @@ pub enum NetOp {
     SendTo,
     ReceiveFrom,
     Resolve,
+    ReadyWait,
+    SelectorOpen,
+    SelectorWatch,
+    Select,
 }
 
 impl NetOp {
@@ -35,6 +42,10 @@ impl NetOp {
             "__net_send_to" => Self::SendTo,
             "__net_receive_from" => Self::ReceiveFrom,
             "__net_resolve" => Self::Resolve,
+            "__ready_wait" => Self::ReadyWait,
+            "__ready_selector" => Self::SelectorOpen,
+            "__ready_watch" => Self::SelectorWatch,
+            "__ready_select" => Self::Select,
             _ => return None,
         })
     }
@@ -54,8 +65,21 @@ impl NetOp {
             Self::SendTo => ([range(), vec![address()]].concat(), Ty::I64),
             // The sender's address is written into the last buffer.
             Self::ReceiveFrom => ([range(), vec![Ty::ByteStorage]].concat(), Ty::I64),
-            // Concatenated addresses with port zero; empty when the name has none.
-            Self::Resolve => (vec![Ty::Str], address()),
+            // A socket carrying the reply of a lookup on a helper thread.
+            Self::Resolve => (vec![Ty::Str], Ty::File),
+            // Handle, interest, timeout in nanoseconds; readiness bits.
+            Self::ReadyWait => (
+                vec![Ty::File, Ty::U8, Ty::U64, Ty::CancellationToken],
+                Ty::I64,
+            ),
+            Self::SelectorOpen => (vec![], Ty::File),
+            // Selector, handle, key, interest (0 removes).
+            Self::SelectorWatch => (vec![Ty::File, Ty::File, Ty::U64, Ty::U8], Ty::I64),
+            // Event buffer, selector, timeout; the number of events written.
+            Self::Select => (
+                vec![Ty::ByteStorage, Ty::File, Ty::U64, Ty::CancellationToken],
+                Ty::I64,
+            ),
         };
         (inputs, sum::result(output, sum::io_error()))
     }
@@ -65,10 +89,18 @@ impl NetOp {
     /// workers can accept from one borrowed listener.
     pub fn exclusive(self, operand: usize) -> bool {
         match self {
-            Self::FinishConnect | Self::Shutdown | Self::SetOption => operand == 0,
+            Self::FinishConnect | Self::Shutdown | Self::SetOption | Self::SelectorWatch => {
+                operand == 0
+            }
+            Self::Select => operand == 0,
             Self::SendTo => operand == 3,
             Self::ReceiveFrom => matches!(operand, 0 | 3 | 4),
-            Self::Open | Self::Accept | Self::Address | Self::Resolve => false,
+            Self::Open
+            | Self::Accept
+            | Self::Address
+            | Self::Resolve
+            | Self::ReadyWait
+            | Self::SelectorOpen => false,
         }
     }
 
@@ -85,7 +117,11 @@ impl NetOp {
             | Self::Shutdown
             | Self::SetOption
             | Self::SendTo
-            | Self::ReceiveFrom => Effect::Handle,
+            | Self::ReceiveFrom
+            | Self::ReadyWait
+            | Self::SelectorOpen
+            | Self::SelectorWatch
+            | Self::Select => Effect::Handle,
         }
     }
 }

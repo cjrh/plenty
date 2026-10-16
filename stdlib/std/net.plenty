@@ -8,7 +8,7 @@ import std.bytes
 import std.ready
 from std.bytes import Bytes, BytesError
 from std.io import FileStream, StreamError, classify
-from std.ready import Interest, WaitError, wait
+from std.ready import Interest, Selector, WaitError, wait
 from std.sync import CancellationToken
 from std.time import Deadline, monotonic_now
 
@@ -23,6 +23,8 @@ const unavailable: i32 = 99
 const net_unreachable: i32 = 101
 const host_unreachable: i32 = 113
 const timed_out: i32 = 110
+const process_handles: i32 = 24
+const system_handles: i32 = 23
 
 # Socket kinds understood by the runtime.
 const listener_kind: u8 = 1
@@ -44,6 +46,7 @@ pub enum NetError:
     NameNotFound
     TryAgain
     InvalidAddress
+    HandleLimit
     Stream(StreamError)
 
 # An IPv4 address as its 32 bits, or an IPv6 address as two 64-bit halves,
@@ -135,6 +138,8 @@ def named(error: IoError) -> NetError:
                 return NetError.Unreachable
             if code == timed_out:
                 return NetError.TimedOut
+            if code == process_handles or code == system_handles:
+                return NetError.HandleLimit
             NetError.Stream(classify(IoError.System(code)))
         case _ as other:
             NetError.Stream(classify(other))
@@ -157,6 +162,13 @@ def waited(error: WaitError) -> NetError:
 
 def ready_for(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]:
     match wait(file, interest, deadline, cancel):
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(waited(error))
+
+def selected(result: Result[(), WaitError]) -> Result[(), NetError]:
+    match result:
         case Ok(_):
             Ok(())
         case Err(error):
@@ -463,30 +475,19 @@ pub def parse_address(text: &str) -> Result[SocketAddress, NetError]:
     port = decimal(&source, colon + 1, stop, 65535)?
     Ok(SocketAddress(ip, u16(port), 0u32))
 
-# Addresses for `host` with `port` set: an IP literal directly, otherwise
-# the system resolver, in its preference order. The resolver cannot be
-# interrupted, so the deadline is checked only before it starts.
-pub def resolve(host: &str, port: u16, deadline: &Deadline) -> Result[list[SocketAddress], NetError]:
-    match parse_ip(host):
-        case Ok(ip):
-            mut single = allocated(list[SocketAddress].with_capacity(1))?
-            allocated(single.append(SocketAddress(ip, port, 0u32)))?
-            return Ok(single)
-        case Err(_):
-            pass
-    if deadline.expired(&monotonic_now()):
-        return Err(NetError.TimedOut)
-    match __net_resolve(host):
-        case Ok(data):
-            mut addresses = allocated(list[SocketAddress].with_capacity(len(data) // v4_size))?
-            mut at = 0
-            while at < len(data):
-                (address, next) = decoded(&data, at)?
-                allocated(addresses.append(SocketAddress(address.ip, port, address.scope)))?
-                at = next
-            if len(addresses) == 0:
-                return Err(NetError.NameNotFound)
-            Ok(addresses)
+# Lookup reply status bytes: a five-byte header of the status and a
+# big-endian native code, then for `resolved` the encoded addresses.
+const resolved: u8 = 0u8
+const no_address: u8 = 1u8
+const try_again: u8 = 2u8
+const no_memory: u8 = 3u8
+const system_failure: u8 = 4u8
+const reply_header: i64 = 5
+
+def started(result: Result[File, IoError]) -> Result[File, NetError]:
+    match result:
+        case Ok(file):
+            Ok(file)
         case Err(error):
             match error:
                 case IoError.System(code):
@@ -497,6 +498,59 @@ pub def resolve(host: &str, port: u16, deadline: &Deadline) -> Result[list[Socke
                     Err(NetError.InvalidAddress)
                 case _ as other:
                     Err(named(other))
+
+# The whole reply of a lookup, read through `std.ready` until end of input.
+def reply_of(file: File, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[u8], NetError]:
+    mut reply = FileStream(file)
+    mut data = lifted(std.bytes.with_capacity(256))?
+    mut chunk = lifted(std.bytes.with_capacity(256))?
+    lifted(chunk.resize(256, 0u8))?
+    while True:
+        count = counted(std.ready.read_before(&mut reply, &mut chunk, 0, 256, deadline, cancel))?
+        if count == 0:
+            break
+        lifted(data.extend_range(&chunk, 0, count))?
+    lifted(data.to_list())
+
+# Addresses for `host` with `port` set: an IP literal directly, otherwise
+# the system resolver, in its preference order. The lookup runs on a helper
+# thread; the caller waits for its reply within the deadline and stops on
+# cancellation, abandoning a lookup still in progress.
+pub def resolve(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[SocketAddress], NetError]:
+    match parse_ip(host):
+        case Ok(ip):
+            mut single = allocated(list[SocketAddress].with_capacity(1))?
+            allocated(single.append(SocketAddress(ip, port, 0u32)))?
+            return Ok(single)
+        case Err(_):
+            pass
+    if cancel.is_cancelled():
+        return Err(NetError.Cancelled)
+    if deadline.expired(&monotonic_now()):
+        return Err(NetError.TimedOut)
+    data = reply_of(started(__net_resolve(host))?, deadline, cancel)?
+    if len(data) < reply_header:
+        return Err(NetError.Stream(StreamError.Io(IoError.Other)))
+    status = data[0]
+    if status == no_address:
+        return Err(NetError.NameNotFound)
+    if status == try_again:
+        return Err(NetError.TryAgain)
+    if status == no_memory:
+        return Err(NetError.Stream(StreamError.Allocation(AllocError.OutOfMemory)))
+    if status == system_failure:
+        return Err(named(IoError.System(i32(number(&data, 1, 4)))))
+    if status != resolved:
+        return Err(NetError.Stream(StreamError.Io(IoError.Other)))
+    mut addresses = allocated(list[SocketAddress].with_capacity(len(data) // v4_size))?
+    mut at = reply_header
+    while at < len(data):
+        (address, next) = decoded(&data, at)?
+        allocated(addresses.append(SocketAddress(address.ip, port, address.scope)))?
+        at = next
+    if len(addresses) == 0:
+        return Err(NetError.NameNotFound)
+    Ok(addresses)
 
 pub enum Shutdown:
     Read
@@ -555,6 +609,13 @@ pub class TcpStream:
                 pass
         done(__net_shutdown(self._stream.file, how))
 
+    # Registers the stream with a selector under `key`.
+    pub def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]:
+        selected(selector.watch(&self._stream.file, key, interest))
+
+    pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
+        selected(selector.unwatch(&self._stream.file))
+
     # Sends small writes at once instead of coalescing them.
     pub def set_no_delay(self: &mut TcpStream, enabled: bool) -> Result[(), NetError]:
         mut value = 0
@@ -568,8 +629,17 @@ pub class TcpListener:
     pub def local_address(self) -> Result[SocketAddress, NetError]:
         address_of(&self._file, 0u8)
 
+    # Registers the listener with a selector under `key`; it is readable
+    # while a connection waits to be accepted.
+    pub def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]:
+        selected(selector.watch(&self._file, key, Interest.Read))
+
+    pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
+        selected(selector.unwatch(&self._file))
+
     # Waits for a connection. Several workers may accept from one shared
-    # listener; each connection goes to one of them.
+    # listener; each connection goes to one of them. At the descriptor limit
+    # the result is HandleLimit and the connection stays queued.
     pub def accept(self, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, NetError]:
         while True:
             ready_for(&self._file, Interest.Read, deadline, cancel)?
@@ -629,6 +699,12 @@ pub class UdpSocket:
 
     pub def local_address(self) -> Result[SocketAddress, NetError]:
         address_of(&self._file, 0u8)
+
+    pub def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]:
+        selected(selector.watch(&self._file, key, interest))
+
+    pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
+        selected(selector.unwatch(&self._file))
 
     # Permits sending to a broadcast address.
     pub def set_broadcast(self: &mut UdpSocket, enabled: bool) -> Result[(), NetError]:

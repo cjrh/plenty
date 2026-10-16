@@ -1,4 +1,8 @@
 //! Explicitly shared cooperative cancellation; dropping a handle does not cancel.
+//!
+//! A readiness wait (`std.ready`, `std.net`) also polls the token's wake
+//! descriptor, an eventfd created on the first such wait and written once by
+//! `cancel`, so a blocked wait ends as soon as the token is cancelled.
 use crate::aggregates;
 use crate::deadline::Deadline;
 use crate::memory::{self, AllocError, Header};
@@ -9,8 +13,84 @@ use std::sync::{Condvar, Mutex};
 struct Token {
     header: Header,
     cancelled: AtomicBool,
-    gate: Mutex<()>,
+    /// Also guards the wake descriptor, which `cancel` writes under the lock.
+    gate: Mutex<Option<std::os::fd::OwnedFd>>,
     changed: Condvar,
+}
+
+/// How a readiness wait observes a token.
+pub(crate) enum Wake {
+    /// Already cancelled: the wait must not block.
+    Cancelled,
+    /// Readable once the token is cancelled. It lives as long as the token.
+    Descriptor(i32),
+    /// No descriptor could be created (for example at the descriptor limit);
+    /// the wait must block for at most one bounded slice and recheck.
+    Unavailable,
+}
+
+/// The wake descriptor of a borrowed token, created on first use.
+///
+/// # Safety
+/// `pointer` is a live token loan for the duration of the wait.
+pub(crate) unsafe fn wake(pointer: u128) -> Wake {
+    // SAFETY: the caller holds a live token loan.
+    let token = unsafe { &*(pointer as *const Token) };
+    let mut guard = token
+        .gate
+        .lock()
+        .unwrap_or_else(|_| crate::fail("poisoned cancellation mutex"));
+    if guard.is_none() {
+        *guard = native::event();
+    }
+    // Checked under the lock: a cancel that ran before the descriptor existed
+    // wrote nothing, so the flag is the only record of it.
+    if token.is_cancelled() {
+        return Wake::Cancelled;
+    }
+    match guard.as_ref() {
+        Some(fd) => Wake::Descriptor(std::os::fd::AsRawFd::as_raw_fd(fd)),
+        None => Wake::Unavailable,
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod native {
+    use std::os::fd::{FromRawFd, OwnedFd};
+
+    const EFD_NONBLOCK: i32 = 0o4000;
+    const EFD_CLOEXEC: i32 = 0o2000000;
+
+    extern "C" {
+        fn eventfd(initial: u32, flags: i32) -> i32;
+        fn write(fd: i32, data: *const std::ffi::c_void, length: usize) -> isize;
+    }
+
+    pub(super) fn event() -> Option<OwnedFd> {
+        // SAFETY: plain integer arguments; a fresh descriptor is owned here.
+        let fd = unsafe { eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC) };
+        // SAFETY: nothing else owns a descriptor eventfd just returned.
+        (fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
+    /// Makes the descriptor readable. The counter cannot overflow: it is
+    /// written once and never read.
+    pub(super) fn signal(fd: &OwnedFd) {
+        let one = 1u64.to_ne_bytes();
+        // SAFETY: an eight-byte write to a live eventfd.
+        unsafe { write(std::os::fd::AsRawFd::as_raw_fd(fd), one.as_ptr().cast(), 8) };
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod native {
+    use std::os::fd::OwnedFd;
+
+    pub(super) fn event() -> Option<OwnedFd> {
+        None
+    }
+
+    pub(super) fn signal(_: &OwnedFd) {}
 }
 
 fn create() -> Result<*mut Token, AllocError> {
@@ -20,7 +100,7 @@ fn create() -> Result<*mut Token, AllocError> {
         token.write(Token {
             header: Header::new(destroy),
             cancelled: AtomicBool::new(false),
-            gate: Mutex::new(()),
+            gate: Mutex::new(None),
             changed: Condvar::new(),
         });
     }
@@ -40,6 +120,9 @@ impl Token {
             .lock()
             .unwrap_or_else(|_| crate::fail("poisoned cancellation mutex"));
         self.cancelled.store(true, Ordering::Release);
+        if let Some(fd) = guard.as_ref() {
+            native::signal(fd);
+        }
         drop(guard);
         self.changed.notify_all();
     }
@@ -128,6 +211,47 @@ mod tests {
             assert!((*token).is_cancelled());
             assert!((*token).wait(Some(Deadline::from_millis(0))));
             assert!((*token).wait(Some(Deadline::from_millis(u64::MAX))));
+            plenty_release(token.cast());
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cancellation_makes_the_wake_descriptor_readable() {
+        #[repr(C)]
+        struct PollFd {
+            fd: i32,
+            events: i16,
+            revents: i16,
+        }
+        extern "C" {
+            fn poll(fds: *mut PollFd, count: u64, timeout: i32) -> i32;
+        }
+        unsafe {
+            let token = create().unwrap();
+            let Wake::Descriptor(fd) = wake(token as u128) else {
+                panic!("no wake descriptor");
+            };
+            // Later waits reuse the same descriptor.
+            assert!(matches!(wake(token as u128), Wake::Descriptor(again) if again == fd));
+            let mut entry = PollFd {
+                fd,
+                events: 1,
+                revents: 0,
+            };
+            assert_eq!(poll(&mut entry, 1, 0), 0);
+            let address = token.expose_provenance();
+            let started = std::time::Instant::now();
+            std::thread::scope(|scope| {
+                scope.spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    (*std::ptr::with_exposed_provenance::<Token>(address)).cancel();
+                });
+                // One blocking poll with a long timeout ends on cancellation.
+                assert_eq!(poll(&mut entry, 1, 10_000), 1);
+            });
+            assert!(started.elapsed() < std::time::Duration::from_secs(5));
+            assert!(matches!(wake(token as u128), Wake::Cancelled));
             plenty_release(token.cast());
         }
     }

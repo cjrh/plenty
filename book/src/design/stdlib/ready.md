@@ -1,15 +1,17 @@
 # `std.ready`
 
-`import std.ready` waits for a native handle to become readable or writable,
+`import std.ready` waits for a native handle, or any of several handles, to
+become readable or writable,
 bounded by a [`Deadline`](time.md) and optionally by a
 [cancellation token](sync.md). It is the blocking model for I/O on worker
 threads: each worker makes bounded blocking waits, and no event loop, callback
 registration or `async` syntax is involved. See
 [native effects on worker threads](../facilities/03-concurrency/effects.md).
 
-The runtime supplies one primitive, a single `ppoll` on the handle's descriptor
-with a nanosecond timeout. Deadlines, interruption retries and cancellation are
-checked Plenty in `stdlib/std/ready.plenty`.
+The runtime supplies four primitives (opcodes 419–422): a single `ppoll` on a
+handle's descriptor with a nanosecond timeout, and opening, registering with
+and waiting on a selector. Deadlines, interruption retries, cancellation and
+event decoding are checked Plenty in `stdlib/std/ready.plenty`.
 
 ## Types
 
@@ -18,6 +20,8 @@ checked Plenty in `stdlib/std/ready.plenty`.
 | `Interest` | `Read`, `Write` or `ReadWrite` |
 | `Readiness` | Public `bool` fields `readable`, `writable`, `hangup`, `error` |
 | `WaitError` | `TimedOut`, `Cancelled`, or `Stream(StreamError)` |
+| `Selector` | An owned set of registered handles; see [Selectors](#selectors) |
+| `Event` | Public fields `key: u64` and `readiness: Readiness` |
 
 `hangup` and `error` are reported whatever the interest. On Linux a pipe whose
 writer has closed reports `hangup` without `readable`; a read then returns end
@@ -31,14 +35,15 @@ of input. `error` means a read or write will report the pending error.
 | `wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken)` | `Result[Readiness, WaitError]` |
 | `read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, WaitError]` |
 | `write_before(stream: &mut FileStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, WaitError]` |
-| `cancellation_slice()` | `Duration`: the longest a cancellable wait blocks without checking its token |
+| `selector(capacity: i64)` | `Result[Selector, WaitError]` |
 
 - A handle that is already ready succeeds, even when the deadline has passed.
   Otherwise the wait returns `TimedOut` once the deadline passes.
-- `wait` checks the token before each native wait and waits at most one slice
-  (10 milliseconds) at a time. A token cancelled before the call returns
-  `Cancelled` even when the handle is ready; one cancelled during the wait is
-  seen within one slice.
+- A token cancelled before the call returns `Cancelled` even when the handle
+  is ready. One cancelled during the wait wakes it at once: the wait polls the
+  token's wake descriptor alongside the handle, and `cancel()` makes that
+  descriptor readable. On loopback, 50 cancellations of a blocked `accept`
+  woke it in 27 microseconds on average and 80 at worst.
 - An interrupted wait (`EINTR`) is retried against the same deadline.
 - A closed `File` is `Stream(StreamError.Io(IoError.Closed))`. An invalid
   descriptor is reported the same way.
@@ -56,6 +61,59 @@ Regular files are always ready; readiness is useful for pipes, terminals and
 [sockets](net.md). A blocking `read` on a handle another thread also reads can
 still block after a readiness report. The loan rules prevent that within one
 program unless the descriptor is shared with a child process.
+
+## Selectors
+
+A selector waits on many handles in one call, so one worker can serve many
+idle connections. It owns one epoll descriptor and an event buffer of 16
+bytes per event; it starts no thread.
+
+| Method | Result |
+|---|---|
+| `selector.watch(file: &File, key: u64, interest: Interest)` | `Result[(), WaitError]`: register, or change the key and interest |
+| `selector.unwatch(file: &File)` | `Result[(), WaitError]`; a handle that is not registered is not an error |
+| `selector.wait(deadline, cancel)` | `Result[i64, WaitError]`: how many events are ready, at least 1 |
+| `selector.event(index: i64)` | `Result[Event, WaitError]`: event `index` of the last wait |
+| `selector.close()` | `Result[(), WaitError]` |
+
+- `capacity` is the most events one wait reports, clamped to 1..64. Further
+  ready handles stay ready for the next wait.
+- Registrations are level-triggered: a handle is reported by every wait while
+  it is ready, until it is read, written or unwatched. Closing a registered
+  handle removes it.
+- `wait` follows the single-handle rules: ready handles are reported even when
+  the deadline has passed, an earlier cancellation wins, a later one wakes the
+  wait at once, and `EINTR` is retried.
+- An index outside the last wait's count is `Stream(StreamError.OutOfRange)`.
+- `watch`, `unwatch` and `wait` need the selector exclusively (`&mut`); handles
+  are borrowed shared only for the call. A registered handle may still be
+  read, written or closed by its owner.
+- [`std.net`](net.md) streams, listeners and UDP sockets have `watch` and
+  `unwatch` methods that report `NetError`.
+
+`examples/net_wait_bench.plenty` measures one worker serving N idle loopback
+connections, one ready at a time, with a selector against a loop that polls
+each connection with an expired deadline. Mean round trip in nanoseconds over
+20,000 one-byte echoes, pinned to eight cores:
+
+| Connections | Selector | Polling loop |
+|---|---|---|
+| 1 | 28,668 | 21,958 |
+| 16 | 29,143 | 30,192 |
+| 128 | 30,048 | 134,935 |
+| 1024 | 31,515 | 1,099,546 |
+
+The selector's cost does not grow with idle connections; the polling loop's
+grows linearly.
+
+## Cancellation descriptors
+
+A token's first cancellable wait creates its wake descriptor, an `eventfd`
+opened close-on-exec, which the token keeps until it is dropped. A program
+therefore holds one extra descriptor per token that has waited. If the
+descriptor cannot be created (for example at the descriptor limit), the wait
+falls back to blocking at most 10 milliseconds at a time and rechecking the
+token, as before.
 
 ## Example
 
@@ -84,6 +142,7 @@ complete program.
 ## Limits
 
 - x86_64 Linux GNU only; elsewhere every wait reports `IoError.Unsupported`.
-- One handle per wait. Waiting on several handles at once, and waking a wait
-  through its token without the 10-millisecond slice, are not provided.
+- Selectors are epoll instances; there is no edge-triggered or one-shot mode,
+  and a wait reports at most 64 events.
+- A token does not wake an unbounded `read`, `write` or child `wait`.
 - Sockets and name lookup are in [`std.net`](net.md).
