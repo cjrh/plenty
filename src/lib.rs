@@ -25,6 +25,7 @@ mod generator;
 mod lexer;
 mod library;
 mod library_metadata;
+mod net;
 mod nominal;
 mod numeric;
 mod op;

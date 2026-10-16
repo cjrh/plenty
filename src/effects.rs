@@ -34,6 +34,10 @@ pub enum Effect {
     /// Spawns, waits for, or signals a child through the runtime's
     /// synchronized child table.
     Child,
+    /// Opens a socket or resolves a host name: the process's network
+    /// namespace and resolver configuration, which the kernel and C library
+    /// synchronize.
+    Network,
     /// Changes state that every thread observes.
     ProcessGlobal,
 }
@@ -52,7 +56,8 @@ impl Effect {
             | Self::Path
             | Self::Handle
             | Self::Environment
-            | Self::Child => None,
+            | Self::Child
+            | Self::Network => None,
         }
     }
 }
@@ -118,6 +123,7 @@ impl CollectionOp {
             Stream(op) => op.effect(),
             Process(op) => op.effect(),
             Sqlite(op) => op.effect(),
+            Net(op) => op.effect(),
             Time(_) => Effect::Clock,
             // These primitive families transform caller-owned memory only.
             Bytes(_) | Crypto(_) | Compress(_) | Regex(_) | Unicode(_) => Effect::Compute,
@@ -243,5 +249,10 @@ mod tests {
         assert_eq!(StreamOp::Wait.effect(), Effect::Handle);
         assert_eq!(CollectionOp::OpenFile.effect(), Effect::Path);
         assert_eq!(CollectionOp::TextFind.effect(), Effect::Compute);
+        use crate::net::NetOp;
+        assert_eq!(CollectionOp::Net(NetOp::Open).effect(), Effect::Network);
+        assert_eq!(CollectionOp::Net(NetOp::Resolve).effect(), Effect::Network);
+        assert_eq!(CollectionOp::Net(NetOp::Accept).effect(), Effect::Handle);
+        assert!(Effect::Network.worker_denial().is_none());
     }
 }

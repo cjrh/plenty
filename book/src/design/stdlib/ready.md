@@ -52,8 +52,8 @@ of input. `error` means a read or write will report the pending error.
   `Cancelled`, the handle, the stream position and the caller's buffer are
   unchanged.
 
-Regular files are always ready; readiness is useful for pipes, terminals and,
-later, sockets. A blocking `read` on a handle another thread also reads can
+Regular files are always ready; readiness is useful for pipes, terminals and
+[sockets](net.md). A blocking `read` on a handle another thread also reads can
 still block after a readiness report. The loan rules prevent that within one
 program unless the descriptor is shared with a child process.
 
@@ -86,4 +86,4 @@ complete program.
 - x86_64 Linux GNU only; elsewhere every wait reports `IoError.Unsupported`.
 - One handle per wait. Waiting on several handles at once, and waking a wait
   through its token without the 10-millisecond slice, are not provided.
-- Sockets and DNS are not part of this module; see the backlog.
+- Sockets and name lookup are in [`std.net`](net.md).

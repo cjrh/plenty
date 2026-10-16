@@ -287,6 +287,7 @@ impl Lowerer<'_, '_> {
             | CollectionOp::Crypto(_)
             | CollectionOp::Compress(_)
             | CollectionOp::Sqlite(_)
+            | CollectionOp::Net(_)
             | CollectionOp::Process(_) => Some(&output),
             CollectionOp::Args
             | CollectionOp::ArgsBytes

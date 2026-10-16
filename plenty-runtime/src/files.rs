@@ -12,8 +12,8 @@ pub(crate) struct File {
     writable: bool,
     readable: bool,
     skip_lf: bool,
-    /// The write end of a child's stdin: a reader that has gone must be an
-    /// error value here, not a SIGPIPE that ends this program.
+    /// The write end of a child's stdin, or a socket: a reader that has gone
+    /// must be an error value here, not a SIGPIPE that ends this program.
     pipe: bool,
 }
 
@@ -103,6 +103,20 @@ pub(crate) fn open(path: &str, mode: &str, ty: &'static Type) -> Result<u128, Er
 /// failed owner allocation closes it.
 pub(crate) fn adopt(file: std::fs::File, readable: bool, ty: &'static Type) -> Result<u128, Error> {
     prepare(readable, ty, || Ok(file))
+}
+
+/// Wraps a socket, which reads and writes through one descriptor. A peer that
+/// has gone is an error value, as for a child's pipe. A failed owner
+/// allocation closes the socket.
+pub(crate) fn adopt_socket(file: std::fs::File, ty: &'static Type) -> Result<u128, Error> {
+    let pointer = adopt(file, true, ty)?;
+    // SAFETY: `adopt` initialized this owner and nothing else refers to it yet.
+    unsafe {
+        let owner = &mut *(pointer as *mut File);
+        owner.writable = true;
+        owner.pipe = true;
+    }
+    Ok(pointer)
 }
 
 /// Reserve owner storage before a filesystem operation creates a named object.
