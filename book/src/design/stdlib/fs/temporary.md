@@ -2,7 +2,8 @@
 
 `temporary_file(&root) -> Result[TempFile, IoError]` creates an **unnamed**
 `O_TMPFILE` inode in the root's filesystem, mode 0600 restricted by umask.
-Its public `stream: std.io.FileStream` is writable. `publish(&name)` adds a
+Its public `stream: std.io.FileStream` is readable and writable; `seek` back
+to read what was written. `publish(&name)` adds a
 name with atomic no-replace `linkat`; existing files, directories and dangling
 links are refused. A successful publication can occur once. It leaves the
 stream open; `close()` reports close errors, and ordinary drop closes it.

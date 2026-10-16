@@ -1,0 +1,391 @@
+# The client behind trusted reverse proxies. A forwarding header is believed
+# only when the connection comes from a proxy the program names, and only up
+# to the first hop that is not one: everything left of that hop was written
+# by the client and is ignored.
+# See book/src/design/stdlib/http-proxy.md.
+import std.bytes
+import std.http
+import std.net
+from std.bytes import Bytes, BytesError
+from std.http import Header
+from std.http.server import Exchange, Transport
+from std.net import IpAddress, SocketAddress
+
+pub enum ProxyError:
+    InvalidNetwork
+    UnknownPeer
+    InvalidForwarded
+    TooManyHops
+    Allocation(AllocError)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, ProxyError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(ProxyError.Allocation(cause))
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, ProxyError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(ProxyError.Allocation(cause))
+                case _:
+                    Err(ProxyError.InvalidForwarded)
+
+# Which header the proxies write. A deployment uses one; the other is
+# ignored, so a client cannot supply it instead.
+pub enum Forwarding:
+    # X-Forwarded-For, with the scheme from X-Forwarded-Proto.
+    XForwardedFor
+    # Forwarded (RFC 7239), with `for=` and `proto=`.
+    Forwarded
+
+class Network:
+    ip: IpAddress
+    bits: i64
+
+pub class Proxies:
+    pub header: Forwarding
+    # Forwarding entries beyond this many fail with TooManyHops.
+    pub max_hops: i64
+    networks: list[Network]
+
+    # Trusts the proxies at `network`: `10.0.0.0/8`, `fd00::/8`, or one
+    # address. Host bits below the prefix are InvalidNetwork, so a typo
+    # such as `10.0.0.1/8` does not trust more than was meant.
+    pub def trust(self: &mut Proxies, network: &str) -> Result[(), ProxyError]:
+        source = lifted(std.bytes.from_text(network))?
+        count = source.len()
+        mut slash = count
+        match lifted(source.find(47u8, 0, count))?:
+            case Some(found):
+                slash = found
+            case Nothing:
+                pass
+        ip = match std.net.parse_ip(&lifted(lifted(source.slice(0, slash))?.to_text())?):
+            case Ok(parsed):
+                mapped(parsed)
+            case Err(_):
+                return Err(ProxyError.InvalidNetwork)
+        width = match ip:
+            case IpAddress.V4(_):
+                32
+            case IpAddress.V6(_, _):
+                128
+        mut bits = width
+        if slash < count:
+            if slash + 1 == count or count - slash > 4:
+                return Err(ProxyError.InvalidNetwork)
+            bits = 0
+            for index in range(slash + 1, count):
+                value = i64(source[index])
+                if value < 48 or value > 57:
+                    return Err(ProxyError.InvalidNetwork)
+                bits = bits * 10 + (value - 48)
+            if bits > width:
+                return Err(ProxyError.InvalidNetwork)
+        if not same(&masked(&ip, bits), &ip):
+            return Err(ProxyError.InvalidNetwork)
+        allocated(self.networks.append(Network(ip, bits)))
+
+    pub def trusts(self, ip: &IpAddress) -> bool:
+        address = mapped(copy_ip(ip))
+        for index in range(len(self.networks)):
+            network = &self.networks[index]
+            if same(&masked(&address, network.bits), &network.ip):
+                return True
+        False
+
+# Trusts nobody until `trust` names the proxies; forwarding headers are
+# then ignored and the client is the connection's peer.
+pub def proxies(header: Forwarding) -> Result[Proxies, ProxyError]:
+    Ok(Proxies(header, 16, allocated(list[Network].new())?))
+
+def copy_ip(ip: &IpAddress) -> IpAddress:
+    match ip:
+        case IpAddress.V4(bits):
+            IpAddress.V4(*bits)
+        case IpAddress.V6(high, low):
+            IpAddress.V6(*high, *low)
+
+# `::ffff:a.b.c.d` is the IPv4 address it carries, as a dual-stack socket
+# reports IPv4 peers that way.
+def mapped(ip: IpAddress) -> IpAddress:
+    match ip:
+        case IpAddress.V6(high, low):
+            if high == 0u64 and (low >> 32u64) == 65535u64:
+                return IpAddress.V4(u32(low & 4294967295u64))
+            IpAddress.V6(high, low)
+        case IpAddress.V4(bits):
+            IpAddress.V4(bits)
+
+def same(left: &IpAddress, right: &IpAddress) -> bool:
+    match left:
+        case IpAddress.V4(a):
+            match right:
+                case IpAddress.V4(b):
+                    *a == *b
+                case _:
+                    False
+        case IpAddress.V6(a, b):
+            match right:
+                case IpAddress.V6(c, d):
+                    *a == *c and *b == *d
+                case _:
+                    False
+
+def mask64(bits: i64) -> u64:
+    if bits <= 0:
+        return 0u64
+    if bits >= 64:
+        return 18446744073709551615u64
+    18446744073709551615u64 << u64(64 - bits)
+
+def masked(ip: &IpAddress, bits: i64) -> IpAddress:
+    match ip:
+        case IpAddress.V4(value):
+            IpAddress.V4(u32(((u64(*value) << 32u64) & mask64(bits)) >> 32u64))
+        case IpAddress.V6(high, low):
+            IpAddress.V6(*high & mask64(bits), *low & mask64(bits - 64))
+
+# The client of one request. `proxied` says the address came from a
+# forwarding header; `scheme` is `http` or `https` when a trusted proxy
+# reported it.
+pub class Client:
+    pub address: IpAddress
+    pub scheme: Option[str]
+    pub proxied: bool
+
+def is_blank(value: u8) -> bool:
+    value == 32u8 or value == 9u8
+
+# A forwarding entry: data[start:stop] holds one node. Quotes have already
+# been removed.
+class Hop:
+    node: Bytes
+    proto: Option[str]
+
+# The address in a node: `192.0.2.1`, `192.0.2.1:8080`, `2001:db8::1`, or
+# `[2001:db8::1]:8080`. Anything else, including `unknown` and obfuscated
+# `_name` identifiers, is InvalidForwarded.
+def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
+    count = node.len()
+    mut start = 0
+    mut stop = count
+    if count > 0 and node[0] == 91u8:
+        close = match lifted(node.find(93u8, 1, count))?:
+            case Some(found):
+                found
+            case Nothing:
+                return Err(ProxyError.InvalidForwarded)
+        if close + 1 < count and node[close + 1] != 58u8:
+            return Err(ProxyError.InvalidForwarded)
+        start = 1
+        stop = close
+    else:
+        match lifted(node.find(58u8, 0, count))?:
+            case Some(first):
+                match lifted(node.find(58u8, first + 1, count))?:
+                    case Some(_):
+                        pass
+                    case Nothing:
+                        stop = first
+            case Nothing:
+                pass
+    text = lifted(lifted(node.slice(start, stop))?.to_text())?
+    match std.net.parse_ip(&text):
+        case Ok(ip):
+            Ok(mapped(ip))
+        case Err(_):
+            Err(ProxyError.InvalidForwarded)
+
+# Comma-separated items of every field named `name`, in order, trimmed.
+def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes], ProxyError]:
+    mut out = allocated(list[Bytes].new())?
+    for index in range(len(headers)):
+        if not same_name(&headers[index].name, name):
+            continue
+        data = lifted(std.bytes.from_text(&headers[index].value))?
+        count = data.len()
+        mut at = 0
+        while at <= count:
+            mut stop = count
+            match lifted(data.find(44u8, at, count))?:
+                case Some(found):
+                    stop = found
+                case Nothing:
+                    pass
+            mut first = at
+            while first < stop and is_blank(data[first]):
+                first += 1
+            mut last = stop
+            while last > first and is_blank(data[last - 1]):
+                last -= 1
+            if last > first:
+                if len(out) >= limit:
+                    return Err(ProxyError.TooManyHops)
+                allocated(out.append(lifted(data.slice(first, last))?))?
+            at = stop + 1
+    Ok(out)
+
+def same_name(name: &str, lower: &str) -> bool:
+    match name.lower():
+        case Ok(folded):
+            folded == lower
+        case Err(_):
+            False
+
+def scheme_of(value: &Bytes) -> Result[str, ProxyError]:
+    match lifted(value.to_text())?.lower():
+        case Ok(folded):
+            if folded == "http" or folded == "https":
+                return Ok(folded)
+            Err(ProxyError.InvalidForwarded)
+        case Err(cause):
+            Err(ProxyError.Allocation(cause))
+
+def x_forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyError]:
+    nodes = items(headers, "x-forwarded-for", limit)?
+    mut hops = allocated(list[Hop].with_capacity(len(nodes)))?
+    for node in nodes:
+        allocated(hops.append(Hop(node, Nothing)))?
+    # Proxies overwrite X-Forwarded-Proto or append to it; the rightmost value
+    # is the one the nearest proxy wrote.
+    protos = items(headers, "x-forwarded-proto", limit)?
+    if len(hops) > 0 and len(protos) > 0:
+        last = len(hops) - 1
+        hops[last].proto = Some(scheme_of(&protos[len(protos) - 1])?)
+    Ok(hops)
+
+# One Forwarded element `pair *( ";" pair )`, with quoted values unquoted.
+# A missing `for` leaves the node empty, which `node_ip` rejects.
+def element(data: &Bytes) -> Result[Hop, ProxyError]:
+    count = data.len()
+    mut node = lifted(std.bytes.empty())?
+    mut proto: Option[str] = Nothing
+    mut at = 0
+    while at < count:
+        while at < count and (is_blank(data[at]) or data[at] == 59u8):
+            at += 1
+        if at == count:
+            break
+        start = at
+        while at < count and data[at] != 61u8 and data[at] != 59u8:
+            at += 1
+        if at == count or data[at] != 61u8:
+            return Err(ProxyError.InvalidForwarded)
+        name = match lifted(lifted(data.slice(start, at))?.to_text())?.lower():
+            case Ok(folded):
+                folded
+            case Err(cause):
+                return Err(ProxyError.Allocation(cause))
+        at += 1
+        mut value = lifted(std.bytes.empty())?
+        if at < count and data[at] == 34u8:
+            at += 1
+            mut closed = False
+            while at < count:
+                if data[at] == 34u8:
+                    closed = True
+                    at += 1
+                    break
+                if data[at] == 92u8:
+                    at += 1
+                    if at == count:
+                        return Err(ProxyError.InvalidForwarded)
+                lifted(value.push(data[at]))?
+                at += 1
+            if not closed:
+                return Err(ProxyError.InvalidForwarded)
+        else:
+            first = at
+            while at < count and data[at] != 59u8 and not is_blank(data[at]):
+                at += 1
+            lifted(value.extend_range(data, first, at))?
+        if name == "for":
+            node = value
+        elif name == "proto":
+            proto = Some(scheme_of(&value)?)
+    Ok(Hop(node, proto))
+
+# Forwarded elements, split on commas outside quoted strings.
+def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyError]:
+    mut hops = allocated(list[Hop].new())?
+    for index in range(len(headers)):
+        if not same_name(&headers[index].name, "forwarded"):
+            continue
+        data = lifted(std.bytes.from_text(&headers[index].value))?
+        count = data.len()
+        mut start = 0
+        mut quoted = False
+        mut at = 0
+        while at <= count:
+            if at < count and data[at] == 92u8 and quoted:
+                at += 2
+                continue
+            if at < count and data[at] == 34u8:
+                quoted = not quoted
+            if at == count or (data[at] == 44u8 and not quoted):
+                piece = lifted(data.slice(start, at))?
+                mut blank = True
+                for position in range(piece.len()):
+                    if not is_blank(piece[position]):
+                        blank = False
+                if not blank:
+                    if len(hops) >= limit:
+                        return Err(ProxyError.TooManyHops)
+                    allocated(hops.append(element(&piece)?))?
+                start = at + 1
+            at += 1
+        if quoted:
+            return Err(ProxyError.InvalidForwarded)
+    Ok(hops)
+
+# The client of a request that arrived from `peer`. If `peer` is not a
+# trusted proxy, it is the client and the headers are ignored. Otherwise the
+# forwarding entries are read from the right, skipping trusted proxies; the
+# first untrusted address is the client. When every entry is trusted, the
+# leftmost is used.
+pub def client(peer: &SocketAddress, headers: &list[Header], proxies: &Proxies) -> Result[Client, ProxyError]:
+    address = mapped(copy_ip(&peer.ip))
+    if not proxies.trusts(&address):
+        return Ok(Client(address, Nothing, False))
+    hops = match proxies.header:
+        case Forwarding.XForwardedFor:
+            x_forwarded(headers, proxies.max_hops)?
+        case Forwarding.Forwarded:
+            forwarded(headers, proxies.max_hops)?
+    if len(hops) == 0:
+        return Ok(Client(address, Nothing, False))
+    mut index = len(hops) - 1
+    mut ip = node_ip(&hops[index].node)?
+    while index > 0 and proxies.trusts(&ip):
+        index -= 1
+        ip = node_ip(&hops[index].node)?
+    # X-Forwarded-Proto is not per hop; it is kept on the last entry.
+    mut source = index
+    match proxies.header:
+        case Forwarding.XForwardedFor:
+            source = len(hops) - 1
+        case Forwarding.Forwarded:
+            pass
+    mut scheme: Option[str] = Nothing
+    match &hops[source].proto:
+        case Some(value):
+            scheme = Some(allocated(value.concat(""))?)
+        case Nothing:
+            pass
+    Ok(Client(ip, scheme, True))
+
+# `client` for an exchange the server accepted. UnknownPeer when the server
+# did not record the peer, as for `serve_connection` on a custom transport.
+pub def client_of[T: Transport](exchange: &Exchange[T], proxies: &Proxies) -> Result[Client, ProxyError]:
+    match &exchange.peer:
+        case Some(peer):
+            client(peer, &exchange.request.headers, proxies)
+        case Nothing:
+            Err(ProxyError.UnknownPeer)

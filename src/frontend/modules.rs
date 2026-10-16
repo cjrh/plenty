@@ -83,6 +83,15 @@ impl ModuleSource {
             Self::Standard("std.http.server") => {
                 Ok(include_str!("../../stdlib/std/http/server.plenty").into())
             }
+            Self::Standard("std.http.body") => {
+                Ok(include_str!("../../stdlib/std/http/body.plenty").into())
+            }
+            Self::Standard("std.http.cookie") => {
+                Ok(include_str!("../../stdlib/std/http/cookie.plenty").into())
+            }
+            Self::Standard("std.http.proxy") => {
+                Ok(include_str!("../../stdlib/std/http/proxy.plenty").into())
+            }
             Self::Standard("std.test") => Ok(include_str!("../../stdlib/std/test.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
@@ -761,10 +770,13 @@ pub(super) fn load_graph_with(
                     "std.net" => Ok(ModuleSource::Standard("std.net")),
                     "std.http" => Ok(ModuleSource::Standard("std.http")),
                     "std.http.server" => Ok(ModuleSource::Standard("std.http.server")),
+                    "std.http.body" => Ok(ModuleSource::Standard("std.http.body")),
+                    "std.http.cookie" => Ok(ModuleSource::Standard("std.http.cookie")),
+                    "std.http.proxy" => Ok(ModuleSource::Standard("std.http.proxy")),
                     "std.test" => Ok(ModuleSource::Standard("std.test")),
                     "std.db.sqlite" => Ok(ModuleSource::Standard("std.db.sqlite")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready, std.net, std.http, std.http.server, std.db.sqlite, std.test",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready, std.net, std.http, std.http.server, std.http.body, std.http.cookie, std.http.proxy, std.db.sqlite, std.test",
                         import.module
                 ))),
                 };

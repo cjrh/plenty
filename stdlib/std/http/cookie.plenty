@@ -1,0 +1,246 @@
+# HTTP cookies (RFC 6265): reading the Cookie fields of a request and
+# writing Set-Cookie fields whose every part is validated, so no value can
+# inject another attribute or field. New cookies default to Secure, HttpOnly,
+# SameSite=Lax and Path=/.
+# See book/src/design/stdlib/http-cookie.md.
+import std.bytes
+import std.http
+from std.bytes import Bytes, BytesError
+from std.http import Header, HttpError, ResponseHead
+
+pub enum CookieError:
+    InvalidName
+    InvalidValue
+    InvalidAttribute
+    TooManyCookies
+    Http(HttpError)
+    Allocation(AllocError)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, CookieError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(CookieError.Allocation(cause))
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, CookieError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(CookieError.Allocation(cause))
+                case _:
+                    Err(CookieError.InvalidValue)
+
+def http[T](result: Result[T, HttpError]) -> Result[T, CookieError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            match cause:
+                case HttpError.Allocation(inner):
+                    Err(CookieError.Allocation(inner))
+                case _ as other:
+                    Err(CookieError.Http(other))
+
+def code(data: &Bytes, index: i64) -> i64:
+    i64(data[index])
+
+# RFC 9110 tchar.
+def token_byte(value: i64) -> bool:
+    if (value >= 48 and value <= 57) or (value >= 65 and value <= 90) or (value >= 97 and value <= 122):
+        return True
+    value == 33 or (value >= 35 and value <= 39) or value == 42 or value == 43 or value == 45 or value == 46 or value == 94 or value == 95 or value == 96 or value == 124 or value == 126
+
+# RFC 6265 cookie-octet: visible ASCII except `"`, `,`, `;` and `\`.
+def cookie_byte(value: i64) -> bool:
+    value == 33 or (value >= 35 and value <= 43) or (value >= 45 and value <= 58) or (value >= 60 and value <= 91) or (value >= 93 and value <= 126)
+
+def all_bytes(text: &str, kind: i64) -> bool:
+    for scalar in text:
+        match ord(scalar):
+            case Ok(point):
+                value = i64(point)
+                if kind == 0 and not token_byte(value):
+                    return False
+                if kind == 1 and not cookie_byte(value):
+                    return False
+                # Path: any visible ASCII or space except `;`.
+                if kind == 2 and (value < 32 or value > 126 or value == 59):
+                    return False
+                # Domain: letters, digits, `-` and `.`.
+                if kind == 3 and not ((value >= 48 and value <= 57) or (value >= 65 and value <= 90) or (value >= 97 and value <= 122) or value == 45 or value == 46):
+                    return False
+            case Err(_):
+                return False
+    True
+
+def valid_name(name: &str) -> bool:
+    name.byte_len() > 0 and all_bytes(name, 0)
+
+def valid_value(value: &str) -> bool:
+    all_bytes(value, 1)
+
+pub class Cookie:
+    pub name: str
+    pub value: str
+
+# Splits one Cookie field value into `name=value` pairs. A pair whose name is
+# not a token or whose value has a byte outside cookie-octet is skipped: the
+# field carries cookies of every application on the host, and one malformed
+# cookie must not make every request fail. A value in double quotes loses
+# the quotes.
+def split_pairs(field: &str, cookies: &mut list[Cookie], limit: i64) -> Result[(), CookieError]:
+    data = lifted(std.bytes.from_text(field))?
+    count = data.len()
+    mut at = 0
+    while at < count:
+        mut stop = count
+        match lifted(data.find(59u8, at, count))?:
+            case Some(found):
+                stop = found
+            case Nothing:
+                pass
+        mut first = at
+        while first < stop and (code(&data, first) == 32 or code(&data, first) == 9):
+            first += 1
+        mut last = stop
+        while last > first and (code(&data, last - 1) == 32 or code(&data, last - 1) == 9):
+            last -= 1
+        if last > first:
+            match lifted(data.find(61u8, first, last))?:
+                case Some(equals):
+                    name = lifted(lifted(data.slice(first, equals))?.to_text())?
+                    mut value_start = equals + 1
+                    mut value_stop = last
+                    if value_stop - value_start >= 2 and code(&data, value_start) == 34 and code(&data, value_stop - 1) == 34:
+                        value_start += 1
+                        value_stop -= 1
+                    match lifted(data.slice(value_start, value_stop))?.to_text():
+                        case Ok(value):
+                            if valid_name(&name) and valid_value(&value):
+                                if len(cookies) >= limit:
+                                    return Err(CookieError.TooManyCookies)
+                                allocated(cookies.append(Cookie(name, value)))?
+                        case Err(BytesError.Allocation(cause)):
+                            return Err(CookieError.Allocation(cause))
+                        case Err(_):
+                            pass
+                case Nothing:
+                    pass
+        at = stop + 1
+    Ok(())
+
+# Every valid cookie in the request's Cookie fields, in order. More than
+# `limit` valid cookies is TooManyCookies.
+pub def cookies(headers: &list[Header], limit: i64) -> Result[list[Cookie], CookieError]:
+    mut found = allocated(list[Cookie].new())?
+    for index in range(len(headers)):
+        if same_name(&headers[index].name, "cookie"):
+            split_pairs(&headers[index].value, &mut found, limit)?
+    Ok(found)
+
+def same_name(name: &str, lower: &str) -> bool:
+    match name.lower():
+        case Ok(folded):
+            folded == lower
+        case Err(_):
+            False
+
+# The index of the first cookie named `name`.
+pub def find(cookies: &list[Cookie], name: &str) -> Option[i64]:
+    for index in range(len(cookies)):
+        if cookies[index].name == name:
+            return Some(index)
+    Nothing
+
+pub enum SameSite:
+    Strict
+    Lax
+    # SameSite=None: sent on cross-site requests; requires Secure.
+    Unrestricted
+
+# A Set-Cookie field. `path` and `domain` are left out when empty; `max_age`
+# is in seconds, `Nothing` for a cookie that ends with the browser session.
+pub class SetCookie:
+    pub name: str
+    pub value: str
+    pub path: str
+    pub domain: str
+    pub max_age: Option[i64]
+    pub secure: bool
+    pub http_only: bool
+    pub same_site: SameSite
+
+    # The field value, after checking every part. Names starting `__Secure-`
+    # need `secure`; `__Host-` also needs path `/` and no domain.
+    pub def format(self) -> Result[str, CookieError]:
+        if not valid_name(&self.name):
+            return Err(CookieError.InvalidName)
+        if not valid_value(&self.value):
+            return Err(CookieError.InvalidValue)
+        if self.path.byte_len() > 0 and (not self.path.startswith("/") or not all_bytes(&self.path, 2)):
+            return Err(CookieError.InvalidAttribute)
+        if not all_bytes(&self.domain, 3) or self.domain.startswith(".") or self.domain.endswith("."):
+            return Err(CookieError.InvalidAttribute)
+        match &self.same_site:
+            case SameSite.Unrestricted:
+                if not self.secure:
+                    return Err(CookieError.InvalidAttribute)
+            case _:
+                pass
+        if self.name.startswith("__Secure-") and not self.secure:
+            return Err(CookieError.InvalidAttribute)
+        if self.name.startswith("__Host-") and (not self.secure or self.path != "/" or self.domain.byte_len() > 0):
+            return Err(CookieError.InvalidAttribute)
+        mut out = allocated(self.name.concat("="))?
+        out = allocated(out.concat(&self.value))?
+        if self.path.byte_len() > 0:
+            out = allocated(out.concat("; Path="))?
+            out = allocated(out.concat(&self.path))?
+        if self.domain.byte_len() > 0:
+            out = allocated(out.concat("; Domain="))?
+            out = allocated(out.concat(&self.domain))?
+        match &self.max_age:
+            case Some(seconds):
+                if *seconds < 0:
+                    return Err(CookieError.InvalidAttribute)
+                out = allocated(out.concat("; Max-Age="))?
+                out = allocated(out.concat(&allocated(str.from(*seconds))?))?
+            case Nothing:
+                pass
+        if self.secure:
+            out = allocated(out.concat("; Secure"))?
+        if self.http_only:
+            out = allocated(out.concat("; HttpOnly"))?
+        match &self.same_site:
+            case SameSite.Strict:
+                out = allocated(out.concat("; SameSite=Strict"))?
+            case SameSite.Lax:
+                out = allocated(out.concat("; SameSite=Lax"))?
+            case SameSite.Unrestricted:
+                out = allocated(out.concat("; SameSite=None"))?
+        Ok(out)
+
+# A session cookie with the safe defaults: Path=/, Secure, HttpOnly,
+# SameSite=Lax. The name and value are checked here as well as by `format`.
+pub def set_cookie(name: &str, value: &str) -> Result[SetCookie, CookieError]:
+    if not valid_name(name):
+        return Err(CookieError.InvalidName)
+    if not valid_value(value):
+        return Err(CookieError.InvalidValue)
+    Ok(SetCookie(allocated(name.concat(""))?, allocated(value.concat(""))?, "/", "", Nothing, True, True, SameSite.Lax))
+
+# A cookie that tells the browser to delete `name`: empty, Max-Age=0. Its
+# path and domain must match the cookie being removed.
+pub def removal(name: &str) -> Result[SetCookie, CookieError]:
+    mut cookie = set_cookie(name, "")?
+    cookie.max_age = Some(0)
+    Ok(cookie)
+
+# Appends a Set-Cookie field to `head`.
+pub def add(head: &mut ResponseHead, cookie: &SetCookie) -> Result[(), CookieError]:
+    value = cookie.format()?
+    http(head.add("Set-Cookie", value))
