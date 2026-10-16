@@ -123,6 +123,7 @@ impl CollectionOp {
             Stream(op) => op.effect(),
             Process(op) => op.effect(),
             Sqlite(op) => op.effect(),
+            Tls(op) => op.effect(),
             Net(op) => op.effect(),
             Time(_) => Effect::Clock,
             // These primitive families transform caller-owned memory only.

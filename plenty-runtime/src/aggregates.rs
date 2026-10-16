@@ -23,6 +23,7 @@ mod readiness;
 mod removal_tests;
 #[cfg(plenty_runtime_sqlite)]
 mod sqlite;
+mod tls;
 
 #[repr(C)]
 pub(crate) struct Variant {
@@ -1376,6 +1377,22 @@ pub(crate) unsafe extern "C" fn plenty_sqlite(
     unsafe {
         let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
         args.add(3).cast_mut().write(sqlite::call(op, operands));
+    }
+}
+
+/// `std.tls` operations under their own symbol, as for `plenty_crypto`: a
+/// program that never starts a session links without rustls and ring.
+#[no_mangle]
+pub(crate) unsafe extern "C" fn plenty_tls(
+    op: i64,
+    args: *const u128,
+    _descriptor: *const Type,
+    _site: *const crate::Site,
+) {
+    // SAFETY: as for `plenty_crypto`.
+    unsafe {
+        let operands = [*args, *args.add(1), *args.add(2), *args.add(4)];
+        args.add(3).cast_mut().write(tls::call(op, operands));
     }
 }
 

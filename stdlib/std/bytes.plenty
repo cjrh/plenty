@@ -257,6 +257,25 @@ pub class Bytes:
     pub def ready_select(self: &mut Bytes, selector: &File, timeout: u64, cancel: &CancellationToken) -> Result[i64, IoError]:
         __ready_select(self._owner, selector, timeout, cancel)
 
+    # std.tls's record transfers; import that module instead. A session that
+    # did not come from std.tls stops the process. Each returns a byte count
+    # or one of std.tls's negative codes.
+    pub def tls_feed(self, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(__tls_feed(session, self._owner, start, stop))
+
+    pub def tls_take(self: &mut Bytes, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(__tls_take(session, self._owner, start, stop))
+
+    pub def tls_read(self: &mut Bytes, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(__tls_read(session, self._owner, start, stop))
+
+    pub def tls_write(self, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, __bytes_len(self._owner))?
+        Ok(__tls_write(session, self._owner, start, stop))
+
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)

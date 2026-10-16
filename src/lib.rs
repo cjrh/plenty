@@ -41,6 +41,7 @@ mod sum;
 mod tail_abi;
 mod threading;
 mod time;
+mod tls;
 mod toolchain;
 mod type_facts;
 mod unicode;
