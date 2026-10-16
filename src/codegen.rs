@@ -355,7 +355,7 @@ fn object_module(
     workers: usize,
     optimize: bool,
 ) -> Result<Output> {
-    crate::tail_abi::prepare(&mut ops);
+    crate::tail_abi::prepare(&mut ops, workers);
     let opt_level = if optimize { "speed" } else { "none" };
     let targets = output::Targets {
         ordinary: optimized_isa("backtracking", opt_level)?,
@@ -376,9 +376,10 @@ fn object_module(
         .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
         .collect();
     runtime.standard_calls = user_fns.values().any(|f| f.standard_library);
-    let threads = threads::declare_adapters(&ops, &mut out.module, &mut runtime.thread_adapters)?;
+    let threads =
+        threads::declare_adapters(&ops, workers, &mut out.module, &mut runtime.thread_adapters)?;
     let executors =
-        executors::declare_adapters(&ops, &mut out.module, &mut runtime.thread_adapters)?;
+        executors::declare_adapters(&ops, workers, &mut out.module, &mut runtime.thread_adapters)?;
     let runtime = runtime;
     // `bodies` is in declaration order, as `FuncId`s are. The map's own order
     // changes from run to run, which would make the object differ between

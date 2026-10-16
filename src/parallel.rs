@@ -2,6 +2,7 @@
 //! input order, so nothing derived from them depends on the worker count.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 /// Helpers recurse over nested blocks like the main thread, whose usual stack
 /// is this size; the default for a spawned thread is a quarter of it.
@@ -51,8 +52,41 @@ pub(crate) fn map<T: Send>(len: usize, workers: usize, work: impl Fn(usize) -> T
     done.into_iter().map(|(_, result)| result).collect()
 }
 
+/// `work(item)` for every item of `items`, in order. Items are handed out in
+/// runs, so a cheap `work` costs little more than a serial loop.
+pub(crate) fn map_mut<T: Send, R: Send>(
+    items: &mut [T],
+    workers: usize,
+    work: impl Fn(&mut T) -> R + Sync,
+) -> Vec<R> {
+    let run = items.len().div_ceil(workers.max(1) * 16).max(1);
+    let runs: Vec<Mutex<&mut [T]>> = items.chunks_mut(run).map(Mutex::new).collect();
+    map(runs.len(), workers, |i| {
+        // Each run is locked once, by the worker that took its index.
+        let mut run = runs[i].lock().unwrap_or_else(PoisonError::into_inner);
+        run.iter_mut().map(&work).collect::<Vec<_>>()
+    })
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mutable_results_keep_input_order_for_every_worker_count() {
+        for workers in [0, 1, 3, 8] {
+            let mut items: Vec<usize> = (0..1000).collect();
+            let results = super::map_mut(&mut items, workers, |n| {
+                *n *= 2;
+                *n + 1
+            });
+            assert!(items.iter().enumerate().all(|(i, &n)| n == 2 * i));
+            assert!(results.iter().enumerate().all(|(i, &n)| n == 2 * i + 1));
+        }
+        assert!(super::map_mut(&mut [0u8; 0], 8, |n| *n).is_empty());
+    }
+
     #[test]
     fn results_keep_input_order_for_every_worker_count() {
         for workers in [0, 1, 2, 8, 64] {

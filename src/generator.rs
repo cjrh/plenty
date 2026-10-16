@@ -295,8 +295,9 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
                     .ok_or("generator frame exceeds the native stack-layout limit")?;
             }
             active.pop();
-            t.bytes.set(bytes).expect("layout computed once");
-            Ok(bytes)
+            // Frames are validated on several threads, which may measure the
+            // same generator at once; every measurement is the same.
+            Ok(*t.bytes.get_or_init(|| bytes))
         }
         Ty::Enum(t) => {
             if let Some(bytes) = t.get().payload_bytes.get() {

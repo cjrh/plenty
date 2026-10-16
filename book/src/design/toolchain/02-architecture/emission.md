@@ -98,6 +98,18 @@ The per-function trap-site tables added 0.4 MB of read-only data to the
 and data. The remaining serial work is the frontend, about 1.9 s of the
 5,000-unit emission.
 
+The 2026-10-16 release measurement used the same eight cores, again beside
+other builds, with paired runs before and after resolving names, validating
+frames, preparing tail calls, and finding thread and executor adapters on all
+cores. For 5,000 units these phases took 48, 19, 35, and 20 ms instead of 99,
+85, 47, and 35 ms. `--check` took 1.77 to 2.02 s before and 1.62 to 1.84 s
+after, and object emission 6.1 to 7.9 s before and 6.0 to 6.3 s after (five
+runs each).
+Peak memory was unchanged. On 1,000 units the difference was within noise.
+Parsing, type resolution, class expansion, generic preparation, signatures,
+and lowering remain on one thread, about 0.75 s of the 5,000-unit frontend,
+as do declaring functions (0.1 s) and writing the object.
+
 Report build mode, machine, input size, repetitions, and included phases with
 new results. Measure checking, IR construction, native emission, runtime
 extraction, and linking separately when assessing compiler changes.

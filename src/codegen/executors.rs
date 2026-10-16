@@ -6,17 +6,20 @@ use cranelift_codegen::ir::MemFlags;
 /// Declare one adapter per executor job, in name order.
 pub(super) fn declare_adapters(
     ops: &[Op],
+    workers: usize,
     module: &mut ObjectModule,
     adapters: &mut HashMap<String, FuncId>,
 ) -> Result<Vec<(Arc<Job>, FuncId)>> {
-    let mut jobs = std::collections::BTreeMap::new();
-    crate::threading::walk(ops, &mut |op| {
-        if let Op::Executor(operation) = op {
-            if let Some(job) = operation.job() {
-                jobs.insert(job.adapter.clone(), job.clone());
-            }
-        }
-    });
+    // An adapter's name identifies its job, so any one use of it will do.
+    let jobs: std::collections::BTreeMap<_, _> =
+        crate::threading::find(ops, workers, |op| match op {
+            Op::Executor(operation) => operation
+                .job()
+                .map(|job| (job.adapter.clone(), job.clone())),
+            _ => None,
+        })
+        .into_iter()
+        .collect();
     let mut declared = Vec::new();
     for (name, job) in jobs {
         let id =

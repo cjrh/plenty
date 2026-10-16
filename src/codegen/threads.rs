@@ -6,15 +6,18 @@ use cranelift_codegen::ir::{MemFlags, StackSlotData, StackSlotKind};
 /// Declare one adapter per scoped task's entry, in name order.
 pub(super) fn declare_adapters(
     ops: &[Op],
+    workers: usize,
     module: &mut ObjectModule,
     adapters: &mut HashMap<String, FuncId>,
 ) -> Result<Vec<(Arc<Task>, FuncId)>> {
-    let mut tasks = std::collections::BTreeMap::new();
-    crate::threading::walk(ops, &mut |op| {
-        if let Op::Thread(ThreadOp::Start(task, _)) = op {
-            tasks.insert(task.adapter.clone(), task.clone());
-        }
-    });
+    // An adapter's name identifies its task, so any one start of it will do.
+    let tasks: std::collections::BTreeMap<_, _> =
+        crate::threading::find(ops, workers, |op| match op {
+            Op::Thread(ThreadOp::Start(task, _)) => Some((task.adapter.clone(), task.clone())),
+            _ => None,
+        })
+        .into_iter()
+        .collect();
     let mut declared = Vec::new();
     for (name, task) in tasks {
         let id =
