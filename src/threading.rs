@@ -348,6 +348,26 @@ fn inspect(
     error.map_or(Ok(()), |message| Err(message.into()))
 }
 
+/// What `find` returns for each operation in `ops`, nested ones included,
+/// walking top-level operations on `workers` threads. Results keep the order
+/// of the top-level operations they were found under.
+pub fn find<'a, T: Send>(
+    ops: &'a [Op],
+    workers: usize,
+    find: impl Fn(&'a Op) -> Option<T> + Sync,
+) -> Vec<T> {
+    crate::parallel::map(ops.len(), workers, |i| {
+        let mut found = Vec::new();
+        walk(std::slice::from_ref(&ops[i]), &mut |op| {
+            found.extend(find(op))
+        });
+        found
+    })
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
 pub fn walk<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
     let mut pending = vec![ops];
     while let Some(ops) = pending.pop() {

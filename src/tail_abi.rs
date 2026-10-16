@@ -123,29 +123,26 @@ pub(crate) type Signatures<'a> = dyn Fn(&str) -> Option<Arc<FnSig>> + 'a;
 /// operations: a full copy of every body was a quarter of the compiler's peak
 /// memory (issue #54), and a copy of every later definition after the first
 /// fallback cost time per function (issue #57).
-pub(crate) fn prepare(ops: &mut [Op]) {
+pub(crate) fn prepare(ops: &mut [Op], workers: usize) {
     let mut table: HashMap<&str, &Arc<FnSig>> = HashMap::with_capacity(ops.len());
     collect(ops, &mut table);
     let signatures = |name: &str| table.get(name).map(|sig| Arc::clone(sig));
     // Signatures borrow from `ops`, so the rewrites are applied afterwards.
-    let rewrites: Vec<(usize, Op)> = ops
-        .iter()
-        .enumerate()
-        .filter_map(|(index, op)| {
-            let rewritten = match op {
-                Op::DefineFn(name, f) => {
-                    let mut f = f.clone();
-                    f.body = prepare_function(&f, &signatures)?.into();
-                    Op::DefineFn(name.clone(), f)
-                }
-                op => body(std::slice::from_ref(op), None, &signatures)?.pop()?,
-            };
-            Some((index, rewritten))
+    let rewrites: Vec<Option<Op>> = crate::parallel::map(ops.len(), workers, |index| {
+        Some(match &ops[index] {
+            Op::DefineFn(name, f) => {
+                let mut f = f.clone();
+                f.body = prepare_function(&f, &signatures)?.into();
+                Op::DefineFn(name.clone(), f)
+            }
+            op => body(std::slice::from_ref(op), None, &signatures)?.pop()?,
         })
-        .collect();
+    });
     drop(table);
-    for (index, op) in rewrites {
-        ops[index] = op;
+    for (index, op) in rewrites.into_iter().enumerate() {
+        if let Some(op) = op {
+            ops[index] = op;
+        }
     }
 }
 
@@ -377,7 +374,7 @@ mod tests {
         let program = crate::frontend::compile(source, &mut heap).unwrap();
         crate::op::check(&program.ops).unwrap();
         let mut ops = program.ops;
-        prepare(&mut ops);
+        prepare(&mut ops, 2);
         let function = |name: &str| {
             ops.iter()
                 .find_map(|op| match op {
@@ -409,7 +406,7 @@ mod tests {
                 .unwrap()
         };
         let mut prepared = program.ops.clone();
-        prepare(&mut prepared);
+        prepare(&mut prepared, 2);
         assert!(matches!(
             body(&prepared, "forwards")[..],
             [.., Op::ForwardsReferences, Op::TailCall(_)]
@@ -445,7 +442,7 @@ mod tests {
                 op => op.clone(),
             })
             .collect();
-        prepare(&mut unproven);
+        prepare(&mut unproven, 2);
         let forwards = body(&unproven, "forwards");
         assert!(matches!(forwards[..], [.., Op::Call(_), Op::Return]));
         assert!(!forwards.iter().any(|op| matches!(op, Op::DropLocal(_))));
@@ -467,7 +464,7 @@ mod tests {
                 .unwrap()
         };
         let mut prepared = program.ops.clone();
-        prepare(&mut prepared);
+        prepare(&mut prepared, 2);
         for (name, shared) in [
             ("result", true),
             ("consume", true),

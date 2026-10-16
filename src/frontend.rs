@@ -94,6 +94,20 @@ impl std::fmt::Display for Attributed {
 
 impl Error for Attributed {}
 
+/// A diagnostic that can leave a worker thread. Located and Attributed keep
+/// their types, so callers that inspect a diagnostic see the same value as
+/// after a serial pass.
+fn sendable(error: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
+    let error = match error.downcast::<Located>() {
+        Ok(located) => return located,
+        Err(error) => error,
+    };
+    match error.downcast::<Attributed>() {
+        Ok(attributed) => attributed,
+        Err(error) => error.to_string().into(),
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Token {
     kind: Kind,
@@ -4488,6 +4502,35 @@ fn lower_body(
     Ok(())
 }
 
+/// Checks every function's native frame layout and generator operations on
+/// several threads, reporting the first failure in program order.
+fn validate_frames(ops: &[Op]) -> std::result::Result<(), String> {
+    let validate = |f: &crate::op::CompiledFn| -> std::result::Result<(), String> {
+        let mut frame_bytes = 0usize;
+        for ty in f
+            .sig
+            .inputs
+            .iter()
+            .map(|(_, t)| t)
+            .chain(&f.sig.outputs)
+            .chain(f.locals.iter())
+        {
+            let bytes = crate::generator::layout(ty, &mut Vec::new())?;
+            frame_bytes = frame_bytes
+                .checked_add(16 + bytes)
+                .filter(|n| *n <= i32::MAX as usize)
+                .ok_or("inline values exceed the native stack-layout limit")?;
+        }
+        crate::generator::validate_ops(&f.body)
+    };
+    crate::parallel::map(ops.len(), crate::parallel::workers(), |i| match &ops[i] {
+        Op::DefineFn(_, f) => validate(f),
+        _ => Ok(()),
+    })
+    .into_iter()
+    .collect()
+}
+
 fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let modules::Resolved {
         standard_sources,
@@ -4629,29 +4672,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
         )?;
     }
     let mut ops = std::mem::take(&mut generics.compiled);
-    for op in &ops {
-        if let Op::DefineFn(_, f) = op {
-            let mut frame_bytes = 0usize;
-            for ty in f
-                .sig
-                .inputs
-                .iter()
-                .map(|(_, t)| t)
-                .chain(&f.sig.outputs)
-                .chain(f.locals.iter())
-            {
-                let bytes = crate::generator::layout(ty, &mut Vec::new())
-                    .map_err(|message| at.error(message))?;
-                frame_bytes = frame_bytes
-                    .checked_add(16 + bytes)
-                    .filter(|n| *n <= i32::MAX as usize)
-                    .ok_or_else(|| {
-                        at.error("inline values exceed the native stack-layout limit")
-                    })?;
-            }
-            crate::generator::validate_ops(&f.body).map_err(|message| at.error(message))?;
-        }
-    }
+    validate_frames(&ops).map_err(|message| at.error(message))?;
     tail_calls::validate(&ops, &generics)?;
     if require_main {
         ops.push(Op::Call("main".into()));

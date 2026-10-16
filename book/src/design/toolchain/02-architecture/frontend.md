@@ -31,9 +31,23 @@ The checker collects every signature on one thread, then checks function bodies
 on all available cores: a body reads only the signature table. It reports the
 first error in program order whichever body failed first, so diagnostics do not
 depend on the core count. Operations, types, and signatures are shared between
-threads without copying. Parsing, name and type resolution, and lowering bodies
-to operations run on one thread (issue #59): lowering interns strings, records
-generic instances, and infers returned fields in tables shared by every body.
+threads without copying.
+
+Name resolution of a module's functions, and of its classes' fields and
+methods, runs on all cores when the module has at least 256 functions or 64
+classes: each reads only the module's scope. Frame layout and generator
+operation validation after lowering also run on all cores. Both report the
+first error in source or program order, as a serial pass would.
+
+Parsing, the rest of name resolution, type resolution, class expansion,
+generic preparation, signatures, and lowering bodies to operations run on one
+thread (issue #59). Type resolution can create generic data instances in a
+table shared by every module, and lowering interns strings, records generic
+instances, and infers returned fields in tables shared by every body. Parsing
+one module in pieces on several threads was measured and not adopted. For
+5,000 units, parsing took 0.09 s instead of 0.21 s, lowering took 0.06 s
+longer, and peak memory rose from 417 MB to 538 MB because each thread's
+allocator keeps its own free memory.
 
 ## Control flow and access
 

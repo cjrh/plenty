@@ -114,8 +114,9 @@ impl ClosureType {
                 })
         })?;
         active.pop();
-        self.bytes.set(bytes).expect("layout computed once");
-        Ok(bytes)
+        // Frames are validated on several threads, which may measure the
+        // same environment at once; every measurement is the same.
+        Ok(*self.bytes.get_or_init(|| bytes))
     }
 
     pub fn offset(&self, index: usize) -> usize {

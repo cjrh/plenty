@@ -955,6 +955,23 @@ impl Scope {
         }
         Ok(())
     }
+    /// Resolves a class's bounds, fields, and methods, in that order.
+    fn class(&self, c: &mut classes::ClassDecl) -> Result<()> {
+        let mut scope = self.clone();
+        scope
+            .type_params
+            .extend(c.type_params.iter().map(|(n, _)| n.clone()));
+        for bound in c.type_params.iter_mut().filter_map(|(_, b)| b.as_mut()) {
+            scope.ty(bound)?;
+        }
+        for (_, t) in &mut c.fields {
+            scope.ty(t)?;
+        }
+        for f in &mut c.methods {
+            scope.function(f)?;
+        }
+        Ok(())
+    }
     fn function(&self, f: &mut Function) -> Result<()> {
         let mut scope = self.clone();
         scope.captures = f.captures.iter().map(|c| c.name.clone()).collect();
@@ -1397,6 +1414,11 @@ fn canonical_facility_expression(e: &mut Expr) {
     }
 }
 
+/// Modules with fewer functions or classes resolve them on the calling
+/// thread, which is faster than starting helpers for them.
+const PARALLEL_FUNCTIONS: usize = 256;
+const PARALLEL_CLASSES: usize = 64;
+
 fn resolve(
     mut modules: Vec<Module>,
     dependencies: Vec<Vec<usize>>,
@@ -1488,9 +1510,21 @@ fn resolve(
                     .insert(import.binding.clone(), exports[*dependency].clone());
             }
         }
+        // Resolving one function reads only the scope, so functions resolve
+        // on several threads; the first error is still the first in source.
+        let workers = if m.functions.len() < PARALLEL_FUNCTIONS {
+            1
+        } else {
+            crate::parallel::workers()
+        };
+        crate::parallel::map_mut(&mut m.functions, workers, |f| {
+            scope.function(f).map_err(sendable)
+        })
+        .into_iter()
+        .collect::<std::result::Result<(), _>>()
+        .map_err(|e| -> Box<dyn Error> { e })?;
         for f in &mut m.functions {
             let public = m.exports.contains(&f.name);
-            scope.function(f)?;
             if public {
                 for t in f
                     .inputs
@@ -1595,16 +1629,20 @@ fn resolve(
                 }
             }
         }
+        let workers = if m.classes.len() < PARALLEL_CLASSES {
+            1
+        } else {
+            crate::parallel::workers()
+        };
+        crate::parallel::map_mut(&mut m.classes, workers, |c| {
+            scope.class(c).map_err(sendable)
+        })
+        .into_iter()
+        .collect::<std::result::Result<(), _>>()
+        .map_err(|e| -> Box<dyn Error> { e })?;
         for c in &mut m.classes {
             let public = m.exports.contains(&c.name);
             c.name = qualified(&m.name, &c.name);
-            let mut scope = scope.clone();
-            scope
-                .type_params
-                .extend(c.type_params.iter().map(|(n, _)| n.clone()));
-            for bound in c.type_params.iter_mut().filter_map(|(_, b)| b.as_mut()) {
-                scope.ty(bound)?;
-            }
             if public {
                 for bound in c.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
                     for part in &bound.args {
@@ -1631,8 +1669,7 @@ fn resolve(
                     public: public && constructor,
                 },
             );
-            for (n, t) in &mut c.fields {
-                scope.ty(t)?;
+            for (n, t) in &c.fields {
                 let exposed = public && c.public_members.contains(n);
                 result.access.members.insert(
                     (c.name.clone(), n.clone()),
@@ -1645,8 +1682,7 @@ fn resolve(
                     data_public_types(t, &c.type_params, &mut result.public_api);
                 }
             }
-            for f in &mut c.methods {
-                scope.function(f)?;
+            for f in &c.methods {
                 let exposed = public && c.public_members.contains(&f.name);
                 result.access.members.insert(
                     (c.name.clone(), f.name.clone()),
