@@ -14,6 +14,7 @@ shows a complete server.
 |---|---|
 | `serve[H: Handler[TcpStream]](listener: TcpListener, router: &Router, handler: &H, config: &Config, stop: &CancellationToken)` | `Result[Report, ServerError]`: serve until `stop` is cancelled, then shut down |
 | `serve_connection[T: Transport, H: Handler[T]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
+| `serve_connection_from[T, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
 | `protocol Handler[T]` | `def handle(self, exchange: &mut Exchange[T]) -> Result[(), Failure]` |
 | `protocol Transport` | `read_before` and `write_before` with the signatures of `TcpStream`'s |
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
@@ -34,7 +35,9 @@ every problem is answered on the wire where possible, counted in the
 
 `serve_connection` serves one already-open stream. Any class with the two
 `Transport` methods works, which is how a TLS session will be served, and an
-in-memory stream makes handlers testable without sockets. `stop` and
+in-memory stream makes handlers testable without sockets. Its exchanges have
+no `peer`; `serve_connection_from` takes one, for a transport that knows its
+peer or a test that plays one. `stop` and
 `cancel` have the meanings described under [Shutdown](#shutdown).
 
 ## Routing
@@ -74,6 +77,7 @@ The handler receives an `Exchange[T]` for one request.
 | `path`, `query` | The target split at the first `?`; `query` is raw |
 | `route: i64` | The key of the matched route |
 | `params: list[str]` | Captures, percent-decoded |
+| `peer: Option[SocketAddress]` | The address the connection came from: a reverse proxy's, when there is one (see [`std.http.proxy`](http-proxy.md)) |
 | `read_body(&mut buffer, start, stop)` | `Result[i64, HttpError]`: part of the request body; `0` is the end |
 | `read_all(&mut out)` | `Result[i64, HttpError]`: append the rest of the body, within `limits.max_body` |
 | `send(status, content_type, &body)` | Whole response with `Content-Type` and `Content-Length` |
@@ -193,8 +197,11 @@ request`, `bad request body`, `handler failed`, `handler sent no response`,
 - Only plain TCP. TLS is served through `serve_connection` once
   [`std.tls`](../../backlog.md) lands; `serve` over a TLS listener is later
   work.
-- No `Date` header, compression, static file serving, request trailers in
-  the exchange, or HTTP/2.
+- No `Date` header, compression, static file serving (see
+  [the decision](http-proxy.md#static-files)), request trailers in the
+  exchange, or HTTP/2. Forms, JSON, uploads, cookies and forwarded clients
+  are in [`std.http.body`](http-body.md), [`std.http.cookie`](http-cookie.md)
+  and [`std.http.proxy`](http-proxy.md).
 - A `503` rejection reads only bytes that have already arrived. If more of
   the request arrives after the close, the client may see a reset instead.
 - Captures in `params` are decoded; `path` and `query` are not.

@@ -340,7 +340,7 @@ mod native {
                 267 => directory_entries(fd),
                 268 => {
                     let file = open_at(fd, b".\0", 0o20000000 | DIRECTORY | 0o2)?;
-                    crate::files::adopt(file, false, ty.variants[0].fields[0])
+                    crate::files::adopt_read_write(file, ty.variants[0].fields[0])
                 }
                 269 => {
                     let target = crate::files::descriptor(b as *const crate::files::File)?;

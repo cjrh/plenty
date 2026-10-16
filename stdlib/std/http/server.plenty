@@ -14,7 +14,7 @@ from std.bytes import Bytes, BytesError
 from std.http import BodyReader, Framing, Header, HttpError, Limits, RequestHead, ResponseHead
 from std.io import BufReader, StreamError
 from std.log import ChannelSink, Field, Level
-from std.net import NetError, TcpListener, TcpStream
+from std.net import NetError, SocketAddress, TcpListener, TcpStream
 from std.sync import CancellationToken
 from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now, seconds
 
@@ -394,6 +394,9 @@ pub class Exchange[T]:
     pub query: str
     pub route: i64
     pub params: list[str]
+    # The connection's remote address: the client, or the proxy in front of
+    # it (see std.http.proxy). `Nothing` when the transport has none.
+    pub peer: Option[SocketAddress]
     _body: Option[BodyReader[Conn[T]]]
     _conn: Option[BufReader[Conn[T]]]
     _framing: Framing
@@ -685,6 +688,8 @@ pub def reason(status: i64) -> str:
         return "Content Too Large"
     if status == 414:
         return "URI Too Long"
+    if status == 415:
+        return "Unsupported Media Type"
     if status == 431:
         return "Request Header Fields Too Large"
     if status == 500:
@@ -847,7 +852,7 @@ const close_connection: i64 = 1
 # Serves every request on one connection until it closes, fails, reaches
 # `max_requests`, or shutdown finds it idle. Never fails: problems are
 # answered on the wire where possible and counted in `report`.
-def connection[T: Transport, H: Handler[T]](stream: T, router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: &mut Option[ChannelSink], report: &mut Report) -> ():
+def connection[T: Transport, H: Handler[T]](stream: T, peer: &Option[SocketAddress], router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: &mut Option[ChannelSink], report: &mut Report) -> ():
     report.connections += 1u64
     out = match std.bytes.with_capacity(4096):
         case Ok(bytes):
@@ -893,7 +898,7 @@ def connection[T: Transport, H: Handler[T]](stream: T, router: &Router, handler:
                 return
         served += 1
         report.requests += 1u64
-        match request(reader, head, router, handler, config, stop, cancel, served < config.max_requests, events, report):
+        match request(reader, head, peer, router, handler, config, stop, cancel, served < config.max_requests, events, report):
             case Some(next):
                 reader = next
             case Nothing:
@@ -901,7 +906,7 @@ def connection[T: Transport, H: Handler[T]](stream: T, router: &Router, handler:
 
 # Runs one request through the router and handler. Returns the connection
 # when it can carry another request.
-def request[T: Transport, H: Handler[T]](reader: BufReader[Conn[T]], head: RequestHead, router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, more: bool, events: &mut Option[ChannelSink], report: &mut Report) -> Option[BufReader[Conn[T]]]:
+def request[T: Transport, H: Handler[T]](reader: BufReader[Conn[T]], head: RequestHead, peer: &Option[SocketAddress], router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, more: bool, events: &mut Option[ChannelSink], report: &mut Report) -> Option[BufReader[Conn[T]]]:
     started = now_ns()
     mut conn = reader
     conn.inner._until = after(started, config.body_timeout.as_nanoseconds())
@@ -969,7 +974,7 @@ def request[T: Transport, H: Handler[T]](reader: BufReader[Conn[T]], head: Reque
         case Err(_):
             return Nothing
     unclaimed: Option[BufReader[Conn[T]]] = Nothing
-    mut exchange = Exchange(head, path, query, route, params, Some(body), unclaimed, framing, copy_limits(&config.limits), stop.share(), cancel.share(), unanswered, 0, head_only, keep, 0, 0, expects, False, 0)
+    mut exchange = Exchange(head, path, query, route, params, copy_peer(peer), Some(body), unclaimed, framing, copy_limits(&config.limits), stop.share(), cancel.share(), unanswered, 0, head_only, keep, 0, 0, expects, False, 0)
     if route >= 0:
         match handler.handle(&mut exchange):
             case Ok(_):
@@ -1037,10 +1042,22 @@ def answer_with_allow[T: Transport](exchange: &mut Exchange[T], allow: &str) -> 
 # an idle connection closes and the current response ends the connection.
 # `cancel` fails every further read and write.
 pub def serve_connection[T: Transport, H: Handler[T]](stream: T, router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report:
+    serve_connection_from(stream, Nothing, router, handler, config, stop, cancel)
+
+# `serve_connection` for a stream whose remote address is known, such as an
+# accepted TLS session; handlers see it as `exchange.peer`.
+pub def serve_connection_from[T: Transport, H: Handler[T]](stream: T, peer: Option[SocketAddress], router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken) -> Report:
     mut report = empty_report()
     mut events = shared_sink(&config.events)
-    connection(stream, router, handler, config, stop, cancel, &mut events, &mut report)
+    connection(stream, &peer, router, handler, config, stop, cancel, &mut events, &mut report)
     report
+
+def copy_peer(peer: &Option[SocketAddress]) -> Option[SocketAddress]:
+    match peer:
+        case Some(address):
+            Some(SocketAddress(address.ip, address.port, address.scope))
+        case Nothing:
+            Nothing
 
 # Workers and admission
 
@@ -1050,7 +1067,13 @@ def worker[H: Handler[TcpStream]](inbox: Receiver[TcpStream], done: Sender[Repor
     while True:
         match inbox.recv():
             case Ok(stream):
-                connection(stream, router, handler, config, stop, cancel, &mut sink, &mut report)
+                mut peer: Option[SocketAddress] = Nothing
+                match stream.peer_address():
+                    case Ok(address):
+                        peer = Some(address)
+                    case Err(_):
+                        pass
+                connection(stream, &peer, router, handler, config, stop, cancel, &mut sink, &mut report)
             case Err(_):
                 break
     # `done` holds one slot per worker, so this cannot be full.

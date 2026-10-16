@@ -1,0 +1,700 @@
+# Request and response bodies for std.http.server handlers: URL-encoded
+# forms, JSON documents, and multipart/form-data. Every reader is bounded by
+# caller limits and checks the request's Content-Type first. File parts of a
+# multipart body are written to unnamed temporary files, so an upload that
+# fails, is cancelled, or is dropped leaves nothing behind on disk.
+# See book/src/design/stdlib/http-body.md.
+import std.bytes
+import std.fs
+import std.http
+import std.http.server
+import std.io
+import std.json
+from std.bytes import Bytes, BytesError
+from std.fs import Root, TempFile
+from std.http import Header, HttpError
+from std.http.server import Exchange, Transport
+from std.io import SeekFrom, StreamError
+from std.json import Json, JsonError, JsonFault
+from std.url import Pair
+
+pub enum BodyError:
+    InvalidLimit
+    UnsupportedMediaType
+    TooLarge
+    TooManyFields
+    Malformed
+    InvalidUtf8
+    Http(HttpError)
+    Json(JsonError)
+    Storage(StreamError)
+    Allocation(AllocError)
+
+# The status that answers a request whose body failed with `error`.
+pub def status(error: &BodyError) -> i64:
+    match error:
+        case BodyError.UnsupportedMediaType:
+            415
+        case BodyError.TooLarge:
+            413
+        case BodyError.TooManyFields:
+            413
+        case BodyError.Malformed:
+            400
+        case BodyError.InvalidUtf8:
+            400
+        case BodyError.Http(cause):
+            match cause:
+                case HttpError.BodyTooLarge:
+                    413
+                case HttpError.Stream(_):
+                    408
+                case HttpError.Allocation(_):
+                    500
+                case HttpError.Broken:
+                    500
+                case _:
+                    400
+        case BodyError.Json(cause):
+            match cause.fault:
+                case JsonFault.InputTooLarge:
+                    413
+                case JsonFault.Allocation(_):
+                    500
+                case JsonFault.InvalidLimits:
+                    500
+                case JsonFault.Stream(_):
+                    500
+                case _:
+                    400
+        case _:
+            500
+
+# Answers the request with `status(error)` and its reason as plain text.
+pub def reject[T: Transport](exchange: &mut Exchange[T], error: &BodyError) -> Result[(), HttpError]:
+    code = status(error)
+    text = http_allocated(std.http.server.reason(code).concat("\n"))?
+    exchange.send_text(code, &text)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, BodyError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BodyError.Allocation(cause))
+
+def http_allocated[T](result: Result[T, AllocError]) -> Result[T, HttpError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(HttpError.Allocation(cause))
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, BodyError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(BodyError.Allocation(cause))
+                case BytesError.InvalidUtf8:
+                    Err(BodyError.InvalidUtf8)
+                case _:
+                    Err(BodyError.Malformed)
+
+def http[T](result: Result[T, HttpError]) -> Result[T, BodyError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            match cause:
+                case HttpError.Allocation(inner):
+                    Err(BodyError.Allocation(inner))
+                case _ as other:
+                    Err(BodyError.Http(other))
+
+def json[T](result: Result[T, JsonError]) -> Result[T, BodyError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BodyError.Json(cause))
+
+def stored[T](result: Result[T, IoError]) -> Result[T, BodyError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BodyError.Storage(StreamError.Io(cause)))
+
+def text_of(data: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
+    lifted(lifted(data.slice(start, stop))?.to_text())
+
+# Bytes
+
+def code(data: &Bytes, index: i64) -> i64:
+    i64(data[index])
+
+def digit(value: i64) -> bool:
+    value >= 48 and value <= 57
+
+def letter(value: i64) -> bool:
+    (value >= 65 and value <= 90) or (value >= 97 and value <= 122)
+
+# RFC 9110 tchar.
+def token_byte(value: i64) -> bool:
+    if digit(value) or letter(value):
+        return True
+    value == 33 or (value >= 35 and value <= 39) or value == 42 or value == 43 or value == 45 or value == 46 or value == 94 or value == 95 or value == 96 or value == 124 or value == 126
+
+def hex_value(value: i64) -> i64:
+    if digit(value):
+        return value - 48
+    if value >= 65 and value <= 70:
+        return value - 55
+    if value >= 97 and value <= 102:
+        return value - 87
+    -1
+
+def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
+    mut out = lifted(std.bytes.with_capacity(stop - start))?
+    for index in range(start, stop):
+        value = code(data, index)
+        if value >= 65 and value <= 90:
+            lifted(out.push(u8(value + 32)))?
+        else:
+            lifted(out.push(data[index]))?
+    lifted(out.to_text())
+
+def skip_blanks(data: &Bytes, start: i64) -> i64:
+    mut at = start
+    while at < data.len() and (code(data, at) == 32 or code(data, at) == 9):
+        at += 1
+    at
+
+# Media types and parameters
+
+# A field value of the form `essence *( OWS ";" OWS name "=" value )`, where
+# the essence is a token or `type/subtype` and each value a token or a quoted
+# string (RFC 9110 section 5.6.6). The essence and names are lowercased.
+class Parameters:
+    essence: str
+    pairs: list[Pair]
+
+def parameters(value: &str) -> Result[Parameters, BodyError]:
+    data = lifted(std.bytes.from_text(value))?
+    count = data.len()
+    mut at = 0
+    while at < count and (token_byte(code(&data, at)) or code(&data, at) == 47):
+        at += 1
+    if at == 0:
+        return Err(BodyError.Malformed)
+    essence = lowered(&data, 0, at)?
+    mut pairs = allocated(list[Pair].new())?
+    while True:
+        at = skip_blanks(&data, at)
+        if at == count:
+            break
+        if code(&data, at) != 59:
+            return Err(BodyError.Malformed)
+        at = skip_blanks(&data, at + 1)
+        if at == count:
+            break
+        start = at
+        while at < count and token_byte(code(&data, at)):
+            at += 1
+        if at == start or at == count or code(&data, at) != 61:
+            return Err(BodyError.Malformed)
+        name = lowered(&data, start, at)?
+        at += 1
+        mut out = lifted(std.bytes.empty())?
+        if at < count and code(&data, at) == 34:
+            at += 1
+            mut closed = False
+            while at < count:
+                mut value_byte = code(&data, at)
+                if value_byte == 34:
+                    closed = True
+                    at += 1
+                    break
+                if value_byte == 92:
+                    at += 1
+                    if at == count:
+                        return Err(BodyError.Malformed)
+                    value_byte = code(&data, at)
+                if (value_byte < 32 and value_byte != 9) or value_byte == 127:
+                    return Err(BodyError.Malformed)
+                lifted(out.push(data[at]))?
+                at += 1
+            if not closed:
+                return Err(BodyError.Malformed)
+        else:
+            first = at
+            while at < count and token_byte(code(&data, at)):
+                at += 1
+            if at == first:
+                return Err(BodyError.Malformed)
+            lifted(out.extend_range(&data, first, at))?
+        allocated(pairs.append(Pair(name, lifted(out.to_text())?)))?
+    Ok(Parameters(essence, pairs))
+
+def parameter(params: &Parameters, name: &str) -> Option[i64]:
+    for index in range(len(params.pairs)):
+        if params.pairs[index].key == name:
+            return Some(index)
+    Nothing
+
+# The request's Content-Type, parsed; a missing or malformed field is
+# UnsupportedMediaType.
+def content_type(headers: &list[Header]) -> Result[Parameters, BodyError]:
+    match std.http.find(headers, "content-type"):
+        case Some(index):
+            match parameters(&headers[index].value):
+                case Ok(found):
+                    Ok(found)
+                case Err(BodyError.Allocation(cause)):
+                    Err(BodyError.Allocation(cause))
+                case Err(_):
+                    Err(BodyError.UnsupportedMediaType)
+        case Nothing:
+            Err(BodyError.UnsupportedMediaType)
+
+# Fails with TooLarge when the request declares a Content-Length over `limit`,
+# before any of the body is read.
+def declared_within(headers: &list[Header], limit: i64) -> Result[(), BodyError]:
+    match std.http.find(headers, "content-length"):
+        case Some(index):
+            value = &headers[index].value
+            mut size = 0
+            for scalar in value:
+                match ord(scalar):
+                    case Ok(point):
+                        number = i64(point)
+                        if not digit(number):
+                            return Ok(())
+                        size = size * 10 + (number - 48)
+                        if size > limit:
+                            return Err(BodyError.TooLarge)
+                    case Err(_):
+                        return Ok(())
+            Ok(())
+        case Nothing:
+            Ok(())
+
+# Reads the whole request body, failing with TooLarge past `limit` bytes.
+def collect[T: Transport](exchange: &mut Exchange[T], limit: i64) -> Result[Bytes, BodyError]:
+    declared_within(&exchange.request.headers, limit)?
+    mut out = lifted(std.bytes.empty())?
+    mut chunk = lifted(std.bytes.empty())?
+    lifted(chunk.resize(4096, 0u8))?
+    mut count = http(exchange.read_body(&mut chunk, 0, 4096))?
+    while count > 0:
+        if out.len() + count > limit:
+            return Err(BodyError.TooLarge)
+        lifted(out.extend_range(&chunk, 0, count))?
+        count = http(exchange.read_body(&mut chunk, 0, 4096))?
+    Ok(out)
+
+# URL-encoded forms
+
+pub class FormLimits:
+    pub max_bytes: i64
+    pub max_fields: i64
+
+pub def form_limits() -> FormLimits:
+    FormLimits(65536, 256)
+
+def checked_form(limits: &FormLimits) -> Result[(), BodyError]:
+    if limits.max_bytes < 0 or limits.max_fields < 0:
+        return Err(BodyError.InvalidLimit)
+    Ok(())
+
+# `+` is a space and `%hh` a byte; the result must be UTF-8.
+def form_decoded(source: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
+    mut out = lifted(std.bytes.with_capacity(stop - start))?
+    mut at = start
+    while at < stop:
+        value = code(source, at)
+        if value == 43:
+            lifted(out.push(32u8))?
+            at += 1
+        elif value == 37:
+            if at + 2 >= stop:
+                return Err(BodyError.Malformed)
+            high = hex_value(code(source, at + 1))
+            low = hex_value(code(source, at + 2))
+            if high < 0 or low < 0:
+                return Err(BodyError.Malformed)
+            lifted(out.push(u8(high * 16 + low)))?
+            at += 3
+        else:
+            lifted(out.push(source[at]))?
+            at += 1
+    lifted(out.to_text())
+
+# Splits an application/x-www-form-urlencoded body into decoded pairs, in
+# order. Empty pieces between `&` are skipped; a piece without `=` has an
+# empty value. A `%` not followed by two hex digits is Malformed.
+pub def parse_form(source: &Bytes, limits: &FormLimits) -> Result[list[Pair], BodyError]:
+    checked_form(limits)?
+    count = source.len()
+    if count > limits.max_bytes:
+        return Err(BodyError.TooLarge)
+    mut pairs = allocated(list[Pair].new())?
+    mut at = 0
+    while at < count:
+        mut stop = count
+        match lifted(source.find(38u8, at, count))?:
+            case Some(found):
+                stop = found
+            case Nothing:
+                pass
+        if stop > at:
+            if len(pairs) >= limits.max_fields:
+                return Err(BodyError.TooManyFields)
+            mut split = stop
+            match lifted(source.find(61u8, at, stop))?:
+                case Some(found):
+                    split = found
+                case Nothing:
+                    pass
+            key = form_decoded(source, at, split)?
+            mut value = ""
+            if split < stop:
+                value = form_decoded(source, split + 1, stop)?
+            allocated(pairs.append(Pair(key, value)))?
+        at = stop + 1
+    Ok(pairs)
+
+# `parse_form` over text, such as `exchange.query`.
+pub def parse_form_text(text: &str, limits: &FormLimits) -> Result[list[Pair], BodyError]:
+    checked_form(limits)?
+    if text.byte_len() > limits.max_bytes:
+        return Err(BodyError.TooLarge)
+    source = lifted(std.bytes.from_text(text))?
+    parse_form(&source, limits)
+
+# The index of the first pair named `key`.
+pub def find(pairs: &list[Pair], key: &str) -> Option[i64]:
+    for index in range(len(pairs)):
+        if pairs[index].key == key:
+            return Some(index)
+    Nothing
+
+# Reads a request whose Content-Type is application/x-www-form-urlencoded.
+pub def read_form[T: Transport](exchange: &mut Exchange[T], limits: &FormLimits) -> Result[list[Pair], BodyError]:
+    checked_form(limits)?
+    media = content_type(&exchange.request.headers)?
+    if media.essence != "application/x-www-form-urlencoded":
+        return Err(BodyError.UnsupportedMediaType)
+    body = collect(exchange, limits.max_bytes)?
+    parse_form(&body, limits)
+
+# JSON
+
+def is_json(essence: &str) -> bool:
+    essence == "application/json" or (essence.startswith("application/") and essence.endswith("+json"))
+
+# Reads a request whose Content-Type is application/json or another
+# `application/...+json` type. `limits.max_input` bounds the body.
+pub def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Limits) -> Result[Json, BodyError]:
+    if limits.max_input < 0:
+        return Err(BodyError.InvalidLimit)
+    media = content_type(&exchange.request.headers)?
+    if not is_json(&media.essence):
+        return Err(BodyError.UnsupportedMediaType)
+    body = collect(exchange, limits.max_input)?
+    json(std.json.parse(&body, limits))
+
+# Encodes `value` and sends it as application/json.
+pub def send_json[T: Transport](exchange: &mut Exchange[T], status: i64, value: &Json, limits: &std.json.Limits) -> Result[(), BodyError]:
+    body = json(std.json.encode(value, limits))?
+    http(exchange.send(status, "application/json", &body))
+
+# Multipart
+
+# `max_head` bounds the header section of one part; `max_field` the value of
+# a part without a filename, kept in memory; `max_file` the content of a
+# part with a filename, kept in a temporary file; `max_body` every byte read,
+# preamble and delimiters included.
+pub class MultipartLimits:
+    pub max_parts: i64
+    pub max_head: i64
+    pub max_field: i64
+    pub max_file: i64
+    pub max_body: i64
+
+pub def multipart_limits() -> MultipartLimits:
+    MultipartLimits(64, 4096, 65536, 8388608, 16777216)
+
+pub enum Content:
+    Text(str)
+    File(TempFile)
+
+# One part of a multipart/form-data body. `filename` is what the client sent,
+# not a path: never use it to name a file without validating it.
+pub class Part:
+    pub name: str
+    pub filename: Option[str]
+    pub content_type: str
+    pub size: i64
+    pub content: Content
+
+# The body read so far: `data[at:]` is unexamined. `data` starts with a CRLF
+# that was not read, so the first delimiter has the same form as the rest.
+class Window:
+    data: Bytes
+    at: i64
+    ended: bool
+    total: i64
+    chunk: Bytes
+    limit: i64
+
+def fill[T: Transport](exchange: &mut Exchange[T], window: &mut Window) -> Result[bool, BodyError]:
+    if window.ended:
+        return Ok(False)
+    if window.at >= 16384:
+        rest = lifted(window.data.slice(window.at, window.data.len()))?
+        window.data = rest
+        window.at = 0
+    size = window.chunk.len()
+    count = http(exchange.read_body(&mut window.chunk, 0, size))?
+    if count == 0:
+        window.ended = True
+        return Ok(False)
+    window.total += count
+    if window.total > window.limit:
+        return Err(BodyError.TooLarge)
+    lifted(window.data.extend_range(&window.chunk, 0, count))?
+    Ok(True)
+
+# Reads until `count` unexamined bytes are held; False if the body ends first.
+def holding[T: Transport](exchange: &mut Exchange[T], window: &mut Window, count: i64) -> Result[bool, BodyError]:
+    while window.data.len() - window.at < count:
+        if not fill(exchange, window)?:
+            return Ok(False)
+    Ok(True)
+
+# RFC 2046 bchars: 1 to 70 of letters, digits and '()+_,-./:=? or space,
+# not ending in a space.
+def valid_boundary(boundary: &str) -> bool:
+    size = boundary.byte_len()
+    if size < 1 or size > 70 or boundary.endswith(" "):
+        return False
+    for scalar in boundary:
+        match ord(scalar):
+            case Ok(point):
+                value = i64(point)
+                if not (digit(value) or letter(value) or (value >= 39 and value <= 41) or (value >= 43 and value <= 47) or value == 58 or value == 61 or value == 63 or value == 95 or value == 32):
+                    return False
+            case Err(_):
+                return False
+    True
+
+class PartHead:
+    name: str
+    filename: Option[str]
+    content_type: str
+
+# Parses the header section data[start:stop], without its final CRLF CRLF.
+def part_head(data: &Bytes, start: i64, stop: i64) -> Result[PartHead, BodyError]:
+    mut disposition: Option[Parameters] = Nothing
+    mut kind = "text/plain"
+    mut at = start
+    while at < stop:
+        mut end = stop
+        match lifted(data.find(13u8, at, stop))?:
+            case Some(found):
+                if found + 1 >= stop or code(data, found + 1) != 10:
+                    return Err(BodyError.Malformed)
+                end = found
+            case Nothing:
+                pass
+        colon = match lifted(data.find(58u8, at, end))?:
+            case Some(found):
+                found
+            case Nothing:
+                return Err(BodyError.Malformed)
+        if colon == at:
+            return Err(BodyError.Malformed)
+        for index in range(at, colon):
+            if not token_byte(code(data, index)):
+                return Err(BodyError.Malformed)
+        name = lowered(data, at, colon)?
+        value_start = skip_blanks(data, colon + 1)
+        mut value_stop = end
+        while value_stop > value_start and (code(data, value_stop - 1) == 32 or code(data, value_stop - 1) == 9):
+            value_stop -= 1
+        for index in range(value_start, value_stop):
+            value_byte = code(data, index)
+            if (value_byte < 32 and value_byte != 9) or value_byte == 127:
+                return Err(BodyError.Malformed)
+        value = text_of(data, value_start, value_stop)?
+        if name == "content-disposition":
+            if disposition.is_some():
+                return Err(BodyError.Malformed)
+            disposition = Some(parameters(&value)?)
+        elif name == "content-type":
+            kind = value
+        at = end + 2
+    match disposition:
+        case Some(params):
+            if params.essence != "form-data":
+                return Err(BodyError.Malformed)
+            name_index = match parameter(&params, "name"):
+                case Some(found):
+                    found
+                case Nothing:
+                    return Err(BodyError.Malformed)
+            mut filename: Option[str] = Nothing
+            match parameter(&params, "filename"):
+                case Some(found):
+                    filename = Some(allocated(params.pairs[found].value.concat(""))?)
+                case Nothing:
+                    pass
+            field = allocated(params.pairs[name_index].value.concat(""))?
+            Ok(PartHead(field, filename, kind))
+        case Nothing:
+            Err(BodyError.Malformed)
+
+# Appends data[start:stop] to the part being read, whose content so far is
+# `size` bytes, and returns the new size.
+def emit(data: &Bytes, start: i64, stop: i64, file: &mut Option[TempFile], text: &mut Bytes, size: i64, limits: &MultipartLimits) -> Result[i64, BodyError]:
+    if stop <= start:
+        return Ok(size)
+    total = size + (stop - start)
+    match file:
+        case Some(handle):
+            if total > limits.max_file:
+                return Err(BodyError.TooLarge)
+            match std.io.write_all(&mut handle.stream, data, start, stop):
+                case Ok(_):
+                    Ok(total)
+                case Err(partial):
+                    Err(BodyError.Storage(partial.cause))
+        case Nothing:
+            if total > limits.max_field:
+                return Err(BodyError.TooLarge)
+            lifted(text.extend_range(data, start, stop))?
+            Ok(total)
+
+def checked_multipart(limits: &MultipartLimits) -> Result[(), BodyError]:
+    if limits.max_parts < 0 or limits.max_head < 0 or limits.max_field < 0 or limits.max_file < 0 or limits.max_body < 0:
+        return Err(BodyError.InvalidLimit)
+    Ok(())
+
+# Reads a multipart/form-data request into its parts, in order. A part with
+# a `filename` parameter is written to a new unnamed temporary file under
+# `storage` and returned rewound; other parts must be UTF-8 text. When this
+# fails, every temporary file it made is closed and the kernel frees it.
+pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &MultipartLimits, storage: &Root) -> Result[list[Part], BodyError]:
+    checked_multipart(limits)?
+    media = content_type(&exchange.request.headers)?
+    if media.essence != "multipart/form-data":
+        return Err(BodyError.UnsupportedMediaType)
+    boundary_index = match parameter(&media, "boundary"):
+        case Some(found):
+            found
+        case Nothing:
+            return Err(BodyError.Malformed)
+    boundary = &media.pairs[boundary_index].value
+    if not valid_boundary(boundary):
+        return Err(BodyError.Malformed)
+    declared_within(&exchange.request.headers, limits.max_body)?
+    delimiter = lifted(std.bytes.from_text(&allocated("\r\n--".concat(boundary))?))?
+    width = delimiter.len()
+    blank_line = lifted(std.bytes.from_text("\r\n\r\n"))?
+    mut chunk = lifted(std.bytes.empty())?
+    lifted(chunk.resize(16384, 0u8))?
+    mut window = Window(lifted(std.bytes.from_text("\r\n"))?, 0, False, 0, chunk, limits.max_body)
+    mut parts = allocated(list[Part].new())?
+    # The preamble before the first delimiter is discarded.
+    while True:
+        match lifted(window.data.find_bytes(&delimiter, window.at, window.data.len()))?:
+            case Some(found):
+                window.at = found + width
+                break
+            case Nothing:
+                kept = window.data.len() - (width - 1)
+                if kept > window.at:
+                    window.at = kept
+                if not fill(exchange, &mut window)?:
+                    return Err(BodyError.Malformed)
+    while True:
+        # After a delimiter: `--` closes the body, otherwise optional blanks
+        # and a CRLF begin a part.
+        if not holding(exchange, &mut window, 2)?:
+            return Err(BodyError.Malformed)
+        if code(&window.data, window.at) == 45 and code(&window.data, window.at + 1) == 45:
+            window.at += 2
+            break
+        while True:
+            if not holding(exchange, &mut window, 1)?:
+                return Err(BodyError.Malformed)
+            value = code(&window.data, window.at)
+            if value != 32 and value != 9:
+                break
+            window.at += 1
+        if not holding(exchange, &mut window, 2)?:
+            return Err(BodyError.Malformed)
+        if code(&window.data, window.at) != 13 or code(&window.data, window.at + 1) != 10:
+            return Err(BodyError.Malformed)
+        if len(parts) >= limits.max_parts:
+            return Err(BodyError.TooManyFields)
+        # The header section follows the CRLF just seen, which begins its
+        # terminator when the part has no fields. `fill` may compact the
+        # window, so positions are taken only after the search ends.
+        mut head_end = -1
+        while head_end < 0:
+            match lifted(window.data.find_bytes(&blank_line, window.at, window.data.len()))?:
+                case Some(found):
+                    head_end = found
+                case Nothing:
+                    if window.data.len() - window.at > limits.max_head + 4:
+                        return Err(BodyError.TooLarge)
+                    if not fill(exchange, &mut window)?:
+                        return Err(BodyError.Malformed)
+        head_start = window.at + 2
+        if head_end < head_start:
+            return Err(BodyError.Malformed)
+        if head_end - head_start > limits.max_head:
+            return Err(BodyError.TooLarge)
+        head = part_head(&window.data, head_start, head_end)?
+        window.at = head_end + 4
+        mut file: Option[TempFile] = Nothing
+        if head.filename.is_some():
+            file = Some(stored(std.fs.temporary_file(storage))?)
+        mut text = lifted(std.bytes.empty())?
+        mut size = 0
+        # The content runs to the next delimiter. Bytes that could begin one
+        # are held back until more of the body arrives.
+        while True:
+            match lifted(window.data.find_bytes(&delimiter, window.at, window.data.len()))?:
+                case Some(found):
+                    size = emit(&window.data, window.at, found, &mut file, &mut text, size, limits)?
+                    window.at = found + width
+                    break
+                case Nothing:
+                    safe = window.data.len() - (width - 1)
+                    if safe > window.at:
+                        size = emit(&window.data, window.at, safe, &mut file, &mut text, size, limits)?
+                        window.at = safe
+                    if not fill(exchange, &mut window)?:
+                        return Err(BodyError.Malformed)
+        content = match file:
+            case Some(handle):
+                mut owned = handle
+                match owned.stream.seek(SeekFrom.Start(0)):
+                    case Ok(_):
+                        pass
+                    case Err(cause):
+                        return Err(BodyError.Storage(cause))
+                Content.File(owned)
+            case Nothing:
+                Content.Text(lifted(text.to_text())?)
+        allocated(parts.append(Part(head.name, head.filename, head.content_type, size, content)))?
+    # Read the epilogue so the connection can carry another request.
+    while fill(exchange, &mut window)?:
+        window.at = window.data.len()
+    Ok(parts)
