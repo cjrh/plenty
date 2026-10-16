@@ -1,0 +1,866 @@
+# HTTP/1.1 message framing (RFC 9112) over std.io streams: request and
+# response heads, Content-Length, chunked and close-delimited bodies, and the
+# connection reuse rules. Every read is bounded by caller limits, and framing
+# that two implementations could read differently is an error rather than a
+# guess. Transport, deadlines and routing belong to the caller.
+# See book/src/design/stdlib/http.md.
+import std.bytes
+import std.io
+from std.bytes import Bytes, BytesError
+from std.io import BufReader, Reader, StreamError, Writer
+
+pub enum HttpError:
+    Stream(StreamError)
+    Allocation(AllocError)
+    InvalidLimit
+    Truncated
+    LineTooLong
+    HeadTooLarge
+    TooManyHeaders
+    BareLineFeed
+    InvalidRequestLine
+    InvalidStatusLine
+    UnsupportedVersion
+    InvalidHeader
+    InvalidContentLength
+    DuplicateFraming
+    ConflictingFraming
+    UnsupportedTransferEncoding
+    InvalidChunk
+    BodyTooLarge
+    LengthMismatch
+    Unfinished
+    Broken
+
+# `max_line` bounds one line including its CRLF: a request or status line, a
+# field line, or a chunk-size line. `max_head` bounds every byte of a head,
+# blank lines before a request line included, and also a chunked trailer
+# section. `max_headers` bounds the field lines of a head or trailer section.
+# `max_body` bounds the decoded body.
+pub class Limits:
+    pub max_line: i64
+    pub max_head: i64
+    pub max_headers: i64
+    pub max_body: i64
+
+pub def limits() -> Limits:
+    Limits(8192, 65536, 100, 1048576)
+
+# A field line. Parsed names keep the case they arrived in; `find` compares
+# names without regard to ASCII case. Values have surrounding blanks removed.
+pub class Header:
+    pub name: str
+    pub value: str
+
+# `minor` is the HTTP/1.x minor version: 0 or 1.
+pub class RequestHead:
+    pub method: str
+    pub target: str
+    pub minor: i64
+    pub headers: list[Header]
+
+    pub def add(self: &mut RequestHead, name: str, value: str) -> Result[(), HttpError]:
+        listed(self.headers.append(Header(name, value)))
+
+pub class ResponseHead:
+    pub minor: i64
+    pub status: i64
+    pub reason: str
+    pub headers: list[Header]
+
+    pub def add(self: &mut ResponseHead, name: str, value: str) -> Result[(), HttpError]:
+        listed(self.headers.append(Header(name, value)))
+
+# How the body after a head is delimited.
+pub enum Framing:
+    Empty
+    Length(i64)
+    Chunked
+    UntilClose
+
+pub def request(method: str, target: str) -> Result[RequestHead, HttpError]:
+    Ok(RequestHead(method, target, 1, listed(list[Header].new())?))
+
+pub def response(status: i64, reason: str) -> Result[ResponseHead, HttpError]:
+    Ok(ResponseHead(1, status, reason, listed(list[Header].new())?))
+
+# The index of the first field named `name`, ignoring ASCII case.
+pub def find(headers: &list[Header], name: &str) -> Option[i64]:
+    for index in range(len(headers)):
+        if same_name(headers[index].name, name):
+            return Some(index)
+    Nothing
+
+const tab: u8 = 9u8
+const line_feed: u8 = 10u8
+const carriage_return: u8 = 13u8
+const space: u8 = 32u8
+
+def listed[T](result: Result[T, AllocError]) -> Result[T, HttpError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(HttpError.Allocation(cause))
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, HttpError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(HttpError.Allocation(cause))
+                case _:
+                    Err(HttpError.Stream(StreamError.OutOfRange))
+
+def from_stream(cause: StreamError) -> HttpError:
+    match cause:
+        case StreamError.Allocation(inner):
+            HttpError.Allocation(inner)
+        case _ as other:
+            HttpError.Stream(other)
+
+def streamed[T](result: Result[T, StreamError]) -> Result[T, HttpError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(from_stream(cause))
+
+def interrupted(cause: &StreamError) -> bool:
+    match cause:
+        case StreamError.Interrupted:
+            True
+        case _:
+            False
+
+def checked(limits: &Limits) -> Result[(), HttpError]:
+    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+        return Err(HttpError.InvalidLimit)
+    Ok(())
+
+def blank(value: u8) -> bool:
+    value == space or value == tab
+
+def digit(code: i64) -> bool:
+    code >= 48 and code <= 57
+
+# RFC 9110 tchar.
+def token_byte(code: i64) -> bool:
+    if digit(code) or (code >= 65 and code <= 90) or (code >= 97 and code <= 122):
+        return True
+    code == 33 or (code >= 35 and code <= 39) or code == 42 or code == 43 or code == 45 or code == 46 or code == 94 or code == 95 or code == 96 or code == 124 or code == 126
+
+# Field content: visible ASCII, space, tab, and bytes above 127, which must
+# then form UTF-8 because values are `str`.
+def field_byte(code: i64) -> bool:
+    code == 9 or (code >= 32 and code != 127)
+
+def visible(code: i64) -> bool:
+    code > 32 and code < 127
+
+def hex_value(code: i64) -> i64:
+    if digit(code):
+        return code - 48
+    if code >= 65 and code <= 70:
+        return code - 55
+    if code >= 97 and code <= 102:
+        return code - 87
+    -1
+
+# The end of the run of `start..stop` that `kind` accepts: 0 tokens,
+# 1 field content, 2 visible ASCII.
+def run(data: &Bytes, start: i64, stop: i64, kind: i64) -> i64:
+    mut index = start
+    while index < stop:
+        code = i64(data[index])
+        if kind == 0:
+            if not token_byte(code):
+                return index
+        elif kind == 1:
+            if not field_byte(code):
+                return index
+        elif not visible(code):
+            return index
+        index += 1
+    stop
+
+def folded(scalar: &str) -> i64:
+    match ord(scalar):
+        case Ok(code):
+            value = i64(code)
+            if value >= 65 and value <= 90:
+                return value + 32
+            value
+        case Err(_):
+            -1
+
+def same_name(left: &str, right: &str) -> bool:
+    if left.byte_len() != right.byte_len() or not left.isascii() or not right.isascii():
+        return False
+    mut index = 0
+    for scalar in left:
+        if folded(scalar) != folded(right[index]):
+            return False
+        index += 1
+    True
+
+# Whether any comma-separated element of `value` is `token`, ignoring ASCII
+# case. `token` is lowercase ASCII.
+def lists_token(value: &str, token: &str) -> bool:
+    size = token.byte_len()
+    mut matched = 0
+    mut ended = False
+    for scalar in value:
+        if scalar == ",":
+            if matched == size:
+                return True
+            matched = 0
+            ended = False
+        elif scalar == " " or scalar == "\t":
+            if matched != 0:
+                ended = True
+        elif ended or matched < 0 or matched >= size:
+            matched = -1
+        elif folded(scalar) == folded(token[matched]):
+            matched += 1
+        else:
+            matched = -1
+    matched == size
+
+def connection_lists(headers: &list[Header], token: &str) -> bool:
+    for index in range(len(headers)):
+        if same_name(headers[index].name, "connection") and lists_token(headers[index].value, token):
+            return True
+    False
+
+def text_of(data: &Bytes, start: i64, stop: i64, invalid: HttpError) -> Result[str, HttpError]:
+    piece = lifted(data.slice(start, stop))?
+    match piece.to_text():
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(HttpError.Allocation(cause))
+                case _:
+                    Err(invalid)
+
+# Reads one line ending in CRLF into `line`, replacing its contents, taking at
+# most `limit` bytes including the CRLF; `overflow` names the limit reached.
+# Returns the length without the CRLF, or -1 when input ends before a byte.
+def read_line[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, limit: i64, overflow: HttpError) -> Result[i64, HttpError]:
+    line.clear()
+    if limit <= 0:
+        return Err(overflow)
+    count = streamed(conn.read_until(line_feed, line, limit))?
+    if count == 0:
+        return Ok(-1)
+    if line[count - 1] != line_feed:
+        if count == limit:
+            return Err(overflow)
+        return Err(HttpError.Truncated)
+    if count < 2 or line[count - 2] != carriage_return:
+        return Err(HttpError.BareLineFeed)
+    Ok(count - 2)
+
+# A head line under both the line limit and the bytes left in the head.
+def head_line[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: i64, left: i64) -> Result[i64, HttpError]:
+    if max_line <= left:
+        return read_line(conn, line, max_line, HttpError.LineTooLong)
+    read_line(conn, line, left, HttpError.HeadTooLarge)
+
+def parse_field(line: &Bytes, size: i64) -> Result[Header, HttpError]:
+    # A leading blank is an obsolete line fold, which RFC 9112 lets a
+    # recipient reject.
+    colon = run(line, 0, size, 0)
+    if colon == 0 or colon == size or line[colon] != 58u8:
+        return Err(HttpError.InvalidHeader)
+    mut start = colon + 1
+    while start < size and blank(line[start]):
+        start += 1
+    mut stop = size
+    while stop > start and blank(line[stop - 1]):
+        stop -= 1
+    if run(line, start, stop, 1) != stop:
+        return Err(HttpError.InvalidHeader)
+    name = text_of(line, 0, colon, HttpError.InvalidHeader)?
+    value = text_of(line, start, stop, HttpError.InvalidHeader)?
+    Ok(Header(name, value))
+
+# Field lines up to the blank line that ends a head or trailer section.
+def read_fields[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: i64, budget: i64, max_headers: i64, headers: &mut list[Header]) -> Result[(), HttpError]:
+    mut left = budget
+    while True:
+        size = head_line(conn, line, max_line, left)?
+        if size < 0:
+            return Err(HttpError.Truncated)
+        left -= size + 2
+        if size == 0:
+            return Ok(())
+        if len(headers) >= max_headers:
+            return Err(HttpError.TooManyHeaders)
+        listed(headers.append(parse_field(line, size)?))?
+    Ok(())
+
+# `HTTP/1.0` or `HTTP/1.1` at data[start:stop]; another well-formed
+# `HTTP/d.d` is unsupported, anything else is `invalid`.
+def version(data: &Bytes, start: i64, stop: i64, invalid: HttpError) -> Result[i64, HttpError]:
+    if stop - start != 8 or not lifted(data.matches_text(start, "HTTP/"))?:
+        return Err(invalid)
+    major = i64(data[start + 5])
+    minor = i64(data[start + 7])
+    if not digit(major) or data[start + 6] != 46u8 or not digit(minor):
+        return Err(invalid)
+    if major != 49 or minor > 49:
+        return Err(HttpError.UnsupportedVersion)
+    Ok(minor - 48)
+
+def parse_request_line(line: &Bytes, size: i64) -> Result[RequestHead, HttpError]:
+    method_end = run(line, 0, size, 0)
+    if method_end == 0 or method_end == size or line[method_end] != space:
+        return Err(HttpError.InvalidRequestLine)
+    target_end = run(line, method_end + 1, size, 2)
+    if target_end == method_end + 1 or target_end == size or line[target_end] != space:
+        return Err(HttpError.InvalidRequestLine)
+    minor = version(line, target_end + 1, size, HttpError.InvalidRequestLine)?
+    method = text_of(line, 0, method_end, HttpError.InvalidRequestLine)?
+    target = text_of(line, method_end + 1, target_end, HttpError.InvalidRequestLine)?
+    Ok(RequestHead(method, target, minor, listed(list[Header].new())?))
+
+def parse_status_line(line: &Bytes, size: i64) -> Result[ResponseHead, HttpError]:
+    if size < 12 or line[8] != space:
+        return Err(HttpError.InvalidStatusLine)
+    minor = version(line, 0, 8, HttpError.InvalidStatusLine)?
+    mut status = 0
+    for index in range(9, 12):
+        code = i64(line[index])
+        if not digit(code):
+            return Err(HttpError.InvalidStatusLine)
+        status = status * 10 + code - 48
+    if status < 100:
+        return Err(HttpError.InvalidStatusLine)
+    mut reason_start = 12
+    if size > 12:
+        if line[12] != space or run(line, 13, size, 1) != size:
+            return Err(HttpError.InvalidStatusLine)
+        reason_start = 13
+    reason = text_of(line, reason_start, size, HttpError.InvalidStatusLine)?
+    Ok(ResponseHead(minor, status, reason, listed(list[Header].new())?))
+
+# Reads the next request head. `Nothing` means the input ended cleanly before
+# a message began, as when a client closes an idle connection. Blank lines
+# before the request line are skipped, within `max_head`.
+pub def read_request[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[RequestHead], HttpError]:
+    checked(limits)?
+    mut line = lifted(std.bytes.empty())?
+    mut left = limits.max_head
+    mut size = 0
+    mut started = False
+    while size == 0:
+        size = head_line(conn, &mut line, limits.max_line, left)?
+        if size < 0:
+            if started:
+                return Err(HttpError.Truncated)
+            return Ok(Nothing)
+        started = True
+        left -= size + 2
+    mut head = parse_request_line(&line, size)?
+    read_fields(conn, &mut line, limits.max_line, left, limits.max_headers, &mut head.headers)?
+    Ok(Some(head))
+
+# Reads the next response head, or Nothing when the input ends before its
+# first byte, as when a server closes an idle connection. An interim (1xx)
+# response is returned like any other; the caller reads again for the final
+# one.
+pub def read_response[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[ResponseHead], HttpError]:
+    checked(limits)?
+    mut line = lifted(std.bytes.empty())?
+    size = head_line(conn, &mut line, limits.max_line, limits.max_head)?
+    if size < 0:
+        return Ok(Nothing)
+    mut head = parse_status_line(&line, size)?
+    read_fields(conn, &mut line, limits.max_line, limits.max_head - size - 2, limits.max_headers, &mut head.headers)?
+    Ok(Some(head))
+
+def content_length(value: &str) -> Result[i64, HttpError]:
+    if value.byte_len() == 0:
+        return Err(HttpError.InvalidContentLength)
+    mut total = 0
+    for scalar in value:
+        code = folded(scalar)
+        if not digit(code):
+            return Err(HttpError.InvalidContentLength)
+        if total > (i64.MAX - (code - 48)) // 10:
+            return Err(HttpError.InvalidContentLength)
+        total = total * 10 + code - 48
+    Ok(total)
+
+# The framing the fields declare, or `Nothing` when they declare none.
+# Repeated or combined framing fields are rejected even when they agree,
+# because intermediaries disagree on how to read them.
+def declared(headers: &list[Header], minor: i64) -> Result[Option[Framing], HttpError]:
+    mut length = 0
+    mut lengths = 0
+    mut encodings = 0
+    mut chunked = False
+    for index in range(len(headers)):
+        if same_name(headers[index].name, "content-length"):
+            lengths += 1
+            length = content_length(headers[index].value)?
+        elif same_name(headers[index].name, "transfer-encoding"):
+            encodings += 1
+            chunked = same_name(headers[index].value, "chunked")
+    if lengths > 1 or encodings > 1:
+        return Err(HttpError.DuplicateFraming)
+    if lengths == 1 and encodings == 1:
+        return Err(HttpError.ConflictingFraming)
+    if encodings == 1:
+        if minor == 0 or not chunked:
+            return Err(HttpError.UnsupportedTransferEncoding)
+        return Ok(Some(Framing.Chunked))
+    if lengths == 1:
+        return Ok(Some(Framing.Length(length)))
+    Ok(Nothing)
+
+# A request without Content-Length or Transfer-Encoding has no body.
+pub def request_framing(head: &RequestHead) -> Result[Framing, HttpError]:
+    match declared(&head.headers, head.minor)?:
+        case Some(framing):
+            Ok(framing)
+        case Nothing:
+            Ok(Framing.Empty)
+
+# `method` is the method of the request this answers. Responses to HEAD,
+# 1xx, 204 and 304 responses, and 2xx responses to CONNECT have no body
+# whatever their fields say; the fields must still be well formed. A response
+# that declares no framing runs until the connection closes.
+pub def response_framing(head: &ResponseHead, method: &str) -> Result[Framing, HttpError]:
+    framing = declared(&head.headers, head.minor)?
+    status = head.status
+    if method == "HEAD" or status < 200 or status == 204 or status == 304:
+        return Ok(Framing.Empty)
+    if method == "CONNECT" and status < 300:
+        return Ok(Framing.Empty)
+    match framing:
+        case Some(found):
+            Ok(found)
+        case Nothing:
+            Ok(Framing.UntilClose)
+
+def persistent(headers: &list[Header], minor: i64) -> bool:
+    if connection_lists(headers, "close"):
+        return False
+    minor == 1 or connection_lists(headers, "keep-alive")
+
+# Whether the client lets the connection carry another request: HTTP/1.1
+# unless `Connection: close`, HTTP/1.0 only with `Connection: keep-alive`.
+pub def request_keeps_alive(head: &RequestHead) -> bool:
+    persistent(&head.headers, head.minor)
+
+# As for requests; a close-delimited body also ends the connection.
+pub def response_keeps_alive(head: &ResponseHead, framing: &Framing) -> bool:
+    match framing:
+        case Framing.UntilClose:
+            False
+        case _:
+            persistent(&head.headers, head.minor)
+
+# Body states.
+const done: i64 = 0
+const sized: i64 = 1
+const chunk_data: i64 = 2
+const chunk_size: i64 = 3
+const chunk_end: i64 = 4
+const until_close: i64 = 5
+const failed: i64 = 6
+
+# Reads one body from a connection it owns until `finish` hands it back
+# positioned at the next message, or `release` hands it back after a failure.
+# `read` makes it a std.io Reader; a framing fault then surfaces as
+# `Io(IoError.InvalidInput)` and `take_failure` returns the HttpError. After
+# any error the body only reports `Broken`.
+pub class BodyReader[R]:
+    pub trailers: list[Header]
+    _conn: Option[BufReader[R]]
+    _state: i64
+    _remaining: i64
+    _total: i64
+    _max_line: i64
+    _max_head: i64
+    _max_headers: i64
+    _max_body: i64
+    _line: Bytes
+    _failure: Option[HttpError]
+
+    # Decoded body bytes delivered so far.
+    pub def total(self) -> i64:
+        self._total
+
+    pub def is_done(self) -> bool:
+        self._state == done
+
+    pub def take_failure(self: &mut BodyReader[R]) -> Option[HttpError]:
+        replace(self._failure, Nothing)
+
+    # One inner read, repeated while interrupted.
+    def pull(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]:
+        match &mut self._conn:
+            case Some(conn):
+                while True:
+                    match conn.read(buffer, start, stop):
+                        case Ok(count):
+                            if count < 0 or count > stop - start:
+                                return Err(HttpError.Stream(StreamError.InvalidProgress))
+                            return Ok(count)
+                        case Err(cause):
+                            if not interrupted(&cause):
+                                return Err(from_stream(cause))
+                Ok(0)
+            case Nothing:
+                Err(HttpError.Broken)
+
+    def line(self: &mut BodyReader[R], limit: i64, overflow: HttpError) -> Result[i64, HttpError]:
+        match &mut self._conn:
+            case Some(conn):
+                read_line(conn, &mut self._line, limit, overflow)
+            case Nothing:
+                Err(HttpError.Broken)
+
+    def read_trailers(self: &mut BodyReader[R]) -> Result[(), HttpError]:
+        match &mut self._conn:
+            case Some(conn):
+                read_fields(conn, &mut self._line, self._max_line, self._max_head, self._max_headers, &mut self.trailers)
+            case Nothing:
+                Err(HttpError.Broken)
+
+    def next_chunk(self: &mut BodyReader[R]) -> Result[(), HttpError]:
+        size = self.line(self._max_line, HttpError.LineTooLong)?
+        if size < 0:
+            return Err(HttpError.Truncated)
+        mut index = 0
+        mut value = 0
+        while index < size:
+            code = hex_value(i64(self._line[index]))
+            if code < 0:
+                break
+            if value > (i64.MAX - code) // 16:
+                return Err(HttpError.InvalidChunk)
+            value = value * 16 + code
+            index += 1
+        if index == 0:
+            return Err(HttpError.InvalidChunk)
+        if index < size:
+            # Extensions follow `;`; they are checked for control bytes and
+            # otherwise ignored.
+            while index < size and blank(self._line[index]):
+                index += 1
+            if index == size or self._line[index] != 59u8 or run(&self._line, index, size, 1) != size:
+                return Err(HttpError.InvalidChunk)
+        if value > self._max_body - self._total:
+            return Err(HttpError.BodyTooLarge)
+        if value == 0:
+            self.read_trailers()?
+            self._state = done
+        else:
+            self._remaining = value
+            self._state = chunk_data
+        Ok(())
+
+    def step(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]:
+        while True:
+            if self._state == done:
+                return Ok(0)
+            if self._state == failed:
+                return Err(HttpError.Broken)
+            if self._state == chunk_size:
+                self.next_chunk()?
+            elif self._state == chunk_end:
+                size = self.line(2, HttpError.InvalidChunk)?
+                if size < 0:
+                    return Err(HttpError.Truncated)
+                if size != 0:
+                    return Err(HttpError.InvalidChunk)
+                self._state = chunk_size
+            elif self._state == until_close:
+                mut want = stop - start
+                if want > self._max_body - self._total:
+                    # Probe one byte: input past the limit is an error.
+                    want = self._max_body - self._total
+                    if want == 0:
+                        want = 1
+                count = self.pull(buffer, start, start + want)?
+                if count == 0:
+                    self._state = done
+                    return Ok(0)
+                if count > self._max_body - self._total:
+                    return Err(HttpError.BodyTooLarge)
+                self._total += count
+                return Ok(count)
+            else:
+                mut want = stop - start
+                if want > self._remaining:
+                    want = self._remaining
+                count = self.pull(buffer, start, start + want)?
+                if count == 0:
+                    return Err(HttpError.Truncated)
+                self._remaining -= count
+                self._total += count
+                if self._remaining == 0:
+                    if self._state == sized:
+                        self._state = done
+                    else:
+                        self._state = chunk_end
+                return Ok(count)
+        Ok(0)
+
+    # Fills part of buffer[start:stop] with decoded body bytes; zero is the
+    # end of the body. A chunked body's trailer fields are in `trailers` once
+    # it ends.
+    pub def read_body(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]:
+        if start < 0 or start > stop or stop > buffer.len():
+            return Err(HttpError.Stream(StreamError.OutOfRange))
+        if start == stop and self._state != failed:
+            return Ok(0)
+        match self.step(buffer, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                self._state = failed
+                Err(error)
+
+    pub def read(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        match self.read_body(buffer, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                match error:
+                    case HttpError.Stream(cause):
+                        Err(cause)
+                    case HttpError.Allocation(cause):
+                        Err(StreamError.Allocation(cause))
+                    case HttpError.Truncated:
+                        Err(StreamError.UnexpectedEof)
+                    case _ as other:
+                        self._failure = Some(other)
+                        Err(StreamError.Io(IoError.InvalidInput))
+
+pub def body_reader[R: Reader](conn: BufReader[R], framing: &Framing, limits: &Limits) -> Result[BodyReader[R], HttpError]:
+    checked(limits)?
+    mut state = done
+    mut remaining = 0
+    match framing:
+        case Framing.Empty:
+            pass
+        case Framing.Length(size):
+            if size < 0:
+                return Err(HttpError.InvalidContentLength)
+            if size > limits.max_body:
+                return Err(HttpError.BodyTooLarge)
+            if size > 0:
+                state = sized
+                remaining = *size
+        case Framing.Chunked:
+            state = chunk_size
+        case Framing.UntilClose:
+            state = until_close
+    trailers = listed(list[Header].new())?
+    line = lifted(std.bytes.empty())?
+    Ok(BodyReader(trailers, Some(conn), state, remaining, 0, limits.max_line, limits.max_head, limits.max_headers, limits.max_body, line, Nothing))
+
+# Appends the rest of the body to `out` and returns the count appended.
+pub def read_to_end[R: Reader](body: &mut BodyReader[R], out: &mut Bytes) -> Result[i64, HttpError]:
+    mut total = 0
+    while True:
+        filled = out.len()
+        lifted(out.resize(filled + 4096, 0u8))?
+        outcome = body.read_body(out, filled, filled + 4096)
+        match outcome:
+            case Ok(count):
+                lifted(out.truncate(filled + count))?
+                if count == 0:
+                    return Ok(total)
+                total += count
+            case Err(error):
+                lifted(out.truncate(filled))?
+                return Err(error)
+    Ok(total)
+
+# Reads and drops the rest of the body, still under `max_body`.
+pub def discard[R: Reader](body: &mut BodyReader[R]) -> Result[i64, HttpError]:
+    mut scratch = lifted(std.bytes.with_capacity(4096))?
+    lifted(scratch.resize(4096, 0u8))?
+    mut total = 0
+    while True:
+        count = body.read_body(&mut scratch, 0, 4096)?
+        if count == 0:
+            return Ok(total)
+        total += count
+    Ok(total)
+
+# Returns the connection once the whole body has been read, positioned at
+# the next message: pipelined input already buffered is kept. A body with
+# bytes left is `Unfinished` and one that failed is `Broken`; either keeps
+# the connection.
+pub def finish[R](body: &mut BodyReader[R]) -> Result[BufReader[R], HttpError]:
+    if body._state == failed:
+        return Err(HttpError.Broken)
+    if body._state != done:
+        return Err(HttpError.Unfinished)
+    match replace(body._conn, Nothing):
+        case Some(conn):
+            Ok(conn)
+        case Nothing:
+            Err(HttpError.Broken)
+
+# Returns the connection in any state, for a final response or for closing.
+# Its read position is unknown unless the body had ended, so it must not
+# carry another message. The body is `Broken` afterwards.
+pub def release[R](body: &mut BodyReader[R]) -> Option[BufReader[R]]:
+    body._state = failed
+    replace(body._conn, Nothing)
+
+def emit(out: &mut Bytes, value: u8) -> Result[(), HttpError]:
+    lifted(out.push(value))
+
+def put(out: &mut Bytes, text: &str) -> Result[(), HttpError]:
+    piece = lifted(std.bytes.from_text(text))?
+    lifted(out.extend(&piece))
+
+def put_number(out: &mut Bytes, value: i64) -> Result[(), HttpError]:
+    digits = listed(str.repr(value))?
+    put(out, &digits)
+
+def put_hex(out: &mut Bytes, value: i64) -> Result[(), HttpError]:
+    mut shift = 60
+    while shift > 0 and (value >> shift) & 15 == 0:
+        shift -= 4
+    while shift >= 0:
+        code = (value >> shift) & 15
+        if code < 10:
+            emit(out, u8(code + 48))?
+        else:
+            emit(out, u8(code + 87))?
+        shift -= 4
+    Ok(())
+
+def put_line_end(out: &mut Bytes) -> Result[(), HttpError]:
+    emit(out, carriage_return)?
+    emit(out, line_feed)
+
+def put_version(out: &mut Bytes, minor: i64) -> Result[(), HttpError]:
+    if minor != 0 and minor != 1:
+        return Err(HttpError.UnsupportedVersion)
+    put(out, "HTTP/1.")?
+    emit(out, u8(minor + 48))
+
+# Field lines with the same rules `read_*` applies, plus no surrounding
+# blanks, so that what is written parses back to equal fields.
+def put_fields(out: &mut Bytes, headers: &list[Header]) -> Result[(), HttpError]:
+    for index in range(len(headers)):
+        start = out.len()
+        put(out, headers[index].name)?
+        stop = out.len()
+        if stop == start or run(out, start, stop, 0) != stop:
+            return Err(HttpError.InvalidHeader)
+        emit(out, 58u8)?
+        emit(out, space)?
+        value_start = out.len()
+        put(out, headers[index].value)?
+        value_stop = out.len()
+        if run(out, value_start, value_stop, 1) != value_stop:
+            return Err(HttpError.InvalidHeader)
+        if value_stop > value_start and (blank(out[value_start]) or blank(out[value_stop - 1])):
+            return Err(HttpError.InvalidHeader)
+        put_line_end(out)?
+    put_line_end(out)
+
+def deliver[W: Writer](writer: &mut W, data: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]:
+    match std.io.write_all(writer, data, start, stop):
+        case Ok(_):
+            Ok(())
+        case Err(partial):
+            Err(from_stream(partial.cause))
+
+# Validates and writes a request head. Nothing is written when validation
+# fails; a stream failure may leave part of the head delivered.
+pub def write_request[W: Writer](writer: &mut W, head: &RequestHead) -> Result[(), HttpError]:
+    drop(declared(&head.headers, head.minor)?)
+    mut out = lifted(std.bytes.with_capacity(256))?
+    put(&mut out, head.method)?
+    method_end = out.len()
+    if method_end == 0 or run(&out, 0, method_end, 0) != method_end:
+        return Err(HttpError.InvalidRequestLine)
+    emit(&mut out, space)?
+    put(&mut out, head.target)?
+    target_end = out.len()
+    if target_end == method_end + 1 or run(&out, method_end + 1, target_end, 2) != target_end:
+        return Err(HttpError.InvalidRequestLine)
+    emit(&mut out, space)?
+    put_version(&mut out, head.minor)?
+    put_line_end(&mut out)?
+    put_fields(&mut out, &head.headers)?
+    deliver(writer, &out, 0, out.len())
+
+pub def write_response[W: Writer](writer: &mut W, head: &ResponseHead) -> Result[(), HttpError]:
+    drop(declared(&head.headers, head.minor)?)
+    if head.status < 100 or head.status > 999:
+        return Err(HttpError.InvalidStatusLine)
+    mut out = lifted(std.bytes.with_capacity(256))?
+    put_version(&mut out, head.minor)?
+    emit(&mut out, space)?
+    put_number(&mut out, head.status)?
+    emit(&mut out, space)?
+    reason_start = out.len()
+    put(&mut out, head.reason)?
+    if run(&out, reason_start, out.len(), 1) != out.len():
+        return Err(HttpError.InvalidStatusLine)
+    put_line_end(&mut out)?
+    put_fields(&mut out, &head.headers)?
+    deliver(writer, &out, 0, out.len())
+
+# Sends source[start:stop] as one chunk of a chunked body. An empty range
+# sends nothing, because a zero-size chunk would end the body.
+pub def write_chunk[W: Writer](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]:
+    if start < 0 or start > stop or stop > source.len():
+        return Err(HttpError.Stream(StreamError.OutOfRange))
+    if start == stop:
+        return Ok(())
+    mut line = lifted(std.bytes.with_capacity(18))?
+    put_hex(&mut line, stop - start)?
+    put_line_end(&mut line)?
+    deliver(writer, &line, 0, line.len())?
+    deliver(writer, source, start, stop)?
+    deliver(writer, &line, line.len() - 2, line.len())
+
+# Ends a chunked body with the zero-size chunk and `trailers`, which follow
+# the field-line rules of `write_request`.
+pub def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]:
+    mut out = lifted(std.bytes.with_capacity(64))?
+    emit(&mut out, 48u8)?
+    put_line_end(&mut out)?
+    put_fields(&mut out, trailers)?
+    deliver(writer, &out, 0, out.len())
+
+# Sends a whole body held in memory under `framing`: a Length body must be
+# exactly stop - start bytes, an Empty one none, and a Chunked one becomes
+# one chunk and the last chunk. Nothing is sent when the sizes disagree.
+pub def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]:
+    if start < 0 or start > stop or stop > source.len():
+        return Err(HttpError.Stream(StreamError.OutOfRange))
+    match framing:
+        case Framing.Empty:
+            if start != stop:
+                return Err(HttpError.LengthMismatch)
+            Ok(())
+        case Framing.Length(size):
+            if *size != stop - start:
+                return Err(HttpError.LengthMismatch)
+            deliver(writer, source, start, stop)
+        case Framing.Chunked:
+            write_chunk(writer, source, start, stop)?
+            trailers = listed(list[Header].new())?
+            write_last_chunk(writer, &trailers)
+        case Framing.UntilClose:
+            deliver(writer, source, start, stop)
