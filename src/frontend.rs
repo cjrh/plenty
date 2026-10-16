@@ -2100,6 +2100,7 @@ pub(crate) fn builtin(name: &str) -> bool {
         || crate::unicode::UnicodeOp::named(name).is_some()
         || crate::regex::RegexOp::named(name).is_some()
         || crate::sqlite::SqliteOp::named(name).is_some()
+        || crate::net::NetOp::named(name).is_some()
         || matches!(
             name,
             "print"
@@ -3225,6 +3226,11 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::regex::RegexOp::named(name) {
                     return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
+                }
+                if let Some(operation) = crate::net::NetOp::named(name) {
+                    let exclusive = |index| operation.exclusive(index);
+                    let call = CollectionOp::Net(operation);
+                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::sqlite::SqliteOp::named(name) {
                     return self.system_call(CollectionOp::Sqlite(operation), args, &e.at, ops);

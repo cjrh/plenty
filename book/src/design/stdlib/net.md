@@ -1,0 +1,143 @@
+# `std.net`
+
+`import std.net` provides TCP listeners and streams, UDP sockets, IPv4 and IPv6
+addresses, and name lookup. Every operation that waits for the network takes a
+[`Deadline`](time.md) and a [cancellation token](sync.md) and waits through
+[`std.ready`](ready.md); there is no event loop or `async` syntax. A worker
+that serves a connection blocks only in bounded waits.
+
+The runtime supplies one primitive per socket call (opcodes 410–418).
+Addresses, waits, retries and error naming are checked Plenty in
+`stdlib/std/net.plenty`.
+
+## Addresses
+
+| Item | Meaning |
+|---|---|
+| `IpAddress.V4(bits: u32)` | An IPv4 address; `V4(0x7f000001)` is 127.0.0.1 |
+| `IpAddress.V6(high: u64, low: u64)` | An IPv6 address as two 64-bit halves in network order |
+| `SocketAddress(ip, port: u16, scope: u32)` | An address and port; `scope` selects a link-local IPv6 interface and is otherwise 0 |
+| `ipv4(a, b, c, d)` | `IpAddress` from four `u8` parts |
+| `socket_address(ip, port)` | `SocketAddress` with scope 0 |
+| `loopback_v4(port)`, `loopback_v6(port)` | 127.0.0.1 and ::1 |
+| `any_v4(port)`, `any_v6(port)` | 0.0.0.0 and ::, which bind every interface of the family |
+| `parse_ip(text)` | `Result[IpAddress, NetError]` |
+| `parse_address(text)` | `Result[SocketAddress, NetError]` from `1.2.3.4:80`, `[::1]:80` or `[fe80::1%2]:80` |
+| `format_ip(ip)` | `Result[str, NetError]` |
+| `address.format()` | `Result[str, NetError]`, which `parse_address` reads back |
+
+`IpAddress` is copyable; `SocketAddress` is a class and moves. Parsing is
+strict and repairs nothing: IPv4 needs four decimal parts of at most three
+digits without leading zeros; IPv6 accepts hex groups, at most one `::`, and a
+dotted IPv4 tail. Ports and scopes are decimal. Anything else is
+`InvalidAddress`. IPv6 text follows RFC 5952: lowercase, no leading zeros, the
+first longest run of two or more zero groups written `::`, and IPv4-mapped
+addresses in dotted form (`::ffff:192.0.2.1`).
+
+## Errors
+
+`NetError` names the outcomes a caller handles differently:
+
+| Variant | Cause |
+|---|---|
+| `TimedOut` | The deadline passed, or the kernel gave up on a connection (`ETIMEDOUT`) |
+| `Cancelled` | The token was cancelled |
+| `Refused` | Nothing listens at the address (`ECONNREFUSED`) |
+| `Reset` | The peer reset or closed the connection while data was moving (`ECONNRESET`, `EPIPE`) |
+| `AddressInUse` | Another socket is bound to the address (`EADDRINUSE`) |
+| `AddressUnavailable` | The address is not local, or IPv6 is unavailable (`EADDRNOTAVAIL`) |
+| `Unreachable` | No route to the network or host |
+| `NameNotFound` | The resolver found no address for the name |
+| `TryAgain` | The resolver failed temporarily (`EAI_AGAIN`) |
+| `InvalidAddress` | Address text outside the grammar, or an empty or NUL-containing host name |
+| `Stream(StreamError)` | Any other failure, with its native code in `StreamError.Io(IoError.System(code))`, or allocation failure |
+
+## TCP
+
+| Function or method | Result |
+|---|---|
+| `listen(address: &SocketAddress, backlog: i64)` | `Result[TcpListener, NetError]` |
+| `listener.accept(deadline, cancel)` | `Result[TcpStream, NetError]` |
+| `listener.local_address()` | `Result[SocketAddress, NetError]` |
+| `listener.close()` | `Result[(), NetError]` |
+| `connect(address: &SocketAddress, deadline, cancel)` | `Result[TcpStream, NetError]` |
+| `stream.read_before(buffer, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one read; 0 is end of input |
+| `stream.write_before(source, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one write of at most 4096 bytes |
+| `stream.write_all_before(source, start, stop, deadline, cancel)` | `Result[(), NetError]` |
+| `stream.read`, `write`, `flush`, `close` | The [`std.io`](io.md) `Reader` and `Writer` methods; `read` and `write` block without a bound |
+| `stream.shutdown(direction: Shutdown)` | `Result[(), NetError]`; `Shutdown.Read`, `Write` or `Both` |
+| `stream.set_no_delay(enabled: bool)` | `Result[(), NetError]`: send small writes immediately |
+| `stream.local_address()`, `peer_address()` | `Result[SocketAddress, NetError]` |
+
+- Port 0 binds a free port; `local_address` reports it.
+- `backlog` bounds connections waiting for `accept` and is clamped to
+  1..4096; the kernel may round it. Listeners set `SO_REUSEADDR`, so a port
+  in `TIME_WAIT` can be reused, but two listeners on one port are
+  `AddressInUse`. An IPv6 listener accepts only IPv6 connections.
+- `accept` borrows the listener shared, so several workers can accept from
+  one listener; each connection goes to exactly one of them. A connection
+  reset before it was accepted is skipped.
+- `connect` starts a non-blocking connection and waits for it within the
+  deadline. A refused or unreachable peer is an error value.
+- An accepted or connected stream blocks. `read_before` and `write_before`
+  wait for readiness first, so they return within the deadline when the peer
+  is idle; plain `read` and `write` do not. A read may return fewer bytes than
+  were sent, and a write may accept fewer than offered: loop, or use
+  `write_all_before`.
+- Writing to a connection the peer has closed is `Reset`, never `SIGPIPE`.
+- On `TimedOut` or `Cancelled` the socket and the caller's buffer are
+  unchanged, apart from what earlier steps of `write_all_before` sent.
+
+## UDP
+
+| Function or method | Result |
+|---|---|
+| `bind_udp(address: &SocketAddress)` | `Result[UdpSocket, NetError]` |
+| `socket.send_to(source, start, stop, target: &SocketAddress, deadline, cancel)` | `Result[i64, NetError]` |
+| `socket.receive_from(buffer, start, stop, deadline, cancel)` | `Result[Datagram, NetError]` |
+| `socket.set_broadcast(enabled: bool)` | `Result[(), NetError]` |
+| `socket.local_address()`, `close()` | As for TCP |
+
+A `Datagram` has public fields `size` (the datagram's full length), `stored`
+(the bytes written into `buffer[start:stop]`) and `source`, and a
+`truncated()` method. A datagram longer than the buffer is truncated, never
+split; the rest is discarded. A datagram too large to send is
+`Stream(StreamError.Io(IoError.System(90)))` (`EMSGSIZE`).
+
+## Name lookup
+
+`resolve(host: &str, port: u16, deadline: &Deadline)` returns
+`Result[list[SocketAddress], NetError]`. An IP literal returns that address
+without a lookup. Otherwise the system resolver (`getaddrinfo`) is called once
+and its addresses are returned in its order, each with `port`. No address is
+`NameNotFound`.
+
+The C resolver cannot be interrupted, so `resolve` checks the deadline only
+before the lookup; a lookup that is already running finishes or fails on the
+resolver's own timeouts (`/etc/resolv.conf`). Callers who need a hard bound
+resolve on a worker and stop waiting for it. The resolver's result list is
+allocated by the C library and freed before `resolve` returns.
+
+## Effects and ownership
+
+Opening a socket and resolving a name have the `Network` effect; operations
+on an existing socket have the `Handle` effect. Both are allowed on workers;
+see [native effects on worker threads](../facilities/03-concurrency/effects.md).
+A listener, stream or socket owns one descriptor, opened close-on-exec, and
+closes it when explicitly closed or dropped. No operation starts a thread.
+
+## Example
+
+The [tutorial lesson](../../tutorial/11-concurrency/tcp-sockets.md) serves an
+echo connection on a worker and handles a refused connection.
+
+## Limits
+
+- x86_64 Linux GNU only; elsewhere every operation reports
+  `Stream(StreamError.Io(IoError.Unsupported))`.
+- No Unix-domain sockets, TLS, socket timeouts beyond deadlines, multicast,
+  or socket options other than no-delay and broadcast.
+- One socket per wait. Serving many connections uses one worker per
+  connection or per group; waiting on several sockets at once is not
+  provided, and a cancelled wait is seen within one 10-millisecond slice.
+- Name lookup is not cancellable once started.

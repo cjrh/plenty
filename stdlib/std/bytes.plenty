@@ -240,6 +240,16 @@ pub class Bytes:
     pub def sqlite_bind(self, statement: &ByteStorage, index: i64) -> i64:
         __sqlite_bind_blob(statement, index, self._owner)
 
+    # std.net's datagram transfers; import that module instead. `address` is
+    # std.net's encoded form.
+    pub def net_send_to(self, socket: &mut File, start: i64, stop: i64, address: &list[u8]) -> Result[i64, IoError]:
+        transported(start, stop, __bytes_len(self._owner))?
+        __net_send_to(self._owner, start, stop, socket, address)
+
+    pub def net_receive_from(self: &mut Bytes, socket: &mut File, start: i64, stop: i64, sender: &mut Bytes) -> Result[i64, IoError]:
+        transported(start, stop, __bytes_len(self._owner))?
+        __net_receive_from(self._owner, start, stop, socket, sender._owner)
+
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)

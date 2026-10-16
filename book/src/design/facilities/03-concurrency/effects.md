@@ -13,9 +13,10 @@ the same walk as user code, and a foreign call is still rejected.
 | Entropy | `std.secrets` reads | Allowed |
 | Process stream | Standard input, output and error, `print`, `args` | Allowed; no ordering between threads |
 | Path | `open`, `read_text`, metadata, `read_dir`, `std.fs.root` | Allowed; a relative path resolves against the working directory at the call |
-| Handle | Methods of `File`, `ReadDir` and `std.fs.Root`, rooted mutation, `std.ready` waits | Allowed under the loan rules below |
+| Handle | Methods of `File`, `ReadDir` and `std.fs.Root`, rooted mutation, `std.ready` waits, operations on an open socket | Allowed under the loan rules below |
 | Environment | `std.env.get`, `vars`, `current_dir` | Allowed; reads only |
 | Child | `std.process` spawn, wait, poll and signal | Allowed; the runtime's child table is synchronized |
+| Network | Opening a `std.net` socket, name lookup | Allowed; the kernel and C library synchronize sockets and the resolver |
 | Process global | `std.env.set_current_dir` | Rejected |
 
 Changing the working directory would change how every other thread resolves a
