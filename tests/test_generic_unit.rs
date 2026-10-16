@@ -103,3 +103,62 @@ fn unit_specializations_keep_parameter_storage_and_constraint_checks() {
         assert!(error.contains(diagnostic), "{error}");
     }
 }
+
+#[test]
+fn borrowed_unit_instantiates_reference_parameters() {
+    let out = support::run(
+        r#"
+def same[T](left: &T, right: &T) -> bool:
+    left == right
+
+def touch[T](value: &mut T) -> ():
+    return
+
+def shown[T](value: &T) -> Result[str, AllocError]:
+    str.repr(value)
+
+def forward(value: &()) -> &():
+    value
+
+def main() -> Result[(), Failure]:
+    mut present: Option[()] = Some(())
+    match &mut present:
+        case Some(value):
+            touch(value)
+        case Nothing:
+            pass
+    match &present:
+        case Some(value):
+            kept = forward(value)
+            print(same(kept, value))?
+            print(shown(kept)?)?
+            *kept
+        case Nothing:
+            pass
+    print(same(&(), &()))?
+    print(same((), ()))?
+    print(shown(&())?)?
+    Ok(())
+"#,
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "True\n()\nTrue\nTrue\n()\n"
+    );
+}
+
+#[test]
+fn borrowed_unit_still_rejects_temporary_reference_bindings() {
+    let error = support::check_source("r = &()\nprint(r)?")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("borrowing requires a named binding"),
+        "{error}"
+    );
+}

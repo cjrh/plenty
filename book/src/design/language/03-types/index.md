@@ -8,7 +8,9 @@ inference and explicit conversions rather than implicit widening.
 The unit type `()` denotes completion without data. It can be an expression,
 function result, or enum or tuple component, including `Option[()]` and
 `Result[(), E]`. Standalone unit bindings, parameters, collection elements, and
-class fields are unsupported. There is no `None` type or value.
+class fields are unsupported. A reference to unit, `&()` or `&mut ()`, is an
+ordinary reference: borrowed unit payloads have this type, and a `&()` parameter
+lends a unit argument like any other temporary. There is no `None` type or value.
 
 [Tuples](tuples.md) are structural products. [Classes](classes.md) and
 [enums](enums.md) are nominal: identical fields or payloads do not make separately
