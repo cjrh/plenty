@@ -23,3 +23,4 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Receive from either channel](channel-selection.md)
 - [Wait for I/O with a deadline](bounded-io.md)
 - [Serve a TCP connection](tcp-sockets.md)
+- [Serve HTTP requests](http-server.md)
