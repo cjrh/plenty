@@ -95,6 +95,8 @@ pub enum CollectionOp {
     /// Non-owning list observations; the frontend keeps the receiver's loan live.
     ListLenRef(Ty),
     ListScalarGetRef(Ty),
+    /// Exclusive scalar row write: list reference, index, value -> ().
+    ListScalarSetRef(Ty),
     IterGet(Ty),
     // Hash cursors are stable slot IDs plus one; zero terminates traversal.
     HashIterFirst(Ty),
@@ -475,6 +477,14 @@ impl CollectionOp {
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
                 t.element().unwrap(),
             ),
+            ListScalarSetRef(t) => (
+                vec![
+                    Ty::Ref(Arc::new(t.clone()), true),
+                    Ty::I64,
+                    t.element().unwrap(),
+                ],
+                Ty::Unit,
+            ),
             HashIterNext(t) => (vec![t.clone(), Ty::I64], Ty::I64),
             HashIterKeyRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
@@ -616,7 +626,7 @@ impl CollectionOp {
             Self::OrderCompare(_) => 141,
             Self::Clear(_) => 58,
             Self::Len(_) => 5,
-            Self::ListLenRef(_) | Self::ListScalarGetRef(_) => {
+            Self::ListLenRef(_) | Self::ListScalarGetRef(_) | Self::ListScalarSetRef(_) => {
                 unreachable!("borrowed list observations use narrow runtime helpers")
             }
             Self::IterGet(_) => 6,

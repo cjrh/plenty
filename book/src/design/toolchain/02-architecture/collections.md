@@ -48,10 +48,14 @@ until mutation or receiver release; codegen snapshots it before either.
 
 ## Narrow native helpers
 
-List length and integer/float/bool reads use `plenty_list_len` and
-`plenty_list_scalar_get`, bypassing the generic dispatcher's argument scratch
-area. They take a live owner pointer and, for reads, an `i64` index; results
-preserve payload bits before narrowing or bitcasting. Codegen does not depend
+List length and integer/float/bool element reads and writes use
+`plenty_list_len`, `plenty_list_scalar_get`, and `plenty_list_scalar_set`,
+bypassing the generic dispatcher's argument scratch area. This applies to any
+list place: a local, a field (`self.xs[i]`, `a.b.xs[i] = v`), a borrowed
+receiver, or an inner row (`grid[i][j] += 1`). The helpers take a live owner
+pointer and an `i64` index; reads preserve payload bits before narrowing or
+bitcasting, and writes store the same bits a write through an element reference
+would. Bounds traps report the same site and message as the generic path. Codegen does not depend
 on `Vec` layout or cached buffer addresses. Named receivers are borrowed without
 temporary retain/release; temporary owners are released after obtaining the result.
 
