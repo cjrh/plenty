@@ -1519,7 +1519,12 @@ pub fn test(directory: &Path, options: &TestOptions) -> Result<TestSummary> {
                 &mut progress,
                 || match kind {
                     crate::frontend::TestFile::Program => {
-                        crate::compile_package_to_executable(path, &graph, &executable, &compile)
+                        crate::codegen::compile_test_program_to_executable(
+                            path,
+                            &graph,
+                            &executable,
+                            &compile,
+                        )
                     }
                     crate::frontend::TestFile::Functions(functions) => {
                         crate::codegen::compile_tests_to_executable(

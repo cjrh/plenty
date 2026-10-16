@@ -184,6 +184,30 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
+        if let CollectionOp::CallerLocation = operation {
+            let function = self
+                .module
+                .declare_func_in_func(self.runtime.caller_location, self.bcx.func);
+            let call = self.bcx.ins().call(function, &[]);
+            let written = self.bcx.inst_results(call)[0];
+            self.stack.push((written, Ty::Bool));
+            return Ok(());
+        }
+        if let CollectionOp::TestFault = operation {
+            let (code, _) = self.pop_typed(Ty::I32)?;
+            let (count, _) = self.pop_typed(Ty::I64)?;
+            let (kind, _) = self.pop_typed(Ty::I64)?;
+            let armed = match self.runtime.test_fault {
+                Some(hook) => {
+                    let function = self.module.declare_func_in_func(hook, self.bcx.func);
+                    let call = self.bcx.ins().call(function, &[kind, count, code]);
+                    self.bcx.inst_results(call)[0]
+                }
+                None => self.bcx.ins().iconst(types::I8, 0),
+            };
+            self.stack.push((armed, Ty::Bool));
+            return Ok(());
+        }
         if let CollectionOp::ListScalarSetRef(ty) = operation {
             let element = ty.element().unwrap();
             let (value, _) = self.pop_typed(element.clone())?;

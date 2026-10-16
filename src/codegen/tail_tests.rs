@@ -15,7 +15,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     )
     .unwrap();
     let mut module = ObjectModule::new(builder);
-    let runtime = declare_runtime(&mut module).unwrap();
+    let runtime = declare_runtime(&mut module, false).unwrap();
     let id = module
         .declare_function("callee", Linkage::Local, &user_fn_signature(&sig))
         .unwrap();

@@ -25,6 +25,7 @@ fn fixture(source: &str) -> String {
         &executable,
         program.returns_status,
         &crate::CompileOptions::default(),
+        false,
     )
     .unwrap();
     let output = std::process::Command::new(executable).output().unwrap();

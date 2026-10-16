@@ -35,6 +35,12 @@ pub enum CollectionOp {
     FileWriteLines,
     WriteStdout,
     WriteStderr,
+    /// Std only: writes the nearest non-std caller's `file:line:column: `
+    /// to standard error; false when there is none.
+    CallerLocation,
+    /// Std only: `(kind, count, code)` arms or, with a negative count,
+    /// disarms failure injection. False outside `plenty test` builds.
+    TestFault,
     FlushStdout,
     FlushStderr,
     Input,
@@ -310,6 +316,8 @@ impl CollectionOp {
             FlushStdout | FlushStderr => {
                 (vec![], crate::sum::result(Ty::Unit, crate::sum::io_error()))
             }
+            CallerLocation => (vec![], Ty::Bool),
+            TestFault => (vec![Ty::I64, Ty::I64, Ty::I32], Ty::Bool),
             WriteStdout | WriteStderr => (
                 vec![Ty::Str],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
@@ -555,6 +563,9 @@ impl CollectionOp {
             Self::Net(op) => op.opcode(),
             Self::WriteStdout => 80,
             Self::FlushStdout => 81,
+            Self::CallerLocation | Self::TestFault => {
+                unreachable!("lowered to direct calls, not the collection dispatcher")
+            }
             Self::WriteStderr => 82,
             Self::FlushStderr => 83,
             Self::Input => 84,

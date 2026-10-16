@@ -2,16 +2,32 @@
 
 `import std.test` provides assertions, fixtures, and test doubles for the
 tests that [`plenty test`](../toolchain/01-building/packages.md#tests) runs,
-with one error type, `TestError`. The module is checked Plenty code with no
-native primitives. Any program may import it; it does not depend on the runner except
-for reading `PLENTY_TEST_SEED`.
+with one error type, `TestError`. The module is checked Plenty code. Any
+program may import it; it depends on the runner only for reading
+`PLENTY_TEST_SEED` and for [failure injection](#failure-injection).
 
 ## Assertions
 
 An assertion that holds returns `Ok(())` without allocating. One that fails
-flushes standard output, writes `assertion failed: ` and an explanation to
-standard error, and returns `Err(TestError.Assertion)`. The explanation is
-written at once because `?` usually erases the error into `Failure`.
+flushes standard output, writes the position of the call, `assertion failed: `,
+and an explanation to standard error, and returns `Err(TestError.Assertion)`.
+The explanation is written at once because `?` usually erases the error into
+`Failure`.
+
+```text
+parse.plenty:12:5: assertion failed: left == right
+  left: 4
+ right: 5
+```
+
+The file is relative to its source root, `tests/` for a test file, as in
+[trap reports](../language/08-errors/02-allocation-and-traps.md#trap-reports).
+The position is the user code that
+called the assertion, even through
+standard-library helpers: the
+[caller location](../language/08-errors/02-allocation-and-traps.md#caller-locations)
+that trap notes use. A user helper that wraps an assertion reports the helper's
+line, not its caller's.
 
 | Function | Passes when | Failure explanation |
 |---|---|---|
@@ -28,9 +44,6 @@ Values are shown with `str.repr`, so `T` must support equality or ordering as
 the function needs and have a `repr`. Showing a value allocates; when that
 fails the line reads `<no memory to show the value>`. A failure to write to
 standard error is ignored.
-
-Assertions do not report the caller's source location: Plenty has no
-caller-location intrinsic. The runner names the failing test instead.
 
 Under `plenty test`, a test that returns `Err(TestError.Assertion)`, or the
 `Failure.Unspecified` that `?` makes of it, gets no further `error:` line: the
@@ -114,6 +127,47 @@ def test_overdue() -> Result[(), Failure]:
 
 A program calls the same function with `std.time.monotonic_clock()`.
 
+## Failure injection
+
+Executables that `plenty test` builds can make the C library's allocation and
+file calls fail, so a test reaches the error paths of code that allocates or
+does file I/O. Injection belongs to the calling thread.
+
+| Function | Effect |
+|---|---|
+| `fail_allocations_after(count: u32)` | After `count` more allocations succeed, each fails until restored: the operation reports `AllocError.OutOfMemory` |
+| `restore_allocations()` | Allocations succeed again |
+| `fail_files_after(count: u32, code: i32)` | After `count` more file calls succeed, each fails with errno `code` until restored: the operation reports `IoError.System(code)` |
+| `restore_files()` | File calls succeed again |
+
+All four return `Result[(), TestError]`. A later call replaces the budget.
+Counted file calls are opening any path, and reading, writing, syncing, or
+truncating a regular file; standard streams, pipes, and sockets never fail, so
+a failing test can still report. Other filesystem calls, such as renaming or
+listing a directory, are not counted. How many calls an operation makes is not
+part of its contract, so a test should fail from the first call (`count` 0) or
+check only that some call failed. A failure that `?` propagates leaves the
+budget in place; restore it before an assertion that must allocate to show its
+values.
+
+```text
+def test_save_reports_a_full_disk() -> Result[(), Failure]:
+    scratch = std.test.scratch()?
+    name = scratch.file("state.txt")?
+    std.test.fail_files_after(0u32, 28i32)?
+    saved = write_text(&name, "state")
+    std.test.restore_files()?
+    full: Result[i64, IoError] = Err(IoError.System(28i32))
+    std.test.equal(&saved, &full)?
+    Ok(())
+```
+
+In any other executable, including one built by `plenty build` or `plenty
+run`, these functions write `error: failure injection needs an executable
+built by plenty test` to standard error and return
+`Err(TestError.Unavailable)`. Only test builds link the interposition code;
+other executables do not contain it.
+
 ## Errors
 
 | Variant | Meaning |
@@ -122,10 +176,13 @@ A program calls the same function with `std.time.monotonic_clock()`.
 | `Fixture(FsError)` | Creating or removing a scratch directory failed, or a name or path was invalid |
 | `Allocation(AllocError)` | Memory for a fixture ran out |
 | `InvalidSeed` | `PLENTY_TEST_SEED` is set but is not a decimal `u64` |
+| `Unavailable` | Failure injection was requested outside a `plenty test` build |
 
 ## Limits
 
-- Assertions do not report the caller's source location.
-- There is no allocation failure injection. Native I/O failures can be
-  injected only at the stream boundary, through `FakeStream`; a `File`
-  operation cannot be made to fail.
+- Injected failures cover allocation and the file calls listed above, on the
+  calling thread only. Allocation on other threads, such as executor workers,
+  and network calls are not injected; use `FakeStream` at the stream boundary.
+- Calls the C library makes internally, such as `fopen` inside another C
+  function, are not intercepted; only the program's and runtime's own calls
+  are.

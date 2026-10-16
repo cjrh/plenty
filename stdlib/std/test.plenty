@@ -21,6 +21,8 @@ pub enum TestError:
     Allocation(AllocError)
     # PLENTY_TEST_SEED is set but is not a decimal u64.
     InvalidSeed
+    # Failure injection outside an executable that `plenty test` built.
+    Unavailable
 
 # Removal budgets for a scratch directory: beyond them cleanup reports
 # FsError.Limit and leaves the remaining entries in place.
@@ -32,8 +34,11 @@ const max_scratch_depth: i64 = 64
 def say(text: &str) -> ():
     drop(write_stderr(text))
 
+# Starts with the position of the user code that called the assertion; see
+# "Caller locations" in the errors reference.
 def heading(what: &str) -> ():
     drop(flush_stdout())
+    drop(__caller_location())
     say("assertion failed: ")
     say(what)
     say("\n")
@@ -110,6 +115,35 @@ pub def is_err[T, E](result: &Result[T, E]) -> Result[(), TestError]:
             failed()
         case Err(_):
             Ok(())
+
+# Failure injection: __test_fault reaches the hook object that only `plenty
+# test` links, and is false in every other build.
+const fault_allocations: i64 = 0
+const fault_files: i64 = 1
+
+def fault(kind: i64, count: i64, code: i32) -> Result[(), TestError]:
+    if __test_fault(kind, count, code):
+        return Ok(())
+    say("error: failure injection needs an executable built by `plenty test`\n")
+    Err(TestError.Unavailable)
+
+# After `count` more allocations on this thread succeed, each one fails until
+# restore_allocations, so the operation reports AllocError.
+pub def fail_allocations_after(count: u32) -> Result[(), TestError]:
+    fault(fault_allocations, i64(count), 0i32)
+
+pub def restore_allocations() -> Result[(), TestError]:
+    fault(fault_allocations, -1, 0i32)
+
+# After `count` more file calls on this thread succeed, each one fails with
+# IoError.System(code) until restore_files. Counted calls open any path, or
+# read, write, sync, or truncate a regular file; standard streams, pipes, and
+# sockets are never failed.
+pub def fail_files_after(count: u32, code: i32) -> Result[(), TestError]:
+    fault(fault_files, i64(count), code)
+
+pub def restore_files() -> Result[(), TestError]:
+    fault(fault_files, -1, 0i32)
 
 def fixture[T](result: Result[T, FsError]) -> Result[T, TestError]:
     match result:

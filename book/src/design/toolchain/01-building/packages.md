@@ -65,7 +65,10 @@ Because those names are dependency aliases, a test file or helper cannot be
 named after the package or one of its dependencies.
 
 `plenty test` compiles every selected test file to
-`target/PROFILE/tests/PACKAGE/STEM` before running any. Each test runs with the
+`target/PROFILE/tests/PACKAGE/STEM` before running any. These executables also
+link the hooks behind [`std.test` failure injection](../../stdlib/test.md#failure-injection),
+which wrap the C library's allocation and file calls; `plenty build` and
+`plenty run` never link them. Each test runs with the
 package directory as its working directory, empty standard input, and `TMPDIR`
 set to a new empty directory that the runner removes, with everything in it,
 when the test ends. That removal also covers scratch directories of a test

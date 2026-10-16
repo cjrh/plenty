@@ -159,7 +159,14 @@ pub fn compile_source_to_executable_with_options(
     crate::validate_target(options.target.as_deref())?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
-    compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
+    compile_ops_to_executable(
+        program.ops,
+        &heap,
+        output,
+        program.returns_status,
+        options,
+        false,
+    )
 }
 
 /// Compile a file and its absolute imports. The source root defaults to the
@@ -178,7 +185,14 @@ pub fn compile_file_to_executable_with_options(
     crate::validate_target(options.target.as_deref())?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
-    compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
+    compile_ops_to_executable(
+        program.ops,
+        &heap,
+        output,
+        program.returns_status,
+        options,
+        false,
+    )
 }
 
 /// Compile the entry file of `graph.packages[0]`; each package sees only its
@@ -189,13 +203,42 @@ pub fn compile_package_to_executable(
     output: &Path,
     options: &crate::CompileOptions,
 ) -> Result<()> {
+    compile_graph_to_executable(path, graph, output, options, false)
+}
+
+fn compile_graph_to_executable(
+    path: &Path,
+    graph: &crate::project::SourceGraph,
+    output: &Path,
+    options: &crate::CompileOptions,
+    test_hooks: bool,
+) -> Result<()> {
     crate::validate_target(options.target.as_deref())?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile_graph(path, graph, true, &mut heap)?;
-    compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
+    compile_ops_to_executable(
+        program.ops,
+        &heap,
+        output,
+        program.returns_status,
+        options,
+        test_hooks,
+    )
 }
 
-/// Compile a file of test functions with the runner's generated `main`.
+/// Compile a test file that defines `main` for `plenty test`, with the
+/// failure-injection hooks of a test build.
+pub(crate) fn compile_test_program_to_executable(
+    path: &Path,
+    graph: &crate::project::SourceGraph,
+    output: &Path,
+    options: &crate::CompileOptions,
+) -> Result<()> {
+    compile_graph_to_executable(path, graph, output, options, true)
+}
+
+/// Compile a file of test functions with the runner's generated `main` and
+/// the failure-injection hooks of a test build.
 pub(crate) fn compile_tests_to_executable(
     path: &Path,
     graph: &crate::project::SourceGraph,
@@ -206,7 +249,14 @@ pub(crate) fn compile_tests_to_executable(
     crate::validate_target(options.target.as_deref())?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile_test_graph(path, graph, tests, &mut heap)?;
-    compile_ops_to_executable(program.ops, &heap, output, program.returns_status, options)
+    compile_ops_to_executable(
+        program.ops,
+        &heap,
+        output,
+        program.returns_status,
+        options,
+        true,
+    )
 }
 
 /// Historical stack syntax, retained for backend regression tests.
@@ -228,25 +278,59 @@ pub fn compile_legacy_source_to_executable_with_options(
     let toks = lexer::lex(source)?;
     let mut heap = Heap::default();
     let ops = op::compile(&toks, &mut heap)?;
-    compile_ops_to_executable(ops, &heap, output, false, options)
+    compile_ops_to_executable(ops, &heap, output, false, options, false)
 }
 
+/// With `test_hooks`, the executable is a `plenty test` build: it also links
+/// [`TEST_HOOKS`], which wraps the C library's allocation and file calls, and
+/// std's `__test_fault` reaches it. Every other executable is linked exactly
+/// as without the hooks.
 fn compile_ops_to_executable(
     ops: Vec<Op>,
     heap: &Heap,
     output: &Path,
     returns_status: bool,
     options: &crate::CompileOptions,
+    test_hooks: bool,
 ) -> Result<()> {
     op::check(&ops)?;
 
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
     let rt_path = workspace.path().join("libplenty_runtime.a");
-    compile_to_object(ops, heap, &obj_path, returns_status, options.optimize)?;
+    let build = Build {
+        optimize: options.optimize,
+        test_hooks,
+    };
+    compile_to_object(ops, heap, &obj_path, returns_status, build)?;
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
-    crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, options)
+    if !test_hooks {
+        return crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, options);
+    }
+    let hooks = workspace.path().join("plenty_test_hooks.o");
+    std::fs::write(&hooks, TEST_HOOKS)?;
+    let mut options = options.clone();
+    options.link_args.insert(0, hooks.into_os_string());
+    options.link_args.insert(1, TEST_HOOK_WRAPS.into());
+    crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, &options)
 }
+
+/// Code generation choices that do not change the program's meaning.
+#[derive(Clone, Copy, Default)]
+struct Build {
+    /// Ask Cranelift to optimize for speed.
+    optimize: bool,
+    /// Lower std's `__test_fault` to the `plenty test` hook object.
+    test_hooks: bool,
+}
+
+/// Failure injection for `plenty test` builds, compiled from
+/// `plenty-runtime/native/test_hooks.c`. Linked into no other executable.
+const TEST_HOOKS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plenty_test_hooks.o"));
+/// The C library calls the hook object intercepts. Only references from the
+/// program and runtime objects are redirected; the C library's own internal
+/// calls are not.
+const TEST_HOOK_WRAPS: &str = "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=posix_memalign,--wrap=open,--wrap=open64,--wrap=openat,--wrap=read,--wrap=write,--wrap=pread64,--wrap=pwrite64,--wrap=writev,--wrap=fsync,--wrap=ftruncate64";
 
 /// Prebuilt for the compiler's target and embedded so an installed or relocated
 /// Plenty binary never needs runtime source files, Cargo, or rustc at run time.
@@ -262,7 +346,13 @@ pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
     op::check(&program.ops)?;
-    compile_to_object(program.ops, &heap, output, program.returns_status, false)
+    compile_to_object(
+        program.ops,
+        &heap,
+        output,
+        program.returns_status,
+        Build::default(),
+    )
 }
 
 /// Emit an application object, resolving absolute Plenty imports.
@@ -271,7 +361,13 @@ pub fn compile_file_to_object(path: &Path, output: &Path, root: Option<&Path>) -
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
     op::check(&program.ops)?;
-    compile_to_object(program.ops, &heap, output, program.returns_status, false)
+    compile_to_object(
+        program.ops,
+        &heap,
+        output,
+        program.returns_status,
+        Build::default(),
+    )
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -289,9 +385,9 @@ fn compile_to_object(
     heap: &Heap,
     output: &Path,
     returns_status: bool,
-    optimize: bool,
+    build: Build,
 ) -> Result<()> {
-    emit_object(ops, heap, output, Some(returns_status), &[], None, optimize)
+    emit_object(ops, heap, output, Some(returns_status), &[], None, build)
 }
 
 pub(crate) fn emit_library_object(
@@ -301,7 +397,15 @@ pub(crate) fn emit_library_object(
     output: &Path,
     interface: &crate::exports::Interface,
 ) -> Result<()> {
-    emit_object(ops, heap, output, None, exports, Some(interface), false)
+    emit_object(
+        ops,
+        heap,
+        output,
+        None,
+        exports,
+        Some(interface),
+        Build::default(),
+    )
 }
 
 fn emit_object(
@@ -311,7 +415,7 @@ fn emit_object(
     entry: Option<bool>,
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
-    optimize: bool,
+    build: Build,
 ) -> Result<()> {
     let product = object_module(
         ops,
@@ -320,7 +424,7 @@ fn emit_object(
         exports,
         interface,
         crate::parallel::workers(),
-        optimize,
+        build,
     )?
     .finish();
     // Written section by section: the file's bytes are never all in memory
@@ -339,7 +443,15 @@ fn object_bytes(
     interface: Option<&crate::exports::Interface>,
     workers: usize,
 ) -> Result<Vec<u8>> {
-    let module = object_module(ops, heap, entry, exports, interface, workers, false)?;
+    let module = object_module(
+        ops,
+        heap,
+        entry,
+        exports,
+        interface,
+        workers,
+        Build::default(),
+    )?;
     Ok(module.finish().emit()?)
 }
 
@@ -353,17 +465,17 @@ fn object_module(
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
     workers: usize,
-    optimize: bool,
+    build: Build,
 ) -> Result<Output> {
     crate::tail_abi::prepare(&mut ops, workers);
-    let opt_level = if optimize { "speed" } else { "none" };
+    let opt_level = if build.optimize { "speed" } else { "none" };
     let targets = output::Targets {
         ordinary: optimized_isa("backtracking", opt_level)?,
         single_pass: optimized_isa("single_pass", opt_level)?,
     };
     let mut out = Output::new(targets)?;
 
-    let mut runtime = declare_runtime(&mut out.module)?;
+    let mut runtime = declare_runtime(&mut out.module, build.test_hooks)?;
 
     // Every symbol a body refers to by name is declared before any body is
     // built, so forward references and mutual recursion resolve, and the
@@ -617,6 +729,13 @@ struct Runtime {
     /// returns 1 if `needle` is a byte-substring of `haystack`, 0
     /// otherwise. Both inputs are borrowed counted strings.
     contains: FuncId,
+    /// `plenty_write_caller_location() -> i8`, behind std's
+    /// `__caller_location`.
+    caller_location: FuncId,
+    /// `plenty_test_fault(kind, count, code) -> i8`, defined only by the hook
+    /// object that `plenty test` links; absent from every other build, where
+    /// std's `__test_fault` is the constant false.
+    test_fault: Option<FuncId>,
     /// `plenty_println(*const u8) -> ()` — write the string raw to
     /// stdout, followed by a single `\n`. The bare-text output
     /// primitive; `plenty_print_str` (the `.` path) escapes and
@@ -624,7 +743,7 @@ struct Runtime {
     println: FuncId,
 }
 
-fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
+fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtime> {
     fn one_arg(module: &mut ObjectModule, name: &str, arg: types::Type) -> Result<FuncId> {
         let mut sig = module.make_signature();
         sig.call_conv = CallConv::SystemV;
@@ -803,6 +922,25 @@ fn declare_runtime(module: &mut ObjectModule) -> Result<Runtime> {
         },
         contains: two_args_one_return(module, "plenty_contains", PTR_TY, PTR_TY, types::I8)?,
         println: one_arg(module, "plenty_println", PTR_TY)?,
+        caller_location: {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.returns.push(AbiParam::new(types::I8));
+            module.declare_function("plenty_write_caller_location", Linkage::Import, &sig)?
+        },
+        test_fault: if test_hooks {
+            let mut sig = module.make_signature();
+            sig.call_conv = CallConv::SystemV;
+            sig.params.extend([
+                AbiParam::new(types::I64),
+                AbiParam::new(types::I64),
+                AbiParam::new(types::I32),
+            ]);
+            sig.returns.push(AbiParam::new(types::I8));
+            Some(module.declare_function("plenty_test_fault", Linkage::Import, &sig)?)
+        } else {
+            None
+        },
     })
 }
 
