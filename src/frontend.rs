@@ -4110,7 +4110,7 @@ pub(crate) fn compile_graph(
     lower(modules::load_graph(path, graph, require_main)?, heap)
 }
 
-pub(crate) use modules::harness::{TestFile, TestReturn};
+pub(crate) use modules::harness::{TestFile, TestReturn, RETURNED_ERR};
 
 /// What `plenty test` runs from the test file at `path`; see [`modules::harness`].
 pub(crate) fn discover_tests(path: &std::path::Path) -> Result<TestFile> {

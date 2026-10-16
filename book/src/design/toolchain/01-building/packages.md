@@ -14,7 +14,7 @@ graph; imports never fetch or resolve packages.
 | `plenty check [--locked] [--offline]` | Check the library (without requiring `main`) and every executable |
 | `plenty build [--release] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
 | `plenty run [--release] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
-| `plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list] [FILTER...]` | Compile and run the package's [tests](#tests) |
+| `plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |
 | `plenty add [ALIAS] SOURCE [--version REQ] [--offline]` | Add a [dependency](#adding-dependencies) to the manifest and lock it |
 | `plenty fetch [--locked] [--offline]` | Resolve, download, and lock every dependency without compiling |
 | `plenty update [PACKAGE...] [--offline]` | Move [Git dependencies](#git-dependencies) to the commits their tags and revisions name now |
@@ -48,12 +48,16 @@ both, and defining neither is an error:
   `FILE::FUNCTION`. It takes no parameters and returns `()` or
   `Result[(), E]` written out, not through an alias; any other signature is an
   error. It passes when it returns normally or returns `Ok`. A returned `Err`
-  is written to standard error as `error: NAME returned ERROR`.
+  is written to standard error as `error: NAME returned ERROR`, except
+  `Failure.Unspecified` and `std.test.TestError.Assertion`: the first carries
+  nothing to show, and the second follows an explanation `std.test` already
+  wrote.
 
 Plenty has no attributes or reflection, so `plenty test` finds test functions
 by parsing each file, then compiles the file with a generated `main` that calls
-the function named by its one argument. Every test runs in its own process, one
-at a time, so a trap, abort, or leaked state fails or affects only that test.
+the function named by its one argument. Every test runs in its own process, so
+a trap, abort, or leaked state fails or affects only that test. The generated
+`main` exits 0 when the test passes and 3 when it returns `Err`; a trap exits 1.
 
 A test file imports the package's library under the package name, the
 package's dependencies under their aliases, and its own helpers under `tests/`.
@@ -61,16 +65,27 @@ Because those names are dependency aliases, a test file or helper cannot be
 named after the package or one of its dependencies.
 
 `plenty test` compiles every selected test file to
-`target/PROFILE/tests/PACKAGE/STEM` before running any. Each test runs with the package directory as its working
-directory and empty standard input. Its standard output and error are
-captured together and printed under `failures:` only if it fails;
-`--no-capture` passes them through instead. The command prints one line per
-test and a summary, and exits nonzero if any test fails:
+`target/PROFILE/tests/PACKAGE/STEM` before running any. Each test runs with the
+package directory as its working directory, empty standard input, and `TMPDIR`
+set to a new empty directory that the runner removes, with everything in it,
+when the test ends. That removal also covers scratch directories of a test
+that traps or times out, which skip destructors. The per-test directories live
+in one `plenty-test-run-` directory under the runner's own temporary directory.
+
+Tests run in parallel, at most one per available CPU unless `--jobs N` says
+otherwise. Results are printed in discovery order whatever order the tests
+finish in, so repeated runs print the same lines. Tests that share files in the
+package directory must use `--jobs 1` or their own names.
+
+Each test's standard output and error are captured together and printed under
+`failures:` only if it fails; `--no-capture` passes them through instead, and
+parallel tests' output then interleaves. The command prints one line per test
+and a summary, and exits nonzero if any test fails:
 
 ```text
 running 2 tests
 test area::test_square ... ok
-test area::test_negative ... FAILED (exit status 1)
+test area::test_negative ... FAILED (returned Err)
 
 failures:
 
@@ -78,7 +93,6 @@ failures:
 assertion failed: left == right
   left: -9
  right: 9
-error: test_negative returned Failure.Unspecified
 
 test result: FAILED. 1 passed; 1 failed
 ```
@@ -89,9 +103,13 @@ test result: FAILED. 1 passed; 1 failed
 | `--list` | Print the selected test names, one per line, without compiling |
 | `--no-capture` | Let test output through as it is written |
 | `--seed N` | Set `PLENTY_TEST_SEED=N` for every test; [`std.test`](../../stdlib/test.md) seeds its generator from it |
+| `--jobs N` | Run at most `N` tests at once; `N` is at least 1 |
+| `--timeout SECONDS` | Kill a test still running after `SECONDS` (at least 1) and fail it as `timed out after SECONDSs`; processes it started are not killed |
 | `--release`, `--locked`, `--offline` | As for `plenty build` |
 
-Tests run sequentially and have no timeout.
+A failing test's line gives the reason: `returned Err`, `exit status N` (a
+trap is status 1), `terminated by signal N`, or `timed out after Ns`. Without
+`--timeout` a test can run forever.
 
 ## Profiles
 

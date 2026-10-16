@@ -66,6 +66,23 @@ the process's first reading. It does not advance while the machine is
 suspended. Readings are comparable across threads of one process and not
 across processes.
 
+## Clocks
+
+`Clock` is the protocol for code that reads the time through a value instead of
+calling `monotonic_now()`, so a test can control what it sees:
+
+```text
+pub protocol Clock:
+    def now(self) -> Instant:
+        pass
+```
+
+`monotonic_clock()` returns a `MonotonicClock`, whose `now()` is
+`monotonic_now()`; it holds no state. [`std.test.fake_clock`](test.md#test-doubles)
+returns a clock that moves only when told. A function written as
+`def f[C: Clock](clock: &C)` is compiled once per clock type, with no dynamic
+dispatch.
+
 ## Wall-clock timestamps
 
 A `Timestamp` has public fields `seconds: i64`, counted from the Unix epoch in

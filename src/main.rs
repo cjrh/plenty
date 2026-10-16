@@ -15,7 +15,8 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty check [--locked] [--offline]
        plenty build [--release] [--locked] [--offline]
        plenty run [--release] [--locked] [--offline] [--bin NAME] [-- ARGS...]
-       plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list] [FILTER...]
+       plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list]
+                   [--jobs N] [--timeout SECONDS] [FILTER...]
        plenty add [ALIAS] (--path DIR | --git URL (--tag TAG | --rev COMMIT) [--subdir DIR])
                   [--version REQ] [--offline]
        plenty fetch [--locked] [--offline]
@@ -29,7 +30,9 @@ or target/release with --release. run: build one executable and run it with
 ARGS. test: run each test_* function in tests/*.plenty in its own process, or
 each tests/*.plenty program that defines main; a FILTER keeps the tests whose
 FILE::NAME contains it. Output is shown only for failing tests unless
---no-capture. --seed N sets PLENTY_TEST_SEED for std.test.rng.
+--no-capture. --seed N sets PLENTY_TEST_SEED for std.test.rng. --jobs N runs at
+most N tests at once (default: one per CPU). --timeout SECONDS fails a test
+that runs longer.
 add: add a dependency to plenty.toml and lock it. fetch: download and lock
 every dependency without compiling. update: move Git dependencies (all, or the
 named packages) to the commits their tags and revisions name now. graph: print
@@ -179,6 +182,25 @@ fn test_options(args: &[String]) -> Result<TestOptions, String> {
                         .parse()
                         .map_err(|_| format!("--seed {value:?} is not a u64"))?,
                 );
+            }
+            "--jobs" => {
+                let value = args.next().ok_or("--jobs requires a value")?;
+                options.jobs = Some(
+                    value
+                        .parse()
+                        .map_err(|_| format!("--jobs {value:?} is not a positive count"))?,
+                );
+            }
+            "--timeout" => {
+                let value = args.next().ok_or("--timeout requires a value")?;
+                let seconds: u64 = value
+                    .parse()
+                    .ok()
+                    .filter(|&seconds| seconds > 0)
+                    .ok_or_else(|| {
+                        format!("--timeout {value:?} is not a positive number of seconds")
+                    })?;
+                options.timeout = Some(std::time::Duration::from_secs(seconds));
             }
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
             filter => options.filters.push(filter.to_owned()),

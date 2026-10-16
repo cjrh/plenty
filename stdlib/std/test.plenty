@@ -2,13 +2,17 @@
 # assertion writes its explanation to standard error at once and returns
 # Err(TestError.Assertion), so the explanation survives `?` erasing the error
 # into Failure. See book/src/design/stdlib/test.md.
+import std.bytes
 import std.env
 import std.fs
 import std.random
+from std.bytes import Bytes, BytesError
 from std.fs import FsError, Root, TempDir
+from std.io import StreamError
 from std.path import Path, from_text
 from std.random import Rng
 from std.sync import CancellationToken
+from std.time import Duration, Instant, instant_at
 
 pub enum TestError:
     # The explanation is already on standard error.
@@ -200,3 +204,107 @@ pub def seed() -> Result[u64, TestError]:
 # A generator seeded from seed(), so a run repeats exactly under one seed.
 pub def rng() -> Result[Rng, TestError]:
     Ok(std.random.seeded(seed()?))
+
+# A std.time.Clock that moves only when told to.
+pub class FakeClock:
+    _at: u64
+
+    pub def now(self) -> Instant:
+        instant_at(self._at)
+
+    pub def advance(self: &mut FakeClock, span: &Duration) -> Result[(), RangeError]:
+        later = instant_at(self._at).checked_add(span)?
+        self._at = later.duration_since(&instant_at(0u64))?.as_nanoseconds()
+        Ok(())
+
+    pub def set(self: &mut FakeClock, nanoseconds_after_origin: u64) -> ():
+        self._at = nanoseconds_after_origin
+
+pub def fake_clock(nanoseconds_after_origin: u64) -> FakeClock:
+    FakeClock(nanoseconds_after_origin)
+
+# A std.io Reader and Writer over memory that can be told to move fewer bytes
+# per call or to fail one call, for exercising retry and partial-progress code.
+pub class FakeStream:
+    # What reads return, from the start.
+    pub input: Bytes
+    # Every byte that writes accepted, in order.
+    pub output: Bytes
+    _read: i64
+    _limit: i64
+    _calls: i64
+    _fault_at: i64
+    _fault: Option[StreamError]
+
+    # read, write and flush calls made so far, including failed ones.
+    pub def calls(self) -> i64:
+        self._calls
+
+    # Each later call moves at most `bytes` bytes; 0 or less removes the limit.
+    pub def limit(self: &mut FakeStream, bytes: i64) -> ():
+        self._limit = bytes
+
+    # The call `after` calls from now fails with `error` and moves nothing;
+    # 0 fails the next call. One failure is pending at a time; a later
+    # request replaces it.
+    pub def fail_after(self: &mut FakeStream, after: i64, error: StreamError) -> ():
+        self._fault_at = self._calls + after
+        drop(replace(self._fault, Some(error)))
+
+    def begin(self: &mut FakeStream) -> Result[(), StreamError]:
+        call = self._calls
+        self._calls += 1
+        if call != self._fault_at:
+            return Ok(())
+        self._fault_at = -1
+        match replace(self._fault, Nothing):
+            case Some(error):
+                Err(error)
+            case Nothing:
+                Ok(())
+
+    def allowed(self, offered: i64) -> i64:
+        if self._limit > 0 and offered > self._limit:
+            return self._limit
+        offered
+
+    pub def read(self: &mut FakeStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        span(start, stop, buffer.len())?
+        self.begin()?
+        mut count = self.allowed(stop - start)
+        left = self.input.len() - self._read
+        if count > left:
+            count = left
+        if count <= 0:
+            return Ok(0)
+        stream_bytes(buffer.overwrite(start, &self.input, self._read, self._read + count))?
+        self._read += count
+        Ok(count)
+
+    pub def write(self: &mut FakeStream, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        span(start, stop, source.len())?
+        self.begin()?
+        count = self.allowed(stop - start)
+        stream_bytes(self.output.extend_range(source, start, start + count))?
+        Ok(count)
+
+    pub def flush(self: &mut FakeStream) -> Result[(), StreamError]:
+        self.begin()
+
+def span(start: i64, stop: i64, size: i64) -> Result[(), StreamError]:
+    if start < 0 or start > stop or stop > size:
+        return Err(StreamError.OutOfRange)
+    Ok(())
+
+def stream_bytes(result: Result[(), BytesError]) -> Result[(), StreamError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(BytesError.Allocation(cause)):
+            Err(StreamError.Allocation(cause))
+        case Err(_):
+            Err(StreamError.OutOfRange)
+
+# Reads return `input`; nothing is limited or failing until asked.
+pub def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]:
+    Ok(FakeStream(input, std.bytes.empty()?, 0, 0, 0, -1, Nothing))

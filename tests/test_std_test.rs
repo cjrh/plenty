@@ -328,7 +328,7 @@ fn test_functions_run_in_their_own_processes() {
         stdout,
         "running 6 tests
 test arithmetic::test_adds ... ok
-test arithmetic::test_wrong ... FAILED (exit status 1)
+test arithmetic::test_wrong ... FAILED (returned Err)
 test arithmetic::test_unit ... ok
 test arithmetic::test_typed ... ok
 test arithmetic::test_trap ... FAILED (exit status 1)
@@ -341,7 +341,6 @@ about to compare
 assertion failed: left == right
   left: 4
  right: 5
-error: test_wrong returned Failure.Unspecified
 
 ---- arithmetic::test_trap output ----
 error: arithmetic.plenty:24:11: index out of bounds: index 5, length 1
@@ -404,6 +403,13 @@ def test_scratch_left_by_failure() -> Result[(), Failure]:
     write_text(scratch.file("data")?, "x")?
     std.test.fail("after writing")?
     Ok(())
+
+def test_scratch_left_by_trap() -> Result[(), Failure]:
+    scratch = std.test.scratch()?
+    write_text(scratch.file("data")?, "x")?
+    values = [1]?
+    print(values[len(&values)])?
+    Ok(())
 "#,
         )],
     );
@@ -414,7 +420,8 @@ def test_scratch_left_by_failure() -> Result[(), Failure]:
     assert!(stdout.contains("\n99 "), "{stdout}");
     let default = String::from_utf8_lossy(&plenty(root, &["test"]).stdout).into_owned();
     assert!(default.contains("\n0 "), "{default}");
-    // Every scratch directory was removed, including after a failure.
+    // Every scratch directory was removed, including after a failure or a
+    // trap, which skips destructors: the runner removes each test's TMPDIR.
     let leftovers: Vec<_> = std::fs::read_dir(root)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -487,4 +494,185 @@ fn a_relocated_toolchain_runs_tests_offline() {
         .unwrap();
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(String::from_utf8_lossy(&output.stdout).contains("test arithmetic::test_adds ... ok"));
+}
+
+#[test]
+fn returned_errors_are_named_only_when_they_say_something() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    suite(
+        root,
+        &[(
+            "tests/errors.plenty",
+            r#"import std.test
+
+def test_explained() -> Result[(), std.test.TestError]:
+    std.test.check(False, "explained")
+
+def test_silent() -> Result[(), Failure]:
+    Err(Failure.Unspecified)
+
+def test_detailed() -> Result[(), IoError]:
+    Err(IoError.Closed)
+"#,
+        )],
+    );
+    let output = plenty(root, &["test", "--jobs", "1"]);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "running 3 tests
+test errors::test_explained ... FAILED (returned Err)
+test errors::test_silent ... FAILED (returned Err)
+test errors::test_detailed ... FAILED (returned Err)
+
+failures:
+
+---- errors::test_explained output ----
+assertion failed: explained
+
+---- errors::test_detailed output ----
+error: test_detailed returned IoError.Closed
+
+test result: FAILED. 0 passed; 3 failed
+"
+    );
+}
+
+// Each test waits for a file the other creates, so they pass only when they
+// run at the same time.
+const RENDEZVOUS: &str = r#"import std.fs
+import std.path
+from std.time import milliseconds, seconds, sleep
+
+def meet(mine: &str, theirs: &str) -> Result[(), Failure]:
+    write_text(mine, "here")?
+    other = std.path.from_text(theirs)?
+    for _ in range(500):
+        if std.fs.metadata(&other).is_ok():
+            return Ok(())
+        sleep(&milliseconds(10u32))
+    Err(Failure.Unspecified)
+
+def test_first() -> Result[(), Failure]:
+    meet("first.flag", "second.flag")
+
+def test_second() -> Result[(), Failure]:
+    meet("second.flag", "first.flag")
+
+def test_forever() -> ():
+    sleep(&seconds(600u32))
+"#;
+
+#[test]
+fn tests_run_in_parallel_and_time_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    suite(root, &[("tests/meet.plenty", RENDEZVOUS)]);
+    let started = std::time::Instant::now();
+    let output = plenty(root, &["test", "--jobs", "3", "--timeout", "1"]);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "running 3 tests
+test meet::test_first ... ok
+test meet::test_second ... ok
+test meet::test_forever ... FAILED (timed out after 1s)
+
+test result: FAILED. 2 passed; 1 failed
+"
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(60));
+
+    // One at a time, the first test waits in vain until its timeout.
+    for flag in ["first.flag", "second.flag"] {
+        std::fs::remove_file(root.join(flag)).unwrap();
+    }
+    let output = plenty(
+        root,
+        &["test", "--jobs", "1", "--timeout", "1", "first", "second"],
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "running 2 tests
+test meet::test_first ... FAILED (timed out after 1s)
+test meet::test_second ... ok
+
+test result: FAILED. 1 passed; 1 failed; 1 filtered out
+"
+    );
+
+    for (args, message) in [
+        (["--jobs", "0"], "--jobs \"0\" is not a positive count"),
+        (
+            ["--timeout", "0"],
+            "--timeout \"0\" is not a positive number of seconds",
+        ),
+    ] {
+        let output = plenty(root, &["test", args[0], args[1]]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(message));
+    }
+}
+
+#[test]
+fn fake_clocks_and_streams() {
+    let output = run_program(
+        r#"import std.bytes
+import std.io
+import std.test
+import std.time
+from std.io import StreamError
+from std.time import Clock, Instant, nanoseconds, seconds
+
+def waited[C: Clock](clock: &C, start: &Instant) -> u64:
+    clock.now().saturating_duration_since(start).as_seconds()
+
+def main() -> Result[(), Failure]:
+    mut clock = std.test.fake_clock(10u64)
+    start = clock.now()
+    std.test.equal(&waited(&clock, &start), &0u64)?
+    clock.advance(&seconds(5u32))?
+    std.test.equal(&waited(&clock, &start), &5u64)?
+    clock.set(u64.MAX)
+    # is_err cannot show a unit value, so match instead.
+    match clock.advance(&nanoseconds(1u64)):
+        case Err(RangeError.OutOfRange):
+            pass
+        case _:
+            std.test.fail("advance past the end of the timeline")?
+    real = std.time.monotonic_clock()
+    std.test.less(&waited(&real, &real.now()), &60u64)?
+
+    mut stream = std.test.fake_stream(std.bytes.from_text("hello world")?)?
+    stream.limit(4)
+    mut buffer = std.bytes.with_capacity(16)?
+    buffer.resize(16, 0u8)?
+    std.test.equal(&stream.read(&mut buffer, 0, 16)?, &4)?
+    stream.fail_after(0, StreamError.Interrupted)
+    std.test.is_err(&stream.read(&mut buffer, 0, 16))?
+    std.test.equal(&stream.read(&mut buffer, 0, 0)?, &0)?
+    mut rest = std.bytes.empty()?
+    std.test.equal(&std.io.read_up_to(&mut stream, &mut rest, 100)?, &7)?
+    std.test.equal(&rest.to_text()?, &"o world")?
+    std.test.is_err(&stream.read(&mut buffer, 4, 20))?
+
+    stream.limit(0)
+    message = std.bytes.from_text("abc")?
+    stream.fail_after(1, StreamError.WriteZero)
+    std.test.equal(&stream.write(&message, 0, 3)?, &3)?
+    match stream.write(&message, 0, 3):
+        case Err(StreamError.WriteZero):
+            pass
+        case _:
+            std.test.fail("second write fails")?
+    stream.limit(2)
+    std.io.write_all(&mut stream, &message, 0, 3)?
+    stream.flush()?
+    std.test.equal(&stream.output.to_text()?, &"abcabc")?
+    std.test.equal(&stream.calls(), &11)?
+    print("done")?
+    Ok(())
+"#,
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"done\n");
 }
