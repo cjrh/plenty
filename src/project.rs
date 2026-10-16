@@ -1375,6 +1375,24 @@ pub struct TestOptions {
     pub seed: Option<u64>,
     /// Print the selected tests' names instead of running them.
     pub list: bool,
+    /// Most tests running at once; `None` uses the available parallelism.
+    pub jobs: Option<std::num::NonZeroUsize>,
+    /// Kill a test that runs longer than this and fail it.
+    pub timeout: Option<std::time::Duration>,
+}
+
+/// One test process that has not been reaped yet.
+struct Running {
+    case: usize,
+    child: std::process::Child,
+    log: Option<std::fs::File>,
+    started: std::time::Instant,
+}
+
+/// How a test process ended.
+enum Ending {
+    Exited(std::process::ExitStatus),
+    TimedOut(std::time::Duration),
 }
 
 /// One test: a whole program, or one function of a file of test functions.
@@ -1520,40 +1538,115 @@ pub fn test(directory: &Path, options: &TestOptions) -> Result<TestSummary> {
     }
     let plural = if cases.len() == 1 { "" } else { "s" };
     println!("running {} test{plural}", cases.len());
+    let jobs = options
+        .jobs
+        .or_else(|| std::thread::available_parallelism().ok())
+        .map_or(1, std::num::NonZeroUsize::get);
+    // Each test gets its own TMPDIR inside this directory, removed when the
+    // test ends, so a test that traps or times out leaves no scratch files.
+    let temporary = tempfile::Builder::new()
+        .prefix("plenty-test-run-")
+        .tempdir()?;
+    let mut endings: Vec<Option<(Ending, Vec<u8>)>> = (0..cases.len()).map(|_| None).collect();
+    let mut running: Vec<Running> = vec![];
+    let mut started = 0;
+    let mut reported = 0;
     let mut failures = vec![];
-    for case in &cases {
-        let executable = executables[case.file].as_ref().unwrap();
-        let mut command = Command::new(executable);
-        command
-            .current_dir(&project.member(files[case.file].member).directory)
-            .stdin(std::process::Stdio::null());
-        if let Some(function) = &case.function {
-            command.arg(function);
+    while reported < cases.len() {
+        while running.len() < jobs && started < cases.len() {
+            let case = &cases[started];
+            let executable = executables[case.file].as_ref().unwrap();
+            let scratch = temporary.path().join(started.to_string());
+            std::fs::create_dir(&scratch)?;
+            let mut command = Command::new(executable);
+            command
+                .current_dir(&project.member(files[case.file].member).directory)
+                .env("TMPDIR", &scratch)
+                .stdin(std::process::Stdio::null());
+            if let Some(function) = &case.function {
+                command.arg(function);
+            }
+            if let Some(seed) = options.seed {
+                command.env("PLENTY_TEST_SEED", seed.to_string());
+            }
+            let log = if options.no_capture {
+                None
+            } else {
+                // One file for both streams keeps their interleaving, and
+                // unlike a pipe it cannot fill up and stall the test.
+                let log = tempfile::tempfile()?;
+                command.stdout(log.try_clone()?).stderr(log.try_clone()?);
+                Some(log)
+            };
+            let child = command
+                .spawn()
+                .map_err(|e| format!("running {}: {e}", executable.display()))?;
+            running.push(Running {
+                case: started,
+                child,
+                log,
+                started: std::time::Instant::now(),
+            });
+            started += 1;
         }
-        if let Some(seed) = options.seed {
-            command.env("PLENTY_TEST_SEED", seed.to_string());
-        }
-        let run = |e: std::io::Error| format!("running {}: {e}", executable.display());
-        let (status, captured) = if options.no_capture {
-            (command.status().map_err(run)?, vec![])
-        } else {
-            // One file for both streams keeps their interleaving, and unlike
-            // a pipe it cannot fill up and stall the test.
-            let mut log = tempfile::tempfile()?;
-            command.stdout(log.try_clone()?).stderr(log.try_clone()?);
-            let status = command.status().map_err(run)?;
+        let mut index = 0;
+        while index < running.len() {
+            let test = &mut running[index];
+            let ending = match test.child.try_wait()? {
+                Some(status) => Ending::Exited(status),
+                None => match options.timeout {
+                    Some(limit) if test.started.elapsed() >= limit => {
+                        // Descendants the test started are not killed.
+                        drop(test.child.kill());
+                        test.child.wait()?;
+                        Ending::TimedOut(limit)
+                    }
+                    _ => {
+                        index += 1;
+                        continue;
+                    }
+                },
+            };
+            let mut test = running.swap_remove(index);
             let mut captured = vec![];
-            std::io::Seek::rewind(&mut log)?;
-            std::io::Read::read_to_end(&mut log, &mut captured)?;
-            (status, captured)
-        };
-        if status.success() {
-            println!("test {} ... ok", case.name);
-            summary.passed.push(case.name.clone());
-        } else {
-            println!("test {} ... FAILED ({})", case.name, describe(status));
-            summary.failed.push(case.name.clone());
-            failures.push((case.name.clone(), captured));
+            if let Some(log) = &mut test.log {
+                std::io::Seek::rewind(log)?;
+                std::io::Read::read_to_end(log, &mut captured)?;
+            }
+            drop(std::fs::remove_dir_all(
+                temporary.path().join(test.case.to_string()),
+            ));
+            endings[test.case] = Some((ending, captured));
+        }
+        // Report in discovery order, so output does not depend on timing.
+        while let Some(Some((ending, captured))) = endings.get_mut(reported).map(Option::take) {
+            let case = &cases[reported];
+            let reason = match ending {
+                Ending::Exited(status) if status.success() => None,
+                Ending::Exited(status)
+                    if case.function.is_some()
+                        && status.code() == Some(crate::frontend::RETURNED_ERR) =>
+                {
+                    Some("returned Err".to_owned())
+                }
+                Ending::Exited(status) => Some(describe(status)),
+                Ending::TimedOut(limit) => Some(format!("timed out after {}s", limit.as_secs())),
+            };
+            match reason {
+                None => {
+                    println!("test {} ... ok", case.name);
+                    summary.passed.push(case.name.clone());
+                }
+                Some(reason) => {
+                    println!("test {} ... FAILED ({reason})", case.name);
+                    summary.failed.push(case.name.clone());
+                    failures.push((case.name.clone(), captured));
+                }
+            }
+            reported += 1;
+        }
+        if reported < cases.len() && !running.is_empty() {
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
     }
     if !options.no_capture && failures.iter().any(|(_, output)| !output.is_empty()) {

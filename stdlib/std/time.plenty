@@ -99,6 +99,20 @@ pub def monotonic_now() -> Instant:
 pub def instant_at(nanoseconds_after_origin: u64) -> Instant:
     Instant(nanoseconds_after_origin)
 
+# A source of instants. Code that takes `[C: Clock]` instead of calling
+# monotonic_now can be run against std.test.FakeClock.
+pub protocol Clock:
+    def now(self) -> Instant:
+        pass
+
+# The process's monotonic clock as a Clock.
+pub class MonotonicClock:
+    pub def now(self) -> Instant:
+        monotonic_now()
+
+pub def monotonic_clock() -> MonotonicClock:
+    MonotonicClock()
+
 # The instant at which a total budget ends.
 pub class Deadline:
     _nanoseconds: u64

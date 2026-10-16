@@ -77,13 +77,20 @@ pub fn discover(path: &Path) -> Result<TestFile> {
     }
 }
 
+/// Exit status of a test that returned `Err`. A trap exits 1, so the runner
+/// can tell the two apart.
+pub const RETURNED_ERR: i32 = 3;
+
+/// Errors whose repr says nothing beyond what std.test already wrote to
+/// standard error, or nothing at all, so naming them would only add noise.
+const UNINFORMATIVE: [&str; 2] = ["Failure.Unspecified", "std.test.TestError.Assertion"];
+
 /// Source appended to a file of test functions. With one argument naming a
-/// test, `main` runs it and exits 0 when it passes and 1 when it fails;
-/// anything else exits 2. A failing test's error is reported the way the
-/// entrypoint reports one returned by `main` (without its explanation of
-/// standard errors), naming the test instead. The
-/// generated code declares nothing but `main`, so it cannot collide with a
-/// name in the file.
+/// test, `main` runs it and exits 0 when it passes and [`RETURNED_ERR`] when it
+/// returns `Err`; anything else exits 2. A returned error is written to
+/// standard error as `error: NAME returned ERROR` unless it is
+/// [`UNINFORMATIVE`]. The generated code declares nothing but `main`, so it
+/// cannot collide with a name in the file.
 pub fn appendix(tests: &[(String, TestReturn)]) -> String {
     let mut out = String::from(
         "\n\ndef main() -> i32:
@@ -105,15 +112,17 @@ pub fn appendix(tests: &[(String, TestReturn)]) -> String {
                         return 0
                     case Err(error):
                         drop(flush_stdout())
-                        drop(write_stderr(\"error: {name} returned \"))
                         match str.repr(&error):
                             case Ok(text):
-                                drop(write_stderr(text))
+                                if text != \"{}\" and text != \"{}\":
+                                    drop(write_stderr(\"error: {name} returned \"))
+                                    drop(write_stderr(text))
+                                    drop(write_stderr(\"\\n\"))
                             case Err(_):
-                                drop(write_stderr(\"Err\"))
-                        drop(write_stderr(\"\\n\"))
-                        return 1
-"
+                                pass
+                        return {RETURNED_ERR}
+",
+                UNINFORMATIVE[0], UNINFORMATIVE[1]
             )),
         }
     }
