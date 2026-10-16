@@ -3,8 +3,9 @@
 `import std.http` reads and writes HTTP/1.1 messages (RFC 9112) over
 [`std.io`](io.md) streams: request and response heads, `Content-Length`,
 chunked and close-delimited bodies, and the connection reuse rules. It is the
-framing layer only. Sockets, deadlines, routing, clients, servers and TLS
-belong to the caller or to later work in the [backlog](../../backlog.md).
+framing layer only. [`std.http.server`](http-server.md) builds a server on
+it; sockets, deadlines, clients and TLS belong to the caller or to later work
+in the [backlog](../../backlog.md).
 
 The module is checked Plenty in `stdlib/std/http.plenty`; it adds no runtime
 primitives. The same code runs over a [`std.net`](net.md) `TcpStream`, a
@@ -186,8 +187,8 @@ pipelined requests from memory and writes a chunked response. The tests in
 
 - HTTP/1.0 and HTTP/1.1 only. No HTTP/2, upgrades, or `100-continue`
   handling beyond returning the interim response.
-- No client, server, routing, connection pool, redirects, proxies, cookies,
-  or TLS. Deadlines are the caller's: use `std.net`'s `*_before` calls, or
+- No client, connection pool, redirects, proxies, cookies, or TLS; the
+  server and routing are in [`std.http.server`](http-server.md). Deadlines are the caller's: use `std.net`'s `*_before` calls, or
   read with a deadline-aware `Reader`.
 - Only the `chunked` transfer coding. A body with another coding is rejected,
   not decoded.
