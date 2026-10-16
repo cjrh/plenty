@@ -580,9 +580,9 @@ impl TypeRef {
             return Ok(Some(Ty::Range(Arc::new(ty))));
         }
         if matches!(name.as_str(), "&" | "&mut") {
-            let inner = self.args[0]
-                .resolve(aliases)?
-                .ok_or_else(|| self.at.error("cannot borrow unit"))?;
+            // `&()` is the type of a borrowed unit payload; spelling it lets
+            // generic `&T` signatures instantiate with `T = ()`.
+            let inner = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
             if matches!(inner, Ty::Ref(..)) {
                 return Err(self.at.error("references to references are not supported"));
             }

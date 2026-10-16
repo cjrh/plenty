@@ -129,6 +129,3 @@ A program calls the same function with `std.time.monotonic_clock()`.
 - There is no allocation failure injection. Native I/O failures can be
   injected only at the stream boundary, through `FakeStream`; a `File`
   operation cannot be made to fail.
-- `is_err` rejects a `Result[(), E]`, and `is_ok` a `Result[T, ()]`: their
-  failure explanation borrows the unit value to show it, and unit cannot be
-  borrowed. Match on the result instead.

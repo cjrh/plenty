@@ -46,6 +46,14 @@ good: Result[i64, IoError] = Ok(1)
 std.test.is_ok(&good)?
 bad: Result[i64, IoError] = Err(IoError.Closed)
 std.test.is_err(&bad)?
+done: Result[(), IoError] = Ok(())
+std.test.is_ok(&done)?
+closed: Result[(), IoError] = Err(IoError.Closed)
+std.test.is_err(&closed)?
+unit_error: Result[i64, ()] = Err(())
+std.test.is_err(&unit_error)?
+std.test.equal(&(), &())?
+std.test.equal((), ())?
 "#,
     ));
     assert!(output.status.success(), "{}", stderr(&output));
@@ -94,6 +102,18 @@ fn failed_assertions_show_their_values() {
         (
             "result: Result[i64, IoError] = Ok(7)\nstd.test.is_err(&result)?",
             "assertion failed: result is Err\n  value: 7\n",
+        ),
+        (
+            "result: Result[(), IoError] = Ok(())\nstd.test.is_err(&result)?",
+            "assertion failed: result is Err\n  value: ()\n",
+        ),
+        (
+            "result: Result[i64, ()] = Err(())\nstd.test.is_ok(&result)?",
+            "assertion failed: result is Ok\n  error: ()\n",
+        ),
+        (
+            "std.test.not_equal(&(), &())?",
+            "assertion failed: left != right\n  both: ()\n",
         ),
     ];
     for (body, expected) in cases {
@@ -633,12 +653,10 @@ def main() -> Result[(), Failure]:
     clock.advance(&seconds(5u32))?
     std.test.equal(&waited(&clock, &start), &5u64)?
     clock.set(u64.MAX)
-    # is_err cannot show a unit value, so match instead.
-    match clock.advance(&nanoseconds(1u64)):
-        case Err(RangeError.OutOfRange):
-            pass
-        case _:
-            std.test.fail("advance past the end of the timeline")?
+    past_end = clock.advance(&nanoseconds(1u64))
+    std.test.is_err(&past_end)?
+    out_of_range: Result[(), RangeError] = Err(RangeError.OutOfRange)
+    std.test.equal(&past_end, &out_of_range)?
     real = std.time.monotonic_clock()
     std.test.less(&waited(&real, &real.now()), &60u64)?
 

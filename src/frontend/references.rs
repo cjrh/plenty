@@ -81,9 +81,14 @@ impl Lower<'_> {
         if self.place_type(e).is_some() || self.is_function_place(e) {
             return self.borrow(e, false, ops);
         }
-        let ty = self
-            .expr_expected(e, expected, ops)?
-            .ok_or_else(|| e.at.error("expected a borrowed value, got ()"))?;
+        // A unit argument still needs an addressable temporary to lend.
+        let ty = match self.expr_expected(e, expected, ops)? {
+            Some(ty) => ty,
+            None => {
+                ops.push(Op::PushUnit);
+                Ty::Unit
+            }
+        };
         if let Ty::Ref(inner, _) = ty {
             let parent = self.reference_origin(e, ops)?;
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
