@@ -332,6 +332,7 @@
             - [Bounded operations](design/stdlib/fs/operations.md)
     - [Toolchain and implementation](design/toolchain/index.md)
         - [Building and running programs](design/toolchain/01-building/index.md)
+            - [Neovim support](design/toolchain/01-building/neovim.md)
             - [Compiler commands](design/toolchain/01-building/commands.md)
             - [Packages and project commands](design/toolchain/01-building/packages.md)
             - [Application exit and error reports](design/toolchain/01-building/entry-report.md)

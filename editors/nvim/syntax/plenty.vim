@@ -1,0 +1,54 @@
+if exists('b:current_syntax')
+  finish
+endif
+
+syntax case match
+syntax keyword plentyKeyword extern export opaque try with type const return mut pass
+syntax keyword plentyKeyword def nextgroup=plentyFunction skipwhite
+syntax keyword plentyKeyword struct enum yield async await class lambda trait protocol pub
+syntax keyword plentyConditional if elif else match case
+syntax keyword plentyRepeat while for break continue
+syntax keyword plentyInclude import from as
+syntax keyword plentyOperator and or not in
+syntax keyword plentyBoolean True False
+syntax keyword plentyConstant None
+syntax keyword plentyType i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool str
+syntax keyword plentyType list dict set tuple
+syntax match plentyOperator /[-+*\/%=<>!&|^~?]/
+syntax match plentyDelimiter /[()[\]{},.:]/
+syntax match plentyFunction /[A-Za-z_][A-Za-z_0-9]*/ contained
+
+" A leading sign is an operator; suffixes belong to the literal.
+syntax match plentyNumber /\<\d[0-9_]*\%([iu]\%(8\|16\|32\|64\)\)\?\>/
+syntax match plentyFloat /\<\d[0-9_]*\%([eE][+-]\?[0-9_]\+\)\%(f32\|f64\)\?\>/
+syntax match plentyFloat /\<\d[0-9_]*\%(f32\|f64\)\>/
+syntax match plentyFloat /\%([A-Za-z_0-9]\)\@<!\%(\d[0-9_]*\.[0-9_]*\|\.\d[0-9_]*\)\%([eE][+-]\?[0-9_]\+\)\?\%(f32\|f64\)\?/
+
+syntax keyword plentyTodo TODO FIXME XXX NOTE contained
+syntax match plentyComment /#.*/ contains=plentyTodo,@Spell
+syntax match plentyEscape /\\[0nrt\\'\"]/ contained
+syntax region plentyString start=/"/ skip=/\\./ end=/"/ oneline contains=plentyEscape,@Spell
+syntax region plentyString start=/'/ skip=/\\./ end=/'/ oneline contains=plentyEscape,@Spell
+" Later definitions take precedence over the single-quote regions.
+syntax region plentyString start=/"""/ skip=/\\./ end=/"""/ contains=plentyEscape,@Spell
+syntax region plentyString start=/'''/ skip=/\\./ end=/'''/ contains=plentyEscape,@Spell
+syntax sync fromstart
+
+highlight default link plentyKeyword Keyword
+highlight default link plentyConditional Conditional
+highlight default link plentyRepeat Repeat
+highlight default link plentyInclude Include
+highlight default link plentyOperator Operator
+highlight default link plentyBoolean Boolean
+highlight default link plentyConstant Constant
+highlight default link plentyType Type
+highlight default link plentyDelimiter Delimiter
+highlight default link plentyFunction Function
+highlight default link plentyNumber Number
+highlight default link plentyFloat Float
+highlight default link plentyTodo Todo
+highlight default link plentyComment Comment
+highlight default link plentyEscape SpecialChar
+highlight default link plentyString String
+
+let b:current_syntax = 'plenty'

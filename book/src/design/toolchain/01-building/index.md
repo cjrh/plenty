@@ -5,6 +5,7 @@ running and executable builds use a `cc`-compatible driver and the runtime archi
 embedded in the compiler. Program builds invoke neither Cargo nor rustc.
 
 - [Commands](commands.md): checking, running, executable and library output.
+- [Neovim](neovim.md): file detection, syntax highlighting, and editing defaults.
 - [Packages](packages.md): `plenty.toml`, path dependencies, `plenty.lock`,
   profiles, and the `plenty build`, `run`, `check`, and `test` commands.
 - [Application exits](entry-report.md): statuses and returned-error reports.
