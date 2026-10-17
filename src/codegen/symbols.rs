@@ -70,6 +70,8 @@ pub(super) enum Request {
     Sites(Vec<sites::Key>),
     /// An imported function.
     Import(String, ir::Signature),
+    /// The function's coverage counters, one per block ([`coverage`]).
+    Coverage(u32),
 }
 
 /// The module interface used while building one function's IR.
@@ -191,6 +193,17 @@ impl Symbols {
         symbol(func, name, colocated, tls)
     }
 
+    /// The function's `counters` coverage counters.
+    pub(super) fn coverage(&mut self, counters: u32, func: &mut ir::Function) -> GlobalValue {
+        let number = self.request(Request::Coverage(counters));
+        symbol(
+            func,
+            ir::UserExternalName::new(REQUESTED, number),
+            true,
+            false,
+        )
+    }
+
     /// The function's trap-site table and the offset of `key`'s record in it.
     pub(super) fn site(&mut self, key: sites::Key, func: &mut ir::Function) -> (GlobalValue, i64) {
         let table = match self.site_table {
@@ -228,10 +241,12 @@ fn symbol(
     })
 }
 
-/// Declare `requests` in `module` and point `relocs` at the real symbols.
+/// Declare `requests` of `function` in `module` and point `relocs` at the
+/// real symbols.
 pub(super) fn resolve(
     module: &mut ObjectModule,
     runtime: &Runtime,
+    function: FuncId,
     requests: &[Request],
     relocs: &mut [ModuleReloc],
 ) -> Result<()> {
@@ -252,6 +267,10 @@ pub(super) fn resolve(
             Request::Import(name, signature) => {
                 let id = module.declare_function(name, Linkage::Import, signature)?;
                 ModuleRelocTarget::user(0, id.as_u32())
+            }
+            Request::Coverage(counters) => {
+                let id = coverage::define(module, function, *counters)?;
+                ModuleRelocTarget::user(1, id.as_u32())
             }
         });
     }

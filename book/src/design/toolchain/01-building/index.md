@@ -13,6 +13,7 @@ embedded in the compiler. Program builds invoke neither Cargo nor rustc.
   runtime extraction, and supported platforms.
 - [Library artifacts](artifacts.md): generated files, contract inspection, and
   publication guarantees.
+- [Fuzzing](fuzzing.md): coverage-instrumented libFuzzer builds with `--fuzz`.
 
 For source-level entrypoint rules, see [source and modules](../../language/02-source/index.md).
 For runtime packaging, see [architecture](../02-architecture/runtime.md).

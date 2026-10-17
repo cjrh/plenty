@@ -396,7 +396,7 @@ fn plentyc_is_the_single_file_compiler_and_names_that_match_commands_need_a_path
     fails(
         dir.path(),
         &["--release", "--check", "run"],
-        "--release requires FILE or --compile",
+        "--release requires FILE, --compile, or --fuzz",
     );
 }
 

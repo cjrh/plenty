@@ -1,0 +1,4 @@
+# The input of one fuzzing run, supplied by the driver that `plenty --fuzz`
+# links in. Byte reads past the end return 0.
+pub extern def size() -> u64 = "fuzz_input_size"
+pub extern def byte(at: u64) -> u8 = "fuzz_input_byte"

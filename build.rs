@@ -154,29 +154,33 @@ fn main() {
     build_ring(&vendor);
     build_runtime(&out, &vendor, true);
     build_runtime(&out, &vendor, false);
-    build_test_hooks(&out);
+    build_native_object(&out, TEST_HOOKS, "plenty_test_hooks.o");
+    build_native_object(&out, FUZZ_DRIVER, "plenty_fuzz_driver.o");
 }
+
+/// The libFuzzer entry linked only into `plenty --fuzz` executables.
+const FUZZ_DRIVER: &str = "plenty-runtime/native/fuzz_driver.c";
 
 /// Failure injection linked only into `plenty test` executables, outside both
 /// runtime archives so shipped programs are unchanged.
 const TEST_HOOKS: &str = "plenty-runtime/native/test_hooks.c";
 
-fn build_test_hooks(out: &Path) {
-    println!("cargo:rerun-if-changed={TEST_HOOKS}");
+fn build_native_object(out: &Path, source: &str, object: &str) {
+    println!("cargo:rerun-if-changed={source}");
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
     let output = Command::new(&cc)
         .args(["-c", "-O2", "-fPIC", "-g0", "-Wall", "-Werror"])
         .args(["-ffunction-sections", "-fdata-sections"])
         .arg(format!("-ffile-prefix-map={}=/plenty", manifest.display()))
-        .arg(TEST_HOOKS)
+        .arg(source)
         .arg("-o")
-        .arg(out.join("plenty_test_hooks.o"))
+        .arg(out.join(object))
         .output()
-        .expect("invoke the C compiler for the test hooks");
+        .expect("invoke the C compiler for a native object");
     assert!(
         output.status.success(),
-        "compiling the test hooks failed:\n{}",
+        "compiling {source} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }

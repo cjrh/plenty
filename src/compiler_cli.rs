@@ -11,6 +11,7 @@ Usage: {0} FILE
        {0} --check-module FILE
        {0} --compile FILE -o OUT
        {0} --emit-object FILE -o OUT
+       {0} --fuzz FILE -o OUT [--libfuzzer PATH]
        {0} --shared-library FILE --library-name NAME -o OUT
        {0} --static-library FILE --library-name NAME -o OUT
        {0} --runtime-interface FILE --library-name NAME -o OUT.plentyi
@@ -29,6 +30,10 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --check-module: check a library module without requiring main.
 --compile: emit a native executable with Cranelift.
 --emit-object: emit an application object without linking (requires main).
+--fuzz: emit a coverage-instrumented libFuzzer executable that runs main once
+  per input; main reads the input through fuzz_input_size/fuzz_input_byte.
+--libfuzzer PATH: libFuzzer archive for --fuzz (default: clang's
+  libclang_rt.fuzzer_no_main.a).
 --shared-library / --static-library: emit C exports without requiring main.
 --runtime-interface: generate an explicit typed loader from checked export source.
 --library-name NAME: namespace for C exports, header, and generated .plentyi.
@@ -39,7 +44,8 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --linker PATH: cc-compatible linker driver (default: cc on PATH).
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
 --target TRIPLE: require this target to match the supported packaged runtime.
---release: optimize generated code for FILE or --compile (slower compilation).
+--release: optimize generated code for FILE, --compile, or --fuzz (slower
+  compilation).
 --no-cache: compile every function instead of reusing the compiled-function
   cache (also PLENTY_CACHE=off; PLENTY_CACHE_DIR selects the directory).
 --cache-stats: report the cache's hits and misses after compiling.
@@ -59,12 +65,18 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     let mut options = plenty::CompileOptions::default();
     let mut library_name = None;
     let mut archiver = None;
+    let mut libfuzzer = None;
     let mut link_options = false;
     let mut index = 0;
     while index < args.len() {
         if matches!(
             args[index].as_str(),
-            "--linker" | "--link-arg" | "--target" | "--library-name" | "--archiver"
+            "--linker"
+                | "--link-arg"
+                | "--target"
+                | "--library-name"
+                | "--archiver"
+                | "--libfuzzer"
         ) {
             let flag = args.remove(index);
             if index == args.len() {
@@ -74,6 +86,13 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             if flag == "--library-name" {
                 if library_name.replace(value).is_some() {
                     return Err("--library-name may be specified only once".into());
+                }
+                continue;
+            }
+            if flag == "--libfuzzer" {
+                if value.is_empty() || libfuzzer.replace(std::path::PathBuf::from(value)).is_some()
+                {
+                    return Err("--libfuzzer requires one nonempty path".into());
                 }
                 continue;
             }
@@ -135,11 +154,11 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         args.remove(index);
         let compiles = match args.as_slice() {
             [source] => !source.starts_with('-'),
-            [flag, ..] => flag == "--compile",
+            [flag, ..] => flag == "--compile" || flag == "--fuzz",
             [] => false,
         };
         if !compiles {
-            return Err("--release requires FILE or --compile".into());
+            return Err("--release requires FILE, --compile, or --fuzz".into());
         }
         options.optimize = true;
     }
@@ -155,6 +174,9 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         return Err(
             "--library-name requires library output or interface generation/extraction".into(),
         );
+    }
+    if libfuzzer.is_some() && !args.first().is_some_and(|a| a == "--fuzz") {
+        return Err("--libfuzzer requires --fuzz".into());
     }
     if archiver.is_some() && !args.first().is_some_and(|a| a == "--static-library") {
         return Err("--archiver requires --static-library".into());
@@ -256,6 +278,22 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         }
         [flag, source] if flag == "--check-module" && !legacy => {
             plenty::check_module_file(Path::new(source), root.as_deref())?;
+        }
+        [flag, source, option, output]
+            if flag == "--fuzz" && !legacy && (option == "-o" || option == "--output") =>
+        {
+            let mut options = options;
+            options.fuzz = Some(match libfuzzer {
+                Some(path) => path,
+                None => plenty::find_libfuzzer()?,
+            });
+            compile(
+                Path::new(source),
+                Path::new(output),
+                legacy,
+                root.as_deref(),
+                &options,
+            )?;
         }
         [flag, source, option, output]
             if flag == "--compile" && (option == "-o" || option == "--output") =>
