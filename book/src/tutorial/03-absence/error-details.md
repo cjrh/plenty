@@ -30,7 +30,40 @@ def main() -> Result[(), IoError]:
 Failure.Unspecified
 ```
 
-Use `match` to convert or report errors when you need their details.
+Use `match` to inspect or report errors when you need their details. To change
+just the error type, `std.error.map_error` forwards success for you:
+
+```plenty
+from std.error import map_error
+
+enum ConfigError:
+    InvalidCount(ParseError)
+
+def count_error(cause: ParseError) -> ConfigError:
+    ConfigError.InvalidCount(cause)
+
+def read_count(text: &str) -> Result[i64, ConfigError]:
+    count = map_error(i64.parse(text), count_error)?
+    Ok(count)
+
+def main() -> Result[(), IoError]:
+    match read_count("many"):
+        case Ok(count):
+            print(count)?
+        case Err(ConfigError.InvalidCount(cause)):
+            print(cause == ParseError.Invalid)?
+    Ok(())
+```
+
+```output
+True
+```
+
+`count_error` receives the original error once, only when parsing fails. On
+success, the parsed count passes through unchanged. The conversion policy is
+explicit; `?` still expects `ConfigError` here. The helper adds no allocation.
+The result and callback expressions are both evaluated before the helper runs;
+an unused callback and any values it owns are dropped on success.
 
 This conversion applies to `?`. Returning a `Result[T, IoError]` directly
 from a function declared `Result[T, Failure]` is still a type error.

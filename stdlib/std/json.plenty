@@ -3,6 +3,7 @@
 # skipped or repaired. Every size the input controls is bounded by `Limits`.
 # See book/src/design/stdlib/json.md.
 import std.bytes
+import std.error
 import std.io
 from std.bytes import Bytes, BytesError
 from std.io import Reader, Writer, StreamError
@@ -119,17 +120,16 @@ def valid(bounds: &Limits) -> bool:
     bounds.max_depth >= 0 and bounds.max_depth <= depth_ceiling and bounds.max_input >= 0 and bounds.max_output >= 0
 
 def faulted[T](result: Result[T, BytesError]) -> Result[T, JsonFault]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(JsonFault.Allocation(cause))
-                case BytesError.InvalidUtf8:
-                    Err(JsonFault.InvalidUtf8)
-                case BytesError.OutOfRange:
-                    Err(JsonFault.OutOfRange)
+    std.error.map_error(result, def once (cause: BytesError) -> JsonFault: bytes_fault(cause))
+
+def bytes_fault(error: BytesError) -> JsonFault:
+    match error:
+        case BytesError.Allocation(cause):
+            JsonFault.Allocation(cause)
+        case BytesError.InvalidUtf8:
+            JsonFault.InvalidUtf8
+        case BytesError.OutOfRange:
+            JsonFault.OutOfRange
 
 def reserved[T](result: Result[T, AllocError]) -> Result[T, JsonFault]:
     match result:

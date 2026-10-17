@@ -1,4 +1,4 @@
-# std.error — contextual errors
+# std.error — explicit mapping and contextual errors
 
 Import `std.error`. A `Context[E]` records which operation failed and, when
 there is one, the path it acted on, around an unchanged typed cause `E`. The
@@ -20,6 +20,7 @@ pub class Context[E]:
 
 | Operation | Result | Contract |
 | --- | --- | --- |
+| `map_error(result, mapper)` | `Result[T, G]` | Consumes `Result[T, E]`; invokes an owned `OnceCallable[[E], G]` only on `Err` |
 | `Context(operation, subject, cause)` | `Context[E]` | Takes ownership of all three; allocates nothing |
 | `context(result, operation)` | `Result[T, Context[E]]` | Wraps an `Err` with `Subject.Absent`; allocates nothing |
 | `path_context(result, operation, &path)` | `Result[T, Context[E]]` | Wraps an `Err`, copying the path only then |
@@ -38,6 +39,40 @@ applies to `Context[E]` as to any error type. A `Context` moves, because it can
 own a path. Its fields are public: read `error.cause` or match it to recover the
 typed cause, at any nesting depth. `?` in a function returning
 `Result[T, Failure]` erases a `Context` like any other error.
+
+## Explicit error mapping
+
+`map_error[T, E, G, F: OnceCallable[[E], G]](result: Result[T, E], mapper: F)`
+returns `Result[T, G]`. Use a named classifier when several error variants need
+different policies, or a small anonymous function for a single wrapper:
+
+```text
+map_error(i64.parse(text), def (cause: ParseError) -> ConfigError: ConfigError.Parse(cause))?
+```
+
+The result and mapper expressions run once, left to right, even on success.
+The mapper runs exactly once on `Err`, taking ownership of the original error;
+on `Ok`, the success payload moves through unchanged and the unused mapper is
+dropped. Named functions, reusable closures (including mutable environments),
+and consuming closures are accepted. Captures and affine payloads follow normal
+cleanup rules, including early return while constructing the mapper.
+
+Mapping adds no allocation or boxing. Callback construction, execution, and
+destruction retain their ordinary effects. If the callback returns
+`Result[G, X]`, the output is `Result[T, Result[G, X]]`: nothing is flattened
+and no cause-preservation policy is invented. Use [`context`](#allocation-failure)
+or `path_context` when their explicit context-allocation policy fits.
+
+This is a library function, not a Result method; `.map_err(...)` is not
+implemented. `?` still requires identical error types (except deliberate
+`Failure` erasure). The conversion is visible at the `map_error` call.
+See [the lesson](../../tutorial/03-absence/error-details.md).
+
+Worker-reachable calls need an inspectable concrete closure, such as
+`def once (cause: ParseError) -> ConfigError: classify(cause)`. A thin named or
+anonymous function value called indirectly inside a generic helper retains the
+existing worker-thread effect restriction. The `once` form keeps the
+callback body concrete without allocating; it does not bypass its effect check.
 
 ## Allocation failure
 

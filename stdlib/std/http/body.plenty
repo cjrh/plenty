@@ -5,6 +5,7 @@
 # fails, is cancelled, or is dropped leaves nothing behind on disk.
 # See book/src/design/stdlib/http-body.md.
 import std.bytes
+import std.error
 import std.fs
 import std.http
 import std.http.server
@@ -113,13 +114,6 @@ def http[T](result: Result[T, HttpError]) -> Result[T, BodyError]:
                     Err(BodyError.Allocation(inner))
                 case _ as other:
                     Err(BodyError.Http(other))
-
-def json[T](result: Result[T, JsonError]) -> Result[T, BodyError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(BodyError.Json(cause))
 
 def stored[T](result: Result[T, IoError]) -> Result[T, BodyError]:
     match result:
@@ -416,11 +410,11 @@ pub def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Li
     if not is_json(&media.essence):
         return Err(BodyError.UnsupportedMediaType)
     body = collect(exchange, limits.max_input)?
-    json(std.json.parse(&body, limits))
+    std.error.map_error(std.json.parse(&body, limits), def once (cause: JsonError) -> BodyError: BodyError.Json(cause))
 
 # Encodes `value` and sends it as application/json.
 pub def send_json[T: Transport](exchange: &mut Exchange[T], status: i64, value: &Json, limits: &std.json.Limits) -> Result[(), BodyError]:
-    body = json(std.json.encode(value, limits))?
+    body = std.error.map_error(std.json.encode(value, limits), def once (cause: JsonError) -> BodyError: BodyError.Json(cause))?
     http(exchange.send(status, "application/json", &body))
 
 # Multipart

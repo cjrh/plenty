@@ -37,6 +37,11 @@ family; Result error types must be identical after alias resolution, except
 for explicit `Failure` erasure below. Success types may differ. There are
 no implicit Result/Option conversions. A unit success produces unit.
 
+For explicit error conversion, [`std.error.map_error(result, mapper)`](../../stdlib/error.md#explicit-error-mapping)
+consumes `Result[T, E]` and returns `Result[T, G]`, invoking the mapper only
+for `Err`. It forwards `Ok` without copying and adds no allocation. This is
+an ordinary library call; it does not change the propagation rule.
+
 ```plenty
 def checked_first(values: &list[i64]) -> Option[i64]:
     Some(values.get(0)? + 1)
