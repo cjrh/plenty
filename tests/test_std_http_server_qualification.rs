@@ -893,9 +893,12 @@ def main() -> Result[(), Failure]:
 #[test]
 fn shutdown_under_sustained_load_loses_no_response_or_resource() {
     let main = r##"
-def hammer(port: u16, stop: CancellationToken) -> tuple[i64, i64]:
+# `late` counts whole responses read after the stop signal: requests were
+# still in flight when shutdown began.
+def hammer(port: u16, stop: CancellationToken) -> tuple[i64, i64, i64]:
     mut whole = 0
     mut broken = 0
+    mut late = 0
     while not stop.is_cancelled():
         match connect_to(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n"):
             case Ok(stream):
@@ -909,6 +912,8 @@ def hammer(port: u16, stop: CancellationToken) -> tuple[i64, i64]:
                     # The last response on a connection adds `Connection: close`.
                     if text.startswith("HTTP/1.1 200 OK|") and text.endswith("||home"):
                         whole += 1
+                        if stop.is_cancelled():
+                            late += 1
                     elif text != "":
                         broken += 1
                         break
@@ -918,7 +923,7 @@ def hammer(port: u16, stop: CancellationToken) -> tuple[i64, i64]:
                         break
             case Err(_):
                 break
-    (whole, broken)
+    (whole, broken, late)
 
 def stopper(stop: CancellationToken) -> ():
     std.time.sleep(&std.time.milliseconds(500u32))
@@ -948,6 +953,8 @@ def load_round() -> Result[(), Failure]:
     mut prompt = False
     mut whole = 0
     mut broken = 0
+    mut late = 0
+    mut fewest = -1
     start = std.time.monotonic_now()
     with spawn(stopper, stop.share())? as timer, spawn(hammer, port, stop.share())? as a, spawn(hammer, port, stop.share())? as b, spawn(hammer, port, stop.share())? as c, spawn(hammer, port, stop.share())? as d, spawn(hammer, port, stop.share())? as e, spawn(hammer, port, stop.share())? as f:
         report = std.http.server.serve(listener, &table, &site, &config, &stop)?
@@ -955,10 +962,13 @@ def load_round() -> Result[(), Failure]:
         # Stop comes at 500 ms; the drain deadline is 2 s after that.
         prompt = millis_since(&start) < 3000u64
         for pair in [a.join(), b.join(), c.join(), d.join(), e.join(), f.join()]?:
-            (got, lost) = pair
+            (got, lost, after) = pair
             whole += got
             broken += lost
-    print(prompt, broken, whole)?
+            late += after
+            if fewest < 0 or got < fewest:
+                fewest = got
+    print(prompt, broken, whole, fewest, late)?
     print(summary)?
     Ok(())
 
@@ -996,7 +1006,12 @@ def main() -> Result[(), Failure]:
     let load: Vec<&str> = lines[0].split(' ').collect();
     assert_eq!(&load[..2], ["True", "0"], "{text}");
     let whole: u64 = load[2].parse().unwrap();
-    assert!(whole > 600, "{text}");
+    // Load was sustained into shutdown without a machine-speed constant: every
+    // client reused its connection, and some responses arrived after the stop.
+    let fewest: u64 = load[3].parse().unwrap();
+    let late: u64 = load[4].parse().unwrap();
+    assert!(fewest >= 2, "{text}");
+    assert!(late >= 1, "{text}");
     assert!(
         lines[1].ends_with(&format!(
             " requests={whole} handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0"
