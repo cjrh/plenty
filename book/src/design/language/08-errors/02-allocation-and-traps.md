@@ -78,6 +78,17 @@ such as a std function started directly as a worker. Caller context does not
 cross thread creation or executor submission. This is one caller note, not a
 stack trace; it does not change the trap message into an API-specific error.
 
+### Caller locations
+
+The same nearest non-std caller is available to standard-library code that
+reports a failure without trapping. [`std.test`](../../stdlib/test.md#assertions)
+assertions use it to begin their report with `file:line:column: `. The compiler
+records it as described above, so a std function needs no extra parameter and
+user code no annotation. Plenty code outside the standard library cannot read
+it: the hook, `__caller_location`, is rejected with `` `__caller_location` is
+reserved for the standard library ``. Without a source caller on the current
+thread the report has no position.
+
 | Trap | Message |
 |---|---|
 | Integer overflow in `+`, `-`, `*`, `//`, or negation | `integer overflow` |

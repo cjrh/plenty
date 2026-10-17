@@ -81,6 +81,16 @@ def test_report_survives_short_writes() -> Result[(), Failure]:
     report(&mut out, &values)?
     std.test.equal(&out.output.to_text()?, &"19")?
     Ok(())
+
+def test_save_reports_a_full_disk() -> Result[(), Failure]:
+    scratch = std.test.scratch()?
+    path = scratch.file("total.txt")?
+    values = [4, 5]?
+    std.test.fail_files_after(0u32, 28i32)?
+    saved = save(&path, &values)
+    std.test.restore_files()?
+    std.test.is_err(&saved)?
+    Ok(())
 ```
 
 `std.test.scratch()` makes an empty directory under `$TMPDIR` that is removed
@@ -94,19 +104,26 @@ socket does; the fake makes that case happen every time. `fail_after` makes a
 chosen call fail, and `std.test.fake_clock` stands in for the clock in the same
 way.
 
+A real file fails rarely, so `test_save_reports_a_full_disk` makes it fail:
+after `fail_files_after(0u32, 28i32)`, every file call fails with error 28, the
+system's code for a full disk, until `restore_files`. `fail_allocations_after`
+does the same for memory. Both work only in the executables `plenty test`
+builds; a shipped program cannot be made to fail this way.
+
 ```sh plenty-project stats
 plenty test
 ```
 
 ```output
-running 5 tests
+running 6 tests
 test sums::test_total ... ok
 test sums::test_mean ... ok
 test sums::test_save ... ok
 test sums::test_order_does_not_matter ... ok
 test sums::test_report_survives_short_writes ... ok
+test sums::test_save_reports_a_full_disk ... ok
 
-test result: ok. 5 passed; 0 failed
+test result: ok. 6 passed; 0 failed
 ```
 
 Tests run in parallel, one per CPU, but are listed in the order they appear.
@@ -125,17 +142,17 @@ test sums::test_total ... FAILED (returned Err)
 failures:
 
 ---- sums::test_total output ----
-assertion failed: left == right
+sums.plenty:7:5: assertion failed: left == right
   left: 7
  right: 6
 
-test result: FAILED. 0 passed; 1 failed; 4 filtered out
+test result: FAILED. 0 passed; 1 failed; 5 filtered out
 ```
 
 The command exits with status 1.
 
-The assertion writes its explanation as it fails, and `returned Err` says the
-test stopped there. A trap would read `exit status 1` and show the trap's
+The assertion writes where it was called and what it found as it fails, and
+`returned Err` says the test stopped there. A trap would read `exit status 1` and show the trap's
 message. `plenty test --no-capture` lets output through as it happens, and
 `--timeout 10` fails any test still running after ten seconds.
 
