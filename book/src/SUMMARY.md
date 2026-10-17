@@ -186,6 +186,7 @@
         - [Receive from either channel](tutorial/11-concurrency/channel-selection.md)
         - [Serve a TCP connection](tutorial/11-concurrency/tcp-sockets.md)
         - [Encrypt a TCP connection](tutorial/11-concurrency/tls-streams.md)
+        - [Verify clients and choose a protocol](tutorial/11-concurrency/mutual-tls.md)
         - [Serve HTTP requests](tutorial/11-concurrency/http-server.md)
         - [Read forms, cookies and forwarded clients](tutorial/11-concurrency/http-forms.md)
 - [Wait for I/O with a deadline](tutorial/11-concurrency/bounded-io.md)
