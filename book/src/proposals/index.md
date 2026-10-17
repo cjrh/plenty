@@ -60,5 +60,8 @@ were last reconciled with the compiler on 2026-10-10.
 | Proposal | Backlog |
 | --- | --- |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | B36 |
+| [Named arguments and fresh defaults](named-arguments-and-fresh-defaults.md) — preferred narrow revision of B36 | B36 |
+| [Explicit error composition](error-composition.md) and [finite error sets](error-sets.md) | B71 |
+| [Typestate and owned transitions](typestate-and-owned-transitions.md) — assessment and experiments using existing facilities | B72 |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
 | [Bundled HTTP acceptance](standard-http.md) | B58–B66 |
