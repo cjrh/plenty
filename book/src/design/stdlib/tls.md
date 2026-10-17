@@ -315,7 +315,9 @@ directories with new releases, run `cargo update -p CRATE --precise VERSION`,
 and rerun `tests/test_std_tls.rs`. Follow rustls security advisories: an
 update is a change to the compiler, and programs pick it up when rebuilt.
 
-Programs that do not use `std.tls` contain none of rustls or ring.
+Programs whose `main` never reaches `std.tls` code contain none of rustls or
+ring, even when they import a module that imports `std.tls`; the linker drops
+the unreachable functions and the TLS runtime only they call.
 
 ## Example
 
