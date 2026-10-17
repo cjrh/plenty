@@ -742,6 +742,149 @@ connections=4 requests=4 handler_errors=1 protocol_errors=1 timeouts=3 cancelled
     );
 }
 
+/// Refusals of requests the server has not read to the end (issue #138):
+/// `431` for a long field, `413` for a declared body over `max_body`, `400`
+/// for a malformed head, and `400` from a handler whose body read failed,
+/// each followed by input the server never reads. The server ends its output
+/// and discards input before closing, so the client reads the whole answer
+/// and a clean end instead of a reset, both when the connection lingers
+/// parked on the accepting thread and when it lingers on its worker.
+#[test]
+fn refusals_end_cleanly_instead_of_resetting() {
+    use std::io::Write;
+    let filler = |byte: u8, size: usize| vec![byte; size];
+    let cases: Vec<(&str, Vec<u8>)> = vec![
+        (
+            "HTTP/1.1 431 ",
+            [
+                &b"GET / HTTP/1.1\r\nHost: x\r\nX-Long: "[..],
+                &filler(b'a', 20000),
+                b"\r\n\r\n",
+            ]
+            .concat(),
+        ),
+        (
+            "HTTP/1.1 413 ",
+            [
+                &b"POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\n\r\n"[..],
+                &filler(b'b', 40000),
+            ]
+            .concat(),
+        ),
+        (
+            "HTTP/1.1 400 ",
+            [
+                &b"GET / HTTP/1.1\r\nHost: x\r\nBad Header\r\n\r\n"[..],
+                &filler(b'c', 40000),
+            ]
+            .concat(),
+        ),
+        (
+            "HTTP/1.1 400 ",
+            [
+                &b"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n"[..],
+                &filler(b'd', 40000),
+            ]
+            .concat(),
+        ),
+    ];
+    let serve = "    report = std.http.server.serve(listener, &table, &site, &std.http.server.config(), &stop)?";
+    assert!(SERVE_UNTIL_STOPPED.contains(serve));
+    let on_worker = SERVE_UNTIL_STOPPED.replace(
+        serve,
+        "    mut config = std.http.server.config()\n    config.idle_connections = 0\n    report = std.http.server.serve(listener, &table, &site, &config, &stop)?",
+    );
+    for main in [SERVE_UNTIL_STOPPED, &on_worker] {
+        let server = Served::start(main);
+        for (status, request) in &cases {
+            for _ in 0..5 {
+                let mut stream = std::net::TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+                    .unwrap();
+                stream.write_all(request).unwrap();
+                let mut answer = Vec::new();
+                stream
+                    .read_to_end(&mut answer)
+                    .unwrap_or_else(|error| panic!("{status}: {error}"));
+                let answer = String::from_utf8_lossy(&answer);
+                assert!(
+                    answer.starts_with(status) && answer.contains("\r\nConnection: close\r\n"),
+                    "{answer}"
+                );
+            }
+        }
+        curl(&[&server.url("/stop")]);
+        assert_eq!(
+            server.finish(),
+            "connections=21 requests=11 handler_errors=0 protocol_errors=20 timeouts=0 cancelled=0 rejected=0"
+        );
+    }
+}
+
+/// The same over TLS: after a `431` the server sends `close_notify` and
+/// discards the rest of the request, so the client reads the answer and
+/// then `close_notify`, not a truncated stream.
+#[test]
+fn tls_refusals_end_with_close_notify() {
+    let fixtures = format!("{}/tests/fixtures/tls", env!("CARGO_MANIFEST_DIR"));
+    let main = r##"import std.http.tls
+import std.tls
+from std.http.tls import TlsTransport
+
+pub class Secure:
+    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        exchange.send_text(200, "secure")?
+        Ok(())
+
+def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+    never = CancellationToken()?
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
+    config = std.tls.client_config(&std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem")?)?)?
+    for index in range(3):
+        tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
+        mut tls = std.tls.connect(tcp, &config, "localhost", &deadline, &never)?
+        mut request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: localhost\r\nX-Long: ")?
+        request.resize(request.len() + 20000, 97u8)?
+        request.extend(&std.bytes.from_text("\r\n\r\n")?)?
+        # A failed write still reads, so `stop` is always cancelled.
+        drop(tls.write_all_before(&request, 0, request.len(), &deadline, &never))
+        mut answer = std.bytes.empty()?
+        mut ending = "close_notify"
+        while True:
+            at = answer.len()
+            answer.resize(at + 512, 0u8)?
+            match tls.read_before(&mut answer, at, at + 512, &deadline, &never):
+                case Ok(count):
+                    answer.truncate(at + count)?
+                    if count == 0:
+                        break
+                case Err(_):
+                    answer.truncate(at)?
+                    ending = "failed"
+                    break
+        print(answer.to_text()?.startswith("HTTP/1.1 431 "), ending)?
+    stop.cancel()
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    table = routes()?
+    stop = CancellationToken()?
+    tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 64)?
+    port = listener.local_address()?.port
+    with spawn(visit, port, stop.share())? as task:
+        report = std.http.tls.serve(listener, tls, &table, &Secure(), &std.http.server.config(), &stop)?
+        print(counts(&report)?)?
+    Ok(())
+"##
+    .replace("FIXTURES", &fixtures);
+    assert_eq!(
+        output(&format!("{LOOPBACK}{main}")),
+        "True close_notify\nTrue close_notify\nTrue close_notify\nconnections=3 requests=0 handler_errors=0 protocol_errors=3 timeouts=0 cancelled=0 rejected=0"
+    );
+}
+
 /// Six clients send keep-alive requests as fast as they can while shutdown
 /// begins. Every response a client receives is whole, the server's request
 /// count matches the responses received, `serve` returns within the drain

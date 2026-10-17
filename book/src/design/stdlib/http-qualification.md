@@ -18,6 +18,7 @@ request corpus in `tests/fixtures/http_server/`. The benchmark is
 | Fuzzing | Partial | Deterministic mutation of the corpus through the whole connection loop, here and in `test_std_http.rs`; no coverage-guided fuzzing |
 | Interoperability | Pass | curl over plain HTTP and TLS (reuse, sized, chunked and `100-continue` uploads, HTTP/1.0, `HEAD`, chunked and 64 MiB responses, 404/405); `std.http.client` (pooling, streamed chunked upload, large downloads) |
 | Slow clients | Pass | Idle and silent clients, partial request heads, partial TLS handshakes, slow readers and slow body senders are cut off at their deadlines without holding the server; heads and handshakes wait parked, not on a worker. See [Slow request heads](#slow-request-heads) |
+| Refusals without a reset | Pass | Refusals of requests not read to the end (`431`, `413`, `400`, a failed body read), each followed by more input, end with the whole answer and a clean end, over plain TCP (parked and on a worker) and TLS (`close_notify`). See [Refusals and resets](#refusals-and-resets) |
 | Shutdown under sustained load | Pass | Six clients sending keep-alive requests while shutdown begins: every response received is whole, the server's count matches, and `serve` returns within the drain deadline |
 | Supervisor stop | Pass | With [`std.signal.cancel_on`](signal.md#stopping-a-server), `SIGTERM` during a streamed response begins shutdown: the response ends whole, `serve` returns its `Report` and the program exits 0. A second signal ends the program at once (`test_std_signal.rs`) |
 | Allocation failure | Pass | Every allocation on the accepting thread fails in turn; request handling fails in turn through `serve_connection` (`test_std_http_server.rs`). No trap, no leak, and the request is served once allocation succeeds |
@@ -117,6 +118,29 @@ change beyond run-to-run noise on a loaded machine (load average about 8).
 `partial_heads_wait_without_a_worker` and
 `https_partial_handshakes_and_heads_wait_without_a_worker` in
 `test_std_http_server.rs` check this.
+
+## Refusals and resets
+
+Until issue #138 was fixed, a refusal of a request the server had not read
+to the end closed the socket with request bytes unread, so Linux reset the
+connection. Measured on 2026-10-17 against
+`examples/http_server_bench.plenty`, ten connections per case, each
+sending the request and then reading to the end:
+
+| Request | Before | After |
+|---|---|---|
+| Head with a 20000-byte field (`431`) | 10 resets | 10 clean ends |
+| `Content-Length` over `max_body` and 200 KB of body (`413`) | 10 resets | 10 clean ends |
+| Malformed field line and 100 KB more (`400`) | 10 resets | 10 clean ends |
+| Bad chunk size and 100 KB more (`400` from a failed body read) | 10 resets | 10 clean ends |
+
+The results were the same with `IDLE=0`, where the worker lingers. Before
+the fix a client reading to the end saw `ECONNRESET`, sometimes after
+reading the answer. Now the
+server ends its output, discards up to 64 KiB for up to 2 s, then closes
+(see [Lingering close](http-server.md#lingering-close)).
+`refusals_end_cleanly_instead_of_resetting` and
+`tls_refusals_end_with_close_notify` in the qualification suite check this.
 
 ## Deployment
 

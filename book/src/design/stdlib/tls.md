@@ -155,6 +155,7 @@ application data passes before the peer is verified.
 | `write_before(source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, TlsError]` | Encrypt and send at most 16 KiB of `source[start:stop]`; the count taken |
 | `write_all_before(source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), TlsError]` | Send all of `source[start:stop]` |
 | `close_before(deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), TlsError]` | Send `close_notify`, then close the TCP stream |
+| `shutdown(direction: Shutdown)` | `Result[(), TlsError]` | End the TCP stream in one direction without closing it; ending writes sends `close_notify` first without waiting, and ciphertext the socket does not take at once is lost. Reading continues |
 | `read(buffer: &mut Bytes, start: i64, stop: i64)` | `Result[i64, StreamError]` | `std.io` Reader; waits without a deadline |
 | `write(source: &Bytes, start: i64, stop: i64)` | `Result[i64, StreamError]` | `std.io` Writer; waits without a deadline |
 | `flush()` | `Result[(), StreamError]` | Nothing to do: writes are sent as they are made |

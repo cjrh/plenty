@@ -8,7 +8,7 @@ import std.tls
 from std.bytes import Bytes
 from std.http.server import Config, Handler, OpenError, Report, Router, ServerError
 from std.io import StreamError
-from std.net import NetError, TcpListener, TcpStream
+from std.net import NetError, Shutdown, TcpListener, TcpStream
 from std.ready import Selector
 from std.sync import CancellationToken
 from std.time import Deadline
@@ -25,6 +25,9 @@ pub class TlsTransport:
 
     pub def write_before(self: &mut TlsTransport, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         transported(self.stream.write_before(source, start, stop, deadline, cancel))
+
+    pub def shutdown(self: &mut TlsTransport, direction: Shutdown) -> Result[(), NetError]:
+        transported(self.stream.shutdown(direction))
 
 def transported[T](result: Result[T, TlsError]) -> Result[T, NetError]:
     match result:
@@ -80,6 +83,6 @@ pub class TlsOpener:
         drop(stream.stream.unwatch(selector))
 
 # std.http.server.serve over TLS with `tls`. Responses end without a TLS
-# close_notify; see the reference's limits.
+# close_notify, except before a lingering close; see the reference's limits.
 pub def serve[H: Handler[TlsTransport]](listener: TcpListener, tls: ServerConfig, router: &Router, handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
     std.http.server.serve_with(listener, &TlsOpener(tls), router, handler, config, stop)
