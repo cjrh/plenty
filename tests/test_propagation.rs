@@ -305,3 +305,46 @@ fn rejects_invalid_propagation(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[rstest]
+#[case(
+    "def work() -> Result[(), IoError]:\n    values: list[i64] = []?\n    drop(values)\n    Ok(())",
+    "`?` requires identical Result error types; a collection literal fails with AllocError, which cannot propagate as IoError"
+)]
+#[case(
+    "def work() -> Result[(), str]:\n    values: dict[str, i64] = ({\"a\": 1})?\n    drop(values)\n    Ok(())",
+    "which cannot propagate as str"
+)]
+#[case(
+    "def work() -> Result[(), str]:\n    values = [1, 2]?\n    drop(values)\n    Ok(())",
+    "which cannot propagate as str"
+)]
+#[case(
+    "def work() -> Option[i64]:\n    values: set[i64] = {1}?\n    drop(values)\n    Some(1)",
+    "same Result or Option family; a collection literal returns Result[collection, AllocError]"
+)]
+fn collection_literal_under_question_reports_its_alloc_error(
+    #[case] source: &str,
+    #[case] expected: &str,
+) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+    assert!(!error.contains("use `?` to propagate"), "{error}");
+}
+
+#[test]
+fn collection_literal_under_question_still_propagates_alloc_error_and_failure() {
+    for body in [
+        "def work() -> Result[i64, AllocError]:\n    values: list[i64] = []?\n    drop(values)\n    Ok(0)",
+        "def work() -> Result[i64, Failure]:\n    values: list[i64] = []?\n    drop(values)\n    Ok(0)",
+    ] {
+        support::check_source(body).unwrap();
+    }
+    let error = support::check_source("values: list[i64] = []")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("use `?` to propagate allocation failure"),
+        "{error}"
+    );
+}
