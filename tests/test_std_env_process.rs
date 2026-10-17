@@ -808,3 +808,69 @@ True Option[i32].Some(0) Option[i32].Nothing
 "#,
     );
 }
+
+/// Issue #128: a child forked by one thread holds a copy of another thread's
+/// write descriptor until it execs, so running a just-written program can
+/// fail with ETXTBSY. The script is rewritten through the runtime's own file
+/// path (`open(..., "w")` keeps the mode the harness gave it) and run while
+/// four threads keep spawning, so the retry in spawn is what keeps it passing.
+#[test]
+fn a_just_written_program_runs_while_other_threads_spawn() {
+    let source = format!(
+        r##"{PRELUDE}
+def churn(rounds: i64) -> Result[i64, Failure]:
+    mut ran = 0
+    for _ in range(rounds):
+        mut child = std.process.command("/bin/true")?.spawn()?
+        if child.wait()?.success():
+            ran += 1
+    Ok(ran)
+
+def rewrite_and_run(rounds: i64) -> Result[i64, Failure]:
+    mut ran = 0
+    for _ in range(rounds):
+        with open("tool", "w")? as stream:
+            stream.write("#!/bin/sh\nexit 7\n")?
+        started = std.process.command("./tool")?.spawn()
+        if bad(&started):
+            print(str.repr(started)?)?
+        mut child = started?
+        match child.wait()?.code():
+            case Some(code):
+                if code == 7i32:
+                    ran += 1
+            case Nothing:
+                pass
+    Ok(ran)
+
+def main() -> Result[(), Failure]:
+    with spawn(churn, 400)? as a:
+        with spawn(churn, 400)? as b:
+            with spawn(churn, 400)? as c:
+                with spawn(churn, 400)? as d:
+                    print(rewrite_and_run(300)?)?
+                    print(a.join()? + b.join()? + c.join()? + d.join()?)?
+    Ok(())
+"##
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, &source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let tool = dir.path().join("tool");
+    std::fs::write(&tool, "").unwrap();
+    std::fs::set_permissions(&tool, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    for _ in 0..3 {
+        let output = Command::new(&executable)
+            .current_dir(dir.path())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}{stderr}");
+        assert_eq!(stdout, "300\n1600\n");
+    }
+}

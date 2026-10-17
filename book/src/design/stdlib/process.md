@@ -73,6 +73,19 @@ A failed spawn leaves no process and no open pipe.
 Pipe ends are close-on-exec, so one child never inherits another child's
 pipes. Other descriptors the program opened are close-on-exec as well.
 
+Close-on-exec still leaves a short window: a child forked by one thread holds
+a copy of every descriptor open at that moment until its exec closes them. If
+another thread had a program open for writing then, running that program just
+after closing it fails with "text file busy" (`IoError.System(26)`). `spawn`
+retries that error after waits of 1, 2, 4, 8, 16, 32 and 64 ms, then reports
+it, so a busy program delays `spawn` by at most 127 ms. Spawns in one program
+take turns, and a retrying spawn keeps its turn while it waits, so no new child
+can pick up a descriptor meanwhile; other threads' child operations other than
+a blocking `wait` wait with it. `spawn` takes no deadline or cancellation
+token. Waiting allocates nothing; each attempt repeats the brief host
+allocation described under [Limits](#limits). A program another process keeps
+open for writing still fails after the last wait.
+
 ## Child
 
 A `Child` is the single owner of one process. It is not copyable.

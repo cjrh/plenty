@@ -17,6 +17,7 @@ mod native {
     use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Mutex, MutexGuard, PoisonError};
+    use std::time::Duration;
 
     /// An unreaped child. `pipes` are the descriptor numbers of its piped
     /// stdin, stdout and stderr, or -1; the descriptors themselves belong to
@@ -37,6 +38,15 @@ mod native {
     const STDIN_PIPE: u64 = 0b11;
     const CHANGE_DIR: u64 = 1 << 6;
     const CLEAR_ENV: u64 = 1 << 7;
+
+    /// Exec fails with ETXTBSY while any process has the program open for
+    /// writing. A child forked by another thread holds a copy of each
+    /// descriptor open at that moment until its exec closes them, and its
+    /// parent can resume before that close, so a program this process just
+    /// wrote and closed can be busy for a moment. Spawn retries after these
+    /// waits, 127 ms in all, then reports the error.
+    const BUSY_WAITS_MS: [u64; 7] = [1, 2, 4, 8, 16, 32, 64];
+    const ETXTBSY: i32 = 26;
 
     #[repr(C)]
     struct PollFd {
@@ -130,13 +140,24 @@ mod native {
         if id >= 1 << 31 {
             return Err(Kind::Other.into());
         }
-        let child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) => {
-                if table.is_empty() {
-                    *table = Vec::new();
+        let mut waits = BUSY_WAITS_MS.iter();
+        let child = loop {
+            match command.spawn() {
+                Ok(child) => break child,
+                Err(error) => {
+                    if error.raw_os_error() == Some(ETXTBSY) {
+                        if let Some(&wait) = waits.next() {
+                            // The lock stays held so no thread here forks
+                            // another child that could inherit a descriptor.
+                            std::thread::sleep(Duration::from_millis(wait));
+                            continue;
+                        }
+                    }
+                    if table.is_empty() {
+                        *table = Vec::new();
+                    }
+                    return Err(error.into());
                 }
-                return Err(error.into());
             }
         };
         NEXT.store(id + 1, Ordering::Relaxed);
