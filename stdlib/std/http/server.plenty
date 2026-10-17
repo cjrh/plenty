@@ -455,23 +455,21 @@ pub class Exchange[T]:
     # Fills part of buffer[start:stop] with request body bytes; 0 is the end.
     pub def read_body(self: &mut Exchange[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]:
         self.interim()?
-        mut outcome: Result[i64, HttpError] = Err(HttpError.Broken)
-        match &mut self._body:
+        outcome: Result[i64, HttpError] = match &mut self._body:
             case Some(body):
-                outcome = body.read_body(buffer, start, stop)
+                body.read_body(buffer, start, stop)
             case Nothing:
-                pass
+                Err(HttpError.Broken)
         self.noted(outcome)
 
     # Appends the rest of the request body to `out`, within `max_body`.
     pub def read_all(self: &mut Exchange[T], out: &mut Bytes) -> Result[i64, HttpError]:
         self.interim()?
-        mut outcome: Result[i64, HttpError] = Err(HttpError.Broken)
-        match &mut self._body:
+        outcome: Result[i64, HttpError] = match &mut self._body:
             case Some(body):
-                outcome = std.http.read_to_end(body, out)
+                std.http.read_to_end(body, out)
             case Nothing:
-                pass
+                Err(HttpError.Broken)
         self.noted(outcome)
 
     # Remembers how to answer a request whose body could not be read, should

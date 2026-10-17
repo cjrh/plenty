@@ -635,6 +635,53 @@ opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=1"##,
     );
 }
 
+/// A failed body read closes the connection and drops the body, so later
+/// reads report `Broken` and the connection is not pooled.
+#[test]
+fn reads_after_a_failed_body_read_report_broken() {
+    runs(
+        SCRIPTED,
+        r##"
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    a = script(["HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc", ok("b")?]?, True)?
+    mut client = scripted([a]?, hc.config()?)?
+    mut response = client.send(hc.request("GET", "http://h/1")?, &later()?, &never)?
+    mut buffer = std.bytes.empty()?
+    buffer.resize(8, 0u8)?
+    mut body = std.bytes.empty()?
+    while True:
+        match response.read_body(&mut buffer, 0, 8):
+            case Ok(count):
+                if count == 0:
+                    break
+                print(buffer.slice(0, count)?.to_text()?)?
+            case Err(error):
+                print(error)?
+                break
+    match response.read_body(&mut buffer, 0, 8):
+        case Ok(_):
+            print("unexpected read")?
+        case Err(error):
+            print(error)?
+    match response.read_all(&mut body):
+        case Ok(_):
+            print("unexpected read")?
+        case Err(error):
+            print(error)?
+    client.finish(response)
+    stats(&client)?
+    Ok(())
+"##,
+        r##"[connect http://h:80]
+GET /1 HTTP/1.1|Host: h||abc
+std.http.client.ClientError.Net(std.net.NetError.TimedOut)
+std.http.client.ClientError.Http(std.http.HttpError.Broken)
+std.http.client.ClientError.Http(std.http.HttpError.Broken)
+opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0"##,
+    );
+}
+
 /// Relative, scheme-relative and absolute locations; 302 after POST and 303
 /// become GET without a body; 307 repeats the body; credentials and listed
 /// fields go no further once the origin changes; loops stop at the limit.

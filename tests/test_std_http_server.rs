@@ -99,6 +99,22 @@ pub def answer[T: Transport](label: &str, exchange: &mut Exchange[T]) -> Result[
         elif route == 9:
             authority = exchange.authority.concat("|")?
             exchange.send_text(200, &authority)?
+        elif route == 10:
+            # Answering gives the connection to the response, so the body
+            # is gone; reads report `Broken` without choosing a refusal.
+            exchange.send_text(200, "sent")?
+            mut buffer = std.bytes.from_text("....")?
+            mut out = std.bytes.empty()?
+            match exchange.read_body(&mut buffer, 0, 4):
+                case Err(HttpError.Broken):
+                    pass
+                case _:
+                    return Err(Failure.Unspecified)
+            match exchange.read_all(&mut out):
+                case Err(HttpError.Broken):
+                    pass
+                case _:
+                    return Err(Failure.Unspecified)
         Ok(())
 
 pub def routes() -> Result[Router, ServerError]:
@@ -114,6 +130,7 @@ pub def routes() -> Result[Router, ServerError]:
     table.add("GET", "/broken", 8)?
     table.add("GET", "/files/{path...}", 1)?
     table.add("GET", "/authority", 9)?
+    table.add("POST", "/late", 10)?
     Ok(table)
 
 pub def counts(report: &Report) -> Result[str, Failure]:
@@ -401,6 +418,23 @@ connections=1 requests=1 handler_errors=0 protocol_errors=1 timeouts=0 cancelled
 HTTP/1.1 413 Content Too Large|Content-Type: text/plain; charset=utf-8|Content-Length: 18|Connection: close||Content Too Large
 
 connections=1 requests=1 handler_errors=0 protocol_errors=1 timeouts=0 cancelled=0 rejected=0"##,
+    );
+}
+
+/// Reading the request body after answering finds no body: both reads
+/// report `Broken`, and the handler's success stands.
+#[test]
+fn reading_after_answering_reports_a_broken_body() {
+    runs(
+        SCRIPTED,
+        r##"
+def main() -> Result[(), Failure]:
+    config = std.http.server.config()
+    scripted("POST /late HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nhi", 64, False, &config)?
+    Ok(())
+"##,
+        r##"HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4|Connection: close||sent
+connections=1 requests=1 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0"##,
     );
 }
 
