@@ -357,6 +357,43 @@ def main() -> Result[(), Failure]:
     }
 }
 
+/// A rejection reached through a generic function names that function by its
+/// definition and lists the functions between the worker and it (issue #146).
+#[test]
+fn worker_rejections_name_generic_functions_and_the_call_path() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("main.plenty");
+    std::fs::write(
+        &path,
+        r#"
+from std.error import map_error
+def wrap(cause: ParseError) -> str:
+    return "bad"
+class Parser:
+    pub def parse(self, text: &str) -> Result[i64, str]:
+        map_error(i64.parse(text), wrap)
+def outer(text: str) -> Result[(), Failure]:
+    drop(Parser().parse(&text))
+    Ok(())
+def work(text: str) -> Result[(), Failure]:
+    outer(text)
+def main() -> Result[(), Failure]:
+    with spawn(work, "12")?:
+        pass
+    Ok(())
+"#,
+    )
+    .unwrap();
+    let error = plenty::check_file(&path, None).unwrap_err().to_string();
+    assert!(
+        error.contains(
+            "worker `work` reaches the generic function at std/error.plenty:5:5 \
+             through `outer` -> `Parser.parse`: indirect callable effects"
+        ),
+        "{error}"
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_start_preserves_borrowed_job_and_joins_prior_tasks() {

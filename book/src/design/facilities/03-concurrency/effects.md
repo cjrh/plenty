@@ -33,6 +33,14 @@ Catching termination signals changes how every thread's process ends, so
 the `Signals` handle the main thread opened. Nothing in the language writes
 the environment.
 
+When the rejected function is reached through others, the diagnostic lists
+them from the worker outward. A generic function is named by the location of
+its definition, and a method as `Class.method`:
+
+```text
+error: worker `work` reaches the generic function at std/error.plenty:5:5 through `outer` -> `Parser.parse`: indirect callable effects are not certified for worker threads
+```
+
 ## Native handles
 
 `File`, directory streams (`ReadDir`), entries and metadata cross thread
