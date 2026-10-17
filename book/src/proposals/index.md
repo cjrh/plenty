@@ -62,6 +62,9 @@ reference pages. Further extensions remain tracked in the backlog.
 | --- | --- |
 | [Finite error sets](error-sets.md) | B71 |
 | [Typestate and owned transitions](typestate-and-owned-transitions.md) — assessment and experiments using existing facilities | B72 |
+| [Linear obligations](linear-obligations.md), including [aggregate and error rules](linear-obligations/values-and-errors.md) — opt-in non-abandonment | B72 (issue #149) |
+| [Synchronous resolution scopes](linear-scope-resolution.md) — consuming scope policy; depends on linear obligations | B72 (issue #149) |
+| [Linearity, typestate, and execution responsibility](linear-integration.md) — shared boundaries and deferred worker/async contracts | B72 (issue #149) |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
 
 ## Completed investigations

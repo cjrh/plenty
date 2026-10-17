@@ -3,6 +3,12 @@
 Status: design exploration of existing facilities and limits, not a new
 language feature. Scheduling belongs in [B72](../backlog.md).
 
+The separate [linear-obligations proposal](linear-obligations.md) (issue #149)
+addresses non-abandonment of an owner, including retry errors. Typestate can
+remain affine when abandoning a state is harmless. See the
+[integration assessment](linear-integration.md) for a protocol example combining
+state transitions with obligations, worker effects, and execution responsibility.
+
 ## What Plenty can express now
 
 Typestate makes an operation available only for an object in a particular
