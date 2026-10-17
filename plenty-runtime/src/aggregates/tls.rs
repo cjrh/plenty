@@ -19,9 +19,17 @@ use super::byte_storage::{range, Storage};
 use super::wrap;
 use crate::memory::{self, AllocError, Header};
 use crate::strings::{self, Text};
+use rustls::client::{verify_server_name, WebPkiServerVerifier};
+use rustls::crypto::ring::ALL_CIPHER_SUITES;
+use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
-use rustls::{CertificateError, ClientConfig, Connection, Error, RootCertStore, ServerConfig};
+use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName};
+use rustls::server::{ClientHello, ParsedCertificate, ResolvesServerCert, WebPkiClientVerifier};
+use rustls::sign::{CertifiedKey, SingleCertAndKey};
+use rustls::{
+    version, CertificateError, ClientConfig, Connection, Error, ProtocolVersion, RootCertStore,
+    ServerConfig, SupportedCipherSuite, SupportedProtocolVersion,
+};
 use std::io::{ErrorKind, Read, Write};
 use std::ptr;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -39,6 +47,11 @@ const INVALID_NAME: i64 = -9;
 const INVALID_CONFIGURATION: i64 = -10;
 const ALLOCATION: i64 = -11;
 const NO_ROOTS: i64 = -12;
+const REVOKED: i64 = -13;
+const CERTIFICATE_REQUIRED: i64 = -14;
+const INCOMPATIBLE: i64 = -15;
+/// A session detail that is not there, such as an unnegotiated protocol.
+const ABSENT: i64 = -1;
 
 /// `__tls_state` bits.
 const HANDSHAKING: i64 = 1;
@@ -157,15 +170,14 @@ fn code(error: &Error) -> i64 {
             | C::NotValidYet
             | C::NotValidYetContext { .. } => EXPIRED,
             C::NotValidForName | C::NotValidForNameContext { .. } => WRONG_HOST,
+            C::Revoked => REVOKED,
             _ => INVALID_CERTIFICATE,
         },
+        Error::NoCertificatesPresented => CERTIFICATE_REQUIRED,
+        Error::PeerIncompatible(_) | Error::NoApplicationProtocol => INCOMPATIBLE,
         Error::AlertReceived(_) => REJECTED,
         _ => PROTOCOL,
     }
-}
-
-fn provider() -> Arc<rustls::crypto::CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
 }
 
 /// The certificates of every `CERTIFICATE` block; other blocks are skipped.
@@ -190,43 +202,273 @@ fn roots(pem: &[u8]) -> Result<u128, i64> {
     .map_err(allocation)
 }
 
-fn client_config(roots: &Roots) -> Result<u128, i64> {
-    let mut config = ClientConfig::builder_with_provider(provider())
-        .with_safe_default_protocol_versions()
-        .map_err(|_| INVALID_CONFIGURATION)?
-        .with_root_certificates(roots.store.clone())
-        .with_no_client_auth();
-    // No resumption: a session cache is shared mutable memory that outlives
-    // connections, and std.tls offers no way to bound or clear it.
-    config.resumption = rustls::client::Resumption::disabled();
-    create(Config {
-        storage: empty_storage(destroy_config),
-        settings: Settings::Client(Arc::new(config)),
+/// What a builder has gathered; `build` turns it into a configuration.
+struct Plan {
+    server: bool,
+    /// A client's anchors for servers; a server's for clients, if it asks.
+    roots: Option<Arc<RootCertStore>>,
+    clients_required: bool,
+    /// A server's chains in selection order; a client's one chain.
+    certificates: Vec<Arc<CertifiedKey>>,
+    revocations: Vec<CertificateRevocationListDer<'static>>,
+    protocols: Vec<Vec<u8>>,
+    tls13_only: bool,
+    /// Empty means the provider's defaults.
+    suites: Vec<SupportedCipherSuite>,
+}
+
+#[repr(C)]
+struct Builder {
+    storage: Storage,
+    plan: Mutex<Plan>,
+}
+
+unsafe extern "C" fn destroy_builder(pointer: *mut Header) {
+    // SAFETY: as for `destroy_roots`.
+    unsafe {
+        ptr::drop_in_place(pointer.cast::<Builder>());
+        memory::free::<Builder, u8>(pointer.cast(), 0);
+    }
+}
+
+impl Plan {
+    fn new(server: bool) -> Self {
+        Plan {
+            server,
+            roots: None,
+            clients_required: false,
+            certificates: Vec::new(),
+            revocations: Vec::new(),
+            protocols: Vec::new(),
+            tls13_only: false,
+            suites: Vec::new(),
+        }
+    }
+
+    fn certificate(&mut self, chain: &[u8], key: &[u8]) -> i64 {
+        if !self.server && !self.certificates.is_empty() {
+            return INVALID_CONFIGURATION;
+        }
+        let chain = match certificates(chain) {
+            Ok(chain) if !chain.is_empty() => chain,
+            _ => return INVALID_CONFIGURATION,
+        };
+        let Ok(key) = PrivateKeyDer::from_pem_slice(key) else {
+            return INVALID_CONFIGURATION;
+        };
+        match CertifiedKey::from_der(chain, key, &rustls::crypto::ring::default_provider()) {
+            Ok(certified) => {
+                self.certificates.push(Arc::new(certified));
+                0
+            }
+            Err(_) => INVALID_CONFIGURATION,
+        }
+    }
+
+    fn protocol(&mut self, name: &[u8]) -> i64 {
+        if name.is_empty() || name.len() > 255 {
+            return INVALID_CONFIGURATION;
+        }
+        self.protocols.push(name.to_vec());
+        0
+    }
+
+    fn suite(&mut self, index: i64) -> i64 {
+        let Some(suite) = usize::try_from(index)
+            .ok()
+            .and_then(|index| ALL_CIPHER_SUITES.get(index))
+        else {
+            return INVALID_CONFIGURATION;
+        };
+        if !self.suites.contains(suite) {
+            self.suites.push(*suite);
+        }
+        0
+    }
+
+    fn revocations(&mut self, pem: &[u8]) -> i64 {
+        match CertificateRevocationListDer::pem_slice_iter(pem).collect::<Result<Vec<_>, _>>() {
+            Ok(lists) if !lists.is_empty() => {
+                self.revocations.extend(lists);
+                0
+            }
+            _ => INVALID_CONFIGURATION,
+        }
+    }
+
+    fn build(&self) -> Result<u128, i64> {
+        let mut provider = rustls::crypto::ring::default_provider();
+        if !self.suites.is_empty() {
+            provider.cipher_suites = self.suites.clone();
+        }
+        let provider = Arc::new(provider);
+        let versions: &[&'static SupportedProtocolVersion] = if self.tls13_only {
+            &[&version::TLS13]
+        } else {
+            &[&version::TLS12, &version::TLS13]
+        };
+        let settings = if self.server {
+            Settings::Server(Arc::new(self.server_config(provider, versions)?))
+        } else {
+            Settings::Client(Arc::new(self.client_config(provider, versions)?))
+        };
+        create(Config {
+            storage: empty_storage(destroy_config),
+            settings,
+        })
+        .map_err(allocation)
+    }
+
+    fn client_config(
+        &self,
+        provider: Arc<CryptoProvider>,
+        versions: &[&'static SupportedProtocolVersion],
+    ) -> Result<ClientConfig, i64> {
+        let roots = self.roots.clone().ok_or(INVALID_CONFIGURATION)?;
+        // Certificates without a list from their issuer are not checked, so
+        // a list for one authority leaves servers under others reachable.
+        let verifier = WebPkiServerVerifier::builder_with_provider(roots, provider.clone())
+            .with_crls(self.revocations.clone())
+            .allow_unknown_revocation_status()
+            .build()
+            .map_err(|_| INVALID_CONFIGURATION)?;
+        let builder = ClientConfig::builder_with_provider(provider)
+            .with_protocol_versions(versions)
+            .map_err(|_| INVALID_CONFIGURATION)?
+            .with_webpki_verifier(verifier);
+        let mut config = match self.certificates.first() {
+            Some(certified) => builder
+                .with_client_cert_resolver(Arc::new(SingleCertAndKey::from(certified.clone()))),
+            None => builder.with_no_client_auth(),
+        };
+        config.alpn_protocols = self.protocols.clone();
+        // No resumption: a session cache is shared mutable memory that outlives
+        // connections, and std.tls offers no way to bound or clear it.
+        config.resumption = rustls::client::Resumption::disabled();
+        Ok(config)
+    }
+
+    fn server_config(
+        &self,
+        provider: Arc<CryptoProvider>,
+        versions: &[&'static SupportedProtocolVersion],
+    ) -> Result<ServerConfig, i64> {
+        if self.certificates.is_empty() {
+            return Err(INVALID_CONFIGURATION);
+        }
+        let builder = ServerConfig::builder_with_provider(provider.clone())
+            .with_protocol_versions(versions)
+            .map_err(|_| INVALID_CONFIGURATION)?;
+        let builder = match &self.roots {
+            Some(roots) => {
+                let mut verifier =
+                    WebPkiClientVerifier::builder_with_provider(roots.clone(), provider)
+                        .with_crls(self.revocations.clone())
+                        .allow_unknown_revocation_status();
+                if !self.clients_required {
+                    verifier = verifier.allow_unauthenticated();
+                }
+                builder
+                    .with_client_cert_verifier(verifier.build().map_err(|_| INVALID_CONFIGURATION)?)
+            }
+            // Revocation lists only apply to client certificates here.
+            None if !self.revocations.is_empty() => return Err(INVALID_CONFIGURATION),
+            None => builder.with_no_client_auth(),
+        };
+        let mut config = builder.with_cert_resolver(Arc::new(ByName(self.certificates.clone())));
+        config.alpn_protocols = self.protocols.clone();
+        // Clients cannot resume, so tickets would only cost memory, and an
+        // unread ticket makes a client's close reset the connection.
+        config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
+        config.send_tls13_tickets = 0;
+        Ok(config)
+    }
+}
+
+/// A server's chains: the first whose leaf names the host the client asked
+/// for (SNI), otherwise the first.
+#[derive(Debug)]
+struct ByName(Vec<Arc<CertifiedKey>>);
+
+impl ResolvesServerCert for ByName {
+    fn resolve(&self, hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        let wanted = hello
+            .server_name()
+            .and_then(|name| ServerName::try_from(name).ok());
+        if let Some(wanted) = wanted {
+            let names = |certified: &&Arc<CertifiedKey>| {
+                certified
+                    .end_entity_cert()
+                    .ok()
+                    .and_then(|leaf| ParsedCertificate::try_from(leaf).ok())
+                    .is_some_and(|leaf| verify_server_name(&leaf, &wanted).is_ok())
+            };
+            if let Some(found) = self.0.iter().find(names) {
+                return Some(found.clone());
+            }
+        }
+        self.0.first().cloned()
+    }
+}
+
+fn builder(server: bool) -> Result<u128, i64> {
+    create(Builder {
+        storage: empty_storage(destroy_builder),
+        plan: Mutex::new(Plan::new(server)),
     })
     .map_err(allocation)
 }
 
+fn client_config(roots: &Roots) -> Result<u128, i64> {
+    let mut plan = Plan::new(false);
+    plan.roots = Some(roots.store.clone());
+    plan.build()
+}
+
 fn server_config(chain: &[u8], key: &[u8]) -> Result<u128, i64> {
-    let chain = certificates(chain).map_err(|_| INVALID_CONFIGURATION)?;
-    if chain.is_empty() {
-        return Err(INVALID_CONFIGURATION);
+    let mut plan = Plan::new(true);
+    match plan.certificate(chain, key) {
+        0 => plan.build(),
+        code => Err(code),
     }
-    let key = PrivateKeyDer::from_pem_slice(key).map_err(|_| INVALID_CONFIGURATION)?;
-    let mut config = ServerConfig::builder_with_provider(provider())
-        .with_safe_default_protocol_versions()
-        .map_err(|_| INVALID_CONFIGURATION)?
-        .with_no_client_auth()
-        .with_single_cert(chain, key)
-        .map_err(|_| INVALID_CONFIGURATION)?;
-    // Clients cannot resume, so tickets would only cost memory, and an
-    // unread ticket makes a client's close reset the connection.
-    config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
-    config.send_tls13_tickets = 0;
-    create(Config {
-        storage: empty_storage(destroy_config),
-        settings: Settings::Server(Arc::new(config)),
-    })
-    .map_err(allocation)
+}
+
+/// Copies a session detail into `target`; its full length, or `ABSENT`.
+fn detail(value: Option<&[u8]>, target: &mut [u8]) -> i64 {
+    let Some(value) = value else {
+        return ABSENT;
+    };
+    let count = value.len().min(target.len());
+    target[..count].copy_from_slice(&value[..count]);
+    value.len() as i64
+}
+
+fn server_name(connection: &Connection) -> Option<&[u8]> {
+    match connection {
+        Connection::Server(server) => server.server_name().map(str::as_bytes),
+        Connection::Client(_) => None,
+    }
+}
+
+fn version(connection: &Connection) -> i64 {
+    match connection.protocol_version() {
+        Some(ProtocolVersion::TLSv1_2) => 12,
+        Some(ProtocolVersion::TLSv1_3) => 13,
+        _ => ABSENT,
+    }
+}
+
+/// The negotiated suite's index in the ring provider's list, which
+/// `std.tls`'s `CipherSuite` follows.
+fn suite(connection: &Connection) -> i64 {
+    connection
+        .negotiated_cipher_suite()
+        .and_then(|negotiated| {
+            ALL_CIPHER_SUITES
+                .iter()
+                .position(|suite| suite.suite() == negotiated.suite())
+        })
+        .map_or(ABSENT, |index| index as i64)
 }
 
 fn session(connection: Result<Connection, Error>) -> Result<u128, i64> {
@@ -337,8 +579,14 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
         };
         let roots_of = |value| object::<Roots>(value, destroy_roots, "trust root set");
         let config_of = |value| object::<Config>(value, destroy_config, "configuration");
+        let plan = |value| {
+            object::<Builder>(value, destroy_builder, "configuration builder")
+                .plan
+                .lock()
+                .unwrap_or_else(|_| crate::fail("std.tls builder lock poisoned"))
+        };
         // Text operands stay in their words, which inline texts' views borrow.
-        let (text_a, text_b) = (a as *const Text, b as *const Text);
+        let (text_a, text_b, text_c) = (a as *const Text, b as *const Text, c as *const Text);
         match op {
             470 => opened(roots(strings::bytes(&text_a))),
             471 => roots_of(a).store.len() as u128,
@@ -358,6 +606,34 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 connection(a).send_close_notify();
                 0
             }
+            482 => opened(builder(a != 0)),
+            483 => {
+                let mut plan = plan(a);
+                plan.roots = Some(roots_of(b).store.clone());
+                plan.clients_required = c != 0;
+                0
+            }
+            484 => plan(a).certificate(strings::bytes(&text_b), strings::bytes(&text_c)) as u128,
+            485 => plan(a).protocol(strings::bytes(&text_b)) as u128,
+            486 => {
+                plan(a).tls13_only = b as i64 == 13;
+                0
+            }
+            487 => plan(a).suite(b as u64 as i64) as u128,
+            488 => plan(a).revocations(strings::bytes(&text_b)) as u128,
+            489 => opened(plan(a).build()),
+            490 => detail(connection(a).alpn_protocol(), view_mut(b, c, d)) as u128,
+            491 => detail(server_name(&connection(a)), view_mut(b, c, d)) as u128,
+            492 => {
+                let connection = connection(a);
+                let leaf = connection
+                    .peer_certificates()
+                    .and_then(|chain| chain.first())
+                    .map(|leaf| leaf.as_ref());
+                detail(leaf, view_mut(b, c, d)) as u128
+            }
+            493 => version(&connection(a)) as u128,
+            494 => suite(&connection(a)) as u128,
             _ => crate::fail("unknown tls operation"),
         }
     }

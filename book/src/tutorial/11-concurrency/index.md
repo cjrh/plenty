@@ -24,6 +24,7 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Wait for I/O with a deadline](bounded-io.md)
 - [Serve a TCP connection](tcp-sockets.md)
 - [Encrypt a TCP connection](tls-streams.md)
+- [Verify clients and choose a protocol](mutual-tls.md)
 - [Serve HTTP requests](http-server.md)
 - [Read forms, cookies and forwarded clients](http-forms.md)
 - [Send HTTP requests](http-client.md)
