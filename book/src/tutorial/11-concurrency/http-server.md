@@ -28,7 +28,7 @@ def get(port: u16, path: &str) -> Result[str, Failure]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
-    request = std.bytes.from_text(&"GET ".concat(path)?.concat(" HTTP/1.1\r\nConnection: close\r\n\r\n")?)?
+    request = std.bytes.from_text(&"GET ".concat(path)?.concat(" HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?)?
     stream.write_all_before(&request, 0, request.len(), &deadline, &never)?
     mut reply = std.bytes.empty()?
     mut buffer = std.bytes.empty()?
@@ -75,6 +75,11 @@ it, percent-decoded, in `exchange.params`. The number given to `add` comes
 back as `exchange.route`, so the handler chooses what to do with a plain
 `if`. A path with no route gets `404` without reaching the handler, and a
 path whose route has another method gets `405` with an `Allow` field.
+
+The client sends a `Host` field because HTTP/1.1 requires exactly one: a
+request without it, with two, or with a malformed value gets `400` before
+routing. The handler finds the host the request names in
+`exchange.authority`.
 
 The handler is a `pub class` with a `pub def handle`, because `serve`, in
 another module, calls it. Every worker thread borrows the same handler, so

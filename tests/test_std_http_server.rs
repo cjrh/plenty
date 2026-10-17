@@ -96,6 +96,9 @@ pub def answer[T: Transport](label: &str, exchange: &mut Exchange[T]) -> Result[
             piece = std.bytes.from_text("part")?
             exchange.write(&piece, 0, 4)?
             return Err(Failure.Unspecified)
+        elif route == 9:
+            authority = exchange.authority.concat("|")?
+            exchange.send_text(200, &authority)?
         Ok(())
 
 pub def routes() -> Result[Router, ServerError]:
@@ -110,6 +113,7 @@ pub def routes() -> Result[Router, ServerError]:
     table.add("*", "/query", 7)?
     table.add("GET", "/broken", 8)?
     table.add("GET", "/files/{path...}", 1)?
+    table.add("GET", "/authority", 9)?
     Ok(table)
 
 pub def counts(report: &Report) -> Result[str, Failure]:
@@ -267,7 +271,7 @@ fn scripted_requests_are_routed_framed_and_pipelined() {
         r##"
 def main() -> Result[(), Failure]:
     config = std.http.server.config()
-    scripted("GET / HTTP/1.1\r\n\r\nGET /hello/a%2Fb HTTP/1.1\r\n\r\nGET /files/x/y/z HTTP/1.1\r\n\r\nGET /files/ HTTP/1.1\r\n\r\nGET /query?a=1&b HTTP/1.1\r\n\r\nPOST /echo HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\nHEAD /stream HTTP/1.1\r\n\r\nGET /stream HTTP/1.1\r\n\r\nGET /sized HTTP/1.1\r\n\r\nGET /silent HTTP/1.1\r\n\r\n", 5, False, &config)?
+    scripted("GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /hello/a%2Fb HTTP/1.1\r\nHost: x\r\n\r\nGET /files/x/y/z HTTP/1.1\r\nHost: x\r\n\r\nGET /files/ HTTP/1.1\r\nHost: x\r\n\r\nGET /query?a=1&b HTTP/1.1\r\nHost: x\r\n\r\nPOST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\nHEAD /stream HTTP/1.1\r\nHost: x\r\n\r\nGET /stream HTTP/1.1\r\nHost: x\r\n\r\nGET /sized HTTP/1.1\r\nHost: x\r\n\r\nGET /silent HTTP/1.1\r\nHost: x\r\n\r\n", 5, False, &config)?
     Ok(())
 "##,
         r##"HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||homeHTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||a/b|HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||x/y/z|HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 1|||HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 5||a=1&bHTTP/1.1 200 OK|Content-Type: application/octet-stream|Content-Length: 3||abcHTTP/1.1 200 OK|Transfer-Encoding: chunked||HTTP/1.1 200 OK|Transfer-Encoding: chunked||2|ab|4|cdef|0||HTTP/1.1 200 OK|Content-Length: 5||helloHTTP/1.1 500 Internal Server Error|Content-Type: text/plain; charset=utf-8|Content-Length: 22||Internal Server Error
@@ -276,9 +280,10 @@ connections=1 requests=10 handler_errors=1 protocol_errors=0 timeouts=0 cancelle
     );
 }
 
-/// Malformed heads, unsupported framing, `100 Continue`, HTTP/1.0, unread
-/// bodies, failures mid-stream, stalled peers, 404/405, request limits and
-/// body limits, each on its own scripted connection.
+/// Malformed heads, absolute-form targets, Host faults, unsupported framing,
+/// `100 Continue`, HTTP/1.0, unread bodies, failures mid-stream, stalled
+/// peers, 404/405, request limits and body limits, each on its own scripted
+/// connection.
 #[test]
 fn faults_are_answered_and_counted() {
     runs(
@@ -287,38 +292,43 @@ fn faults_are_answered_and_counted() {
 def main() -> Result[(), Failure]:
     mut config = std.http.server.config()
     print("--- bad")?
-    scripted("GET / HTTP/1.1\r\nBad Header\r\n\r\n", 64, False, &config)?
+    scripted("GET / HTTP/1.1\r\nHost: x\r\nBad Header\r\n\r\n", 64, False, &config)?
     print("--- version")?
     scripted("GET / HTTP/2.0\r\n\r\n", 64, False, &config)?
     print("--- absolute")?
-    scripted("GET http://x/ HTTP/1.1\r\n\r\n", 64, False, &config)?
+    scripted("GET hTTp://Example.com:8080/authority?q HTTP/1.1\r\nHost: other\r\n\r\nGET /authority HTTP/1.1\r\nHost: x\r\n\r\nGET /authority HTTP/1.0\r\n\r\n", 64, False, &config)?
+    print("--- host")?
+    scripted("GET / HTTP/1.1\r\n\r\n", 64, False, &config)?
+    scripted("GET / HTTP/1.1\r\nHost: x\r\nhost: x\r\n\r\n", 64, False, &config)?
+    scripted("GET / HTTP/1.0\r\nHost: a b\r\n\r\n", 64, False, &config)?
+    scripted("GET http://u@x/ HTTP/1.1\r\nHost: x\r\n\r\n", 64, False, &config)?
     print("--- te")?
-    scripted("POST /echo HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n", 64, False, &config)?
+    scripted("POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n", 64, False, &config)?
     print("--- continue")?
-    scripted("POST /echo HTTP/1.1\r\nExpect: 100-continue\r\nContent-Length: 2\r\n\r\nhi", 64, False, &config)?
+    scripted("POST /echo HTTP/1.1\r\nHost: x\r\nExpect: 100-continue\r\nContent-Length: 2\r\n\r\nhi", 64, False, &config)?
     print("--- http10")?
     scripted("GET /stream HTTP/1.0\r\n\r\nGET / HTTP/1.0\r\n\r\n", 64, False, &config)?
     print("--- keepalive10")?
     scripted("GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\nGET / HTTP/1.0\r\n\r\n", 64, False, &config)?
     print("--- unread")?
-    scripted("POST /query HTTP/1.1\r\nContent-Length: 3\r\n\r\nabcGET / HTTP/1.1\r\n\r\n", 64, False, &config)?
+    scripted("POST /query HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabcGET / HTTP/1.1\r\nHost: x\r\n\r\n", 64, False, &config)?
     print("--- broken")?
-    scripted("GET /broken HTTP/1.1\r\n\r\nGET / HTTP/1.1\r\n\r\n", 64, False, &config)?
+    scripted("GET /broken HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", 64, False, &config)?
     print("--- hang head")?
-    scripted("GET / HTTP/1.1\r\nHost:", 64, True, &config)?
+    scripted("GET / HTTP/1.1\r\nHost: x\r\nHost:", 64, True, &config)?
     print("--- hang idle")?
-    scripted("GET / HTTP/1.1\r\n\r\n", 64, True, &config)?
+    scripted("GET / HTTP/1.1\r\nHost: x\r\n\r\n", 64, True, &config)?
     print("--- hang body")?
-    scripted("POST /echo HTTP/1.1\r\nContent-Length: 9\r\n\r\nabc", 64, True, &config)?
+    scripted("POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 9\r\n\r\nabc", 64, True, &config)?
     print("--- 405 and 404")?
-    scripted("DELETE /echo HTTP/1.1\r\n\r\nGET /missing HTTP/1.1\r\n\r\nGET /hello/%zz HTTP/1.1\r\n\r\n", 64, False, &config)?
+    scripted("DELETE /echo HTTP/1.1\r\nHost: x\r\n\r\nGET /missing HTTP/1.1\r\nHost: x\r\n\r\nGET /hello/%zz HTTP/1.1\r\nHost: x\r\n\r\n", 64, False, &config)?
     config.max_requests = 2
     config.limits.max_body = 4
     print("--- max")?
-    scripted("GET / HTTP/1.1\r\n\r\nGET / HTTP/1.1\r\n\r\nGET / HTTP/1.1\r\n\r\n", 1, False, &config)?
+    scripted("GET / HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", 1, False, &config)?
     print("--- body limit")?
-    scripted("POST /echo HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello", 64, False, &config)?
-    scripted("POST /echo HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n", 64, False, &config)?
+    scripted("POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhello", 64, False, &config)?
+    scripted("POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n", 64, False, &config)?
     Ok(())
 "##,
         r##"--- bad
@@ -330,6 +340,18 @@ HTTP/1.1 505 HTTP Version Not Supported|Content-Type: text/plain; charset=utf-8|
 
 connections=1 requests=0 handler_errors=0 protocol_errors=1 timeouts=0 cancelled=0 rejected=0
 --- absolute
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 17||Example.com:8080|HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 2||x|HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 1|Connection: close|||
+connections=1 requests=3 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0
+--- host
+HTTP/1.1 400 Bad Request|Content-Type: text/plain; charset=utf-8|Content-Length: 12|Connection: close||Bad Request
+
+connections=1 requests=1 handler_errors=0 protocol_errors=1 timeouts=0 cancelled=0 rejected=0
+HTTP/1.1 400 Bad Request|Content-Type: text/plain; charset=utf-8|Content-Length: 12|Connection: close||Bad Request
+
+connections=1 requests=1 handler_errors=0 protocol_errors=1 timeouts=0 cancelled=0 rejected=0
+HTTP/1.1 400 Bad Request|Content-Type: text/plain; charset=utf-8|Content-Length: 12|Connection: close||Bad Request
+
+connections=1 requests=1 handler_errors=0 protocol_errors=1 timeouts=0 cancelled=0 rejected=0
 HTTP/1.1 400 Bad Request|Content-Type: text/plain; charset=utf-8|Content-Length: 12|Connection: close||Bad Request
 
 connections=1 requests=1 handler_errors=0 protocol_errors=1 timeouts=0 cancelled=0 rejected=0
@@ -390,11 +412,11 @@ fn a_full_queue_answers_503() {
         LOOPBACK,
         r##"
 def client(port: u16, app: &Gated, stop: CancellationToken) -> ():
-    mut first = connect_to(port, "GET /wait HTTP/1.1\r\nConnection: close\r\n\r\n").unwrap()
+    mut first = connect_to(port, "GET /wait HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap()
     drop(app.entered.wait_timeout(5000u64))
-    mut second = connect_to(port, "GET / HTTP/1.1\r\nConnection: close\r\n\r\n").unwrap()
+    mut second = connect_to(port, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap()
     std.time.sleep(&std.time.milliseconds(100u32))
-    print(fetch(port, "GET / HTTP/1.1\r\n\r\n").unwrap()).unwrap()
+    print(fetch(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()).unwrap()
     app.gate.cancel()
     print(until(&mut first, "").unwrap()).unwrap()
     print(until(&mut second, "").unwrap()).unwrap()
@@ -432,9 +454,9 @@ fn shutdown_drains_polite_work_and_cancels_the_rest() {
         r##"
 def client(port: u16, path: str, stop: CancellationToken) -> ():
     # An idle keep-alive connection closes at shutdown without waiting.
-    mut idle = connect_to(port, "GET / HTTP/1.1\r\n\r\n").unwrap()
+    mut idle = connect_to(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
     drop(until(&mut idle, "home").unwrap())
-    mut stream = connect_to(port, &"GET ".concat(&path).unwrap().concat(" HTTP/1.1\r\n\r\n").unwrap()).unwrap()
+    mut stream = connect_to(port, &"GET ".concat(&path).unwrap().concat(" HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()).unwrap()
     print(until(&mut stream, "tick\n").unwrap()).unwrap()
     stop.cancel()
     text = until(&mut stream, "").unwrap()
@@ -490,12 +512,12 @@ from std.log import Event, Value
 
 def client(port: u16, stop: CancellationToken) -> ():
     # Sends half a head and stalls: closed when the head deadline passes.
-    mut slow = connect_to(port, "GET / HTTP/1.1\r\nHost: x").unwrap()
+    mut slow = connect_to(port, "GET / HTTP/1.1\r\nHost: x\r\nHost: x").unwrap()
     # Sends nothing: closed when the idle deadline passes.
     mut silent = connect_to(port, "").unwrap()
     print(str.repr(until(&mut slow, "").unwrap()).unwrap()).unwrap()
     print(str.repr(until(&mut silent, "").unwrap()).unwrap()).unwrap()
-    print(fetch(port, "GET /missing HTTP/1.1\r\nConnection: close\r\n\r\n").unwrap()).unwrap()
+    print(fetch(port, "GET /missing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap()).unwrap()
     stop.cancel()
 
 def main() -> Result[(), Failure]:
@@ -646,7 +668,7 @@ fn allocation_failure_closes_the_connection_cleanly() {
     let main = format!(
         r##"
 def sample() -> Result[Bytes, Failure]:
-    Ok(std.bytes.from_text("POST /echo HTTP/1.1\r\nTransfer-Encoding: chunked\r\nX-Long-Field-Name-Beyond-Inline: a-value-beyond-inline-storage\r\n\r\n3\r\nabc\r\n0\r\n\r\nGET /hello/a-name-beyond-inline HTTP/1.1\r\n\r\n")?)
+    Ok(std.bytes.from_text("POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nX-Long-Field-Name-Beyond-Inline: a-value-beyond-inline-storage\r\n\r\n3\r\nabc\r\n0\r\n\r\nGET /hello/a-name-beyond-inline HTTP/1.1\r\nHost: x\r\n\r\n")?)
 
 def main() -> Result[(), Failure]:
     table = routes()?
@@ -686,13 +708,13 @@ fn idle_connections_wait_without_a_worker() {
 def ask(stream: &mut TcpStream) -> ():
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
-    request = std.bytes.from_text("GET / HTTP/1.1\r\n\r\n").unwrap()
+    request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
     stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
 
 def many(port: u16, stop: CancellationToken) -> ():
     mut streams = list[TcpStream].new().unwrap()
     for index in range(10):
-        mut stream = connect_to(port, "GET / HTTP/1.1\r\n\r\n").unwrap()
+        mut stream = connect_to(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
         drop(until(&mut stream, "home").unwrap())
         streams.append(stream).unwrap()
     mut answered = 0
@@ -784,7 +806,7 @@ pub class Secure:
 def ask(stream: &mut TlsStream) -> str:
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
-    request = std.bytes.from_text("GET / HTTP/1.1\r\n\r\n").unwrap()
+    request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
     stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
     # Responses are length-delimited; the server sends no close_notify.
     mut out = std.bytes.empty().unwrap()
@@ -828,7 +850,7 @@ def client(port: u16, stop: CancellationToken) -> ():
         print(ask(&mut second)).unwrap()
     mut silent = connect_to(port, "").unwrap()
     print(closes(&mut silent)).unwrap()
-    mut plain = connect_to(port, "GET / HTTP/1.1\r\n\r\n").unwrap()
+    mut plain = connect_to(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
     print(closes(&mut plain)).unwrap()
     stop.cancel()
 

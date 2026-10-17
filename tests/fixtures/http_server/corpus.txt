@@ -47,6 +47,29 @@
 400 | GET /a\x00b HTTP/1.1\r\nHost: x\r\n\r\n
 431 | GET /\{9000*a} HTTP/1.1\r\nHost: x\r\n\r\n
 
+# Host and target form (RFC 9112 section 3.2): HTTP/1.1 needs exactly one
+# valid Host; HTTP/1.0 may omit it. An absolute-form target is served, its
+# authority replacing Host; asterisk- and authority-form are refused.
+400 | GET / HTTP/1.1\r\n\r\n
+200 | GET / HTTP/1.1\r\nHost:\r\n\r\n
+200 | GET / HTTP/1.1\r\nHost: [::1]:8080\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: x\r\nHost: y\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: x\r\nHost: x\r\n\r\n
+400 | GET / HTTP/1.0\r\nHost: x\r\nhost: x\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: a b\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: x/y\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: u@x\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: x:8o\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: [::1\r\n\r\n
+200 | GET http://x/ HTTP/1.1\r\nHost: x\r\n\r\n
+200 | GET HTTPS://other:8443 HTTP/1.1\r\nHost: x\r\n\r\n
+200 | GET http://x/hello/a?q=1 HTTP/1.1\r\nHost: x\r\n\r\n
+400 | GET http://x/ HTTP/1.1\r\n\r\n
+400 | GET http://u@x/ HTTP/1.1\r\nHost: x\r\n\r\n
+400 | GET http:///x HTTP/1.1\r\nHost: x\r\n\r\n
+400 | GET ftp://x/ HTTP/1.1\r\nHost: x\r\n\r\n
+400 | CONNECT x:443 HTTP/1.1\r\nHost: x:443\r\n\r\n
+
 # Field faults.
 400 | GET / HTTP/1.1\r\nHost x\r\n\r\n
 400 | GET / HTTP/1.1\r\nHost : x\r\n\r\n

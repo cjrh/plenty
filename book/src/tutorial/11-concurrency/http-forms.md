@@ -82,10 +82,10 @@ def fetch(port: u16, request: &str) -> Result[str, Failure]:
     Ok(summary.concat(" | ")?.concat(&text.split("\r\n\r\n")?[1].strip()?)?)
 
 def client(port: u16, stop: CancellationToken) -> Result[(), Failure]:
-    form = "POST /login HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 28\r\nConnection: close\r\n\r\nname=Ada&city=S%C3%A3o+Paulo"
+    form = "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 28\r\nConnection: close\r\n\r\nname=Ada&city=S%C3%A3o+Paulo"
     print(fetch(port, form)?)?
-    print(fetch(port, "POST /login HTTP/1.1\r\nContent-Type: text/plain\r\nContent-Length: 3\r\nConnection: close\r\n\r\nAda")?)?
-    print(fetch(port, "GET /me HTTP/1.1\r\nCookie: theme=dark; user=Ada\r\nX-Forwarded-For: 198.51.100.4, 203.0.113.7\r\nConnection: close\r\n\r\n")?)?
+    print(fetch(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: 3\r\nConnection: close\r\n\r\nAda")?)?
+    print(fetch(port, "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: theme=dark; user=Ada\r\nX-Forwarded-For: 198.51.100.4, 203.0.113.7\r\nConnection: close\r\n\r\n")?)?
     stop.cancel()
     Ok(())
 

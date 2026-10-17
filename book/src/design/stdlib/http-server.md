@@ -69,6 +69,16 @@ the body left out. Matching compares the path exactly: no case folding, no
 trailing-slash redirect and no `..` normalization. The query string is not
 part of the path.
 
+Before routing, the server checks the target and `Host` with
+[`std.http.request_target`](http.md#targets-and-host) and answers `400`
+when they break RFC 9112 section 3.2: an HTTP/1.1 request needs exactly one
+`Host`, no request may have two, and a `Host` value must be a host with an
+optional port. An absolute-form target (`GET http://example.com/a HTTP/1.1`)
+is routed on its path, and its authority replaces `Host`. The check lives in
+`std.http` so any server built on it applies the same rules; the parser
+itself stays permissive so clients and proxies can read any well-formed
+message.
+
 The server answers `404`, or `405` with an `Allow` field, without calling the
 handler. A capture that does not percent-decode to UTF-8 gets `400`.
 
@@ -79,7 +89,8 @@ The handler receives an `Exchange[T]` for one request.
 | Field or method | Meaning |
 |---|---|
 | `request: RequestHead` | Method, target, version and fields as read |
-| `path`, `query` | The target split at the first `?`; `query` is raw |
+| `authority: str` | `host[:port]` the request names: an absolute-form target's authority, else the `Host` value; empty only for HTTP/1.0 without `Host` |
+| `path`, `query` | The target's path and the text after its first `?`, both still percent-encoded; an absolute-form target's scheme and authority are removed |
 | `route: i64` | The key of the matched route |
 | `params: list[str]` | Captures, percent-decoded |
 | `peer: Option[SocketAddress]` | The address the connection came from: a reverse proxy's, when there is one (see [`std.http.proxy`](http-proxy.md)) |
@@ -204,7 +215,8 @@ cannot hold a worker longer than the phase allows.
 | Malformed head, or a line, head or header count over a limit | `400`, or `431` for size limits, `505` for an unsupported version, `501` for an unsupported transfer coding; close |
 | Ambiguous framing (`Content-Length` with `Transfer-Encoding`) | `400`, close |
 | Declared `Content-Length` over `max_body` | `413` before reading, close |
-| Target not starting with `/` (including absolute-form, issue #131) | `400`, close |
+| HTTP/1.1 without `Host`, several `Host` fields, or an invalid `Host` value | `400`, close |
+| Target neither origin-form (`/path`) nor `http`/`https` absolute-form | `400`, close |
 | Part of a head arrives, then nothing | The worker waits until `head_timeout` (issue #132), then `408` |
 | Body read past `body_timeout`, or a write past its deadline | Close; counted in `timeouts` |
 | Queue full | `503` with `Retry-After: 1` (HTTPS: close without a response), close; counted in `rejected` |
@@ -284,7 +296,9 @@ timed out`, `handshake failed` and `accept failed`, most with a
 - A `503` rejection reads only bytes that have already arrived. If more of
   the request arrives after the close, the client may see a reset instead.
 - Captures in `params` are decoded; `path` and `query` are not.
-- `Host` is not checked: a request without one, with several, or with an
-  invalid value is served (issue #131).
+- `Host` and absolute-form authorities are checked against the URI
+  grammar, not against names the server answers for. A handler that serves
+  only some hosts compares `exchange.authority` itself.
+- `OPTIONS *` and `CONNECT` targets get `400`.
 - A trap in a handler ends the process; see
   [handler errors and traps](http-qualification.md#handler-errors-and-traps).
