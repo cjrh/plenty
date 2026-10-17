@@ -24,7 +24,10 @@ bounded separately.
 Native emission builds and compiles each function on any available core. The
 main thread places finished functions in the object in declaration order,
 preserving byte-for-byte output across core counts. There is no worker-count
-flag. Tests compare one, two, and eight workers.
+flag. Tests compare one, two, and eight workers. A function compiled before,
+by this or any other program, is taken from the
+[compiled-function cache](cache.md) instead; the object is the same either
+way.
 
 A body can need symbols that are declared on first use: type descriptors, its
 trap-site table, foreign imports. Their order decides the object's bytes, so a

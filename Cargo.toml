@@ -28,7 +28,9 @@ pretty_env_logger = "0.5.0"
 # `cranelift-frontend` is the IR builder; `cranelift-module` manages a
 # dictionary of declared functions and data; `cranelift-object` lowers a
 # finished module to a native object file via the `object` crate.
-cranelift-codegen = "0.131"
+# `incremental-cache` gives the per-function cache key and the serialized
+# compiled stencil behind the compiled-function cache (issue #144).
+cranelift-codegen = { version = "0.131", features = ["incremental-cache"] }
 cranelift-frontend = "0.131"
 cranelift-module = "0.131"
 cranelift-object = "0.131"

@@ -81,6 +81,8 @@ mod test_collection_bulk;
 mod test_collection_mutations;
 #[path = "test_collections.rs"]
 mod test_collections;
+#[path = "test_compile_cache.rs"]
+mod test_compile_cache;
 #[path = "test_compile_scaling.rs"]
 mod test_compile_scaling;
 #[path = "test_compiler_parallelism.rs"]

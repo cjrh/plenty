@@ -25,5 +25,11 @@ debug = "line-tables-only"
 # starts, such as tests and `cargo run`; the compiler's default `cc` driver is
 # unchanged, and rustc selects its default linker, rust-lld, explicitly. See
 # book/src/development/workflow.md.
+#
+# The test suite compiles thousands of programs that share most of their
+# compiled `std` functions. One compiled-function cache per worktree, under
+# its target directory, serves every test run and never touches the user's
+# ~/.cache (issue #144). `PLENTY_CACHE=off cargo test ...` disables it.
 [env]
 COMPILER_PATH = "/usr/libexec/mold"
+PLENTY_CACHE_DIR = { value = "target/plenty-cache", relative = true }

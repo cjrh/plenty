@@ -71,6 +71,10 @@ pub struct CompileOptions {
     /// Ask Cranelift to optimize generated code for speed (the release
     /// profile). Off by default, which favors compilation speed.
     pub optimize: bool,
+    /// Where compiled functions are cached between compilations.
+    pub cache: crate::cache::CacheMode,
+    /// Print the cache's hit and miss counts after compiling.
+    pub cache_stats: bool,
 }
 
 impl Default for CompileOptions {
@@ -80,6 +84,8 @@ impl Default for CompileOptions {
             linker: "cc".into(),
             link_args: Vec::new(),
             optimize: false,
+            cache: crate::cache::CacheMode::Environment,
+            cache_stats: false,
         }
     }
 }

@@ -23,6 +23,7 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty update [PACKAGE...] [--offline]
        plenty graph [--locked] [--offline]
        plenty clean
+       plenty cache (stats | clean)
 
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
 check: type-check every target. build: compile executables into target/debug,
@@ -38,6 +39,8 @@ every dependency without compiling. update: move Git dependencies (all, or the
 named packages) to the commits their tags and revisions name now. graph: print
 the package graph file that plentyc --package-graph reads.
 In a workspace root these commands act on every member.
+cache: report or empty the compiled-function cache (PLENTY_CACHE_DIR,
+default ~/.cache/plenty; PLENTY_CACHE=off disables it).
 --locked: fail instead of creating or updating plenty.lock.
 --offline: never fetch; use only the package cache in .pkg/.
 A file whose name matches a command runs as ./NAME.
@@ -144,7 +147,27 @@ fn run(args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
             }
             project::clean(here)?;
         }
+        "cache" => return cache_command(rest),
         _ => return compiler_cli::run("plenty", args),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `plenty cache stats` and `plenty cache clean`, on the directory the
+/// environment selects.
+fn cache_command(args: &[String]) -> Result<ExitCode, Box<dyn Error>> {
+    use plenty::cache::{self, CacheMode};
+    let mode = CacheMode::Environment;
+    match args {
+        [command] if command == "stats" => match cache::summary(&mode) {
+            Some(summary) => println!("{summary}"),
+            None => println!("compile cache: off"),
+        },
+        [command] if command == "clean" => match cache::clean(&mode)? {
+            Some((entries, bytes)) => eprintln!("   Removed {entries} entries, {bytes} bytes"),
+            None => println!("compile cache: off"),
+        },
+        _ => return Err("usage: plenty cache (stats | clean)".into()),
     }
     Ok(ExitCode::SUCCESS)
 }

@@ -63,6 +63,13 @@ linker. The setting does not change the compiler's default `cc` driver or the
 Rust linker; `COMPILER_PATH= cargo test ...` links with the system default.
 Tests must not depend on one linker's output, such as the exact symbol table.
 
+The same file points `PLENTY_CACHE_DIR` at `target/plenty-cache`, so every
+test run of a worktree reuses the
+[compiled-function cache](../design/toolchain/02-architecture/cache.md) from
+the runs before it and never writes to `~/.cache`. A fresh cache must not
+change any result: `PLENTY_CACHE=off cargo test ...` runs without it, and a
+test that exercises the cache uses a directory of its own.
+
 [cargo-nextest](https://nexte.st) is optional: `cargo nextest run --workspace
 --all-features` runs each test in its own process. It does not run doctests.
 

@@ -367,6 +367,7 @@
             - [Collection storage and costs](design/toolchain/02-architecture/collections.md)
             - [Generator frames and closure environments](design/toolchain/02-architecture/environments.md)
             - [Tail-call ABI](design/toolchain/02-architecture/tail-calls.md)
+            - [Compiled-function cache](design/toolchain/02-architecture/cache.md)
             - [Runtime packaging](design/toolchain/02-architecture/runtime.md)
             - [Concurrent runtime mechanisms](design/toolchain/02-architecture/concurrency.md)
             - [Native interfaces and metadata](design/toolchain/02-architecture/interop.md)

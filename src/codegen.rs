@@ -60,6 +60,7 @@ use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 
+use crate::cache::Cache;
 use crate::lexer;
 mod casts;
 mod channels;
@@ -298,11 +299,10 @@ fn compile_ops_to_executable(
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
     let rt_path = workspace.path().join("libplenty_runtime.a");
-    let build = Build {
-        optimize: options.optimize,
-        test_hooks,
-    };
+    let build = Build::new(options, test_hooks);
+    let cache = build.cache.clone();
     compile_to_object(ops, heap, &obj_path, returns_status, build)?;
+    report_cache(options, cache.as_deref());
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
     if !test_hooks {
         return crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, options);
@@ -316,12 +316,48 @@ fn compile_ops_to_executable(
 }
 
 /// Code generation choices that do not change the program's meaning.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Build {
     /// Ask Cranelift to optimize for speed.
     optimize: bool,
     /// Lower std's `__test_fault` to the `plenty test` hook object.
     test_hooks: bool,
+    /// Reuse compiled functions from here, and add this build's to it.
+    cache: Option<Arc<Cache>>,
+    /// Compile every cached function again and assert the code matches
+    /// (Cranelift's `enable_incremental_compilation_cache_checks`). Only
+    /// tests set it: the flag is part of the cache key, so these builds use
+    /// entries of their own.
+    check_cache_hits: bool,
+}
+
+impl Build {
+    fn new(options: &crate::CompileOptions, test_hooks: bool) -> Self {
+        Self {
+            optimize: options.optimize,
+            test_hooks,
+            cache: Cache::open(&options.cache),
+            check_cache_hits: false,
+        }
+    }
+
+    /// The default build with the cache the environment selects.
+    fn from_environment() -> Self {
+        Self {
+            cache: Cache::open(&crate::cache::CacheMode::Environment),
+            ..Self::default()
+        }
+    }
+}
+
+/// Print the cache counts when `--cache-stats` asks for them.
+fn report_cache(options: &crate::CompileOptions, cache: Option<&Cache>) {
+    if options.cache_stats {
+        match cache {
+            Some(cache) => eprintln!("{}", cache.stats()),
+            None => eprintln!("compile cache: off"),
+        }
+    }
 }
 
 /// Failure injection for `plenty test` builds, compiled from
@@ -351,23 +387,32 @@ pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
         &heap,
         output,
         program.returns_status,
-        Build::default(),
+        Build::from_environment(),
     )
 }
 
 /// Emit an application object, resolving absolute Plenty imports.
 pub fn compile_file_to_object(path: &Path, output: &Path, root: Option<&Path>) -> Result<()> {
+    compile_file_to_object_with_options(path, output, root, &crate::CompileOptions::default())
+}
+
+/// Emit an application object with the code generation options of
+/// `options`; its linker settings are unused.
+pub fn compile_file_to_object_with_options(
+    path: &Path,
+    output: &Path,
+    root: Option<&Path>,
+    options: &crate::CompileOptions,
+) -> Result<()> {
     crate::validate_target(None)?;
     let mut heap = Heap::default();
     let program = crate::frontend::compile_file(path, root, true, &mut heap)?;
     op::check(&program.ops)?;
-    compile_to_object(
-        program.ops,
-        &heap,
-        output,
-        program.returns_status,
-        Build::default(),
-    )
+    let build = Build::new(options, false);
+    let cache = build.cache.clone();
+    compile_to_object(program.ops, &heap, output, program.returns_status, build)?;
+    report_cache(options, cache.as_deref());
+    Ok(())
 }
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -404,7 +449,7 @@ pub(crate) fn emit_library_object(
         None,
         exports,
         Some(interface),
-        Build::default(),
+        Build::from_environment(),
     )
 }
 
@@ -433,7 +478,8 @@ fn emit_object(
     product.object.write_stream(file)
 }
 
-/// The object's bytes are the same for every `workers` count.
+/// The object's bytes are the same for every `workers` count and for every
+/// state of the cache.
 #[cfg(test)]
 fn object_bytes(
     ops: Vec<Op>,
@@ -442,16 +488,9 @@ fn object_bytes(
     exports: &[crate::exports::Export],
     interface: Option<&crate::exports::Interface>,
     workers: usize,
+    build: Build,
 ) -> Result<Vec<u8>> {
-    let module = object_module(
-        ops,
-        heap,
-        entry,
-        exports,
-        interface,
-        workers,
-        Build::default(),
-    )?;
+    let module = object_module(ops, heap, entry, exports, interface, workers, build)?;
     Ok(module.finish().emit()?)
 }
 
@@ -470,10 +509,10 @@ fn object_module(
     crate::tail_abi::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
     let targets = output::Targets {
-        ordinary: optimized_isa("backtracking", opt_level)?,
-        single_pass: optimized_isa("single_pass", opt_level)?,
+        ordinary: optimized_isa("backtracking", opt_level, build.check_cache_hits)?,
+        single_pass: optimized_isa("single_pass", opt_level, build.check_cache_hits)?,
     };
-    let mut out = Output::new(targets)?;
+    let mut out = Output::new(targets, build.cache.clone())?;
 
     let mut runtime = declare_runtime(&mut out.module, build.test_hooks)?;
 
@@ -596,7 +635,7 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
 fn target_isa(
     regalloc_algorithm: &str,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
-    optimized_isa(regalloc_algorithm, "none")
+    optimized_isa(regalloc_algorithm, "none", false)
 }
 
 /// Build the target's baseline ISA without inspecting the running CPU.
@@ -607,11 +646,15 @@ fn target_isa(
 fn optimized_isa(
     regalloc_algorithm: &str,
     opt_level: &str,
+    check_cache_hits: bool,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::validate_target(None)?;
     let mut flags = settings::builder();
     flags.set("regalloc_algorithm", regalloc_algorithm)?;
     flags.set("opt_level", opt_level)?;
+    if check_cache_hits {
+        flags.set("enable_incremental_compilation_cache_checks", "true")?;
+    }
     // `is_pic` so the object can be linked into a position-independent
     // executable, which is what every modern Linux/macOS toolchain
     // produces by default.
