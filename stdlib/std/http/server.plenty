@@ -279,6 +279,130 @@ def captured(segments: &list[Segment], pieces: &list[str]) -> Result[list[str], 
             allocated(params.append(allocated("/".join(&joined))?))?
     Ok(params)
 
+# Request heads
+
+const line_feed: u8 = 10u8
+const carriage_return: u8 = 13u8
+# Bytes read at a time while a head is gathered.
+const read_chunk: i64 = 4096
+
+# Input read ahead of the parser: the start of a request head at data[0],
+# and how far `scanned` has searched it for the head's end.
+class Gathered:
+    data: Bytes
+    # Start of the line being searched; data[line:searched] holds no LF.
+    line: i64
+    searched: i64
+    # What `max_head` leaves for the line at `line`.
+    left: i64
+    # -1 before the request line, then the field lines seen.
+    fields: i64
+
+def gathered(data: Bytes, limits: &Limits) -> Gathered:
+    Gathered(data, 0, 0, limits.max_head, -1)
+
+# Whether std.http.read_request could finish on `input.data` without
+# reading more, as it will once the head's final empty line has arrived or
+# input it rejects has. This follows the parser's framing: lines end at LF;
+# each is bounded by `max_line` and by what is left of `max_head`, which
+# blank lines before the request line also use; a line without CR before
+# its LF, a line over its bound, and a field line past `max_headers` are
+# rejected. Searching resumes where the last call stopped.
+def scanned(input: &mut Gathered, limits: &Limits) -> bool:
+    size = input.data.len()
+    while True:
+        mut limit = input.left
+        if limits.max_line < limit:
+            limit = limits.max_line
+        if limit <= 0:
+            return True
+        bound = input.line + limit
+        mut end = size
+        if bound < end:
+            end = bound
+        found = match input.data.find(line_feed, input.searched, end):
+            case Ok(position):
+                position
+            case Err(_):
+                return True
+        match found:
+            case Some(index):
+                count = index + 1 - input.line
+                if count < 2 or input.data[index - 1] != carriage_return:
+                    return True
+                input.left -= count
+                input.line = index + 1
+                input.searched = input.line
+                if count == 2:
+                    if input.fields >= 0:
+                        return True
+                elif input.fields < 0:
+                    input.fields = 0
+                elif input.fields >= limits.max_headers:
+                    return True
+                else:
+                    input.fields += 1
+            case Nothing:
+                input.searched = end
+                return end == bound
+    True
+
+def net_bytes[T](result: Result[T, BytesError]) -> Result[T, NetError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(cause)):
+            Err(NetError.Stream(StreamError.Allocation(cause)))
+        case Err(_):
+            Err(NetError.Stream(StreamError.OutOfRange))
+
+# Appends input that has already arrived to `input.data`, without waiting.
+# Zero is the end of the peer's stream; TimedOut means nothing has arrived.
+# The buffer doubles as it fills but never grows past `max_head`, the most
+# `scanned` needs.
+def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limits, token: &CancellationToken) -> Result[i64, NetError]:
+    have = input.data.len()
+    if have >= limits.max_head:
+        return Err(NetError.Stream(StreamError.OutOfRange))
+    if input.data.capacity() <= have:
+        mut size = input.data.capacity() * 2
+        if size < read_chunk:
+            size = read_chunk
+        if size > limits.max_head:
+            size = limits.max_head
+        mut grown = net_bytes(std.bytes.with_capacity(size))?
+        net_bytes(grown.extend(&input.data))?
+        input.data = grown
+    mut room = input.data.capacity() - have
+    if room > read_chunk:
+        room = read_chunk
+    if room > limits.max_head - have:
+        room = limits.max_head - have
+    net_bytes(input.data.resize(have + room, 0u8))?
+    match stream.read_before(&mut input.data, have, have + room, &deadline_of(0u64), token):
+        case Ok(count):
+            drop(input.data.truncate(have + count))
+            Ok(count)
+        case Err(error):
+            drop(input.data.truncate(have))
+            Err(error)
+
+# Reads what has arrived of a request head until the parser could take it
+# without waiting (true) or nothing more has arrived (false). The end of
+# input also gives true: the parser then meets it.
+def gather[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limits, token: &CancellationToken) -> Result[bool, NetError]:
+    while not scanned(input, limits):
+        match read_ahead(stream, input, limits, token):
+            case Ok(0):
+                return Ok(True)
+            case Ok(_):
+                pass
+            case Err(NetError.TimedOut):
+                return Ok(False)
+            case Err(error):
+                return Err(error)
+    Ok(True)
+
 # Connections
 
 def send_all[T: Transport](stream: &mut T, source: &Bytes, start: i64, stop: i64, span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
@@ -306,13 +430,17 @@ def send_some[T: Transport](stream: &mut Option[T], source: &Bytes, start: i64, 
             Err(NetError.Stream(StreamError.Io(IoError.Closed)))
 
 # A std.io Reader and Writer over a Transport, bounded by the deadline of the
-# current phase. Waiting for a request uses the idle deadline and wakes on
-# `stop`; reading a request and writing a response use phase deadlines and
-# wake on `cancel`. Writes are staged in `out` and sent by `flush`. The cause
-# of a failed read or write is kept in `failure`.
+# current phase. Reads take gathered input first. Waiting for a request uses
+# the idle deadline and wakes on `stop`; reading a request and writing a
+# response use phase deadlines and wake on `cancel`. Writes are staged in
+# `out` and sent by `flush`. The cause of a failed read or write is kept in
+# `failure`.
 pub class Conn[T]:
     # Nothing once the stream has been handed back for parking.
     _stream: Option[T]
+    # Input read ahead of the parser; data[_at:] is not yet read.
+    _input: Gathered
+    _at: i64
     _stop: CancellationToken
     _cancel: CancellationToken
     _idle: bool
@@ -330,6 +458,19 @@ pub class Conn[T]:
         StreamError.Io(IoError.Other)
 
     pub def read(self: &mut Conn[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        unread = self._input.data.len() - self._at
+        if unread > 0 and stop > start:
+            mut count = stop - start
+            if count > unread:
+                count = unread
+            match buffer.overwrite(start, &self._input.data, self._at, self._at + count):
+                case Ok(_):
+                    self._at += count
+                    return Ok(count)
+                case Err(BytesError.Allocation(cause)):
+                    return Err(StreamError.Allocation(cause))
+                case Err(_):
+                    return Err(StreamError.OutOfRange)
         if not self._idle:
             match read_some(&mut self._stream, buffer, start, stop, &deadline_of(self._until), &self._cancel):
                 case Ok(count):
@@ -869,35 +1010,120 @@ def copy_limits(limits: &Limits) -> Limits:
 const next_request: i64 = 0
 const close_connection: i64 = 1
 
+# Restarts the search for the end of a head at input.data[0].
+def restart(input: &mut Gathered, limits: &Limits) -> ():
+    input.line = 0
+    input.searched = 0
+    input.left = limits.max_head
+    input.fields = -1
+
+# Puts input the reader holds but has not consumed in front of the
+# connection's own unread input, so the next head starts at data[0]. False
+# when that cannot allocate.
+def unread[T](reader: &mut BufReader[Conn[T]], limits: &Limits) -> bool:
+    held = reader.buffered()
+    at = reader.inner._at
+    size = reader.inner._input.data.len()
+    if held == 0 and at == size:
+        reader.inner._input.data.clear()
+    elif held > 0 or at > 0:
+        mut merged = match std.bytes.with_capacity(held + size - at):
+            case Ok(bytes):
+                bytes
+            case Err(_):
+                return False
+        if merged.resize(held, 0u8).is_err():
+            return False
+        # Taken from the reader's buffer; the stream is not read.
+        if held > 0 and reader.read(&mut merged, 0, held).is_err():
+            return False
+        if merged.extend_range(&reader.inner._input.data, at, size).is_err():
+            return False
+        reader.inner._input.data = merged
+    reader.inner._at = 0
+    restart(&mut reader.inner._input, limits)
+    True
+
+# A connection handed back to wait on the accepting thread: the stream,
+# what has arrived of its next request, and when to stop waiting.
+def waiting[T](conn: &mut Conn[T], idle_ns: u64) -> Option[tuple[T, Option[Gathered], u64]]:
+    stream = match replace(conn._stream, Nothing):
+        case Some(open):
+            open
+        case Nothing:
+            return Nothing
+    if conn._input.data.len() == 0:
+        return Some((stream, Nothing, after(now_ns(), idle_ns)))
+    match std.bytes.empty():
+        case Ok(empty):
+            data = replace(conn._input.data, empty)
+            Some((stream, Some(Gathered(data, conn._input.line, conn._input.searched, conn._input.left, conn._input.fields)), conn._until))
+        case Err(_):
+            Nothing
+
 # Serves every request on one connection until it closes, fails, reaches
 # `max_requests`, or shutdown finds it idle. Never fails: problems are
 # answered on the wire where possible and counted in `report`. With `park`,
-# a connection that has no next request waiting is returned, with nothing
-# buffered, instead of waiting for one. `served` counts its requests.
-def connection[T: Transport, H: Handler[T]](stream: T, served: &mut i64, park: bool, peer: &Option[SocketAddress], router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: &mut Option[ChannelSink], report: &mut Report) -> Option[T]:
+# no head is waited for: a connection whose next head has not wholly
+# arrived is returned with the part that has, to wait on the accepting
+# thread. `input` is a head that arrived while it waited there, and `until`
+# that head's deadline. `served` counts its requests.
+def connection[T: Transport, H: Handler[T]](stream: T, input: Option[Gathered], until: u64, served: &mut i64, park: bool, peer: &Option[SocketAddress], router: &Router, handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, events: &mut Option[ChannelSink], report: &mut Report) -> Option[tuple[T, Option[Gathered], u64]]:
     out = match std.bytes.with_capacity(4096):
         case Ok(bytes):
             bytes
         case Err(_):
             return Nothing
-    conn = Conn(Some(stream), stop.share(), cancel.share(), True, 0u64, config.head_timeout.as_nanoseconds(), 0u64, config.write_timeout.as_nanoseconds(), u64.MAX, out, 4096, Nothing)
+    head_span = config.head_timeout.as_nanoseconds()
+    mut carried = False
+    start = match input:
+        case Some(found):
+            carried = found.data.len() > 0
+            found
+        case Nothing:
+            match std.bytes.empty():
+                case Ok(bytes):
+                    gathered(bytes, &config.limits)
+                case Err(_):
+                    return Nothing
+    conn = Conn(Some(stream), start, 0, stop.share(), cancel.share(), True, 0u64, head_span, until, config.write_timeout.as_nanoseconds(), u64.MAX, out, 4096, Nothing)
     mut reader = match std.io.buffered_reader(conn, 4096):
         case Ok(buffered):
             buffered
         case Err(_):
             return Nothing
     while *served < config.max_requests:
-        # A pipelined request already buffered is read here, not parked.
-        parking = park and reader.buffered() == 0 and not stop.is_cancelled()
-        # Bytes already buffered have started the next request, so its head
-        # deadline runs from now and an end or stall inside it is answered.
-        reader.inner._idle = reader.buffered() == 0
-        if not reader.inner._idle:
-            reader.inner._until = after(now_ns(), reader.inner._head_span)
-        if parking:
+        if not unread(&mut reader, &config.limits):
+            return Nothing
+        # Input left by the previous request has started the next one, so
+        # its head deadline runs from now and an end or stall inside it is
+        # answered. A carried head keeps the deadline it was parked with.
+        if reader.inner._input.data.len() > 0 and not carried:
+            reader.inner._until = after(now_ns(), head_span)
+        carried = False
+        if park and not stop.is_cancelled():
+            had = reader.inner._input.data.len()
+            gathering = match &mut reader.inner._stream:
+                case Some(open):
+                    gather(open, &mut reader.inner._input, &config.limits, &reader.inner._cancel)
+                case Nothing:
+                    return Nothing
+            if had == 0 and reader.inner._input.data.len() > 0:
+                reader.inner._until = after(now_ns(), head_span)
+            match gathering:
+                case Ok(True):
+                    pass
+                case Ok(False):
+                    return waiting(&mut reader.inner, config.idle_timeout.as_nanoseconds())
+                case Err(error):
+                    if reader.inner._input.data.len() > 0:
+                        count_failure(&Some(error), events, report)
+                    return Nothing
+            # Whatever the head needs is here, or the input has ended.
             reader.inner._idle_until = 0u64
         else:
             reader.inner._idle_until = after(now_ns(), config.idle_timeout.as_nanoseconds())
+        reader.inner._idle = reader.inner._input.data.len() == 0
         reader.inner._write_until = u64.MAX
         reader.inner._failure = Nothing
         head = match std.http.read_request(&mut reader, &config.limits):
@@ -909,13 +1135,6 @@ def connection[T: Transport, H: Handler[T]](stream: T, served: &mut i64, park: b
                 # Waiting for a request that never starts is not an error;
                 # a failure after its first byte is.
                 if reader.inner._idle:
-                    waiting = match &reader.inner._failure:
-                        case Some(NetError.TimedOut):
-                            True
-                        case _:
-                            False
-                    if parking and waiting:
-                        return replace(reader.inner._stream, Nothing)
                     return Nothing
                 if reader.inner._failure.is_some():
                     count_failure(&reader.inner._failure, events, report)
@@ -1088,7 +1307,7 @@ pub def serve_connection_from[T: Transport, H: Handler[T]](stream: T, peer: Opti
     report.connections = 1u64
     mut events = shared_sink(&config.events)
     mut served = 0
-    drop(connection(stream, &mut served, False, &peer, router, handler, config, stop, cancel, &mut events, &mut report))
+    drop(connection(stream, Nothing, 0u64, &mut served, False, &peer, router, handler, config, stop, cancel, &mut events, &mut report))
     report
 
 def copy_peer(peer: &Option[SocketAddress]) -> Option[SocketAddress]:
@@ -1180,7 +1399,8 @@ def turn_away[T, O: Opener[T]](opener: &O, tcp: TcpStream, write_ns: u64) -> ():
 
 # A connection for a worker: a new one (`fresh`) or one returning from being
 # parked (`resumed`), with the requests it has served. While parked on the
-# accepting thread's selector it waits for its next byte until `until`.
+# accepting thread's selector it waits for its next byte, or the rest of a
+# head in `input`, until `until`.
 class Job[T]:
     fresh: Option[TcpStream]
     resumed: Option[T]
@@ -1188,6 +1408,7 @@ class Job[T]:
     peer: Option[SocketAddress]
     accepted: u64
     until: u64
+    input: Option[Gathered]
 
 def copy_address(address: &SocketAddress) -> SocketAddress:
     SocketAddress(address.ip, address.port, address.scope)
@@ -1211,15 +1432,16 @@ def worker[T: Transport, O: Opener[T], H: Handler[T]](inbox: Receiver[Job[T]], d
         case Err(_):
             Nothing
     park = config.idle_connections > 0 and ring.is_some() and chime.is_some()
-    idle_ns = config.idle_timeout.as_nanoseconds()
     while True:
         match inbox.recv():
             case Ok(received):
                 mut job = received
                 accepted = job.accepted
+                until = job.until
                 mut served = job.served
                 mut peer = replace(job.peer, Nothing)
                 mut stream = replace(job.resumed, Nothing)
+                input = replace(job.input, Nothing)
                 match replace(job.fresh, Nothing):
                     case Some(tcp):
                         report.connections += 1u64
@@ -1233,10 +1455,11 @@ def worker[T: Transport, O: Opener[T], H: Handler[T]](inbox: Receiver[Job[T]], d
                         pass
                 match stream:
                     case Some(opened):
-                        match connection(opened, &mut served, park, &peer, router, handler, config, stop, cancel, &mut sink, &mut report):
-                            case Some(idle):
+                        match connection(opened, input, until, &mut served, park, &peer, router, handler, config, stop, cancel, &mut sink, &mut report):
+                            case Some(returned):
+                                (idle, started, wait_until) = returned
                                 fresh: Option[TcpStream] = Nothing
-                                parked = Job(fresh, Some(idle), served, peer, accepted, after(now_ns(), idle_ns))
+                                parked = Job(fresh, Some(idle), served, peer, accepted, wait_until, started)
                                 # A full return channel closes the connection.
                                 if back.send_nowait(parked).is_ok():
                                     match &mut ring:
@@ -1257,10 +1480,10 @@ def worker[T: Transport, O: Opener[T], H: Handler[T]](inbox: Receiver[Job[T]], d
     # `done` holds one slot per worker, so this cannot be full.
     drop(done.send_nowait(report))
 
-# Answers a connection the server has no room for. Request bytes that have
-# already arrived are read first so that closing does not reset the
-# connection before the client sees the answer.
-def busy[T: Transport](stream: &mut T, write_ns: u64, token: &CancellationToken) -> ():
+# Answers a connection on the accepting thread with a whole response that
+# closes it. Request bytes that have already arrived are read first so that
+# closing does not reset the connection before the client sees the answer.
+def answer[T: Transport](stream: &mut T, text: &str, write_ns: u64, token: &CancellationToken) -> ():
     match std.bytes.with_capacity(4096):
         case Ok(scratch):
             mut buffer = scratch
@@ -1268,11 +1491,15 @@ def busy[T: Transport](stream: &mut T, write_ns: u64, token: &CancellationToken)
                 drop(stream.read_before(&mut buffer, 0, 4096, &deadline_of(0u64), token))
         case Err(_):
             pass
-    match std.bytes.from_text("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 20\r\nRetry-After: 1\r\nConnection: close\r\n\r\nService Unavailable\n"):
-        case Ok(answer):
-            drop(send_all(stream, &answer, 0, answer.len(), write_ns, after(now_ns(), write_ns), token))
+    match std.bytes.from_text(text):
+        case Ok(bytes):
+            drop(send_all(stream, &bytes, 0, bytes.len(), write_ns, after(now_ns(), write_ns), token))
         case Err(_):
             pass
+
+# Answers a connection the server has no room for.
+def busy[T: Transport](stream: &mut T, write_ns: u64, token: &CancellationToken) -> ():
+    answer(stream, "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 20\r\nRetry-After: 1\r\nConnection: close\r\n\r\nService Unavailable\n", write_ns, token)
 
 def reject(stream: TcpStream, write_ns: u64) -> ():
     mut owned = stream
@@ -1359,10 +1586,18 @@ def send_job[T: Transport, O: Opener[T]](state: &mut Admission[T], job: Job[T], 
             drop(refused)
 
 # Parks a connection until it is readable or `until` passes. A connection
-# that finds no free slot is closed.
-def park[T, O: Opener[T]](state: &mut Admission[T], parked: Job[T], cap: i64, opener: &O) -> ():
+# that finds no free slot is closed, after a 503 if its request has started.
+def park[T: Transport, O: Opener[T]](state: &mut Admission[T], parked: Job[T], cap: i64, opener: &O) -> ():
     if state.parked >= cap:
-        drop(parked)
+        mut refused = parked
+        if refused.input.is_some():
+            state.total.rejected += 1u64
+            problem(&mut state.events, "too many connections", 503, &mut state.total)
+            match replace(refused.resumed, Nothing):
+                case Some(stream):
+                    reject_resumed(stream, state.reject_ns)
+                case Nothing:
+                    pass
         return
     mut index = 0
     while index < len(state.slots) and state.slots[index].is_some():
@@ -1404,6 +1639,19 @@ def retire[T, O: Opener[T]](state: &mut Admission[T], job: Job[T], expired: bool
         case Nothing:
             drop(closing)
 
+# Answers `408` to a parked connection whose head has not arrived by its
+# deadline, as a worker reading it would have.
+def time_out[T: Transport](state: &mut Admission[T], job: Job[T], token: &CancellationToken) -> ():
+    mut closing = job
+    state.total.timeouts += 1u64
+    problem(&mut state.events, "timed out", 408, &mut state.total)
+    match replace(closing.resumed, Nothing):
+        case Some(stream):
+            mut owned = stream
+            answer(&mut owned, "HTTP/1.1 408 Request Timeout\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 16\r\nConnection: close\r\n\r\nRequest Timeout\n", state.reject_ns, token)
+        case Nothing:
+            pass
+
 def earliest[T](slots: &list[Option[Job[T]]]) -> u64:
     mut soonest = u64.MAX
     for index in range(len(slots)):
@@ -1414,7 +1662,7 @@ def earliest[T](slots: &list[Option[Job[T]]]) -> u64:
                 pass
     soonest
 
-def expire_parked[T, O: Opener[T]](state: &mut Admission[T], opener: &O) -> ():
+def expire_parked[T: Transport, O: Opener[T]](state: &mut Admission[T], cancel: &CancellationToken, opener: &O) -> ():
     now = now_ns()
     for index in range(len(state.slots)):
         due = match &state.slots[index]:
@@ -1425,13 +1673,69 @@ def expire_parked[T, O: Opener[T]](state: &mut Admission[T], opener: &O) -> ():
         if due:
             match unpark(state, index, opener):
                 case Some(job):
-                    retire(state, job, True, opener)
+                    if job.input.is_some():
+                        time_out(state, job, cancel)
+                    else:
+                        retire(state, job, True, opener)
                 case Nothing:
                     pass
 
+# What a parked connection's input calls for.
+const head_ready: i64 = 0
+const head_waiting: i64 = 1
+const head_lost: i64 = 2
+
+# Reads more of the head a parked connection has started: head_ready once
+# the parser could take it without waiting or the input has ended,
+# head_waiting while more is needed, head_lost if reading failed. A
+# connection with no head started is ready for a worker when anything
+# arrives.
+def read_parked[T: Transport](job: &mut Job[T], limits: &Limits, token: &CancellationToken) -> i64:
+    match &mut job.resumed:
+        case Some(stream):
+            match &mut job.input:
+                case Some(input):
+                    match gather(stream, input, limits, token):
+                        case Ok(True):
+                            return head_ready
+                        case Ok(False):
+                            return head_waiting
+                        case Err(_):
+                            return head_lost
+                case Nothing:
+                    pass
+        case Nothing:
+            pass
+    head_ready
+
+# A parked connection has input. One that has started a head reads it here
+# and goes to a worker once the head can be parsed without waiting; any
+# other goes to a worker at once.
+def readied[T: Transport, O: Opener[T]](state: &mut Admission[T], index: i64, outbox: &Sender[Job[T]], config: &Config, cancel: &CancellationToken, opener: &O) -> ():
+    if index < 0 or index >= len(state.slots):
+        return
+    mut job = match replace(state.slots[index], Nothing):
+        case Some(parked):
+            parked
+        case Nothing:
+            return
+    step = read_parked(&mut job, &config.limits, cancel)
+    if step == head_waiting:
+        # Registered again because a TLS stream's interest changes with
+        # the ciphertext it has left to send.
+        drop(watch_job(&job, &mut state.selector, first_slot + u64(index), opener))
+        state.slots[index] = Some(job)
+        return
+    state.parked -= 1
+    unwatch_job(&job, &mut state.selector, opener)
+    if step == head_ready:
+        send_job(state, job, outbox, opener)
+    else:
+        retire(state, job, False, opener)
+
 # Takes connections workers have returned, and the datagrams that announced
 # them.
-def collect[T, O: Opener[T]](state: &mut Admission[T], cap: i64, cancel: &CancellationToken, opener: &O) -> ():
+def collect[T: Transport, O: Opener[T]](state: &mut Admission[T], cap: i64, cancel: &CancellationToken, opener: &O) -> ():
     size = state.scratch.len()
     while True:
         match state.bell.receive_from(&mut state.scratch, 0, size, &deadline_of(0u64), cancel):
@@ -1455,7 +1759,7 @@ def admitted[T: Transport, O: Opener[T]](state: &mut Admission[T], tcp: TcpStrea
         turn_away(opener, tcp, state.reject_ns)
         return
     resumed: Option[T] = Nothing
-    job = Job(Some(tcp), resumed, 0, Nothing, now, after(now, patience(opener, config)))
+    job = Job(Some(tcp), resumed, 0, Nothing, now, after(now, patience(opener, config)), Nothing)
     if cap == 0:
         send_job(state, job, outbox, opener)
         return
@@ -1482,18 +1786,14 @@ def accept_some[T: Transport, O: Opener[T]](state: &mut Admission[T], listener: 
                 return
 
 # Dispatches every connection the last selector wait found ready.
-def ready_events[T: Transport, O: Opener[T]](state: &mut Admission[T], count: i64, listener: &TcpListener, outbox: &Sender[Job[T]], config: &Config, stop: &CancellationToken, opener: &O) -> ():
+def ready_events[T: Transport, O: Opener[T]](state: &mut Admission[T], count: i64, listener: &TcpListener, outbox: &Sender[Job[T]], config: &Config, stop: &CancellationToken, cancel: &CancellationToken, opener: &O) -> ():
     for index in range(count):
         match state.selector.event(index):
             case Ok(event):
                 if event.key == listener_key:
                     accept_some(state, listener, outbox, config, stop, opener)
                 elif event.key >= first_slot:
-                    match unpark(state, i64(event.key - first_slot), opener):
-                        case Some(job):
-                            send_job(state, job, outbox, opener)
-                        case Nothing:
-                            pass
+                    readied(state, i64(event.key - first_slot), outbox, config, cancel, opener)
             case Err(_):
                 pass
 
@@ -1505,7 +1805,7 @@ def admit[T: Transport, O: Opener[T]](listener: TcpListener, outbox: Sender[Job[
         limit = least(after(now_ns(), accept_poll_ns), earliest(&state.slots))
         match state.selector.wait(&deadline_of(limit), stop):
             case Ok(count):
-                ready_events(&mut state, count, &open, &outbox, config, stop, opener)
+                ready_events(&mut state, count, &open, &outbox, config, stop, cancel, opener)
             case Err(WaitError.Cancelled):
                 break
             case Err(WaitError.TimedOut):
@@ -1515,10 +1815,11 @@ def admit[T: Transport, O: Opener[T]](listener: TcpListener, outbox: Sender[Job[
                 problem(&mut state.events, "accept failed", 0, &mut state.total)
                 std.time.sleep(&std.time.milliseconds(accept_backoff_ms))
         collect(&mut state, cap, cancel, opener)
-        expire_parked(&mut state, opener)
+        expire_parked(&mut state, cancel, opener)
     drop(open.close())
-    # A parked connection whose request has arrived is still served; the
-    # rest are idle and close at once, as do any returned from now on.
+    # A parked connection whose request has started arriving is still
+    # served; the rest are idle and close at once, as do any returned from
+    # now on.
     collect(&mut state, cap, cancel, opener)
     match state.selector.wait(&deadline_of(0u64), cancel):
         case Ok(count):
@@ -1538,7 +1839,10 @@ def admit[T: Transport, O: Opener[T]](listener: TcpListener, outbox: Sender[Job[
     for index in range(len(state.slots)):
         match unpark(&mut state, index, opener):
             case Some(job):
-                retire(&mut state, job, False, opener)
+                if job.input.is_some():
+                    send_job(&mut state, job, &outbox, opener)
+                else:
+                    retire(&mut state, job, False, opener)
             case Nothing:
                 pass
     drop(outbox)
