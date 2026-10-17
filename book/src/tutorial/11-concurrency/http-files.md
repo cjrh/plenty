@@ -68,7 +68,7 @@ def field(reply: &str, name: &str) -> Result[str, Failure]:
     Ok("")
 
 def get(path: &str, extra: &str) -> Result[str, Failure]:
-    Ok("GET ".concat(path)?.concat(" HTTP/1.1\r\nConnection: close\r\n")?.concat(extra)?.concat("\r\n")?)
+    Ok("GET ".concat(path)?.concat(" HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n")?.concat(extra)?.concat("\r\n")?)
 
 def client(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     page = fetch(port, &get("/files/index.html", "")?)?
@@ -81,7 +81,7 @@ def client(port: u16, stop: CancellationToken) -> Result[(), Failure]:
     for path in ["/files/../secret.txt", "/files/%2e%2e/secret.txt", "/files/.env"]?:
         print(fetch(port, &get(&path, "")?)?.split("\r\n")?[0])?
 
-    login = fetch(port, "POST /login HTTP/1.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?
+    login = fetch(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?
     cookie = field(&login, "Set-Cookie")?.split(";")?[0].concat("")?
     print(cookie.startswith("user=Ada."))?
     print(fetch(port, &get("/me", &"Cookie: ".concat(&cookie)?.concat("\r\n")?)?)?.split("\r\n\r\n")?[1])?

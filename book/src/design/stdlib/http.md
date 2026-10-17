@@ -93,6 +93,37 @@ guess, because that disagreement is how request smuggling works:
 The framing functions check both fields even where the status decides the
 framing, so a malformed response is rejected consistently.
 
+## Targets and Host
+
+| Function | Result |
+|---|---|
+| `request_target(head: &RequestHead)` | `Result[RequestTarget, HttpError]`: the checked authority, path and query |
+
+`RequestTarget` has `authority`, `path` and `query`, all `str`. `path` and
+`query` are still percent-encoded; `query` follows the first `?` and is
+empty without one, and an empty absolute-form path is `/`.
+
+`request_target` applies the server rules of RFC 9112 section 3.2. The
+parser reads a head without them, so a client or proxy can still read any
+well-formed message; a server calls this before routing, as
+[`std.http.server`](http-server.md) does.
+
+| Request | Result |
+|---|---|
+| HTTP/1.1 without `Host` | `MissingHost` |
+| More than one `Host` field, in any version | `DuplicateHost` |
+| A `Host` value other than `uri-host [ ":" port ]` | `InvalidHost` |
+| Origin-form target (`/path?query`) | `authority` is the `Host` value; empty for HTTP/1.0 without one |
+| Absolute-form target (`http://authority/path?query`, or `https`, scheme in any case) | `authority` is the target's, replacing `Host` |
+| Absolute-form with userinfo (`@`), an empty host, or another scheme | `InvalidTarget` |
+| Asterisk-form (`OPTIONS *`) or authority-form (`CONNECT host:port`) | `InvalidTarget` |
+
+`Host` is checked even when an absolute-form authority replaces it. An empty
+`Host` value is valid; a client sends one when the target has no authority.
+A host is a reg-name of unreserved, sub-delimiter and percent-encoded bytes,
+or an IP literal in brackets; an IP literal is checked for its characters,
+not parsed as an address. A port is digits.
+
 ## Reading bodies
 
 | Function or method | Result |
@@ -160,6 +191,7 @@ failure may leave part of a message delivered. Heads are written with one
 | `InvalidChunk` | A chunk-size line or chunk terminator outside the grammar |
 | `LengthMismatch` | `write_body` given a range that does not match the framing |
 | `Unfinished`, `Broken` | `finish` before the end, or after a failure |
+| `InvalidTarget`, `MissingHost`, `DuplicateHost`, `InvalidHost` | See [Targets and Host](#targets-and-host) |
 
 ## Costs, ownership and threads
 
@@ -194,5 +226,6 @@ pipelined requests from memory and writes a chunked response. The tests in
   `std.net`'s `*_before` calls, or read with a deadline-aware `Reader`.
 - Only the `chunked` transfer coding. A body with another coding is rejected,
   not decoded.
-- Targets are returned as text, not parsed; use [`std.url`](url.md).
+- `read_request` returns the target as text; `request_target` splits the
+  forms a server accepts. Use [`std.url`](url.md) for other URLs.
 - Field values must be UTF-8; a peer that sends Latin-1 bytes is rejected.
