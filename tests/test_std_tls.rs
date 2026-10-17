@@ -356,10 +356,12 @@ with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
     );
 }
 
-/// The TLS stack sits behind its own runtime entry, so programs that never
-/// use `std.tls` link none of rustls or ring.
+/// The TLS stack sits behind its own runtime entry, and the linker drops
+/// whatever no reachable code calls, so only programs that reach `std.tls`
+/// code link rustls and ring (issue #127). Importing a module, even one that
+/// imports `std.tls`, is not enough.
 #[test]
-fn programs_without_tls_do_not_link_the_tls_stack() {
+fn only_programs_reaching_tls_link_the_tls_stack() {
     use object::{Object, ObjectSymbol};
     let symbols = |source: &str| {
         let dir = tempfile::tempdir().unwrap();
@@ -370,8 +372,32 @@ fn programs_without_tls_do_not_link_the_tls_stack() {
             .filter(|name| name == "plenty_tls" || name.contains("ring_core_0_17_14_"))
             .count()
     };
-    let plain = "def main() -> Result[(), Failure]:\n    print(\"hi\")?\n    Ok(())\n";
-    assert_eq!(symbols(plain), 0);
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("stdlib");
+    let mut modules = Vec::new();
+    let mut pending = vec![root.join("std")];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|e| e == "plenty") {
+                let name = path.strip_prefix(&root).unwrap().with_extension("");
+                modules.push(name.to_str().unwrap().replace('/', "."));
+            }
+        }
+    }
+    modules.sort();
+    assert!(modules.len() > 30 && modules.contains(&"std.bytes".to_owned()));
+    let plain = |import: &str| {
+        format!("{import}\ndef main() -> Result[(), Failure]:\n    print(\"hi\")?\n    Ok(())\n")
+    };
+    assert_eq!(symbols(&plain("")), 0);
+    for module in &modules {
+        let linked = symbols(&plain(&format!("import {module}\n")));
+        assert_eq!(linked, 0, "importing {module} linked the TLS stack");
+    }
+    // Every helper in the header uses std.tls, but `main` reaches none.
+    assert_eq!(symbols(&program("", "")), 0);
     assert!(symbols(&program("", "client_for(\"ca.pem\")?\n")) > 1);
 }
 

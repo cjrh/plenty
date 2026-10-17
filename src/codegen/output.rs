@@ -92,11 +92,19 @@ type Finished = std::result::Result<Vec<Built>, String>;
 
 impl Output {
     pub(super) fn new(targets: Targets) -> Result<Self> {
-        let builder = ObjectBuilder::new(
+        let mut builder = ObjectBuilder::new(
             targets.ordinary.clone(),
             "plenty",
             cranelift_module::default_libcall_names(),
         )?;
+        // Every std function of an imported module is compiled, and some call
+        // runtime entries such as `plenty_tls` or `plenty_sqlite`. One section
+        // per symbol lets the linker's `--gc-sections` drop the unused ones,
+        // so a program links those runtime stacks only when it reaches them
+        // (issue #127).
+        builder
+            .per_function_section(true)
+            .per_data_object_section(true);
         Ok(Self {
             module: ObjectModule::new(builder),
             builder: FunctionBuilderContext::new(),
@@ -118,7 +126,19 @@ impl Output {
     }
 
     pub(super) fn finish(self) -> cranelift_object::ObjectProduct {
-        self.module.finish()
+        use cranelift_object::object::{elf, FileFlags};
+        let mut product = self.module.finish();
+        // GNU ld honours SHF_GNU_RETAIN, which keeps a library's interface
+        // section through `--gc-sections`, only in GNU OSABI objects, as GNU
+        // as marks them. Cranelift writes the System V OSABI.
+        if let FileFlags::None = product.object.flags {
+            product.object.flags = FileFlags::Elf {
+                os_abi: elf::ELFOSABI_GNU,
+                abi_version: 0,
+                e_flags: 0,
+            };
+        }
+        product
     }
 
     /// Run `build` on each job across `workers` threads, placing the

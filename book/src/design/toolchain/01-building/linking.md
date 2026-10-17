@@ -39,9 +39,12 @@ target support. Failures report its identity, status, and diagnostics.
 `--emit-object` requires no linker and exports `plenty_main`. Link exactly one
 application object, followed by the runtime archive extracted from the same
 compiler build and its native arguments, one per line in `link-args.txt`. The
-first argument is `-Wl,--gc-sections`, which leaves unused runtime code, such
-as the [`std.crypto`](../../stdlib/crypto.md) hashes and the
-[`std.compress`](../../stdlib/compress.md) codecs, out of the executable. The
+first argument is `-Wl,--gc-sections`. The object puts each function and data
+object in its own section, so the linker drops every function `main` cannot
+reach, including the unused functions of imported `std` modules, and then the
+runtime code only they call, such as the [`std.crypto`](../../stdlib/crypto.md)
+hashes, the [`std.compress`](../../stdlib/compress.md) codecs and the
+[`std.tls`](../../stdlib/tls.md) stack. The
 runtime supplies C `main`. Neither object emission nor runtime extraction needs
 Cargo or rustc on `PATH`.
 
