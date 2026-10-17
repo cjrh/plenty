@@ -2,9 +2,8 @@
 
 This page records what has been checked before [`std.http.server`](http-server.md)
 could be called production-ready, what that showed, and how to run the
-server in the meantime. **The server is not production-ready.** Two gates
-fail (slow request heads, issue #132; termination signals, issue #133) and
-some are only partly covered; see [Gates](#gates). HTTP/2 and HTTP/3 need
+server in the meantime. **The server is not production-ready.** One gate
+fails (slow request heads, issue #132) and some are only partly covered; see [Gates](#gates). HTTP/2 and HTTP/3 need
 separate adoption decisions and are not part of these gates.
 
 The suites are in `tests/test_std_http_server_qualification.rs`, with the
@@ -20,7 +19,7 @@ request corpus in `tests/fixtures/http_server/`. The benchmark is
 | Interoperability | Pass | curl over plain HTTP and TLS (reuse, sized, chunked and `100-continue` uploads, HTTP/1.0, `HEAD`, chunked and 64 MiB responses, 404/405); `std.http.client` (pooling, streamed chunked upload, large downloads) |
 | Slow clients | **Fail** | Idle and silent clients, slow readers and slow body senders are cut off at their deadlines without holding the server. A client that sends part of a head holds a worker until `head_timeout`, so a few of them stall the server (issue #132) |
 | Shutdown under sustained load | Pass | Six clients sending keep-alive requests while shutdown begins: every response received is whole, the server's count matches, and `serve` returns within the drain deadline |
-| Supervisor stop | **Fail** | A program cannot receive `SIGTERM`, so it cannot drain when stopped (issue #133) |
+| Supervisor stop | Pass | With [`std.signal.cancel_on`](signal.md#stopping-a-server), `SIGTERM` during a streamed response begins shutdown: the response ends whole, `serve` returns its `Report` and the program exits 0. A second signal ends the program at once (`test_std_signal.rs`) |
 | Allocation failure | Pass | Every allocation on the accepting thread fails in turn; request handling fails in turn through `serve_connection` (`test_std_http_server.rs`). No trap, no leak, and the request is served once allocation succeeds |
 | Resource leaks | Pass | No descriptor survives a load round or a fault round (bad heads, truncated heads, silent and rejected clients), and the allocation-checks runtime finds no live heap after either |
 | Measured baselines | Published | [Baselines](#baselines) |
@@ -116,9 +115,9 @@ The server itself:
   10 ms.
 - Set `events` to a [`std.log`](log.md) channel sink and export the
   `Report` counts; `rejected`, `timeouts` and `accept_errors` show overload.
-- Stop the server in-band until issue #133 is fixed: cancel the `stop` token
-  from a route bound to loopback only, or accept that a signal ends it
-  without a drain.
+- Drain on `SIGTERM` with [`std.signal`](signal.md#stopping-a-server), and
+  set the supervisor's stop timeout (`TimeoutStopSec` in systemd) above
+  `drain_timeout`.
 
 ## Security fixes and backend updates
 

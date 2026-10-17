@@ -312,6 +312,7 @@ mod native {
                 199 => wait(a, b != 0),
                 228 => signal(a, b),
                 229 => ready(a, b as u64, c as i64),
+                500 => crate::signals::listen(output[0]),
                 _ => crate::fail("invalid process operation"),
             }
         }
