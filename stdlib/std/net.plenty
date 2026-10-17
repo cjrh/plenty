@@ -623,6 +623,12 @@ pub class TcpStream:
             value = 1
         done(__net_set_option(self._stream.file, 1u8, value))
 
+    # Acknowledges data already received at once instead of after the
+    # kernel's acknowledgement delay (Linux `TCP_QUICKACK`). The kernel goes
+    # back to delaying acknowledgements on its own.
+    pub def acknowledge_now(self: &mut TcpStream) -> Result[(), NetError]:
+        done(__net_set_option(self._stream.file, 3u8, 1))
+
 pub class TcpListener:
     _file: File
 

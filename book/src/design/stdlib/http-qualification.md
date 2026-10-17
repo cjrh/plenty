@@ -96,10 +96,8 @@ P-256 server key; rustls 0.23.46 with ring), measured in the same session:
 
 Each new HTTPS connection is a full handshake: the server keeps no session
 cache and sends no tickets, so clients cannot resume. ApacheBench cannot
-measure that workload. It leaves Nagle's algorithm on, so each request waits
-about 40 ms for a delayed acknowledgement of its TLS `Finished` (issue #148),
-and it counts connections closed without `close_notify` as failed. The
-script runs curl 8.18.0 (OpenSSL 3.5.9) instead: four processes on the
+measure that workload: it counts connections closed without `close_notify`
+as failed. The script runs curl 8.18.0 (OpenSSL 3.5.9) instead: four processes on the
 client CPUs, each with `--parallel-max 4`, `TCP_NODELAY` (curl's default)
 and no certificate verification. The same curl method against the plain
 server gave 21397 (21225–22032) requests/s, p50 / p99 0.67 / 1.05 ms, so the
@@ -127,6 +125,15 @@ Before this qualification, a response whose head and body went out as two
 writes (any body over the 4 KiB write buffer) waited about 40 ms for a
 delayed acknowledgement: the 16 KiB workload ran at 388 requests/s. The
 server now turns off Nagle's algorithm on accepted connections.
+
+Until issue #148 was fixed, a client that leaves Nagle's algorithm on
+(ApacheBench, Python's `socket`) waited about 40 ms on each new HTTPS
+connection: a TLS 1.3 server sends nothing after the client's `Finished`, so
+the client held its first request until the kernel's delayed
+acknowledgement. `ab -n 20 -c 1` without `-k` took 42–44 ms per request.
+The server now acknowledges the `Finished` at once; on 2026-10-18 the same
+client took 0.76 ms per request over 200 requests (unpinned, not the
+baseline method above).
 
 ## Slow request heads
 

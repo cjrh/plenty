@@ -36,6 +36,7 @@ mod native {
     const SO_BROADCAST: i32 = 6;
     const IPPROTO_TCP: i32 = 6;
     const TCP_NODELAY: i32 = 1;
+    const TCP_QUICKACK: i32 = 12;
     const IPPROTO_IPV6: i32 = 41;
     const IPV6_V6ONLY: i32 = 26;
     const EINPROGRESS: i32 = 115;
@@ -294,6 +295,9 @@ mod native {
         match which {
             1 => option(fd, IPPROTO_TCP, TCP_NODELAY, value)?,
             2 => option(fd, SOL_SOCKET, SO_BROADCAST, value)?,
+            // Leaving delayed-acknowledgement mode sends any pending
+            // acknowledgement at once; the kernel re-enters it on its own.
+            3 => option(fd, IPPROTO_TCP, TCP_QUICKACK, value)?,
             _ => return Err(Kind::InvalidInput.into()),
         }
         Ok(0)

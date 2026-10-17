@@ -10,9 +10,8 @@ Run from the repository root with a release compiler:
 With `--tls` the same workloads run over HTTPS against
 examples/https_server_bench.plenty, with the certificate in tests/fixtures/tls
 (ECDSA P-256); ApacheBench does not verify it. ApacheBench cannot measure new
-HTTPS connections: it leaves Nagle's algorithm on, so each request waits for a
-delayed acknowledgement of its TLS Finished (issue #148), and it counts
-connections closed without close_notify as failed. That workload runs
+HTTPS connections: it counts connections closed without close_notify as
+failed. That workload runs
 `curl --parallel` instead, in four processes on the client CPUs, with
 TCP_NODELAY (curl's default) and without certificate verification.
 
