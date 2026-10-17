@@ -439,4 +439,8 @@
     - [Fallible memory, parallel execution, and SIMD](proposals/memory-parallelism-and-simd.md)
     - [Plenty's next language phase](proposals/next-language-phase.md)
     - [Keyword arguments, defaults, and static unpacking](proposals/keyword-arguments-and-unpacking.md)
+    - [Named arguments and fresh defaults](proposals/named-arguments-and-fresh-defaults.md)
+    - [Explicit error composition](proposals/error-composition.md)
+    - [Finite error sets as anonymous sums](proposals/error-sets.md)
+    - [Typestate and owned transitions](proposals/typestate-and-owned-transitions.md)
     - [GCC backend (`plenty_codegen_gcc`)](proposals/codegen-gcc.md)
