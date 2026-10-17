@@ -16,6 +16,7 @@ remains with its backlog ID.
 | Implemented | The design shipped. The page keeps the rationale. |
 | Partly implemented | Some of it shipped. The block says which parts. |
 | Not implemented | Nothing shipped. The page is the design record for future work. |
+| Investigation complete | An assessment reached a decision; it does not imply feature implementation. |
 
 Below its status block a proposal keeps its original wording. It may say
 "should" or "add" about things that now exist, and its code blocks may show
@@ -62,3 +63,9 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Finite error sets](error-sets.md) | B71 |
 | [Typestate and owned transitions](typestate-and-owned-transitions.md) — assessment and experiments using existing facilities | B72 |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
+
+## Completed investigations
+
+| Assessment | Decision / related backlog |
+| --- | --- |
+| [Library-owned operations and backend hooks](library-owned-operations.md) | Existing composition and optional capabilities; new protocol access deferred. B29 (issue #145). |
