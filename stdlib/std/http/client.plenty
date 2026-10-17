@@ -1,10 +1,12 @@
 # A reusable HTTP/1.1 client over std.http framing: pooled keep-alive
 # connections, a caller deadline and cancellation token for every exchange,
 # per-phase timeouts, bounded redirects that drop credentials across origins,
-# an explicit forward proxy, and replay only of idempotent requests that
-# failed on a reused connection before any response byte arrived.
-# Connections come from a Connector, so a TLS connector can supply them.
-# See book/src/design/stdlib/http-client.md.
+# an explicit forward proxy with CONNECT tunnels for `https`, streamed
+# request bodies with `Expect: 100-continue`, and replay only of idempotent
+# requests that failed on a reused connection before any response byte
+# arrived. Connections come from a Connector; std.http.https supplies TLS
+# ones, so this module does not import std.tls and plain clients link none
+# of it. See book/src/design/stdlib/http-client.md.
 import std.bytes
 import std.http
 import std.io
@@ -13,7 +15,7 @@ import std.time
 import std.url
 from std.bytes import Bytes, BytesError
 from std.http import BodyReader, Header, HttpError, Limits, RequestHead, ResponseHead
-from std.io import BufReader, StreamError
+from std.io import BufReader, Reader, StreamError
 from std.net import NetError, TcpStream
 from std.sync import CancellationToken
 from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now, seconds
@@ -31,12 +33,41 @@ pub enum ClientError:
     InvalidRedirect
     TooManyRedirects
     UnexpectedInterim
+    Tls(TlsFailure)
+    TunnelRefused(i64)
+    Body(StreamError)
+    WrongBodyLength
+
+# The std.tls TlsError variants a handshake or session can end with, other
+# than network, allocation and end-of-stream failures. Kept here so that
+# this module does not import std.tls.
+pub enum TlsFailure:
+    UntrustedCertificate
+    ExpiredCertificate
+    WrongHost
+    InvalidCertificate
+    RevokedCertificate
+    Rejected
+    Protocol
+    InvalidName
+    InvalidConfiguration
+    NoTrustRoots
+    CertificateRequired
+    Incompatible
+
+# A proxy to reach the endpoint through with CONNECT.
+pub class Tunnel:
+    pub host: str
+    pub port: u16
+    pub authorization: Option[str]
 
 # Where a connection goes: the origin, or the proxy. `host` has no brackets.
+# `tunnel` is set for an `https` origin reached through a proxy.
 pub class Endpoint:
     pub scheme: str
     pub host: str
     pub port: u16
+    pub tunnel: Option[Tunnel]
 
 # A byte stream the client can frame HTTP over. Reads and writes wait at most
 # until the deadline and stop when the token is cancelled.
@@ -62,33 +93,158 @@ pub class Plain:
     pub def write_before(self: &mut Plain, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         netted(self._stream.write_before(source, start, stop, deadline, cancel))
 
-# Resolves the endpoint's host and tries each address in the resolver's
-# order until one connects. Only the `http` scheme is accepted.
+# Opens plain TCP connections. Only the `http` scheme is accepted.
 pub class TcpConnector:
     pub def open(self: &mut TcpConnector, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]:
-        if endpoint.scheme != "http":
+        if endpoint.scheme != "http" or endpoint.tunnel.is_some():
             return Err(ClientError.UnsupportedScheme)
-        addresses = netted(std.net.resolve(&endpoint.host, endpoint.port, deadline, cancel))?
-        mut last = NetError.NameNotFound
-        for index in range(len(addresses)):
-            match std.net.connect(&addresses[index], deadline, cancel):
-                case Ok(stream):
-                    mut owned = stream
-                    # Heads and small bodies go out in separate writes.
-                    drop(owned.set_no_delay(True))
-                    return Ok(Plain(owned))
-                case Err(error):
-                    match error:
-                        case NetError.TimedOut:
-                            return Err(ClientError.Net(error))
-                        case NetError.Cancelled:
-                            return Err(ClientError.Net(error))
-                        case _:
-                            last = error
-        Err(ClientError.Net(last))
+        Ok(Plain(dial(endpoint, deadline, cancel)?))
 
-# An HTTP forward proxy for `http` URLs. `authorization`, when set, is sent
-# as Proxy-Authorization to the proxy only.
+# A TCP connection to `endpoint` within the deadline. The host is resolved
+# and each address tried in the resolver's order until one connects. With a
+# tunnel, the connection goes to the proxy, which is asked with CONNECT to
+# relay bytes to the endpoint; a status other than 2xx is TunnelRefused.
+pub def dial(endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]:
+    match &endpoint.tunnel:
+        case Some(via):
+            stream = reach(&via.host, via.port, deadline, cancel)?
+            tunnelled(stream, endpoint, via, deadline, cancel)
+        case Nothing:
+            reach(&endpoint.host, endpoint.port, deadline, cancel)
+
+def reach(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]:
+    addresses = netted(std.net.resolve(host, port, deadline, cancel))?
+    mut last = NetError.NameNotFound
+    for index in range(len(addresses)):
+        match std.net.connect(&addresses[index], deadline, cancel):
+            case Ok(stream):
+                mut owned = stream
+                # Heads and small bodies go out in separate writes.
+                drop(owned.set_no_delay(True))
+                return Ok(owned)
+            case Err(error):
+                match error:
+                    case NetError.TimedOut:
+                        return Err(ClientError.Net(error))
+                    case NetError.Cancelled:
+                        return Err(ClientError.Net(error))
+                    case _:
+                        last = error
+    Err(ClientError.Net(last))
+
+# A TCP stream as a std.io Reader and Writer whose waits end at `until`.
+pub class Dialled:
+    stream: Option[TcpStream]
+    until: u64
+    cancel: CancellationToken
+    failure: Option[ClientError]
+
+    def noted(self: &mut Dialled, error: NetError) -> StreamError:
+        match error:
+            case NetError.Stream(StreamError.Allocation(cause)):
+                StreamError.Allocation(cause)
+            case _ as other:
+                self.failure = Some(ClientError.Net(other))
+                StreamError.Io(IoError.Other)
+
+    pub def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        mut outcome: Result[i64, NetError] = Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+        match &mut self.stream:
+            case Some(tcp):
+                outcome = tcp.read_before(buffer, start, stop, &deadline_of(self.until), &self.cancel)
+            case Nothing:
+                pass
+        match outcome:
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(self.noted(error))
+
+    pub def write(self: &mut Dialled, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        mut outcome: Result[i64, NetError] = Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+        match &mut self.stream:
+            case Some(tcp):
+                outcome = tcp.write_before(source, start, stop, &deadline_of(self.until), &self.cancel)
+            case Nothing:
+                pass
+        match outcome:
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(self.noted(error))
+
+    pub def flush(self: &mut Dialled) -> Result[(), StreamError]:
+        Ok(())
+
+# `host:port` for a request target or Host field, with an IPv6 address
+# in brackets.
+def host_port(host: &str, port: u16) -> Result[str, AllocError]:
+    mut named = host.concat("")?
+    if host.find(":").is_some():
+        named = "[".concat(host)?.concat("]")?
+    named.concat(":")?.concat(&str.from(i64(port))?)
+
+def tunnelled(stream: TcpStream, endpoint: &Endpoint, via: &Tunnel, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]:
+    target = alloc(host_port(&endpoint.host, endpoint.port))?
+    mut head = framed(std.http.request("CONNECT", alloc(target.concat(""))?))?
+    framed(head.add("Host", target))?
+    match &via.authorization:
+        case Some(secret):
+            framed(head.add("Proxy-Authorization", alloc(secret.concat(""))?))?
+        case Nothing:
+            pass
+    failure: Option[ClientError] = Nothing
+    wire = Dialled(Some(stream), until_of(deadline), cancel.share(), failure)
+    # Byte-sized reads, so that nothing after the proxy's head is taken from
+    # the stream that the TLS session continues on.
+    mut conn = match std.io.buffered_reader(wire, 1):
+        case Ok(reader):
+            reader
+        case Err(StreamError.Allocation(cause)):
+            return Err(ClientError.Allocation(cause))
+        case Err(_):
+            return Err(ClientError.InvalidConfig)
+    sent = std.http.write_request(&mut conn.inner, &head)
+    proxied(&mut conn, sent)?
+    mut interim = 0
+    while True:
+        answer = match std.http.read_response(&mut conn, &std.http.limits()):
+            case Ok(Some(found)):
+                found
+            case Ok(Nothing):
+                return Err(ClientError.Http(HttpError.Truncated))
+            case Err(error):
+                return Err(proxied_fault(&mut conn, error))
+        if answer.status >= 200 and answer.status < 300:
+            match replace(conn.inner.stream, Nothing):
+                case Some(tcp):
+                    return Ok(tcp)
+                case Nothing:
+                    return Err(ClientError.Http(HttpError.Truncated))
+        if answer.status >= 200 or answer.status == 101:
+            return Err(ClientError.TunnelRefused(answer.status))
+        interim += 1
+        if interim > max_interim:
+            return Err(ClientError.UnexpectedInterim)
+    Err(ClientError.UnexpectedInterim)
+
+def proxied_fault(conn: &mut BufReader[Dialled], error: HttpError) -> ClientError:
+    match replace(conn.inner.failure, Nothing):
+        case Some(cause):
+            cause
+        case Nothing:
+            http_of(error)
+
+def proxied(conn: &mut BufReader[Dialled], result: Result[(), HttpError]) -> Result[(), ClientError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(proxied_fault(conn, error))
+
+# An HTTP proxy: a forward proxy for `http` URLs and a CONNECT tunnel for
+# `https` ones. `authorization`, when set, is sent as Proxy-Authorization to
+# the proxy only.
 pub class Proxy:
     pub endpoint: Endpoint
     pub authorization: Option[str]
@@ -99,7 +255,7 @@ pub def proxy(url: &str) -> Result[Proxy, ClientError]:
     target = target_of(url)?
     if target.scheme != "http" or target.path != "/" or target.query.is_some():
         return Err(ClientError.InvalidUrl)
-    Ok(Proxy(Endpoint(target.scheme, target.name, u16(target.port)), Nothing))
+    Ok(Proxy(Endpoint(target.scheme, target.name, u16(target.port), Nothing), Nothing))
 
 pub class Config:
     pub limits: Limits
@@ -108,6 +264,7 @@ pub class Config:
     pub head_timeout: Duration
     pub read_timeout: Duration
     pub idle_timeout: Duration
+    pub continue_timeout: Duration
     pub max_idle: i64
     pub max_idle_per_origin: i64
     pub redirects: i64
@@ -117,7 +274,31 @@ pub class Config:
 
 pub def config() -> Result[Config, ClientError]:
     sensitive = alloc(list[str].new())?
-    Ok(Config(std.http.limits(), seconds(10u32), seconds(10u32), seconds(30u32), seconds(30u32), seconds(30u32), 16, 4, 10, 1, sensitive, Nothing))
+    Ok(Config(std.http.limits(), seconds(10u32), seconds(10u32), seconds(30u32), seconds(30u32), seconds(30u32), seconds(1u32), 16, 4, 10, 1, sensitive, Nothing))
+
+# How `send_from` frames a streamed request body: `length` bytes with
+# Content-Length, or chunked when it is Nothing. With `expect_continue` the
+# head carries `Expect: 100-continue` and the body waits for the server's
+# `100 Continue`, at most `continue_timeout`.
+pub class Upload:
+    pub length: Option[i64]
+    pub expect_continue: bool
+
+# A body of exactly `length` bytes.
+pub def sized(length: i64) -> Upload:
+    Upload(Some(length), False)
+
+# A body of unknown length, sent with chunked transfer coding.
+pub def chunked() -> Upload:
+    Upload(Nothing, False)
+
+# Reads no bytes; the source of a request whose body is in memory.
+pub class Unstreamed:
+    pub def read(self: &mut Unstreamed, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        Ok(0)
+
+# Bytes of a streamed body read and sent at a time.
+const upload_chunk: i64 = 16384
 
 # Counts kept by a client.
 pub class Stats:
@@ -303,6 +484,8 @@ def key_of(endpoint: &Endpoint, proxied: bool) -> Result[str, AllocError]:
     mut key = endpoint.scheme.concat("://")?.concat(&endpoint.host)?.concat(":")?.concat(&str.from(i64(endpoint.port))?)?
     if proxied:
         key = "proxy+".concat(&key)?
+    if endpoint.tunnel.is_some():
+        key = "tunnel+".concat(&key)?
     Ok(key)
 
 def same_origin(left: &Target, right: &Target) -> bool:
@@ -398,7 +581,8 @@ def copied_headers(headers: &list[Header]) -> Result[list[Header], AllocError]:
 # A std.io Reader and Writer over a transport. Every read waits at most
 # `read_span`, and also no later than the request deadline and, until the
 # response head has arrived, the head deadline. The cause of a failed read
-# or write is kept in `failure`; `received` counts response bytes.
+# or write is kept in `failure`; `received` counts response bytes and
+# `pulled` bytes taken from a streamed request body.
 pub class Wire[T]:
     _stream: T
     _cancel: CancellationToken
@@ -407,6 +591,7 @@ pub class Wire[T]:
     _read_span: u64
     _write_span: u64
     _received: i64
+    _pulled: i64
     _failure: Option[ClientError]
     _key: str
     _since: u64
@@ -577,11 +762,32 @@ pub class Client[T, C]:
     # following redirects. `deadline` bounds the whole exchange, including
     # reads of the returned body; `cancel` stops it.
     pub def send(self: &mut Client[T, C], request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+        mut none = Unstreamed()
+        self.run(request, &mut none, &sized(0), False, deadline, cancel)
+
+    # `send` with a body read from `body` until it ends, framed as `upload`
+    # says; `request.body` must be empty. The body is read once, so the
+    # request is replayed only if none of it was read, and a redirect is
+    # followed only when the next request has no body: otherwise the
+    # redirect response is returned.
+    pub def send_from[R: Reader](self: &mut Client[T, C], request: Request, body: &mut R, upload: &Upload, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+        if request.body.len() > 0:
+            return Err(ClientError.InvalidRequest)
+        match upload.length:
+            case Some(total):
+                if total < 0:
+                    return Err(ClientError.InvalidRequest)
+            case Nothing:
+                pass
+        self.run(request, body, upload, True, deadline, cancel)
+
+    def run[R: Reader](self: &mut Client[T, C], request: Request, body: &mut R, upload: &Upload, streamed: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
         until = until_of(deadline)
         mut current = request
+        mut streaming = streamed
         mut hops = 0
         while True:
-            mut response = self.attempt(&current, until, cancel)?
+            mut response = self.attempt(&current, body, upload, streaming, until, cancel)?
             mut location: Option[str] = Nothing
             status = response.status
             if self._config.redirects > 0 and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308):
@@ -590,6 +796,9 @@ pub class Client[T, C]:
                         location = Some(alloc(response.head.headers[index].value.concat(""))?)
                     case Nothing:
                         pass
+            dropped = bodiless(status, &current.method)
+            if streaming and not dropped:
+                location = Nothing
             match location:
                 case Some(text):
                     if hops >= self._config.redirects:
@@ -598,6 +807,8 @@ pub class Client[T, C]:
                     next = resolved(&base, &text)?
                     self.drain(response, until)
                     follow(&mut current, status, next, &self._config.sensitive)?
+                    if dropped:
+                        streaming = False
                     hops += 1
                     self._stats.redirected += 1u64
                 case Nothing:
@@ -727,7 +938,7 @@ pub class Client[T, C]:
         stream = self._connector.open(endpoint, &deadline_of(limit), cancel)?
         self._stats.opened += 1u64
         failure: Option[ClientError] = Nothing
-        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, failure, alloc(key.concat(""))?, 0u64)
+        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, alloc(key.concat(""))?, 0u64)
         match std.io.buffered_reader(wire, 4096):
             case Ok(reader):
                 Ok(reader)
@@ -737,26 +948,34 @@ pub class Client[T, C]:
                 Err(ClientError.InvalidConfig)
 
     # One request on one connection, replayed on a new connection when a
-    # reused one failed before any response byte arrived and the method is
-    # idempotent.
-    def attempt(self: &mut Client[T, C], request: &Request, until: u64, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+    # reused one failed before any response byte arrived, the method is
+    # idempotent and no byte of a streamed body was read.
+    def attempt[R: Reader](self: &mut Client[T, C], request: &Request, body: &mut R, upload: &Upload, streamed: bool, until: u64, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
         target = target_of(&request.url)?
         for index in range(len(request.headers)):
             if alloc(managed(&request.headers[index].name))?:
                 return Err(ClientError.InvalidRequest)
         if request.method == "CONNECT" or not token(&request.method):
             return Err(ClientError.InvalidRequest)
-        mut endpoint = Endpoint(alloc(target.scheme.concat(""))?, alloc(target.name.concat(""))?, u16(target.port))
+        mut endpoint = Endpoint(alloc(target.scheme.concat(""))?, alloc(target.name.concat(""))?, u16(target.port), Nothing)
         mut proxied = False
         match &self._config.proxy:
             case Some(chosen):
                 if target.scheme == "http":
                     proxied = True
-                    endpoint = Endpoint(alloc(chosen.endpoint.scheme.concat(""))?, alloc(chosen.endpoint.host.concat(""))?, chosen.endpoint.port)
+                    endpoint = Endpoint(alloc(chosen.endpoint.scheme.concat(""))?, alloc(chosen.endpoint.host.concat(""))?, chosen.endpoint.port, Nothing)
+                else:
+                    mut secret: Option[str] = Nothing
+                    match &chosen.authorization:
+                        case Some(value):
+                            secret = Some(alloc(value.concat(""))?)
+                        case Nothing:
+                            pass
+                    endpoint.tunnel = Some(Tunnel(alloc(chosen.endpoint.host.concat(""))?, chosen.endpoint.port, secret))
             case Nothing:
                 pass
         key = alloc(key_of(&endpoint, proxied))?
-        head = self.head_of(request, &target, proxied)?
+        head = self.head_of(request, &target, proxied, upload, streamed)?
         mut retried = 0
         mut fresh = False
         while True:
@@ -777,12 +996,15 @@ pub class Client[T, C]:
             conn.inner._read_span = self._config.read_timeout.as_nanoseconds()
             conn.inner._write_span = self._config.write_timeout.as_nanoseconds()
             conn.inner._received = 0
+            conn.inner._pulled = 0
             conn.inner._failure = Nothing
-            match self.exchange(&mut conn, request, &head):
+            match self.exchange(&mut conn, request, &head, body, upload, streamed):
                 case Ok(answer):
-                    return self.respond(conn, answer, &request.method)
+                    mut owned = answer
+                    complete = owned.complete
+                    return self.respond(conn, replace(owned.head, framed(std.http.response(0, ""))?), &request.method, complete)
                 case Err(error):
-                    if reused and conn.inner._received == 0 and retried < self._config.retries and idempotent(&request.method) and replayable(&error):
+                    if reused and conn.inner._received == 0 and conn.inner._pulled == 0 and retried < self._config.retries and idempotent(&request.method) and replayable(&error):
                         retried += 1
                         fresh = True
                         self._stats.retried += 1u64
@@ -790,7 +1012,7 @@ pub class Client[T, C]:
                         return Err(error)
         Err(ClientError.InvalidRequest)
 
-    def head_of(self, request: &Request, target: &Target, proxied: bool) -> Result[RequestHead, ClientError]:
+    def head_of(self, request: &Request, target: &Target, proxied: bool, upload: &Upload, streamed: bool) -> Result[RequestHead, ClientError]:
         mut form = alloc(origin_form(target))?
         if proxied:
             form = alloc(absolute_form(target, &form))?
@@ -798,9 +1020,18 @@ pub class Client[T, C]:
         framed(head.add("Host", alloc(authority(target))?))?
         for index in range(len(request.headers)):
             framed(head.add(alloc(request.headers[index].name.concat(""))?, alloc(request.headers[index].value.concat(""))?))?
-        size = request.body.len()
-        if size > 0 or request.method == "POST" or request.method == "PUT" or request.method == "PATCH":
-            framed(head.add("Content-Length", alloc(str.from(size))?))?
+        if streamed:
+            match upload.length:
+                case Some(total):
+                    framed(head.add("Content-Length", alloc(str.from(total))?))?
+                case Nothing:
+                    framed(head.add("Transfer-Encoding", "chunked"))?
+            if upload.expect_continue:
+                framed(head.add("Expect", "100-continue"))?
+        else:
+            size = request.body.len()
+            if size > 0 or request.method == "POST" or request.method == "PUT" or request.method == "PATCH":
+                framed(head.add("Content-Length", alloc(str.from(size))?))?
         if proxied:
             match &self._config.proxy:
                 case Some(chosen):
@@ -815,17 +1046,30 @@ pub class Client[T, C]:
             framed(head.add("Connection", "close"))?
         Ok(head)
 
-    # Writes the request and reads up to the final response head.
-    def exchange(self, conn: &mut BufReader[Wire[T]], request: &Request, head: &RequestHead) -> Result[ResponseHead, ClientError]:
+    # Writes the request and reads up to the final response head. With
+    # `Expect: 100-continue`, a final response that arrives before the body
+    # is sent is returned with `complete` False.
+    def exchange[R: Reader](self, conn: &mut BufReader[Wire[T]], request: &Request, head: &RequestHead, body: &mut R, upload: &Upload, streamed: bool) -> Result[Answered, ClientError]:
         sent = std.http.write_request(&mut conn.inner, head)
         written(conn, sent)?
-        size = request.body.len()
-        if size > 0:
-            match std.io.write_all(&mut conn.inner, &request.body, 0, size):
-                case Ok(_):
-                    pass
-                case Err(partial):
-                    return Err(fault(conn, HttpError.Stream(partial.cause)))
+        if streamed:
+            if upload.expect_continue:
+                conn.inner._phase = after(now_ns(), self._config.continue_timeout.as_nanoseconds())
+                match self.await_continue(conn)?:
+                    case Some(early):
+                        return Ok(Answered(early, False))
+                    case Nothing:
+                        pass
+                conn.inner._phase = u64.MAX
+            stream_body(conn, body, upload)?
+        else:
+            size = request.body.len()
+            if size > 0:
+                match std.io.write_all(&mut conn.inner, &request.body, 0, size):
+                    case Ok(_):
+                        pass
+                    case Err(partial):
+                        return Err(fault(conn, HttpError.Stream(partial.cause)))
         conn.inner._phase = after(now_ns(), self._config.head_timeout.as_nanoseconds())
         mut interim = 0
         while True:
@@ -834,7 +1078,7 @@ pub class Client[T, C]:
                     if answer.status == 101:
                         return Err(ClientError.UnexpectedInterim)
                     if answer.status >= 200:
-                        return Ok(answer)
+                        return Ok(Answered(answer, True))
                     interim += 1
                     if interim > max_interim:
                         return Err(ClientError.UnexpectedInterim)
@@ -844,15 +1088,98 @@ pub class Client[T, C]:
                     return Err(fault(conn, error))
         Err(ClientError.UnexpectedInterim)
 
-    def respond(self, conn: BufReader[Wire[T]], head: ResponseHead, method: &str) -> Result[Response[T], ClientError]:
+    # Waits up to the continue phase for `100 Continue` (Nothing: send the
+    # body) or a final response (send no body). Silence until then also
+    # means sending the body, as servers that ignore Expect never answer.
+    def await_continue(self, conn: &mut BufReader[Wire[T]]) -> Result[Option[ResponseHead], ClientError]:
+        mut interim = 0
+        while True:
+            before = conn.inner._received
+            match std.http.read_response(conn, &self._config.limits):
+                case Ok(Some(answer)):
+                    if answer.status == 100:
+                        return Ok(Nothing)
+                    if answer.status == 101:
+                        return Err(ClientError.UnexpectedInterim)
+                    if answer.status >= 200:
+                        return Ok(Some(answer))
+                    interim += 1
+                    if interim > max_interim:
+                        return Err(ClientError.UnexpectedInterim)
+                case Ok(Nothing):
+                    return Err(ClientError.Http(HttpError.Truncated))
+                case Err(error):
+                    cause = fault(conn, error)
+                    if timed_out(&cause) and conn.inner._received == before and conn.buffered() == 0 and now_ns() < conn.inner._until:
+                        return Ok(Nothing)
+                    return Err(cause)
+        Err(ClientError.UnexpectedInterim)
+
+    def respond(self, conn: BufReader[Wire[T]], head: ResponseHead, method: &str, complete: bool) -> Result[Response[T], ClientError]:
         mut owned = conn
         framing = framed(std.http.response_framing(&head, method))?
-        keep = std.http.response_keeps_alive(&head, &framing) and self._config.max_idle > 0
+        # A request whose body was never sent leaves the server expecting it.
+        keep = complete and std.http.response_keeps_alive(&head, &framing) and self._config.max_idle > 0
         owned.inner._phase = u64.MAX
         body = framed(std.http.body_reader(owned, &framing, &self._config.limits))?
         status = head.status
         failure: Option[ClientError] = Nothing
         Ok(Response(status, head, "", 0, Some(body), keep, failure))
+
+# A final response head, and whether the whole request body went before it.
+class Answered:
+    head: ResponseHead
+    complete: bool
+
+def timed_out(error: &ClientError) -> bool:
+    match error:
+        case ClientError.Net(NetError.TimedOut):
+            True
+        case _:
+            False
+
+# Copies `body` to the connection until it ends: as is under Content-Length,
+# which it must match exactly, or as chunks and the last chunk.
+def stream_body[T, R: Reader](conn: &mut BufReader[Wire[T]], body: &mut R, upload: &Upload) -> Result[(), ClientError]:
+    mut buffer = bytes_of(std.bytes.with_capacity(upload_chunk))?
+    bytes_of(buffer.resize(upload_chunk, 0u8))?
+    while True:
+        count = match body.read(&mut buffer, 0, upload_chunk):
+            case Ok(found):
+                found
+            case Err(StreamError.Allocation(cause)):
+                return Err(ClientError.Allocation(cause))
+            case Err(error):
+                return Err(ClientError.Body(error))
+        if count == 0:
+            break
+        match upload.length:
+            case Some(total):
+                if count > total - conn.inner._pulled:
+                    return Err(ClientError.WrongBodyLength)
+                conn.inner._pulled += count
+                match std.io.write_all(&mut conn.inner, &buffer, 0, count):
+                    case Ok(_):
+                        pass
+                    case Err(partial):
+                        return Err(fault(conn, HttpError.Stream(partial.cause)))
+            case Nothing:
+                conn.inner._pulled += count
+                sent = std.http.write_chunk(&mut conn.inner, &buffer, 0, count)
+                written(conn, sent)?
+    match upload.length:
+        case Some(total):
+            if conn.inner._pulled != total:
+                return Err(ClientError.WrongBodyLength)
+        case Nothing:
+            trailers = alloc(list[Header].new())?
+            sent = std.http.write_last_chunk(&mut conn.inner, &trailers)
+            written(conn, sent)?
+    Ok(())
+
+# Whether following a redirect with `status` drops the request body.
+def bodiless(status: i64, method: &str) -> bool:
+    (status == 303 and method != "HEAD") or ((status == 301 or status == 302) and method == "POST")
 
 # Failures that a reused connection closed by its server produces before any
 # response byte arrives.
@@ -877,20 +1204,20 @@ def follow(request: &mut Request, status: i64, next: str, sensitive: &list[str])
     new = target_of(&next)?
     if old.scheme == "https" and new.scheme == "http":
         return Err(ClientError.InvalidRedirect)
-    bodiless = (status == 303 and request.method != "HEAD") or ((status == 301 or status == 302) and request.method == "POST")
+    dropped = bodiless(status, &request.method)
     cross = not same_origin(&old, &new)
     mut kept = alloc(list[Header].with_capacity(len(request.headers)))?
     for index in range(len(request.headers)):
         name = alloc(request.headers[index].name.lower())?
         mut drop_it = False
-        if bodiless and name.startswith("content-"):
+        if dropped and name.startswith("content-"):
             drop_it = True
         if cross and (name == "authorization" or name == "cookie" or listed(sensitive, &name)?):
             drop_it = True
         if not drop_it:
             alloc(kept.append(Header(alloc(request.headers[index].name.concat(""))?, alloc(request.headers[index].value.concat(""))?)))?
     request.headers = kept
-    if bodiless:
+    if dropped:
         request.method = "GET"
         request.body = bytes_of(std.bytes.empty())?
     request.url = next

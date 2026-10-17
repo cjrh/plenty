@@ -57,6 +57,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.cookie`](http-cookie.md) | Cookie fields read leniently and `Set-Cookie` fields validated against injection, with secure defaults | `CookieError` |
 | [`std.http.proxy`](http-proxy.md) | The client address and scheme behind explicitly trusted reverse proxies; deployment guidance | `ProxyError` |
 | [`std.http.client`](http-client.md) | HTTP/1.1 client: pooled connections, deadlines and cancellation, bounded redirects, an explicit proxy, and replay of idempotent requests only | `ClientError` |
+| [`std.http.https`](http-client.md#https) | `std.http.client` for `https` URLs through [`std.tls`](tls.md), verified by default, with `CONNECT` tunnels through a proxy | `ClientError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in
