@@ -27,8 +27,11 @@ Every successful initializer exit must initialize every field. Branches merge
 their definitely initialized fields; a loop alone cannot establish initialization
 because it may run zero times. Initialized fields may be read. Borrowing or
 passing the whole partially initialized instance is rejected, and initialization
-cannot be delegated to another method. Field defaults, keyword arguments,
-constructor overloading, and static methods are unsupported.
+cannot be delegated to another method. Constructors accept named arguments,
+using field names for generated constructors and parameter names for explicit
+initializers. Explicit initializer parameter defaults are inherited by both
+constructor spellings. See [call rules](../06-functions/01-signatures-and-calls.md).
+Field defaults, constructor overloading, and static methods are unsupported.
 
 Failed initialization destroys initialized fields and remaining owned arguments
 and skips the class's destructor. The destructor becomes active only after

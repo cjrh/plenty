@@ -437,7 +437,13 @@ pub class MultipartLimits:
     pub max_body: i64
 
 pub def multipart_limits() -> MultipartLimits:
-    MultipartLimits(64, 4096, 65536, 8388608, 16777216)
+    MultipartLimits(
+        max_parts=64,
+        max_head=4096,
+        max_field=65536,
+        max_file=8388608,
+        max_body=16777216,
+    )
 
 pub enum Content:
     Text(str)

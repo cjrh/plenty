@@ -15,6 +15,7 @@ use crate::op::{
 use crate::value::{Heap, Value};
 mod byte_buffers;
 mod callables;
+mod calls;
 mod casts;
 mod channels;
 mod classes;
@@ -23,6 +24,7 @@ mod collections;
 mod contexts;
 mod control;
 mod data;
+mod defaults;
 mod enums;
 mod executors;
 mod files;
@@ -467,6 +469,8 @@ struct Function {
     type_params: Vec<(String, Option<TypeRef>)>,
     at: Token,
     inputs: Vec<(String, TypeRef)>,
+    /// Aligned with inputs; synthetic declarations may leave this empty.
+    defaults: Vec<Option<Expr>>,
     output: TypeRef,
     doc: String,
     /// Where the docstring was written, for diagnostics about a body that is only a docstring.
@@ -830,6 +834,8 @@ struct Expr {
 }
 #[derive(Clone)]
 enum Expression {
+    /// A call-site label; binding removes it before ordinary expression lowering.
+    NamedArgument(String, Box<Expr>),
     Anonymous(Box<Function>),
     GenericValue(String, Vec<TypeRef>),
     GenericCall(String, Vec<TypeRef>, Vec<Expr>),
@@ -1281,6 +1287,7 @@ impl Parser {
         }
         self.expect("(")?;
         let mut inputs = Vec::new();
+        let mut defaults = Vec::new();
         let mut adapters = Vec::new();
         while !self.eat(")") {
             let param_at = self.peek().clone();
@@ -1297,7 +1304,7 @@ impl Parser {
                 TypeRef {
                     concrete: None,
                     // Preserve the shorthand's provenance for receiver diagnostics.
-                    at: param_at,
+                    at: param_at.clone(),
                     name: Some(
                         if matches!(name.as_str(), "__init__" | "__del__") {
                             "&mut"
@@ -1332,7 +1339,30 @@ impl Parser {
             if foreign {
                 adapters.push(adapter);
             }
+            let default =
+                if self.eat("=") {
+                    if anonymous {
+                        return Err(
+                            param_at.error("anonymous functions cannot declare parameter defaults")
+                        );
+                    }
+                    if foreign || exported {
+                        return Err(param_at
+                            .error("C imports and exports cannot declare parameter defaults"));
+                    }
+                    if param == "self" && class.is_some() {
+                        return Err(param_at.error("self cannot have a default value"));
+                    }
+                    Some(self.expr(0)?)
+                } else {
+                    if defaults.iter().any(Option::is_some) {
+                        return Err(param_at
+                            .error("required parameters must precede parameters with defaults"));
+                    }
+                    None
+                };
             inputs.push((param, ty));
+            defaults.push(default);
             if self.eat(")") {
                 break;
             }
@@ -1340,6 +1370,10 @@ impl Parser {
         }
         if inputs.len() > 256 {
             return Err(at.error("at most 256 parameter/local slots are supported"));
+        }
+        defaults::validate_dependencies(&inputs, &defaults)?;
+        if defaults.iter().all(Option::is_none) {
+            defaults = Vec::new();
         }
         self.expect("->")?;
         let output = self.ty()?;
@@ -1393,6 +1427,7 @@ impl Parser {
                 name,
                 at,
                 inputs,
+                defaults,
                 output,
                 doc: String::new(),
                 doc_at: None,
@@ -1410,6 +1445,7 @@ impl Parser {
                 name,
                 at,
                 inputs,
+                defaults,
                 output,
                 doc: String::new(),
                 doc_at: None,
@@ -1461,6 +1497,7 @@ impl Parser {
             name,
             at,
             inputs,
+            defaults,
             output,
             doc,
             doc_at,
@@ -2689,6 +2726,9 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
+            Expression::NamedArgument(..) => {
+                return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
+            }
             Expression::Anonymous(function) => {
                 if function.once || !function.captures.is_empty() {
                     return self.closure_value(function, &e.at, ops).map(Some);
@@ -3425,6 +3465,9 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         self.sync_data()?;
+        if let Some((callee, arguments)) = self.prepare_named_call(name, args, at, method)? {
+            return self.call_named_with_receiver(&callee, &arguments, at, method, ops);
+        }
         if self.generics.templates.contains_key(name) {
             return self.generic_call(name, None, args, at, ops);
         }
@@ -4431,6 +4474,7 @@ fn lower_body(
             },
         );
     }
+    lower.validate_defaults(&f)?;
     let mut body = Vec::new();
     // Parameter loans start at the function header.
     lower.mark(&f.at, &mut body);

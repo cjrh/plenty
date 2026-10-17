@@ -115,6 +115,8 @@ pub(super) fn prepare(
         protocols: declarations,
         methods,
         templates: HashMap::new(),
+        defaults: HashMap::new(),
+        call_wrappers: HashMap::new(),
         cache: HashMap::new(),
         // One entry per function: sized up front, these are not rehashed
         // key by key at every doubling (issue #57).
@@ -125,6 +127,7 @@ pub(super) fn prepare(
         active: HashSet::new(),
         frames: HashMap::new(),
         required: HashMap::new(),
+        protocol_instances: HashSet::new(),
         source_root: None,
         standard_sources: HashSet::new(),
         source_facts: None,
@@ -146,6 +149,7 @@ pub(super) fn prepare(
                 return Err(f.at.error("main cannot have type parameters"));
             }
             engine.validate_template(&f, aliases)?;
+            engine.record_defaults(&f);
             engine.templates.insert(f.name.clone(), Arc::new(f));
         }
     }
@@ -165,6 +169,9 @@ pub(super) struct Engine {
     protocols: HashMap<String, protocols::Protocol>,
     pub(super) methods: HashMap<String, Signature>,
     pub(super) templates: HashMap<String, Arc<Function>>,
+    /// Retained after lowering without keeping complete function bodies alive.
+    pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
+    pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
     cache: HashMap<(String, Vec<Ty>), String>,
     pub(super) pending: VecDeque<Arc<Function>>,
     pub(super) functions: HashMap<String, Declared>,
@@ -175,6 +182,9 @@ pub(super) struct Engine {
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<String, Arc<Instantiation>>,
+    /// Specializations checked under protocol contracts, including lifted code.
+    /// Method calls in these bodies cannot inherit implementation-only defaults.
+    pub(super) protocol_instances: HashSet<String>,
     pub(super) source_root: Option<std::path::PathBuf>,
     pub(super) standard_sources: HashSet<Arc<str>>,
     /// The last source `source_facts` described, and the result. Functions
@@ -198,8 +208,14 @@ pub(super) struct Declared {
 }
 
 impl Engine {
+    fn record_defaults(&mut self, f: &Function) {
+        if f.defaults.iter().any(Option::is_some) {
+            self.defaults.insert(f.name.clone(), f.defaults.clone());
+        }
+    }
     /// Adds a concrete function to the table without queueing it.
     pub(super) fn record(&mut self, f: &Arc<Function>) {
+        self.record_defaults(f);
         self.functions.insert(
             f.name.clone(),
             Declared {
@@ -613,6 +629,9 @@ impl Lower<'_> {
             let symbol = self.specialize(name, actual, at)?;
             return self.call_named_with_receiver(&symbol, args, at, method, ops);
         }
+        if let Some((callee, arguments)) = self.prepare_named_call(name, args, at, method)? {
+            return self.generic_call_inner(&callee, None, &arguments, at, method, ops);
+        }
         let template = self.generics.templates[name].clone();
         if args.len() != template.inputs.len() {
             return Err(at.error(format!(
@@ -719,6 +738,9 @@ impl Engine {
     /// Code lifted out of `parent`, or copied from it, is checked on behalf of
     /// the same use.
     pub(super) fn inherit_requirement(&mut self, parent: &str, child: &str) {
+        if self.protocol_instances.contains(parent) {
+            self.protocol_instances.insert(child.into());
+        }
         if let Some(required) = self.required.get(parent).cloned() {
             self.required.insert(child.into(), required);
         }
@@ -821,6 +843,17 @@ impl Engine {
     }
 
     pub(super) fn validate_template(&self, f: &Function, aliases: &TypeAliases) -> Result<()> {
+        if f.type_params.iter().any(|(_, bound)| {
+            bound
+                .as_ref()
+                .and_then(|b| b.name.as_ref())
+                .is_some_and(|n| self.protocols.contains_key(n))
+        }) {
+            // Specialization erases protocol provenance, including aliases of
+            // parameters. Until it is tracked, do not let an implementation's
+            // parameter names accidentally become a protocol contract.
+            positional_protocol_methods(&f.body)?;
+        }
         for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
             if callable_bound(bound) && !bound.args.is_empty() {
                 aliases.probe(f.type_params.iter().map(|(name, _)| name), |validation| {
@@ -945,6 +978,16 @@ impl Engine {
             ));
         }
         let symbol = format!("__plenty_generic_{}", self.cache.len());
+        if self.protocol_instances.contains(name)
+            || template.type_params.iter().any(|(_, bound)| {
+                bound
+                    .as_ref()
+                    .and_then(|b| b.name.as_ref())
+                    .is_some_and(|n| self.protocols.contains_key(n))
+            })
+        {
+            self.protocol_instances.insert(symbol.clone());
+        }
         let mut f = (**template).clone();
         f.name = symbol.clone();
         f.type_params.clear();
@@ -952,11 +995,148 @@ impl Engine {
             substitute(ty, &replacements)?;
         }
         substitute(&mut f.output, &replacements)?;
+        for default in f.defaults.iter_mut().flatten() {
+            substitute_expr(default, &replacements)?;
+        }
         // Cache before queueing the body, so recursive calls share this instance.
         self.cache.insert(key, symbol.clone());
         substitute_block(&mut f.body, &replacements)?;
         Ok((symbol, Some(f)))
     }
+}
+
+fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
+    fn expression(e: &Expr) -> Result<()> {
+        match &e.kind {
+            Expression::Method(base, _, args) | Expression::GenericMethod(base, _, _, args) => {
+                if let Some(arg) = args
+                    .iter()
+                    .find(|arg| matches!(arg.kind, Expression::NamedArgument(..)))
+                {
+                    return Err(arg.at.error("named method arguments are not supported in protocol-constrained generic functions; use positional arguments"));
+                }
+                expression(base)?;
+                for arg in args {
+                    expression(arg)?;
+                }
+            }
+            Expression::Call(_, args)
+            | Expression::GenericCall(_, _, args)
+            | Expression::Constructor(_, args)
+            | Expression::Tuple(args) => {
+                for arg in args {
+                    expression(arg)?;
+                }
+            }
+            Expression::Invoke(base, args) => {
+                expression(base)?;
+                for arg in args {
+                    expression(arg)?;
+                }
+            }
+            Expression::NamedArgument(_, inner)
+            | Expression::Member(inner, _)
+            | Expression::Group(inner)
+            | Expression::Unary(_, inner)
+            | Expression::Try(inner)
+            | Expression::ClassReady(_, inner) => expression(inner)?,
+            Expression::Index(a, b) | Expression::Binary(_, a, b) => {
+                expression(a)?;
+                expression(b)?;
+            }
+            Expression::Conditional { condition, yes, no } => {
+                expression(condition)?;
+                expression(yes)?;
+                expression(no)?;
+            }
+            Expression::Anonymous(f) => positional_protocol_methods(&f.body)?,
+            Expression::Match(value, cases) => {
+                expression(value)?;
+                for case in cases {
+                    positional_protocol_methods(&case.body)?;
+                }
+            }
+            Expression::Collection {
+                entries, clauses, ..
+            } => {
+                for (key, value) in entries {
+                    expression(key)?;
+                    if let Some(value) = value {
+                        expression(value)?;
+                    }
+                }
+                for clause in clauses {
+                    match clause {
+                        Clause::For(_, value) | Clause::If(value) => expression(value)?,
+                    }
+                }
+            }
+            Expression::Ambiguous { generic, index } => {
+                expression(generic)?;
+                expression(index)?;
+            }
+            Expression::GenericValue(..)
+            | Expression::ClassNew(..)
+            | Expression::Type(..)
+            | Expression::Number(..)
+            | Expression::Text(..)
+            | Expression::Bool(..)
+            | Expression::Unit
+            | Expression::Name(..) => {}
+        }
+        Ok(())
+    }
+    for stmt in body {
+        match &stmt.kind {
+            Statement::Assign { value, .. }
+            | Statement::Expr(value)
+            | Statement::Yield(value)
+            | Statement::Unpack { value, .. } => expression(value)?,
+            Statement::Return(value) => {
+                if let Some(value) = value {
+                    expression(value)?;
+                }
+            }
+            Statement::SetIndex { target, value } | Statement::Augment { target, value, .. } => {
+                expression(target)?;
+                expression(value)?;
+            }
+            Statement::If {
+                condition,
+                yes,
+                elifs,
+                no,
+            } => {
+                expression(condition)?;
+                positional_protocol_methods(yes)?;
+                for elif in elifs {
+                    expression(&elif.condition)?;
+                    positional_protocol_methods(&elif.body)?;
+                }
+                positional_protocol_methods(no)?;
+            }
+            Statement::While { condition, body } => {
+                expression(condition)?;
+                positional_protocol_methods(body)?;
+            }
+            Statement::For { iterable, body, .. } => {
+                expression(iterable)?;
+                positional_protocol_methods(body)?;
+            }
+            Statement::With { manager, body, .. } => {
+                expression(manager)?;
+                positional_protocol_methods(body)?;
+            }
+            Statement::Match { value, cases } => {
+                expression(value)?;
+                for case in cases {
+                    positional_protocol_methods(&case.body)?;
+                }
+            }
+            Statement::Pass | Statement::Break | Statement::Continue => {}
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn substitute_block(body: &mut [Stmt], substitutions: &Substitution) -> Result<()> {
@@ -1027,7 +1207,7 @@ fn substitute_match(
     }
     Ok(())
 }
-fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
+pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
         Expression::Match(value, cases) => substitute_match(value, cases, substitutions)?,
         Expression::GenericMethod(base, _, types, args) => {
@@ -1086,6 +1266,7 @@ fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
             }
         }
         Expression::Member(base, _)
+        | Expression::NamedArgument(_, base)
         | Expression::Unary(_, base)
         | Expression::Group(base)
         | Expression::Try(base)

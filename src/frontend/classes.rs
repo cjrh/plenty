@@ -45,6 +45,7 @@ fn header(method: &Function) -> Function {
         type_params: method.type_params.clone(),
         at: method.at.clone(),
         inputs: method.inputs.clone(),
+        defaults: method.defaults.clone(),
         output: method.output.clone(),
         doc: method.doc.clone(),
         doc_at: method.doc_at.clone(),
@@ -229,6 +230,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 name: "__init__".into(),
                 at: at.clone(),
                 inputs,
+                defaults: vec![],
                 output: TypeRef {
                     concrete: None,
                     at: at.clone(),
@@ -241,6 +243,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             });
         }
         let mut constructor_inputs = Vec::new();
+        let mut constructor_defaults = Vec::new();
         for f in &mut methods {
             let special = matches!(f.name.as_str(), "__init__" | "__del__");
             let Some((receiver, receiver_type)) = f.inputs.first() else {
@@ -273,6 +276,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             if f.name == "__init__" {
                 validate_init(f, &ty)?;
                 constructor_inputs = f.inputs[1..].to_vec();
+                constructor_defaults = f.defaults.iter().skip(1).cloned().collect();
             }
             f.name = method(&class.name, &f.name);
         }
@@ -307,6 +311,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 name: method(&class.name, "new"),
                 at: at.clone(),
                 inputs: constructor_inputs.clone(),
+                defaults: constructor_defaults,
                 output,
                 doc: String::new(),
                 doc_at: None,
@@ -387,6 +392,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                     }
                 }
                 Expression::Member(a, _)
+                | Expression::NamedArgument(_, a)
                 | Expression::Group(a)
                 | Expression::Unary(_, a)
                 | Expression::Try(a) => self.expr(a, initialized)?,
@@ -871,6 +877,25 @@ impl Lower<'_> {
                     .error(format!("unknown method `{name}` on {}", class.name))
             })?
             .clone();
+        let receiver = Expr {
+            at: base.at.clone(),
+            kind: Expression::Unary(
+                if matches!(sig.inputs.first(), Some((_, Ty::Ref(_, true)))) {
+                    "&mut".into()
+                } else {
+                    "&".into()
+                },
+                Box::new(base.clone()),
+            ),
+        };
+        let arguments: Vec<_> = std::iter::once(receiver)
+            .chain(args.iter().cloned())
+            .collect();
+        if let Some((wrapper, arguments)) =
+            self.prepare_named_call(&callee, &arguments, &base.at, true)?
+        {
+            return self.call_named_with_receiver(&wrapper, &arguments, &base.at, true, ops);
+        }
         if sig.inputs.len() != args.len() + 1 {
             return Err(base.at.error(format!(
                 "method `{name}` expects {} arguments",

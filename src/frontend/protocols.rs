@@ -32,6 +32,11 @@ impl Parser {
                     .error("protocols contain method signatures with pass bodies"));
             }
             let mut f = self.function_in(Some(&name))?;
+            if f.defaults.iter().any(Option::is_some) {
+                return Err(f
+                    .at
+                    .error("protocol requirements cannot declare parameter defaults"));
+            }
             if !f.type_params.is_empty() {
                 return Err(f
                     .at

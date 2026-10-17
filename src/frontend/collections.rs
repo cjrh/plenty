@@ -13,25 +13,41 @@ pub(super) struct Iteration {
 impl Parser {
     pub(super) fn arguments(&mut self) -> Result<Vec<Expr>> {
         let mut args = Vec::new();
+        let mut named = false;
         while !self.eat(")") {
             // `=` is not an expression operator, so `name =` here can only be
             // a keyword argument.
-            if let (Kind::Word(name), Some(next)) = (&self.peek().kind, self.token(self.pos + 1)) {
-                if next.is("=") {
-                    return Err(self.peek().error(format!(
-                        "keyword arguments are not supported; pass the value by position, without `{name}=`"
-                    )));
-                }
+            let label = match (&self.peek().kind, self.token(self.pos + 1)) {
+                (Kind::Word(name), Some(next)) if next.is("=") => Some(name.clone()),
+                _ => None,
+            };
+            let at = self.peek().clone();
+            if label.is_some() {
+                named = true;
+                self.take();
+                self.take();
+            } else if named {
+                return Err(at.error("positional arguments must precede named arguments"));
             }
-            let mut argument = self.expr(0)?;
+            let mut argument = if label.is_some() {
+                self.nested(|parser| parser.expr(0))?
+            } else {
+                self.expr(0)?
+            };
             if self.peek().is("for") {
-                if !args.is_empty() {
+                if !args.is_empty() || label.is_some() {
                     return Err(argument.at.error("a generator expression must be parenthesized when there are other arguments"));
                 }
                 argument.kind = self.generator_display(argument.clone())?;
                 self.expect(")")?;
                 args.push(argument);
                 break;
+            }
+            if let Some(label) = label {
+                argument = Expr {
+                    at,
+                    kind: Expression::NamedArgument(label, Box::new(argument)),
+                };
             }
             args.push(argument);
             if self.eat(")") {

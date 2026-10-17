@@ -157,6 +157,12 @@ impl DataTypes {
                     captures: vec![],
                     foreign: None,
                     export: None,
+                    defaults: class
+                        .methods
+                        .iter()
+                        .find(|m| m.name == "__init__")
+                        .map(|m| m.defaults.iter().skip(1).cloned().collect())
+                        .unwrap_or_default(),
                     name: class.name.clone(),
                     type_params: class.type_params.clone(),
                     at: at.clone(),
@@ -562,6 +568,9 @@ impl TypeAliases {
                                 generics::substitute(ty, &substitutions)?;
                             }
                             generics::substitute(&mut method.output, &substitutions)?;
+                            for default in method.defaults.iter_mut().flatten() {
+                                generics::substitute_expr(default, &substitutions)?;
+                            }
                             generics::substitute_block(&mut method.body, &substitutions)?;
                         }
                         Ok((declaration.resolve(self)?, Some(declaration)))

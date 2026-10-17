@@ -104,6 +104,7 @@ impl Lower<'_> {
                 type_params: vec![],
                 at: at.clone(),
                 inputs,
+                defaults: vec![],
                 // Unit is an internal inference marker, never a source annotation.
                 output: generics::type_ref(&crate::generator::ty(Ty::Unit, None), at),
                 doc: String::new(),
@@ -428,6 +429,7 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
             }
         }
         Expression::Try(base)
+        | Expression::NamedArgument(_, base)
         | Expression::Member(base, _)
         | Expression::Group(base)
         | Expression::Unary(_, base)
