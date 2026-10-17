@@ -163,3 +163,32 @@ fn imported_closures_report_the_definition_file() {
     assert!(error.contains("F: Callable[[i64], i64]"), "{error}");
     assert!(!error.contains("__plenty_closure_"), "{error}");
 }
+
+#[test]
+fn unresolved_closure_returns_name_closure_identity_not_generators() {
+    // Issue #140: an error-only body leaves the success closure's environment unknown.
+    for (annotation, kind) in [
+        ("OnceClosure[[i64], i64]", "one-shot closure"),
+        ("Closure[[i64], i64]", "closure"),
+    ] {
+        let source = format!(
+            "def mapper() -> Result[{annotation}, Failure]:\n    Err(Failure.Unspecified)\ndef main() -> ():\n    drop(mapper())\n"
+        );
+        let error = check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("cannot infer the concrete {kind} returned")),
+            "{error}"
+        );
+        assert!(error.contains("captured environment"), "{error}");
+        assert!(!error.contains("generator"), "{error}");
+    }
+    let generator = check_source(
+        "def numbers() -> Result[Generator[i64], Failure]:\n    Err(Failure.Unspecified)\ndef main() -> ():\n    drop(numbers())\n",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        generator.contains("cannot infer the concrete generator returned"),
+        "{generator}"
+    );
+}
