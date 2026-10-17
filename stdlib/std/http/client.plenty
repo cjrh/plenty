@@ -177,18 +177,18 @@ pub class Dialled:
 # `host:port` for a request target or Host field, with an IPv6 address
 # in brackets.
 def host_port(host: &str, port: u16) -> Result[str, AllocError]:
-    mut named = host.concat("")?
+    mut named = *host
     if host.find(":").is_some():
         named = "[".concat(host)?.concat("]")?
     named.concat(":")?.concat(&str.from(i64(port))?)
 
 def tunnelled(stream: TcpStream, endpoint: &Endpoint, via: &Tunnel, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]:
     target = alloc(host_port(&endpoint.host, endpoint.port))?
-    mut head = framed(std.http.request("CONNECT", alloc(target.concat(""))?))?
+    mut head = framed(std.http.request("CONNECT", target))?
     framed(head.add("Host", target))?
     match &via.authorization:
         case Some(secret):
-            framed(head.add("Proxy-Authorization", alloc(secret.concat(""))?))?
+            framed(head.add("Proxy-Authorization", *secret))?
         case Nothing:
             pass
     failure: Option[ClientError] = Nothing
@@ -318,7 +318,7 @@ pub class Request:
 pub def request(method: &str, url: &str) -> Result[Request, ClientError]:
     headers = alloc(list[Header].new())?
     body = bytes_of(std.bytes.empty())?
-    Ok(Request(alloc(method.concat(""))?, alloc(url.concat(""))?, headers, body))
+    Ok(Request(*method, *url, headers, body))
 
 # A whole response, its body read into memory.
 pub class Fetched:
@@ -427,7 +427,7 @@ def target_of(text: &str) -> Result[Target, ClientError]:
         return Err(ClientError.InvalidUrl)
     host = match &url.host:
         case Some(found):
-            alloc(found.concat(""))?
+            *found
         case Nothing:
             return Err(ClientError.InvalidUrl)
     if host.byte_len() == 0:
@@ -449,13 +449,13 @@ def target_of(text: &str) -> Result[Target, ClientError]:
             explicit = True
         case Nothing:
             pass
-    mut path = alloc(url.path.concat(""))?
+    mut path = url.path
     if path.byte_len() == 0:
         path = "/"
     mut query: Option[str] = Nothing
     match &url.query:
         case Some(found):
-            query = Some(alloc(found.concat(""))?)
+            query = Some(*found)
         case Nothing:
             pass
     Ok(Target(scheme, host, name, port, explicit, path, query))
@@ -463,7 +463,7 @@ def target_of(text: &str) -> Result[Target, ClientError]:
 # `host` or `host:port` as written in the URL.
 def authority(target: &Target) -> Result[str, AllocError]:
     if not target.explicit:
-        return target.host.concat("")
+        return Ok(target.host)
     target.host.concat(":")?.concat(str.from(target.port)?)
 
 def origin_form(target: &Target) -> Result[str, AllocError]:
@@ -471,7 +471,7 @@ def origin_form(target: &Target) -> Result[str, AllocError]:
         case Some(query):
             target.path.concat("?")?.concat(query)
         case Nothing:
-            target.path.concat("")
+            Ok(target.path)
 
 def absolute_form(target: &Target, form: &str) -> Result[str, AllocError]:
     target.scheme.concat("://")?.concat(&authority(target)?)?.concat(form)
@@ -502,14 +502,14 @@ def without_dots(path: &str) -> Result[str, AllocError]:
             if last:
                 kept.append("")?
         else:
-            kept.append(piece.concat("")?)?
+            kept.append(*piece)?
     "/".concat("/".join(&kept)?)
 
 # The absolute URL a Location value names, resolved against `base`.
 def resolved(base: &Target, location: &str) -> Result[str, ClientError]:
     match std.url.parse(location, max_url):
         case Ok(_):
-            return alloc(location.concat(""))
+            return Ok(*location)
         case Err(UrlError.MissingScheme):
             pass
         case Err(UrlError.Allocation(cause)):
@@ -526,7 +526,7 @@ def joined(base: &Target, location: &str) -> Result[str, AllocError]:
         return prefix.concat(&origin_form(base)?)
     if location.startswith("?"):
         return prefix.concat(&base.path)?.concat(location)
-    mut relative = location.concat("")?
+    mut relative = *location
     if not location.startswith("/"):
         mut directory = "/"
         match base.path.rfind("/"):
@@ -567,12 +567,6 @@ def token(text: &str) -> bool:
 
 def idempotent(method: &str) -> bool:
     method == "GET" or method == "HEAD" or method == "OPTIONS" or method == "TRACE" or method == "PUT" or method == "DELETE"
-
-def copied_headers(headers: &list[Header]) -> Result[list[Header], AllocError]:
-    mut out = list[Header].with_capacity(len(headers))?
-    for index in range(len(headers)):
-        out.append(Header(headers[index].name.concat("")?, headers[index].value.concat("")?))?
-    Ok(out)
 
 # Connections
 
@@ -810,7 +804,7 @@ pub class Client[T, C]:
             if self._config.redirects > 0 and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308):
                 match std.http.find(&head.headers, "location"):
                     case Some(index):
-                        location = Some(alloc(head.headers[index].value.concat(""))?)
+                        location = Some(head.headers[index].value)
                     case Nothing:
                         pass
             dropped = bodiless(status, &current.method)
@@ -957,7 +951,7 @@ pub class Client[T, C]:
         stream = self._connector.open(endpoint, &deadline_of(limit), cancel)?
         self._stats.opened += 1u64
         failure: Option[ClientError] = Nothing
-        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, alloc(key.concat(""))?, 0u64)
+        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, *key, 0u64)
         match std.io.buffered_reader(wire, 4096):
             case Ok(reader):
                 Ok(reader)
@@ -976,21 +970,21 @@ pub class Client[T, C]:
                 return Err(ClientError.InvalidRequest)
         if request.method == "CONNECT" or not token(&request.method):
             return Err(ClientError.InvalidRequest)
-        mut endpoint = Endpoint(alloc(target.scheme.concat(""))?, alloc(target.name.concat(""))?, u16(target.port), Nothing)
+        mut endpoint = Endpoint(target.scheme, target.name, u16(target.port), Nothing)
         mut proxied = False
         match &self._config.proxy:
             case Some(chosen):
                 if target.scheme == "http":
                     proxied = True
-                    endpoint = Endpoint(alloc(chosen.endpoint.scheme.concat(""))?, alloc(chosen.endpoint.host.concat(""))?, chosen.endpoint.port, Nothing)
+                    endpoint = Endpoint(chosen.endpoint.scheme, chosen.endpoint.host, chosen.endpoint.port, Nothing)
                 else:
                     mut secret: Option[str] = Nothing
                     match &chosen.authorization:
                         case Some(value):
-                            secret = Some(alloc(value.concat(""))?)
+                            secret = Some(*value)
                         case Nothing:
                             pass
-                    endpoint.tunnel = Some(Tunnel(alloc(chosen.endpoint.host.concat(""))?, chosen.endpoint.port, secret))
+                    endpoint.tunnel = Some(Tunnel(chosen.endpoint.host, chosen.endpoint.port, secret))
             case Nothing:
                 pass
         key = alloc(key_of(&endpoint, proxied))?
@@ -1035,10 +1029,10 @@ pub class Client[T, C]:
         mut form = alloc(origin_form(target))?
         if proxied:
             form = alloc(absolute_form(target, &form))?
-        mut head = framed(std.http.request(alloc(request.method.concat(""))?, form))?
+        mut head = framed(std.http.request(request.method, form))?
         framed(head.add("Host", alloc(authority(target))?))?
         for index in range(len(request.headers)):
-            framed(head.add(alloc(request.headers[index].name.concat(""))?, alloc(request.headers[index].value.concat(""))?))?
+            framed(head.add(request.headers[index].name, request.headers[index].value))?
         if streamed:
             match upload.length:
                 case Some(total):
@@ -1056,7 +1050,7 @@ pub class Client[T, C]:
                 case Some(chosen):
                     match &chosen.authorization:
                         case Some(secret):
-                            framed(head.add("Proxy-Authorization", alloc(secret.concat(""))?))?
+                            framed(head.add("Proxy-Authorization", *secret))?
                         case Nothing:
                             pass
                 case Nothing:
@@ -1229,7 +1223,7 @@ def follow(request: &mut Request, status: i64, next: str, sensitive: &list[str])
         if cross and (name == "authorization" or name == "cookie" or listed(sensitive, &name)?):
             drop_it = True
         if not drop_it:
-            alloc(kept.append(Header(alloc(request.headers[index].name.concat(""))?, alloc(request.headers[index].value.concat(""))?)))?
+            alloc(kept.append(Header(request.headers[index].name, request.headers[index].value)))?
     request.headers = kept
     if dropped:
         request.method = "GET"

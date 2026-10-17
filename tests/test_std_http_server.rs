@@ -1144,3 +1144,42 @@ handshake timed out
 timed out"##,
     );
 }
+
+/// Issue #135: routes and captures share the method, pattern and path text
+/// instead of copying it, so long strings need no more allocations than
+/// short ones.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn routes_and_captures_share_their_strings() {
+    runs(
+        "",
+        r##"import std.http.server
+from std.http.server import Match, Router, ServerError
+
+def attempt(table: &mut Router, method: &str, pattern: &str, path: &str) -> Result[Match, ServerError]:
+    table.add(method, pattern, 1)?
+    table.find(method, path)
+
+def needed(method: &str, pattern: &str, path: &str) -> Result[i64, Failure]:
+    for budget in range(200):
+        mut table = std.http.server.router()?
+        marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
+        print(marker)?
+        outcome = attempt(&mut table, method, pattern, path)
+        print("__test_restore_allocations__")?
+        if outcome.is_ok():
+            return Ok(budget)
+    Ok(-1)
+
+def main() -> Result[(), Failure]:
+    base = needed("GET", "/f/{name}", "/f/a")?
+    print(needed("PROPFIND-BEYOND-INLINE", "/f/{name}", "/f/a")? - base)?
+    print(needed("GET", "/f/{name}", "/f/a-name-beyond-inline")? - base)?
+    print(needed("GET", "/files-beyond-inline/{name}", "/files-beyond-inline/a")? - base)?
+    Ok(())
+"##,
+        // A long method costs nothing extra; a long path or pattern piece
+        // costs only the allocation `split` makes for it.
+        "0\n1\n2",
+    );
+}
