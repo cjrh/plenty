@@ -40,6 +40,8 @@ pub enum Effect {
     Network,
     /// Changes state that every thread observes.
     ProcessGlobal,
+    /// Changes what the whole process does when a signal arrives.
+    SignalDisposition,
 }
 
 impl Effect {
@@ -48,6 +50,9 @@ impl Effect {
         match self {
             Self::ProcessGlobal => Some(
                 "changing the working directory affects every thread's relative paths; change it on the main thread before starting workers",
+            ),
+            Self::SignalDisposition => Some(
+                "catching signals changes how every thread's process ends; call std.signal.listen on the main thread",
             ),
             Self::Compute
             | Self::Clock
@@ -112,6 +117,7 @@ impl ProcessOp {
             Self::EnvGet | Self::EnvVars | Self::CurrentDir => Effect::Environment,
             Self::ChangeDir => Effect::ProcessGlobal,
             Self::Spawn | Self::Pipe | Self::Wait | Self::Signal | Self::Poll => Effect::Child,
+            Self::SignalListen => Effect::SignalDisposition,
         }
     }
 }
@@ -238,6 +244,7 @@ mod tests {
     #[test]
     fn only_process_global_effects_are_denied_to_workers() {
         assert!(ProcessOp::ChangeDir.effect().worker_denial().is_some());
+        assert!(ProcessOp::SignalListen.effect().worker_denial().is_some());
         for op in [
             ProcessOp::EnvGet,
             ProcessOp::EnvVars,
