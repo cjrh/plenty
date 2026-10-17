@@ -237,7 +237,7 @@ pub def set_cookie(name: &str, value: &str) -> Result[SetCookie, CookieError]:
         return Err(CookieError.InvalidName)
     if not valid_value(value):
         return Err(CookieError.InvalidValue)
-    Ok(SetCookie(allocated(name.concat(""))?, allocated(value.concat(""))?, "/", "", Nothing, True, True, SameSite.Lax))
+    Ok(SetCookie(*name, *value, "/", "", Nothing, True, True, SameSite.Lax))
 
 # A cookie that tells the browser to delete `name`: empty, Max-Age=0. Its
 # path and domain must match the cookie being removed.

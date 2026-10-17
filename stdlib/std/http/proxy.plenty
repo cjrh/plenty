@@ -376,7 +376,7 @@ pub def client(peer: &SocketAddress, headers: &list[Header], proxies: &Proxies) 
     mut scheme: Option[str] = Nothing
     match &hops[source].proto:
         case Some(value):
-            scheme = Some(allocated(value.concat(""))?)
+            scheme = Some(*value)
         case Nothing:
             pass
     Ok(Client(ip, scheme, True))

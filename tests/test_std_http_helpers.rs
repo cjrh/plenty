@@ -619,3 +619,28 @@ False
 ",
     );
 }
+
+/// Issue #135: `set_cookie` shares its name and value instead of copying
+/// them, so it allocates nothing, and the cookie outlives its arguments.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn set_cookie_shares_its_arguments() {
+    runs(
+        r##"
+def made() -> Result[std.http.cookie.SetCookie, Failure]:
+    name = "a-cookie-name".concat("-too-long-for-inline-storage")?
+    value = "a-cookie-value".concat("-too-long-for-inline-storage")?
+    print("__test_begin_no_allocations__")?
+    cookie = std.http.cookie.set_cookie(&name, &value)
+    print("__test_end_no_allocations__")?
+    Ok(cookie?)
+
+def main() -> Result[(), Failure]:
+    cookie = made()?
+    print(cookie.name, cookie.value)?
+    print(std.http.cookie.set_cookie("", "x").is_err())?
+    Ok(())
+"##,
+        "a-cookie-name-too-long-for-inline-storage a-cookie-value-too-long-for-inline-storage\nTrue",
+    );
+}

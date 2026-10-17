@@ -561,10 +561,10 @@ def part_head(data: &Bytes, start: i64, stop: i64) -> Result[PartHead, BodyError
             mut filename: Option[str] = Nothing
             match parameter(&params, "filename"):
                 case Some(found):
-                    filename = Some(allocated(params.pairs[found].value.concat(""))?)
+                    filename = Some(params.pairs[found].value)
                 case Nothing:
                     pass
-            field = allocated(params.pairs[name_index].value.concat(""))?
+            field = params.pairs[name_index].value
             Ok(PartHead(field, filename, kind))
         case Nothing:
             Err(BodyError.Malformed)

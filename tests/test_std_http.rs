@@ -969,3 +969,26 @@ mut sink = std.io.cursor(std.bytes.with_capacity(4096)?)
         fails_cleanly_at_every_allocation(setup, call);
     }
 }
+
+/// Issue #135: the authority shares the Host value's storage instead of
+/// copying it, so `request_target` for an origin-form `/` allocates nothing,
+/// and the authority outlives the head it came from.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn request_target_shares_the_host_value() {
+    native(
+        r#"
+text = "GET / HTTP/1.1\r\nHost: a-host-name-too-long-for-inline-storage.example:8080\r\n\r\n"
+mut reader = std.io.buffered_reader(std.io.cursor(std.bytes.from_text(text)?), 64)?
+mut authority = ""
+if True:
+    head = std.http.read_request(&mut reader, &std.http.limits()).unwrap().unwrap()
+    print("__test_begin_no_allocations__")?
+    target = std.http.request_target(&head).unwrap()
+    print("__test_end_no_allocations__")?
+    authority = target.authority
+print(authority)?
+"#,
+        "a-host-name-too-long-for-inline-storage.example:8080",
+    );
+}
