@@ -889,7 +889,11 @@ def connection[T: Transport, H: Handler[T]](stream: T, served: &mut i64, park: b
     while *served < config.max_requests:
         # A pipelined request already buffered is read here, not parked.
         parking = park and reader.buffered() == 0 and not stop.is_cancelled()
-        reader.inner._idle = True
+        # Bytes already buffered have started the next request, so its head
+        # deadline runs from now and an end or stall inside it is answered.
+        reader.inner._idle = reader.buffered() == 0
+        if not reader.inner._idle:
+            reader.inner._until = after(now_ns(), reader.inner._head_span)
         if parking:
             reader.inner._idle_until = 0u64
         else:
@@ -1460,7 +1464,12 @@ def admitted[T: Transport, O: Opener[T]](state: &mut Admission[T], tcp: TcpStrea
 def accept_some[T: Transport, O: Opener[T]](state: &mut Admission[T], listener: &TcpListener, outbox: &Sender[Job[T]], config: &Config, stop: &CancellationToken, opener: &O) -> ():
     for _ in range(accept_batch):
         match listener.accept(&deadline_of(0u64), stop):
-            case Ok(tcp):
+            case Ok(accepted):
+                # Responses are buffered and flushed whole, so Nagle's
+                # algorithm only adds a delayed-ACK stall when a head and a
+                # large body go out as two writes.
+                mut tcp = accepted
+                drop(tcp.set_no_delay(True))
                 admitted(state, tcp, outbox, config, opener)
             case Err(NetError.TimedOut):
                 return
