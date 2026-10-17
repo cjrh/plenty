@@ -148,12 +148,11 @@ pub class Dialled:
                 StreamError.Io(IoError.Other)
 
     pub def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        mut outcome: Result[i64, NetError] = Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-        match &mut self.stream:
+        outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
-                outcome = tcp.read_before(buffer, start, stop, &deadline_of(self.until), &self.cancel)
+                tcp.read_before(buffer, start, stop, &deadline_of(self.until), &self.cancel)
             case Nothing:
-                pass
+                Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         match outcome:
             case Ok(count):
                 Ok(count)
@@ -161,12 +160,11 @@ pub class Dialled:
                 Err(self.noted(error))
 
     pub def write(self: &mut Dialled, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        mut outcome: Result[i64, NetError] = Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-        match &mut self.stream:
+        outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
-                outcome = tcp.write_before(source, start, stop, &deadline_of(self.until), &self.cancel)
+                tcp.write_before(source, start, stop, &deadline_of(self.until), &self.cancel)
             case Nothing:
-                pass
+                Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         match outcome:
             case Ok(count):
                 Ok(count)
@@ -696,12 +694,11 @@ class Incoming[T]:
                 False
 
     def read_body(self: &mut Incoming[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ClientError]:
-        mut outcome: Result[i64, HttpError] = Err(HttpError.Broken)
-        match &mut self._body:
+        outcome: Result[i64, HttpError] = match &mut self._body:
             case Some(body):
-                outcome = body.read_body(buffer, start, stop)
+                body.read_body(buffer, start, stop)
             case Nothing:
-                pass
+                Err(HttpError.Broken)
         match outcome:
             case Ok(count):
                 Ok(count)
@@ -709,12 +706,11 @@ class Incoming[T]:
                 Err(self.broken(error))
 
     def read_all(self: &mut Incoming[T], out: &mut Bytes) -> Result[i64, ClientError]:
-        mut outcome: Result[i64, HttpError] = Err(HttpError.Broken)
-        match &mut self._body:
+        outcome: Result[i64, HttpError] = match &mut self._body:
             case Some(body):
-                outcome = std.http.read_to_end(body, out)
+                std.http.read_to_end(body, out)
             case Nothing:
-                pass
+                Err(HttpError.Broken)
         match outcome:
             case Ok(count):
                 Ok(count)
