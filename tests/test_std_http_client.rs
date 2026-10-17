@@ -1194,3 +1194,42 @@ def main() -> Result[(), Failure]:
     assert_eq!(lines[0], "allocation allocation");
     assert_eq!(lines[199], "ok-pooled ok-pooled");
 }
+
+/// Issue #135: a request shares its method and URL text instead of copying
+/// it, so long ones need no more allocations than short ones, and both
+/// outlive their sources.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn request_shares_its_method_and_url() {
+    runs(
+        "",
+        r##"import std.http.client as hc
+
+def needed(method: &str, url: &str) -> Result[i64, Failure]:
+    for budget in range(20):
+        marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
+        print(marker)?
+        outcome = hc.request(method, url)
+        print("__test_restore_allocations__")?
+        if outcome.is_ok():
+            return Ok(budget)
+    Ok(-1)
+
+def main() -> Result[(), Failure]:
+    print(needed("GET", "http://h/")?)?
+    mut url = ""
+    mut method = ""
+    if True:
+        given = "http://a-host-name-beyond-inline.example/".concat("a-path-beyond-inline")?
+        verb = "PROPFIND".concat("-BEYOND-INLINE")?
+        print(needed(&verb, &given)?)?
+        made = hc.request(&verb, &given)?
+        url = made.url
+        method = made.method
+    print(method)?
+    print(url)?
+    Ok(())
+"##,
+        "2\n2\nPROPFIND-BEYOND-INLINE\nhttp://a-host-name-beyond-inline.example/a-path-beyond-inline",
+    );
+}

@@ -168,7 +168,7 @@ pub class Router:
             route = &self._routes[index]
             if route.method == method and same_segments(&route.segments, &segments):
                 return Err(ServerError.DuplicateRoute)
-        allocated(self._routes.append(Route(allocated(method.concat(""))?, segments, key)))
+        allocated(self._routes.append(Route(*method, segments, key)))
 
     # The first route whose pattern matches `path` and whose method is
     # `method` or `*`; a GET route also answers HEAD. Captures are returned
@@ -182,7 +182,7 @@ pub class Router:
                 if route.method == "*" or route.method == method or (method == "HEAD" and route.method == "GET"):
                     return Ok(Match.Found(route.key, captured(&route.segments, &pieces)?))
                 if not listed(&allowed, &route.method):
-                    allocated(allowed.append(allocated(route.method.concat(""))?))?
+                    allocated(allowed.append(route.method))?
         if len(allowed) == 0:
             return Ok(Match.NotFound)
         if listed(&allowed, "GET") and not listed(&allowed, "HEAD"):
@@ -236,7 +236,7 @@ def parse_pattern(pattern: &str) -> Result[list[Segment], ServerError]:
         else:
             if "{" in piece or "}" in piece or "?" in piece:
                 return Err(ServerError.InvalidPattern)
-            allocated(segments.append(Segment(allocated(piece.concat(""))?, literal)))?
+            allocated(segments.append(Segment(*piece, literal)))?
     Ok(segments)
 
 def same_segments(left: &list[Segment], right: &list[Segment]) -> bool:
@@ -271,11 +271,11 @@ def captured(segments: &list[Segment], pieces: &list[str]) -> Result[list[str], 
     for index in range(len(segments)):
         segment = &segments[index]
         if segment.kind == capture:
-            allocated(params.append(allocated(pieces[index + 1].concat(""))?))?
+            allocated(params.append(pieces[index + 1]))?
         elif segment.kind == rest:
             mut joined: list[str] = allocated(list[str].new())?
             for later in range(index + 1, len(pieces)):
-                allocated(joined.append(allocated(pieces[later].concat(""))?))?
+                allocated(joined.append(pieces[later]))?
             allocated(params.append(allocated("/".join(&joined))?))?
     Ok(params)
 
@@ -749,7 +749,7 @@ pub class Exchange[T]:
     # Sends `body` with the given status and Content-Type.
     pub def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &Bytes) -> Result[(), HttpError]:
         mut head = std.http.response(status, reason(status))?
-        head.add("Content-Type", http_allocated(content_type.concat(""))?)?
+        head.add("Content-Type", *content_type)?
         self.respond(head, body)
 
     # Sends UTF-8 text as text/plain.
@@ -885,9 +885,6 @@ def emit(events: &mut Option[ChannelSink], level: Level, message: str, fields: l
         case Nothing:
             pass
 
-def copied(text: &str) -> Result[str, AllocError]:
-    text.concat("")
-
 # One access event per answered request: method, target, status, body bytes
 # sent and microseconds from head to the end of the response.
 def access[T](events: &mut Option[ChannelSink], exchange: &Exchange[T], started: u64, report: &mut Report) -> ():
@@ -902,8 +899,8 @@ def access[T](events: &mut Option[ChannelSink], exchange: &Exchange[T], started:
 
 def access_fields[T](exchange: &Exchange[T], elapsed: u64) -> Result[list[Field], AllocError]:
     mut fields = list[Field].new()?
-    fields.append(std.log.text("method", copied(&exchange.request.method)?))?
-    fields.append(std.log.text("target", copied(&exchange.request.target)?))?
+    fields.append(std.log.text("method", exchange.request.method))?
+    fields.append(std.log.text("target", exchange.request.target))?
     fields.append(std.log.integer("status", exchange._status))?
     fields.append(std.log.integer("bytes", exchange._sent))?
     fields.append(std.log.unsigned("micros", elapsed))?
@@ -959,7 +956,7 @@ def refuse[T: Transport](conn: &mut Conn[T], status: i64, allow: &str) -> Result
     head.add("Content-Type", "text/plain; charset=utf-8")?
     head.add("Content-Length", http_allocated(str.from(text.byte_len() + 1))?)?
     if allow.byte_len() > 0:
-        head.add("Allow", http_allocated(copied(allow))?)?
+        head.add("Allow", *allow)?
     head.add("Connection", "close")?
     std.http.write_response(conn, &head)?
     body = http_bytes(std.bytes.from_text(&http_allocated(text.concat("\n"))?))?
@@ -1289,7 +1286,7 @@ def plain[T: Transport](exchange: &mut Exchange[T], status: i64) -> Result[(), H
 
 def answer_with_allow[T: Transport](exchange: &mut Exchange[T], allow: &str) -> Result[(), HttpError]:
     mut head = std.http.response(405, reason(405))?
-    head.add("Allow", http_allocated(copied(allow))?)?
+    head.add("Allow", *allow)?
     head.add("Content-Type", "text/plain; charset=utf-8")?
     text = http_allocated(reason(405).concat("\n"))?
     body = http_bytes(std.bytes.from_text(&text))?
