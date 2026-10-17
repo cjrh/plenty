@@ -366,3 +366,26 @@ fn defaults_cannot_hide_allocation_failure_or_use_a_different_error_type() {
         "error",
     );
 }
+
+#[test]
+fn invalid_defaults_are_checked_even_when_every_call_supplies_the_argument() {
+    reject(
+        "def work(value: i64 = True) -> i64:\n    value\ndef main() -> ():\n    print(work(value=1)).unwrap()\n",
+        "i64",
+    );
+}
+
+#[test]
+fn generic_owned_defaults_receive_the_specialized_parameter_type() {
+    native(
+        r#"
+def count[T](values: list[T] = []?) -> Result[i64, AllocError]:
+    Ok(len(values))
+def main() -> ():
+    print(count[u8]().unwrap()).unwrap()
+    print(count[str]().unwrap()).unwrap()
+    print(count[u8](values=[3u8, 4u8].unwrap()).unwrap()).unwrap()
+"#,
+        "0\n0\n2\n",
+    );
+}

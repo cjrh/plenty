@@ -360,22 +360,26 @@ fn other_missing_results_keep_the_plain_diagnostic() {
 }
 
 #[test]
-fn keyword_arguments_name_positional_passing() {
+fn named_arguments_are_accepted_for_user_defined_signatures() {
     let declarations = "class Lcg:\n    state: i64\n    def next(self, step: i64) -> i64:\n        self.state + step\ndef add(a: i64, b: i64) -> i64:\n    a + b\n";
-    for (body, position, name) in [
-        ("g = Lcg(state=1)", "8:13", "state"),
-        ("g = Lcg(state = 1)", "8:13", "state"),
-        ("n = add(1, b=2)", "8:16", "b"),
-        ("g = Lcg(1)\n    n = g.next(step=2)", "9:16", "step"),
-        ("print(1, end=\"\").unwrap()", "8:14", "end"),
+    for body in [
+        "g = Lcg(state=1)",
+        "g = Lcg(state = 1)",
+        "n = add(1, b=2)",
+        "g = Lcg(1)\n    n = g.next(step=2)",
     ] {
         let source = format!("{declarations}def main() -> ():\n    {body}\n");
-        assert_eq!(
-            diagnostic(&source),
-            format!("{position}: keyword arguments are not supported; pass the value by position, without `{name}=`"),
-            "{body}"
-        );
+        support::check_source(&source).unwrap_or_else(|error| panic!("{body}: {error}"));
     }
+}
+
+#[test]
+fn python_print_end_parameter_remains_unsupported() {
+    let error = diagnostic("def main() -> ():\n    print(1, end=\"\").unwrap()\n");
+    assert!(
+        error.contains("named") || error.contains("keyword"),
+        "{error}"
+    );
 }
 
 #[test]
