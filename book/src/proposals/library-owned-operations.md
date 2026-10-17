@@ -9,6 +9,53 @@ remain [protocols](../design/language/07-generics/protocols.md),
 [classes](../design/language/03-types/classes.md). Any future access extension
 belongs to [B29](../backlog.md).
 
+## Introduction
+
+A library sometimes needs to let other packages customize one step of an
+operation while keeping the surrounding algorithm under the library's control.
+That algorithm may validate inputs, check state, acquire resources, and record
+success or failure. The customizable step is an *implementation hook*: it does
+the backend-specific work, but is not intended to be an independent application
+entry point.
+
+For example, a **library author** provides `Transport.send(message)`, which
+checks the message-size limit and connection state, asks a backend to send the
+message, and updates accounting after success. A **backend author** supplies
+the TCP-specific `send_impl(message)` hook, or an in-memory version for tests.
+An **application author** selects a backend and calls `transport.send(message)`.
+These may be three different people working in three different packages.
+
+Two mistakes should be prevented through that library interface. Application
+code should not accidentally call `send_impl` directly and skip validation or
+accounting. A backend's customization should not replace the surrounding
+`send` algorithm and omit those checks either. Supplying the hook and calling
+the hook are therefore different permissions. A similar situation arises when
+`Store.save(record)` must validate a record and manage a transaction around a
+backend-specific write: application code should use `save`, and each backend
+should not have to reproduce the transaction algorithm.
+
+C++ addresses this with the **non-virtual interface (NVI) pattern**: a public
+non-virtual method owns the algorithm and calls a private virtual hook. A backend
+class can override that hook, while application code using the base interface
+cannot call it directly. The public algorithm is not overridden through that
+interface. This is about separating customization from access, rather than
+sealing an interface against external implementations.
+
+Rust traits do not directly offer that combination: individual trait methods
+cannot have independent private/public visibility, and a default method body
+can be replaced by an implementation. Rust can express the intent using an
+owning wrapper with a private backend field; a capability argument can further
+restrict calls to an otherwise public hook. The
+[precedents](library-owned-operations/precedents.md) explain and test these
+workarounds. The question for Plenty is whether existing composition provides
+clear enough guarantees, or whether protocols need a new way to permit external
+hook implementations without exposing ordinary calls to those hooks.
+
+The aim is to prevent accidental bypass through the library abstraction, not to
+prove that a backend performs its work honestly. A backend can still expose its
+own separate API, and validation, partial failure and transaction recovery need
+explicit contracts regardless of method visibility.
+
 ## Decision and roles
 
 Use an ordinary owning wrapper for the public algorithm. Keep its backend
