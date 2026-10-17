@@ -1651,19 +1651,14 @@ def send_job[T: Transport, O: Opener[T]](state: &mut Admission[T], job: Job[T], 
         case Err(SendError.Disconnected(refused)):
             drop(refused)
 
-# Parks a connection until it is readable or `until` passes. A connection
-# that finds no free slot is closed, after a 503 if its request has started.
-def park[T: Transport, O: Opener[T]](state: &mut Admission[T], parked: Job[T], cap: i64, opener: &O) -> ():
-    if state.parked >= cap:
-        mut refused = parked
-        if refused.input.is_some():
-            state.total.rejected += 1u64
-            problem(&mut state.events, "too many connections", 503, &mut state.total)
-            match replace(refused.resumed, Nothing):
-                case Some(stream):
-                    reject_resumed(stream, state.reject_ns)
-                case Nothing:
-                    pass
+# Parks a connection until it is readable or `until` passes. Past `cap`, an
+# idle connection is closed, but one partway through a handshake or a head
+# is parked anyway: it was admitted while there was room, and only the
+# queue, the workers and the return channel hold connections that are not
+# parked, so they bound how far past `cap` this goes.
+def park[T, O: Opener[T]](state: &mut Admission[T], parked: Job[T], cap: i64, opener: &O) -> ():
+    if state.parked >= cap and parked.input.is_none() and not parked.opening:
+        drop(parked)
         return
     mut index = 0
     while index < len(state.slots) and state.slots[index].is_some():
@@ -1796,7 +1791,7 @@ def readied[T: Transport, O: Opener[T]](state: &mut Admission[T], index: i64, ou
 
 # Takes connections workers have returned, and the datagrams that announced
 # them.
-def collect[T: Transport, O: Opener[T]](state: &mut Admission[T], cap: i64, cancel: &CancellationToken, opener: &O) -> ():
+def collect[T, O: Opener[T]](state: &mut Admission[T], cap: i64, cancel: &CancellationToken, opener: &O) -> ():
     size = state.scratch.len()
     while True:
         match state.bell.receive_from(&mut state.scratch, 0, size, &deadline_of(0u64), cancel):

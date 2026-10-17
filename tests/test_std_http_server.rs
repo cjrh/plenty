@@ -785,7 +785,8 @@ connections=2 requests=1 handler_errors=0 protocol_errors=0 timeouts=0 cancelled
 /// thread, so three partial heads leave the only worker free: a head that
 /// completes is served, one that reaches `max_head` is refused at once, and
 /// one that stalls gets `408` at its head deadline. With `idle_connections`
-/// full, a pipelined partial head that a worker hands back gets `503`.
+/// full, a pipelined partial head that a worker hands back is parked anyway
+/// and answered at its deadline, while a new connection is turned away.
 #[test]
 fn partial_heads_wait_without_a_worker() {
     let main = r##"
@@ -823,6 +824,9 @@ def crowded(port: u16, app: &Gated, stop: CancellationToken) -> ():
     mut silent = connect_to(port, "").unwrap()
     std.time.sleep(&std.time.milliseconds(100u32))
     app.gate.cancel()
+    drop(until(&mut first, "waited").unwrap())
+    std.time.sleep(&std.time.milliseconds(50u32))
+    print(fetch(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()).unwrap()
     print(until(&mut first, "").unwrap()).unwrap()
     print(str.repr(until(&mut silent, "").unwrap()).unwrap()).unwrap()
     stop.cancel()
@@ -863,10 +867,12 @@ HTTP/1.1 408 Request Timeout|Content-Type: text/plain; charset=utf-8|Content-Len
 
 True
 connections=4 requests=2 handler_errors=0 protocol_errors=1 timeouts=1 cancelled=0 rejected=0
-HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||waitedHTTP/1.1 503 Service Unavailable|Content-Type: text/plain; charset=utf-8|Content-Length: 20|Retry-After: 1|Connection: close||Service Unavailable
+HTTP/1.1 503 Service Unavailable|Content-Type: text/plain; charset=utf-8|Content-Length: 20|Retry-After: 1|Connection: close||Service Unavailable
+
+HTTP/1.1 408 Request Timeout|Content-Type: text/plain; charset=utf-8|Content-Length: 16|Connection: close||Request Timeout
 
 ""
-connections=2 requests=1 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=1"##,
+connections=2 requests=1 handler_errors=0 protocol_errors=0 timeouts=1 cancelled=0 rejected=1"##,
     );
 }
 

@@ -157,7 +157,8 @@ Limits must be positive (`max_body` may be 0).
 
 ## Idle connections
 
-A worker never waits for a client to send a request. A connection waiting
+Unless `idle_connections` is `0`, a worker does not wait for a client to
+send a request. A connection waiting
 for its first byte, for the next request after a keep-alive response, or
 for the rest of a request head is parked on the accepting thread's
 [`std.ready`](ready.md) selector instead of holding a worker. When the
@@ -179,8 +180,12 @@ Parked connections close at `idle_timeout`, or answer `408` at
 `head_timeout` once a head has started.
 
 `idle_connections` caps the parked connections, including those with
-partial heads; it bounds how many slow clients the server waits for at
-once. With `0`, nothing is parked: each connection goes to the queue at
+partial heads, so it bounds how many slow clients the server waits for: a
+new connection is refused when it is reached. A connection partway through
+a head or a handshake that a worker hands back is parked even past the cap,
+since it was admitted while there was room; at most
+`queue + 2 * workers + 64` such connections can be outside the parking
+slots at once. With `0`, nothing is parked: each connection goes to the queue at
 once and a worker holds it until `idle_timeout`, reading each head as it
 arrives, as a thread-per-connection server would.
 
@@ -225,8 +230,8 @@ is `TimedOut`, `Cancelled`, `Failed` (counted in `protocol_errors`) or
 ## Deadlines and faults
 
 Every read and write waits under a deadline, so a slow or silent client
-cannot hold a worker longer than the phase allows. A worker waits for
-neither a request head nor a handshake (see
+cannot hold a worker longer than the phase allows. With parking on, a
+worker waits for neither a request head nor a handshake (see
 [Idle connections](#idle-connections)).
 
 | Situation | Server action |
@@ -234,7 +239,7 @@ neither a request head nor a handshake (see
 | No request starts within `idle_timeout` | Close quietly |
 | HTTPS: no handshake within `handshake_timeout` of the accept | Close; counted in `timeouts` |
 | HTTPS: handshake fails, for example a plaintext request | Close; counted in `protocol_errors` |
-| `idle_connections` connections already waiting | A new connection gets `503` with `Retry-After: 1` (HTTPS: is closed); counted in `rejected`. A served connection going idle, or mid-handshake, is closed; one with a partial head gets `503`, counted in `rejected` |
+| `idle_connections` connections already waiting | A new connection gets `503` with `Retry-After: 1` (HTTPS: is closed); counted in `rejected`. A served connection going idle is closed; one partway through a head or a handshake is parked anyway |
 | Head not complete within `head_timeout` | `408`, close; counted in `timeouts` |
 | Malformed head, or a line, head or header count over a limit | `400`, or `431` for size limits, `505` for an unsupported version, `501` for an unsupported transfer coding; close |
 | Ambiguous framing (`Content-Length` with `Transfer-Encoding`) | `400`, close |
