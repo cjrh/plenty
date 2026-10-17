@@ -387,6 +387,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                     }
                 }
                 Expression::Member(a, _)
+                | Expression::NamedArgument(_, a)
                 | Expression::Group(a)
                 | Expression::Unary(_, a)
                 | Expression::Try(a) => self.expr(a, initialized)?,
@@ -871,6 +872,25 @@ impl Lower<'_> {
                     .error(format!("unknown method `{name}` on {}", class.name))
             })?
             .clone();
+        let receiver = Expr {
+            at: base.at.clone(),
+            kind: Expression::Unary(
+                if matches!(sig.inputs.first(), Some((_, Ty::Ref(_, true)))) {
+                    "&mut".into()
+                } else {
+                    "&".into()
+                },
+                Box::new(base.clone()),
+            ),
+        };
+        let arguments: Vec<_> = std::iter::once(receiver)
+            .chain(args.iter().cloned())
+            .collect();
+        if let Some((wrapper, arguments)) =
+            self.prepare_named_call(&callee, &arguments, &base.at, true)?
+        {
+            return self.call_named_with_receiver(&wrapper, &arguments, &base.at, true, ops);
+        }
         if sig.inputs.len() != args.len() + 1 {
             return Err(base.at.error(format!(
                 "method `{name}` expects {} arguments",

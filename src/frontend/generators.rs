@@ -428,6 +428,7 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
             }
         }
         Expression::Try(base)
+        | Expression::NamedArgument(_, base)
         | Expression::Member(base, _)
         | Expression::Group(base)
         | Expression::Unary(_, base)

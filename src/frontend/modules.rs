@@ -1347,6 +1347,7 @@ impl Scope {
                 }
             }
             Expression::Member(base, _)
+            | Expression::NamedArgument(_, base)
             | Expression::Group(base)
             | Expression::Unary(_, base)
             | Expression::Try(base) => self.expr(base, locals)?,

@@ -831,6 +831,8 @@ struct Expr {
 }
 #[derive(Clone)]
 enum Expression {
+    /// A call-site label; binding removes it before ordinary expression lowering.
+    NamedArgument(String, Box<Expr>),
     Anonymous(Box<Function>),
     GenericValue(String, Vec<TypeRef>),
     GenericCall(String, Vec<TypeRef>, Vec<Expr>),
@@ -2676,6 +2678,9 @@ impl Lower<'_> {
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let ty = match &e.kind {
+            Expression::NamedArgument(..) => {
+                return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
+            }
             Expression::Anonymous(function) => {
                 if function.once || !function.captures.is_empty() {
                     return self.closure_value(function, &e.at, ops).map(Some);
@@ -3412,6 +3417,9 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         self.sync_data()?;
+        if let Some((callee, arguments)) = self.prepare_named_call(name, args, at, method)? {
+            return self.call_named_with_receiver(&callee, &arguments, at, method, ops);
+        }
         if self.generics.templates.contains_key(name) {
             return self.generic_call(name, None, args, at, ops);
         }
