@@ -6,7 +6,10 @@
 > [consuming and stored closures](../design/language/06-functions/04-consuming-and-stored-closures.md)
 > own the contract.
 >
-> **Remaining:** a heterogeneous erased callback registry (B32).
+> **Shipped since this review:** explicit fallible
+> [shared-call erasure](../design/language/06-functions/05-boxed-callables.md)
+> supports heterogeneous callback storage. Mutable/consuming erased modes and
+> generator-containing stored environments remain B32; stored borrows remain B11.
 
 Plenty needs callable values for callbacks, small local functions, and owned
 resource handoff. This review separates representation from ownership and avoids

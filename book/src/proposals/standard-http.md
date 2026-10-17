@@ -1,13 +1,16 @@
 # Bundled HTTP acceptance
 
-> **Status: Partly implemented.** [`std.net`](../design/stdlib/net.md) and the
-> [`std.http`](../design/stdlib/http.md) message-framing layer ship; no HTTP
-> client, server, or TLS module does. Existing
-> [concurrency](../design/facilities/03-concurrency/index.md) and
-> [I/O](../design/facilities/02-io/index.md) references own the primitives and
-> their current limits. Issue #49's production-server requirement is preserved
-> here; delivery and dependencies belong only to [B58–B66 in the backlog](../backlog.md).
-> HTTP names/signatures and native backend selection remain design candidates.
+> **Status: Partly implemented.** The [HTTP framing layer](../design/stdlib/http.md),
+> [client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md),
+> [TLS](../design/stdlib/tls.md), and deployment helpers ship over checked native
+> I/O effects and bounded workers. The server parks request heads and TLS
+> handshakes, supports signal-driven draining, and has passed local nginx/Caddy
+> reverse-proxy tests. The [qualification record](../design/stdlib/http-qualification.md)
+> owns the evidence and limits; this is not yet a production-readiness claim.
+> Remaining qualification belongs to B66 in the [backlog](../backlog.md), including
+> coverage-guided fuzzing, installed-toolchain workflows, HTTPS benchmarks, and
+> proxy tests in CI. The requirements below retain the original design rationale;
+> the linked references own shipped names, signatures, and backend choices.
 
 The bundled server should remain usable in production without requiring a
 third-party replacement for a demonstration server. Go's combined HTTP

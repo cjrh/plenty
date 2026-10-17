@@ -31,6 +31,14 @@ whose payload can be consumed, an `Option` plus `replace`, or API restructuring.
 That friction is relevant to whether a typestate design is pleasant, not a
 reason to weaken initialization guarantees indiscriminately.
 
+The HTTP client now demonstrates the API-restructuring option (issue #134,
+commit `2772825`). `run` returns the response head and an `Incoming` body owner
+as tuple components. `fetch` can consume the body and move the head into its
+result without constructing a fallible placeholder; `send` assembles the public
+`Response` only when needed. `attempt` likewise carries its head separately.
+This removes the observed placeholder work using existing tuple moves, without
+adding partial class moves or compile-time response states.
+
 ## Actual stdlib use
 
 | Area at baseline `bef41b1` | Existing approach | Assessment |

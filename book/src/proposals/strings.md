@@ -13,8 +13,10 @@
 > `input() -> Result[Option[str], IoError]`. Slicing, `replace`, `strip`,
 > `join`, and `str.repr` were added later.
 >
-> **Remaining:** C text returned as `str` and exported buffers (B27); bytes and
-> binary buffers (B12).
+> **Shipped since this proposal:** [std.bytes](../design/stdlib/bytes.md)
+> provides owned binary buffers with explicit fallible allocation.
+> **Remaining:** broader C text/buffer representations (B27); language-level
+> bytes literals and slice syntax remain B12 candidates.
 
 ## Language contract
 

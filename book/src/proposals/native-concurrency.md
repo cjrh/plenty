@@ -7,9 +7,13 @@
 > [concurrency architecture](../design/toolchain/02-architecture/concurrency.md)
 > the runtime.
 >
-> **Shipped differently:** generator frames, foreign calls, files, and executor
-> or future handles cannot enter workers; there is no trusted foreign thread
-> contract. A failed fallible map returns the earliest failed input's error as
+> **Shipped differently:** generator frames and executor or future handles
+> cannot enter workers. Native files and network handles now cross threads
+> under ordinary ownership and loan rules; the compiler certifies
+> [native effects](../design/facilities/03-concurrency/effects.md) without a stdlib
+> exemption. Foreign calls and opaque foreign resources remain unsupported in
+> workers. The audit below records the earlier restrictions.
+> A failed fallible map returns the earliest failed input's error as
 > `ParallelError[E].Worker(E)`, not an index. Start failure returns
 > `ThreadError.System(code)`, or a `SpawnError[F]` that carries the unstarted
 > job. Executors, map, and reduction are compiler built-ins over a Rust runtime,

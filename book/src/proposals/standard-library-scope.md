@@ -1,7 +1,10 @@
 # Standard library scope
 
 > **Status: Partly implemented.** The [standard library reference](../design/stdlib/index.md)
-> owns the shipped `std.math`, `std.path`, `std.fs` and `std.deque` contracts.
+> owns the shipped contracts: collections, text/data formats, files/processes,
+> streams, networking, TLS, HTTP clients/servers and helpers, crypto, SQLite,
+> logging, signals, and testing. The catalogue below is the original scope,
+> not a list of modules still missing.
 > Issue #49 retains the original catalogue and rationale; it is closed by
 > decomposition, not implementation. Remaining delivery is recorded only in
 > [backlog B38–B70](../backlog.md). Module names and unimplemented signatures
