@@ -19,7 +19,7 @@ from std.bytes import Bytes
 from std.fs import Root
 from std.http.cookie import CookieError
 from std.http.server import Exchange, Router
-from std.net import NetError
+from std.net import NetError, Shutdown
 from std.sync import CancellationToken
 from std.time import Deadline
 
@@ -37,6 +37,9 @@ pub class Script:
         buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
         self.at += count
         Ok(count)
+
+    pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
+        Ok(())
 
     pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         Ok(source.write_stdout(start, stop).unwrap())
@@ -423,7 +426,7 @@ from std.fs import Root
 from std.http.body import BodyError, Content, MultipartLimits
 from std.http.server import Exchange
 from std.io import StreamError
-from std.net import NetError
+from std.net import NetError, Shutdown
 from std.sync import CancellationToken
 from std.time import Deadline
 
@@ -443,6 +446,9 @@ pub class Script:
         buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
         self.at += count
         Ok(count)
+
+    pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
+        Ok(())
 
     pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         Ok(stop - start)

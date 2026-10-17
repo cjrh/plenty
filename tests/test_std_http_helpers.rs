@@ -21,7 +21,7 @@ from std.http.body import Content, FormLimits, MultipartLimits
 from std.http.cookie import SameSite
 from std.http.proxy import Forwarding, Proxies
 from std.http.server import Config, Exchange, Router, Transport
-from std.net import NetError, SocketAddress
+from std.net import NetError, Shutdown, SocketAddress
 from std.sync import CancellationToken
 from std.time import Deadline
 
@@ -49,6 +49,9 @@ pub class Script:
         buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
         self.at += count
         Ok(count)
+
+    pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
+        Ok(())
 
     pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         # Stdout is line buffered and may take only part of the range.

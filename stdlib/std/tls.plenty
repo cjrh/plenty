@@ -7,7 +7,7 @@
 import std.bytes
 from std.bytes import Bytes, BytesError
 from std.io import StreamError
-from std.net import NetError, TcpStream
+from std.net import NetError, Shutdown, TcpStream
 from std.ready import Interest, Selector
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_at, instant_at
@@ -655,6 +655,21 @@ pub class TlsStream:
             __tls_close(self._session)
             self.flush_before(deadline, cancel)?
         net(flowed_net(self._tcp.close()))
+
+    # Ends the stream in `direction` without closing it. Ending writes sends
+    # close_notify first, without waiting: ciphertext the socket does not
+    # take at once is lost. Reading continues until the peer's close_notify.
+    pub def shutdown(self: &mut TlsStream, direction: Shutdown) -> Result[(), TlsError]:
+        writes = match &direction:
+            case Shutdown.Read:
+                False
+            case _:
+                True
+        if writes and not self._closed:
+            self._closed = True
+            __tls_close(self._session)
+            drop(self.try_flush())
+        net(self._tcp.shutdown(direction))
 
     pub def read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start == stop:

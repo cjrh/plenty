@@ -20,7 +20,7 @@ deployment guidance; it is not yet production-ready.
 | `serve_connection[T: Transport, H: Handler[T]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
 | `serve_connection_from[T, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
 | `protocol Handler[T]` | `def handle(self, exchange: &mut Exchange[T]) -> Result[(), Failure]` |
-| `protocol Transport` | `read_before` and `write_before` with the signatures of `TcpStream`'s |
+| `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s |
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
 
 `serve` takes ownership of the listener and runs on the calling thread. It
@@ -39,8 +39,10 @@ A worker that cannot start stops the workers already running. After that,
 every problem is answered on the wire where possible, counted in the
 `Report`, and logged to `config.events`; nothing aborts the server.
 
-`serve_connection` serves one already-open stream. Any class with the two
-`Transport` methods works, and an in-memory stream makes handlers testable without sockets. Its exchanges have
+`serve_connection` serves one already-open stream. Any class with the three
+`Transport` methods works, and an in-memory stream makes handlers testable
+without sockets; its `shutdown` can do nothing. The server calls `shutdown`
+only with `Shutdown.Write`, before a [lingering close](#lingering-close). Its exchanges have
 no `peer`; `serve_connection_from` takes one, for a transport that knows its
 peer or a test that plays one. `stop` and
 `cancel` have the meanings described under [Shutdown](#shutdown).
@@ -254,6 +256,27 @@ worker waits for neither a request head nor a handshake (see
 Responses written by the server itself carry `Connection: close`. Allocation
 failure while serving closes that connection.
 
+### Lingering close
+
+Closing a socket while request bytes are still unread makes the kernel
+reset the connection, and a client that has not yet read the answer can
+lose it. So after a response that may leave request input unread, the
+server ends its output instead (`Shutdown.Write`; over HTTPS, `close_notify`
+first) and discards input until the client ends its own, 64 KiB have been
+discarded, or 2 s (at most `write_timeout`) have passed, and then closes. The
+client reads the whole answer and a clean end. This applies to the `400`,
+`408`, `413` and `431` refusals above, to a handler failure answered with a
+body-read status, and to a handler response sent before the request body
+was read to its end.
+
+With parking on, the discarding happens on the accepting thread: the
+connection is parked in a slot (and so counts toward `idle_connections`)
+and closed when its input ends, its budget is spent, or its deadline
+passes. With `idle_connections` `0`, under `serve_connection`, or once
+shutdown has begun, the worker discards before taking its next connection.
+A parked `408` from the accepting thread lingers the same way. Shutdown
+closes lingering connections that are parked at once.
+
 Bytes of a pipelined request that arrived with the previous one start that
 request: its `head_timeout` runs from the end of the previous response, and
 an end or stall inside it is answered (`400` or `408`) rather than closed
@@ -321,7 +344,8 @@ timed out`, `handshake failed` and `accept failed`, most with a
   that many partial heads parked, new connections get `503` until their
   `head_timeout` passes. Raise it, and the descriptor limit, for exposed
   servers; each parked partial head holds at most `max_head` bytes.
-- HTTPS connections end without a TLS `close_notify`. Responses are
+- HTTPS connections end without a TLS `close_notify`, except those closed
+  [lingering](#lingering-close). Responses are
   length-delimited or chunked, so clients do not depend on it, except for a
   streamed response to HTTP/1.0, whose end is the close and so cannot be
   told from truncation.
@@ -335,6 +359,10 @@ timed out`, `handshake failed` and `accept failed`, most with a
   [`std.http.files`](http-files.md).
 - A `503` rejection reads only bytes that have already arrived. If more of
   the request arrives after the close, the client may see a reset instead.
+- A [lingering close](#lingering-close) discards at most 64 KiB in at most
+  2 s. A client still sending past that, such as a large upload refused
+  with `413` without `Expect: 100-continue`, can still see a reset; past
+  `idle_connections`, a refusal closes at once.
 - Captures in `params` are decoded; `path` and `query` are not.
 - `Host` and absolute-form authorities are checked against the URI
   grammar, not against names the server answers for. A handler that serves

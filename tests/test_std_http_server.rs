@@ -11,7 +11,7 @@ import std.time
 from std.bytes import Bytes
 from std.http import Header, HttpError
 from std.http.server import Config, Exchange, Report, Router, ServerError, Transport
-from std.net import NetError, TcpStream
+from std.net import NetError, Shutdown, TcpStream
 from std.sync import CancellationToken
 from std.time import Deadline
 
@@ -41,6 +41,9 @@ pub class Script:
         buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
         self.at += count
         Ok(count)
+
+    pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
+        Ok(())
 
     pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
