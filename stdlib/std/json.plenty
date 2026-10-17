@@ -132,18 +132,10 @@ def bytes_fault(error: BytesError) -> JsonFault:
             JsonFault.OutOfRange
 
 def reserved[T](result: Result[T, AllocError]) -> Result[T, JsonFault]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(JsonFault.Allocation(cause))
+    std.error.map_error(result, def once (cause: AllocError) -> JsonFault: JsonFault.Allocation(cause))
 
 def unplaced[T](result: Result[T, JsonFault]) -> Result[T, JsonError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(fault):
-            Err(JsonError(fault, 0, 0, 0))
+    std.error.map_error(result, def once (fault: JsonFault) -> JsonError: JsonError(fault, 0, 0, 0))
 
 # The number grammar as one transition: the next state, 0 when `byte` cannot
 # belong to a number, or -1 when it can but not here. States: 0 start,

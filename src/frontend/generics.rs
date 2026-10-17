@@ -3,6 +3,9 @@ use super::*;
 use crate::ownership::Instantiation;
 use std::collections::VecDeque;
 
+const MAX_SPECIALIZATION_DEPTH: usize = 256;
+const MAX_FUNCTION_INSTANCES: usize = 16_384;
+
 pub(super) fn callable_bound(bound: &TypeRef) -> bool {
     matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable"))
 }
@@ -118,6 +121,7 @@ pub(super) fn prepare(
         defaults: HashMap::new(),
         call_wrappers: HashMap::new(),
         cache: HashMap::new(),
+        specialization_depths: HashMap::new(),
         // One entry per function: sized up front, these are not rehashed
         // key by key at every doubling (issue #57).
         pending: VecDeque::with_capacity(functions.len()),
@@ -173,6 +177,8 @@ pub(super) struct Engine {
     pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
     pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
     cache: HashMap<(String, Vec<Ty>), String>,
+    /// First-requiring dependency depth, also inherited by lifted code.
+    specialization_depths: HashMap<String, usize>,
     pub(super) pending: VecDeque<Arc<Function>>,
     pub(super) functions: HashMap<String, Declared>,
     pub(super) compiled: Vec<Op>,
@@ -545,9 +551,14 @@ impl Lower<'_> {
             modules::check_member(self.access, name, "__new__", at)?;
         }
         self.sync_data()?;
-        let (symbol, function) =
-            self.generics
-                .instantiate(name, actual, at, self.aliases, self.access)?;
+        let (symbol, function) = self.generics.instantiate(
+            name,
+            actual,
+            at,
+            self.aliases,
+            self.access,
+            &self.function_name,
+        )?;
         if let Some(f) = function {
             let instance = self.generics.diagnostic_name(&symbol);
             let instance: Arc<str> = crate::record::method_display(&instance).into();
@@ -738,6 +749,9 @@ impl Engine {
     /// Code lifted out of `parent`, or copied from it, is checked on behalf of
     /// the same use.
     pub(super) fn inherit_requirement(&mut self, parent: &str, child: &str) {
+        if let Some(depth) = self.specialization_depths.get(parent).copied() {
+            self.specialization_depths.insert(child.into(), depth);
+        }
         if self.protocol_instances.contains(parent) {
             self.protocol_instances.insert(child.into());
         }
@@ -920,6 +934,7 @@ impl Engine {
         at: &Token,
         aliases: &TypeAliases,
         access: &modules::AccessMap,
+        parent: &str,
     ) -> Result<(String, Option<Function>)> {
         let template = self
             .templates
@@ -972,10 +987,18 @@ impl Engine {
                 }
             }
         }
-        if self.cache.len() >= 256 {
-            return Err(at.error(
-                "generic specialization limit of 256 exceeded; check for expanding recursion",
-            ));
+        // Bound repeated expansion separately from unrelated library breadth.
+        // Cache hits above consume neither budget, including recursive calls.
+        let depth = self.specialization_depths.get(parent).copied().unwrap_or(0) + 1;
+        if depth > MAX_SPECIALIZATION_DEPTH {
+            return Err(at.error(format!(
+                "generic specialization dependency depth limit of {MAX_SPECIALIZATION_DEPTH} exceeded; check for expanding recursion or a long chain of generic calls"
+            )));
+        }
+        if self.cache.len() >= MAX_FUNCTION_INSTANCES {
+            return Err(at.error(format!(
+                "total generic function specialization budget of {MAX_FUNCTION_INSTANCES} exceeded"
+            )));
         }
         let symbol = format!("__plenty_generic_{}", self.cache.len());
         if self.protocol_instances.contains(name)
@@ -1000,6 +1023,7 @@ impl Engine {
         }
         // Cache before queueing the body, so recursive calls share this instance.
         self.cache.insert(key, symbol.clone());
+        self.specialization_depths.insert(symbol.clone(), depth);
         substitute_block(&mut f.body, &replacements)?;
         Ok((symbol, Some(f)))
     }
