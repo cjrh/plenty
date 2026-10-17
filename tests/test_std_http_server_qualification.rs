@@ -988,9 +988,12 @@ def fault_round() -> Result[(), Failure]:
     port = listener.local_address()?.port
     with spawn(faults, port, stop.share())? as task:
         report = std.http.server.serve(listener, &table, &site, &config, &stop)?
-        # Whether a partial head is still parked when the silent clients
-        # arrive decides how many of the 64 connections are turned away.
-        print(report.connections + report.rejected, report.requests, report.protocol_errors, report.handler_errors, report.rejected >= 2u64)?
+        # Admission turns a new connection away once two are parked, without
+        # reading what it sent, so under load any fault connection may be
+        # rejected instead of answered: each of the 60 counts once as a
+        # request, a protocol error or a rejection, and 2 to 4 silent
+        # clients are rejected.
+        print(report.connections + report.rejected, report.requests + report.protocol_errors + report.rejected, report.requests, report.protocol_errors, report.handler_errors, report.rejected)?
     Ok(())
 
 # Each round's values are dropped when it returns, so the heap checkpoint
@@ -1022,7 +1025,21 @@ def main() -> Result[(), Failure]:
         )),
         "{text}"
     );
-    assert_eq!(lines[2..].join("\n"), "0\n64 20 40 0 True\n0", "{text}");
+    assert_eq!(lines[2], "0", "{text}");
+    assert_eq!(lines[4], "0", "{text}");
+    let fault: Vec<u64> = lines[3]
+        .split(' ')
+        .map(|n| n.parse().unwrap_or_else(|_| panic!("{text}")))
+        .collect();
+    let [connections, accounted, requests, protocol_errors, handler_errors, rejected] = fault[..]
+    else {
+        panic!("{text}");
+    };
+    assert_eq!(connections, 64, "{text}");
+    assert!((62..=64).contains(&accounted), "{text}");
+    assert!(requests <= 20 && protocol_errors <= 40, "{text}");
+    assert_eq!(handler_errors, 0, "{text}");
+    assert!(rejected >= 2, "{text}");
 }
 
 /// A handler's `Err` is answered with `500` and counted, and the server goes
