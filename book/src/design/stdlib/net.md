@@ -148,7 +148,8 @@ An abandoned lookup finishes on the resolver's own timeouts
 (`/etc/resolv.conf`), then discards its result and exits. At most 32 lookups
 run at once in a process, counting abandoned ones; another is `TryAgain`.
 The resolver's result list is allocated by the C library and freed on the
-helper thread.
+helper thread. Test builds with allocation checks wait at exit for every
+helper thread, abandoned ones included, to free its memory.
 
 ## Effects and ownership
 
