@@ -2633,8 +2633,13 @@ impl Lower<'_> {
                 .at
                 .error("`?` requires a function returning Result or Option"));
         }
+        // A collection literal's error is always AllocError, so its context keeps
+        // that error and the mismatch is reported below rather than as a missing `?`.
+        let literal = matches!(&ungroup(value).kind, Expression::Collection { kind, .. } if kind != "generator");
         let operand_context = expected.map(|ty| {
-            if target.is_option()
+            if literal {
+                crate::sum::result(ty, crate::sum::alloc_error())
+            } else if target.is_option()
                 || matches!(&ungroup(value).kind, Expression::Call(name, _) if name == "Some")
             {
                 crate::sum::option(ty)
@@ -2646,11 +2651,20 @@ impl Lower<'_> {
             return Err(e.at.error("`?` requires a Result or Option operand"));
         };
         if !source.propagatable() || source.is_option() != target.is_option() {
-            return Err(e.at.error(
-                "`?` operand and function return must use the same Result or Option family",
-            ));
+            let note = if literal {
+                "; a collection literal returns Result[collection, AllocError]"
+            } else {
+                ""
+            };
+            return Err(e.at.error(format!(
+                "`?` operand and function return must use the same Result or Option family{note}"
+            )));
         }
         if !source.is_option() && !target.accepts_result_error(&source) {
+            if literal {
+                let error = &target.get().variants[1].fields[0];
+                return Err(e.at.error(format!("`?` requires identical Result error types; a collection literal fails with AllocError, which cannot propagate as {error}; return Result[_, AllocError] or Result[_, Failure], or match the literal and convert the error explicitly")));
+            }
             return Err(e
                 .at
                 .error("`?` requires identical Result error types; convert the error explicitly"));
