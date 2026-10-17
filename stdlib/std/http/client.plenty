@@ -148,12 +148,11 @@ pub class Dialled:
                 StreamError.Io(IoError.Other)
 
     pub def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        mut outcome: Result[i64, NetError] = Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-        match &mut self.stream:
+        outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
-                outcome = tcp.read_before(buffer, start, stop, &deadline_of(self.until), &self.cancel)
+                tcp.read_before(buffer, start, stop, &deadline_of(self.until), &self.cancel)
             case Nothing:
-                pass
+                Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         match outcome:
             case Ok(count):
                 Ok(count)
@@ -161,12 +160,11 @@ pub class Dialled:
                 Err(self.noted(error))
 
     pub def write(self: &mut Dialled, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        mut outcome: Result[i64, NetError] = Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-        match &mut self.stream:
+        outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
-                outcome = tcp.write_before(source, start, stop, &deadline_of(self.until), &self.cancel)
+                tcp.write_before(source, start, stop, &deadline_of(self.until), &self.cancel)
             case Nothing:
-                pass
+                Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         match outcome:
             case Ok(count):
                 Ok(count)
@@ -179,18 +177,18 @@ pub class Dialled:
 # `host:port` for a request target or Host field, with an IPv6 address
 # in brackets.
 def host_port(host: &str, port: u16) -> Result[str, AllocError]:
-    mut named = host.concat("")?
+    mut named = *host
     if host.find(":").is_some():
         named = "[".concat(host)?.concat("]")?
     named.concat(":")?.concat(&str.from(i64(port))?)
 
 def tunnelled(stream: TcpStream, endpoint: &Endpoint, via: &Tunnel, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]:
     target = alloc(host_port(&endpoint.host, endpoint.port))?
-    mut head = framed(std.http.request("CONNECT", alloc(target.concat(""))?))?
+    mut head = framed(std.http.request("CONNECT", target))?
     framed(head.add("Host", target))?
     match &via.authorization:
         case Some(secret):
-            framed(head.add("Proxy-Authorization", alloc(secret.concat(""))?))?
+            framed(head.add("Proxy-Authorization", *secret))?
         case Nothing:
             pass
     failure: Option[ClientError] = Nothing
@@ -320,7 +318,7 @@ pub class Request:
 pub def request(method: &str, url: &str) -> Result[Request, ClientError]:
     headers = alloc(list[Header].new())?
     body = bytes_of(std.bytes.empty())?
-    Ok(Request(alloc(method.concat(""))?, alloc(url.concat(""))?, headers, body))
+    Ok(Request(*method, *url, headers, body))
 
 # A whole response, its body read into memory.
 pub class Fetched:
@@ -429,7 +427,7 @@ def target_of(text: &str) -> Result[Target, ClientError]:
         return Err(ClientError.InvalidUrl)
     host = match &url.host:
         case Some(found):
-            alloc(found.concat(""))?
+            *found
         case Nothing:
             return Err(ClientError.InvalidUrl)
     if host.byte_len() == 0:
@@ -451,13 +449,13 @@ def target_of(text: &str) -> Result[Target, ClientError]:
             explicit = True
         case Nothing:
             pass
-    mut path = alloc(url.path.concat(""))?
+    mut path = url.path
     if path.byte_len() == 0:
         path = "/"
     mut query: Option[str] = Nothing
     match &url.query:
         case Some(found):
-            query = Some(alloc(found.concat(""))?)
+            query = Some(*found)
         case Nothing:
             pass
     Ok(Target(scheme, host, name, port, explicit, path, query))
@@ -465,7 +463,7 @@ def target_of(text: &str) -> Result[Target, ClientError]:
 # `host` or `host:port` as written in the URL.
 def authority(target: &Target) -> Result[str, AllocError]:
     if not target.explicit:
-        return target.host.concat("")
+        return Ok(target.host)
     target.host.concat(":")?.concat(str.from(target.port)?)
 
 def origin_form(target: &Target) -> Result[str, AllocError]:
@@ -473,7 +471,7 @@ def origin_form(target: &Target) -> Result[str, AllocError]:
         case Some(query):
             target.path.concat("?")?.concat(query)
         case Nothing:
-            target.path.concat("")
+            Ok(target.path)
 
 def absolute_form(target: &Target, form: &str) -> Result[str, AllocError]:
     target.scheme.concat("://")?.concat(&authority(target)?)?.concat(form)
@@ -504,14 +502,14 @@ def without_dots(path: &str) -> Result[str, AllocError]:
             if last:
                 kept.append("")?
         else:
-            kept.append(piece.concat("")?)?
+            kept.append(*piece)?
     "/".concat("/".join(&kept)?)
 
 # The absolute URL a Location value names, resolved against `base`.
 def resolved(base: &Target, location: &str) -> Result[str, ClientError]:
     match std.url.parse(location, max_url):
         case Ok(_):
-            return alloc(location.concat(""))
+            return Ok(*location)
         case Err(UrlError.MissingScheme):
             pass
         case Err(UrlError.Allocation(cause)):
@@ -528,7 +526,7 @@ def joined(base: &Target, location: &str) -> Result[str, AllocError]:
         return prefix.concat(&origin_form(base)?)
     if location.startswith("?"):
         return prefix.concat(&base.path)?.concat(location)
-    mut relative = location.concat("")?
+    mut relative = *location
     if not location.startswith("/"):
         mut directory = "/"
         match base.path.rfind("/"):
@@ -569,12 +567,6 @@ def token(text: &str) -> bool:
 
 def idempotent(method: &str) -> bool:
     method == "GET" or method == "HEAD" or method == "OPTIONS" or method == "TRACE" or method == "PUT" or method == "DELETE"
-
-def copied_headers(headers: &list[Header]) -> Result[list[Header], AllocError]:
-    mut out = list[Header].with_capacity(len(headers))?
-    for index in range(len(headers)):
-        out.append(Header(headers[index].name.concat("")?, headers[index].value.concat("")?))?
-    Ok(out)
 
 # Connections
 
@@ -647,45 +639,19 @@ pub class Response[T]:
     pub head: ResponseHead
     pub url: str
     pub redirects: i64
-    _body: Option[BodyReader[Wire[T]]]
-    _keep: bool
-    _failure: Option[ClientError]
+    _incoming: Incoming[T]
 
     # Whether the whole body has been read.
     pub def is_done(self) -> bool:
-        match &self._body:
-            case Some(body):
-                body.is_done()
-            case Nothing:
-                False
+        self._incoming.is_done()
 
     # Fills part of buffer[start:stop] with body bytes; 0 is the end.
     pub def read_body(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ClientError]:
-        mut outcome: Result[i64, HttpError] = Err(HttpError.Broken)
-        match &mut self._body:
-            case Some(body):
-                outcome = body.read_body(buffer, start, stop)
-            case Nothing:
-                pass
-        match outcome:
-            case Ok(count):
-                Ok(count)
-            case Err(error):
-                Err(self.broken(error))
+        self._incoming.read_body(buffer, start, stop)
 
     # Appends the rest of the body to `out`, within `limits.max_body`.
     pub def read_all(self: &mut Response[T], out: &mut Bytes) -> Result[i64, ClientError]:
-        mut outcome: Result[i64, HttpError] = Err(HttpError.Broken)
-        match &mut self._body:
-            case Some(body):
-                outcome = std.http.read_to_end(body, out)
-            case Nothing:
-                pass
-        match outcome:
-            case Ok(count):
-                Ok(count)
-            case Err(error):
-                Err(self.broken(error))
+        self._incoming.read_all(out)
 
     # The std.io Reader method. A failure other than a stream or allocation
     # error is `Io(IoError.InvalidInput)`; `take_failure` returns its cause.
@@ -700,14 +666,53 @@ pub class Response[T]:
                     case ClientError.Http(HttpError.Truncated):
                         Err(StreamError.UnexpectedEof)
                     case _ as other:
-                        self._failure = Some(other)
+                        self._incoming._failure = Some(other)
                         Err(StreamError.Io(IoError.InvalidInput))
 
     pub def take_failure(self: &mut Response[T]) -> Option[ClientError]:
-        replace(self._failure, Nothing)
+        replace(self._incoming._failure, Nothing)
+
+# A response body and the state that decides its connection's reuse, kept
+# apart from the head so that `fetch` can move the head into `Fetched`
+# without a partial move out of `Response`.
+class Incoming[T]:
+    _body: Option[BodyReader[Wire[T]]]
+    _keep: bool
+    _failure: Option[ClientError]
+
+    def is_done(self) -> bool:
+        match &self._body:
+            case Some(body):
+                body.is_done()
+            case Nothing:
+                False
+
+    def read_body(self: &mut Incoming[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ClientError]:
+        outcome: Result[i64, HttpError] = match &mut self._body:
+            case Some(body):
+                body.read_body(buffer, start, stop)
+            case Nothing:
+                Err(HttpError.Broken)
+        match outcome:
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(self.broken(error))
+
+    def read_all(self: &mut Incoming[T], out: &mut Bytes) -> Result[i64, ClientError]:
+        outcome: Result[i64, HttpError] = match &mut self._body:
+            case Some(body):
+                std.http.read_to_end(body, out)
+            case Nothing:
+                Err(HttpError.Broken)
+        match outcome:
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(self.broken(error))
 
     # After a failed read the connection is closed and the body is gone.
-    def broken(self: &mut Response[T], error: HttpError) -> ClientError:
+    def broken(self: &mut Incoming[T], error: HttpError) -> ClientError:
         mut cause: Option[ClientError] = Nothing
         match &mut self._body:
             case Some(body):
@@ -763,7 +768,9 @@ pub class Client[T, C]:
     # reads of the returned body; `cancel` stops it.
     pub def send(self: &mut Client[T, C], request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
         mut none = Unstreamed()
-        self.run(request, &mut none, &sized(0), False, deadline, cancel)
+        head, incoming, url, redirects = self.run(request, &mut none, &sized(0), False, deadline, cancel)?
+        status = head.status
+        Ok(Response(status, head, url, redirects, incoming))
 
     # `send` with a body read from `body` until it ends, framed as `upload`
     # says; `request.body` must be empty. The body is read once, so the
@@ -779,21 +786,25 @@ pub class Client[T, C]:
                     return Err(ClientError.InvalidRequest)
             case Nothing:
                 pass
-        self.run(request, body, upload, True, deadline, cancel)
+        head, incoming, url, redirects = self.run(request, body, upload, True, deadline, cancel)?
+        status = head.status
+        Ok(Response(status, head, url, redirects, incoming))
 
-    def run[R: Reader](self: &mut Client[T, C], request: Request, body: &mut R, upload: &Upload, streamed: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+    # The final head, its body, the final URL and the number of redirects
+    # followed, as separate values so that `fetch` can keep the head.
+    def run[R: Reader](self: &mut Client[T, C], request: Request, body: &mut R, upload: &Upload, streamed: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[(ResponseHead, Incoming[T], str, i64), ClientError]:
         until = until_of(deadline)
         mut current = request
         mut streaming = streamed
         mut hops = 0
         while True:
-            mut response = self.attempt(&current, body, upload, streaming, until, cancel)?
+            head, incoming = self.attempt(&current, body, upload, streaming, until, cancel)?
             mut location: Option[str] = Nothing
-            status = response.status
+            status = head.status
             if self._config.redirects > 0 and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308):
-                match std.http.find(&response.head.headers, "location"):
+                match std.http.find(&head.headers, "location"):
                     case Some(index):
-                        location = Some(alloc(response.head.headers[index].value.concat(""))?)
+                        location = Some(head.headers[index].value)
                     case Nothing:
                         pass
             dropped = bodiless(status, &current.method)
@@ -805,28 +816,25 @@ pub class Client[T, C]:
                         return Err(ClientError.TooManyRedirects)
                     base = target_of(&current.url)?
                     next = resolved(&base, &text)?
-                    self.drain(response, until)
+                    self.drain(incoming, until)
                     follow(&mut current, status, next, &self._config.sensitive)?
                     if dropped:
                         streaming = False
                     hops += 1
                     self._stats.redirected += 1u64
                 case Nothing:
-                    response.url = replace(current.url, "")
-                    response.redirects = hops
-                    return Ok(response)
+                    return Ok((head, incoming, replace(current.url, ""), hops))
         Err(ClientError.TooManyRedirects)
 
     # Sends `request` and reads the whole body, within `limits.max_body`.
     pub def fetch(self: &mut Client[T, C], request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
-        mut response = self.send(request, deadline, cancel)?
+        mut none = Unstreamed()
+        head, incoming, url, redirects = self.run(request, &mut none, &sized(0), False, deadline, cancel)?
+        mut reading = incoming
         mut body = bytes_of(std.bytes.empty())?
-        response.read_all(&mut body)?
-        status = response.status
-        redirects = response.redirects
-        head = replace(response.head, framed(std.http.response(status, ""))?)
-        url = replace(response.url, "")
-        self.finish(response)
+        reading.read_all(&mut body)?
+        self.recycle(&mut reading)
+        status = head.status
         Ok(Fetched(status, head, url, redirects, body))
 
     pub def get(self: &mut Client[T, C], url: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
@@ -836,9 +844,14 @@ pub class Client[T, C]:
     # the end and both sides allow reuse; otherwise closes it.
     pub def finish(self: &mut Client[T, C], response: Response[T]) -> ():
         mut owned = response
-        if not owned._keep:
+        self.recycle(&mut owned._incoming)
+
+    # Parks the connection behind a fully read, reusable body. Whatever is
+    # left in `incoming` closes when it is dropped.
+    def recycle(self: &mut Client[T, C], incoming: &mut Incoming[T]) -> ():
+        if not incoming._keep:
             return
-        match &mut owned._body:
+        match &mut incoming._body:
             case Some(body):
                 if body.is_done():
                     match std.http.finish(body):
@@ -851,8 +864,8 @@ pub class Client[T, C]:
 
     # Reads a little of an unwanted body so that the connection can be
     # reused; a longer body closes it.
-    def drain(self: &mut Client[T, C], response: Response[T], until: u64) -> ():
-        mut owned = response
+    def drain(self: &mut Client[T, C], incoming: Incoming[T], until: u64) -> ():
+        mut owned = incoming
         if not owned._keep:
             return
         match std.bytes.with_capacity(4096):
@@ -871,7 +884,7 @@ pub class Client[T, C]:
                             return
             case Err(_):
                 return
-        self.finish(owned)
+        self.recycle(&mut owned)
 
     def park(self: &mut Client[T, C], conn: BufReader[Wire[T]]) -> ():
         config = &self._config
@@ -938,7 +951,7 @@ pub class Client[T, C]:
         stream = self._connector.open(endpoint, &deadline_of(limit), cancel)?
         self._stats.opened += 1u64
         failure: Option[ClientError] = Nothing
-        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, alloc(key.concat(""))?, 0u64)
+        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, 0, failure, *key, 0u64)
         match std.io.buffered_reader(wire, 4096):
             case Ok(reader):
                 Ok(reader)
@@ -950,28 +963,28 @@ pub class Client[T, C]:
     # One request on one connection, replayed on a new connection when a
     # reused one failed before any response byte arrived, the method is
     # idempotent and no byte of a streamed body was read.
-    def attempt[R: Reader](self: &mut Client[T, C], request: &Request, body: &mut R, upload: &Upload, streamed: bool, until: u64, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+    def attempt[R: Reader](self: &mut Client[T, C], request: &Request, body: &mut R, upload: &Upload, streamed: bool, until: u64, cancel: &CancellationToken) -> Result[(ResponseHead, Incoming[T]), ClientError]:
         target = target_of(&request.url)?
         for index in range(len(request.headers)):
             if alloc(managed(&request.headers[index].name))?:
                 return Err(ClientError.InvalidRequest)
         if request.method == "CONNECT" or not token(&request.method):
             return Err(ClientError.InvalidRequest)
-        mut endpoint = Endpoint(alloc(target.scheme.concat(""))?, alloc(target.name.concat(""))?, u16(target.port), Nothing)
+        mut endpoint = Endpoint(target.scheme, target.name, u16(target.port), Nothing)
         mut proxied = False
         match &self._config.proxy:
             case Some(chosen):
                 if target.scheme == "http":
                     proxied = True
-                    endpoint = Endpoint(alloc(chosen.endpoint.scheme.concat(""))?, alloc(chosen.endpoint.host.concat(""))?, chosen.endpoint.port, Nothing)
+                    endpoint = Endpoint(chosen.endpoint.scheme, chosen.endpoint.host, chosen.endpoint.port, Nothing)
                 else:
                     mut secret: Option[str] = Nothing
                     match &chosen.authorization:
                         case Some(value):
-                            secret = Some(alloc(value.concat(""))?)
+                            secret = Some(*value)
                         case Nothing:
                             pass
-                    endpoint.tunnel = Some(Tunnel(alloc(chosen.endpoint.host.concat(""))?, chosen.endpoint.port, secret))
+                    endpoint.tunnel = Some(Tunnel(chosen.endpoint.host, chosen.endpoint.port, secret))
             case Nothing:
                 pass
         key = alloc(key_of(&endpoint, proxied))?
@@ -1000,9 +1013,9 @@ pub class Client[T, C]:
             conn.inner._failure = Nothing
             match self.exchange(&mut conn, request, &head, body, upload, streamed):
                 case Ok(answer):
-                    mut owned = answer
-                    complete = owned.complete
-                    return self.respond(conn, replace(owned.head, framed(std.http.response(0, ""))?), &request.method, complete)
+                    answered, complete = answer
+                    incoming = self.incoming(conn, &answered, &request.method, complete)?
+                    return Ok((answered, incoming))
                 case Err(error):
                     if reused and conn.inner._received == 0 and conn.inner._pulled == 0 and retried < self._config.retries and idempotent(&request.method) and replayable(&error):
                         retried += 1
@@ -1016,10 +1029,10 @@ pub class Client[T, C]:
         mut form = alloc(origin_form(target))?
         if proxied:
             form = alloc(absolute_form(target, &form))?
-        mut head = framed(std.http.request(alloc(request.method.concat(""))?, form))?
+        mut head = framed(std.http.request(request.method, form))?
         framed(head.add("Host", alloc(authority(target))?))?
         for index in range(len(request.headers)):
-            framed(head.add(alloc(request.headers[index].name.concat(""))?, alloc(request.headers[index].value.concat(""))?))?
+            framed(head.add(request.headers[index].name, request.headers[index].value))?
         if streamed:
             match upload.length:
                 case Some(total):
@@ -1037,7 +1050,7 @@ pub class Client[T, C]:
                 case Some(chosen):
                     match &chosen.authorization:
                         case Some(secret):
-                            framed(head.add("Proxy-Authorization", alloc(secret.concat(""))?))?
+                            framed(head.add("Proxy-Authorization", *secret))?
                         case Nothing:
                             pass
                 case Nothing:
@@ -1046,10 +1059,10 @@ pub class Client[T, C]:
             framed(head.add("Connection", "close"))?
         Ok(head)
 
-    # Writes the request and reads up to the final response head. With
-    # `Expect: 100-continue`, a final response that arrives before the body
-    # is sent is returned with `complete` False.
-    def exchange[R: Reader](self, conn: &mut BufReader[Wire[T]], request: &Request, head: &RequestHead, body: &mut R, upload: &Upload, streamed: bool) -> Result[Answered, ClientError]:
+    # Writes the request and reads up to the final response head, paired
+    # with whether the whole request body went before it. With
+    # `Expect: 100-continue`, a final response can arrive before the body.
+    def exchange[R: Reader](self, conn: &mut BufReader[Wire[T]], request: &Request, head: &RequestHead, body: &mut R, upload: &Upload, streamed: bool) -> Result[(ResponseHead, bool), ClientError]:
         sent = std.http.write_request(&mut conn.inner, head)
         written(conn, sent)?
         if streamed:
@@ -1057,7 +1070,7 @@ pub class Client[T, C]:
                 conn.inner._phase = after(now_ns(), self._config.continue_timeout.as_nanoseconds())
                 match self.await_continue(conn)?:
                     case Some(early):
-                        return Ok(Answered(early, False))
+                        return Ok((early, False))
                     case Nothing:
                         pass
                 conn.inner._phase = u64.MAX
@@ -1078,7 +1091,7 @@ pub class Client[T, C]:
                     if answer.status == 101:
                         return Err(ClientError.UnexpectedInterim)
                     if answer.status >= 200:
-                        return Ok(Answered(answer, True))
+                        return Ok((answer, True))
                     interim += 1
                     if interim > max_interim:
                         return Err(ClientError.UnexpectedInterim)
@@ -1115,21 +1128,16 @@ pub class Client[T, C]:
                     return Err(cause)
         Err(ClientError.UnexpectedInterim)
 
-    def respond(self, conn: BufReader[Wire[T]], head: ResponseHead, method: &str, complete: bool) -> Result[Response[T], ClientError]:
+    # The body that follows `head` on `conn`.
+    def incoming(self, conn: BufReader[Wire[T]], head: &ResponseHead, method: &str, complete: bool) -> Result[Incoming[T], ClientError]:
         mut owned = conn
-        framing = framed(std.http.response_framing(&head, method))?
+        framing = framed(std.http.response_framing(head, method))?
         # A request whose body was never sent leaves the server expecting it.
-        keep = complete and std.http.response_keeps_alive(&head, &framing) and self._config.max_idle > 0
+        keep = complete and std.http.response_keeps_alive(head, &framing) and self._config.max_idle > 0
         owned.inner._phase = u64.MAX
         body = framed(std.http.body_reader(owned, &framing, &self._config.limits))?
-        status = head.status
         failure: Option[ClientError] = Nothing
-        Ok(Response(status, head, "", 0, Some(body), keep, failure))
-
-# A final response head, and whether the whole request body went before it.
-class Answered:
-    head: ResponseHead
-    complete: bool
+        Ok(Incoming(Some(body), keep, failure))
 
 def timed_out(error: &ClientError) -> bool:
     match error:
@@ -1215,7 +1223,7 @@ def follow(request: &mut Request, status: i64, next: str, sensitive: &list[str])
         if cross and (name == "authorization" or name == "cookie" or listed(sensitive, &name)?):
             drop_it = True
         if not drop_it:
-            alloc(kept.append(Header(alloc(request.headers[index].name.concat(""))?, alloc(request.headers[index].value.concat(""))?)))?
+            alloc(kept.append(Header(request.headers[index].name, request.headers[index].value)))?
     request.headers = kept
     if dropped:
         request.method = "GET"

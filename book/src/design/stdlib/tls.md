@@ -143,13 +143,14 @@ stream is closed when the partial session is dropped.
 
 `start_connect(tcp, config, server_name)` and `start_accept(tcp, config)`
 return a stream without waiting. Its handshake then runs inside its first
-reads and writes, or in `try_handshake`; no application data passes before
-the peer is verified.
+reads and writes, in `handshake_before`, or in `try_handshake`; no
+application data passes before the peer is verified.
 
 ## Streams
 
 | Method | Result | Contract |
 |---|---|---|
+| `handshake_before(deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), TlsError]` | Finish the handshake. One that times out keeps its progress for a later call, so with a deadline already passed it does only the work possible without waiting |
 | `read_before(buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, TlsError]` | Decrypted bytes into `buffer[start:stop]`, waiting for at least one |
 | `write_before(source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, TlsError]` | Encrypt and send at most 16 KiB of `source[start:stop]`; the count taken |
 | `write_all_before(source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), TlsError]` | Send all of `source[start:stop]` |
@@ -206,10 +207,10 @@ take. Ciphertext a `try_` call could not send stays buffered for the next
 call. Registrations are level-triggered, so `ReadWrite` on an idle stream
 wakes at once; register `Read` once `interest()` says so.
 
-A `read_before` that times out at its deadline has also done all the work
-available, so a stream may be watched after one.
-[`std.http.server`](http-server.md#idle-connections) parks idle HTTPS
-connections this way.
+A `read_before` or `handshake_before` that times out at its deadline has
+also done all the work available, so a stream may be watched after one.
+[`std.http.server`](http-server.md#idle-connections) parks HTTPS
+connections this way, between handshake messages and while idle.
 
 ## Errors
 

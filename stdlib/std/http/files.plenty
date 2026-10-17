@@ -413,7 +413,7 @@ def add_validators(head: &mut ResponseHead, found: &Validators) -> Result[(), Fi
 # any other method. Memory is one 16 KiB buffer and the response head,
 # whatever the file's size.
 pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str) -> Result[i64, FilesError]:
-    method = allocated(exchange.request.method.concat(""))?
+    method = exchange.request.method
     if method != "GET" and method != "HEAD":
         mut head = http(std.http.response(405, "Method Not Allowed"))?
         http(head.add("Allow", "GET, HEAD"))?

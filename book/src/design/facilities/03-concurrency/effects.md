@@ -18,6 +18,7 @@ the same walk as user code, and a foreign call is still rejected.
 | Child | `std.process` spawn, wait, poll and signal | Allowed; the runtime's child table is synchronized |
 | Network | Opening a `std.net` socket, name lookup | Allowed; the kernel and C library synchronize sockets and the resolver |
 | Process global | `std.env.set_current_dir` | Rejected |
+| Signal disposition | [`std.signal.listen`](../../stdlib/signal.md) | Rejected |
 
 Changing the working directory would change how every other thread resolves a
 relative path, so a worker body, helper, callback or destructor that reaches
@@ -27,8 +28,10 @@ relative path, so a worker body, helper, callback or destructor that reaches
 error: worker `worker` reaches `std.env.set_current_dir`: changing the working directory affects every thread's relative paths; change it on the main thread before starting workers
 ```
 
-Nothing in the language writes the environment, so there is no second
-process-global effect today.
+Catching termination signals changes how every thread's process ends, so
+`std.signal.listen` is rejected on a worker the same way. A worker may wait on
+the `Signals` handle the main thread opened. Nothing in the language writes
+the environment.
 
 ## Native handles
 

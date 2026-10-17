@@ -652,24 +652,27 @@ def main() -> Result[(), Failure]:
     );
 }
 
-/// Phase guard for issue #132: a connection that sends part of a head holds a
-/// worker until `head_timeout`, so six of them delay a well-behaved request by
-/// three head deadlines on two workers. When heads are read on the accepting
-/// thread, the fast request must be answered at once; change the bound then.
+/// Slow request heads (issue #132): six connections that send part of a head
+/// and stall wait on the accepting thread, not on the two workers, so a
+/// well-behaved request is answered at once instead of after three head
+/// deadlines; each slow one gets `408` at its own deadline.
 #[test]
-fn slow_heads_hold_workers_until_the_head_deadline() {
+fn slow_heads_do_not_hold_workers() {
     let main = r##"
 def client(port: u16, stop: CancellationToken) -> ():
+    begin = std.time.monotonic_now()
     mut slow = list[TcpStream].new().unwrap()
     for index in range(6):
         slow.append(connect_to(port, "GET / HTTP/1.1\r\nHost: x").unwrap()).unwrap()
     std.time.sleep(&std.time.milliseconds(50u32))
     start = std.time.monotonic_now()
     print(fetch(port, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap().endswith("home")).unwrap()
-    waited = millis_since(&start)
-    print(waited >= 1900u64, waited < 9000u64).unwrap()
+    print(millis_since(&start) < 500u64).unwrap()
     for index in range(6):
         print(until(&mut slow[index], "").unwrap().startswith("HTTP/1.1 408 ")).unwrap()
+    # Each deadline runs from its own first byte, so all six end in one round.
+    total = millis_since(&begin)
+    print(total >= 1000u64, total < 2000u64).unwrap()
     stop.cancel()
 
 def main() -> Result[(), Failure]:
@@ -688,7 +691,7 @@ def main() -> Result[(), Failure]:
 "##;
     assert_eq!(
         output(&format!("{LOOPBACK}{main}")),
-        "True\nTrue True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nconnections=7 requests=1 handler_errors=0 protocol_errors=0 timeouts=6 cancelled=0 rejected=0"
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue True\nconnections=7 requests=1 handler_errors=0 protocol_errors=0 timeouts=6 cancelled=0 rejected=0"
     );
 }
 

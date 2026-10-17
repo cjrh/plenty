@@ -28,7 +28,7 @@ def get(port: u16, path: &str) -> Result[str, Failure]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
-    request = std.bytes.from_text(&"GET ".concat(path)?.concat(" HTTP/1.1\r\nConnection: close\r\n\r\n")?)?
+    request = std.bytes.from_text(&"GET ".concat(path)?.concat(" HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?)?
     stream.write_all_before(&request, 0, request.len(), &deadline, &never)?
     mut reply = std.bytes.empty()?
     mut buffer = std.bytes.empty()?
@@ -76,6 +76,11 @@ back as `exchange.route`, so the handler chooses what to do with a plain
 `if`. A path with no route gets `404` without reaching the handler, and a
 path whose route has another method gets `405` with an `Allow` field.
 
+The client sends a `Host` field because HTTP/1.1 requires exactly one: a
+request without it, with two, or with a malformed value gets `400` before
+routing. The handler finds the host the request names in
+`exchange.authority`.
+
 The handler is a `pub class` with a `pub def handle`, because `serve`, in
 another module, calls it. Every worker thread borrows the same handler, so
 `handle` takes `self` by shared borrow and cannot change it.
@@ -88,11 +93,13 @@ four workers, a queue of sixteen waiting connections, and a deadline for
 each phase of a request. A connection that arrives when the queue is full is
 answered `503` at once instead of waiting.
 
-A worker serves one request at a time, but it does not wait for a
-keep-alive client's next request. Between requests the connection waits on
-the server's own thread, on a [selector](tcp-sockets.md#wait-on-many-connections), and goes
-back to the queue when the client sends more, so a few workers can keep many
-idle clients open. `config.idle_connections` caps how many may wait.
+A worker serves one request at a time, but it does not wait for a client to
+send one. Between requests, and while a request head is still arriving, the
+connection waits on the server's own thread, on a
+[selector](tcp-sockets.md#wait-on-many-connections), and goes back to the
+queue once the client has sent a whole head. A few workers can therefore
+keep many idle clients open, and clients that send slowly cannot hold them
+all. `config.idle_connections` caps how many connections may wait.
 
 ## HTTPS
 
@@ -114,5 +121,6 @@ report = std.http.tls.serve(listener, server, &routes, &Greeter(), &config, &sto
 
 Each connection must finish its handshake within
 `config.handshake_timeout` of being accepted, so a client that connects and
-says nothing is closed then. Routing, deadlines and shutdown work as for
+says nothing is closed then. Between the client's handshake messages the
+connection waits on the server's thread too. Routing, deadlines and shutdown work as for
 plain HTTP.

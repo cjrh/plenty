@@ -635,6 +635,53 @@ opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=1"##,
     );
 }
 
+/// A failed body read closes the connection and drops the body, so later
+/// reads report `Broken` and the connection is not pooled.
+#[test]
+fn reads_after_a_failed_body_read_report_broken() {
+    runs(
+        SCRIPTED,
+        r##"
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    a = script(["HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc", ok("b")?]?, True)?
+    mut client = scripted([a]?, hc.config()?)?
+    mut response = client.send(hc.request("GET", "http://h/1")?, &later()?, &never)?
+    mut buffer = std.bytes.empty()?
+    buffer.resize(8, 0u8)?
+    mut body = std.bytes.empty()?
+    while True:
+        match response.read_body(&mut buffer, 0, 8):
+            case Ok(count):
+                if count == 0:
+                    break
+                print(buffer.slice(0, count)?.to_text()?)?
+            case Err(error):
+                print(error)?
+                break
+    match response.read_body(&mut buffer, 0, 8):
+        case Ok(_):
+            print("unexpected read")?
+        case Err(error):
+            print(error)?
+    match response.read_all(&mut body):
+        case Ok(_):
+            print("unexpected read")?
+        case Err(error):
+            print(error)?
+    client.finish(response)
+    stats(&client)?
+    Ok(())
+"##,
+        r##"[connect http://h:80]
+GET /1 HTTP/1.1|Host: h||abc
+std.http.client.ClientError.Net(std.net.NetError.TimedOut)
+std.http.client.ClientError.Http(std.http.HttpError.Broken)
+std.http.client.ClientError.Http(std.http.HttpError.Broken)
+opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0"##,
+    );
+}
+
 /// Relative, scheme-relative and absolute locations; 302 after POST and 303
 /// become GET without a body; 307 repeats the body; credentials and listed
 /// fields go no further once the origin changes; loops stop at the limit.
@@ -1011,4 +1058,178 @@ def main() -> Result[(), Failure]:
     );
     assert_eq!(lines[0], "allocation");
     assert!(lines[280..].iter().all(|line| *line == "body"), "{lines:?}");
+}
+
+/// `fetch` keeps the final head whole (version, reason and every field), the
+/// final URL and the redirect count, and pools the connection behind a fully
+/// read body. A body over `max_body` fails the fetch and closes its
+/// connection.
+#[test]
+fn fetch_keeps_the_final_head_and_pools_its_connection() {
+    runs(
+        SCRIPTED,
+        r##"
+def head_of(fetched: &hc.Fetched) -> Result[(), Failure]:
+    head = &fetched.head
+    print(fetched.status, head.status, head.minor, head.reason)?
+    for index in range(len(head.headers)):
+        print(head.headers[index].name, head.headers[index].value)?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    moved = "HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\n\r\n"
+    final = "HTTP/1.1 203 Translated Here\r\nX-One: 1\r\nX-Two: two\r\nContent-Length: 4\r\n\r\nbody"
+    mut first = script([moved, final, ok("next")?]?, True)?
+    first.echo = False
+    mut client = hc.connector[Script, Scripts](Scripts([first]?, False), hc.config()?)?
+    fetched = client.get("http://h/start", &later()?, &never)?
+    head_of(&fetched)?
+    print(fetched.url, fetched.redirects, fetched.body.to_text()?)?
+    stats(&client)?
+    again = client.get("http://h/again", &later()?, &never)?
+    print(again.body.to_text()?)?
+    stats(&client)?
+    print("--- a body over max_body closes its connection")?
+    mut big = script([ok("too long")?, ok("x")?]?, True)?
+    big.echo = False
+    mut config = hc.config()?
+    config.limits.max_body = 3
+    mut second = hc.connector[Script, Scripts](Scripts([big]?, False), config)?
+    show(second.get("http://h/big", &later()?, &never))?
+    stats(&second)?
+    Ok(())
+"##,
+        r##"203 203 1 Translated Here
+X-One 1
+X-Two two
+Content-Length 4
+http://h/final 1 body
+opened=1 reused=1 retried=0 redirected=1 discarded=0 idle=1
+next
+opened=1 reused=2 retried=0 redirected=1 discarded=0 idle=1
+--- a body over max_body closes its connection
+
+=> error
+std.http.client.ClientError.Http(std.http.HttpError.BodyTooLarge)
+opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0"##,
+    );
+}
+
+/// `fetch` allocates exactly what `send`, an empty buffer, `read_all` and
+/// `finish` allocate: under every injected allocation failure both report
+/// the same outcome, so no extra allocation (such as a placeholder head)
+/// can fail a fetch whose body has been read.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn fetch_allocates_no_more_than_send_read_all_and_finish() {
+    let result = output(&format!(
+        "{SCRIPTED}{}",
+        r##"
+from std.bytes import BytesError
+
+def client() -> Result[hc.Client[Script, Scripts], Failure]:
+    mut made = script(["HTTP/1.1 200 OK\r\nX-Field-Beyond-Inline: a-value-beyond-inline\r\nContent-Length: 4\r\n\r\nbody"]?, True)?
+    made.echo = False
+    Ok(hc.connector[Script, Scripts](Scripts([made]?, False), hc.config()?)?)
+
+def by_hand(client: &mut hc.Client[Script, Scripts], request: Request, deadline: &Deadline, never: &CancellationToken) -> Result[(), ClientError]:
+    mut response = client.send(request, deadline, never)?
+    mut body = match std.bytes.empty():
+        case Ok(made):
+            made
+        case Err(BytesError.Allocation(cause)):
+            return Err(ClientError.Allocation(cause))
+        case Err(_):
+            return Err(ClientError.Http(HttpError.Broken))
+    response.read_all(&mut body)?
+    client.finish(response)
+    Ok(())
+
+def tag(result: &Result[(), ClientError], idle: i64) -> str:
+    match result:
+        case Ok(_):
+            if idle == 1:
+                "ok-pooled"
+            else:
+                "ok-closed"
+        case Err(ClientError.Allocation(_)):
+            "allocation"
+        case Err(_):
+            "other"
+
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    for attempt in range(200):
+        mut one = client()?
+        mut two = client()?
+        first = hc.request("GET", "http://host-beyond-inline/page")?
+        second = hc.request("GET", "http://host-beyond-inline/page")?
+        deadline = later()?
+        marker = "__test_fail_allocations_after_".concat(str.from(attempt)?)?.concat("__")?
+        print(marker)?
+        fetched: Result[(), ClientError] = match one.fetch(first, &deadline, &never):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(error)
+        print("__test_restore_allocations__")?
+        print(marker)?
+        manual = by_hand(&mut two, second, &deadline, &never)
+        print("__test_restore_allocations__")?
+        print(tag(&fetched, one.idle()), tag(&manual, two.idle()))?
+    Ok(())
+"##
+    ));
+    let lines: Vec<&str> = result.lines().collect();
+    assert_eq!(lines.len(), 200);
+    for line in &lines {
+        let (fetched, manual) = line.split_once(' ').unwrap();
+        assert_eq!(fetched, manual, "{lines:?}");
+        assert!(
+            ["allocation", "ok-pooled", "ok-closed"].contains(&fetched),
+            "{lines:?}"
+        );
+    }
+    assert_eq!(lines[0], "allocation allocation");
+    assert_eq!(lines[199], "ok-pooled ok-pooled");
+}
+
+/// Issue #135: a request shares its method and URL text instead of copying
+/// it, so long ones need no more allocations than short ones, and both
+/// outlive their sources.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn request_shares_its_method_and_url() {
+    runs(
+        "",
+        r##"import std.http.client as hc
+
+def needed(method: &str, url: &str) -> Result[i64, Failure]:
+    for budget in range(20):
+        marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
+        print(marker)?
+        outcome = hc.request(method, url)
+        print("__test_restore_allocations__")?
+        if outcome.is_ok():
+            return Ok(budget)
+    Ok(-1)
+
+def main() -> Result[(), Failure]:
+    print(needed("GET", "http://h/")?)?
+    mut url = ""
+    mut method = ""
+    if True:
+        given = "http://a-host-name-beyond-inline.example/".concat("a-path-beyond-inline")?
+        verb = "PROPFIND".concat("-BEYOND-INLINE")?
+        print(needed(&verb, &given)?)?
+        made = hc.request(&verb, &given)?
+        url = made.url
+        method = made.method
+    print(method)?
+    print(url)?
+    Ok(())
+"##,
+        "2\n2\nPROPFIND-BEYOND-INLINE\nhttp://a-host-name-beyond-inline.example/a-path-beyond-inline",
+    );
 }
