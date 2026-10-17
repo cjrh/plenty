@@ -222,7 +222,10 @@ Cancelling `stop` begins shutdown:
 4. At `drain_timeout`, `serve` cancels the second token. Every further read
    or write fails with `Cancelled`, `cancelled()` is true, and the
    connection closes; counted in `cancelled`.
-5. `serve` joins every worker and returns the merged `Report`.
+5. `serve` joins every worker and returns the merged `Report`. Every
+   accepted connection is closed by then. A client may still be reacting
+   to that close: `serve` returning says nothing about the client's
+   progress, so join a client task before relying on its output.
 
 Cancellation is cooperative. A handler that loops without reading, writing
 or checking `cancelled()` keeps its worker, and `serve` waits for it.

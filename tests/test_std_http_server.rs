@@ -731,9 +731,12 @@ def main() -> Result[(), Failure]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
+    # The client prints after it sees each connection close, which can be
+    # after `serve` returns, so the report is printed once the client joins.
+    mut first: Option[Report] = Nothing
     with spawn(many, port, stop.share())? as task:
-        report = std.http.server.serve(listener, &table, &app, &config, &stop)?
-        print(counts(&report)?)?
+        first = Some(std.http.server.serve(listener, &table, &app, &config, &stop)?)
+    print(counts(&first.unwrap())?)?
     config.idle_connections = 2
     config.idle_timeout = std.time.milliseconds(300u32)
     second = std.net.listen(&std.net.loopback_v4(0u16), 16)?
