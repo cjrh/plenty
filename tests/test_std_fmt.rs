@@ -1,5 +1,7 @@
 use std::path::Path;
 
+mod support;
+
 fn compile(dir: &Path, source: &str) -> std::path::PathBuf {
     let path = dir.join("main.plenty");
     let executable = dir.join("program");
@@ -269,7 +271,7 @@ fn ordinary_visibility_ownership_and_contract_errors_remain_checked() {
 fn relocated_compiler_has_formatting_without_repository_or_rust_tools() {
     let directory = tempfile::tempdir().unwrap();
     let compiler = directory.path().join("compiler");
-    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &compiler).unwrap();
+    support::install_executable(Path::new(env!("CARGO_BIN_EXE_plenty")), &compiler);
     let source = directory.path().join("main.plenty");
     std::fs::write(&source, "import std.fmt\ndef main() -> Result[(), Failure]:\n    mut out = std.fmt.string_formatter(32, 0)?\n    out.floating(1.25, 0)?\n    print(std.fmt.finish(&out)?)?\n    Ok(())\n").unwrap();
     let check = std::process::Command::new(&compiler)

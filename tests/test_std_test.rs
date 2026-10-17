@@ -3,6 +3,8 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+mod support;
+
 fn run_program(source: &str) -> Output {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
@@ -561,7 +563,7 @@ fn a_relocated_toolchain_runs_tests_offline() {
     let dir = tempfile::tempdir().unwrap();
     let toolchain = dir.path().join("toolchain/bin/plenty");
     std::fs::create_dir_all(toolchain.parent().unwrap()).unwrap();
-    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &toolchain).unwrap();
+    support::install_executable(Path::new(env!("CARGO_BIN_EXE_plenty")), &toolchain);
     let project = dir.path().join("project");
     suite(&project, &[("tests/arithmetic.plenty", ARITHMETIC)]);
     let output = Command::new(&toolchain)
