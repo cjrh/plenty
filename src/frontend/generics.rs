@@ -115,6 +115,8 @@ pub(super) fn prepare(
         protocols: declarations,
         methods,
         templates: HashMap::new(),
+        defaults: HashMap::new(),
+        call_wrappers: HashMap::new(),
         cache: HashMap::new(),
         // One entry per function: sized up front, these are not rehashed
         // key by key at every doubling (issue #57).
@@ -146,6 +148,7 @@ pub(super) fn prepare(
                 return Err(f.at.error("main cannot have type parameters"));
             }
             engine.validate_template(&f, aliases)?;
+            engine.record_defaults(&f);
             engine.templates.insert(f.name.clone(), Arc::new(f));
         }
     }
@@ -165,6 +168,9 @@ pub(super) struct Engine {
     protocols: HashMap<String, protocols::Protocol>,
     pub(super) methods: HashMap<String, Signature>,
     pub(super) templates: HashMap<String, Arc<Function>>,
+    /// Retained after lowering without keeping complete function bodies alive.
+    pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
+    pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
     cache: HashMap<(String, Vec<Ty>), String>,
     pub(super) pending: VecDeque<Arc<Function>>,
     pub(super) functions: HashMap<String, Declared>,
@@ -198,8 +204,14 @@ pub(super) struct Declared {
 }
 
 impl Engine {
+    fn record_defaults(&mut self, f: &Function) {
+        if f.defaults.iter().any(Option::is_some) {
+            self.defaults.insert(f.name.clone(), f.defaults.clone());
+        }
+    }
     /// Adds a concrete function to the table without queueing it.
     pub(super) fn record(&mut self, f: &Arc<Function>) {
+        self.record_defaults(f);
         self.functions.insert(
             f.name.clone(),
             Declared {
@@ -966,6 +978,9 @@ impl Engine {
             substitute(ty, &replacements)?;
         }
         substitute(&mut f.output, &replacements)?;
+        for default in f.defaults.iter_mut().flatten() {
+            substitute_expr(default, &replacements)?;
+        }
         // Cache before queueing the body, so recursive calls share this instance.
         self.cache.insert(key, symbol.clone());
         substitute_block(&mut f.body, &replacements)?;
@@ -1175,7 +1190,7 @@ fn substitute_match(
     }
     Ok(())
 }
-fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
+pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
         Expression::Match(value, cases) => substitute_match(value, cases, substitutions)?,
         Expression::GenericMethod(base, _, types, args) => {

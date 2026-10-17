@@ -259,6 +259,7 @@ impl Parser {
             type_params: vec![],
             at: at.clone(),
             inputs: vec![],
+            defaults: vec![],
             output,
             doc: String::new(),
             doc_at: None,
@@ -1023,6 +1024,9 @@ impl Scope {
             scope.ty(ty)?;
         }
         scope.ty(&mut f.output)?;
+        for default in f.defaults.iter_mut().flatten() {
+            scope.expr(default, &HashSet::new())?;
+        }
         let mut locals: HashSet<_> = f.inputs.iter().map(|(n, _)| n.clone()).collect();
         locals.extend(f.captures.iter().map(|c| c.name.clone()));
         scope.block(&mut f.body, &mut locals)

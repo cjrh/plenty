@@ -104,6 +104,7 @@ impl Lower<'_> {
                 type_params: vec![],
                 at: at.clone(),
                 inputs,
+                defaults: vec![],
                 // Unit is an internal inference marker, never a source annotation.
                 output: generics::type_ref(&crate::generator::ty(Ty::Unit, None), at),
                 doc: String::new(),

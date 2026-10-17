@@ -24,6 +24,7 @@ mod collections;
 mod contexts;
 mod control;
 mod data;
+mod defaults;
 mod enums;
 mod executors;
 mod files;
@@ -468,6 +469,8 @@ struct Function {
     type_params: Vec<(String, Option<TypeRef>)>,
     at: Token,
     inputs: Vec<(String, TypeRef)>,
+    /// Aligned with inputs; synthetic declarations may leave this empty.
+    defaults: Vec<Option<Expr>>,
     output: TypeRef,
     doc: String,
     /// Where the docstring was written, for diagnostics about a body that is only a docstring.
@@ -1284,6 +1287,7 @@ impl Parser {
         }
         self.expect("(")?;
         let mut inputs = Vec::new();
+        let mut defaults = Vec::new();
         let mut adapters = Vec::new();
         while !self.eat(")") {
             let param_at = self.peek().clone();
@@ -1300,7 +1304,7 @@ impl Parser {
                 TypeRef {
                     concrete: None,
                     // Preserve the shorthand's provenance for receiver diagnostics.
-                    at: param_at,
+                    at: param_at.clone(),
                     name: Some(
                         if matches!(name.as_str(), "__init__" | "__del__") {
                             "&mut"
@@ -1335,7 +1339,30 @@ impl Parser {
             if foreign {
                 adapters.push(adapter);
             }
+            let default =
+                if self.eat("=") {
+                    if anonymous {
+                        return Err(
+                            param_at.error("anonymous functions cannot declare parameter defaults")
+                        );
+                    }
+                    if foreign || exported {
+                        return Err(param_at
+                            .error("C imports and exports cannot declare parameter defaults"));
+                    }
+                    if param == "self" && class.is_some() {
+                        return Err(param_at.error("self cannot have a default value"));
+                    }
+                    Some(self.expr(0)?)
+                } else {
+                    if defaults.iter().any(Option::is_some) {
+                        return Err(param_at
+                            .error("required parameters must precede parameters with defaults"));
+                    }
+                    None
+                };
             inputs.push((param, ty));
+            defaults.push(default);
             if self.eat(")") {
                 break;
             }
@@ -1344,6 +1371,7 @@ impl Parser {
         if inputs.len() > 256 {
             return Err(at.error("at most 256 parameter/local slots are supported"));
         }
+        defaults::validate_dependencies(&inputs, &defaults)?;
         self.expect("->")?;
         let output = self.ty()?;
         let mut address_parameter = None;
@@ -1396,6 +1424,7 @@ impl Parser {
                 name,
                 at,
                 inputs,
+                defaults,
                 output,
                 doc: String::new(),
                 doc_at: None,
@@ -1413,6 +1442,7 @@ impl Parser {
                 name,
                 at,
                 inputs,
+                defaults,
                 output,
                 doc: String::new(),
                 doc_at: None,
@@ -1464,6 +1494,7 @@ impl Parser {
             name,
             at,
             inputs,
+            defaults,
             output,
             doc,
             doc_at,
