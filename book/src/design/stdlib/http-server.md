@@ -181,7 +181,7 @@ no decrypted input. The plain `serve` does not import `std.tls`.
 |---|---|
 | `open(self, tcp: TcpStream, deadline: &Deadline, cancel: &CancellationToken)` | `Result[T, OpenError]`: the transport, made on a worker |
 | `handshakes(self)` | `bool`: use `handshake_timeout` for new connections and close, not `503`, those refused |
-| `watch(self, stream: &T, selector: &mut Selector, key: u64)` | `bool`: register a stream with no buffered input for reading |
+| `watch(self, stream: &T, selector: &mut Selector, key: u64)` | `bool`: register a stream with no buffered input until it has more |
 | `unwatch(self, stream: &T, selector: &mut Selector)` | Remove it |
 
 `OpenError` is `TimedOut`, `Cancelled`, `Failed` (counted in
@@ -252,8 +252,9 @@ timed out`, `handshake failed` and `accept failed`, most with a
   length-delimited or chunked, so clients do not depend on it, except for a
   streamed response to HTTP/1.0, whose end is the close and so cannot be
   told from truncation.
-- HTTPS has the [`std.tls` limits](tls.md#limits): no client certificates
-  and no ALPN.
+- HTTPS has the [`std.tls` limits](tls.md#limits). The server speaks only
+  HTTP/1.x, so its `ServerConfig` should offer no ALPN protocol but
+  `http/1.1`.
 - No `Date` header, compression, static file serving (see
   [the decision](http-proxy.md#static-files)), request trailers in the
   exchange, or HTTP/2. Forms, JSON, uploads, cookies and forwarded clients

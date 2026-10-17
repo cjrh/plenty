@@ -276,6 +276,19 @@ pub class Bytes:
         checked(start, stop, __bytes_len(self._owner))?
         Ok(__tls_write(session, self._owner, start, stop))
 
+    # std.tls's session details, copied into the whole buffer: the
+    # negotiated protocol (0), the requested server name (1) or the peer's
+    # leaf certificate (2). The detail's full length, or -1 when absent.
+    pub def tls_detail(self: &mut Bytes, session: &ByteStorage, which: i64) -> i64:
+        count = __bytes_len(self._owner)
+        match which:
+            case 0:
+                __tls_protocol(session, self._owner, 0, count)
+            case 1:
+                __tls_server_name(session, self._owner, 0, count)
+            case _:
+                __tls_peer_certificate(session, self._owner, 0, count)
+
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)

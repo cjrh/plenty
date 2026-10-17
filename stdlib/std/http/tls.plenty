@@ -8,7 +8,7 @@ from std.bytes import Bytes
 from std.http.server import Config, Handler, OpenError, Report, Router, ServerError
 from std.io import StreamError
 from std.net import NetError, TcpListener, TcpStream
-from std.ready import Interest, Selector
+from std.ready import Selector
 from std.sync import CancellationToken
 from std.time import Deadline
 from std.tls import ServerConfig, TlsError, TlsStream
@@ -66,7 +66,7 @@ pub class TlsOpener:
         True
 
     pub def watch(self, stream: &TlsTransport, selector: &mut Selector, key: u64) -> bool:
-        stream.stream.watch(selector, key, Interest.Read).is_ok()
+        stream.stream.watch(selector, key, stream.stream.interest()).is_ok()
 
     pub def unwatch(self, stream: &TlsTransport, selector: &mut Selector) -> ():
         drop(stream.stream.unwatch(selector))

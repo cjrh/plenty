@@ -119,9 +119,12 @@ fn failed_assertions_show_their_values() {
     for (body, expected) in cases {
         let output = run_program(&program(body));
         assert_eq!(output.status.code(), Some(1), "{body}");
+        // Each case asserts on its last line; `program` starts the body on line 4.
+        let line = 3 + body.lines().count();
+        let expected = format!("main.plenty:{line}:5: {expected}");
         let report = stderr(&output);
         assert!(
-            report.starts_with(expected),
+            report.starts_with(&expected),
             "{body}\nexpected {expected:?}\ngot {report:?}"
         );
         assert!(
@@ -137,7 +140,61 @@ fn output_before_a_failure_is_flushed_first() {
         "import std.test\n\ndef main() -> Result[(), Failure]:\n    print(\"before\")?\n    std.test.equal(&1, &2)?\n    Ok(())\n",
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "before\n");
-    assert!(stderr(&output).starts_with("assertion failed: left == right\n"));
+    assert!(stderr(&output).starts_with("main.plenty:5:5: assertion failed: left == right\n"));
+}
+
+#[test]
+fn failures_name_the_user_code_that_asserted() {
+    let output = run_program(
+        r#"import std.test
+
+def same_length(left: &str, right: &str) -> Result[(), Failure]:
+    std.test.equal(&len(left), &len(right))?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    same_length("ab", "ab")?
+    same_length("ab", "abc")?
+    Ok(())
+"#,
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).starts_with("main.plenty:4:5: assertion failed: left == right\n"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn caller_location_hooks_are_reserved_for_std() {
+    for call in [
+        "drop(__caller_location())",
+        "drop(__test_fault(0, 0, 0i32))",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        std::fs::write(&path, format!("def main() -> ():\n    {call}\n")).unwrap();
+        let error = plenty::compile_file_to_executable(&path, &dir.path().join("program"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("is reserved for the standard library"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn failure_injection_needs_a_test_build() {
+    let output = run_program(&program("std.test.fail_allocations_after(0u32)?"));
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output)
+            .starts_with("error: failure injection needs an executable built by `plenty test`\n"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]
@@ -258,7 +315,7 @@ print("__test_end_no_allocations__")?
     assert_eq!(output.status.code(), Some(1));
     assert!(
         stderr(&output).starts_with(
-            "assertion failed: left == right\n  left: <no memory to show the value>\n"
+            "main.plenty:7:5: assertion failed: left == right\n  left: <no memory to show the value>\n"
         ),
         "{}",
         stderr(&output)
@@ -358,7 +415,7 @@ failures:
 
 ---- arithmetic::test_wrong output ----
 about to compare
-assertion failed: left == right
+arithmetic.plenty:10:5: assertion failed: left == right
   left: 4
  right: 5
 
@@ -548,7 +605,7 @@ test errors::test_detailed ... FAILED (returned Err)
 failures:
 
 ---- errors::test_explained output ----
-assertion failed: explained
+errors.plenty:4:5: assertion failed: explained
 
 ---- errors::test_detailed output ----
 error: test_detailed returned IoError.Closed
@@ -693,4 +750,102 @@ def main() -> Result[(), Failure]:
     );
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(output.stdout, b"done\n");
+}
+
+const FAULTS: &str = r#"import std.test
+
+def test_allocations() -> Result[(), Failure]:
+    std.test.fail_allocations_after(0u32)?
+    failed = [1, 2, 3]
+    std.test.restore_allocations()?
+    match failed:
+        case Err(error):
+            std.test.equal(&error, &AllocError.OutOfMemory)?
+        case Ok(_):
+            std.test.fail("allocation succeeded")?
+    restored = [1, 2, 3]
+    std.test.is_ok(&restored)?
+    Ok(())
+
+def test_files() -> Result[(), Failure]:
+    scratch = std.test.scratch()?
+    name = scratch.file("a.txt")?
+    write_text(&name, "kept")?
+    std.test.fail_files_after(0u32, 5i32)?
+    failed = read_text(&name)
+    std.test.restore_files()?
+    match failed:
+        case Err(error):
+            std.test.equal(&error, &IoError.System(5i32))?
+        case Ok(_):
+            std.test.fail("read succeeded")?
+    std.test.equal(&read_text(&name)?, &"kept")?
+    Ok(())
+
+def test_later_files() -> Result[(), Failure]:
+    scratch = std.test.scratch()?
+    name = scratch.file("b.txt")?
+    # The open succeeds and creates the file; the write fails.
+    std.test.fail_files_after(1u32, 28i32)?
+    written = write_text(&name, "x")
+    std.test.restore_files()?
+    std.test.is_err(&written)?
+    std.test.equal(&read_text(&name)?, &"")?
+    Ok(())
+"#;
+
+#[test]
+fn test_builds_inject_allocation_and_file_failures() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    suite(
+        root,
+        &[
+            ("tests/faults.plenty", FAULTS),
+            (
+                "tests/program.plenty",
+                "import std.test\n\ndef main() -> Result[(), Failure]:\n    std.test.fail_allocations_after(0u32)?\n    std.test.is_err(&[1])?\n    std.test.restore_allocations()?\n    Ok(())\n",
+            ),
+        ],
+    );
+    let output = plenty(root, &["test"]);
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr(&output)
+    );
+}
+
+fn symbols(executable: &Path) -> String {
+    let output = Command::new("nm").arg(executable).output().unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// Shipped programs never contain the failure-injection hooks; only the
+/// executables `plenty test` builds do.
+#[test]
+fn only_test_builds_link_the_hooks() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    suite(root, &[("tests/faults.plenty", FAULTS)]);
+    let source = root.join("main.plenty");
+    write(
+        &source,
+        "import std.test\n\ndef main() -> Result[(), Failure]:\n    std.test.fail_allocations_after(0u32)?\n    Ok(())\n",
+    );
+    let shipped = root.join("shipped");
+    plenty::compile_file_to_executable(&source, &shipped, None).unwrap();
+    let shipped = symbols(&shipped);
+    for hook in ["plenty_test_fault", "__wrap_malloc", "__wrap_read"] {
+        assert!(!shipped.contains(hook), "{hook} in a shipped program");
+    }
+
+    let output = plenty(root, &["test"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let tested = symbols(&root.join("target/debug/tests/calc/faults"));
+    for hook in ["plenty_test_fault", "__wrap_malloc", "__wrap_read"] {
+        assert!(tested.contains(hook), "{hook} missing from a test build");
+    }
 }

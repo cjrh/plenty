@@ -86,6 +86,55 @@ extern "C" fn plenty_caller_leave(site: *const Site) {
     CALLER.with(|caller| caller.set(site));
 }
 
+/// `file:line:column`, or `line:column` without a file.
+struct Position(*const Site);
+
+impl std::fmt::Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // SAFETY: a Position holds a non-null record of the compiler's site
+        // table, whose file offset, when nonzero, leads to a length-prefixed
+        // UTF-8 name in the same data object.
+        unsafe {
+            let at = &*self.0;
+            if at.file == 0 {
+                return write!(f, "{}:{}", at.line, at.column);
+            }
+            let name = self.0.cast::<u8>().add(at.file as usize);
+            let len = name.cast::<u32>().read_unaligned() as usize;
+            let name = std::slice::from_raw_parts(name.add(4), len);
+            write!(
+                f,
+                "{}:{}:{}",
+                std::str::from_utf8_unchecked(name),
+                at.line,
+                at.column
+            )
+        }
+    }
+}
+
+fn caller() -> Option<Position> {
+    let caller = CALLER.with(std::cell::Cell::get);
+    (!caller.is_null()).then_some(Position(caller))
+}
+
+/// Writes `file:line:column: ` of the nearest non-std caller on this thread to
+/// standard error and returns 1, or writes nothing and returns 0 when there is
+/// none. Standard-library code reaches it as `__caller_location`; see "Caller
+/// locations" in the errors reference. Formats straight to standard error, so
+/// it never allocates.
+#[no_mangle]
+extern "C" fn plenty_write_caller_location() -> u8 {
+    match caller() {
+        Some(position) => {
+            use std::io::Write;
+            drop(write!(std::io::stderr().lock(), "{position}: "));
+            1
+        }
+        None => 0,
+    }
+}
+
 /// Traps with `error: file:line:column: message`. A null site prints the bare
 /// message: synthesized operations and the token front end have no position.
 ///
@@ -93,46 +142,15 @@ extern "C" fn plenty_caller_leave(site: *const Site) {
 /// allocates.
 fn fail_at(site: *const Site, message: std::fmt::Arguments) -> ! {
     io::flush();
-    // SAFETY: a non-null site is a record in the compiler's site table, whose
-    // file offset, when nonzero, leads to a length-prefixed UTF-8 name in the
-    // same data object.
-    unsafe {
-        match site.as_ref() {
-            None => eprintln!("error: {message}"),
-            Some(at) if at.file == 0 => {
-                eprintln!("error: {}:{}: {message}", at.line, at.column)
-            }
-            Some(at) => {
-                let name = site.cast::<u8>().add(at.file as usize);
-                let len = name.cast::<u32>().read_unaligned() as usize;
-                let name = std::slice::from_raw_parts(name.add(4), len);
-                eprintln!(
-                    "error: {}:{}:{}: {message}",
-                    std::str::from_utf8_unchecked(name),
-                    at.line,
-                    at.column
-                )
-            }
-        }
-        if site.as_ref().is_some_and(|at| at.standard_library != 0) {
-            CALLER.with(|caller| {
-                let caller = caller.get();
-                if let Some(at) = caller.as_ref() {
-                    if at.file == 0 {
-                        eprintln!("note: called from {}:{}", at.line, at.column);
-                    } else {
-                        let name = caller.cast::<u8>().add(at.file as usize);
-                        let len = name.cast::<u32>().read_unaligned() as usize;
-                        let name = std::slice::from_raw_parts(name.add(4), len);
-                        eprintln!(
-                            "note: called from {}:{}:{}",
-                            std::str::from_utf8_unchecked(name),
-                            at.line,
-                            at.column
-                        );
-                    }
-                }
-            });
+    if site.is_null() {
+        eprintln!("error: {message}");
+    } else {
+        eprintln!("error: {}: {message}", Position(site));
+    }
+    // SAFETY: a non-null site is a record in the compiler's site table.
+    if unsafe { site.as_ref() }.is_some_and(|at| at.standard_library != 0) {
+        if let Some(caller) = caller() {
+            eprintln!("note: called from {caller}");
         }
     }
     std::process::exit(1)

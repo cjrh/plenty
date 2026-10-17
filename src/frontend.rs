@@ -2128,6 +2128,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "open"
                 | "write_stdout"
                 | "write_stderr"
+                | "__caller_location"
+                | "__test_fault"
                 | "flush_stdout"
                 | "flush_stderr"
                 | "input"
@@ -3292,6 +3294,24 @@ impl Lower<'_> {
                 }
                 if name == "next" {
                     return self.next(args, &e.at, ops);
+                }
+                if let Some(operation) = match name.as_str() {
+                    "__caller_location" => Some(CollectionOp::CallerLocation),
+                    "__test_fault" => Some(CollectionOp::TestFault),
+                    _ => None,
+                } {
+                    // Hooks for std.test, not user-visible API: see "Caller
+                    // locations" in the errors reference.
+                    let standard =
+                        e.at.source
+                            .as_ref()
+                            .is_some_and(|source| self.generics.source_facts(source).1);
+                    if !standard {
+                        return Err(e
+                            .at
+                            .error(format!("`{name}` is reserved for the standard library")));
+                    }
+                    return self.system_call(operation, args, &e.at, ops);
                 }
                 if let Some(operation) = match name.as_str() {
                     "write_stdout" => Some(CollectionOp::WriteStdout),

@@ -136,7 +136,9 @@ impl CollectionOp {
             }
             WriteStdout | WriteStderr | FlushStdout | FlushStderr | Input | Args | ArgsBytes
             | InputBytes | WriteStdoutBytes | WriteStderrBytes | TryPrint(_) | TryPrintMany(_)
-            | ReportEntryError(_) => Effect::ProcessStream,
+            | ReportEntryError(_) | CallerLocation => Effect::ProcessStream,
+            // The injection state belongs to the calling thread.
+            TestFault => Effect::Compute,
             EncodeUtf8
             | DecodeUtf8
             | ParseNumber(_)

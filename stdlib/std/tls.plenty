@@ -10,7 +10,7 @@ from std.io import StreamError
 from std.net import NetError, TcpStream
 from std.ready import Interest, Selector
 from std.sync import CancellationToken
-from std.time import Deadline
+from std.time import Deadline, deadline_at, instant_at
 
 pub enum TlsError:
     Net(NetError)
@@ -26,6 +26,31 @@ pub enum TlsError:
     NoTrustRoots
     Closed
     Allocation(AllocError)
+    RevokedCertificate
+    CertificateRequired
+    Incompatible
+
+pub enum TlsVersion:
+    Tls12
+    Tls13
+
+# The ring provider's suites, in its default order of preference.
+pub enum CipherSuite:
+    Tls13Aes256GcmSha384
+    Tls13Aes128GcmSha256
+    Tls13Chacha20Poly1305Sha256
+    EcdheEcdsaAes256GcmSha384
+    EcdheEcdsaAes128GcmSha256
+    EcdheEcdsaChacha20Poly1305Sha256
+    EcdheRsaAes256GcmSha384
+    EcdheRsaAes128GcmSha256
+    EcdheRsaChacha20Poly1305Sha256
+
+# Whether a server that verifies clients refuses those without a
+# certificate.
+pub enum ClientCertificates:
+    Required
+    Optional
 
 # Runtime codes; see plenty-runtime/src/aggregates/tls.rs.
 const would_block: i64 = -1
@@ -39,6 +64,11 @@ const invalid_name: i64 = -9
 const invalid_configuration: i64 = -10
 const allocation: i64 = -11
 const no_roots: i64 = -12
+const revoked: i64 = -13
+const certificate_required: i64 = -14
+const incompatible: i64 = -15
+# A session detail that is not there.
+const absent: i64 = -1
 
 # Session state bits.
 const handshaking: i64 = 1
@@ -69,6 +99,12 @@ def failure(code: i64) -> TlsError:
             TlsError.Allocation(AllocError.OutOfMemory)
         case -12:
             TlsError.NoTrustRoots
+        case -13:
+            TlsError.RevokedCertificate
+        case -14:
+            TlsError.CertificateRequired
+        case -15:
+            TlsError.Incompatible
         case _:
             TlsError.Protocol
 
@@ -78,6 +114,12 @@ def opened(result: Result[ByteStorage, i64]) -> Result[ByteStorage, TlsError]:
             Ok(handle)
         case Err(code):
             Err(failure(code))
+
+# A builder step's outcome: 0, or a runtime failure code.
+def status(code: i64) -> Result[(), TlsError]:
+    if code != 0:
+        return Err(failure(code))
+    Ok(())
 
 def stored[T](result: Result[T, BytesError]) -> Result[T, TlsError]:
     match result:
@@ -170,27 +212,199 @@ pub def system_roots() -> Result[TrustRoots, TlsError]:
             pass
     Err(TlsError.NoTrustRoots)
 
-# Settings for client sessions: TLS 1.2 and 1.3, rustls's safe default
-# cipher suites, server certificates verified against `roots`.
+# Settings for client sessions. A configuration is immutable and shared by
+# every session that borrows it.
 pub class ClientConfig:
     _handle: ByteStorage
 
-pub def client_config(roots: &TrustRoots) -> Result[ClientConfig, TlsError]:
-    Ok(ClientConfig(opened(__tls_client_config(roots._handle))?))
-
-# Settings for server sessions: the server's certificate chain, leaf first,
-# and its private key (PKCS#8, PKCS#1 or SEC1), both PEM. A chain or key that
-# does not parse, or a key that does not match the leaf, is
-# InvalidConfiguration. Clients are not asked for certificates.
+# Settings for server sessions.
 pub class ServerConfig:
     _handle: ByteStorage
 
+def version_code(version: &TlsVersion) -> i64:
+    match version:
+        case TlsVersion.Tls12:
+            12
+        case TlsVersion.Tls13:
+            13
+
+def suite_code(suite: &CipherSuite) -> i64:
+    match suite:
+        case CipherSuite.Tls13Aes256GcmSha384:
+            0
+        case CipherSuite.Tls13Aes128GcmSha256:
+            1
+        case CipherSuite.Tls13Chacha20Poly1305Sha256:
+            2
+        case CipherSuite.EcdheEcdsaAes256GcmSha384:
+            3
+        case CipherSuite.EcdheEcdsaAes128GcmSha256:
+            4
+        case CipherSuite.EcdheEcdsaChacha20Poly1305Sha256:
+            5
+        case CipherSuite.EcdheRsaAes256GcmSha384:
+            6
+        case CipherSuite.EcdheRsaAes128GcmSha256:
+            7
+        case CipherSuite.EcdheRsaChacha20Poly1305Sha256:
+            8
+
+def suite_named(code: i64) -> Option[CipherSuite]:
+    match code:
+        case 0:
+            Some(CipherSuite.Tls13Aes256GcmSha384)
+        case 1:
+            Some(CipherSuite.Tls13Aes128GcmSha256)
+        case 2:
+            Some(CipherSuite.Tls13Chacha20Poly1305Sha256)
+        case 3:
+            Some(CipherSuite.EcdheEcdsaAes256GcmSha384)
+        case 4:
+            Some(CipherSuite.EcdheEcdsaAes128GcmSha256)
+        case 5:
+            Some(CipherSuite.EcdheEcdsaChacha20Poly1305Sha256)
+        case 6:
+            Some(CipherSuite.EcdheRsaAes256GcmSha384)
+        case 7:
+            Some(CipherSuite.EcdheRsaAes128GcmSha256)
+        case 8:
+            Some(CipherSuite.EcdheRsaChacha20Poly1305Sha256)
+        case _:
+            Nothing
+
+# Gathers a client configuration's settings; `build` checks them together.
+# Without other calls, the result is `client_config(roots)`.
+pub class ClientBuilder:
+    _handle: ByteStorage
+
+    # The chain, leaf first, and private key this client presents when a
+    # server asks for a certificate. A chain or key that does not parse, a key
+    # that does not match the leaf, or a second chain is InvalidConfiguration.
+    pub def certificate(self: &mut ClientBuilder, chain_pem: &str, key_pem: &str) -> Result[(), TlsError]:
+        status(__tls_builder_certificate(self._handle, chain_pem, key_pem))
+
+    # Offers the application protocol `name` (ALPN), after those already
+    # offered. A name of 0 or more than 255 bytes is InvalidConfiguration.
+    pub def application_protocol(self: &mut ClientBuilder, name: &str) -> Result[(), TlsError]:
+        status(__tls_builder_protocol(self._handle, name))
+
+    # Tls13 refuses TLS 1.2 servers; the default, Tls12, accepts both.
+    pub def minimum_version(self: &mut ClientBuilder, version: TlsVersion) -> ():
+        __tls_builder_version(self._handle, version_code(&version))
+        ()
+
+    # Allows `suite`. Once any is allowed, no other suite is; the client's
+    # preference decides among suites both sides allow.
+    pub def cipher_suite(self: &mut ClientBuilder, suite: CipherSuite) -> ():
+        __tls_builder_suite(self._handle, suite_code(&suite))
+        ()
+
+    # Rejects server certificates that a revocation list in `crl_pem` names.
+    # PEM without a CRL block is InvalidConfiguration; a list whose signature
+    # does not verify is InvalidConfiguration at `build`.
+    pub def revocation_list(self: &mut ClientBuilder, crl_pem: &str) -> Result[(), TlsError]:
+        status(__tls_builder_revocations(self._handle, crl_pem))
+
+    # Allowed suites that cover no allowed version are InvalidConfiguration.
+    pub def build(self) -> Result[ClientConfig, TlsError]:
+        Ok(ClientConfig(opened(__tls_build(self._handle))?))
+
+# Starts a client configuration that verifies servers against `roots`.
+pub def client_builder(roots: &TrustRoots) -> Result[ClientBuilder, TlsError]:
+    builder = ClientBuilder(opened(__tls_builder(0))?)
+    __tls_builder_roots(builder._handle, roots._handle, 0)
+    Ok(builder)
+
+# TLS 1.2 and 1.3, rustls's default cipher suites, server certificates
+# verified against `roots`, no client certificate.
+pub def client_config(roots: &TrustRoots) -> Result[ClientConfig, TlsError]:
+    Ok(ClientConfig(opened(__tls_client_config(roots._handle))?))
+
+# Gathers a server configuration's settings; `build` checks them together.
+# Without other calls, the result is `server_config(chain_pem, key_pem)`.
+pub class ServerBuilder:
+    _handle: ByteStorage
+
+    # Another chain and key. A session presents the first chain whose leaf
+    # names the host the client asked for (SNI), or else the first chain.
+    pub def certificate(self: &mut ServerBuilder, chain_pem: &str, key_pem: &str) -> Result[(), TlsError]:
+        status(__tls_builder_certificate(self._handle, chain_pem, key_pem))
+
+    # Asks clients for a certificate and verifies it against `roots`. With
+    # Optional, a client may present none.
+    pub def verify_clients(self: &mut ServerBuilder, roots: &TrustRoots, certificates: ClientCertificates) -> ():
+        mut required = 0
+        match certificates:
+            case ClientCertificates.Required:
+                required = 1
+            case ClientCertificates.Optional:
+                pass
+        __tls_builder_roots(self._handle, roots._handle, required)
+        ()
+
+    # Accepts the application protocol `name` (ALPN). The server picks the
+    # first of its names, in the order given, that the client offers; a
+    # client that offers names but none of these is Incompatible.
+    pub def application_protocol(self: &mut ServerBuilder, name: &str) -> Result[(), TlsError]:
+        status(__tls_builder_protocol(self._handle, name))
+
+    pub def minimum_version(self: &mut ServerBuilder, version: TlsVersion) -> ():
+        __tls_builder_version(self._handle, version_code(&version))
+        ()
+
+    pub def cipher_suite(self: &mut ServerBuilder, suite: CipherSuite) -> ():
+        __tls_builder_suite(self._handle, suite_code(&suite))
+        ()
+
+    # Rejects client certificates that a revocation list in `crl_pem` names.
+    # Without `verify_clients`, `build` is InvalidConfiguration.
+    pub def revocation_list(self: &mut ServerBuilder, crl_pem: &str) -> Result[(), TlsError]:
+        status(__tls_builder_revocations(self._handle, crl_pem))
+
+    pub def build(self) -> Result[ServerConfig, TlsError]:
+        Ok(ServerConfig(opened(__tls_build(self._handle))?))
+
+# Starts a server configuration presenting `chain_pem`, leaf first, with its
+# private key (PKCS#8, PKCS#1 or SEC1), both PEM.
+pub def server_builder(chain_pem: &str, key_pem: &str) -> Result[ServerBuilder, TlsError]:
+    mut builder = ServerBuilder(opened(__tls_builder(1))?)
+    builder.certificate(chain_pem, key_pem)?
+    Ok(builder)
+
+# The server's certificate chain, leaf first, and its private key. A chain or
+# key that does not parse, or a key that does not match the leaf, is
+# InvalidConfiguration. Clients are not asked for certificates.
 pub def server_config(chain_pem: &str, key_pem: &str) -> Result[ServerConfig, TlsError]:
     Ok(ServerConfig(opened(__tls_server_config(chain_pem, key_pem))?))
 
+# A session detail as bytes, or Nothing when absent.
+def detail(session: &ByteStorage, which: i64) -> Result[Option[Bytes], TlsError]:
+    mut probe = stored(std.bytes.with_capacity(0))?
+    length = probe.tls_detail(session, which)
+    if length == absent:
+        return Ok(Nothing)
+    mut value = stored(std.bytes.with_capacity(length))?
+    stored(value.resize(length, 0u8))?
+    value.tls_detail(session, which)
+    Ok(Some(value))
+
+def text_detail(session: &ByteStorage, which: i64) -> Result[Option[str], TlsError]:
+    match detail(session, which)?:
+        case Some(value):
+            match value.to_text():
+                case Ok(text):
+                    Ok(Some(text))
+                case Err(BytesError.Allocation(cause)):
+                    Err(TlsError.Allocation(cause))
+                case Err(_):
+                    Err(TlsError.Protocol)
+        case Nothing:
+            Ok(Nothing)
+
 # An encrypted, authenticated stream over a TCP connection. The `_before`
 # methods take a deadline and a cancellation token; `read`, `write`, `flush`
-# and `close` make it a std.io Reader and Writer that block as TcpStream's do.
+# and `close` make it a std.io Reader and Writer that block as TcpStream's do;
+# the `try_` methods never wait, for use with a std.ready selector.
 pub class TlsStream:
     _tcp: TcpStream
     _session: ByteStorage
@@ -198,35 +412,44 @@ pub class TlsStream:
     _incoming: Bytes
     _in_start: i64
     _in_stop: i64
+    # Ciphertext to send; [_out_start, _out_stop) is not yet sent, so a
+    # wait that ends early loses nothing.
     _outgoing: Bytes
+    _out_start: i64
+    _out_stop: i64
     _eof: bool
     _closed: bool
+    # Never cancelled: the `try_` methods' TCP calls have an expired
+    # deadline instead.
+    _idle: CancellationToken
 
-    # Ciphertext the session has ready, moved into the outgoing buffer.
+    # Ciphertext waiting in the outgoing buffer, refilled from the session
+    # once the last batch is sent.
     def outgoing(self: &mut TlsStream) -> Result[i64, TlsError]:
+        if self._out_start < self._out_stop:
+            return Ok(self._out_stop - self._out_start)
+        self._out_start = 0
+        self._out_stop = 0
         if (__tls_state(self._session) & wants_write) == 0:
             return Ok(0)
-        counted(self._outgoing.tls_take(&self._session, 0, buffer_size))
+        self._out_stop = counted(self._outgoing.tls_take(&self._session, 0, buffer_size))?
+        Ok(self._out_stop)
 
     def flush_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
         while True:
-            count = self.outgoing()?
-            if count == 0:
+            if self.outgoing()? == 0:
                 return Ok(())
-            net(self._tcp.write_all_before(&self._outgoing, 0, count, deadline, cancel))?
+            self._out_start += net(self._tcp.write_before(&self._outgoing, self._out_start, self._out_stop, deadline, cancel))?
         Ok(())
 
     def flush_blocking(self: &mut TlsStream) -> Result[(), StreamError]:
         while True:
-            count = flowed(self.outgoing())?
-            mut at = 0
-            if count == 0:
+            if flowed(self.outgoing())? == 0:
                 return Ok(())
-            while at < count:
-                written = self._tcp.write(&self._outgoing, at, count)?
-                if written == 0:
-                    return Err(StreamError.WriteZero)
-                at += written
+            written = self._tcp.write(&self._outgoing, self._out_start, self._out_stop)?
+            if written == 0:
+                return Err(StreamError.WriteZero)
+            self._out_start += written
         Ok(())
 
     # Feeds buffered ciphertext; false when none is buffered.
@@ -268,6 +491,22 @@ pub class TlsStream:
             case Err(cause):
                 Err(TlsError.Net(NetError.Stream(cause)))
 
+    # Takes ciphertext without waiting; false when none is buffered or ready.
+    def try_receive(self: &mut TlsStream) -> Result[bool, TlsError]:
+        if self.feed_pending()?:
+            return Ok(True)
+        if self._eof:
+            return Err(TlsError.Truncated)
+        expired = deadline_at(&instant_at(0u64))
+        match self._tcp.read_before(&mut self._incoming, 0, buffer_size, &expired, &self._idle):
+            case Ok(count):
+                self.received(count)?
+                Ok(True)
+            case Err(NetError.TimedOut):
+                Ok(False)
+            case Err(error):
+                Err(TlsError.Net(error))
+
     # Runs the handshake to completion. On a TLS failure the alert that
     # rustls queued is sent if the deadline allows.
     def handshake_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
@@ -287,6 +526,91 @@ pub class TlsStream:
                     return Err(error)
         Ok(())
 
+    # Advances the handshake without waiting; true once it is complete. On a
+    # TLS failure the alert is sent if the socket takes it at once.
+    pub def try_handshake(self: &mut TlsStream) -> Result[bool, TlsError]:
+        while True:
+            self.try_flush()?
+            if (__tls_state(self._session) & handshaking) == 0:
+                return Ok(True)
+            match self.try_receive():
+                case Ok(progressed):
+                    if not progressed:
+                        return Ok(False)
+                case Err(TlsError.Net(error)):
+                    return Err(TlsError.Net(error))
+                case Err(error):
+                    match self.try_flush():
+                        case _:
+                            pass
+                    return Err(error)
+        Ok(True)
+
+    # Sends buffered ciphertext without waiting; true once none is left.
+    pub def try_flush(self: &mut TlsStream) -> Result[bool, TlsError]:
+        expired = deadline_at(&instant_at(0u64))
+        while True:
+            if self.outgoing()? == 0:
+                return Ok(True)
+            match self._tcp.write_before(&self._outgoing, self._out_start, self._out_stop, &expired, &self._idle):
+                case Ok(count):
+                    self._out_start += count
+                case Err(NetError.TimedOut):
+                    return Ok(False)
+                case Err(error):
+                    return Err(TlsError.Net(error))
+        Ok(True)
+
+    # Decrypted bytes into buffer[start:stop] if any can be had without
+    # waiting, finishing the handshake first; Nothing otherwise. Some(0) is
+    # the peer's close_notify.
+    pub def try_read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
+        if start == stop:
+            stored(buffer.slice(start, stop))?
+            return Ok(Some(0))
+        if not self.try_handshake()?:
+            return Ok(Nothing)
+        while True:
+            count = counted(buffer.tls_read(&self._session, start, stop))?
+            if count != would_block:
+                return Ok(Some(count))
+            self.try_flush()?
+            if not self.try_receive()?:
+                return Ok(Nothing)
+        Ok(Nothing)
+
+    # Encrypts at most 16 KiB of source[start:stop] and sends what the socket
+    # takes at once; the count taken. Nothing, with nothing taken, while the
+    # handshake is incomplete or earlier ciphertext is still unsent. What the
+    # socket did not take is sent by later `try_` calls.
+    pub def try_write(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
+        if self._closed:
+            return Err(TlsError.Closed)
+        if not self.try_handshake()?:
+            return Ok(Nothing)
+        if not self.try_flush()?:
+            return Ok(Nothing)
+        mut end = stop
+        if stop - start > buffer_size:
+            end = start + buffer_size
+        count = counted(source.tls_write(&self._session, start, end))?
+        self.try_flush()?
+        Ok(Some(count))
+
+    # What to wait for after a `try_` method returned Nothing or false:
+    # ReadWrite while ciphertext waits to be sent, otherwise Read.
+    pub def interest(self) -> Interest:
+        if self._out_start < self._out_stop or (__tls_state(self._session) & wants_write) != 0:
+            return Interest.ReadWrite
+        Interest.Read
+
+    # Registers the TCP stream with a selector under `key`.
+    pub def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), TlsError]:
+        net(self._tcp.watch(selector, key, interest))
+
+    pub def unwatch(self, selector: &mut Selector) -> Result[(), TlsError]:
+        net(self._tcp.unwatch(selector))
+
     # Decrypted bytes into buffer[start:stop], waiting for at least one.
     # Zero is the peer's close_notify; a stream that ends without one is
     # Truncated, since an attacker can cut a connection short.
@@ -303,7 +627,8 @@ pub class TlsStream:
         Ok(0)
 
     # Encrypts at most 16 KiB of source[start:stop] and sends it before the
-    # deadline; the count taken. On failure, an unknown prefix has been sent.
+    # deadline; the count taken. On failure, an unknown prefix has been sent
+    # and the rest stays buffered for the next call.
     pub def write_before(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
         if self._closed:
             return Err(TlsError.Closed)
@@ -328,15 +653,6 @@ pub class TlsStream:
             __tls_close(self._session)
             self.flush_before(deadline, cancel)?
         net(flowed_net(self._tcp.close()))
-
-    # Registers the TCP stream with a std.ready selector. Readiness reports
-    # ciphertext arriving, not plaintext already decrypted: watch a stream
-    # only after `read_before` has timed out, which leaves nothing buffered.
-    pub def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]:
-        self._tcp.watch(selector, key, interest)
-
-    pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
-        self._tcp.unwatch(selector)
 
     pub def read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start == stop:
@@ -371,6 +687,34 @@ pub class TlsStream:
             self.flush_blocking()?
         self._tcp.close()
 
+    # The application protocol both sides chose (ALPN), or Nothing.
+    pub def application_protocol(self) -> Result[Option[str], TlsError]:
+        text_detail(&self._session, 0)
+
+    # On a server, the host name the client asked for (SNI); Nothing on a
+    # client or when the client sent none.
+    pub def server_name(self) -> Result[Option[str], TlsError]:
+        text_detail(&self._session, 1)
+
+    # The DER encoding of the peer's verified leaf certificate: the server's
+    # on a client, the client's on a server that verifies clients. Nothing
+    # when the peer presented none.
+    pub def peer_certificate(self) -> Result[Option[Bytes], TlsError]:
+        detail(&self._session, 2)
+
+    # Nothing until the handshake has chosen one.
+    pub def version(self) -> Option[TlsVersion]:
+        match __tls_version(self._session):
+            case 12:
+                Some(TlsVersion.Tls12)
+            case 13:
+                Some(TlsVersion.Tls13)
+            case _:
+                Nothing
+
+    pub def cipher_suite(self) -> Option[CipherSuite]:
+        suite_named(__tls_suite(self._session))
+
 def flowed_net(result: Result[(), StreamError]) -> Result[(), NetError]:
     match result:
         case Ok(_):
@@ -383,21 +727,35 @@ def started(tcp: TcpStream, session: ByteStorage) -> Result[TlsStream, TlsError]
     stored(incoming.resize(buffer_size, 0u8))?
     mut outgoing = stored(std.bytes.with_capacity(buffer_size))?
     stored(outgoing.resize(buffer_size, 0u8))?
-    Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, False, False))
+    match CancellationToken():
+        case Ok(idle):
+            Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, 0, 0, False, False, idle))
+        case Err(cause):
+            Err(TlsError.Allocation(cause))
+
+# Starts a client session on a connected stream without waiting; the
+# handshake runs in the stream's first reads and writes, or `try_handshake`.
+# No application data passes before the server is verified.
+pub def start_connect(tcp: TcpStream, config: &ClientConfig, server_name: &str) -> Result[TlsStream, TlsError]:
+    session = opened(__tls_client(config._handle, server_name))?
+    started(tcp, session)
+
+# Starts a server session on an accepted stream without waiting.
+pub def start_accept(tcp: TcpStream, config: &ServerConfig) -> Result[TlsStream, TlsError]:
+    session = opened(__tls_server(config._handle))?
+    started(tcp, session)
 
 # Starts a client session on a connected stream and completes the handshake
 # before the deadline. The server's certificate must chain to the
 # configuration's roots and name `server_name`, a DNS name or IP address.
 pub def connect(tcp: TcpStream, config: &ClientConfig, server_name: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]:
-    session = opened(__tls_client(config._handle, server_name))?
-    mut stream = started(tcp, session)?
+    mut stream = start_connect(tcp, config, server_name)?
     stream.handshake_before(deadline, cancel)?
     Ok(stream)
 
 # Starts a server session on an accepted stream and completes the handshake
 # before the deadline.
 pub def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]:
-    session = opened(__tls_server(config._handle))?
-    mut stream = started(tcp, session)?
+    mut stream = start_accept(tcp, config)?
     stream.handshake_before(deadline, cancel)?
     Ok(stream)
