@@ -4,11 +4,14 @@
 connections. Each call has a caller deadline and cancellation token and a
 timeout for each phase. Redirects are bounded and drop credentials when the
 origin changes. A proxy is used only when configured, and a request is
-replayed only when that is safe. Framing comes from [`std.http`](http.md)
-and sockets from [`std.net`](net.md). The module is checked Plenty in
-`stdlib/std/http/client.plenty` and adds no runtime primitives. The tutorial
-lesson [Send HTTP requests](../../tutorial/11-concurrency/http-client.md)
-shows a complete program.
+replayed only when that is safe. Request bodies are in memory or streamed
+from a `std.io` `Reader`. Framing comes from [`std.http`](http.md) and
+sockets from [`std.net`](net.md); [`std.http.https`](#https) adds `https`
+URLs through [`std.tls`](tls.md). Both modules are checked Plenty in
+`stdlib/std/http/` and add no runtime primitives. The tutorial lessons
+[Send HTTP requests](../../tutorial/11-concurrency/http-client.md) and
+[Send HTTPS requests](../../tutorial/11-concurrency/https-client.md) show
+complete programs.
 
 ## Clients
 
@@ -17,6 +20,7 @@ shows a complete program.
 | `client(config: Config)` | `Result[Client[Plain, TcpConnector], ClientError]`: plain `http` over TCP |
 | `connector[T, C](opener: C, config: Config)` | `Result[Client[T, C], ClientError]`: connections come from `opener`; give both type arguments |
 | `client.send(request, &deadline, &cancel)` | `Result[Response[T], ClientError]`: the final response head, after redirects |
+| `client.send_from(request, &mut body, &upload, &deadline, &cancel)` | `send` with the body read from `body`, a `std.io` `Reader`; see [Streamed bodies](#streamed-bodies) |
 | `client.fetch(request, &deadline, &cancel)` | `Result[Fetched, ClientError]`: `send`, read the whole body, `finish` |
 | `client.get(url: &str, &deadline, &cancel)` | `fetch` of a `GET` |
 | `client.finish(response)` | Pool the connection if the body was read to its end and both sides allow reuse; otherwise close it |
@@ -47,20 +51,50 @@ ends with `Net(Cancelled)`.
 | `Fetched.status`, `head`, `url`, `redirects`, `body: Bytes` | A whole response |
 
 The client writes `Host` from the URL, and `Content-Length` when the body is
-not empty or the method is `POST`, `PUT` or `PATCH`. The body is sent with
-`Content-Length`; chunked request bodies are not sent. A request that sets
+not empty or the method is `POST`, `PUT` or `PATCH`. An in-memory body is
+sent with `Content-Length`. A request that sets
 `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`,
 `Upgrade`, `TE`, `Trailer`, `Expect`, `Proxy-Authorization` or
 `Proxy-Connection` fails with `InvalidRequest`, as do `CONNECT` and a method
 that is not an HTTP token. These checks run before any connection opens.
 
-URLs must be absolute `http` URLs with a host. Credentials in the URL
-(`user:pass@`) are `InvalidUrl`; send an `Authorization` field instead. The
-fragment is not sent. An `https` URL passes the URL checks but the TCP
-connector refuses it with `UnsupportedScheme`.
+URLs must be absolute `http` or `https` URLs with a host. Credentials in the
+URL (`user:pass@`) are `InvalidUrl`; send an `Authorization` field instead.
+The fragment is not sent. The TCP connector refuses an `https` URL with
+`UnsupportedScheme`; use [`std.http.https`](#https).
 
 Interim `1xx` responses are skipped, up to 16; `101 Switching Protocols` is
 `UnexpectedInterim`. A response to `HEAD`, and a `204` or `304`, has no body.
+
+## Streamed bodies
+
+`send_from` reads the request body from any `std.io` `Reader`, 16 KiB at a
+time, and never holds more of it. The request's own `body` must be empty,
+or the call fails with `InvalidRequest` before connecting.
+
+| Item | Meaning |
+|---|---|
+| `sized(length: i64)` | `Upload` sent with `Content-Length: length` |
+| `chunked()` | `Upload` sent with `Transfer-Encoding: chunked` and no trailers |
+| `Upload.length: Option[i64]`, `expect_continue: bool` | Public fields; `expect_continue` is `False` from both constructors |
+
+With `sized`, the reader must yield exactly `length` bytes: more, or an end
+before `length`, is `WrongBodyLength` and the connection is closed. A
+negative length is `InvalidRequest`. A reader failure is `Body(StreamError)`,
+or `Allocation`.
+
+With `expect_continue`, the head carries `Expect: 100-continue` and the
+client waits up to `config.continue_timeout` before sending the body:
+
+| The server | The client |
+|---|---|
+| Sends `100 Continue` | Sends the body, then reads the final response |
+| Sends nothing before `continue_timeout` | Sends the body anyway, as RFC 9110 allows |
+| Sends a final response first, such as `417` or `401` | Returns it without sending the body; the connection is closed, not pooled |
+
+A `417 Expectation Failed` is returned like any other status; the client
+does not retry without the expectation, since the reader may not be
+restartable.
 
 ## Connections and the pool
 
@@ -90,7 +124,8 @@ arrives, by end of input, a reset, or a failed write, the client sends it
 again on a new connection, at most `retries` times, but only if:
 
 - the method is `GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT` or `DELETE`, and
-- the body is the request's in-memory `body`, which can be sent again.
+- the body is the request's in-memory `body`, or a streamed body of which
+  nothing has been read yet (for example, while waiting for `100 Continue`).
 
 `POST`, `PATCH` and other methods are never replayed, since the server may
 have acted on them. A failure on a new connection, or after response bytes,
@@ -108,7 +143,9 @@ followed, at most `redirects` times; one more is `TooManyRedirects`. With
 | `301`, `302` after `POST` | `GET` without a body |
 | `301`, `302` otherwise, `307`, `308` | Same method and body |
 
-When the body is dropped, so are `Content-*` fields. `Location` may be
+When the body is dropped, so are `Content-*` fields. A redirect that keeps
+the body is not followed for a streamed body, which cannot be read twice:
+`send_from` returns the `301`, `302`, `307` or `308` response itself. `Location` may be
 absolute, scheme-relative (`//host/path`), absolute-path or relative; it is
 resolved against the current URL and `.` and `..` segments are removed.
 A location that does not parse is `InvalidRedirect`, another scheme is
@@ -128,9 +165,14 @@ body closes it.
 | `Proxy.endpoint`, `authorization: Option[str]` | Where to connect, and the `Proxy-Authorization` value |
 
 With `config.proxy` set, every `http` request goes to the proxy with an
-absolute-form target (`GET http://host/path HTTP/1.1`). `authorization` is
-sent to the proxy as `Proxy-Authorization` and never to an origin. Nothing is
-read from the environment: `HTTP_PROXY` and `NO_PROXY` are ignored.
+absolute-form target (`GET http://host/path HTTP/1.1`). An `https` request
+opens a tunnel instead: the client sends `CONNECT host:port HTTP/1.1` to the
+proxy, and after a `2xx` reply runs TLS to the origin through it, verifying
+the origin's certificate, and sends an origin-form request. A non-`2xx`
+reply is `TunnelRefused(status)`; its body is not read. `authorization` is
+sent to the proxy as `Proxy-Authorization`, on `CONNECT` for a tunnel, and
+never to an origin. Nothing is read from the environment: `HTTP_PROXY` and
+`NO_PROXY` are ignored.
 
 ## Configuration
 
@@ -144,6 +186,7 @@ read from the environment: `HTTP_PROXY` and `NO_PROXY` are ignored.
 | `head_timeout` | From the end of the request to the end of the final response head | 30 s |
 | `read_timeout` | Any one read | 30 s |
 | `idle_timeout` | Keep a pooled connection | 30 s |
+| `continue_timeout` | Wait for `100 Continue` before sending a streamed body anyway | 1 s |
 | `max_idle` | Pooled connections in all, at least 0; 0 sends `Connection: close` | 16 |
 | `max_idle_per_origin` | Pooled connections for one origin, at least 0 | 4 |
 | `redirects` | Redirects to follow, 0 to 100 | 10 |
@@ -160,22 +203,65 @@ and its per-operation timeout.
 |---|---|
 | `protocol Transport` | `read_before` and `write_before` with `TcpStream`'s parameters, returning `Result[i64, ClientError]` |
 | `protocol Connector[T]` | `open(self: &mut, endpoint: &Endpoint, deadline, cancel) -> Result[T, ClientError]` |
-| `Endpoint(scheme, host, port: u16)` | Where to connect: the origin, or the proxy; `host` is lowercase without brackets |
-| `Plain`, `TcpConnector` | A TCP connection; the connector resolves the host and tries each address in turn |
+| `Endpoint(scheme, host, port: u16, tunnel: Option[Tunnel])` | Where to connect: the origin, or the proxy; `host` is lowercase without brackets |
+| `Tunnel(host, port: u16, authorization: Option[str])` | The proxy to reach the origin through with `CONNECT` |
+| `dial(&endpoint, &deadline, &cancel)` | `Result[TcpStream, ClientError]`: a TCP connection to the endpoint, through its tunnel if it has one |
+| `Plain`, `TcpConnector` | A TCP connection; the connector refuses `https` and tunnels with `UnsupportedScheme` |
 
-A connector decides how to reach an endpoint. A TLS connector that returns
-an encrypting stream will make `https` URLs work without changing the
-client. An in-memory connector makes code that uses a client testable
-without sockets.
+A connector decides how to reach an endpoint. `dial` resolves the host and
+tries each address in turn. An in-memory connector makes code that uses a
+client testable without sockets.
+
+## HTTPS
+
+`import std.http.https` supplies a connector that opens `http` endpoints over
+TCP and `https` ones over [`std.tls`](tls.md). It is a separate module so
+that a program using only `http` does not depend on the TLS stack.
+
+| Item | Meaning |
+|---|---|
+| `client(config: Config, tls: ClientConfig)` | `Result[Client[Connection, HttpsConnector], ClientError]` |
+| `system_client(config: Config)` | `client` with the operating system's trust roots |
+| `connector(tls: ClientConfig)` | `HttpsConnector`, for `std.http.client.connector` |
+| `secure_error(error: TlsError)` | The `ClientError` a TLS failure becomes |
+
+Verification is always on: the server's certificate must chain to the roots
+in `tls` and name the URL's host, a DNS name or IP address, which is also
+sent as the server name (SNI). There is no switch to skip verification;
+trust a private CA by building `tls` from its certificate. Client
+certificates, protocol versions and revocation lists come from `tls`. If
+`tls` offers ALPN protocols, a server that picks anything but `http/1.1` is
+`Tls(Incompatible)`.
+
+A pooled `https` connection is keyed by scheme, host and port like any
+other, so it is reused only for the same server name. A redirect from
+`https` to `http` is `InvalidRedirect`.
+
+TLS failures map to `ClientError`:
+
+| `TlsError` | `ClientError` |
+|---|---|
+| `Net(e)` | `Net(e)` |
+| `Truncated` | `Net(Stream(UnexpectedEof))`, so a closed pooled connection is replayed as a TCP one is |
+| `Closed` | `Net(Stream(Io(Closed)))` |
+| `Allocation(e)` | `Allocation(e)` |
+| Any certificate, handshake or configuration failure | `Tls(TlsFailure)` with the same variant name |
 
 ## Errors
 
 `ClientError` is `Net(NetError)` for connection failures, timeouts and
 cancellation; `Http(HttpError)` for malformed or oversized responses, with
 `Truncated` for a connection that closed early; `Url(UrlError)`;
-`Allocation`; and `InvalidConfig`, `InvalidUrl`, `UnsupportedScheme`,
-`InvalidRequest`, `InvalidRedirect`, `TooManyRedirects` and
-`UnexpectedInterim`. No variant carries a URL or field value, so printing an
+`Allocation`; `Tls(TlsFailure)` for a TLS handshake or session failure;
+`TunnelRefused(status)` for a proxy that refused `CONNECT`;
+`Body(StreamError)` for a streamed body's reader failure; and
+`InvalidConfig`, `InvalidUrl`, `UnsupportedScheme`, `InvalidRequest`,
+`InvalidRedirect`, `TooManyRedirects`, `UnexpectedInterim` and
+`WrongBodyLength`. `TlsFailure` has the variants `UntrustedCertificate`,
+`ExpiredCertificate`, `WrongHost`, `InvalidCertificate`,
+`RevokedCertificate`, `Rejected`, `Protocol`, `InvalidName`,
+`InvalidConfiguration`, `NoTrustRoots`, `CertificateRequired` and
+`Incompatible`; see [`TlsError`](tls.md). No variant carries a URL or field value, so printing an
 error does not reveal credentials.
 
 `Stats` counts, as `u64`: `opened` connections, `reused` pooled
@@ -185,10 +271,15 @@ with unread bytes buffered.
 
 ## Limits
 
-- No `https` yet: TLS arrives with a [`std.tls`](../../backlog.md)
-  connector, and `CONNECT` tunnelling through a proxy with it.
-- Request bodies are in memory; streamed and chunked request bodies are
-  later work. Response bodies stream.
-- No cookie jar, content decoding, `Expect: 100-continue`, or HTTP/2.
-- One thread per client. The pool is not shared between threads.
+- One thread per client. The pool is not shared between threads: std.sync
+  has no mutex, and a pool passed around through channels cannot look up a
+  connection by origin without taking every other thread's connections out
+  of it. Give each thread its own client.
+- No cookie jar. Read `Set-Cookie` fields from `response.head` and send a
+  `Cookie` field yourself; the client drops it when the origin changes.
+- No content decoding. The client does not send `Accept-Encoding`, so
+  servers send identity bodies; a program that asks for `gzip` decodes the
+  body itself with [`std.compress`](compress.md) under its own size limit.
+- No HTTP/2, and no proxy for `https` other than an `http` proxy with
+  `CONNECT`.
 - Connecting tries addresses one after another, not in parallel.

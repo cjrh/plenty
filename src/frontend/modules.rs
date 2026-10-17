@@ -102,6 +102,9 @@ impl ModuleSource {
             Self::Standard("std.http.client") => {
                 Ok(include_str!("../../stdlib/std/http/client.plenty").into())
             }
+            Self::Standard("std.http.https") => {
+                Ok(include_str!("../../stdlib/std/http/https.plenty").into())
+            }
             Self::Standard("std.test") => Ok(include_str!("../../stdlib/std/test.plenty").into()),
             Self::Standard(_) => unreachable!("validated standard module"),
             Self::File(path) => std::fs::read_to_string(path)
@@ -787,10 +790,11 @@ pub(super) fn load_graph_with(
                     "std.http.files" => Ok(ModuleSource::Standard("std.http.files")),
                     "std.http.proxy" => Ok(ModuleSource::Standard("std.http.proxy")),
                     "std.http.client" => Ok(ModuleSource::Standard("std.http.client")),
+                    "std.http.https" => Ok(ModuleSource::Standard("std.http.https")),
                     "std.test" => Ok(ModuleSource::Standard("std.test")),
                     "std.db.sqlite" => Ok(ModuleSource::Standard("std.db.sqlite")),
                     _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready, std.net, std.tls, std.http, std.http.server, std.http.tls, std.http.body, std.http.cookie, std.http.proxy, std.http.files, std.http.client, std.db.sqlite, std.test",
+                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.ready, std.net, std.tls, std.http, std.http.server, std.http.tls, std.http.body, std.http.cookie, std.http.proxy, std.http.files, std.http.client, std.http.https, std.db.sqlite, std.test",
                         import.module
                 ))),
                 };

@@ -1,0 +1,138 @@
+# HTTPS for std.http.client: a connector that opens plain TCP for `http`
+# URLs and std.tls sessions for `https` ones, verified against the caller's
+# trust roots with the URL's host as the server name, through a CONNECT
+# tunnel when the client has a proxy. A separate module so that plain
+# clients do not link TLS. See book/src/design/stdlib/http-client.md.
+import std.http.client
+import std.tls
+from std.bytes import Bytes
+from std.http.client import Client, ClientError, Config, Endpoint, TlsFailure
+from std.io import StreamError
+from std.net import NetError, TcpStream
+from std.sync import CancellationToken
+from std.time import Deadline
+from std.tls import ClientConfig, TlsError, TlsStream
+
+# One client connection: TCP for `http`, TLS for `https`.
+pub class Connection:
+    _plain: Option[TcpStream]
+    _tls: Option[TlsStream]
+
+    pub def read_before(self: &mut Connection, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        match &mut self._tls:
+            case Some(stream):
+                return secured(stream.read_before(buffer, start, stop, deadline, cancel))
+            case Nothing:
+                pass
+        match &mut self._plain:
+            case Some(stream):
+                netted(stream.read_before(buffer, start, stop, deadline, cancel))
+            case Nothing:
+                Err(ClientError.Net(NetError.Stream(StreamError.Io(IoError.Closed))))
+
+    pub def write_before(self: &mut Connection, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        match &mut self._tls:
+            case Some(stream):
+                return secured(stream.write_before(source, start, stop, deadline, cancel))
+            case Nothing:
+                pass
+        match &mut self._plain:
+            case Some(stream):
+                netted(stream.write_before(source, start, stop, deadline, cancel))
+            case Nothing:
+                Err(ClientError.Net(NetError.Stream(StreamError.Io(IoError.Closed))))
+
+def netted[T](result: Result[T, NetError]) -> Result[T, ClientError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case NetError.Stream(StreamError.Allocation(cause)):
+                    Err(ClientError.Allocation(cause))
+                case _ as other:
+                    Err(ClientError.Net(other))
+
+# A TLS failure as a client error. A session that ends without close_notify
+# reads as the end of a TCP stream, so a reused connection that its server
+# closed is replayed as a plain one would be.
+pub def secure_error(error: TlsError) -> ClientError:
+    match error:
+        case TlsError.Net(cause):
+            match cause:
+                case NetError.Stream(StreamError.Allocation(inner)):
+                    ClientError.Allocation(inner)
+                case _ as other:
+                    ClientError.Net(other)
+        case TlsError.Allocation(cause):
+            ClientError.Allocation(cause)
+        case TlsError.Truncated:
+            ClientError.Net(NetError.Stream(StreamError.UnexpectedEof))
+        case TlsError.Closed:
+            ClientError.Net(NetError.Stream(StreamError.Io(IoError.Closed)))
+        case TlsError.UntrustedCertificate:
+            ClientError.Tls(TlsFailure.UntrustedCertificate)
+        case TlsError.ExpiredCertificate:
+            ClientError.Tls(TlsFailure.ExpiredCertificate)
+        case TlsError.WrongHost:
+            ClientError.Tls(TlsFailure.WrongHost)
+        case TlsError.InvalidCertificate:
+            ClientError.Tls(TlsFailure.InvalidCertificate)
+        case TlsError.RevokedCertificate:
+            ClientError.Tls(TlsFailure.RevokedCertificate)
+        case TlsError.Rejected:
+            ClientError.Tls(TlsFailure.Rejected)
+        case TlsError.Protocol:
+            ClientError.Tls(TlsFailure.Protocol)
+        case TlsError.InvalidName:
+            ClientError.Tls(TlsFailure.InvalidName)
+        case TlsError.InvalidConfiguration:
+            ClientError.Tls(TlsFailure.InvalidConfiguration)
+        case TlsError.NoTrustRoots:
+            ClientError.Tls(TlsFailure.NoTrustRoots)
+        case TlsError.CertificateRequired:
+            ClientError.Tls(TlsFailure.CertificateRequired)
+        case TlsError.Incompatible:
+            ClientError.Tls(TlsFailure.Incompatible)
+
+def secured[T](result: Result[T, TlsError]) -> Result[T, ClientError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(secure_error(error))
+
+# Opens `http` endpoints over TCP and `https` ones over TLS with `tls`.
+pub class HttpsConnector:
+    _tls: ClientConfig
+
+    pub def open(self: &mut HttpsConnector, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Connection, ClientError]:
+        if endpoint.scheme == "http" and endpoint.tunnel.is_none():
+            return Ok(Connection(Some(std.http.client.dial(endpoint, deadline, cancel)?), Nothing))
+        if endpoint.scheme != "https":
+            return Err(ClientError.UnsupportedScheme)
+        tcp = std.http.client.dial(endpoint, deadline, cancel)?
+        stream = secured(std.tls.connect(tcp, &self._tls, &endpoint.host, deadline, cancel))?
+        # HTTP/1.1 is all this client speaks; a server that chose another
+        # protocol offered in `tls` cannot be talked to.
+        match secured(stream.application_protocol())?:
+            case Some(chosen):
+                if chosen != "http/1.1":
+                    return Err(ClientError.Tls(TlsFailure.Incompatible))
+            case Nothing:
+                pass
+        Ok(Connection(Nothing, Some(stream)))
+
+pub def connector(tls: ClientConfig) -> HttpsConnector:
+    HttpsConnector(tls)
+
+# A client for `http` and `https` URLs. Servers are verified with `tls`,
+# which also supplies any client certificate and protocol settings.
+pub def client(config: Config, tls: ClientConfig) -> Result[Client[Connection, HttpsConnector], ClientError]:
+    std.http.client.connector[Connection, HttpsConnector](HttpsConnector(tls), config)
+
+# A client that verifies servers against the operating system's trust roots.
+pub def system_client(config: Config) -> Result[Client[Connection, HttpsConnector], ClientError]:
+    roots = secured(std.tls.system_roots())?
+    tls = secured(std.tls.client_config(&roots))?
+    client(config, tls)

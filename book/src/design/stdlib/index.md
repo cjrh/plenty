@@ -58,6 +58,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.proxy`](http-proxy.md) | The client address and scheme behind explicitly trusted reverse proxies; deployment guidance | `ProxyError` |
 | [`std.http.files`](http-files.md) | Static files below a `Root`, opened one segment at a time without following links, with media types and conditional requests | `FilesError` |
 | [`std.http.client`](http-client.md) | HTTP/1.1 client: pooled connections, deadlines and cancellation, bounded redirects, an explicit proxy, and replay of idempotent requests only | `ClientError` |
+| [`std.http.https`](http-client.md#https) | `std.http.client` for `https` URLs through [`std.tls`](tls.md), verified by default, with `CONNECT` tunnels through a proxy | `ClientError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in

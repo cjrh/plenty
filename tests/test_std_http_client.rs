@@ -359,6 +359,202 @@ opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=0"##,
     );
 }
 
+/// Streamed request bodies: `Content-Length` and chunked framing, a length
+/// that does not match, a failing source, `Expect: 100-continue` answered,
+/// refused and unanswered, replay only before any body byte is read, and
+/// redirects that would need the body again.
+#[test]
+fn streamed_request_bodies_and_100_continue() {
+    runs(
+        SCRIPTED,
+        r##"
+from std.io import StreamError
+
+# Yields `data` in reads of at most `step` bytes, then ends, or fails when
+# `fail` is set.
+pub class Pieces:
+    pub data: Bytes
+    pub at: i64
+    pub step: i64
+    pub fail: bool
+
+    pub def read(self: &mut Pieces, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        left = self.data.len() - self.at
+        if left == 0:
+            if self.fail:
+                return Err(StreamError.Io(IoError.Other))
+            return Ok(0)
+        mut count = stop - start
+        if count > self.step:
+            count = self.step
+        if count > left:
+            count = left
+        buffer.overwrite(start, &self.data, self.at, self.at + count).unwrap()
+        self.at += count
+        Ok(count)
+
+def pieces(text: &str) -> Result[Pieces, Failure]:
+    Ok(Pieces(std.bytes.from_text(text)?, 0, 4, False))
+
+def done(result: Result[hc.Response[Script], ClientError], client: &mut hc.Client[Script, Scripts]) -> Result[(), Failure]:
+    print("")?
+    match result:
+        case Ok(response):
+            mut owned = response
+            mut body = std.bytes.empty()?
+            owned.read_all(&mut body)?
+            print("=> ".concat(&str.from(owned.status)?)?.concat(" ")?.concat(&owned.url)?.concat(" redirects=")?.concat(&str.from(owned.redirects)?)?.concat(" body=")?.concat(&body.to_text()?)?)?
+            client.finish(owned)
+        case Err(error):
+            print("=> error")?
+            print(error)?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    a = script([ok("s1")?, ok("c1")?]?, True)?
+    mut client = scripted([a]?, hc.config()?)?
+    mut source = pieces("hello world")?
+    done(client.send_from(hc.request("PUT", "http://h/sized")?, &mut source, &hc.sized(11), &later()?, &never), &mut client)?
+    source = pieces("hello world")?
+    done(client.send_from(hc.request("POST", "http://h/chunked")?, &mut source, &hc.chunked(), &later()?, &never), &mut client)?
+    stats(&client)?
+    print("--- the length must match")?
+    b = script([ok("x")?]?, True)?
+    c = script([ok("x")?]?, True)?
+    d = script([ok("x")?]?, True)?
+    mut checked = scripted([b, c, d]?, hc.config()?)?
+    source = pieces("hello world")?
+    done(checked.send_from(hc.request("PUT", "http://h/long")?, &mut source, &hc.sized(5), &later()?, &never), &mut checked)?
+    source = pieces("hello")?
+    done(checked.send_from(hc.request("PUT", "http://h/short")?, &mut source, &hc.sized(8), &later()?, &never), &mut checked)?
+    source = pieces("bad")?
+    source.fail = True
+    done(checked.send_from(hc.request("PUT", "http://h/fails")?, &mut source, &hc.chunked(), &later()?, &never), &mut checked)?
+    stats(&checked)?
+    print("--- 100-continue")?
+    mut quick = hc.config()?
+    quick.continue_timeout = std.time.milliseconds(100u32)
+    mut expect = hc.sized(5)
+    expect.expect_continue = True
+    e = script(["HTTP/1.1 100 Continue\r\n\r\n", ok("e")?]?, True)?
+    mut waits = scripted([e]?, copy(quick).unwrap())?
+    source = pieces("hello")?
+    done(waits.send_from(hc.request("PUT", "http://h/continue")?, &mut source, &expect, &later()?, &never), &mut waits)?
+    stats(&waits)?
+    print("--- a final answer first leaves the body unsent")?
+    f = script(["HTTP/1.1 417 Expectation Failed\r\nContent-Length: 0\r\n\r\n"]?, True)?
+    mut refused = scripted([f]?, copy(quick).unwrap())?
+    source = pieces("hello")?
+    done(refused.send_from(hc.request("PUT", "http://h/refused")?, &mut source, &expect, &later()?, &never), &mut refused)?
+    print(source.at)?
+    stats(&refused)?
+    print("--- a silent server gets the body after continue_timeout")?
+    g = script(["", ok("g")?]?, True)?
+    mut silent = scripted([g]?, copy(quick).unwrap())?
+    source = pieces("hello")?
+    done(silent.send_from(hc.request("PUT", "http://h/silent")?, &mut source, &expect, &later()?, &never), &mut silent)?
+    stats(&silent)?
+    print("--- replayed only while the body is unread")?
+    h = script([ok("h")?, ""]?, False)?
+    i = script([ok("i")?]?, True)?
+    mut replays = scripted([h, i]?, hc.config()?)?
+    show(replays.get("http://h/1", &later()?, &never))?
+    source = pieces("hello")?
+    done(replays.send_from(hc.request("PUT", "http://h/2")?, &mut source, &expect, &later()?, &never), &mut replays)?
+    stats(&replays)?
+    j = script([ok("j")?, ""]?, False)?
+    k = script([ok("k")?]?, True)?
+    mut once = scripted([j, k]?, hc.config()?)?
+    show(once.get("http://h/1", &later()?, &never))?
+    source = pieces("hello")?
+    done(once.send_from(hc.request("PUT", "http://h/2")?, &mut source, &hc.sized(5), &later()?, &never), &mut once)?
+    stats(&once)?
+    print("--- redirects that need the body again are returned")?
+    l = script(["HTTP/1.1 307 Temporary Redirect\r\nLocation: /again\r\nContent-Length: 0\r\n\r\n", "HTTP/1.1 303 See Other\r\nLocation: /done\r\nContent-Length: 0\r\n\r\n", ok("l")?]?, True)?
+    mut moves = scripted([l]?, hc.config()?)?
+    source = pieces("hello")?
+    done(moves.send_from(hc.request("PUT", "http://h/a")?, &mut source, &hc.sized(5), &later()?, &never), &mut moves)?
+    source = pieces("hello")?
+    done(moves.send_from(hc.request("POST", "http://h/b")?, &mut source, &hc.sized(5), &later()?, &never), &mut moves)?
+    print("--- an in-memory body is refused")?
+    mut both = hc.request("PUT", "http://h/c")?
+    both.body = std.bytes.from_text("x")?
+    source = pieces("hello")?
+    done(moves.send_from(both, &mut source, &hc.chunked(), &later()?, &never), &mut moves)?
+    source = pieces("hello")?
+    done(moves.send_from(hc.request("PUT", "http://h/c")?, &mut source, &hc.sized(-1), &later()?, &never), &mut moves)?
+    stats(&moves)?
+    Ok(())
+"##,
+        r##"[connect http://h:80]
+PUT /sized HTTP/1.1|Host: h|Content-Length: 11||hello world
+=> 200 http://h/sized redirects=0 body=s1
+POST /chunked HTTP/1.1|Host: h|Transfer-Encoding: chunked||4|hell|4|o wo|3|rld|0||
+=> 200 http://h/chunked redirects=0 body=c1
+opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=1
+--- the length must match
+[connect http://h:80]
+PUT /long HTTP/1.1|Host: h|Content-Length: 5||hell
+=> error
+std.http.client.ClientError.WrongBodyLength
+[connect http://h:80]
+PUT /short HTTP/1.1|Host: h|Content-Length: 8||hello
+=> error
+std.http.client.ClientError.WrongBodyLength
+[connect http://h:80]
+PUT /fails HTTP/1.1|Host: h|Transfer-Encoding: chunked||3|bad|
+=> error
+std.http.client.ClientError.Body(std.io.StreamError.Io(IoError.Other))
+opened=3 reused=0 retried=0 redirected=0 discarded=0 idle=0
+--- 100-continue
+[connect http://h:80]
+PUT /continue HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||hello
+=> 200 http://h/continue redirects=0 body=e
+opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=1
+--- a final answer first leaves the body unsent
+[connect http://h:80]
+PUT /refused HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||
+=> 417 http://h/refused redirects=0 body=
+0
+opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0
+--- a silent server gets the body after continue_timeout
+[connect http://h:80]
+PUT /silent HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||hello
+=> 200 http://h/silent redirects=0 body=g
+opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=1
+--- replayed only while the body is unread
+[connect http://h:80]
+GET /1 HTTP/1.1|Host: h||
+=> 200 http://h/1 redirects=0 body=h
+PUT /2 HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||[connect http://h:80]
+PUT /2 HTTP/1.1|Host: h|Content-Length: 5|Expect: 100-continue||
+=> 200 http://h/2 redirects=0 body=i
+opened=2 reused=1 retried=1 redirected=0 discarded=0 idle=0
+[connect http://h:80]
+GET /1 HTTP/1.1|Host: h||
+=> 200 http://h/1 redirects=0 body=j
+PUT /2 HTTP/1.1|Host: h|Content-Length: 5||hello
+=> error
+std.http.client.ClientError.Http(std.http.HttpError.Truncated)
+opened=1 reused=1 retried=0 redirected=0 discarded=0 idle=0
+--- redirects that need the body again are returned
+[connect http://h:80]
+PUT /a HTTP/1.1|Host: h|Content-Length: 5||hello
+=> 307 http://h/a redirects=0 body=
+POST /b HTTP/1.1|Host: h|Content-Length: 5||helloGET /done HTTP/1.1|Host: h||
+=> 200 http://h/done redirects=1 body=l
+--- an in-memory body is refused
+
+=> error
+std.http.client.ClientError.InvalidRequest
+
+=> error
+std.http.client.ClientError.InvalidRequest
+opened=1 reused=2 retried=0 redirected=1 discarded=0 idle=1"##,
+    );
+}
+
 /// Short bodies, body limits, interim and `101` responses, chunked bodies read
 /// in pieces, and HEAD.
 #[test]

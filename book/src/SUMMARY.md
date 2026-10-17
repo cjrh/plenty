@@ -191,6 +191,7 @@
         - [Read forms, cookies and forwarded clients](tutorial/11-concurrency/http-forms.md)
         - [Serve files and sign cookies](tutorial/11-concurrency/http-files.md)
         - [Send HTTP requests](tutorial/11-concurrency/http-client.md)
+        - [Send HTTPS requests](tutorial/11-concurrency/https-client.md)
 - [Wait for I/O with a deadline](tutorial/11-concurrency/bounded-io.md)
     - [12. Working with C libraries (optional)](tutorial/12-c-libraries/index.md)
         - [Call C libraries](tutorial/12-c-libraries/calling-c.md)
