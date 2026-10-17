@@ -2,15 +2,17 @@
 
 > **Revised direction, 2026-10-17:** [Named arguments and fresh defaults](named-arguments-and-fresh-defaults.md)
 > is the preferred narrow proposal for B36. It separates named calls and defaults
-> from splat unpacking and signature markers, and explores fresh fallible defaults
-> as a distinct later stage. This older document retains the broader alternatives;
+> from splat unpacking and signature markers, and implements fresh fallible defaults.
+> This older document retains the broader alternatives;
 > its constant-only restriction and combined first stage are not the new direction.
 
-> **Status: Not implemented** (B36). The compiler rejects every form on this
-> page.
+> **Status: Partly implemented** (B36). Named calls and fresh per-call defaults
+> ship for named functions, methods and constructors. Splats, variadics and
+> positional-only/keyword-only signature markers remain unimplemented.
 > [Signatures and calls](../design/language/06-functions/01-signatures-and-calls.md)
-> states the current rule: no default or keyword arguments. The present tense
-> below describes the proposed design.
+> owns the current contract, including callable and protocol restrictions.
+> The present tense below records the older, broader proposed design; its
+> constant-only defaults are superseded by fresh expression defaults.
 
 Python's keyword arguments, defaults, and `*`/`**` unpacking make calls and
 literals easier to read and write. Plenty adopts them only where the compiler

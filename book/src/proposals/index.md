@@ -24,7 +24,7 @@ syntax that never shipped. Proposal code is not compiled by the test suite.
 A change that implements or alters a proposed design updates that proposal's
 status block in the same change. A proposal that is superseded or abandoned, or
 that only records completed work, is deleted; Git history keeps it. Statuses
-were last reconciled with the compiler on 2026-10-10.
+were last scanned against merged implementation work on 2026-10-17.
 
 ## Implemented
 
@@ -41,6 +41,7 @@ were last reconciled with the compiler on 2026-10-10.
 | [Stored closure environments](stored-closures.md) | [Consuming and stored closures](../design/language/06-functions/04-consuming-and-stored-closures.md) | B11, B32 |
 | [Native concurrency contract](native-concurrency.md) | [Concurrency](../design/facilities/03-concurrency/index.md) | B13, B24, B28 |
 | [Bounded channel implementation](bounded-channels.md) | [Channels](../design/facilities/03-concurrency/channels.md) | Deferred B22 extensions |
+| [Named arguments and fresh defaults](named-arguments-and-fresh-defaults.md) | [Signatures and calls](../design/language/06-functions/01-signatures-and-calls.md) | B36 refinements; unpacking remains separate |
 
 ## Partly implemented
 
@@ -53,15 +54,15 @@ were last reconciled with the compiler on 2026-10-10.
 | [Generated library contracts and C headers](ffi-export-contracts.md) | [Exports](../design/facilities/04-interop/exports.md), [contracts](../design/facilities/04-interop/contracts.md) | B27, B28 |
 | [Fallible memory, parallel execution, and SIMD](memory-parallelism-and-simd.md) | [Fallible allocation](../design/language/08-errors/02-allocation-and-traps.md), [concurrency](../design/facilities/03-concurrency/index.md) | B13, B23, B24 |
 | [Plenty's next language phase](next-language-phase.md) | Nine of eleven recommendations, at least in part | B13, B23, and others |
-| [Standard library scope](standard-library-scope.md) | Embedded math, paths, filesystem walking and deque | B38–B70 |
+| [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
+| [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | Named calls and fresh defaults under the narrower design above | B36: splats and signature markers remain separate candidates |
+| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md); isolated typed-stream experiment | B71: production stream composition and broader framing |
+| [Bundled HTTP acceptance](standard-http.md) | [Client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md), TLS and deployment helpers | B66 qualification |
 
 ## Not implemented
 
 | Proposal | Backlog |
 | --- | --- |
-| [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | B36 |
-| [Named arguments and fresh defaults](named-arguments-and-fresh-defaults.md) — preferred narrow revision of B36 | B36 |
-| [Explicit error composition](error-composition.md) and [finite error sets](error-sets.md) | B71 |
+| [Finite error sets](error-sets.md) | B71 |
 | [Typestate and owned transitions](typestate-and-owned-transitions.md) — assessment and experiments using existing facilities | B72 |
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
-| [Bundled HTTP acceptance](standard-http.md) | B58–B66 |

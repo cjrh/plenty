@@ -16,8 +16,11 @@
 >   examples. Literate `.plenty` sources, a manifest, and generated Markdown are
 >   B21.
 >
-> **Remaining:** re-exports, cycle policy, packages, and cached module objects
-> (B17); literate lesson sources (B21).
+> **Shipped since this proposal:** [packages](../design/toolchain/01-building/packages.md)
+> provide manifests, locked path/Git dependencies, workspaces, package commands,
+> and per-target build reuse. Import cycles are rejected.
+> **Remaining:** re-exports and finer module caching/reuse (B17); literate
+> lesson sources (B21). Registry resolution remains separate package scope.
 
 ## Current behavior and the proposed entry point
 

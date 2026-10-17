@@ -139,7 +139,7 @@ ownership remain in the shared `issues.db`.
 | ID | Work item | Scope |
 | --- | --- | --- |
 | B71 | Explicit error composition | `std.error.map_error` implements explicit result mapping, with eleven HTTP/JSON adapters using it. An isolated [typed-stream prototype](proposals/error-composition.md#prototype-findings) exercises progress, retry, and fixed-length HTTP body composition; production stream/HTTP migration and other framing modes remain. Generic dependency depth and total resource budgets are now separate (issue #141), allowing the broader adoption. Independently assess [finite error sets](proposals/error-sets.md); runtime error-protocol objects require a separate representation decision. |
-| B72 | State and ownership ergonomics | Explore [typestate at owned boundaries](proposals/typestate-and-owned-transitions.md) and payload enums for runtime state machines. Existing-code cleanup candidates: issue #134 (fetch placeholder head), issue #135 (empty-string copies), issue #136 (dummy mutable Results). Keep changes independent and coordinate HTTP overlap; no blanket conversion or general partial-move feature approved. |
+| B72 | State and ownership ergonomics | Explore [typestate at owned boundaries](proposals/typestate-and-owned-transitions.md) and payload enums for runtime state machines. Completed cleanups: tuple-based HTTP response assembly removes placeholder heads (issue #134); ordinary string sharing replaces empty-string copies (issue #135); match-valued bindings replace dummy HTTP Results (issue #136). These use existing language facilities. Typestate experiments and runtime-state enum refactors remain; no blanket conversion or general partial-move feature approved. |
 
 ### Standard library delivery slices
 

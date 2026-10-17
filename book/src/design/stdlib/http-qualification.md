@@ -111,8 +111,11 @@ below, also run with the defaults: clients that each send
 | `config()` defaults, 64 slow clients | `503` at once; 44 slow clients got `503`, the last `408` came after 50 s | Answered within 2 ms; all 64 got `408` at 10 s |
 
 The slow clients still count against `idle_connections` (default 256):
-with that many parked, new connections get `503` until their deadlines
-pass. With 1000 parked partial heads the server's resident memory grew
+with that many parked, new plaintext connections get `503` until slots become
+available (new HTTPS connections close). Already-admitted partial heads and
+handshakes returned by workers can park beyond that admission cap; see the
+[bounded overflow and parking-disabled behavior](http-server.md#idle-connections).
+With 1000 parked partial heads the server's resident memory grew
 from 4548 KiB to 6396 KiB, about 1.9 KiB per connection. Size
 `idle_connections` and the descriptor limit for the slow clients an exposed
 server must outlast. Keep-alive and new-connection throughput showed no
