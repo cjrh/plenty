@@ -43,7 +43,7 @@ nor a general auto-vectorizer should be necessary for the basic language.
 This snapshot predates fallible allocation, inline sums/ranges/generators, static
 type metadata, and atomic ownership counts. It explains the original proposal's
 motivation, not current behavior. See the [implementation status](../design/toolchain/02-architecture/support.md)
-and [native concurrency audit](native-concurrency.md) for the current contracts.
+and [native concurrency audit](completed/native-concurrency.md) for the current contracts.
 
 | Area | Original behavior and implication |
 | --- | --- |
@@ -158,7 +158,7 @@ drop. OOM-safe cleanup must handle any fallible work locally and continue releas
 owned resources. A later compiler-checked `noalloc` effect could verify critical
 cleanup and request-rejection paths; initially keep this a documented runtime
 contract with tests, not an unimplemented guarantee. See the companion
-[context-manager proposal](protocols-generics-and-context-managers.md).
+[context-manager proposal](completed/protocols-generics-and-context-managers.md).
 
 The runtime needs a failure-injection allocator: fail allocation number N for
 every N in a test, then verify unchanged source values, balanced resources,
@@ -260,7 +260,7 @@ complicate the first custom-allocator interface.
 
 ### Runtime prerequisites
 
-The [native concurrency audit](native-concurrency.md) records the current runtime
+The [native concurrency audit](completed/native-concurrency.md) records the current runtime
 and boundary contract. Type metadata is static and immutable, and object counts
 now use atomic ownership handoff, including immutable strings: a list move
 may leave a string alias in the originating thread. Atomic ownership alone

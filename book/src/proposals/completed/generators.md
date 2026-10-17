@@ -1,8 +1,8 @@
 # Native owned generators
 
-> **Status: Implemented.** [Generators](../design/language/09-iteration/03-generators.md)
+> **Status: Implemented.** [Generators](../../design/language/09-iteration/03-generators.md)
 > own the source contract and
-> [environments](../design/toolchain/02-architecture/environments.md) the frame
+> [environments](../../design/toolchain/02-architecture/environments.md) the frame
 > and resume ABI.
 >
 > **Shipped differently:** frames live inline in their owner's storage and
@@ -17,7 +17,7 @@
 >
 > **Remaining (unscheduled):** frames in collections, class fields, tuples, and
 > user enums; `yield from`. Owned generator expressions are now implemented;
-> see the [reference](../design/language/09-iteration/03-generators.md#generator-expressions).
+> see the [reference](../../design/language/09-iteration/03-generators.md#generator-expressions).
 
 ## Source contract
 

@@ -1,8 +1,8 @@
 # One immutable `str` with explicit lengths
 
 > **Status: Implemented.** One immutable `str` with byte and scalar lengths
-> shipped. [Text](../design/facilities/01-builtins/text.md) owns the source
-> contract and [value representation](../design/toolchain/02-architecture/values.md)
+> shipped. [Text](../../design/facilities/01-builtins/text.md) owns the source
+> contract and [value representation](../../design/toolchain/02-architecture/values.md)
 > the layout.
 >
 > **Shipped differently:** a string of at most seven bytes is stored inline in
@@ -13,7 +13,7 @@
 > `input() -> Result[Option[str], IoError]`. Slicing, `replace`, `strip`,
 > `join`, and `str.repr` were added later.
 >
-> **Shipped since this proposal:** [std.bytes](../design/stdlib/bytes.md)
+> **Shipped since this proposal:** [std.bytes](../../design/stdlib/bytes.md)
 > provides owned binary buffers with explicit fallible allocation.
 > **Remaining:** broader C text/buffer representations (B27); language-level
 > bytes literals and slice syntax remain B12 candidates.
@@ -212,6 +212,6 @@ is explicitly transferred. Importing C text validates UTF-8 and copies into the
 normal representation. FFI declarations and library loading must not dictate
 the default language string layout or add another ordinary string type.
 
-[Foreign text borrows](../design/facilities/04-interop/borrowing-text.md) shipped
+[Foreign text borrows](../../design/facilities/04-interop/borrowing-text.md) shipped
 the exporting half as `&str as utf8` and `&str as c_string`. Importing C text
 is B27.

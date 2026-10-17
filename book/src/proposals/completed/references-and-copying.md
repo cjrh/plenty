@@ -2,14 +2,14 @@
 
 > **Status: Implemented.** Model A was accepted and shipped: mutable values
 > move, borrows are checked, and copying is explicit. The
-> [ownership reference](../design/language/05-ownership/index.md) owns the
+> [ownership reference](../../design/language/05-ownership/index.md) owns the
 > contract. This superseded the original ownership proposal, which copied
 > collections on update; that page was removed. Model B below is the rejected
 > alternative.
 >
-> **Shipped beyond this text:** [returned references](../design/language/05-ownership/04-returned-references.md),
-> field and element projections, [reference rebinding](../design/language/05-ownership/03-reference-rebinding.md),
-> [borrowed matching](../design/language/05-ownership/05-borrowed-matching.md),
+> **Shipped beyond this text:** [returned references](../../design/language/05-ownership/04-returned-references.md),
+> field and element projections, [reference rebinding](../../design/language/05-ownership/03-reference-rebinding.md),
+> [borrowed matching](../../design/language/05-ownership/05-borrowed-matching.md),
 > user destructors (`__del__`), and `Box[T]` as a public owner type. An `&T`
 > parameter borrows an owned argument implicitly. Allocating operations,
 > including `copy`, return `Result`.

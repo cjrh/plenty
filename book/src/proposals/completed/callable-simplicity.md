@@ -1,13 +1,13 @@
 # Callable surface review
 
 > **Status: Implemented** (B31).
-> [Function values](../design/language/06-functions/02-function-values.md),
-> [closures](../design/language/06-functions/03-closures.md), and
-> [consuming and stored closures](../design/language/06-functions/04-consuming-and-stored-closures.md)
+> [Function values](../../design/language/06-functions/02-function-values.md),
+> [closures](../../design/language/06-functions/03-closures.md), and
+> [consuming and stored closures](../../design/language/06-functions/04-consuming-and-stored-closures.md)
 > own the contract.
 >
 > **Shipped since this review:** explicit fallible
-> [shared-call erasure](../design/language/06-functions/05-boxed-callables.md)
+> [shared-call erasure](../../design/language/06-functions/05-boxed-callables.md)
 > supports heterogeneous callback storage. Mutable/consuming erased modes and
 > generator-containing stored environments remain B32; stored borrows remain B11.
 
@@ -20,7 +20,7 @@ making every capability a prerequisite for writing an ordinary closure.
 | Surface | Concrete need | Decision |
 | --- | --- | --- |
 | `def(...)` | A multiline function expression | Keep; the same typed function body as a named function |
-| `def [captures](...)` | State without implicit sharing or allocation | Keep explicit captures; infer the environment type locally |
+| `def [captures](../...)` | State without implicit sharing or allocation | Keep explicit captures; infer the environment type locally |
 | `value`, `mut value`, `&value`, `&mut value` | Own or borrow state, with ordinary mutability | Teach as the existing ownership and mutability rules composed together |
 | `Callable[[A], B]` as a value type | Store different named functions in one registry | Keep the code-address representation; it must not silently box captured state |
 | `F: Callable[[A], B]` | One reusable callback API for named and captured functions | Prefer this for generic consumers; infer `F` at calls |
@@ -53,14 +53,14 @@ A registry of named callbacks needs only a collection of `Callable` values.
 A callback plus explicit state can already be a generic class with ordinary
 methods. Filtering, dispatching, and adapting these callbacks are library code;
 they need no new invocation syntax or builtin registry type.
-[Concrete owned environments](../design/language/06-functions/04-consuming-and-stored-closures.md) now use ordinary
+[Concrete owned environments](../../design/language/06-functions/04-consuming-and-stored-closures.md) now use ordinary
 typed owner slots. Heterogeneous erasure still needs a separate representation and
 lifetime contract before library code can build an arbitrary closure registry.
 
 The teaching path is named function values, then ordinary inferred closures,
 then a reusable generic callback API. Factory annotations, borrowed captures,
 and consuming callbacks are optional extensions for concrete use cases. The
-[functions chapter](../tutorial/10-functions/index.md) marks that shorter path. Existing advanced
+[functions chapter](../../tutorial/10-functions/index.md) marks that shorter path. Existing advanced
 lessons remain referenceable, so simplifying the entry path loses no examples.
 
 This review does not claim that the current names must be permanent. It records

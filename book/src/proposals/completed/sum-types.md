@@ -1,8 +1,8 @@
 # Sum types and enums
 
-> **Status: Implemented.** [Enums](../design/language/03-types/enums.md),
-> [matching](../design/language/04-expressions/matching.md), and
-> [sums and propagation](../design/language/08-errors/01-sums-and-propagation.md)
+> **Status: Implemented.** [Enums](../../design/language/03-types/enums.md),
+> [matching](../../design/language/04-expressions/matching.md), and
+> [sums and propagation](../../design/language/08-errors/01-sums-and-propagation.md)
 > own the contract.
 >
 > **Shipped differently:** enums are inline values and construction allocates
@@ -10,11 +10,11 @@
 > and `Err` take their type from context, and `?` exists. Unit payloads such as
 > `Result[(), E]` are accepted. Recursive enums are accepted through `Box[T]` or
 > a collection. An owned `match` moves an affine scrutinee, and
-> [borrowed matching](../design/language/05-ownership/05-borrowed-matching.md)
+> [borrowed matching](../../design/language/05-ownership/05-borrowed-matching.md)
 > exists. Generic enums and `Variant.new(...)` were added. Patterns nest,
 > combine with `|`, and take no type arguments. Integer, `str`, and `bool`
 > literals are patterns, and `match` accepts those types as scrutinees; see
-> [matching](../design/language/04-expressions/matching.md). The examples'
+> [matching](../../design/language/04-expressions/matching.md). The examples'
 > module-scope statements are no longer accepted.
 >
 > Omitting a user-defined enum's qualifier was declined: a bare name is always

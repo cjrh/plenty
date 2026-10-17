@@ -1,10 +1,10 @@
 # Named arguments and fresh defaults
 
 Status: implemented for named functions, methods and constructors. See the
-[current call rules](../design/language/06-functions/01-signatures-and-calls.md)
+[current call rules](../../design/language/06-functions/01-signatures-and-calls.md)
 for supported defaults and deliberate restrictions. This is the narrow revision of
-[B36](../backlog.md), separating named arguments/defaults from the older
-[unpacking proposal](keyword-arguments-and-unpacking.md). It does not approve
+[B36](../../backlog.md), separating named arguments/defaults from the older
+[unpacking proposal](../keyword-arguments-and-unpacking.md). It does not approve
 splat unpacking, variadics, `/`, or `*` signature markers. The discussion below
 records the design rationale; named calls and fresh expression defaults now
 use compiler-generated wrappers with ordinary checked ownership. Callable
@@ -20,7 +20,7 @@ help review, but 28 independently supplied values remain a poor abstraction.
 Prefer an explicit `Decoder.__init__` that accepts meaningful inputs, initializes
 internal state by field name, and establishes invariants. An instance cannot
 be created uninitialized and then escape while a caller fills its fields:
-[current initialization rules](../design/language/03-types/classes.md) require
+[current initialization rules](../../design/language/03-types/classes.md) require
 all fields on every successful initializer exit. This is desirable.
 
 Use a configuration class for coherent caller choices; `std.json.Limits`
@@ -32,7 +32,7 @@ A builder is useful when construction is incremental, validation spans several
 settings, or a sequence of required choices matters. Its `build` returns a valid
 object or a typed error. It is not necessary for every record. Current explicit
 initializers allow only unit or allocation failure, so factories remain useful
-for domain validation errors. [Typestate](typestate-and-owned-transitions.md)
+for domain validation errors. [Typestate](../typestate-and-owned-transitions.md)
 can strengthen a builder when required stages justify extra types.
 
 Other review sites: `json.encoder`, `http.server.config`, `http.client.config`,
