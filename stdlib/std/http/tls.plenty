@@ -1,6 +1,7 @@
 # HTTPS for std.http.server: each accepted connection completes a std.tls
-# handshake on a worker, within `handshake_timeout` of the accept, before
-# its first request. A separate module so plain servers do not link TLS.
+# handshake within `handshake_timeout` of the accept, before its first
+# request. Workers advance it; between client flights it waits parked on
+# the accepting thread. A separate module so plain servers do not link TLS.
 # See book/src/design/stdlib/http-server.md.
 import std.http.server
 import std.tls
@@ -47,10 +48,17 @@ def transported[T](result: Result[T, TlsError]) -> Result[T, NetError]:
 pub class TlsOpener:
     tls: ServerConfig
 
-    pub def open(self, tcp: TcpStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsTransport, OpenError]:
-        match std.tls.accept(tcp, &self.tls, deadline, cancel):
+    pub def open(self, tcp: TcpStream) -> Result[TlsTransport, OpenError]:
+        match std.tls.start_accept(tcp, &self.tls):
             case Ok(stream):
                 Ok(TlsTransport(stream))
+            case Err(_):
+                Err(OpenError.Failed)
+
+    pub def advance(self, stream: &mut TlsTransport, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), OpenError]:
+        match stream.stream.handshake_before(deadline, cancel):
+            case Ok(_):
+                Ok(())
             case Err(TlsError.Net(NetError.TimedOut)):
                 Err(OpenError.TimedOut)
             case Err(TlsError.Net(NetError.Cancelled)):
