@@ -127,6 +127,7 @@ pub(super) fn prepare(
         active: HashSet::new(),
         frames: HashMap::new(),
         required: HashMap::new(),
+        protocol_instances: HashSet::new(),
         source_root: None,
         standard_sources: HashSet::new(),
         source_facts: None,
@@ -181,6 +182,9 @@ pub(super) struct Engine {
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<String, Arc<Instantiation>>,
+    /// Specializations checked under protocol contracts, including lifted code.
+    /// Method calls in these bodies cannot inherit implementation-only defaults.
+    pub(super) protocol_instances: HashSet<String>,
     pub(super) source_root: Option<std::path::PathBuf>,
     pub(super) standard_sources: HashSet<Arc<str>>,
     /// The last source `source_facts` described, and the result. Functions
@@ -734,6 +738,9 @@ impl Engine {
     /// Code lifted out of `parent`, or copied from it, is checked on behalf of
     /// the same use.
     pub(super) fn inherit_requirement(&mut self, parent: &str, child: &str) {
+        if self.protocol_instances.contains(parent) {
+            self.protocol_instances.insert(child.into());
+        }
         if let Some(required) = self.required.get(parent).cloned() {
             self.required.insert(child.into(), required);
         }
@@ -971,6 +978,16 @@ impl Engine {
             ));
         }
         let symbol = format!("__plenty_generic_{}", self.cache.len());
+        if self.protocol_instances.contains(name)
+            || template.type_params.iter().any(|(_, bound)| {
+                bound
+                    .as_ref()
+                    .and_then(|b| b.name.as_ref())
+                    .is_some_and(|n| self.protocols.contains_key(n))
+            })
+        {
+            self.protocol_instances.insert(symbol.clone());
+        }
         let mut f = (**template).clone();
         f.name = symbol.clone();
         f.type_params.clear();
