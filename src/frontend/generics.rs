@@ -58,11 +58,17 @@ pub(super) fn check_callable_bound(
     Ok(())
 }
 
+/// The parameter and return types of a function, resolved.
+pub(super) type Signature = (Vec<Ty>, Type);
+
+/// Declares every function and validates every protocol. Also returns the
+/// resolved types of the functions queued in `Engine::pending`, in queue
+/// order, so that registering their signatures does not resolve them again.
 pub(super) fn prepare(
     mut functions: Vec<Function>,
     aliases: &TypeAliases,
     protocols: Vec<protocols::Protocol>,
-) -> Result<Engine> {
+) -> Result<(Engine, Vec<Signature>)> {
     aliases.validate_data_bounds()?;
     functions.extend(aliases.data.factories());
     let mut declarations = HashMap::new();
@@ -93,15 +99,17 @@ pub(super) fn prepare(
         )?;
     }
     let mut methods = HashMap::new();
+    let mut signatures = Vec::with_capacity(functions.len());
     for f in functions.iter().filter(|f| f.type_params.is_empty()) {
         // Every signature is resolved here, so its errors are reported
         // first, but only a method's can satisfy a protocol. A program-wide
         // table would cost a name copy and a cache miss per function
-        // (issue #57).
+        // (issue #57); the list kept for registration is in queue order.
         let signature = protocols::signature(f, aliases)?;
         if crate::record::is_method(&f.name) {
-            methods.insert(f.name.clone(), signature);
+            methods.insert(f.name.clone(), signature.clone());
         }
+        signatures.push(signature);
     }
     let mut engine = Engine {
         protocols: declarations,
@@ -150,12 +158,12 @@ pub(super) fn prepare(
     {
         return Err(conflict(protocol));
     }
-    Ok(engine)
+    Ok((engine, signatures))
 }
 
 pub(super) struct Engine {
     protocols: HashMap<String, protocols::Protocol>,
-    pub(super) methods: HashMap<String, (Vec<Ty>, Type)>,
+    pub(super) methods: HashMap<String, Signature>,
     pub(super) templates: HashMap<String, Arc<Function>>,
     cache: HashMap<(String, Vec<Ty>), String>,
     pub(super) pending: VecDeque<Arc<Function>>,

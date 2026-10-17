@@ -26,16 +26,29 @@ impl ClassDecl {
             name: self.name.clone(),
             type_params: Vec::new(),
             fields: self.fields.clone(),
-            methods: self
-                .methods
-                .iter()
-                .map(|method| Function {
-                    body: Vec::new(),
-                    ..method.clone()
-                })
-                .collect(),
+            methods: self.methods.iter().map(header).collect(),
             public_members: self.public_members.clone(),
         }
+    }
+}
+
+/// A copy of `method` without its body. Written out field by field because
+/// `Function { body: Vec::new(), ..method.clone() }` copies the body only to
+/// drop it.
+fn header(method: &Function) -> Function {
+    Function {
+        once: method.once,
+        captures: method.captures.clone(),
+        foreign: method.foreign.clone(),
+        export: method.export.clone(),
+        name: method.name.clone(),
+        type_params: method.type_params.clone(),
+        at: method.at.clone(),
+        inputs: method.inputs.clone(),
+        output: method.output.clone(),
+        doc: method.doc.clone(),
+        doc_at: method.doc_at.clone(),
+        body: Vec::new(),
     }
 }
 

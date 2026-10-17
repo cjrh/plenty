@@ -48,11 +48,27 @@ Parsing, the rest of name resolution, type resolution, class expansion,
 generic preparation, signatures, and lowering bodies to operations run on one
 thread (issue #59). Type resolution can create generic data instances in a
 table shared by every module, and lowering interns strings, records generic
-instances, and infers returned fields in tables shared by every body. Parsing
-one module in pieces on several threads was measured and not adopted. For
-5,000 units, parsing took 0.09 s instead of 0.21 s, lowering took 0.06 s
-longer, and peak memory rose from 417 MB to 538 MB because each thread's
-allocator keeps its own free memory.
+instances, and infers returned fields in tables shared by every body. Generic
+preparation resolves each concrete function's parameter and return types once;
+registering the function's signature reuses them.
+
+Three ways to run these phases on several threads were measured and not
+adopted. Each gained little and raised peak memory, because each thread's
+allocator keeps its own free memory:
+
+- Parsing one module in pieces: for 5,000 units, parsing took 0.09 s instead
+  of 0.21 s, lowering took 0.06 s longer, and peak memory rose from 417 MB to
+  538 MB.
+- Parsing imported modules in parallel, a level of imports at a time: for a
+  program whose imports load 21 standard modules (12,549 lines), parsing took
+  9 ms instead of 23 ms and lowering 5 ms longer; the check was no faster, and
+  peak memory rose from 28 MB to 35 MB.
+- Lowering bodies speculatively on all cores and keeping them in queue order:
+  checking 5,000 units was about 9% faster and object emission no faster, and
+  peak memory rose 12–14%.
+
+[Measuring compilation](emission.md#measuring-compilation) gives the time each
+phase takes.
 
 ## Control flow and access
 

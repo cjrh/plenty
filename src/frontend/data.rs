@@ -522,6 +522,17 @@ impl TypeAliases {
                     }
                 }
                 let result: Result<(Ty, Option<classes::ClassDecl>)> = (|| {
+                    // A concrete declaration has nothing to substitute, so it
+                    // is resolved in place rather than copied.
+                    if actual.is_empty() {
+                        return Ok((
+                            match self.data.enums.get(&name) {
+                                Some(declaration) => self.resolve_enum(declaration)?,
+                                None => self.data.classes[&name].resolve(self)?,
+                            },
+                            None,
+                        ));
+                    }
                     if let Some(template) = self.data.enums.get(&name) {
                         let mut declaration = template.clone();
                         declaration.name = concrete_name.clone();

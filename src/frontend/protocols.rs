@@ -93,17 +93,18 @@ impl Parser {
     }
 }
 
-pub(super) fn signature(f: &Function, aliases: &TypeAliases) -> Result<(Vec<Ty>, Type)> {
-    Ok((
-        f.inputs
-            .iter()
-            .map(|(_, t)| {
-                t.resolve(aliases)?
-                    .ok_or_else(|| t.at.error("unit parameters are not supported yet"))
-            })
-            .collect::<Result<_>>()?,
-        f.output.resolve(aliases)?,
-    ))
+pub(super) fn signature(f: &Function, aliases: &TypeAliases) -> Result<generics::Signature> {
+    // Sized exactly: collecting through `Result` reserves room for at least
+    // four types, and `generics::prepare` keeps every function's types until
+    // they are registered.
+    let mut inputs = Vec::with_capacity(f.inputs.len());
+    for (_, t) in &f.inputs {
+        inputs.push(
+            t.resolve(aliases)?
+                .ok_or_else(|| t.at.error("unit parameters are not supported yet"))?,
+        );
+    }
+    Ok((inputs, f.output.resolve(aliases)?))
 }
 
 pub(super) fn instantiate(
@@ -154,7 +155,7 @@ pub(super) fn instantiate(
 pub(super) fn check(
     protocol: &Protocol,
     actual: &Ty,
-    methods: &HashMap<String, (Vec<Ty>, Type)>,
+    methods: &HashMap<String, generics::Signature>,
     aliases: &TypeAliases,
     access: &modules::AccessMap,
     bound: &Token,
