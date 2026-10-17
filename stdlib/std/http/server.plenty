@@ -358,15 +358,16 @@ def net_bytes[T](result: Result[T, BytesError]) -> Result[T, NetError]:
 
 # Appends input that has already arrived to `input.data`, without waiting.
 # Zero is the end of the peer's stream; TimedOut means nothing has arrived.
-# The buffer doubles as it fills but never grows past `max_head`, the most
-# `scanned` needs.
+# An empty buffer starts at `read_chunk`; a full one doubles, so a head
+# trickling in costs about twice its size, and never grows past `max_head`,
+# the most `scanned` needs.
 def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limits, token: &CancellationToken) -> Result[i64, NetError]:
     have = input.data.len()
     if have >= limits.max_head:
         return Err(NetError.Stream(StreamError.OutOfRange))
     if input.data.capacity() <= have:
         mut size = input.data.capacity() * 2
-        if size < read_chunk:
+        if size == 0:
             size = read_chunk
         if size > limits.max_head:
             size = limits.max_head
@@ -1041,7 +1042,8 @@ def unread[T](reader: &mut BufReader[Conn[T]], limits: &Limits) -> bool:
     True
 
 # A connection handed back to wait on the accepting thread: the stream,
-# what has arrived of its next request, and when to stop waiting.
+# what has arrived of its next request, and when to stop waiting. The
+# partial head is copied to fit, as it may wait long.
 def waiting[T](conn: &mut Conn[T], idle_ns: u64) -> Option[tuple[T, Option[Gathered], u64]]:
     stream = match replace(conn._stream, Nothing):
         case Some(open):
@@ -1050,9 +1052,8 @@ def waiting[T](conn: &mut Conn[T], idle_ns: u64) -> Option[tuple[T, Option[Gathe
             return Nothing
     if conn._input.data.len() == 0:
         return Some((stream, Nothing, after(now_ns(), idle_ns)))
-    match std.bytes.empty():
-        case Ok(empty):
-            data = replace(conn._input.data, empty)
+    match conn._input.data.copy():
+        case Ok(data):
             Some((stream, Some(Gathered(data, conn._input.line, conn._input.searched, conn._input.left, conn._input.fields)), conn._until))
         case Err(_):
             Nothing

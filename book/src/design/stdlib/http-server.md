@@ -149,7 +149,7 @@ field first (`query = exchange.query.concat("")?`).
 | `response_timeout` | Whole response, from the end of the request head | 60 s |
 | `drain_timeout` | Shutdown grace for active connections | 5 s |
 | `max_requests` | Requests on one connection before it closes, at least 1 | 1000 |
-| `idle_connections` | Connections waiting for input on the accepting thread, 0 to 1,000,000 | 256 |
+| `idle_connections` | Connections waiting on the accepting thread for a request, the rest of its head or the rest of a handshake, 0 to 1,000,000 | 256 |
 | `handshake_timeout` | HTTPS only: finish the TLS handshake, from the accept | 10 s |
 | `events` | `Option[ChannelSink]` for [`std.log`](log.md) events | `Nothing` |
 
@@ -157,17 +157,32 @@ Limits must be positive (`max_body` may be 0).
 
 ## Idle connections
 
-A connection waiting for its first byte, or for the next request after a
-keep-alive response, is parked on the accepting thread's
-[`std.ready`](ready.md) selector instead of holding a worker. When input
-arrives it joins the queue; a worker serves its request and, if the
-connection stays open with nothing more buffered, returns it to be parked
-again. Parked connections still close at `idle_timeout`. Ten keep-alive
-clients can therefore share one worker.
+A worker never waits for a client to send a request. A connection waiting
+for its first byte, for the next request after a keep-alive response, or
+for the rest of a request head is parked on the accepting thread's
+[`std.ready`](ready.md) selector instead of holding a worker. When the
+first input arrives it joins the queue, and a worker reads what has
+arrived. If that is not yet a whole head, the worker hands the connection
+back with those bytes; the accepting thread then reads the rest as it
+arrives and queues the connection once the head is complete. A worker
+serves the request and, if the connection stays open with no next head
+complete, returns it to be parked again. Ten keep-alive clients can
+therefore share one worker, and clients that send heads slowly hold no
+worker at all.
 
-`idle_connections` caps the parked connections. With `0`, nothing is
-parked: each connection goes to the queue at once and a worker holds it
-until `idle_timeout`, as a thread-per-connection server would.
+A head is complete for this purpose once its final empty line has arrived,
+or once it is bound to fail: a line over `max_line`, a head over
+`max_head`, a line ending in a bare LF, or a field line past
+`max_headers`. A parked connection with a partial head holds those bytes,
+at most `max_head` (64 KiB by default) and usually a 4 KiB buffer.
+Parked connections close at `idle_timeout`, or answer `408` at
+`head_timeout` once a head has started.
+
+`idle_connections` caps the parked connections, including those with
+partial heads; it bounds how many slow clients the server waits for at
+once. With `0`, nothing is parked: each connection goes to the queue at
+once and a worker holds it until `idle_timeout`, reading each head as it
+arrives, as a thread-per-connection server would.
 
 ## HTTPS
 
@@ -181,43 +196,52 @@ report = std.http.tls.serve(listener, tls, &table, &App(), &config, &stop)?
 
 `std.http.tls.serve` takes a [`std.tls`](tls.md) `ServerConfig` and calls a
 handler of type `Handler[TlsTransport]`; `TlsTransport.stream` is the
-`TlsStream`. A worker runs each handshake, which must finish within
-`handshake_timeout` of the accept. The deadline covers time spent parked
-and queued, so a client that connects and stays silent is closed at that
-deadline, not at `idle_timeout`. After the handshake, connections are
-served and parked like plain ones: a TLS stream is only parked when it holds
-no decrypted input. The plain `serve` does not import `std.tls`.
+`TlsStream`. Each handshake must finish within `handshake_timeout` of the
+accept. Workers advance it as the client's messages arrive, and between
+them the connection waits parked, so a client that stalls mid-handshake
+holds no worker. The deadline covers time spent parked and queued, so a
+client that connects and stays silent is closed at that deadline, not at
+`idle_timeout`. After the handshake, connections are served and parked like
+plain ones: a TLS stream is only parked when it holds no decrypted input,
+and a partial head is decrypted and gathered on the accepting thread. The
+plain `serve` does not import `std.tls`.
 
 `serve_with` accepts any `Opener[T]`, the protocol behind `std.http.tls`:
 
 | Method | Meaning |
 |---|---|
-| `open(self, tcp: TcpStream, deadline: &Deadline, cancel: &CancellationToken)` | `Result[T, OpenError]`: the transport, made on a worker |
+| `open(self, tcp: TcpStream)` | `Result[T, OpenError]`: the transport, made on a worker without waiting for the peer |
+| `advance(self, stream: &mut T, deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), OpenError]`: advance the opening handshake until it completes or `deadline` passes (`TimedOut`); with a deadline already passed, do only what is possible without waiting |
 | `handshakes(self)` | `bool`: use `handshake_timeout` for new connections and close, not `503`, those refused |
-| `watch(self, stream: &T, selector: &mut Selector, key: u64)` | `bool`: register a stream with no buffered input until it has more |
+| `watch(self, stream: &T, selector: &mut Selector, key: u64)` | `bool`: register a stream for what it waits for; called only after a read or `advance` that did not wait has timed out, so no input is buffered |
 | `unwatch(self, stream: &T, selector: &mut Selector)` | Remove it |
 
-`OpenError` is `TimedOut`, `Cancelled`, `Failed` (counted in
-`protocol_errors`) or `Gone` (the client left; not counted).
+A worker calls `advance` with an expired deadline and parks the connection
+while it returns `TimedOut`; with `idle_connections` set to `0`, or once
+shutdown has begun, it waits up to `handshake_timeout` instead. `OpenError`
+is `TimedOut`, `Cancelled`, `Failed` (counted in `protocol_errors`) or
+`Gone` (the client left; not counted).
 
 ## Deadlines and faults
 
 Every read and write waits under a deadline, so a slow or silent client
-cannot hold a worker longer than the phase allows.
+cannot hold a worker longer than the phase allows. A worker waits for
+neither a request head nor a handshake (see
+[Idle connections](#idle-connections)).
 
 | Situation | Server action |
 |---|---|
 | No request starts within `idle_timeout` | Close quietly |
 | HTTPS: no handshake within `handshake_timeout` of the accept | Close; counted in `timeouts` |
 | HTTPS: handshake fails, for example a plaintext request | Close; counted in `protocol_errors` |
-| `idle_connections` connections already waiting | A new connection gets `503` with `Retry-After: 1` (HTTPS: is closed); counted in `rejected`. A served connection going idle is closed |
+| `idle_connections` connections already waiting | A new connection gets `503` with `Retry-After: 1` (HTTPS: is closed); counted in `rejected`. A served connection going idle, or mid-handshake, is closed; one with a partial head gets `503`, counted in `rejected` |
 | Head not complete within `head_timeout` | `408`, close; counted in `timeouts` |
 | Malformed head, or a line, head or header count over a limit | `400`, or `431` for size limits, `505` for an unsupported version, `501` for an unsupported transfer coding; close |
 | Ambiguous framing (`Content-Length` with `Transfer-Encoding`) | `400`, close |
 | Declared `Content-Length` over `max_body` | `413` before reading, close |
 | HTTP/1.1 without `Host`, several `Host` fields, or an invalid `Host` value | `400`, close |
 | Target neither origin-form (`/path`) nor `http`/`https` absolute-form | `400`, close |
-| Part of a head arrives, then nothing | The worker waits until `head_timeout` (issue #132), then `408` |
+| Part of a head arrives, then nothing | Parked without a worker; `408` from the accepting thread at `head_timeout`, close; counted in `timeouts` |
 | Body read past `body_timeout`, or a write past its deadline | Close; counted in `timeouts` |
 | Queue full | `503` with `Retry-After: 1` (HTTPS: close without a response), close; counted in `rejected` |
 | `accept` fails, for example out of file handles | Count in `accept_errors`, pause 10 ms, keep accepting |
@@ -230,6 +254,12 @@ request: its `head_timeout` runs from the end of the previous response, and
 an end or stall inside it is answered (`400` or `408`) rather than closed
 quietly. Blank lines alone do not start a request.
 
+A head is parsed once it is complete (see
+[Idle connections](#idle-connections)), so a malformed line followed by
+nothing gets `408` at `head_timeout`, not `400` at once. `408` and `503`
+answers written on the accepting thread get a write budget of
+`write_timeout`, at most 100 ms.
+
 Accepted connections have Nagle's algorithm turned off (`TCP_NODELAY`).
 Responses are buffered and flushed whole, so this sends no extra small
 segments, and a head followed by a body larger than the 4 KiB write buffer
@@ -241,8 +271,9 @@ Cancelling `stop` begins shutdown:
 
 1. `serve` stops accepting and closes the listener.
 2. Connections already queued are still served. A connection waiting idle
-   for its next request closes at once, whether parked or on a worker; one
-   whose request has started arriving is handed to a worker and served. Every response carries `Connection: close`.
+   for its next request, or parked mid-handshake, closes at once; one whose
+   request has started arriving is handed to a worker, which waits for the
+   rest of its head, and served. Every response carries `Connection: close`.
 3. Handlers see `stopping()` and should finish long responses.
 4. At `drain_timeout`, `serve` cancels the second token. Every further read
    or write fails with `Cancelled`, `cancelled()` is true, and the
@@ -279,8 +310,12 @@ timed out`, `handshake failed` and `accept failed`, most with a
 
 - The accepting thread waits on one selector of at most 64 events per wait,
   and a parked connection costs a list slot and a selector registration.
-  A worker serves one connection at a time, from its first byte to the end
-  of the response.
+  A worker serves one connection at a time, from a complete head to the
+  end of the response.
+- `idle_connections` bounds the slow clients the server waits for: with
+  that many partial heads parked, new connections get `503` until their
+  `head_timeout` passes. Raise it, and the descriptor limit, for exposed
+  servers; each parked partial head holds at most `max_head` bytes.
 - HTTPS connections end without a TLS `close_notify`. Responses are
   length-delimited or chunked, so clients do not depend on it, except for a
   streamed response to HTTP/1.0, whose end is the close and so cannot be

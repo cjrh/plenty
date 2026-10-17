@@ -93,11 +93,13 @@ four workers, a queue of sixteen waiting connections, and a deadline for
 each phase of a request. A connection that arrives when the queue is full is
 answered `503` at once instead of waiting.
 
-A worker serves one request at a time, but it does not wait for a
-keep-alive client's next request. Between requests the connection waits on
-the server's own thread, on a [selector](tcp-sockets.md#wait-on-many-connections), and goes
-back to the queue when the client sends more, so a few workers can keep many
-idle clients open. `config.idle_connections` caps how many may wait.
+A worker serves one request at a time, but it does not wait for a client to
+send one. Between requests, and while a request head is still arriving, the
+connection waits on the server's own thread, on a
+[selector](tcp-sockets.md#wait-on-many-connections), and goes back to the
+queue once the client has sent a whole head. A few workers can therefore
+keep many idle clients open, and clients that send slowly cannot hold them
+all. `config.idle_connections` caps how many connections may wait.
 
 ## HTTPS
 
@@ -119,5 +121,6 @@ report = std.http.tls.serve(listener, server, &routes, &Greeter(), &config, &sto
 
 Each connection must finish its handshake within
 `config.handshake_timeout` of being accepted, so a client that connects and
-says nothing is closed then. Routing, deadlines and shutdown work as for
+says nothing is closed then. Between the client's handshake messages the
+connection waits on the server's thread too. Routing, deadlines and shutdown work as for
 plain HTTP.
