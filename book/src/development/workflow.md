@@ -125,10 +125,11 @@ else is stopped or pruned. A test process killed outright leaves its
 containers running; list them with
 `docker ps --filter label=plenty-test=proxy`.
 
-For CI, use a Linux runner with Docker (GitHub's `ubuntu-latest` has Docker and
-curl) and add a step that sets `PLENTY_DOCKER_TESTS=1` and runs the command
-above. Pull `nginx:1.30.6-alpine3.24` and `caddy:2.11.7-alpine` in an earlier
-step, or cache them, so pulls are not timed with the tests.
+CI runs them in the `proxy_tests` job of `.github/workflows/ci.yml` on
+GitHub's `ubuntu-latest`, which has Docker and curl. The job pulls
+`nginx:1.30.6-alpine3.24` and `caddy:2.11.7-alpine` in an earlier step, so
+pulls are not timed with the tests; when the tests change an image tag,
+change the job's pull step to match.
 
 ## Quick reproductions
 

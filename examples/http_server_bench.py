@@ -7,6 +7,15 @@ Run from the repository root with a release compiler:
     python3 examples/http_server_bench.py --compiler target/release/plenty \
         --output target/http-bench --runs 3
 
+With `--tls` the same workloads run over HTTPS against
+examples/https_server_bench.plenty, with the certificate in tests/fixtures/tls
+(ECDSA P-256); ApacheBench does not verify it. ApacheBench cannot measure new
+HTTPS connections: it leaves Nagle's algorithm on, so each request waits for a
+delayed acknowledgement of its TLS Finished (issue #148), and it counts
+connections closed without close_notify as failed. That workload runs
+`curl --parallel` instead, in four processes on the client CPUs, with
+TCP_NODELAY (curl's default) and without certificate verification.
+
 The server runs on CPUs 0,2,4,6 and ab on 8,10,12,14 (one hardware thread
 per physical core on the reference machine), so no more than ten threads are
 busy. Each workload runs `--runs` times against a fresh server; the summary
@@ -23,6 +32,7 @@ import os
 import platform
 import resource
 import socket
+import ssl
 import statistics
 import subprocess
 import time
@@ -30,7 +40,10 @@ from pathlib import Path
 
 SERVER_CPUS = "0,2,4,6"
 CLIENT_CPUS = "8,10,12,14"
-SOURCE = Path(__file__).with_name("http_server_bench.plenty")
+ROOT = Path(__file__).resolve().parent.parent
+SOURCE = ROOT / "examples" / "http_server_bench.plenty"
+TLS_SOURCE = ROOT / "examples" / "https_server_bench.plenty"
+TLS_FIXTURES = ROOT / "tests" / "fixtures" / "tls"
 
 # name, path, keep-alive, concurrency, requests, POST body size
 WORKLOADS = [
@@ -62,8 +75,23 @@ def cpu_seconds(pid):
     return (int(stat[11]) + int(stat[12])) / ticks
 
 
+def tls_env():
+    return {"CERT": str(TLS_FIXTURES / "leaf.pem"), "KEY": str(TLS_FIXTURES / "leaf.key")}
+
+
+def connect(port, tls):
+    conn = socket.create_connection(("127.0.0.1", port))
+    if not tls:
+        return conn
+    context = ssl.create_default_context(cafile=TLS_FIXTURES / "ca.pem")
+    return context.wrap_socket(conn, server_hostname="localhost")
+
+
 class Server:
-    def __init__(self, executable, env):
+    def __init__(self, executable, env, tls):
+        self.tls = tls
+        if tls:
+            env = {**env, **tls_env()}
         self.process = subprocess.Popen(
             ["taskset", "-c", SERVER_CPUS, str(executable)],
             stdout=subprocess.PIPE,
@@ -75,7 +103,7 @@ class Server:
         self.port = int(line.split()[1])
 
     def get(self, path):
-        with socket.create_connection(("127.0.0.1", self.port)) as conn:
+        with connect(self.port, self.tls) as conn:
             conn.sendall(f"GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".encode())
             data = b""
             while chunk := conn.recv(65536):
@@ -89,7 +117,7 @@ class Server:
         return out.strip()
 
 
-def run_ab(port, path, keep_alive, concurrency, requests, body, scratch):
+def run_ab(port, tls, path, keep_alive, concurrency, requests, body, scratch):
     percentiles = scratch / "percentiles.csv"
     command = ["taskset", "-c", CLIENT_CPUS, "ab", "-q", "-r", "-n", str(requests),
                "-c", str(concurrency), "-e", str(percentiles)]
@@ -99,7 +127,8 @@ def run_ab(port, path, keep_alive, concurrency, requests, body, scratch):
         payload = scratch / "body"
         payload.write_bytes(b"p" * body)
         command += ["-p", str(payload), "-T", "application/octet-stream"]
-    command.append(f"http://127.0.0.1:{port}{path}")
+    scheme = "https" if tls else "http"
+    command.append(f"{scheme}://127.0.0.1:{port}{path}")
     out = subprocess.run(command, capture_output=True, text=True, check=True).stdout
     result = {}
     for line in out.splitlines():
@@ -117,14 +146,44 @@ def run_ab(port, path, keep_alive, concurrency, requests, body, scratch):
     return result
 
 
-def idle_memory(executable, count):
+def run_curl(port, path, concurrency, requests, scratch):
+    """New HTTPS connection per request: four curl processes in parallel."""
+    processes = 4
+    per = requests // processes
+    url = f"https://127.0.0.1:{port}{path}?[1-{per}]"
+    start = time.perf_counter()
+    running = []
+    for index in range(processes):
+        out = (scratch / f"curl-{index}.txt").open("w")
+        command = ["taskset", "-c", CLIENT_CPUS, "curl", "-s", "-k", "-Z", "--parallel-max",
+                   str(concurrency // processes), "-H", "Connection: close", "-o", "/dev/null",
+                   "-w", "%{http_code} %{time_total}\n", url]
+        running.append((subprocess.Popen(command, stdout=out), out))
+    for process, out in running:
+        process.wait()
+        out.close()
+        assert process.returncode == 0, process.returncode
+    elapsed = time.perf_counter() - start
+    times, failed = [], 0
+    for index in range(processes):
+        for line in (scratch / f"curl-{index}.txt").read_text().splitlines():
+            code, seconds = line.split()
+            failed += code != "200"
+            times.append(float(seconds) * 1000)
+    times.sort()
+    return {"rps": round(len(times) / elapsed, 2), "failed": failed + per * processes - len(times),
+            "non_2xx": 0, "p50_ms": round(times[len(times) // 2], 3),
+            "p99_ms": round(times[len(times) * 99 // 100], 3)}
+
+
+def idle_memory(executable, count, tls):
     """Resident memory added by `count` parked keep-alive connections."""
-    server = Server(executable, {"IDLE": str(count + 16)})
+    server = Server(executable, {"IDLE": str(count + 16)}, tls)
     time.sleep(0.2)
     before = int(status_fields(server.process.pid)["VmRSS"].split()[0])
     conns = []
     for _ in range(count):
-        conn = socket.create_connection(("127.0.0.1", server.port))
+        conn = connect(server.port, tls)
         conn.sendall(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
         conns.append(conn)
     for conn in conns:
@@ -140,7 +199,7 @@ def idle_memory(executable, count):
             "kib_per_connection": round((after - before) / count, 2)}
 
 
-def describe(compiler):
+def describe(compiler, tls):
     def text(command):
         return subprocess.run(command, capture_output=True, text=True).stdout.strip()
     cpu = next(line.split(":", 1)[1].strip() for line in Path("/proc/cpuinfo").read_text().splitlines()
@@ -152,6 +211,9 @@ def describe(compiler):
         "kernel": platform.release(),
         "cpu": cpu,
         "ab": text(["ab", "-V"]).splitlines()[0],
+        "curl": text(["curl", "--version"]).splitlines()[0] if tls else None,
+        "tls": tls,
+        "openssl": text(["openssl", "version"]) if tls else None,
         "load_before": os.getloadavg(),
         "server_cpus": SERVER_CPUS,
         "client_cpus": CLIENT_CPUS,
@@ -165,16 +227,21 @@ def main():
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--idle", type=int, default=1000)
+    parser.add_argument("--tls", action="store_true", help="serve HTTPS with std.http.tls")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     executable = args.output / "server"
-    subprocess.run([args.compiler, "--release", "--compile", str(SOURCE), "-o", str(executable)], check=True)
-    results = {"machine": describe(args.compiler), "workers": args.workers, "workloads": []}
+    source = TLS_SOURCE if args.tls else SOURCE
+    subprocess.run([args.compiler, "--release", "--compile", str(source), "-o", str(executable)], check=True)
+    results = {"machine": describe(args.compiler, args.tls), "workers": args.workers, "workloads": []}
     for name, path, keep_alive, concurrency, requests, body in WORKLOADS:
         runs = []
         for _ in range(args.runs):
-            server = Server(executable, {"WORKERS": str(args.workers)})
-            measured = run_ab(server.port, path, keep_alive, concurrency, requests, body, args.output)
+            server = Server(executable, {"WORKERS": str(args.workers)}, args.tls)
+            if args.tls and not keep_alive:
+                measured = run_curl(server.port, path, concurrency, requests, args.output)
+            else:
+                measured = run_ab(server.port, args.tls, path, keep_alive, concurrency, requests, body, args.output)
             fields = status_fields(server.process.pid)
             measured["peak_rss_kib"] = int(fields["VmHWM"].split()[0])
             measured["threads"] = int(fields["Threads"])
@@ -195,7 +262,7 @@ def main():
         print(f"{name}: {summary['rps_median']:.0f} req/s ({summary['rps_min']:.0f}-{summary['rps_max']:.0f}), "
               f"p50 {summary['p50_ms_median']} ms, p99 {summary['p99_ms_median']} ms, "
               f"peak RSS {summary['peak_rss_kib_max']} KiB, failed {summary['failed']}", flush=True)
-    results["idle"] = idle_memory(executable, args.idle)
+    results["idle"] = idle_memory(executable, args.idle, args.tls)
     print(f"idle: {results['idle']}")
     (args.output / "results.json").write_text(json.dumps(results, indent=2))
 
