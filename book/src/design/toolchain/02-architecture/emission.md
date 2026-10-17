@@ -110,6 +110,42 @@ Parsing, type resolution, class expansion, generic preparation, signatures,
 and lowering remain on one thread, about 0.75 s of the 5,000-unit frontend,
 as do declaring functions (0.1 s) and writing the object.
 
+The 2026-10-17 release measurement used eight logical processors on four
+cores (`taskset -c 0-7`), beside other builds, before and after resolving each
+declaration once: class templates are copied without method bodies, concrete
+types are defined without copying their declarations, and signatures are
+registered from the types generic preparation resolved. Checking 5,000 units
+spent, in milliseconds (medians of nine runs each):
+
+| Phase | Threads | Before | After |
+|---|---|---|---|
+| Parsing | 1 | 279 | 279 |
+| Name resolution | 1 and all | 53 | 53 |
+| Type resolution | 1 | 107 | 86 |
+| Public API check and class expansion | 1 | 63 | 64 |
+| Generic preparation | 1 | 140 | 149 |
+| Signature registration | 1 | 85 | 28 |
+| Lowering bodies to operations | 1 | 465 | 462 |
+| Frame validation | all | 24 | 25 |
+| Independent check | all | 128 | 134 |
+| Freeing the program | 1 | 121 | 124 |
+
+`--check` took 1.51 s before and 1.46 s after (eight runs each); 1,000 units
+took 0.30 s and 0.28 s (ten runs each), and a program whose imports load 21
+standard modules 119 ms and 112 ms (twenty runs each). Peak memory fell from
+406 MB to 404 MB at 5,000 units. Object emission of 5,000 units took 5.25 s
+and 5.21 s (medians of six runs each), within noise.
+
+Running the declaration phases, from type resolution to signature
+registration, on several threads could save about 0.1 s of their 0.33 s at
+most. Type resolution creates nominal identities and generic instances in
+program order, and registration fills the signature table; only resolving
+signatures and expanding classes read the tables without changing them, and
+they would need thread-safe type tables. The parallel designs measured for
+parsing and lowering are in [Frontend and checking](frontend.md). Freeing the
+program after the independent check costs 0.12 s, which a process about to
+exit could leave to the operating system.
+
 Report build mode, machine, input size, repetitions, and included phases with
 new results. Measure checking, IR construction, native emission, runtime
 extraction, and linking separately when assessing compiler changes.

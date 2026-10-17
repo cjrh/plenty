@@ -4189,6 +4189,20 @@ fn register_signature(
     sigs: &mut HashMap<String, Arc<FnSig>>,
     returned_fields: &mut HashMap<String, Vec<usize>>,
 ) -> Result<Arc<FnSig>> {
+    register_resolved(f, None, aliases, sigs, returned_fields)
+}
+
+/// [`register_signature`] for a function whose parameter and return types
+/// `generics::prepare` already resolved, or that resolves them when
+/// `resolved` is `None`. Resolving a type again would find the same type, so
+/// only the cost differs.
+fn register_resolved(
+    f: &Function,
+    resolved: Option<generics::Signature>,
+    aliases: &TypeAliases,
+    sigs: &mut HashMap<String, Arc<FnSig>>,
+    returned_fields: &mut HashMap<String, Vec<usize>>,
+) -> Result<Arc<FnSig>> {
     if f.inputs.len() > 256 {
         return Err(f
             .at
@@ -4207,14 +4221,16 @@ fn register_signature(
             f.name
         )));
     };
-    let mut inputs = Vec::with_capacity(f.inputs.len());
-    for (name, ty) in &f.inputs {
-        let resolved = ty
-            .resolve(aliases)?
-            .ok_or_else(|| ty.at.error("unit parameters are not supported yet"))?;
-        inputs.push((name.clone(), resolved));
-    }
-    let mut output = f.output.resolve(aliases)?;
+    let (types, mut output) = match resolved {
+        Some(resolved) => resolved,
+        None => protocols::signature(f, aliases)?,
+    };
+    let inputs: Vec<_> = f
+        .inputs
+        .iter()
+        .map(|(name, _)| name.clone())
+        .zip(types)
+        .collect();
     if f.foreign.is_some() {
         foreign::check_signature(f, &inputs, &output)?;
     }
@@ -4581,7 +4597,7 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
             .collect(),
         &aliases,
     )?);
-    let mut generics = generics::prepare(functions, &aliases, protocols)?;
+    let (mut generics, prepared) = generics::prepare(functions, &aliases, protocols)?;
     generics.source_root = source_root;
     generics.standard_sources = standard_sources;
     while !generics.expand_data(&aliases)?.is_empty() {}
@@ -4596,13 +4612,24 @@ fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     // so the checks below visit only the functions they concern (issue #57).
     let mut boundary = Vec::new();
     let mut generator_parameters = false;
+    // `prepare` resolved the types of the functions it queued, in queue
+    // order. Those `expand_data` queued after them are resolved here.
+    let mut prepared = prepared.into_iter();
     for f in &generics.pending {
-        let sig = register_signature(f, &aliases, &mut sigs, &mut returned_fields)?;
+        let sig = register_resolved(
+            f,
+            prepared.next(),
+            &aliases,
+            &mut sigs,
+            &mut returned_fields,
+        )?;
         generator_parameters |= sig.inputs.iter().any(|(_, t)| t.unresolved_generator());
         if f.foreign.is_some() || f.export.is_some() {
             boundary.push(f.as_ref());
         }
     }
+    // The emptied list is released before lowering, which sets peak memory.
+    drop(prepared);
     foreign::check_symbols(boundary.iter().copied(), &sigs)?;
     let mut exports = Vec::new();
     let mut symbols = HashSet::new();
