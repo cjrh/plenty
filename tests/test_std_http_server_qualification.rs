@@ -1,12 +1,16 @@
 //! Production qualification suites for `std.http.server` (issue #103, B66):
 //! a retained request corpus and its mutations, interoperability with curl
 //! and `std.http.client`, slow clients, shutdown under sustained load,
-//! descriptor and heap leaks, allocation failure on the accepting thread, and
-//! a relocated compiler building a JSON service. Results and the gates they
-//! cover are in `book/src/design/stdlib/http-qualification.md`. Everything
-//! runs on loopback; no test needs a network.
+//! descriptor and heap leaks, allocation failure on the accepting thread, a
+//! relocated compiler building a JSON service, and an installed toolchain
+//! building a CLI/data tool and a service as a package offline. Results and
+//! the gates they cover are in `book/src/design/stdlib/http-qualification.md`.
+//! Everything runs on loopback; no test needs a network.
+
+mod support;
 
 use std::io::{BufRead, BufReader, Read};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// Scripted in-memory transport and the corpus runner.
@@ -1167,12 +1171,11 @@ def main() -> Result[(), Failure]:
 /// answers its client, and links none of TLS, SQLite or zlib.
 #[test]
 fn a_relocated_compiler_builds_an_offline_json_service() {
-    use object::{Object, ObjectSymbol, SymbolKind};
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("toolchain/bin");
     std::fs::create_dir_all(&bin).unwrap();
     let compiler = bin.join("plenty");
-    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &compiler).unwrap();
+    support::install_executable(Path::new(env!("CARGO_BIN_EXE_plenty")), &compiler);
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
     let source = dir.path().join("service.plenty");
@@ -1260,10 +1263,16 @@ def main() -> Result[(), Failure]:
         String::from_utf8_lossy(&ran.stdout),
         "200 {\"members\":2,\"echo\":{\"name\":\"plenty\",\"tags\":[1,2]}}\n"
     );
-    let data = std::fs::read(&executable).unwrap();
+    let backends = backends(&executable);
+    assert!(backends.is_empty(), "{backends:?}");
+}
+
+/// Symbols of TLS (rustls/ring), SQLite or zlib-rs linked into `executable`.
+fn backends(executable: &Path) -> Vec<String> {
+    use object::{Object, ObjectSymbol, SymbolKind};
+    let data = std::fs::read(executable).unwrap();
     let file = object::File::parse(&*data).unwrap();
-    let backends: Vec<String> = file
-        .symbols()
+    file.symbols()
         .filter(|symbol| symbol.kind() != SymbolKind::File)
         .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
         .filter(|name| {
@@ -1274,6 +1283,337 @@ def main() -> Result[(), Failure]:
                 || name == "plenty_compress"
                 || name.contains("zlib_rs")
         })
-        .collect();
-    assert!(backends.is_empty(), "{backends:?}");
+        .collect()
+}
+
+/// The dependency of the installed package: a CSV summary with typed errors.
+const STOCK: &str = r##"
+import std.csv
+import std.io
+from std.csv import CsvError
+from std.io import StreamError
+from std.json import Json, Member
+
+pub enum SummaryError:
+    Open(StreamError)
+    Csv(CsvError)
+    Count(i64, ParseError)
+    Allocation(AllocError)
+
+def opened[T](result: Result[T, StreamError]) -> Result[T, SummaryError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(SummaryError.Open(cause))
+
+def csv[T](result: Result[T, CsvError]) -> Result[T, SummaryError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(SummaryError.Csv(cause))
+
+def grown[T](result: Result[T, AllocError]) -> Result[T, SummaryError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(SummaryError.Allocation(cause))
+
+# Counts the records of a CSV file after its header and totals integer column
+# `column`, which the header names.
+pub def summarize(path: &str, column: i64) -> Result[Json, SummaryError]:
+    mut input = csv(std.csv.reader(opened(std.io.open_file(path, "r"))?, &std.csv.rfc4180(), 4096))?
+    mut record = csv(std.csv.record())?
+    mut name = ""
+    if csv(input.read(&mut record))?:
+        name = csv(record.text(column))?
+    mut rows = 0
+    mut total = 0
+    while csv(input.read(&mut record))?:
+        match i64.parse(&csv(record.text(column))?):
+            case Ok(count):
+                total += count
+            case Err(cause):
+                return Err(SummaryError.Count(record.number(), cause))
+        rows += 1
+    members = grown([
+        Member("column", Json.Text(name)),
+        Member("rows", Json.Int(rows)),
+        Member("total", Json.Int(total))
+    ])?
+    Ok(Json.Object(members))
+"##;
+
+/// A CLI/data tool: `tally --column N FILE` prints a JSON summary of a CSV file.
+const TALLY: &str = r##"
+import std.json
+import std.path
+import stock
+from std.cli import Spec, Kind, Value, parse, help, describe_for, exit_status
+from std.error import Context, Subject
+
+# tally --column N FILE: prints a JSON summary of one integer CSV column.
+def run() -> Result[i32, Failure]:
+    schema = [
+        Spec("--column", Kind.Integer, False, True, False, "column to total"),
+        Spec("FILE", Kind.Text, True, True, False, "CSV file with a header")
+    ]?
+    raw = args_bytes()?
+    match parse(&schema, &raw, 1):
+        case Err(error):
+            status = exit_status(&error)
+            context = Context("arguments", Subject.Absent, error)
+            context.report_with(describe_for(&context.cause, &schema))
+            Ok(status)
+        case Ok(parsed):
+            if parsed.help_requested:
+                drop(write_stdout(help(&schema, "tally")?))
+                return Ok(0i32)
+            mut column = 0
+            mut file = ""
+            for entry in &parsed.entries:
+                match &entry.value:
+                    case Value.Integer(value):
+                        column = *value
+                    case Value.Text(value):
+                        file = "".concat(value)?
+                    case _:
+                        pass
+            match stock.summarize(&file, column):
+                case Ok(summary):
+                    print(std.json.encode_text(&summary, &std.json.limits())?)?
+                    Ok(0i32)
+                case Err(cause):
+                    Context("summarize", Subject.At(std.path.from_text(&file)?), cause).report()
+                    Ok(1i32)
+
+def main() -> i32:
+    match run():
+        case Ok(status):
+            status
+        case Err(error):
+            Context("tally", Subject.Absent, error).report()
+            1i32
+"##;
+
+/// A JSON service answering `GET /summary` for the CSV file it is given, with
+/// a client in the same process that fetches it once and stops the server.
+const SERVICE: &str = r##"
+import std.http.body
+import std.http.client
+import std.http.server
+import std.json
+import std.net
+import std.time
+import stock
+from std.http.server import Exchange
+from std.net import TcpStream
+from std.sync import CancellationToken
+
+# Answers GET /summary with the JSON summary of a CSV file.
+pub class Service:
+    pub path: str
+
+    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        summary = stock.summarize(&self.path, 1)?
+        std.http.body.send_json(exchange, 200, &summary, &std.json.limits())?
+        Ok(())
+
+def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+    never = CancellationToken()?
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
+    mut client = std.http.client.client(std.http.client.config()?)?
+    get = std.http.client.request("GET", &"http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/summary")?)?
+    answer = client.fetch(get, &deadline, &never)?
+    print(answer.status, answer.body.to_text()?)?
+    stop.cancel()
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    arguments = args()?
+    mut table = std.http.server.router()?
+    table.add("GET", "/summary", 0)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(visit, port, stop.share())? as task:
+        drop(std.http.server.serve(listener, &table, &Service("".concat(&arguments[1])?), &std.http.server.config(), &stop)?)
+    Ok(())
+"##;
+
+/// Run git in `directory` with no user or system configuration.
+fn git(directory: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
+        .args(["-c", "init.defaultBranch=main"])
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .current_dir(directory)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The compiler installed alone as `PREFIX/bin/plenty`, run as a user would
+/// run it in a new account: an empty environment apart from `PATH` (for `cc`
+/// and `git`), a fresh home and so a cold compiled-function cache. A package
+/// with a Git dependency is fetched once; the dependency's repository is then
+/// deleted and `git` replaced by a failing stub, and `plenty build --offline
+/// --locked` builds a CLI/data tool and a JSON service from the package cache
+/// and the embedded standard library. Both run, the tool's usage and data
+/// errors have their statuses, and neither links TLS, SQLite or zlib.
+#[test]
+fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("prefix/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let compiler = bin.join("plenty");
+    support::install_executable(Path::new(env!("CARGO_BIN_EXE_plenty")), &compiler);
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let write = |path: &Path, text: &str| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+
+    let repo = dir.path().join("stock");
+    write(
+        &repo.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"stock\"\nversion = \"1.0.0\"\n",
+    );
+    write(&repo.join("src/lib.plenty"), STOCK);
+    git(&repo, &["init", "--quiet"]);
+    git(&repo, &["add", "--all"]);
+    git(&repo, &["commit", "--quiet", "--message", "stock"]);
+    git(&repo, &["tag", "v1"]);
+
+    let app = dir.path().join("inventory");
+    write(
+        &app.join("plenty.toml"),
+        &format!(
+            "manifest-version = 1\n[package]\nname = \"inventory\"\nversion = \"0.1.0\"\n\n\
+             [[bin]]\nname = \"tally\"\npath = \"src/tally.plenty\"\n\n\
+             [[bin]]\nname = \"service\"\npath = \"src/service.plenty\"\n\n\
+             [dependencies]\nstock = {{ git = \"file://{}\", tag = \"v1\" }}\n",
+            repo.display()
+        ),
+    );
+    write(&app.join("src/tally.plenty"), TALLY);
+    write(&app.join("src/service.plenty"), SERVICE);
+    let data = dir.path().join("stock.csv");
+    std::fs::write(&data, "item,count\r\npen,3\r\nbook,12\r\ncard,2\r\n").unwrap();
+    let bad = dir.path().join("bad.csv");
+    std::fs::write(&bad, "item,count\npen,3\nbook,many\n").unwrap();
+
+    let plenty = |path: &std::ffi::OsStr, args: &[&str]| {
+        let output = Command::new(&compiler)
+            .args(args)
+            .env_clear()
+            .env("PATH", path)
+            .env("HOME", &home)
+            .env("TMPDIR", dir.path())
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .current_dir(&app)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "plenty {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    };
+    let path = std::env::var_os("PATH").unwrap();
+    plenty(&path, &["fetch"]);
+    assert!(app.join("plenty.lock").is_file());
+    std::fs::remove_dir_all(&repo).unwrap();
+
+    let stubs = dir.path().join("stubs");
+    std::fs::create_dir_all(&stubs).unwrap();
+    support::write_script(
+        &stubs.join("git"),
+        "#!/bin/sh\necho 'git must not run offline' >&2\nexit 1\n",
+    );
+    let mut offline = std::ffi::OsString::from(&stubs);
+    offline.push(":");
+    offline.push(&path);
+    plenty(&offline, &["build", "--offline", "--locked"]);
+    let ran = plenty(
+        &offline,
+        &[
+            "run",
+            "--offline",
+            "--locked",
+            "--bin",
+            "tally",
+            "--",
+            "--column",
+            "1",
+            data.to_str().unwrap(),
+        ],
+    );
+    let summary = "{\"column\":\"count\",\"rows\":3,\"total\":17}";
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{summary}\n"));
+
+    let built = app.join("target/debug");
+    let tally = |args: &[&std::ffi::OsStr]| {
+        Command::new(built.join("tally"))
+            .args(args)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let help = tally(&["--help".as_ref()]);
+    assert_eq!(help.status.code(), Some(0), "{help:?}");
+    assert!(
+        help.stdout.starts_with(b"Usage: tally [--help]\n"),
+        "{help:?}"
+    );
+    let usage = tally(&[data.as_os_str()]);
+    assert_eq!(usage.status.code(), Some(2), "{usage:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&usage.stderr),
+        "error: missing required argument --column\n"
+    );
+    let invalid = tally(&["--column".as_ref(), "1".as_ref(), bad.as_os_str()]);
+    assert_eq!(invalid.status.code(), Some(1), "{invalid:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&invalid.stderr),
+        format!(
+            "error: summarize {:?}: stock::lib.SummaryError.Count(3, ParseError.Invalid)\n",
+            bad.display().to_string()
+        )
+    );
+    let missing = dir.path().join("missing.csv");
+    let absent = tally(&["--column".as_ref(), "1".as_ref(), missing.as_os_str()]);
+    assert_eq!(absent.status.code(), Some(1), "{absent:?}");
+    assert!(
+        String::from_utf8_lossy(&absent.stderr).contains("SummaryError.Open("),
+        "{absent:?}"
+    );
+
+    let served = Command::new(built.join("service"))
+        .arg(&data)
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(served.status.success(), "{served:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&served.stdout),
+        format!("200 {summary}\n")
+    );
+    for name in ["tally", "service"] {
+        let backends = backends(&built.join(name));
+        assert!(backends.is_empty(), "{name}: {backends:?}");
+    }
 }

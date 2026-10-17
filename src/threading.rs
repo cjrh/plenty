@@ -58,26 +58,22 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
     let mut definitions = Vec::with_capacity(ops.len());
     walk(ops, &mut |op| {
         if let Op::DefineFn(name, function) = op {
-            definitions.push((name.as_str(), function));
+            definitions.push((name.as_str(), function.as_ref()));
         }
         if let Op::Thread(ThreadOp::Start(task, _)) = op {
             let mut types = task.inputs.clone();
             types.push(task.output.clone());
-            roots.push((
-                format!("worker `{}`", task.worker),
-                vec![task.worker.clone()],
-                types,
-            ));
+            roots.push(("worker", vec![task.worker.clone()], types));
         }
         if let Op::Channel(operation) = op {
             let (mut types, output) = operation.signature();
             types.push(output);
-            roots.push(("channel message".into(), vec![], types));
+            roots.push(("channel message", vec![], types));
         }
         if let Op::Executor(operation) = op {
             if let Some(job) = operation.job() {
                 roots.push((
-                    format!("executor worker `{}`", job.worker),
+                    "executor worker",
                     vec![job.worker.clone()],
                     std::iter::once(job.input.clone())
                         .chain(std::iter::once(job.output.clone()))
@@ -95,9 +91,19 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
     let functions: HashMap<_, _> = definitions.into_iter().collect();
     let mut checked = HashSet::new();
     let mut checked_receivers = HashSet::new();
-    for (origin, mut queue, mut types) in roots {
+    for (kind, mut queue, mut types) in roots {
+        let origin = match queue.first() {
+            Some(worker) => format!("{kind} {}", describe(worker, &functions)),
+            None => kind.to_owned(),
+        };
         let mut seen_types = HashSet::new();
+        // The function that first queued each callee, to name the call path
+        // to a rejected function: a generic instance or helper is otherwise
+        // hard to trace back to the source that reached it.
+        let mut callers: HashMap<String, String> = HashMap::new();
+        let mut current: Option<String> = None;
         loop {
+            let queued = queue.len();
             while let Some(ty) = types.pop() {
                 check_type(
                     &ty,
@@ -108,6 +114,13 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .map_err(|reason| format!("{origin}: {reason}"))?;
             }
+            if let Some(caller) = &current {
+                for callee in &queue[queued..] {
+                    callers
+                        .entry(callee.clone())
+                        .or_insert_with(|| caller.clone());
+                }
+            }
             let Some(name) = queue.pop() else { break };
             if !checked.insert(name.clone()) {
                 continue;
@@ -115,11 +128,65 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
             let function = functions
                 .get(name.as_str())
                 .ok_or_else(|| format!("{origin}: unavailable function `{name}`"))?;
-            inspect(function, &mut types, &mut queue)
-                .map_err(|reason| format!("{origin} reaches `{name}`: {reason}"))?;
+            let queued = queue.len();
+            inspect(function, &mut types, &mut queue).map_err(|reason| {
+                format!(
+                    "{origin} reaches {}{}: {reason}",
+                    describe(&name, &functions),
+                    path(&name, &callers, &functions)
+                )
+            })?;
+            for callee in &queue[queued..] {
+                callers
+                    .entry(callee.clone())
+                    .or_insert_with(|| name.clone());
+            }
+            current = Some(name);
         }
     }
     Ok(())
+}
+
+/// A function's name for a diagnostic. A generic instance's symbol is
+/// internal, so it is named by the location of the definition it instantiates.
+fn describe(name: &str, functions: &HashMap<&str, &CompiledFn>) -> String {
+    if !name.starts_with("__plenty_generic_") {
+        return format!("`{}`", crate::record::method_display(name));
+    }
+    match functions.get(name).and_then(|f| f.location.as_deref()) {
+        Some(location) => format!("the generic function at {location}"),
+        None => "a generic function".into(),
+    }
+}
+
+/// The functions between the root and `name`, outermost first, as
+/// ` through A -> B`; empty when the root reaches `name` directly.
+fn path(
+    name: &str,
+    callers: &HashMap<String, String>,
+    functions: &HashMap<&str, &CompiledFn>,
+) -> String {
+    let mut chain = Vec::new();
+    let mut seen = HashSet::from([name]);
+    let mut at = name;
+    while let Some(caller) = callers.get(at) {
+        if !seen.insert(caller.as_str()) {
+            break;
+        }
+        chain.push(caller.as_str());
+        at = caller;
+    }
+    // The last caller is the root, which the origin already names.
+    chain.pop();
+    if chain.is_empty() {
+        return String::new();
+    }
+    let names: Vec<_> = chain
+        .iter()
+        .rev()
+        .map(|name| describe(name, functions))
+        .collect();
+    format!(" through {}", names.join(" -> "))
 }
 
 fn check_type(
