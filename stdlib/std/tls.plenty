@@ -507,9 +507,11 @@ pub class TlsStream:
             case Err(error):
                 Err(TlsError.Net(error))
 
-    # Runs the handshake to completion. On a TLS failure the alert that
-    # rustls queued is sent if the deadline allows.
-    def handshake_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+    # Runs the handshake to completion before the deadline. One that times
+    # out keeps its progress, so a later call or `try_handshake` resumes it.
+    # On a TLS failure the alert that rustls queued is sent if the deadline
+    # allows.
+    pub def handshake_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
         while True:
             self.flush_before(deadline, cancel)?
             if (__tls_state(self._session) & handshaking) == 0:

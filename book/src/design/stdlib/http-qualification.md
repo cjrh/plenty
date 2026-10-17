@@ -2,8 +2,8 @@
 
 This page records what has been checked before [`std.http.server`](http-server.md)
 could be called production-ready, what that showed, and how to run the
-server in the meantime. **The server is not production-ready.** One gate
-fails (slow request heads, issue #132) and some are only partly covered; see [Gates](#gates). HTTP/2 and HTTP/3 need
+server in the meantime. **The server is not yet production-ready.** No
+gate fails, but some are only partly covered; see [Gates](#gates). HTTP/2 and HTTP/3 need
 separate adoption decisions and are not part of these gates.
 
 The suites are in `tests/test_std_http_server_qualification.rs`, with the
@@ -17,7 +17,7 @@ request corpus in `tests/fixtures/http_server/`. The benchmark is
 | Parser conformance and a retained corpus | Pass | About 80 corpus requests, each replayed in 64-byte reads and one byte at a time; 600 mutated copies. Includes the RFC 9112 section 3.2 `Host` rules and absolute-form targets |
 | Fuzzing | Partial | Deterministic mutation of the corpus through the whole connection loop, here and in `test_std_http.rs`; no coverage-guided fuzzing |
 | Interoperability | Pass | curl over plain HTTP and TLS (reuse, sized, chunked and `100-continue` uploads, HTTP/1.0, `HEAD`, chunked and 64 MiB responses, 404/405); `std.http.client` (pooling, streamed chunked upload, large downloads) |
-| Slow clients | **Fail** | Idle and silent clients, slow readers and slow body senders are cut off at their deadlines without holding the server. A client that sends part of a head holds a worker until `head_timeout`, so a few of them stall the server (issue #132) |
+| Slow clients | Pass | Idle and silent clients, partial request heads, partial TLS handshakes, slow readers and slow body senders are cut off at their deadlines without holding the server; heads and handshakes wait parked, not on a worker. See [Slow request heads](#slow-request-heads) |
 | Shutdown under sustained load | Pass | Six clients sending keep-alive requests while shutdown begins: every response received is whole, the server's count matches, and `serve` returns within the drain deadline |
 | Supervisor stop | Pass | With [`std.signal.cancel_on`](signal.md#stopping-a-server), `SIGTERM` during a streamed response begins shutdown: the response ends whole, `serve` returns its `Report` and the program exits 0. A second signal ends the program at once (`test_std_signal.rs`) |
 | Allocation failure | Pass | Every allocation on the accepting thread fails in turn; request handling fails in turn through `serve_connection` (`test_std_http_server.rs`). No trap, no leak, and the request is served once allocation succeeds |
@@ -90,11 +90,39 @@ writes (any body over the 4 KiB write buffer) waited about 40 ms for a
 delayed acknowledgement: the 16 KiB workload ran at 388 requests/s. The
 server now turns off Nagle's algorithm on accepted connections.
 
+## Slow request heads
+
+Until issue #132 was fixed, a worker read each request head as it arrived,
+so a client that sent part of a head held a worker until `head_timeout`.
+Now a partial head, like a partial TLS handshake, waits on the accepting
+thread (see [Idle connections](http-server.md#idle-connections)).
+Measured on 2026-10-17 with the scenario of `slow_heads_do_not_hold_workers`
+below, also run with the defaults: clients that each send
+`GET / HTTP/1.1\r\nHost: x` and stall, then one complete request.
+
+| Configuration | Before | After |
+|---|---|---|
+| 2 workers, `head_timeout` 1 s, 6 slow clients | Answered after 2954 ms | Answered within 2 ms |
+| `config()` defaults (4 workers, 10 s), 4 slow clients | Answered after 9959 ms | Answered within 2 ms |
+| `config()` defaults, 64 slow clients | `503` at once; 44 slow clients got `503`, the last `408` came after 50 s | Answered within 2 ms; all 64 got `408` at 10 s |
+
+The slow clients still count against `idle_connections` (default 256):
+with that many parked, new connections get `503` until their deadlines
+pass. With 1000 parked partial heads the server's resident memory grew
+from 4548 KiB to 6396 KiB, about 1.9 KiB per connection. Size
+`idle_connections` and the descriptor limit for the slow clients an exposed
+server must outlast. Keep-alive and new-connection throughput showed no
+change beyond run-to-run noise on a loaded machine (load average about 8).
+`slow_heads_do_not_hold_workers` in the qualification suite and
+`partial_heads_wait_without_a_worker` and
+`https_partial_handshakes_and_heads_wait_without_a_worker` in
+`test_std_http_server.rs` check this.
+
 ## Deployment
 
 For a public service, put a reverse proxy in front of the server (see
 [deploying behind a reverse proxy](http-proxy.md#deploying-behind-a-reverse-proxy)).
-Until issue #132 is fixed, the proxy must also absorb slow clients:
+The proxy also absorbs slow clients beyond what `idle_connections` bounds:
 
 - Buffer whole request heads, and preferably bodies, before forwarding
   (nginx does both by default; keep `proxy_request_buffering on`).
@@ -107,8 +135,8 @@ The server itself:
 
 - Listen on loopback or a private address. Serve
   [HTTPS directly](http-proxy.md#serving-https-directly) only when no proxy
-  is possible, and then keep `head_timeout` short and `workers` above the
-  number of slow clients expected.
+  is possible, and then keep `head_timeout` and `handshake_timeout` short
+  and `idle_connections` above the number of slow clients expected.
 - Raise the descriptor limit (`LimitNOFILE` in systemd) above
   `idle_connections + queue + workers` plus the program's own files; when it
   runs out, `accept` fails, is counted in `accept_errors` and retried every
