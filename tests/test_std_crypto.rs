@@ -374,7 +374,7 @@ def main() -> Result[(), Failure]:
 /// its own runtime entry, so only programs that hash carry it.
 #[test]
 fn programs_that_never_hash_do_not_link_the_hashing_code() {
-    use object::{Object, ObjectSymbol};
+    use object::{Object, ObjectSymbol, SymbolKind};
     let symbols = |source: &str| {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("main.plenty");
@@ -384,6 +384,8 @@ fn programs_that_never_hash_do_not_link_the_hashing_code() {
         let data = std::fs::read(&executable).unwrap();
         let file = object::File::parse(&*data).unwrap();
         file.symbols()
+            // Functions only: mold also names each GOT entry, `NAME$got`.
+            .filter(|symbol| symbol.kind() == SymbolKind::Text)
             .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
             .filter(|name| name == "plenty_crypto" || name.contains("compress256"))
             .count()

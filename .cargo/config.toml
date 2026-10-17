@@ -17,3 +17,13 @@ debug = false
 
 [profile.release.build-override]
 debug = "line-tables-only"
+
+# Most tests compile a Plenty program and link it with `cc`, which looks for
+# `ld` in COMPILER_PATH first. Where mold is installed, these links use mold's
+# `ld`, several times faster than GNU ld; elsewhere the directory is missing
+# and `cc` uses its default linker. This applies only to processes Cargo
+# starts, such as tests and `cargo run`; the compiler's default `cc` driver is
+# unchanged, and rustc selects its default linker, rust-lld, explicitly. See
+# book/src/development/workflow.md.
+[env]
+COMPILER_PATH = "/usr/libexec/mold"

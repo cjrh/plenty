@@ -104,28 +104,44 @@ impl Drop for Workspace {
     }
 }
 
-#[test]
-fn every_tutorial_program_and_diagnostic_matches_the_language() {
-    let fences: Vec<Fence> = summary_pages()
+/// One independently runnable check: an example with its companion modules and
+/// library builds, or a project command with the project files written before
+/// it on its page.
+enum Job<'a> {
+    Example {
+        source: &'a Fence,
+        expected: &'a Fence,
+        modules: Vec<(PathBuf, &'a Fence)>,
+        builds: Vec<&'a Fence>,
+    },
+    Project {
+        command: &'a Fence,
+        directory: &'a str,
+        expected: &'a Fence,
+        files: Vec<(PathBuf, &'a Fence)>,
+    },
+}
+
+fn tutorial_fences() -> Vec<Fence> {
+    summary_pages()
         .into_iter()
         .filter(|page| page.starts_with("tutorial/") || page.starts_with("design/examples/"))
         .flat_map(|page| {
             let markdown = std::fs::read_to_string(book_src().join(&page)).unwrap();
             fences(&page, &markdown)
         })
-        .collect();
-    let workspace =
-        Workspace(std::env::temp_dir().join(format!("plenty-tutorial-{}", std::process::id())));
-    std::fs::create_dir(&workspace.0).unwrap();
-    let binary = env!("CARGO_BIN_EXE_plenty");
-    let mut examples = 0;
+        .collect()
+}
+
+/// Check the structure of every fence in reading order and pair each example
+/// or project command with its expectation and companion files.
+fn jobs(fences: &[Fence]) -> Vec<Job<'_>> {
+    let mut jobs = Vec::new();
     let mut index = 0;
-    let mut modules = Vec::new();
+    let mut modules: Vec<(PathBuf, &Fence)> = Vec::new();
     let mut builds = Vec::new();
     let mut project_files: Vec<(PathBuf, &Fence)> = Vec::new();
     let mut project_used = false;
-    let mut projects = 0;
-    let mut failures = Vec::new();
     while index < fences.len() {
         let source = &fences[index];
         if let Some((_, path)) = source.language.split_once(" project-file ") {
@@ -155,12 +171,8 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
                 .unwrap_or_else(|| {
                     panic!("{}: project command needs an output fence", source.line)
                 });
-            let project_dir = workspace.0.join(format!("project-{projects}"));
-            for (path, file) in &project_files {
+            for (_, file) in &project_files {
                 assert_eq!(page_of(&file.line), page_of(&source.line), "{}", file.line);
-                let path = project_dir.join(path);
-                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-                std::fs::write(path, &file.body).unwrap();
             }
             project_used = true;
             // One fixed command, without a shell, so lessons show the exact
@@ -174,23 +186,12 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
                 "unsupported project command at {}",
                 source.line
             );
-            let output = Command::new(binary)
-                .arg(words[1])
-                .current_dir(project_dir.join(directory))
-                .output()
-                .unwrap();
-            if !output.status.success() || String::from_utf8_lossy(&output.stdout) != expected.body
-            {
-                eprintln!(
-                    "{}: status {}\nstdout:\n{}\nstderr:\n{}",
-                    source.line,
-                    output.status,
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                failures.push(source.line.clone());
-            }
-            projects += 1;
+            jobs.push(Job::Project {
+                command: source,
+                directory,
+                expected,
+                files: project_files.clone(),
+            });
             index += 2;
             continue;
         }
@@ -209,10 +210,10 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
                 source.line
             );
             assert!(
-                !modules.iter().any(|(p, _, _)| p == &path),
+                !modules.iter().any(|(p, _)| p == &path),
                 "duplicate tutorial module"
             );
-            modules.push((path, source.body.clone(), page_of(&source.line)));
+            modules.push((path, source));
             index += 1;
             continue;
         }
@@ -245,158 +246,32 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
             "{}",
             source.line
         );
-        let example_dir = workspace.0.join(format!("example-{examples}"));
-        std::fs::create_dir(&example_dir).unwrap();
-        for (path, body, page) in modules.drain(..) {
+        for (_, module) in &modules {
             assert_eq!(
-                page,
+                page_of(&module.line),
                 page_of(&source.line),
                 "companion module for {} is on another page",
                 source.line
             );
-            let path = example_dir.join(path);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, body).unwrap();
         }
-        let mut libraries = Vec::new();
-        for build in builds.drain(..) {
+        for build in &builds {
             assert_eq!(
                 page_of(&build.line),
                 page_of(&source.line),
                 "library build is on another page"
             );
-            for line in build.body.lines().filter(|line| !line.trim().is_empty()) {
-                // Intentionally no shell: lessons use the exact public CLI and
-                // cannot substitute arbitrary scripts for a language example.
-                let words: Vec<_> = line.split_whitespace().collect();
-                assert!(
-                    words.len() == 7
-                        && words[0] == "plenty"
-                        && matches!(words[1], "--shared-library" | "--runtime-interface")
-                        && words[3] == "--library-name"
-                        && words[5] == "-o",
-                    "unsupported tutorial build at {}: {line}",
-                    build.line
-                );
-                for path in [words[2], words[6]] {
-                    assert!(
-                        Path::new(path)
-                            .components()
-                            .all(|part| matches!(part, std::path::Component::Normal(_))),
-                        "invalid build path at {}",
-                        build.line
-                    );
-                }
-                let output = Command::new(binary)
-                    .args(&words[1..])
-                    .current_dir(&example_dir)
-                    .output()
-                    .unwrap();
-                assert!(
-                    output.status.success(),
-                    "{}: {line}\n{}",
-                    build.line,
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                if words[1] == "--shared-library" {
-                    libraries.push(PathBuf::from(words[6]));
-                }
-            }
+            build_commands(build);
         }
-        let source_path = example_dir.join("lesson.plenty");
-        std::fs::write(&source_path, &source.body).unwrap();
-        // Runtime examples may create files. Give each execution a separate
-        // empty working directory so examples neither touch the repo nor rely
-        // on files left behind by the other execution mode.
-        let run_dir = example_dir.join("run");
-        let native_dir = example_dir.join("native");
-        std::fs::create_dir(&run_dir).unwrap();
-        std::fs::create_dir(&native_dir).unwrap();
-        for library in libraries {
-            for directory in [&run_dir, &native_dir] {
-                let destination = directory.join(&library);
-                std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
-                std::fs::copy(example_dir.join(&library), destination).unwrap();
-            }
-        }
-        let run_output = Command::new(binary)
-            .arg(&source_path)
-            .current_dir(&run_dir)
-            .output()
-            .unwrap();
-        let executable = workspace.0.join(format!("lesson-{examples}"));
-        let compiled = Command::new(binary)
-            .arg("--compile")
-            .arg(&source_path)
-            .arg("-o")
-            .arg(&executable)
-            .output()
-            .unwrap();
-        let checked = std::panic::catch_unwind(|| {
-            if valid {
-                assert!(
-                    run_output.status.success(),
-                    "{} run command: {}",
-                    source.line,
-                    String::from_utf8_lossy(&run_output.stderr)
-                );
-                assert!(
-                    compiled.status.success(),
-                    "{} compiler: {}",
-                    source.line,
-                    String::from_utf8_lossy(&compiled.stderr)
-                );
-                let native = Command::new(&executable)
-                    .current_dir(&native_dir)
-                    .output()
-                    .unwrap();
-                assert!(
-                    native.status.success(),
-                    "{} native: {}",
-                    source.line,
-                    String::from_utf8_lossy(&native.stderr)
-                );
-                assert_eq!(
-                    String::from_utf8_lossy(&run_output.stdout),
-                    expected.body,
-                    "{} run command output",
-                    source.line
-                );
-                assert_eq!(
-                    native.stdout, run_output.stdout,
-                    "{} native output",
-                    source.line
-                );
-            } else {
-                let message = expected.body.trim();
-                assert!(!message.is_empty());
-                for (backend, output) in [("run command", run_output), ("compiler", compiled)] {
-                    assert!(
-                        !output.status.success(),
-                        "{} {backend} accepted an invalid program",
-                        source.line
-                    );
-                    assert!(output.stdout.is_empty(), "invalid program had effects");
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    for line in message.lines().map(str::trim) {
-                        assert!(
-                            stderr.contains(line),
-                            "{} {backend}: expected {line:?}, got {stderr}",
-                            source.line
-                        );
-                    }
-                }
-                assert!(!executable.exists());
-            }
+        jobs.push(Job::Example {
+            source,
+            expected,
+            modules: std::mem::take(&mut modules),
+            builds: std::mem::take(&mut builds),
         });
-        if checked.is_err() {
-            failures.push(source.line.clone());
-        }
-        examples += 1;
         index += 2;
     }
     assert!(
-        examples > 0,
+        jobs.iter().any(|job| matches!(job, Job::Example { .. })),
         "the tutorial must teach with executable examples"
     );
     assert!(
@@ -411,8 +286,259 @@ fn every_tutorial_program_and_diagnostic_matches_the_language() {
         project_files.is_empty() || project_used,
         "orphan tutorial project file without a project command"
     );
+    jobs
+}
+
+/// The words of each command in a `sh plenty-build` fence.
+fn build_commands(build: &Fence) -> Vec<Vec<&str>> {
+    build
+        .body
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            // Intentionally no shell: lessons use the exact public CLI and
+            // cannot substitute arbitrary scripts for a language example.
+            let words: Vec<_> = line.split_whitespace().collect();
+            assert!(
+                words.len() == 7
+                    && words[0] == "plenty"
+                    && matches!(words[1], "--shared-library" | "--runtime-interface")
+                    && words[3] == "--library-name"
+                    && words[5] == "-o",
+                "unsupported tutorial build at {}: {line}",
+                build.line
+            );
+            for path in [words[2], words[6]] {
+                assert!(
+                    Path::new(path)
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_))),
+                    "invalid build path at {}",
+                    build.line
+                );
+            }
+            words
+        })
+        .collect()
+}
+
+/// Run job `number` (its position in reading order, which names its files)
+/// in `workspace`, returning whether its output matched.
+fn run_job(job: &Job, number: usize, workspace: &Path) -> bool {
+    let binary = env!("CARGO_BIN_EXE_plenty");
+    let (source, expected, modules, builds) = match job {
+        Job::Project {
+            command,
+            directory,
+            expected,
+            files,
+        } => {
+            let project_dir = workspace.join(format!("project-{number}"));
+            for (path, file) in files {
+                let path = project_dir.join(path);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, &file.body).unwrap();
+            }
+            let words: Vec<_> = command.body.split_whitespace().collect();
+            let output = Command::new(binary)
+                .arg(words[1])
+                .current_dir(project_dir.join(directory))
+                .output()
+                .unwrap();
+            if !output.status.success() || String::from_utf8_lossy(&output.stdout) != expected.body
+            {
+                eprintln!(
+                    "{}: status {}\nstdout:\n{}\nstderr:\n{}",
+                    command.line,
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                return false;
+            }
+            return true;
+        }
+        Job::Example {
+            source,
+            expected,
+            modules,
+            builds,
+        } => (source, expected, modules, builds),
+    };
+    let valid = source.language == "plenty";
+    let example_dir = workspace.join(format!("example-{number}"));
+    std::fs::create_dir(&example_dir).unwrap();
+    for (path, module) in modules {
+        let path = example_dir.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, &module.body).unwrap();
+    }
+    let mut libraries = Vec::new();
+    for build in builds {
+        for words in build_commands(build) {
+            let output = Command::new(binary)
+                .args(&words[1..])
+                .current_dir(&example_dir)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}: {}\n{}",
+                build.line,
+                words.join(" "),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if words[1] == "--shared-library" {
+                libraries.push(PathBuf::from(words[6]));
+            }
+        }
+    }
+    let source_path = example_dir.join("lesson.plenty");
+    std::fs::write(&source_path, &source.body).unwrap();
+    // Runtime examples may create files. Give each execution a separate
+    // empty working directory so examples neither touch the repo nor rely
+    // on files left behind by the other execution mode.
+    let run_dir = example_dir.join("run");
+    let native_dir = example_dir.join("native");
+    std::fs::create_dir(&run_dir).unwrap();
+    std::fs::create_dir(&native_dir).unwrap();
+    for library in libraries {
+        for directory in [&run_dir, &native_dir] {
+            let destination = directory.join(&library);
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            std::fs::copy(example_dir.join(&library), destination).unwrap();
+        }
+    }
+    let run_output = Command::new(binary)
+        .arg(&source_path)
+        .current_dir(&run_dir)
+        .output()
+        .unwrap();
+    let executable = workspace.join(format!("lesson-{number}"));
+    let compiled = Command::new(binary)
+        .arg("--compile")
+        .arg(&source_path)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .unwrap();
+    std::panic::catch_unwind(|| {
+        if valid {
+            assert!(
+                run_output.status.success(),
+                "{} run command: {}",
+                source.line,
+                String::from_utf8_lossy(&run_output.stderr)
+            );
+            assert!(
+                compiled.status.success(),
+                "{} compiler: {}",
+                source.line,
+                String::from_utf8_lossy(&compiled.stderr)
+            );
+            let native = Command::new(&executable)
+                .current_dir(&native_dir)
+                .output()
+                .unwrap();
+            assert!(
+                native.status.success(),
+                "{} native: {}",
+                source.line,
+                String::from_utf8_lossy(&native.stderr)
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&run_output.stdout),
+                expected.body,
+                "{} run command output",
+                source.line
+            );
+            assert_eq!(
+                native.stdout, run_output.stdout,
+                "{} native output",
+                source.line
+            );
+        } else {
+            let message = expected.body.trim();
+            assert!(!message.is_empty());
+            for (backend, output) in [("run command", run_output), ("compiler", compiled)] {
+                assert!(
+                    !output.status.success(),
+                    "{} {backend} accepted an invalid program",
+                    source.line
+                );
+                assert!(output.stdout.is_empty(), "invalid program had effects");
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                for line in message.lines().map(str::trim) {
+                    assert!(
+                        stderr.contains(line),
+                        "{} {backend}: expected {line:?}, got {stderr}",
+                        source.line
+                    );
+                }
+            }
+            assert!(!executable.exists());
+        }
+    })
+    .is_ok()
+}
+
+/// Run every `shards`th job in reading order, starting at `shard`. Every
+/// shard checks the structure of the whole tutorial.
+fn run_shard(shard: usize, shards: usize) {
+    let fences = tutorial_fences();
+    let jobs = jobs(&fences);
+    let workspace = Workspace(
+        std::env::temp_dir().join(format!("plenty-tutorial-{}-{shard}", std::process::id())),
+    );
+    std::fs::create_dir(&workspace.0).unwrap();
+    let failures: Vec<&str> = jobs
+        .iter()
+        .enumerate()
+        .skip(shard)
+        .step_by(shards)
+        .filter(|(number, job)| !run_job(job, *number, &workspace.0))
+        .map(|(_, job)| match job {
+            Job::Example { source, .. } => source.line.as_str(),
+            Job::Project { command, .. } => command.line.as_str(),
+        })
+        .collect();
     assert!(
         failures.is_empty(),
         "tutorial examples failed at lines {failures:?}"
     );
+}
+
+/// The examples run as several tests, so the harness runs them in parallel
+/// with each other and with the rest of the suite (issue #139).
+mod every_tutorial_program_and_diagnostic_matches_the_language {
+    macro_rules! shards {
+        ($($name:ident: $shard:literal,)*) => {
+            const SHARDS: usize = [$($shard),*].len();
+            $(
+                #[test]
+                fn $name() {
+                    super::run_shard($shard, SHARDS);
+                }
+            )*
+        };
+    }
+
+    shards! {
+        shard_00: 0,
+        shard_01: 1,
+        shard_02: 2,
+        shard_03: 3,
+        shard_04: 4,
+        shard_05: 5,
+        shard_06: 6,
+        shard_07: 7,
+        shard_08: 8,
+        shard_09: 9,
+        shard_10: 10,
+        shard_11: 11,
+        shard_12: 12,
+        shard_13: 13,
+        shard_14: 14,
+        shard_15: 15,
+    }
 }

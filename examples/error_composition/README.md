@@ -4,7 +4,7 @@ Run from the repository root:
 
 ```sh
 cargo run -- examples/error_composition/main.plenty
-cargo test --locked --all-features --test test_error_composition --test test_typed_stream_prototype
+cargo test --locked --all-features --test integration -- test_error_composition:: test_typed_stream_prototype::
 ```
 
 The example prints `1` (bytes delivered) and `104` (the original transport
