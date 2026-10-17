@@ -40,6 +40,9 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --link-arg ARG: pass one extra driver argument verbatim; may be repeated.
 --target TRIPLE: require this target to match the supported packaged runtime.
 --release: optimize generated code for FILE or --compile (slower compilation).
+--no-cache: compile every function instead of reusing the compiled-function
+  cache (also PLENTY_CACHE=off; PLENTY_CACHE_DIR selects the directory).
+--cache-stats: report the cache's hits and misses after compiling.
 --legacy before FILE or --compile selects the historical stack syntax.
 ";
 
@@ -119,6 +122,14 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     };
     if graph.is_some() && (legacy || root.is_some()) {
         return Err("--package-graph excludes --module-root and --legacy".into());
+    }
+    if let Some(index) = args.iter().position(|a| a == "--no-cache") {
+        args.remove(index);
+        options.cache = plenty::cache::CacheMode::Off;
+    }
+    if let Some(index) = args.iter().position(|a| a == "--cache-stats") {
+        args.remove(index);
+        options.cache_stats = true;
     }
     if let Some(index) = args.iter().position(|a| a == "--release") {
         args.remove(index);
@@ -227,7 +238,12 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         [flag, source, option, output]
             if flag == "--emit-object" && !legacy && (option == "-o" || option == "--output") =>
         {
-            plenty::compile_file_to_object(Path::new(source), Path::new(output), root.as_deref())?;
+            plenty::compile_file_to_object_with_options(
+                Path::new(source),
+                Path::new(output),
+                root.as_deref(),
+                &options,
+            )?;
         }
         [] if !legacy => {
             print!("{}", usage(program));

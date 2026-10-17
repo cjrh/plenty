@@ -19,6 +19,7 @@ use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use super::symbols::{self, Declared, Request, Symbols};
 use super::{Result, Runtime};
+use crate::cache::Cache;
 
 /// Branch arguments in one function above which Cranelift's single-pass
 /// register allocator compiles it. The backtracking allocator re-sorts a block
@@ -70,6 +71,7 @@ pub(super) struct Output {
     pub builder: FunctionBuilderContext,
     targets: Targets,
     context: Context,
+    cache: Option<Arc<Cache>>,
 }
 
 struct Code {
@@ -91,7 +93,7 @@ struct Built {
 type Finished = std::result::Result<Vec<Built>, String>;
 
 impl Output {
-    pub(super) fn new(targets: Targets) -> Result<Self> {
+    pub(super) fn new(targets: Targets, cache: Option<Arc<Cache>>) -> Result<Self> {
         let mut builder = ObjectBuilder::new(
             targets.ordinary.clone(),
             "plenty",
@@ -110,6 +112,7 @@ impl Output {
             builder: FunctionBuilderContext::new(),
             targets,
             context: Context::new(),
+            cache,
         })
     }
 
@@ -121,12 +124,16 @@ impl Output {
             self.targets.for_function(&func),
             id,
             func,
+            self.cache.as_deref(),
         );
         self.place(id, code, |_, _| Ok(()))
     }
 
     pub(super) fn finish(self) -> cranelift_object::ObjectProduct {
         use cranelift_object::object::{elf, FileFlags};
+        if let Some(cache) = &self.cache {
+            cache.finish();
+        }
         let mut product = self.module.finish();
         // GNU ld honours SHF_GNU_RETAIN, which keeps a library's interface
         // section through `--gc-sections`, only in GNU OSABI objects, as GNU
@@ -160,16 +167,18 @@ impl Output {
         let stop = AtomicBool::new(false);
         let (finished, results) = mpsc::channel::<(usize, Finished)>();
         let targets = self.targets.clone();
+        let cache = self.cache.clone();
         std::thread::scope(|scope| {
-            let shared = (&queue, &stop, &build, &targets, &declared);
+            let shared = (&queue, &stop, &build, &targets, &declared, &cache);
             let mut helpers = 0;
             for _ in 0..workers.min(total) {
                 let finished = finished.clone();
                 let spawned = std::thread::Builder::new()
                     .stack_size(crate::parallel::HELPER_STACK_BYTES)
                     .spawn_scoped(scope, move || {
-                        let (queue, stop, build, targets, declared) = shared;
-                        let mut worker = Worker::new(targets.clone(), Arc::clone(declared));
+                        let (queue, stop, build, targets, declared, cache) = shared;
+                        let mut worker =
+                            Worker::new(targets.clone(), Arc::clone(declared), cache.clone());
                         work(queue, stop, build, &mut worker, &finished);
                     });
                 // A helper that cannot be spawned only costs speed.
@@ -178,7 +187,7 @@ impl Output {
                 }
             }
             if helpers == 0 {
-                let mut worker = Worker::new(targets.clone(), Arc::clone(&declared));
+                let mut worker = Worker::new(targets.clone(), Arc::clone(&declared), cache.clone());
                 work(&queue, &stop, &build, &mut worker, &finished);
             }
             drop(finished);
@@ -268,16 +277,18 @@ pub(super) struct Worker {
     context: Context,
     targets: Targets,
     declared: Arc<Declared>,
+    cache: Option<Arc<Cache>>,
     built: Vec<Built>,
 }
 
 impl Worker {
-    fn new(targets: Targets, declared: Arc<Declared>) -> Self {
+    fn new(targets: Targets, declared: Arc<Declared>, cache: Option<Arc<Cache>>) -> Self {
         Self {
             builder: FunctionBuilderContext::new(),
             context: Context::new(),
             targets,
             declared,
+            cache,
             built: Vec::new(),
         }
     }
@@ -290,7 +301,7 @@ impl Worker {
     /// Compile `func`, built against `symbols`, as the body of `id`.
     pub(super) fn define(&mut self, id: FuncId, func: Function, symbols: Symbols) {
         let isa = self.targets.for_function(&func);
-        let code = compile(&mut self.context, isa, id, func);
+        let code = compile(&mut self.context, isa, id, func, self.cache.as_deref());
         self.built.push(Built {
             id,
             code,
@@ -299,34 +310,56 @@ impl Worker {
     }
 }
 
-fn compile(context: &mut Context, isa: &dyn TargetIsa, id: FuncId, func: Function) -> Compiled {
+/// Compile `func`, or take its code from `cache`. A hit yields the code the
+/// compilation would have: Cranelift keys on the function without its
+/// external names and applies this function's names to the cached result,
+/// and the IR's requested symbols were rebuilt with it ([`symbols`]).
+fn compile(
+    context: &mut Context,
+    isa: &dyn TargetIsa,
+    id: FuncId,
+    func: Function,
+    cache: Option<&Cache>,
+) -> Compiled {
     context.func = func;
-    let code = context
-        .compile(isa, &mut ControlPlane::default())
-        .map(|_| ())
-        .map_err(|error| format!("{:?}", error.inner))
-        .map(|()| {
-            let buffer = &context.compiled_code().unwrap().buffer;
-            Code {
-                alignment: buffer.alignment as u64,
-                bytes: buffer.data().to_vec(),
-                relocs: buffer
-                    .relocs()
-                    .iter()
-                    .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
-                    .collect(),
-            }
-        });
+    let compiled = match cache {
+        Some(cache) => {
+            let mut store = cache.store();
+            let hit = context
+                .compile_with_cache(isa, &mut store, &mut ControlPlane::default())
+                .map(|(_, hit)| hit)
+                .map_err(|error| format!("{:?}", error.inner));
+            hit.map(|hit| store.finish(hit))
+        }
+        None => context
+            .compile(isa, &mut ControlPlane::default())
+            .map(|_| ())
+            .map_err(|error| format!("{:?}", error.inner)),
+    };
+    let code = compiled.map(|()| {
+        let buffer = &context.compiled_code().unwrap().buffer;
+        Code {
+            alignment: buffer.alignment as u64,
+            bytes: buffer.data().to_vec(),
+            relocs: buffer
+                .relocs()
+                .iter()
+                .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &context.func, id))
+                .collect(),
+        }
+    });
     context.clear();
     code
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::Build;
     use super::*;
+    use crate::cache::CacheMode;
     use crate::value::Heap;
     use cranelift_codegen::ir::condcodes::IntCC;
-    use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Signature, UserFuncName};
+    use cranelift_codegen::ir::{self, types, AbiParam, InstBuilder, Signature, UserFuncName};
     use cranelift_frontend::FunctionBuilder;
 
     fn targets() -> Targets {
@@ -369,16 +402,22 @@ mod tests {
     }
 
     fn machine_code(isa: &dyn TargetIsa, func: &Function) -> Vec<u8> {
-        compile(&mut Context::new(), isa, FuncId::from_u32(0), func.clone())
-            .unwrap()
-            .bytes
+        compile(
+            &mut Context::new(),
+            isa,
+            FuncId::from_u32(0),
+            func.clone(),
+            None,
+        )
+        .unwrap()
+        .bytes
     }
 
     /// What a worker produces for `func`, through the same path as a program.
     fn worker_machine_code(targets: &Targets, func: &Function) -> Vec<u8> {
-        let output = Output::new(targets.clone()).unwrap();
+        let output = Output::new(targets.clone(), None).unwrap();
         let declared = Declared::snapshot(&output.module, targets.ordinary.clone());
-        let mut worker = Worker::new(targets.clone(), Arc::new(declared));
+        let mut worker = Worker::new(targets.clone(), Arc::new(declared), None);
         let symbols = worker.symbols();
         worker.define(FuncId::from_u32(0), func.clone(), symbols);
         worker.built.pop().unwrap().code.unwrap().bytes
@@ -441,17 +480,195 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
         assert_same_object_for_any_worker_count(source);
     }
 
+    /// The object for `source` with `build`, as bytes.
+    fn object(source: &str, workers: usize, build: Build) -> Vec<u8> {
+        let mut heap = Heap::default();
+        let program = crate::frontend::compile(source, &mut heap).unwrap();
+        super::super::object_bytes(program.ops, &heap, Some(false), &[], None, workers, build)
+            .unwrap()
+    }
+
+    /// A build using the cache in `dir`. With `check`, Cranelift compiles
+    /// every hit again and asserts the cached code matches.
+    fn cached(dir: &std::path::Path, check: bool) -> Build {
+        Build {
+            cache: Cache::open(&CacheMode::Directory(dir.to_path_buf())),
+            check_cache_hits: check,
+            ..Build::default()
+        }
+    }
+
+    /// Workers, and the cache in any state, must not change the object
+    /// (issues #58 and #144).
     fn assert_same_object_for_any_worker_count(mut source: String) {
         source.push_str("def main() -> ():\n    pass\n");
-        let mut heap = Heap::default();
-        let program = crate::frontend::compile(&source, &mut heap).unwrap();
-        let object = |workers| {
-            super::super::object_bytes(program.ops.clone(), &heap, Some(false), &[], None, workers)
-                .unwrap()
+        let serial = object(&source, 1, Build::default());
+        assert!(
+            serial == object(&source, 2, Build::default()),
+            "two workers changed the object"
+        );
+        assert!(
+            serial == object(&source, 8, Build::default()),
+            "eight workers changed the object"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let checked = cached(dir.path(), true);
+        assert!(
+            serial == object(&source, 1, checked.clone()),
+            "cold cache changed the object"
+        );
+        let hits = checked.cache.as_ref().unwrap().stats().hits;
+        assert!(
+            serial == object(&source, 8, checked),
+            "warm cache changed the object"
+        );
+        let warm = cached(dir.path(), true);
+        assert!(
+            serial == object(&source, 2, warm.clone()),
+            "warm cache changed the object"
+        );
+        let stats = warm.cache.unwrap().stats();
+        assert_eq!(stats.misses, 0, "a warm cache missed: {stats:?}");
+        assert!(stats.hits > hits, "{stats:?}");
+
+        // The same without Cranelift's hit checks, which are an ISA flag of
+        // their own: the entries plain builds use.
+        let dir = tempfile::tempdir().unwrap();
+        assert!(serial == object(&source, 3, cached(dir.path(), false)));
+        assert!(serial == object(&source, 1, cached(dir.path(), false)));
+    }
+
+    /// Two programs whose functions build the same stencil but request
+    /// different symbols (type metadata, trap tables for other source
+    /// positions) must each get their own symbols from a cached entry.
+    #[test]
+    fn cached_code_resolves_each_programs_own_symbols() {
+        let shows = |ty: &str, lead: &str| {
+            format!(
+                "{lead}def show(items: {ty}) -> Result[(), IoError]:
+    print(items)?
+    print(items[0])?
+    Ok(())
+
+def main() -> ():
+    pass
+"
+            )
         };
-        let serial = object(1);
-        assert!(serial == object(2), "two workers changed the object");
-        assert!(serial == object(8), "eight workers changed the object");
+        let ints = shows("list[i64]", "");
+        let strs = shows("list[str]", "\n\n# shifted\n");
+        let dir = tempfile::tempdir().unwrap();
+        let cold = cached(dir.path(), true);
+        assert!(object(&ints, 2, Build::default()) == object(&ints, 2, cold));
+        let warm = cached(dir.path(), true);
+        assert!(object(&strs, 2, Build::default()) == object(&strs, 2, warm.clone()));
+        assert!(warm.cache.unwrap().stats().hits > 0);
+    }
+
+    /// The build's ISA with `flags` changed, as the cache key sees it.
+    fn isa_with(flags: &[(&str, &str)]) -> OwnedTargetIsa {
+        use cranelift_codegen::settings::{self, Configurable};
+        let mut builder = settings::builder();
+        for (name, value) in [("is_pic", "true"), ("enable_llvm_abi_extensions", "true")]
+            .iter()
+            .chain(flags)
+        {
+            builder.set(name, value).unwrap();
+        }
+        cranelift_native::builder_with_options(false)
+            .unwrap()
+            .finish(settings::Flags::new(builder))
+            .unwrap()
+    }
+
+    /// `return value` with the given type, calling the imported function
+    /// `callee` first when given: the body, signature, and callee identity
+    /// are the stencil inputs the key must and must not react to.
+    fn constant(ty: cranelift_codegen::ir::Type, value: i64, callee: Option<u32>) -> Function {
+        let mut signature = Signature::new(targets().ordinary.default_call_conv());
+        signature.returns.push(AbiParam::new(ty));
+        let mut func = Function::with_name_signature(UserFuncName::default(), signature.clone());
+        let mut context = FunctionBuilderContext::new();
+        let mut builder = FunctionBuilder::new(&mut func, &mut context);
+        let entry = builder.create_block();
+        builder.switch_to_block(entry);
+        if let Some(index) = callee {
+            let signature = builder.import_signature(signature);
+            let name = builder
+                .func
+                .declare_imported_user_function(ir::UserExternalName::new(0, index));
+            let callee = builder.import_function(ir::ExtFuncData {
+                name: ir::ExternalName::user(name),
+                signature,
+                colocated: true,
+                patchable: false,
+            });
+            builder.ins().call(callee, &[]);
+        }
+        let result = builder.ins().iconst(ty, value);
+        builder.ins().return_(&[result]);
+        builder.seal_all_blocks();
+        builder.finalize();
+        func
+    }
+
+    /// Every input the key covers, changed one at a time, is a miss, and
+    /// per-program function identities are not an input: that is what lets
+    /// one program's `std` code serve another.
+    #[test]
+    fn key_covers_the_stencil_and_isa_flags_but_not_symbol_identities() {
+        // `CacheKeyHash` has no `Debug`; its `Display` is the whole hash.
+        let compute_cache_key = |isa: &dyn TargetIsa, func: &Function| {
+            cranelift_codegen::incremental_cache::compute_cache_key(isa, func).to_string()
+        };
+        let targets = targets();
+        let isa = &*targets.ordinary;
+        let key = compute_cache_key(isa, &constant(types::I64, 1, Some(3)));
+        assert_eq!(
+            key,
+            compute_cache_key(isa, &constant(types::I64, 1, Some(3)))
+        );
+        assert_eq!(
+            key,
+            compute_cache_key(isa, &constant(types::I64, 1, Some(7))),
+            "the callee's identity is applied after compilation"
+        );
+        assert_ne!(
+            key,
+            compute_cache_key(isa, &constant(types::I64, 2, Some(3))),
+            "body"
+        );
+        assert_ne!(
+            key,
+            compute_cache_key(isa, &constant(types::I32, 1, Some(3))),
+            "signature"
+        );
+        assert_ne!(
+            key,
+            compute_cache_key(isa, &constant(types::I64, 1, None)),
+            "callees"
+        );
+        assert_ne!(
+            key,
+            compute_cache_key(&*targets.single_pass, &constant(types::I64, 1, Some(3))),
+            "register allocator"
+        );
+        let function = constant(types::I64, 1, Some(3));
+        let base = compute_cache_key(&*isa_with(&[]), &function);
+        for (name, value) in [
+            ("opt_level", "speed"),
+            ("enable_verifier", "false"),
+            ("enable_probestack", "true"),
+            ("preserve_frame_pointers", "true"),
+            ("enable_incremental_compilation_cache_checks", "true"),
+        ] {
+            assert_ne!(
+                base,
+                compute_cache_key(&*isa_with(&[(name, value)]), &function),
+                "{name}"
+            );
+        }
     }
 
     /// Symbols a body declares on first use: type metadata, trap-site tables,

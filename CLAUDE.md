@@ -85,6 +85,7 @@ issue ownership, discussion, and PR review state live in the database.
 | `cargo test --locked --workspace` | Run compiler and runtime tests, without the allocation-accounting tests |
 | `cargo test --locked --workspace --all-features` | Full suite, as CI runs it: adds the `runtime-checks` and `allocation-checks` tests |
 | `cargo test --locked --test integration test_tutorial::` | Check the tutorial lessons |
+| `PLENTY_CACHE=off cargo test ...` | Run without the compiled-function cache; `.cargo/config.toml` points it at `target/plenty-cache` for tests and `cargo run` |
 | `cargo test --locked --test integration test_std_url::` | Run one test file's tests: integration tests are modules of `tests/integration.rs`, which must list each `tests/test_*.rs` file |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Lint compiler and runtime |
 | `cargo run -- FILE` | Compile and run a Plenty program (needs `cc`) |

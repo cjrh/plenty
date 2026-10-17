@@ -8,6 +8,7 @@
 
 mod boxed;
 mod bytes;
+pub mod cache;
 mod channel;
 mod closure;
 mod codegen;
@@ -49,9 +50,10 @@ mod value;
 
 pub use codegen::{
     compile_file_to_executable, compile_file_to_executable_with_options, compile_file_to_object,
-    compile_legacy_source_to_executable, compile_legacy_source_to_executable_with_options,
-    compile_package_to_executable, compile_source_to_executable,
-    compile_source_to_executable_with_options, compile_source_to_object,
+    compile_file_to_object_with_options, compile_legacy_source_to_executable,
+    compile_legacy_source_to_executable_with_options, compile_package_to_executable,
+    compile_source_to_executable, compile_source_to_executable_with_options,
+    compile_source_to_object,
 };
 pub use library::{
     compile_file_to_library, emit_runtime_interface, runtime_interface_source, LibraryArtifacts,

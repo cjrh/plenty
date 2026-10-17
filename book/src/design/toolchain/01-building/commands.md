@@ -21,6 +21,11 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 `--release` before `FILE` or `--compile` selects Cranelift's speed
 optimizations, like the [release profile](packages.md#profiles).
 
+Compiled functions are reused from the
+[compiled-function cache](../02-architecture/cache.md). `--no-cache` compiles
+without it, `--cache-stats` reports its hits and misses after compiling, and
+`plenty cache stats` and `plenty cache clean` inspect and empty it.
+
 With no arguments, `plenty` displays help. `--module-root DIR` selects the source
 root for file commands. `--package-graph GRAPH` instead resolves imports through
 a [package graph file](packages.md#package-graph-files) for `FILE`, `--check`,
