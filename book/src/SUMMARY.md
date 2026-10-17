@@ -337,6 +337,7 @@
         - [`std.tls`](design/stdlib/tls.md)
         - [`std.http`](design/stdlib/http.md)
         - [`std.http.server`](design/stdlib/http-server.md)
+        - [HTTP server qualification](design/stdlib/http-qualification.md)
         - [`std.http.body`](design/stdlib/http-body.md)
         - [`std.http.cookie`](design/stdlib/http-cookie.md)
         - [`std.http.proxy`](design/stdlib/http-proxy.md)

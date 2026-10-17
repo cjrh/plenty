@@ -1,0 +1,66 @@
+# The std.http.server benchmark target: serves fixed responses on a loopback
+# port until a request to /stop. `examples/http_server_bench.py` builds it,
+# drives it with ApacheBench and records throughput, latency and memory;
+# results are in book/src/design/stdlib/http-qualification.md.
+#
+# WORKERS and IDLE set `config.workers` and `config.idle_connections`.
+import std.bytes
+import std.env
+import std.http
+import std.http.server
+import std.net
+from std.bytes import Bytes
+from std.http.server import Exchange, Report
+from std.net import TcpStream
+from std.sync import CancellationToken
+
+pub class Bench:
+    pub stop: CancellationToken
+    pub small: Bytes
+    pub large: Bytes
+
+    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        route = exchange.route
+        if route == 0:
+            exchange.send(200, "text/plain", &self.small)?
+        elif route == 1:
+            exchange.send(200, "application/octet-stream", &self.large)?
+        elif route == 2:
+            mut body = std.bytes.empty()?
+            exchange.read_all(&mut body)?
+            exchange.send(200, "application/octet-stream", &body)?
+        else:
+            exchange.send_text(200, "stopping")?
+            self.stop.cancel()
+        Ok(())
+
+def setting(name: &str, fallback: i64) -> Result[i64, Failure]:
+    match std.env.get(name)?:
+        case Some(text):
+            match i64.parse(&text):
+                case Ok(value):
+                    Ok(value)
+                case Err(_):
+                    Err(Failure.Unspecified)
+        case Nothing:
+            Ok(fallback)
+
+def main() -> Result[(), Failure]:
+    mut table = std.http.server.router()?
+    table.add("GET", "/", 0)?
+    table.add("GET", "/16k", 1)?
+    table.add("POST", "/echo", 2)?
+    table.add("GET", "/stop", 3)?
+    mut large = std.bytes.with_capacity(16384)?
+    large.resize(16384, 120u8)?
+    stop = CancellationToken()?
+    bench = Bench(stop.share(), std.bytes.from_text("hello, world\n")?, large)
+    mut config = std.http.server.config()
+    config.workers = setting("WORKERS", 4)?
+    config.idle_connections = setting("IDLE", 256)?
+    config.queue = 1024
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 1024)?
+    print("port ".concat(str.from(i64(listener.local_address()?.port))?)?)?
+    report = std.http.server.serve(listener, &table, &bench, &config, &stop)?
+    print("connections", report.connections, "requests", report.requests, "rejected", report.rejected, "timeouts", report.timeouts)?
+    Ok(())

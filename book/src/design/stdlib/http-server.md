@@ -6,7 +6,9 @@ bounded admission queue, a deadline for each phase of a request, and
 graceful shutdown. Framing comes from [`std.http`](http.md).
 `import std.http.tls` serves HTTPS through [`std.tls`](tls.md). Both modules
 are checked Plenty in `stdlib/std/http/` and add no runtime primitives. The tutorial lesson [Serve HTTP requests](../../tutorial/11-concurrency/http-server.md)
-shows a complete server.
+shows a complete server. [Qualification](http-qualification.md) records
+which production gates the server passes, its measured baselines, and
+deployment guidance; it is not yet production-ready.
 
 ## Serving
 
@@ -202,13 +204,24 @@ cannot hold a worker longer than the phase allows.
 | Malformed head, or a line, head or header count over a limit | `400`, or `431` for size limits, `505` for an unsupported version, `501` for an unsupported transfer coding; close |
 | Ambiguous framing (`Content-Length` with `Transfer-Encoding`) | `400`, close |
 | Declared `Content-Length` over `max_body` | `413` before reading, close |
-| Target not starting with `/` | `400`, close |
+| Target not starting with `/` (including absolute-form, issue #131) | `400`, close |
+| Part of a head arrives, then nothing | The worker waits until `head_timeout` (issue #132), then `408` |
 | Body read past `body_timeout`, or a write past its deadline | Close; counted in `timeouts` |
 | Queue full | `503` with `Retry-After: 1` (HTTPS: close without a response), close; counted in `rejected` |
 | `accept` fails, for example out of file handles | Count in `accept_errors`, pause 10 ms, keep accepting |
 
 Responses written by the server itself carry `Connection: close`. Allocation
 failure while serving closes that connection.
+
+Bytes of a pipelined request that arrived with the previous one start that
+request: its `head_timeout` runs from the end of the previous response, and
+an end or stall inside it is answered (`400` or `408`) rather than closed
+quietly. Blank lines alone do not start a request.
+
+Accepted connections have Nagle's algorithm turned off (`TCP_NODELAY`).
+Responses are buffered and flushed whole, so this sends no extra small
+segments, and a head followed by a body larger than the 4 KiB write buffer
+is not held back for a delayed acknowledgement.
 
 ## Shutdown
 
@@ -263,3 +276,7 @@ timed out`, `handshake failed` and `accept failed`, most with a
 - A `503` rejection reads only bytes that have already arrived. If more of
   the request arrives after the close, the client may see a reset instead.
 - Captures in `params` are decoded; `path` and `query` are not.
+- `Host` is not checked: a request without one, with several, or with an
+  invalid value is served (issue #131).
+- A trap in a handler ends the process; see
+  [handler errors and traps](http-qualification.md#handler-errors-and-traps).

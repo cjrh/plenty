@@ -357,14 +357,12 @@ pub def read_request[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Res
     mut line = lifted(std.bytes.empty())?
     mut left = limits.max_head
     mut size = 0
-    mut started = False
     while size == 0:
         size = head_line(conn, &mut line, limits.max_line, left)?
+        # Blank lines are not part of a message, so input that ends after
+        # them ends before one.
         if size < 0:
-            if started:
-                return Err(HttpError.Truncated)
             return Ok(Nothing)
-        started = True
         left -= size + 2
     mut head = parse_request_line(&line, size)?
     read_fields(conn, &mut line, limits.max_line, left, limits.max_headers, &mut head.headers)?

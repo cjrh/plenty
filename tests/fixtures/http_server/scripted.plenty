@@ -1,0 +1,88 @@
+import std.bytes
+import std.encoding
+import std.http
+import std.http.server
+from std.bytes import Bytes
+from std.http.server import Config, Exchange, Report, Router, ServerError, Transport
+from std.net import NetError
+from std.sync import CancellationToken
+from std.time import Deadline
+
+# Plays `input` to the server `step` bytes at a time and copies what the
+# server writes to standard output. Once the input runs out it reports a
+# clean end, as a client that half-closes does.
+pub class Script:
+    pub input: Bytes
+    pub at: i64
+    pub step: i64
+
+    pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        if cancel.is_cancelled():
+            return Err(NetError.Cancelled)
+        left = self.input.len() - self.at
+        if left == 0:
+            return Ok(0)
+        mut count = stop - start
+        if count > self.step:
+            count = self.step
+        if count > left:
+            count = left
+        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        self.at += count
+        Ok(count)
+
+    pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        if cancel.is_cancelled():
+            return Err(NetError.Cancelled)
+        source.write_stdout(start, stop).unwrap()
+        Ok(stop - start)
+
+pub class App:
+    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+        route = exchange.route
+        if route == 0:
+            exchange.send_text(200, "home")?
+        elif route == 1:
+            mut body = std.bytes.empty()?
+            exchange.read_all(&mut body)?
+            exchange.send(200, "application/octet-stream", &body)?
+        elif route == 2:
+            param = exchange.params[0].concat("")?
+            exchange.send_text(200, &param)?
+        else:
+            return Err(Failure.Unspecified)
+        Ok(())
+
+pub def routes() -> Result[Router, ServerError]:
+    mut table = std.http.server.router()?
+    table.add("GET", "/", 0)?
+    table.add("POST", "/echo", 1)?
+    table.add("GET", "/hello/{name}", 2)?
+    table.add("GET", "/fail", 3)?
+    Ok(table)
+
+pub def counts(report: &Report) -> Result[str, Failure]:
+    mut text = "requests=".concat(str.from(report.requests)?)?
+    text = text.concat(" handler_errors=")?.concat(str.from(report.handler_errors)?)?
+    text = text.concat(" protocol_errors=")?.concat(str.from(report.protocol_errors)?)?
+    text = text.concat(" timeouts=")?.concat(str.from(report.timeouts)?)?
+    Ok(text)
+
+# Serves each `ff`-terminated input of a hex blob on its own connection,
+# delivered `step` bytes at a time, and prints a `--` line before each.
+pub def replay(blob_hex: &str, step: i64) -> Result[(), Failure]:
+    table = routes()?
+    app = App()
+    config = std.http.server.config()
+    stop = CancellationToken()?
+    blob = std.encoding.hex_from_text(blob_hex)?
+    mut start = 0
+    while start < blob.len():
+        stop_at = blob.find(255u8, start, blob.len())?.unwrap()
+        print("--")?
+        script = Script(blob.slice(start, stop_at)?, 0, step)
+        report = std.http.server.serve_connection(script, &table, &app, &config, &stop, &stop)
+        print("")?
+        print(counts(&report)?)?
+        start = stop_at + 1
+    Ok(())

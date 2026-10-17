@@ -51,7 +51,8 @@ caller collects it.
 
 `Nothing` means the input ended before the message's first byte, as when the
 peer closes an idle connection; an end inside a head is `Truncated`. Blank
-lines before a request line are skipped within `max_head`. A 1xx response is
+lines before a request line are skipped within `max_head`, and input that
+ends after only blank lines is `Nothing`. A 1xx response is
 returned like any other; read again for the final response.
 
 Parsing is strict. Every line ends in CRLF; a bare LF is `BareLineFeed`, and a

@@ -1,0 +1,89 @@
+# Request corpus for std.http.server, checked by
+# tests/test_std_http_server_qualification.rs.
+#
+# Each case is one line: the status codes the server writes, in order (or
+# `-` for a quiet close), then ` | `, then the bytes the client sends.
+# Escapes: \r \n \t \\ \xHH, and \{N*c} for N copies of the character c.
+# The server under test has the default config and these routes:
+# GET / -> "home", POST /echo -> echoes the body, GET /hello/{name} -> the
+# capture, GET /fail -> handler error. Every case is also replayed one byte
+# at a time, and mutated copies of every case must fail cleanly.
+
+# Well-formed requests.
+200 | GET / HTTP/1.1\r\nHost: x\r\n\r\n
+200 200 | GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /hello/a HTTP/1.1\r\nHost: x\r\n\r\n
+200 | GET / HTTP/1.0\r\n\r\n
+200 | HEAD / HTTP/1.1\r\nHost: x\r\n\r\n
+200 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhello
+200 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3;ext=v\r\nabc\r\nA\r\n0123456789\r\n0\r\nTrailer-Field: 1\r\n\r\n
+100 200 | POST /echo HTTP/1.1\r\nHost: x\r\nExpect: 100-continue\r\nContent-Length: 2\r\n\r\nhi
+200 | GET /?q=a%20b HTTP/1.1\r\nHost: x\r\n\r\n
+# RFC 9112 2.2: a server should ignore at least one empty line before the request line.
+200 | \r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n
+200 | GET / HTTP/1.1\r\nHost: x\r\nX-Empty:\r\nX-Spaces:    padded   \r\n\r\n
+200 | GET / HTTP/1.1\r\nhOsT: x\r\n\r\n
+200 | GET / HTTP/1.1\r\nHost: x\r\nX-Long: \{8000*v}\r\n\r\n
+# Connection: close ends the connection after the response; the second request is never read.
+200 | GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n
+
+# Routing answers.
+404 | GET /missing HTTP/1.1\r\nHost: x\r\n\r\n
+405 | DELETE / HTTP/1.1\r\nHost: x\r\n\r\n
+400 | GET /hello/%FF HTTP/1.1\r\nHost: x\r\n\r\n
+500 | GET /fail HTTP/1.1\r\nHost: x\r\n\r\n
+# Paths are matched exactly: no `..` or case normalization.
+404 | GET /hello/../ HTTP/1.1\r\nHost: x\r\n\r\n
+
+# Request-line faults.
+400 | GET  / HTTP/1.1\r\nHost: x\r\n\r\n
+400 | GET / HTTP/1.1 \r\nHost: x\r\n\r\n
+400 | GE(T / HTTP/1.1\r\nHost: x\r\n\r\n
+400 | GET\r\n\r\n
+400 | GET / http/1.1\r\nHost: x\r\n\r\n
+505 | GET / HTTP/2.0\r\nHost: x\r\n\r\n
+505 | GET / HTTP/1.2\r\nHost: x\r\n\r\n
+400 | GET * HTTP/1.1\r\nHost: x\r\n\r\n
+400 | OPTIONS * HTTP/1.1\r\nHost: x\r\n\r\n
+400 | GET /a\x00b HTTP/1.1\r\nHost: x\r\n\r\n
+431 | GET /\{9000*a} HTTP/1.1\r\nHost: x\r\n\r\n
+
+# Field faults.
+400 | GET / HTTP/1.1\r\nHost x\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost : x\r\n\r\n
+400 | GET / HTTP/1.1\r\n Host: x\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: x\r\nX-Fold: a\r\n b\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: x\r\nX-Bad: a\x00b\r\n\r\n
+400 | GET / HTTP/1.1\r\nHost: x\r\nX-Bad: a\rb\r\n\r\n
+400 | GET / HTTP/1.1\r\nHo(st: x\r\n\r\n
+431 | GET / HTTP/1.1\r\nHost: x\r\nX-Long: \{9000*v}\r\n\r\n
+431 | GET / HTTP/1.1\r\n\{101*X: 1\r\n}\r\n
+
+# Framing faults: each one could desynchronize a proxy and server.
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\nabcd
+# RFC 9112 6.3 lets a recipient reject repeated or list-valued lengths even when they agree.
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\nhi
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 2, 2\r\n\r\nhi
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: +3\r\n\r\nabc
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: -1\r\n\r\n
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 0x3\r\n\r\nabc
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999999999999999999\r\n\r\n
+413 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 1048577\r\n\r\n
+501 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n
+501 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n
+501 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked, chunked\r\n\r\n0\r\n\r\n
+# HTTP/1.0 has no chunked coding (RFC 9112 6.1).
+501 | POST /echo HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\n\r\n
+200 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: Chunked\r\n\r\n0\r\n\r\n
+# A bare LF may be rejected (RFC 9112 2.2); this parser always does.
+400 | GET / HTTP/1.1\nHost: x\n\n
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n2\nhi\n0\n\n
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nZ\r\nabc\r\n0\r\n\r\n
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nFFFFFFFFFFFFFFFFFF\r\nabc\r\n0\r\n\r\n
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcX\r\n0\r\n\r\n
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nab
+400 | POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nab
+
+# Truncated or empty input closes quietly.
+- |
+400 | GET / HTTP/1.1\r\nHost: x\r\n
