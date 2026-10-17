@@ -227,6 +227,6 @@ mod tests {
     #[test]
     fn defaults_do_not_capture_a_shadowing_comprehension_variable() {
         // A comprehension's own binding is not a dependency on the parameter.
-        compile("def f(a: i64, values: list[i64] = [a for a in range(2)]?) -> Result[i64, AllocError]:\n    drop(values)\n    Ok(a)\n", &mut Heap::default()).unwrap();
+        compile("def f(a: i64, values: list[i64] = [a for a in range(2)]?) -> Result[i64, AllocError]:\n    drop(values)\n    Ok(a)\ndef main() -> ():\n    pass\n", &mut Heap::default()).unwrap();
     }
 }

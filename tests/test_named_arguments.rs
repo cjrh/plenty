@@ -91,6 +91,46 @@ def main() -> ():
     );
 }
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn wrappers_allocate_nothing_and_default_allocation_failure_is_returned() {
+    let output = support::run(
+        r#"
+def combine(first: i64, second: i64 = 2) -> i64:
+    first + second
+def work(values: list[i64] = [1, 2, 3]?) -> Result[i64, AllocError]:
+    Ok(len(values))
+def main() -> ():
+    print("__test_begin_no_allocations__").unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    value = combine(second=4, first=3)
+    fallback = combine(first=5)
+    print("__test_end_no_allocations__").unwrap()
+    result = work()
+    print("__test_restore_allocations__").unwrap()
+    print(value + fallback).unwrap()
+    match result:
+        case Ok(_):
+            print("unexpected success").unwrap()
+        case Err(_):
+            print("allocation failure returned").unwrap()
+    print(work().unwrap()).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let actual = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(actual, "14\nallocation failure returned\n3");
+}
+
 #[test]
 fn direct_calls_bind_names_and_contextual_types() {
     native(
