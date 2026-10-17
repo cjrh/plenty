@@ -24,6 +24,74 @@ fn reject(source: &str, expected: &str) {
 }
 
 #[test]
+fn reference_alias_defaults_and_generators_preserve_types() {
+    native(
+        r#"
+type Scratch = &mut list[i64]
+def count[T](tag: T, scratch: Scratch = []?) -> Result[i64, AllocError]:
+    scratch.append(1)?
+    Ok(len(scratch))
+def numbers(start: i64 = 4, end: i64 = 6) -> Generator[i64]:
+    for n in range(start, end):
+        yield n
+def main() -> ():
+    print(count(tag=True).unwrap()).unwrap()
+    for n in numbers(end=7, start=5):
+        print(n).unwrap()
+    for n in numbers():
+        print(n).unwrap()
+"#,
+        "1\n5\n6\n4\n5\n",
+    );
+}
+
+#[test]
+fn defaults_do_not_double_the_parameter_slot_budget() {
+    let parameters = (0..130)
+        .map(|i| format!("a{i}: i64 = {i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    native(
+        &format!("def f({parameters}) -> i64:\n    a0 + a129\ndef main() -> ():\n    print(f()).unwrap()\n"),
+        "129\n",
+    );
+    let arguments = (0..130)
+        .rev()
+        .map(|i| format!("a{i}={i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    native(
+        &format!("def f({parameters}) -> i64:\n    a0 + a129\ndef main() -> ():\n    print(f({arguments})).unwrap()\n"),
+        "129\n",
+    );
+}
+
+#[test]
+fn generic_constructors_and_receiver_reservations_keep_their_contracts() {
+    native(
+        r#"
+class Cell[T]:
+    value: T
+    extra: i64
+    def __init__(self, value: T, extra: i64 = 3) -> ():
+        self.value = value
+        self.extra = extra
+    def add(self: &mut Cell[T], first: i64, second: i64 = 4) -> ():
+        self.extra = self.extra + first + second
+    def get(self) -> i64:
+        self.extra
+def main() -> ():
+    mut cell = Cell(value=True)
+    cell.add(second=cell.get(), first=cell.get())
+    print(cell.extra).unwrap()
+    other = Cell[u8](extra=6, value=2)
+    print(other.extra).unwrap()
+"#,
+        "9\n6\n",
+    );
+}
+
+#[test]
 fn direct_calls_bind_names_and_contextual_types() {
     native(
         r#"
@@ -355,7 +423,7 @@ def main() -> ():
 fn defaults_cannot_hide_allocation_failure_or_use_a_different_error_type() {
     reject(
         "def work(values: list[i64] = []) -> Option[bool]:\n    Some(True)\ndef main() -> ():\n    pass\n",
-        "type",
+        "allocation failure",
     );
     reject(
         "def work(values: list[i64] = []?) -> Option[bool]:\n    Some(True)\ndef main() -> ():\n    pass\n",
@@ -363,7 +431,7 @@ fn defaults_cannot_hide_allocation_failure_or_use_a_different_error_type() {
     );
     reject(
         "def work(values: list[i64] = []?) -> Result[(), IoError]:\n    Ok(())\ndef main() -> ():\n    pass\n",
-        "error",
+        "AllocError",
     );
 }
 

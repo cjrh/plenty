@@ -36,6 +36,7 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
             }
         }
         Expression::Member(base, _)
+        | Expression::NamedArgument(_, base)
         | Expression::Unary(_, base)
         | Expression::Group(base)
         | Expression::Try(base)

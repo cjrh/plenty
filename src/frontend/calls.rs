@@ -7,44 +7,58 @@ impl Lower<'_> {
         if !function.defaults.iter().any(Option::is_some) {
             return Ok(());
         }
-        let mut body = Vec::new();
+        let signature = self.sigs[&function.name].clone();
         for (index, default) in function.defaults.iter().enumerate() {
             let Some(default) = default else { continue };
-            let ty = &function.inputs[index].1;
-            let ty = if matches!(ty.name.as_deref(), Some("&" | "&mut")) {
-                &ty.args[0]
-            } else { ty };
-            body.push(Stmt {
+            let ty = &signature.inputs[index].1;
+            let ty = if let Ty::Ref(inner, _) = ty {
+                inner
+            } else {
+                ty
+            };
+            let at = &default.at;
+            let mut body = vec![Stmt {
                 at: default.at.clone(),
                 kind: Statement::Assign {
                     name: format!("$default{index}"),
                     mutable: false,
-                    annotation: Some(ty.clone()),
+                    annotation: Some(generics::type_ref(ty, &default.at)),
                     value: default.clone(),
                 },
-            });
-        }
-        let at = &function.at;
-        body.push(Stmt {
-            at: at.clone(),
-            kind: Statement::Return(Some(Expr {
+            }];
+            body.push(Stmt {
                 at: at.clone(),
-                kind: Expression::Call(function.name.clone(), function.inputs.iter().map(|(name, _)| Expr {
-                    at: at.clone(), kind: Expression::Name(name.clone()),
-                }).collect()),
-            })),
-        });
-        // Unreachable from user code: validate every default under the function's
-        // result contract, including defaults never omitted by this program.
-        let validator = Function {
-            name: format!("__plenty_default_check_{}", function.name),
-            defaults: vec![],
-            body,
-            ..function.clone()
-        };
-        register_signature(&validator, self.aliases, self.sigs, self.returned_fields)?;
-        self.generics.inherit_requirement(&function.name, &validator.name);
-        self.generics.declare(validator);
+                kind: Statement::Return(signature.outputs.first().map(|_| Expr {
+                    at: at.clone(),
+                    kind: Expression::Name("$result".into()),
+                })),
+            });
+            // A separate unreachable check keeps the callee's result contract
+            // without spending one local slot per parameter and per default.
+            let validator = Function {
+                once: false,
+                captures: vec![],
+                foreign: None,
+                export: None,
+                name: format!("__plenty_default_check_{}_{index}", function.name),
+                type_params: vec![],
+                at: function.at.clone(),
+                inputs: signature
+                    .outputs
+                    .first()
+                    .map(|ty| vec![("$result".into(), generics::type_ref(ty, at))])
+                    .unwrap_or_default(),
+                defaults: vec![],
+                output: generics::type_ref(signature.outputs.first().unwrap_or(&Ty::Unit), at),
+                doc: String::new(),
+                doc_at: None,
+                body,
+            };
+            register_signature(&validator, self.aliases, self.sigs, self.returned_fields)?;
+            self.generics
+                .inherit_requirement(&function.name, &validator.name);
+            self.generics.declare(validator);
+        }
         Ok(())
     }
 
@@ -59,7 +73,12 @@ impl Lower<'_> {
             .iter()
             .any(|arg| matches!(arg.kind, Expression::NamedArgument(..)));
         let template = self.generics.templates.get(name).cloned();
-        let defaults = self.generics.defaults.get(name).cloned().unwrap_or_default();
+        let defaults = self
+            .generics
+            .defaults
+            .get(name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         if !named && defaults.is_empty() {
             return Ok(None);
         }
@@ -87,6 +106,15 @@ impl Lower<'_> {
         if !named && args.len() == inputs.len() {
             return Ok(None);
         }
+        if method
+            && args.len() < inputs.len()
+            && self
+                .generics
+                .protocol_instances
+                .contains(&self.function_name)
+        {
+            return Err(at.error("method defaults cannot be omitted in a protocol-constrained function; pass all arguments required by the protocol"));
+        }
         let mut supplied = vec![false; inputs.len()];
         let mut positions = Vec::with_capacity(args.len());
         let mut values = Vec::with_capacity(args.len());
@@ -98,19 +126,32 @@ impl Lower<'_> {
                     .iter()
                     .position(|(parameter, _)| parameter == label)
                     .filter(|index| !method || *index != 0)
-                    .ok_or_else(|| argument.at.error(format!("unknown named argument `{label}` for `{name}`")))?;
+                    .ok_or_else(|| {
+                        argument
+                            .at
+                            .error(format!("unknown named argument `{label}` for `{name}`"))
+                    })?;
                 (index, &**value)
             } else {
                 if saw_named {
-                    return Err(argument.at.error("positional arguments must precede named arguments"));
+                    return Err(argument
+                        .at
+                        .error("positional arguments must precede named arguments"));
                 }
                 if position >= inputs.len() {
-                    return Err(at.error(format!("`{name}` expects at most {} arguments, got {}", inputs.len(), args.len())));
+                    return Err(at.error(format!(
+                        "`{name}` expects at most {} arguments, got {}",
+                        inputs.len(),
+                        args.len()
+                    )));
                 }
                 (position, argument)
             };
             if std::mem::replace(&mut supplied[index], true) {
-                return Err(argument.at.error(format!("parameter `{}` is supplied more than once", inputs[index].0)));
+                return Err(argument.at.error(format!(
+                    "duplicate argument: parameter `{}` is supplied more than once",
+                    inputs[index].0
+                )));
             }
             positions.push(index);
             values.push(value.clone());
@@ -127,46 +168,84 @@ impl Lower<'_> {
         if let Some(wrapper) = self.generics.call_wrappers.get(&key) {
             return Ok(Some((wrapper.clone(), values)));
         }
-        let symbol = format!("__plenty_call_wrapper_{}", self.generics.call_wrappers.len());
+        let symbol = format!(
+            "__plenty_call_wrapper_{}",
+            self.generics.call_wrappers.len()
+        );
         let mut body = Vec::new();
         let mut forwarded = Vec::with_capacity(inputs.len());
-        for (index, (parameter, ty)) in inputs.iter().enumerate() {
-            let value = Expr { at: at.clone(), kind: Expression::Name(parameter.clone()) };
+        for (index, (parameter, pattern)) in inputs.iter().enumerate() {
+            let value = Expr {
+                at: at.clone(),
+                kind: Expression::Name(parameter.clone()),
+            };
             if supplied[index] {
                 forwarded.push(value);
                 continue;
             }
             let default = defaults[index].as_ref().unwrap();
+            let resolved = pattern
+                .resolve(self.aliases)
+                .ok()
+                .flatten()
+                .map(|ty| generics::type_ref(&ty, &default.at));
+            let ty = resolved.as_ref().unwrap_or(pattern);
             let borrowed = matches!(ty.name.as_deref(), Some("&" | "&mut"));
             let mutable = ty.name.as_deref() == Some("&mut");
             if borrowed && matches!(output.name.as_deref(), Some("&" | "&mut")) {
-                return Err(at.error("a returned reference cannot borrow an omitted default temporary"));
+                return Err(
+                    at.error("a returned reference cannot borrow an omitted default temporary")
+                );
             }
             body.push(Stmt {
                 at: default.at.clone(),
                 kind: Statement::Assign {
                     name: parameter.clone(),
                     mutable,
-                    annotation: Some(if borrowed { ty.args[0].clone() } else { ty.clone() }),
+                    annotation: Some(if borrowed {
+                        ty.args[0].clone()
+                    } else {
+                        ty.clone()
+                    }),
                     value: default.clone(),
                 },
             });
             forwarded.push(if borrowed {
-                Expr { at: default.at.clone(), kind: Expression::Unary(if mutable { "&mut" } else { "&" }.into(), Box::new(value)) }
-            } else { value });
+                Expr {
+                    at: default.at.clone(),
+                    kind: Expression::Unary(
+                        if mutable { "&mut" } else { "&" }.into(),
+                        Box::new(value),
+                    ),
+                }
+            } else {
+                value
+            });
         }
         let call = if type_params.is_empty() {
             Expression::Call(name.to_owned(), forwarded)
         } else {
             Expression::GenericCall(
                 name.to_owned(),
-                type_params.iter().map(|(parameter, _)| TypeRef {
-                    at: at.clone(), concrete: None, name: Some(parameter.clone()), args: vec![],
-                }).collect(),
+                type_params
+                    .iter()
+                    .map(|(parameter, _)| TypeRef {
+                        at: at.clone(),
+                        concrete: None,
+                        name: Some(parameter.clone()),
+                        args: vec![],
+                    })
+                    .collect(),
                 forwarded,
             )
         };
-        body.push(Stmt { at: at.clone(), kind: Statement::Return(Some(Expr { at: at.clone(), kind: call })) });
+        body.push(Stmt {
+            at: at.clone(),
+            kind: Statement::Return(Some(Expr {
+                at: at.clone(),
+                kind: call,
+            })),
+        });
         let wrapper = Function {
             once: false,
             captures: vec![],
@@ -175,7 +254,10 @@ impl Lower<'_> {
             name: symbol.clone(),
             type_params,
             at: at.clone(),
-            inputs: positions.iter().map(|&index| inputs[index].clone()).collect(),
+            inputs: positions
+                .iter()
+                .map(|&index| inputs[index].clone())
+                .collect(),
             defaults: vec![],
             output,
             doc: String::new(),
@@ -189,9 +271,12 @@ impl Lower<'_> {
             }
             self.generics.declare(wrapper);
         } else {
-            self.generics.templates.insert(symbol.clone(), Arc::new(wrapper));
+            self.generics
+                .templates
+                .insert(symbol.clone(), Arc::new(wrapper));
         }
-        self.generics.inherit_requirement(&self.function_name, &symbol);
+        self.generics
+            .inherit_requirement(&self.function_name, &symbol);
         self.generics.call_wrappers.insert(key, symbol.clone());
         Ok(Some((symbol, values)))
     }

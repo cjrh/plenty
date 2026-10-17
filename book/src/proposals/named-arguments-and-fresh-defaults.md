@@ -1,10 +1,15 @@
 # Named arguments and fresh defaults
 
-Status: proposed, not implemented. This is the preferred narrow revision of
+Status: implemented for named functions, methods and constructors. See the
+[current call rules](../design/language/06-functions/01-signatures-and-calls.md)
+for supported defaults and deliberate restrictions. This is the narrow revision of
 [B36](../backlog.md), separating named arguments/defaults from the older
 [unpacking proposal](keyword-arguments-and-unpacking.md). It does not approve
-splat unpacking, variadics, `/`, or `*` signature markers. Current calls remain
-positional and defaults remain unsupported.
+splat unpacking, variadics, `/`, or `*` signature markers. The discussion below
+records the design rationale; named calls and fresh expression defaults now
+use compiler-generated wrappers with ordinary checked ownership. Callable
+values and builtins remain positional. Protocol-constrained generic bodies
+currently require full positional method calls conservatively.
 
 ## Construction should communicate structure
 
@@ -36,7 +41,7 @@ capacities, and limits; structure and constructors keep internal state private.
 
 ## Named call arguments without splats
 
-Hypothetical syntax:
+Example call syntax:
 
 ```text
 def connect(host: &str, port: u16, timeout_ns: u64 = 1000000u64) -> Result[Connection, NetError]:
@@ -95,7 +100,6 @@ parameter, a proposed extension materializes a fresh temporary owner and lends
 it to that parameter for the call. Use Plenty's existing annotation placement:
 
 ```text
-# Proposed, not current Plenty.
 def work(data: &mut list[i64] = []?,
          lookups: &mut dict[str, f64] = {}?) -> Result[Option[bool], AllocError]:
     ...
@@ -148,4 +152,6 @@ defaults; nonescaping default loans; and callable/protocol restrictions.
 
 Field defaults are a separate construction feature, not implied by parameter
 defaults. Avoid combining this work with splats or a general builder framework.
-Update the reference and runnable tutorial only when each stage is implemented.
+The reference and runnable tutorial describe the implemented behavior. The
+stdlib's `http.body.multipart_limits` now uses named fields as a small adoption
+example; broad constructor redesign remains a separate refactor.

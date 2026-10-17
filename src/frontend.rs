@@ -1372,6 +1372,9 @@ impl Parser {
             return Err(at.error("at most 256 parameter/local slots are supported"));
         }
         defaults::validate_dependencies(&inputs, &defaults)?;
+        if defaults.iter().all(Option::is_none) {
+            defaults = Vec::new();
+        }
         self.expect("->")?;
         let output = self.ty()?;
         let mut address_parameter = None;

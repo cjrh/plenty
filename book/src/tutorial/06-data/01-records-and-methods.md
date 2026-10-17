@@ -16,9 +16,9 @@ class Point:
         self.y = self.y + amount
 
 def main() -> Result[(), Failure]:
-    mut point = Point(3, 4)
+    mut point = Point(y=4, x=3)
     print(point.squared_length())?
-    point.shift(1)
+    point.shift(amount=1)
     mut changed = copy(point)?
     changed.x = 20
     print(point)?
@@ -88,4 +88,5 @@ classes must be borrowed, observed, or explicitly copied. Equality compares
 fields; printing shows the class name and fields.
 
 There is no inheritance, dynamic attribute creation, or class-variable syntax.
-Fields currently have no default values, and calls use positional arguments.
+Fields currently have no default values. Constructors and methods accept named
+arguments; an explicit `__init__` can give its parameters defaults.

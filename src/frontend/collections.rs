@@ -29,7 +29,11 @@ impl Parser {
             } else if named {
                 return Err(at.error("positional arguments must precede named arguments"));
             }
-            let mut argument = self.expr(0)?;
+            let mut argument = if label.is_some() {
+                self.nested(|parser| parser.expr(0))?
+            } else {
+                self.expr(0)?
+            };
             if self.peek().is("for") {
                 if !args.is_empty() || label.is_some() {
                     return Err(argument.at.error("a generator expression must be parenthesized when there are other arguments"));
@@ -40,7 +44,6 @@ impl Parser {
                 break;
             }
             if let Some(label) = label {
-                self.deepen()?;
                 argument = Expr {
                     at,
                     kind: Expression::NamedArgument(label, Box::new(argument)),
