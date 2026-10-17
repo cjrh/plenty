@@ -12,7 +12,7 @@ import std.ready
 import std.time
 import std.url
 from std.bytes import Bytes, BytesError
-from std.http import BodyReader, Framing, Header, HttpError, Limits, RequestHead, ResponseHead
+from std.http import BodyReader, Framing, Header, HttpError, Limits, RequestHead, RequestTarget, ResponseHead
 from std.io import BufReader, StreamError
 from std.log import ChannelSink, Field, Level
 from std.net import NetError, SocketAddress, TcpListener, TcpStream, UdpSocket
@@ -410,6 +410,9 @@ const broken: i64 = 5
 # end closes the connection after the response.
 pub class Exchange[T]:
     pub request: RequestHead
+    # `host[:port]` the request names: the absolute-form target's authority,
+    # else its Host value (empty only for HTTP/1.0 without Host).
+    pub authority: str
     pub path: str
     pub query: str
     pub route: i64
@@ -827,13 +830,6 @@ def refuse[T: Transport](conn: &mut Conn[T], status: i64, allow: &str) -> Result
             return flushed(Err(partial.cause))
     flushed(conn.flush())
 
-def split_target(target: &str) -> Result[tuple[str, str], AllocError]:
-    match target.find("?"):
-        case Some(at):
-            Ok((target.slice(0, at)?, target.slice(at + 1, target.byte_len())?))
-        case Nothing:
-            Ok((copied(target)?, ""))
-
 def decoded(params: &list[str]) -> Option[list[str]]:
     match list[str].new():
         case Ok(empty):
@@ -962,22 +958,29 @@ def request[T: Transport, H: Handler[T]](reader: BufReader[Conn[T]], head: Reque
                 refusal = 413
         case _:
             pass
-    if refusal == 0 and not head.target.startswith("/"):
-        refusal = 400
+    # Host and target faults (RFC 9112 section 3.2) are refused like framing.
+    mut checked: Option[RequestTarget] = Nothing
+    if refusal == 0:
+        match std.http.request_target(&head):
+            case Ok(found):
+                checked = Some(found)
+            case Err(HttpError.Allocation(_)):
+                return Nothing
+            case Err(error):
+                refusal = error_status(&error)
     if refusal != 0:
         report.protocol_errors += 1u64
         drop(refuse(&mut conn.inner, refusal, ""))
         problem(events, "bad request", refusal, report)
         return Nothing
+    target = match checked:
+        case Some(found):
+            found
+        case Nothing:
+            return Nothing
     keep = more and std.http.request_keeps_alive(&head)
     expects = wants_continue(&head)
     head_only = head.method == "HEAD"
-    parts = match split_target(&head.target):
-        case Ok(pair):
-            pair
-        case Err(_):
-            return Nothing
-    (path, query) = parts
     mut route = -1
     mut allow = ""
     mut params: list[str] = match list[str].new():
@@ -985,7 +988,7 @@ def request[T: Transport, H: Handler[T]](reader: BufReader[Conn[T]], head: Reque
             empty
         case Err(_):
             return Nothing
-    match router.find(&head.method, &path):
+    match router.find(&head.method, &target.path):
         case Ok(Match.Found(key, raw)):
             match decoded(&raw):
                 case Some(values):
@@ -1011,7 +1014,7 @@ def request[T: Transport, H: Handler[T]](reader: BufReader[Conn[T]], head: Reque
         case Err(_):
             return Nothing
     unclaimed: Option[BufReader[Conn[T]]] = Nothing
-    mut exchange = Exchange(head, path, query, route, params, copy_peer(peer), Some(body), unclaimed, framing, copy_limits(&config.limits), stop.share(), cancel.share(), unanswered, 0, head_only, keep, 0, 0, expects, False, 0)
+    mut exchange = Exchange(head, target.authority, target.path, target.query, route, params, copy_peer(peer), Some(body), unclaimed, framing, copy_limits(&config.limits), stop.share(), cancel.share(), unanswered, 0, head_only, keep, 0, 0, expects, False, 0)
     if route >= 0:
         match handler.handle(&mut exchange):
             case Ok(_):

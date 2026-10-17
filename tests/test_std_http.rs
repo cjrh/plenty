@@ -28,6 +28,17 @@ def body_text[R: Reader](body: &mut std.http.BodyReader[R]) -> Result[str, HttpE
         case Err(_):
             Ok(str.from(out.len()).unwrap().concat(" bytes").unwrap().concat(trailers).unwrap())
 
+# Prints a request's checked target as `authority|path|query`.
+def target_of(data: Bytes, limits: &Limits) -> Result[(), HttpError]:
+    mut conn = std.io.buffered_reader(std.io.cursor(data), 7).unwrap()
+    match std.http.read_request(&mut conn, limits)?:
+        case Some(head):
+            target = std.http.request_target(&head)?
+            print(target.authority.concat("|").unwrap().concat(&target.path).unwrap().concat("|").unwrap().concat(&target.query).unwrap()).unwrap()
+        case Nothing:
+            print("eof").unwrap()
+    Ok(())
+
 def requests_from(data: Bytes, limits: &Limits) -> Result[(), HttpError]:
     mut conn = std.io.buffered_reader(std.io.cursor(data), 7).unwrap()
     while True:
@@ -324,6 +335,88 @@ fn malformed_request_heads_are_rejected() {
             (b"GET / HTTP/1.1\r\nHost: x\r\n", "Truncated"),
             (b"GET / HTTP/1.1\r\nHost: x", "Truncated"),
             (b"GET / HTTP/1.1\r", "Truncated"),
+        ],
+    );
+}
+
+/// RFC 9112 section 3.2: exactly one valid Host for HTTP/1.1, at most one for
+/// HTTP/1.0, and an absolute-form authority in place of Host.
+#[test]
+fn request_targets_and_host_are_checked() {
+    let accepted: &[(&[u8], &str)] = &[
+        (b"GET / HTTP/1.1\r\nHost: x\r\n\r\n", "x|/|"),
+        (
+            b"GET /a/b?c=1?d HTTP/1.1\r\nhost: example.com:8080\r\n\r\n",
+            "example.com:8080|/a/b|c=1?d",
+        ),
+        (b"GET / HTTP/1.0\r\n\r\n", "|/|"),
+        (b"GET / HTTP/1.1\r\nHost:\r\n\r\n", "|/|"),
+        (b"GET / HTTP/1.1\r\nHost: [::1]:80\r\n\r\n", "[::1]:80|/|"),
+        (b"GET / HTTP/1.1\r\nHost: [v1.a:b]\r\n\r\n", "[v1.a:b]|/|"),
+        (
+            b"GET / HTTP/1.1\r\nHost: a%2Fb.c_d~e!$&'()*+,;=\r\n\r\n",
+            "a%2Fb.c_d~e!$&'()*+,;=|/|",
+        ),
+        (
+            b"GET http://Example.com/p?q HTTP/1.1\r\nHost: other\r\n\r\n",
+            "Example.com|/p|q",
+        ),
+        (
+            b"GET HTTPS://x:8443 HTTP/1.1\r\nHost: x\r\n\r\n",
+            "x:8443|/|",
+        ),
+        (b"GET http://x?q HTTP/1.0\r\n\r\n", "x|/|q"),
+    ];
+    let inputs: Vec<&[u8]> = accepted.iter().map(|(input, _)| *input).collect();
+    for ((input, expected), actual) in accepted.iter().zip(each("target_of", &inputs)) {
+        assert_eq!(&actual, expected, "{:?}", String::from_utf8_lossy(input));
+    }
+    rejected(
+        "target_of",
+        &[
+            (b"GET / HTTP/1.1\r\n\r\n", "MissingHost"),
+            (b"GET http://x/ HTTP/1.1\r\n\r\n", "MissingHost"),
+            (
+                b"GET / HTTP/1.1\r\nHost: x\r\nHost: x\r\n\r\n",
+                "DuplicateHost",
+            ),
+            (
+                b"GET / HTTP/1.0\r\nHost: x\r\nHOST: y\r\n\r\n",
+                "DuplicateHost",
+            ),
+            (b"GET / HTTP/1.1\r\nHost: a b\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: u@x\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: x/y\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: x:8o\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: a%2\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [::1\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: []\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: x[::1]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [::g]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: h\xc3\xa9\r\n\r\n", "InvalidHost"),
+            (
+                b"GET http://x/ HTTP/1.1\r\nHost: a b\r\n\r\n",
+                "InvalidHost",
+            ),
+            (b"GET * HTTP/1.1\r\nHost: x\r\n\r\n", "InvalidTarget"),
+            (
+                b"CONNECT x:443 HTTP/1.1\r\nHost: x:443\r\n\r\n",
+                "InvalidTarget",
+            ),
+            (b"GET ftp://x/ HTTP/1.1\r\nHost: x\r\n\r\n", "InvalidTarget"),
+            (
+                b"GET http://u@x/ HTTP/1.1\r\nHost: x\r\n\r\n",
+                "InvalidTarget",
+            ),
+            (
+                b"GET http:///p HTTP/1.1\r\nHost: x\r\n\r\n",
+                "InvalidTarget",
+            ),
+            (
+                b"GET http://:80/ HTTP/1.1\r\nHost: x\r\n\r\n",
+                "InvalidTarget",
+            ),
+            (b"GET http:/x HTTP/1.1\r\nHost: x\r\n\r\n", "InvalidTarget"),
         ],
     );
 }
