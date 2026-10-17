@@ -262,9 +262,11 @@ Closing a socket while request bytes are still unread makes the kernel
 reset the connection, and a client that has not yet read the answer can
 lose it. So after a response that may leave request input unread, the
 server ends its output instead (`Shutdown.Write`; over HTTPS, `close_notify`
-first) and discards input until the client ends its own, 64 KiB have been
+first) and discards input until the client ends its own, 16 MiB have been
 discarded, or 2 s (at most `write_timeout`) have passed, and then closes. The
-client reads the whole answer and a clean end. This applies to the `400`,
+client reads the whole answer and a clean end. The budget is large because a
+reverse proxy keeps forwarding a refused body up to its own limit, and
+answers `502` instead of the refusal if the connection resets under it. This applies to the `400`,
 `408`, `413` and `431` refusals above, to a handler failure answered with a
 body-read status, and to a handler response sent before the request body
 was read to its end.
@@ -359,7 +361,7 @@ timed out`, `handshake failed` and `accept failed`, most with a
   [`std.http.files`](http-files.md).
 - A `503` rejection reads only bytes that have already arrived. If more of
   the request arrives after the close, the client may see a reset instead.
-- A [lingering close](#lingering-close) discards at most 64 KiB in at most
+- A [lingering close](#lingering-close) discards at most 16 MiB in at most
   2 s. A client still sending past that, such as a large upload refused
   with `413` without `Expect: 100-continue`, can still see a reset; past
   `idle_connections`, a refusal closes at once.
