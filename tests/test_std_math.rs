@@ -1,6 +1,8 @@
 //! The bundled standard library is checked and emitted as ordinary Plenty.
 use std::process::Command;
 
+mod support;
+
 fn run(body: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.plenty");
@@ -435,7 +437,10 @@ fn aliases_and_diamonds_share_std_nominal_types_and_privacy() {
 fn relocated_compiler_imports_bundled_std_without_repository_or_rust_tools() {
     let dir = tempfile::tempdir().unwrap();
     let compiler = dir.path().join("compiler");
-    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &compiler).unwrap();
+    support::install_executable(
+        std::path::Path::new(env!("CARGO_BIN_EXE_plenty")),
+        &compiler,
+    );
     let source = dir.path().join("main.plenty");
     std::fs::write(
         &source,

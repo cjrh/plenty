@@ -1,6 +1,8 @@
 //! Native artifact and driver contracts. Each test owns its environment.
 use std::process::{Command, Output};
 
+mod support;
+
 fn success(output: Output) -> Output {
     assert!(
         output.status.success(),
@@ -8,13 +10,6 @@ fn success(output: Output) -> Output {
         String::from_utf8_lossy(&output.stderr)
     );
     output
-}
-
-#[cfg(unix)]
-fn script(path: &std::path::Path, body: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::write(path, body).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 #[test]
@@ -46,7 +41,7 @@ fn driver_receives_literal_arguments_and_reports_failure() {
     let temp = tempfile::tempdir().unwrap();
     let driver = temp.path().join("custom driver");
     // This mock implements no link flags: it only reports argv and fails.
-    script(&driver, "#!/bin/sh\nprintf '<%s>\\n' \"$@\" >&2\nexit 42\n");
+    support::write_script(&driver, "#!/bin/sh\nprintf '<%s>\\n' \"$@\" >&2\nexit 42\n");
     let options = plenty::CompileOptions {
         linker: driver.clone(),
         link_args: vec!["a b;$(false)".into(), "-lfixture".into()],

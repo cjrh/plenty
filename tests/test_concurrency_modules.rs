@@ -1,6 +1,8 @@
 //! Explicit imports retain the prelude's identities and safety checks.
 use std::process::Command;
 
+mod support;
+
 fn source_file(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
@@ -320,7 +322,10 @@ pub def cancelled(token: &sync.CancellationToken) -> bool:
 fn relocated_compiler_imports_facilities_offline() {
     let dir = tempfile::tempdir().unwrap();
     let compiler = dir.path().join("plenty");
-    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &compiler).unwrap();
+    support::install_executable(
+        std::path::Path::new(env!("CARGO_BIN_EXE_plenty")),
+        &compiler,
+    );
     let path = dir.path().join("main.plenty");
     std::fs::write(&path, "from std.thread import spawn as start\nfrom std.sync import CancellationToken as Token\nimport std.channel as ch\nimport std.concurrent as jobs\ndef main() -> Result[(), Failure]:\n    token = Token()?\n    token.cancel()\n    print(token.is_cancelled())?\n    Ok(())\n").unwrap();
     let output = Command::new("timeout")

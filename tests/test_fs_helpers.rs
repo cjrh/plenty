@@ -4,6 +4,8 @@ use std::os::unix::{ffi::OsStrExt, fs::PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod support;
+
 struct Program {
     _directory: tempfile::TempDir,
     executable: PathBuf,
@@ -414,7 +416,7 @@ fn exhausted_allocator_drop_is_best_effort_and_explicit_retry_cleans_up() {
 fn relocated_compiler_keeps_filesystem_helpers_embedded() {
     let installed = tempfile::tempdir().unwrap();
     let compiler = installed.path().join("plenty");
-    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &compiler).unwrap();
+    support::install_executable(Path::new(env!("CARGO_BIN_EXE_plenty")), &compiler);
     let entry = installed.path().join("main.plenty");
     std::fs::write(&entry, "from std.fs import root, glob\nfrom std.path import from_text\ndef main() -> Result[(), Failure]:\n    path = from_text(\".\")?\n    owner = root(&path)?\n    pattern = from_text(\"no-such-name\")?\n    print(len(glob(&owner, &pattern, 100, 10, 1000)?))?\n    Ok(())\n").unwrap();
     let executable = installed.path().join("program");

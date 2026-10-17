@@ -1,15 +1,12 @@
 //! An installed compiler must only link the already-built Rust runtime.
 #![cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
+mod support;
+
 fn quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
-}
-fn script(path: &Path, contents: &str) {
-    std::fs::write(path, contents).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 #[test]
@@ -21,7 +18,7 @@ fn relocated_compiler_uses_only_objects_and_a_packaged_archive() {
         .find(|p| p.is_file())
         .expect("system linker driver");
     let log = temp.path().join("link-args");
-    script(
+    support::write_script(
         &temp.path().join("cc"),
         &format!(
             r#"#!/bin/sh
@@ -41,13 +38,13 @@ exec {} "$@"
         ),
     );
     for tool in ["rustc", "cargo"] {
-        script(
+        support::write_script(
             &temp.path().join(tool),
             "#!/bin/sh\necho 'Rust toolchain must not be invoked' >&2\nexit 92\n",
         );
     }
     let installed = temp.path().join("plenty");
-    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &installed).unwrap();
+    support::install_executable(Path::new(env!("CARGO_BIN_EXE_plenty")), &installed);
     let paths = std::env::join_paths(
         std::iter::once(temp.path().to_path_buf()).chain(std::env::split_paths(&paths)),
     )

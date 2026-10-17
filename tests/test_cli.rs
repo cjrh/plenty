@@ -2,6 +2,8 @@
 use std::ffi::OsStr;
 use std::process::Command;
 
+mod support;
+
 fn run(source: &str, arguments: &[&OsStr], status: i32, expected: &str) {
     let workspace = tempfile::tempdir().unwrap();
     let file = workspace.path().join("entry.plenty");
@@ -352,7 +354,10 @@ fn relocated_toolchain_parses_without_sources_or_rust_tools() {
     let compiler = workspace.path().join("compiler");
     let source = workspace.path().join("main.plenty");
     let executable = workspace.path().join("program");
-    std::fs::copy(env!("CARGO_BIN_EXE_plenty"), &compiler).unwrap();
+    support::install_executable(
+        std::path::Path::new(env!("CARGO_BIN_EXE_plenty")),
+        &compiler,
+    );
     std::fs::write(
         &source,
         format!(
@@ -420,4 +425,43 @@ fn countbytes_tool_reads_binary_paths_and_reports_usage_statuses() {
     assert_eq!(help.status.code(), Some(0), "{help:?}");
     assert!(help.stdout.starts_with(b"Usage: countbytes [--help]\n"));
     assert!(help.stderr.is_empty());
+}
+
+/// Executables the tests install must run even while other test threads spawn
+/// children (issue #125). Writing the same scripts in-process failed with
+/// ETXTBSY in about 9% of iterations on Linux.
+#[cfg(unix)]
+#[test]
+fn installed_scripts_run_while_other_threads_spawn() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let workspace = tempfile::tempdir().unwrap();
+    let stop = AtomicBool::new(false);
+    let failures = std::thread::scope(|scope| {
+        for _ in 0..4 {
+            scope.spawn(|| {
+                while !stop.load(Ordering::Relaxed) {
+                    Command::new("true").status().unwrap();
+                }
+            });
+        }
+        // Stop the spawners even if installing a script panics.
+        struct Stop<'a>(&'a AtomicBool);
+        impl Drop for Stop<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Relaxed);
+            }
+        }
+        let _stop = Stop(&stop);
+        (0..200)
+            .filter_map(|index| {
+                let script = workspace.path().join(format!("script{index}"));
+                support::write_script(&script, "#!/bin/sh\nexit 0\n");
+                match Command::new(&script).status() {
+                    Ok(status) if status.success() => None,
+                    result => Some(format!("{index}: {result:?}")),
+                }
+            })
+            .collect::<Vec<_>>()
+    });
+    assert!(failures.is_empty(), "{failures:#?}");
 }

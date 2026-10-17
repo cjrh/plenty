@@ -1,6 +1,37 @@
 #![allow(dead_code)] // Each integration test uses a different subset of helpers.
 
+use std::path::Path;
 use std::process::{Command, Output};
+
+/// Copy `source` to a new executable at `destination` (issue #125).
+///
+/// Linux refuses to exec a file while any process holds it open for writing
+/// (ETXTBSY). A child forked by another test thread inherits this process's
+/// descriptors until it execs, and O_CLOEXEC cannot close them sooner, so a
+/// file written here can stay busy after it is closed. Copying in a `cp`
+/// child keeps the only write descriptor in a process nobody else forks.
+pub fn install_executable(source: &Path, destination: &Path) {
+    let status = Command::new("cp")
+        .arg(source)
+        .arg(destination)
+        .status()
+        .unwrap();
+    assert!(status.success(), "cp {source:?} {destination:?}: {status}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(destination, mode).unwrap();
+    }
+}
+
+/// Write an executable script at `path`; see [`install_executable`].
+pub fn write_script(path: &Path, contents: &str) {
+    let staged = path.with_extension("staged");
+    std::fs::write(&staged, contents).unwrap();
+    install_executable(&staged, path);
+    std::fs::remove_file(staged).unwrap();
+}
 
 /// Strings of at most this many UTF-8 bytes are stored inline and never
 /// allocate, so allocation-failure tests expect failure only for longer results.
