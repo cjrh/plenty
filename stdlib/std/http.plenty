@@ -31,6 +31,10 @@ pub enum HttpError:
     LengthMismatch
     Unfinished
     Broken
+    InvalidTarget
+    MissingHost
+    DuplicateHost
+    InvalidHost
 
 # `max_line` bounds one line including its CRLF: a request or status line, a
 # field line, or a chunk-size line. `max_head` bounds every byte of a head,
@@ -456,6 +460,123 @@ def persistent(headers: &list[Header], minor: i64) -> bool:
 # unless `Connection: close`, HTTP/1.0 only with `Connection: keep-alive`.
 pub def request_keeps_alive(head: &RequestHead) -> bool:
     persistent(&head.headers, head.minor)
+
+# What a server routes a request on. `authority` is `uri-host [ ":" port ]`
+# from an absolute-form target, else the Host value, which is empty for an
+# HTTP/1.0 request without one. `path` and `query` are still percent-encoded;
+# `query` follows the first `?` and is empty without one.
+pub class RequestTarget:
+    pub authority: str
+    pub path: str
+    pub query: str
+
+# RFC 3986 unreserved and sub-delims: the bytes a reg-name holds unescaped.
+def name_byte(code: i64) -> bool:
+    if digit(code) or (code >= 97 and code <= 122):
+        return True
+    code == 33 or code == 36 or (code >= 38 and code <= 46) or code == 59 or code == 61 or code == 95 or code == 126
+
+# Whether `value` is `uri-host [ ":" port ]` (RFC 9110 section 7.2). An IP
+# literal is checked for its characters, not parsed as an address.
+def valid_authority(value: &str) -> bool:
+    # States: 0 reg-name, 1 IPv6 literal, 2 IPvFuture literal, 3 after `]`,
+    # 4 port. `escape` counts the hex digits a `%` still needs.
+    mut state = 0
+    mut escape = 0
+    mut first = True
+    mut inside = 0
+    for scalar in value:
+        code = folded(scalar)
+        if escape > 0:
+            if hex_value(code) < 0:
+                return False
+            escape -= 1
+        elif state == 0:
+            if code == 91 and first:
+                state = 1
+            elif code == 58:
+                state = 4
+            elif code == 37:
+                escape = 2
+            elif not name_byte(code):
+                return False
+        elif state == 1 or state == 2:
+            if code == 93 and inside > 0:
+                state = 3
+            elif state == 1 and inside == 0 and code == 118:
+                state = 2
+                inside += 1
+            elif state == 1 and (hex_value(code) >= 0 or code == 58 or code == 46):
+                inside += 1
+            elif state == 2 and (name_byte(code) or code == 58):
+                inside += 1
+            else:
+                return False
+        elif state == 3:
+            if code != 58:
+                return False
+            state = 4
+        elif not digit(code):
+            return False
+        first = False
+    escape == 0 and state != 1 and state != 2
+
+# The scalar index after `http://` or `https://`, scheme in any case.
+def authority_start(target: &str) -> Result[i64, HttpError]:
+    match target.find("://"):
+        case Some(at):
+            if at <= 5:
+                scheme = listed(target.slice(0, at))?
+                if same_name(&scheme, "http") or same_name(&scheme, "https"):
+                    return Ok(at + 3)
+        case Nothing:
+            pass
+    Err(HttpError.InvalidTarget)
+
+# Checks the target and Host fields of a request (RFC 9112 section 3.2) and
+# splits the target. Any request with several Host fields or an invalid Host
+# value, and an HTTP/1.1 request without Host, is an error. The target must be
+# origin-form (`/path?query`) or absolute-form (`http://authority/path?query`,
+# also `https`); an absolute-form authority replaces the Host value, which is
+# still checked. Asterisk-form (`OPTIONS *`), authority-form (`CONNECT`), other
+# schemes and an absolute-form authority with userinfo or an empty host are
+# `InvalidTarget`.
+pub def request_target(head: &RequestHead) -> Result[RequestTarget, HttpError]:
+    mut host = -1
+    for index in range(len(head.headers)):
+        if same_name(head.headers[index].name, "host"):
+            if host >= 0:
+                return Err(HttpError.DuplicateHost)
+            host = index
+    if host < 0 and head.minor == 1:
+        return Err(HttpError.MissingHost)
+    if host >= 0 and not valid_authority(head.headers[host].value):
+        return Err(HttpError.InvalidHost)
+    target = &head.target
+    size = len(target)
+    mut start = 0
+    mut authority = ""
+    if target.startswith("/"):
+        if host >= 0:
+            authority = listed(head.headers[host].value.concat(""))?
+    else:
+        begin = authority_start(target)?
+        start = begin
+        while start < size and target[start] != "/" and target[start] != "?":
+            start += 1
+        authority = listed(target.slice(begin, start))?
+        if authority.byte_len() == 0 or authority.startswith(":") or not valid_authority(&authority):
+            return Err(HttpError.InvalidTarget)
+    mut stop = start
+    while stop < size and target[stop] != "?":
+        stop += 1
+    mut path = listed(target.slice(start, stop))?
+    if path.byte_len() == 0:
+        path = "/"
+    mut query = ""
+    if stop < size:
+        query = listed(target.slice(stop + 1, size))?
+    Ok(RequestTarget(authority, path, query))
 
 # As for requests; a close-delimited body also ends the connection.
 pub def response_keeps_alive(head: &ResponseHead, framing: &Framing) -> bool:

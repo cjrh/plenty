@@ -15,7 +15,7 @@ request corpus in `tests/fixtures/http_server/`. The benchmark is
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Parser conformance and a retained corpus | Pass, with known deviations | About 60 corpus requests, each replayed in 64-byte reads and one byte at a time; 600 mutated copies. Deviations: `Host` is not checked and absolute-form targets get `400` (issue #131) |
+| Parser conformance and a retained corpus | Pass | About 80 corpus requests, each replayed in 64-byte reads and one byte at a time; 600 mutated copies. Includes the RFC 9112 section 3.2 `Host` rules and absolute-form targets |
 | Fuzzing | Partial | Deterministic mutation of the corpus through the whole connection loop, here and in `test_std_http.rs`; no coverage-guided fuzzing |
 | Interoperability | Pass | curl over plain HTTP and TLS (reuse, sized, chunked and `100-continue` uploads, HTTP/1.0, `HEAD`, chunked and 64 MiB responses, 404/405); `std.http.client` (pooling, streamed chunked upload, large downloads) |
 | Slow clients | **Fail** | Idle and silent clients, slow readers and slow body senders are cut off at their deadlines without holding the server. A client that sends part of a head holds a worker until `head_timeout`, so a few of them stall the server (issue #132) |
