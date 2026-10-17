@@ -87,3 +87,32 @@ and returns a `Report` of what it counted. `config()` gives the defaults:
 four workers, a queue of sixteen waiting connections, and a deadline for
 each phase of a request. A connection that arrives when the queue is full is
 answered `503` at once instead of waiting.
+
+A worker serves one request at a time, but it does not wait for a
+keep-alive client's next request. Between requests the connection waits on
+the server's own thread, on a [selector](tcp-sockets.md#wait-on-many-connections), and goes
+back to the queue when the client sends more, so a few workers can keep many
+idle clients open. `config.idle_connections` caps how many may wait.
+
+## HTTPS
+
+`std.http.tls.serve` is `serve` over [TLS](tls-streams.md). It takes the
+`ServerConfig` from the TLS lesson, and the handler's exchanges carry a
+`TlsTransport` instead of a `TcpStream`:
+
+```text
+import std.http.tls
+from std.http.tls import TlsTransport
+
+pub class Greeter:
+    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        ...
+
+server = std.tls.server_config(&leaf_pem(), &leaf_key()).unwrap()
+report = std.http.tls.serve(listener, server, &routes, &Greeter(), &config, &stop)?
+```
+
+Each connection must finish its handshake within
+`config.handshake_timeout` of being accepted, so a client that connects and
+says nothing is closed then. Routing, deadlines and shutdown work as for
+plain HTTP.

@@ -51,7 +51,8 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.net`](net.md) | TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadlines and cancellation | `NetError` |
 | [`std.tls`](tls.md) | TLS 1.2 and 1.3 client and server streams over `std.net` TCP, with verified certificates, client certificates, ALPN, deadlines, and cancellation | `TlsError` |
 | [`std.http`](http.md) | Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams | `HttpError` |
-| [`std.http.server`](http-server.md) | HTTP/1.1 server: routing, a bounded worker pool and admission queue, per-phase deadlines, and graceful shutdown | `ServerError` |
+| [`std.http.server`](http-server.md) | HTTP/1.1 server: routing, a bounded worker pool and admission queue, idle connections parked off the workers, per-phase deadlines, and graceful shutdown | `ServerError` |
+| [`std.http.tls`](http-server.md#https) | `std.http.server` over [`std.tls`](tls.md), with handshake deadlines | `ServerError` |
 | [`std.http.body`](http-body.md) | Bounded request bodies for handlers: URL-encoded forms, JSON, and multipart uploads into unnamed temporary files | `BodyError` |
 | [`std.http.cookie`](http-cookie.md) | Cookie fields read leniently and `Set-Cookie` fields validated against injection, with secure defaults | `CookieError` |
 | [`std.http.proxy`](http-proxy.md) | The client address and scheme behind explicitly trusted reverse proxies; deployment guidance | `ProxyError` |

@@ -206,6 +206,11 @@ take. Ciphertext a `try_` call could not send stays buffered for the next
 call. Registrations are level-triggered, so `ReadWrite` on an idle stream
 wakes at once; register `Read` once `interest()` says so.
 
+A `read_before` that times out at its deadline has also done all the work
+available, so a stream may be watched after one.
+[`std.http.server`](http-server.md#idle-connections) parks idle HTTPS
+connections this way.
+
 ## Errors
 
 ```text
