@@ -47,6 +47,13 @@ and key-exchange groups. Neither resumes sessions: clients keep no session
 cache and servers issue no tickets. A configuration is immutable and may be
 borrowed by any number of connections and workers.
 
+A TLS 1.3 server therefore sends nothing after the client's `Finished`. So
+that a client with Nagle's algorithm on does not hold its first request
+until the kernel's delayed acknowledgement (about 40 ms on Linux), a server
+stream acknowledges the client's last handshake flight at once (Linux
+`TCP_QUICKACK`), unless a reply or the client's first request is already
+there to carry the acknowledgement.
+
 ## Builders
 
 A builder gathers further settings; `build` checks them together and returns

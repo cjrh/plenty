@@ -293,7 +293,10 @@ answers written on the accepting thread get a write budget of
 Accepted connections have Nagle's algorithm turned off (`TCP_NODELAY`).
 Responses are buffered and flushed whole, so this sends no extra small
 segments, and a head followed by a body larger than the 4 KiB write buffer
-is not held back for a delayed acknowledgement.
+is not held back for a delayed acknowledgement. Over HTTPS the server
+also acknowledges the client's TLS `Finished` at once, so a client that
+leaves Nagle's algorithm on sends its first request without waiting for a
+delayed acknowledgement (see [`std.tls`](tls.md#trust-roots-and-configuration)).
 
 ## Shutdown
 

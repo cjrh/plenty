@@ -80,6 +80,7 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
     mut stream = listener.accept(deadline, cancel)?
     stream.set_no_delay(True)?
     data = read_all(&mut stream, deadline, cancel)?
+    stream.acknowledge_now()?
     stream.write_all_before(&data, 0, data.len(), deadline, cancel)?
     stream.shutdown(Shutdown.Write)?
     Ok(data.len())

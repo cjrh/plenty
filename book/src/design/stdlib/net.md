@@ -69,6 +69,7 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 | `stream.read`, `write`, `flush`, `close` | The [`std.io`](io.md) `Reader` and `Writer` methods; `read` and `write` block without a bound |
 | `stream.shutdown(direction: Shutdown)` | `Result[(), NetError]`; `Shutdown.Read`, `Write` or `Both` |
 | `stream.set_no_delay(enabled: bool)` | `Result[(), NetError]`: send small writes immediately |
+| `stream.acknowledge_now()` | `Result[(), NetError]`: acknowledge data already received at once, not after the kernel's delay (Linux `TCP_QUICKACK`); later data is acknowledged as usual |
 | `stream.local_address()`, `peer_address()` | `Result[SocketAddress, NetError]` |
 
 - Port 0 binds a free port; `local_address` reports it.

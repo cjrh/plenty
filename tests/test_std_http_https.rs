@@ -267,3 +267,86 @@ def main() -> Result[(), Failure]:
     assert_eq!(symbols(&plain), 0);
     assert!(symbols(&secure) > 1);
 }
+
+/// A client that leaves Nagle's algorithm on holds its first request until
+/// the server acknowledges its TLS 1.3 `Finished`. The server acknowledges
+/// at once instead of after Linux's delayed acknowledgement (about 40 ms;
+/// issue #148). The median of several new connections keeps one slow
+/// scheduling round on a loaded machine from failing the test.
+#[test]
+fn nagle_clients_get_their_first_https_response_without_a_delayed_ack() {
+    let source = r##"import std.bytes
+import std.http.server
+import std.http.tls
+import std.net
+import std.time
+import std.tls
+from std.http.server import Exchange
+from std.http.tls import TlsTransport
+from std.sync import CancellationToken
+from std.time import Deadline
+
+def fixture(name: &str) -> Result[str, Failure]:
+    Ok(read_text(&("FIXTURES/" + name)?)?)
+
+def later() -> Result[Deadline, Failure]:
+    Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
+
+pub class Hello:
+    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        exchange.send_text(200, "hello")?
+        Ok(())
+
+# Microseconds from writing a request on a new connection, after its
+# handshake, to the first bytes of the response.
+def first_response(port: u16) -> Result[u64, Failure]:
+    never = CancellationToken()?
+    tls = std.tls.client_config(&std.tls.roots_from_pem(&fixture("ca.pem")?).unwrap()).unwrap()
+    tcp = std.net.connect(&std.net.loopback_v4(port), &later()?, &never)?
+    mut stream = std.tls.connect(tcp, &tls, "localhost", &later()?, &never).unwrap()
+    request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?
+    start = std.time.monotonic_now()
+    stream.write_all_before(&request, 0, request.len(), &later()?, &never).unwrap()
+    mut buffer = std.bytes.with_capacity(4096)?
+    buffer.resize(4096, 0u8)?
+    count = stream.read_before(&mut buffer, 0, 4096, &later()?, &never).unwrap()
+    elapsed = std.time.monotonic_now().saturating_duration_since(&start).as_microseconds()
+    drop(stream.close_before(&later()?, &never))
+    if count == 0:
+        return Err(Failure.Unspecified)
+    Ok(elapsed)
+
+def visit(port: u16, stop: CancellationToken) -> Result[(), Failure]:
+    for index in range(9):
+        match first_response(port):
+            case Ok(elapsed):
+                print(elapsed)?
+            case Err(error):
+                stop.cancel()
+                return Err(error)
+    stop.cancel()
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    mut table = std.http.server.router()?
+    table.add("GET", "/", 0)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    tls = std.tls.server_config(&fixture("leaf.pem")?, &fixture("leaf.key")?).unwrap()
+    with spawn(visit, port, stop.share())? as task:
+        std.http.tls.serve(listener, tls, &table, &Hello(), &std.http.server.config(), &stop)?
+        task.join()?
+    Ok(())
+"##
+    .replace("FIXTURES", &fixtures());
+    let printed = output(&source);
+    let mut micros: Vec<u64> = printed.lines().map(|line| line.parse().unwrap()).collect();
+    assert_eq!(micros.len(), 9, "{printed}");
+    micros.sort_unstable();
+    assert!(
+        micros[4] < 20_000,
+        "median first response {} us; all: {micros:?}",
+        micros[4]
+    );
+}
