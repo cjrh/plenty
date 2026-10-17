@@ -76,6 +76,8 @@ stream is closed when the partial session is dropped.
 | `write(source: &Bytes, start: i64, stop: i64)` | `Result[i64, StreamError]` | `std.io` Writer; waits without a deadline |
 | `flush()` | `Result[(), StreamError]` | Nothing to do: writes are sent as they are made |
 | `close()` | `Result[(), StreamError]` | `close_before` without a deadline |
+| `watch(selector: &mut Selector, key: u64, interest: Interest)` | `Result[(), NetError]` | Register the TCP stream with a [`std.ready`](ready.md) selector |
+| `unwatch(selector: &mut Selector)` | `Result[(), NetError]` | Remove it |
 
 Ranges follow the [range rule](bytes.md#the-range-rule). A read of zero bytes
 means the peer sent `close_notify`. A connection that ends without one is
@@ -83,6 +85,12 @@ means the peer sent `close_notify`. A connection that ends without one is
 can cut a TCP connection short. Code that frames its own messages, such as
 `Content-Length` bodies, may treat a truncation after the last expected byte
 as an ordinary end.
+
+Readiness from `watch` reports ciphertext arriving, not decrypted bytes
+waiting in the session. Watch a stream only after a `read_before` has timed
+out at its deadline, which leaves no decrypted input buffered;
+[`std.http.server`](http-server.md#idle-connections) parks idle HTTPS
+connections this way.
 
 `close_before` does not wait for the peer's `close_notify`. After a close,
 writes are `Closed`. A failed write has sent an unknown prefix of its range.

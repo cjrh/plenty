@@ -3,9 +3,9 @@
 `import std.http.server` serves HTTP/1.1 over [`std.net`](net.md) TCP
 connections: method and path routing, a fixed pool of worker threads fed by a
 bounded admission queue, a deadline for each phase of a request, and
-graceful shutdown. Framing comes from [`std.http`](http.md). The module is
-checked Plenty in `stdlib/std/http/server.plenty` and adds no runtime
-primitives. The tutorial lesson [Serve HTTP requests](../../tutorial/11-concurrency/http-server.md)
+graceful shutdown. Framing comes from [`std.http`](http.md).
+`import std.http.tls` serves HTTPS through [`std.tls`](tls.md). Both modules
+are checked Plenty in `stdlib/std/http/` and add no runtime primitives. The tutorial lesson [Serve HTTP requests](../../tutorial/11-concurrency/http-server.md)
 shows a complete server.
 
 ## Serving
@@ -13,6 +13,8 @@ shows a complete server.
 | Item | Meaning |
 |---|---|
 | `serve[H: Handler[TcpStream]](listener: TcpListener, router: &Router, handler: &H, config: &Config, stop: &CancellationToken)` | `Result[Report, ServerError]`: serve until `stop` is cancelled, then shut down |
+| `std.http.tls.serve[H: Handler[TlsTransport]](listener, tls: ServerConfig, router, handler, config, stop)` | `serve` over TLS; see [HTTPS](#https) |
+| `serve_with[T: Transport, O: Opener[T], H: Handler[T]](listener, opener: &O, router, handler, config, stop)` | `serve` with a transport that `opener` makes from each accepted `TcpStream` |
 | `serve_connection[T: Transport, H: Handler[T]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
 | `serve_connection_from[T, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
 | `protocol Handler[T]` | `def handle(self, exchange: &mut Exchange[T]) -> Result[(), Failure]` |
@@ -20,22 +22,23 @@ shows a complete server.
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
 
 `serve` takes ownership of the listener and runs on the calling thread. It
-starts `config.workers` scoped worker threads, then accepts connections and
-passes each to the queue. Every worker shares one borrow of the router, the
+starts `config.workers` scoped worker threads, then accepts connections on
+its own thread and passes each to the queue once it has input (see
+[Idle connections](#idle-connections)). Every worker shares one borrow of the router, the
 handler and the config, so `handle` takes `self` by shared borrow and cannot
 change the handler; shared state needs a synchronized type such as a channel
 or token. A handler class and its `handle` method must be `pub`, because
 `serve` calls them from another module.
 
 `serve` fails only before serving: `InvalidConfig` for a config outside the
-bounds below, `Allocation` or `Thread` if a channel or worker cannot be made.
+bounds below, `Allocation` or `Thread` if a channel or worker cannot be made,
+or `Net` if its selector or wake-up socket cannot be set up.
 A worker that cannot start stops the workers already running. After that,
 every problem is answered on the wire where possible, counted in the
 `Report`, and logged to `config.events`; nothing aborts the server.
 
 `serve_connection` serves one already-open stream. Any class with the two
-`Transport` methods works, which is how a TLS session will be served, and an
-in-memory stream makes handlers testable without sockets. Its exchanges have
+`Transport` methods works, and an in-memory stream makes handlers testable without sockets. Its exchanges have
 no `peer`; `serve_connection_from` takes one, for a transport that knows its
 peer or a test that plays one. `stop` and
 `cancel` have the meanings described under [Shutdown](#shutdown).
@@ -133,9 +136,56 @@ field first (`query = exchange.query.concat("")?`).
 | `response_timeout` | Whole response, from the end of the request head | 60 s |
 | `drain_timeout` | Shutdown grace for active connections | 5 s |
 | `max_requests` | Requests on one connection before it closes, at least 1 | 1000 |
+| `idle_connections` | Connections waiting for input on the accepting thread, 0 to 1,000,000 | 256 |
+| `handshake_timeout` | HTTPS only: finish the TLS handshake, from the accept | 10 s |
 | `events` | `Option[ChannelSink]` for [`std.log`](log.md) events | `Nothing` |
 
 Limits must be positive (`max_body` may be 0).
+
+## Idle connections
+
+A connection waiting for its first byte, or for the next request after a
+keep-alive response, is parked on the accepting thread's
+[`std.ready`](ready.md) selector instead of holding a worker. When input
+arrives it joins the queue; a worker serves its request and, if the
+connection stays open with nothing more buffered, returns it to be parked
+again. Parked connections still close at `idle_timeout`. Ten keep-alive
+clients can therefore share one worker.
+
+`idle_connections` caps the parked connections. With `0`, nothing is
+parked: each connection goes to the queue at once and a worker holds it
+until `idle_timeout`, as a thread-per-connection server would.
+
+## HTTPS
+
+```text
+import std.http.tls
+import std.tls
+
+tls = std.tls.server_config(&chain_pem, &key_pem)?
+report = std.http.tls.serve(listener, tls, &table, &App(), &config, &stop)?
+```
+
+`std.http.tls.serve` takes a [`std.tls`](tls.md) `ServerConfig` and calls a
+handler of type `Handler[TlsTransport]`; `TlsTransport.stream` is the
+`TlsStream`. A worker runs each handshake, which must finish within
+`handshake_timeout` of the accept. The deadline covers time spent parked
+and queued, so a client that connects and stays silent is closed at that
+deadline, not at `idle_timeout`. After the handshake, connections are
+served and parked like plain ones: a TLS stream is only parked when it holds
+no decrypted input. The plain `serve` does not import `std.tls`.
+
+`serve_with` accepts any `Opener[T]`, the protocol behind `std.http.tls`:
+
+| Method | Meaning |
+|---|---|
+| `open(self, tcp: TcpStream, deadline: &Deadline, cancel: &CancellationToken)` | `Result[T, OpenError]`: the transport, made on a worker |
+| `handshakes(self)` | `bool`: use `handshake_timeout` for new connections and close, not `503`, those refused |
+| `watch(self, stream: &T, selector: &mut Selector, key: u64)` | `bool`: register a stream with no buffered input for reading |
+| `unwatch(self, stream: &T, selector: &mut Selector)` | Remove it |
+
+`OpenError` is `TimedOut`, `Cancelled`, `Failed` (counted in
+`protocol_errors`) or `Gone` (the client left; not counted).
 
 ## Deadlines and faults
 
@@ -145,13 +195,16 @@ cannot hold a worker longer than the phase allows.
 | Situation | Server action |
 |---|---|
 | No request starts within `idle_timeout` | Close quietly |
+| HTTPS: no handshake within `handshake_timeout` of the accept | Close; counted in `timeouts` |
+| HTTPS: handshake fails, for example a plaintext request | Close; counted in `protocol_errors` |
+| `idle_connections` connections already waiting | A new connection gets `503` with `Retry-After: 1` (HTTPS: is closed); counted in `rejected`. A served connection going idle is closed |
 | Head not complete within `head_timeout` | `408`, close; counted in `timeouts` |
 | Malformed head, or a line, head or header count over a limit | `400`, or `431` for size limits, `505` for an unsupported version, `501` for an unsupported transfer coding; close |
 | Ambiguous framing (`Content-Length` with `Transfer-Encoding`) | `400`, close |
 | Declared `Content-Length` over `max_body` | `413` before reading, close |
 | Target not starting with `/` | `400`, close |
 | Body read past `body_timeout`, or a write past its deadline | Close; counted in `timeouts` |
-| Queue full | `503` with `Retry-After: 1`, close; counted in `rejected` |
+| Queue full | `503` with `Retry-After: 1` (HTTPS: close without a response), close; counted in `rejected` |
 | `accept` fails, for example out of file handles | Count in `accept_errors`, pause 10 ms, keep accepting |
 
 Responses written by the server itself carry `Connection: close`. Allocation
@@ -163,8 +216,8 @@ Cancelling `stop` begins shutdown:
 
 1. `serve` stops accepting and closes the listener.
 2. Connections already queued are still served. A connection waiting idle
-   for its next request closes at once; a request already arriving is read
-   and served. Every response carries `Connection: close`.
+   for its next request closes at once, whether parked or on a worker; one
+   whose request has started arriving is handed to a worker and served. Every response carries `Connection: close`.
 3. Handlers see `stopping()` and should finish long responses.
 4. At `drain_timeout`, `serve` cancels the second token. Every further read
    or write fails with `Cancelled`, `cancelled()` is true, and the
@@ -184,19 +237,23 @@ With `events` set, each answered request emits an `Info` event `request`
 with fields `method`, `target`, `status`, `bytes` (body bytes sent) and
 `micros` (from head to end of response). Faults emit `Warn` events: `bad
 request`, `bad request body`, `handler failed`, `handler sent no response`,
-`timed out`, `cancelled`, `queue full` and `accept failed`, most with a
+`timed out`, `cancelled`, `queue full`, `too many connections`, `handshake
+timed out`, `handshake failed` and `accept failed`, most with a
 `status` field. An event the sink cannot take is dropped and counted in
 `dropped_events`; logging never blocks serving.
 
 ## Limits
 
-- Each worker serves one connection at a time, so an idle keep-alive
-  connection occupies a worker until `idle_timeout`. Size `workers` and
-  `idle_timeout` together; readiness-based parking of idle connections is
-  later work.
-- Only plain TCP. TLS is served through `serve_connection` once
-  [`std.tls`](../../backlog.md) lands; `serve` over a TLS listener is later
-  work.
+- The accepting thread waits on one selector of at most 64 events per wait,
+  and a parked connection costs a list slot and a selector registration.
+  A worker serves one connection at a time, from its first byte to the end
+  of the response.
+- HTTPS connections end without a TLS `close_notify`. Responses are
+  length-delimited or chunked, so clients do not depend on it, except for a
+  streamed response to HTTP/1.0, whose end is the close and so cannot be
+  told from truncation.
+- HTTPS has the [`std.tls` limits](tls.md#limits): no client certificates
+  and no ALPN.
 - No `Date` header, compression, static file serving (see
   [the decision](http-proxy.md#static-files)), request trailers in the
   exchange, or HTTP/2. Forms, JSON, uploads, cookies and forwarded clients

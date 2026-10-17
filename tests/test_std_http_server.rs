@@ -673,3 +673,198 @@ def main() -> Result[(), Failure]:
         "{served:?}"
     );
 }
+
+/// One worker serves ten keep-alive connections in turn: idle connections
+/// wait on the accepting thread's selector, not on the worker. Shutdown
+/// closes them at once. With `idle_connections` full, a new connection gets
+/// `503`; a parked one still closes at its idle deadline.
+#[test]
+fn idle_connections_wait_without_a_worker() {
+    runs(
+        LOOPBACK,
+        r##"
+def ask(stream: &mut TcpStream) -> ():
+    never = CancellationToken().unwrap()
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
+    request = std.bytes.from_text("GET / HTTP/1.1\r\n\r\n").unwrap()
+    stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+
+def many(port: u16, stop: CancellationToken) -> ():
+    mut streams = list[TcpStream].new().unwrap()
+    for index in range(10):
+        mut stream = connect_to(port, "GET / HTTP/1.1\r\n\r\n").unwrap()
+        drop(until(&mut stream, "home").unwrap())
+        streams.append(stream).unwrap()
+    mut answered = 0
+    for round in range(3):
+        for index in range(10):
+            ask(&mut streams[index])
+        for index in range(10):
+            if until(&mut streams[index], "home").unwrap().endswith("home"):
+                answered += 1
+    print(answered).unwrap()
+    stop.cancel()
+    mut closed = 0
+    for index in range(10):
+        if until(&mut streams[index], "").unwrap() == "":
+            closed += 1
+    print(closed).unwrap()
+
+def capped(port: u16, stop: CancellationToken) -> ():
+    mut first = connect_to(port, "").unwrap()
+    mut second = connect_to(port, "").unwrap()
+    std.time.sleep(&std.time.milliseconds(50u32))
+    print(fetch(port, "").unwrap()).unwrap()
+    ask(&mut first)
+    print(until(&mut first, "home").unwrap()).unwrap()
+    # Parked again after its request, then closed at the idle deadline.
+    print(str.repr(until(&mut first, "").unwrap()).unwrap()).unwrap()
+    print(str.repr(until(&mut second, "").unwrap()).unwrap()).unwrap()
+    stop.cancel()
+
+def main() -> Result[(), Failure]:
+    table = routes()?
+    app = gated()?
+    mut config = std.http.server.config()
+    config.workers = 1
+    config.queue = 16
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    with spawn(many, port, stop.share())? as task:
+        report = std.http.server.serve(listener, &table, &app, &config, &stop)?
+        print(counts(&report)?)?
+    config.idle_connections = 2
+    config.idle_timeout = std.time.milliseconds(300u32)
+    second = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    other = second.local_address()?.port
+    halt = CancellationToken()?
+    with spawn(capped, other, halt.share())? as task:
+        report = std.http.server.serve(second, &table, &app, &config, &halt)?
+        print(counts(&report)?)?
+    Ok(())
+"##,
+        r##"30
+10
+connections=10 requests=40 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0
+HTTP/1.1 503 Service Unavailable|Content-Type: text/plain; charset=utf-8|Content-Length: 20|Retry-After: 1|Connection: close||Service Unavailable
+
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||home
+""
+""
+connections=2 requests=1 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=1"##,
+    );
+}
+
+fn fixtures() -> String {
+    format!("{}/tests/fixtures/tls", env!("CARGO_MANIFEST_DIR"))
+}
+
+/// HTTPS through `std.http.tls.serve`. Two TLS clients alternate on one
+/// worker, so an idle TLS connection is parked too. A client that never
+/// starts its handshake is closed at `handshake_timeout` and one that sends
+/// plaintext fails its handshake; both are counted and logged.
+#[test]
+fn https_serves_tls_connections_under_a_handshake_deadline() {
+    let main = r##"import std.http.tls
+import std.log
+import std.tls
+from std.http.tls import TlsTransport
+from std.log import Event
+from std.tls import TlsStream
+
+pub class Secure:
+    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        exchange.send_text(200, "secure")?
+        Ok(())
+
+def ask(stream: &mut TlsStream) -> str:
+    never = CancellationToken().unwrap()
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
+    request = std.bytes.from_text("GET / HTTP/1.1\r\n\r\n").unwrap()
+    stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+    # Responses are length-delimited; the server sends no close_notify.
+    mut out = std.bytes.empty().unwrap()
+    while not out.to_text().unwrap().endswith("secure"):
+        at = out.len()
+        out.resize(at + 64, 0u8).unwrap()
+        count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
+        out.truncate(at + count).unwrap()
+    out.to_text().unwrap().replace("\r\n", "|").unwrap()
+
+def secure(port: u16) -> TlsStream:
+    never = CancellationToken().unwrap()
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
+    roots = std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem").unwrap()).unwrap()
+    config = std.tls.client_config(&roots).unwrap()
+    tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never).unwrap()
+    std.tls.connect(tcp, &config, "localhost", &deadline, &never).unwrap()
+
+def closes(stream: &mut TcpStream) -> bool:
+    never = CancellationToken().unwrap()
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
+    mut buffer = std.bytes.with_capacity(256).unwrap()
+    buffer.resize(256, 0u8).unwrap()
+    while True:
+        match stream.read_before(&mut buffer, 0, 256, &deadline, &never):
+            case Ok(0):
+                return True
+            case Ok(_):
+                pass
+            case Err(NetError.TimedOut):
+                return False
+            case Err(_):
+                return True
+    False
+
+def client(port: u16, stop: CancellationToken) -> ():
+    mut first = secure(port)
+    mut second = secure(port)
+    for round in range(2):
+        print(ask(&mut first)).unwrap()
+        print(ask(&mut second)).unwrap()
+    mut silent = connect_to(port, "").unwrap()
+    print(closes(&mut silent)).unwrap()
+    mut plain = connect_to(port, "GET / HTTP/1.1\r\n\r\n").unwrap()
+    print(closes(&mut plain)).unwrap()
+    stop.cancel()
+
+def main() -> Result[(), Failure]:
+    table = routes()?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?).unwrap()
+    (sender, receiver) = channel[Event](16u64)?
+    mut config = std.http.server.config()
+    config.workers = 1
+    config.handshake_timeout = std.time.milliseconds(300u32)
+    config.events = Some(std.log.channel_sink(sender))
+    with spawn(client, port, stop.share())? as task:
+        report = std.http.tls.serve(listener, tls, &table, &Secure(), &config, &stop)?
+        print(counts(&report)?)?
+    config.events = Nothing
+    while True:
+        match receiver.recv_nowait():
+            case Ok(event):
+                if event.message != "request":
+                    print(event.message)?
+            case Err(_):
+                break
+    Ok(())
+"##
+    .replace("FIXTURES", &fixtures());
+    runs(
+        LOOPBACK,
+        &main,
+        r##"HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||secure
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||secure
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||secure
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||secure
+True
+True
+connections=4 requests=4 handler_errors=0 protocol_errors=1 timeouts=1 cancelled=0 rejected=0
+handshake timed out
+handshake failed"##,
+    );
+}

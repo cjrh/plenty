@@ -8,6 +8,7 @@ import std.bytes
 from std.bytes import Bytes, BytesError
 from std.io import StreamError
 from std.net import NetError, TcpStream
+from std.ready import Interest, Selector
 from std.sync import CancellationToken
 from std.time import Deadline
 
@@ -327,6 +328,15 @@ pub class TlsStream:
             __tls_close(self._session)
             self.flush_before(deadline, cancel)?
         net(flowed_net(self._tcp.close()))
+
+    # Registers the TCP stream with a std.ready selector. Readiness reports
+    # ciphertext arriving, not plaintext already decrypted: watch a stream
+    # only after `read_before` has timed out, which leaves nothing buffered.
+    pub def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]:
+        self._tcp.watch(selector, key, interest)
+
+    pub def unwatch(self, selector: &mut Selector) -> Result[(), NetError]:
+        self._tcp.unwatch(selector)
 
     pub def read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start == stop:

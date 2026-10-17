@@ -1,0 +1,77 @@
+# HTTPS for std.http.server: each accepted connection completes a std.tls
+# handshake on a worker, within `handshake_timeout` of the accept, before
+# its first request. A separate module so plain servers do not link TLS.
+# See book/src/design/stdlib/http-server.md.
+import std.http.server
+import std.tls
+from std.bytes import Bytes
+from std.http.server import Config, Handler, OpenError, Report, Router, ServerError
+from std.io import StreamError
+from std.net import NetError, TcpListener, TcpStream
+from std.ready import Interest, Selector
+from std.sync import CancellationToken
+from std.time import Deadline
+from std.tls import ServerConfig, TlsError, TlsStream
+
+# A std.tls session as a std.http.server Transport. Its TLS failures read
+# as NetError: an unexpected end is Stream(UnexpectedEof) and other TLS
+# faults Stream(Io(Other)).
+pub class TlsTransport:
+    pub stream: TlsStream
+
+    pub def read_before(self: &mut TlsTransport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        transported(self.stream.read_before(buffer, start, stop, deadline, cancel))
+
+    pub def write_before(self: &mut TlsTransport, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        transported(self.stream.write_before(source, start, stop, deadline, cancel))
+
+def transported[T](result: Result[T, TlsError]) -> Result[T, NetError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case TlsError.Net(cause):
+                    Err(cause)
+                case TlsError.Truncated:
+                    Err(NetError.Stream(StreamError.UnexpectedEof))
+                case TlsError.Allocation(cause):
+                    Err(NetError.Stream(StreamError.Allocation(cause)))
+                case TlsError.Closed:
+                    Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+                case _:
+                    Err(NetError.Stream(StreamError.Io(IoError.Other)))
+
+# The std.http.server Opener that `serve` uses. A client that goes away
+# during the handshake is not counted; any other handshake failure is.
+pub class TlsOpener:
+    tls: ServerConfig
+
+    pub def open(self, tcp: TcpStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsTransport, OpenError]:
+        match std.tls.accept(tcp, &self.tls, deadline, cancel):
+            case Ok(stream):
+                Ok(TlsTransport(stream))
+            case Err(TlsError.Net(NetError.TimedOut)):
+                Err(OpenError.TimedOut)
+            case Err(TlsError.Net(NetError.Cancelled)):
+                Err(OpenError.Cancelled)
+            case Err(TlsError.Net(_)):
+                Err(OpenError.Gone)
+            case Err(TlsError.Truncated):
+                Err(OpenError.Gone)
+            case Err(_):
+                Err(OpenError.Failed)
+
+    pub def handshakes(self) -> bool:
+        True
+
+    pub def watch(self, stream: &TlsTransport, selector: &mut Selector, key: u64) -> bool:
+        stream.stream.watch(selector, key, Interest.Read).is_ok()
+
+    pub def unwatch(self, stream: &TlsTransport, selector: &mut Selector) -> ():
+        drop(stream.stream.unwatch(selector))
+
+# std.http.server.serve over TLS with `tls`. Responses end without a TLS
+# close_notify; see the reference's limits.
+pub def serve[H: Handler[TlsTransport]](listener: TcpListener, tls: ServerConfig, router: &Router, handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
+    std.http.server.serve_with(listener, &TlsOpener(tls), router, handler, config, stop)
