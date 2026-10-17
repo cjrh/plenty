@@ -51,6 +51,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.net`](net.md) | TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadlines and cancellation | `NetError` |
 | [`std.http`](http.md) | Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams | `HttpError` |
 | [`std.http.server`](http-server.md) | HTTP/1.1 server: routing, a bounded worker pool and admission queue, per-phase deadlines, and graceful shutdown | `ServerError` |
+| [`std.http.client`](http-client.md) | HTTP/1.1 client: pooled connections, deadlines and cancellation, bounded redirects, an explicit proxy, and replay of idempotent requests only | `ClientError` |
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in

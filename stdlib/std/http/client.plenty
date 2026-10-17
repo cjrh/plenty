@@ -1,0 +1,914 @@
+# A reusable HTTP/1.1 client over std.http framing: pooled keep-alive
+# connections, a caller deadline and cancellation token for every exchange,
+# per-phase timeouts, bounded redirects that drop credentials across origins,
+# an explicit forward proxy, and replay only of idempotent requests that
+# failed on a reused connection before any response byte arrived.
+# Connections come from a Connector, so a TLS connector can supply them.
+# See book/src/design/stdlib/http-client.md.
+import std.bytes
+import std.http
+import std.io
+import std.net
+import std.time
+import std.url
+from std.bytes import Bytes, BytesError
+from std.http import BodyReader, Header, HttpError, Limits, RequestHead, ResponseHead
+from std.io import BufReader, StreamError
+from std.net import NetError, TcpStream
+from std.sync import CancellationToken
+from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now, seconds
+from std.url import UrlError
+
+pub enum ClientError:
+    Net(NetError)
+    Http(HttpError)
+    Url(UrlError)
+    Allocation(AllocError)
+    InvalidConfig
+    InvalidUrl
+    UnsupportedScheme
+    InvalidRequest
+    InvalidRedirect
+    TooManyRedirects
+    UnexpectedInterim
+
+# Where a connection goes: the origin, or the proxy. `host` has no brackets.
+pub class Endpoint:
+    pub scheme: str
+    pub host: str
+    pub port: u16
+
+# A byte stream the client can frame HTTP over. Reads and writes wait at most
+# until the deadline and stop when the token is cancelled.
+pub protocol Transport:
+    def read_before(self: &mut Transport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        pass
+
+    def write_before(self: &mut Transport, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        pass
+
+# Opens a new connection to an endpoint within the deadline.
+pub protocol Connector[T]:
+    def open(self: &mut Connector[T], endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[T, ClientError]:
+        pass
+
+# A plain TCP connection.
+pub class Plain:
+    _stream: TcpStream
+
+    pub def read_before(self: &mut Plain, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        netted(self._stream.read_before(buffer, start, stop, deadline, cancel))
+
+    pub def write_before(self: &mut Plain, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        netted(self._stream.write_before(source, start, stop, deadline, cancel))
+
+# Resolves the endpoint's host and tries each address in the resolver's
+# order until one connects. Only the `http` scheme is accepted.
+pub class TcpConnector:
+    pub def open(self: &mut TcpConnector, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]:
+        if endpoint.scheme != "http":
+            return Err(ClientError.UnsupportedScheme)
+        addresses = netted(std.net.resolve(&endpoint.host, endpoint.port, deadline, cancel))?
+        mut last = NetError.NameNotFound
+        for index in range(len(addresses)):
+            match std.net.connect(&addresses[index], deadline, cancel):
+                case Ok(stream):
+                    mut owned = stream
+                    # Heads and small bodies go out in separate writes.
+                    drop(owned.set_no_delay(True))
+                    return Ok(Plain(owned))
+                case Err(error):
+                    match error:
+                        case NetError.TimedOut:
+                            return Err(ClientError.Net(error))
+                        case NetError.Cancelled:
+                            return Err(ClientError.Net(error))
+                        case _:
+                            last = error
+        Err(ClientError.Net(last))
+
+# An HTTP forward proxy for `http` URLs. `authorization`, when set, is sent
+# as Proxy-Authorization to the proxy only.
+pub class Proxy:
+    pub endpoint: Endpoint
+    pub authorization: Option[str]
+
+# A proxy at `http://host:port`. Credentials in the URL are refused; set
+# `authorization` instead.
+pub def proxy(url: &str) -> Result[Proxy, ClientError]:
+    target = target_of(url)?
+    if target.scheme != "http" or target.path != "/" or target.query.is_some():
+        return Err(ClientError.InvalidUrl)
+    Ok(Proxy(Endpoint(target.scheme, target.name, u16(target.port)), Nothing))
+
+pub class Config:
+    pub limits: Limits
+    pub connect_timeout: Duration
+    pub write_timeout: Duration
+    pub head_timeout: Duration
+    pub read_timeout: Duration
+    pub idle_timeout: Duration
+    pub max_idle: i64
+    pub max_idle_per_origin: i64
+    pub redirects: i64
+    pub retries: i64
+    pub sensitive: list[str]
+    pub proxy: Option[Proxy]
+
+pub def config() -> Result[Config, ClientError]:
+    sensitive = alloc(list[str].new())?
+    Ok(Config(std.http.limits(), seconds(10u32), seconds(10u32), seconds(30u32), seconds(30u32), seconds(30u32), 16, 4, 10, 1, sensitive, Nothing))
+
+# Counts kept by a client.
+pub class Stats:
+    pub opened: u64
+    pub reused: u64
+    pub retried: u64
+    pub redirected: u64
+    pub discarded: u64
+
+pub class Request:
+    pub method: str
+    pub url: str
+    pub headers: list[Header]
+    pub body: Bytes
+
+    pub def add(self: &mut Request, name: str, value: str) -> Result[(), ClientError]:
+        alloc(self.headers.append(Header(name, value)))
+
+pub def request(method: &str, url: &str) -> Result[Request, ClientError]:
+    headers = alloc(list[Header].new())?
+    body = bytes_of(std.bytes.empty())?
+    Ok(Request(alloc(method.concat(""))?, alloc(url.concat(""))?, headers, body))
+
+# A whole response, its body read into memory.
+pub class Fetched:
+    pub status: i64
+    pub head: ResponseHead
+    pub url: str
+    pub redirects: i64
+    pub body: Bytes
+
+def alloc[T](result: Result[T, AllocError]) -> Result[T, ClientError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(ClientError.Allocation(cause))
+
+def bytes_of[T](result: Result[T, BytesError]) -> Result[T, ClientError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(ClientError.Allocation(cause))
+                case _:
+                    Err(ClientError.Http(HttpError.Stream(StreamError.OutOfRange)))
+
+def http_of(error: HttpError) -> ClientError:
+    match error:
+        case HttpError.Allocation(cause):
+            ClientError.Allocation(cause)
+        case _ as other:
+            ClientError.Http(other)
+
+def framed[T](result: Result[T, HttpError]) -> Result[T, ClientError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(http_of(error))
+
+def netted[T](result: Result[T, NetError]) -> Result[T, ClientError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case NetError.Stream(StreamError.Allocation(cause)):
+                    Err(ClientError.Allocation(cause))
+                case _ as other:
+                    Err(ClientError.Net(other))
+
+def parsed[T](result: Result[T, UrlError]) -> Result[T, ClientError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case UrlError.Allocation(cause):
+                    Err(ClientError.Allocation(cause))
+                case _ as other:
+                    Err(ClientError.Url(other))
+
+# Deadlines are kept as monotonic nanoseconds so they can be stored and
+# combined without copying Deadline values.
+def now_ns() -> u64:
+    monotonic_now().saturating_duration_since(&instant_at(0u64)).as_nanoseconds()
+
+def after(start: u64, budget: u64) -> u64:
+    if budget > u64.MAX - start:
+        return u64.MAX
+    start + budget
+
+def least(left: u64, right: u64) -> u64:
+    if left < right:
+        return left
+    right
+
+def deadline_of(at: u64) -> Deadline:
+    deadline_at(&instant_at(at))
+
+def until_of(deadline: &Deadline) -> u64:
+    after(now_ns(), deadline.remaining(&monotonic_now()).as_nanoseconds())
+
+# URLs
+
+const max_url: i64 = 8192
+
+# A parsed `http` URL. `host` is as written, brackets included, for the Host
+# field; `name` is lowercase without brackets, for connecting and comparing.
+class Target:
+    scheme: str
+    host: str
+    name: str
+    port: i64
+    explicit: bool
+    path: str
+    query: Option[str]
+
+def target_of(text: &str) -> Result[Target, ClientError]:
+    url = parsed(std.url.parse(text, max_url))?
+    scheme = alloc(url.scheme.lower())?
+    if scheme != "http" and scheme != "https":
+        return Err(ClientError.UnsupportedScheme)
+    if url.userinfo.is_some():
+        return Err(ClientError.InvalidUrl)
+    host = match &url.host:
+        case Some(found):
+            alloc(found.concat(""))?
+        case Nothing:
+            return Err(ClientError.InvalidUrl)
+    if host.byte_len() == 0:
+        return Err(ClientError.InvalidUrl)
+    mut name = alloc(host.lower())?
+    if name.startswith("["):
+        if name.startswith("[v"):
+            return Err(ClientError.InvalidUrl)
+        name = alloc(name.slice(1, -1))?
+    mut port = 80
+    if scheme == "https":
+        port = 443
+    mut explicit = False
+    match url.port:
+        case Some(given):
+            if given == 0:
+                return Err(ClientError.InvalidUrl)
+            port = given
+            explicit = True
+        case Nothing:
+            pass
+    mut path = alloc(url.path.concat(""))?
+    if path.byte_len() == 0:
+        path = "/"
+    mut query: Option[str] = Nothing
+    match &url.query:
+        case Some(found):
+            query = Some(alloc(found.concat(""))?)
+        case Nothing:
+            pass
+    Ok(Target(scheme, host, name, port, explicit, path, query))
+
+# `host` or `host:port` as written in the URL.
+def authority(target: &Target) -> Result[str, AllocError]:
+    if not target.explicit:
+        return target.host.concat("")
+    target.host.concat(":")?.concat(str.from(target.port)?)
+
+def origin_form(target: &Target) -> Result[str, AllocError]:
+    match &target.query:
+        case Some(query):
+            target.path.concat("?")?.concat(query)
+        case Nothing:
+            target.path.concat("")
+
+def absolute_form(target: &Target, form: &str) -> Result[str, AllocError]:
+    target.scheme.concat("://")?.concat(&authority(target)?)?.concat(form)
+
+# Pooled connections are shared only by requests to the same endpoint over
+# the same route.
+def key_of(endpoint: &Endpoint, proxied: bool) -> Result[str, AllocError]:
+    mut key = endpoint.scheme.concat("://")?.concat(&endpoint.host)?.concat(":")?.concat(&str.from(i64(endpoint.port))?)?
+    if proxied:
+        key = "proxy+".concat(&key)?
+    Ok(key)
+
+def same_origin(left: &Target, right: &Target) -> bool:
+    left.scheme == right.scheme and left.name == right.name and left.port == right.port
+
+# RFC 3986 section 5.2.4, on a path that starts with `/`.
+def without_dots(path: &str) -> Result[str, AllocError]:
+    pieces = path.split("/")?
+    mut kept: list[str] = list[str].new()?
+    for index in range(1, len(pieces)):
+        piece = &pieces[index]
+        last = index == len(pieces) - 1
+        if piece == "." or piece == "..":
+            if piece == ".." and len(kept) > 0:
+                drop(kept.pop())
+            if last:
+                kept.append("")?
+        else:
+            kept.append(piece.concat("")?)?
+    "/".concat("/".join(&kept)?)
+
+# The absolute URL a Location value names, resolved against `base`.
+def resolved(base: &Target, location: &str) -> Result[str, ClientError]:
+    match std.url.parse(location, max_url):
+        case Ok(_):
+            return alloc(location.concat(""))
+        case Err(UrlError.MissingScheme):
+            pass
+        case Err(UrlError.Allocation(cause)):
+            return Err(ClientError.Allocation(cause))
+        case Err(_):
+            return Err(ClientError.InvalidRedirect)
+    alloc(joined(base, location))
+
+def joined(base: &Target, location: &str) -> Result[str, AllocError]:
+    if location.startswith("//"):
+        return base.scheme.concat(":")?.concat(location)
+    prefix = base.scheme.concat("://")?.concat(&authority(base)?)?
+    if location.byte_len() == 0:
+        return prefix.concat(&origin_form(base)?)
+    if location.startswith("?"):
+        return prefix.concat(&base.path)?.concat(location)
+    mut relative = location.concat("")?
+    if not location.startswith("/"):
+        mut directory = "/"
+        match base.path.rfind("/"):
+            case Some(at):
+                directory = base.path.slice(0, at + 1)?
+            case Nothing:
+                pass
+        relative = directory.concat(location)?
+    mut path = relative
+    mut query = ""
+    match path.find("?"):
+        case Some(at):
+            query = path.slice(at, path.byte_len())?
+            path = path.slice(0, at)?
+        case Nothing:
+            pass
+    match path.find("#"):
+        case Some(at):
+            path = path.slice(0, at)?
+        case Nothing:
+            pass
+    prefix.concat(&without_dots(&path)?)?.concat(&query)
+
+# Fields the client writes itself or does not support. Proxy credentials go
+# in `Proxy.authorization`, so they cannot leak to an origin.
+def managed(name: &str) -> Result[bool, AllocError]:
+    lowered = name.lower()?
+    Ok(lowered == "host" or lowered == "content-length" or lowered == "transfer-encoding" or lowered == "connection" or lowered == "keep-alive" or lowered == "upgrade" or lowered == "te" or lowered == "trailer" or lowered == "expect" or lowered == "proxy-authorization" or lowered == "proxy-connection")
+
+# RFC 9110 token characters, so that a bad method fails before connecting.
+def token(text: &str) -> bool:
+    if text.byte_len() == 0 or not text.isascii():
+        return False
+    for piece in text:
+        if not (piece.isalpha() or piece.isdigit() or piece in "!#$%&'*+-.^_`|~"):
+            return False
+    True
+
+def idempotent(method: &str) -> bool:
+    method == "GET" or method == "HEAD" or method == "OPTIONS" or method == "TRACE" or method == "PUT" or method == "DELETE"
+
+def copied_headers(headers: &list[Header]) -> Result[list[Header], AllocError]:
+    mut out = list[Header].with_capacity(len(headers))?
+    for index in range(len(headers)):
+        out.append(Header(headers[index].name.concat("")?, headers[index].value.concat("")?))?
+    Ok(out)
+
+# Connections
+
+# A std.io Reader and Writer over a transport. Every read waits at most
+# `read_span`, and also no later than the request deadline and, until the
+# response head has arrived, the head deadline. The cause of a failed read
+# or write is kept in `failure`; `received` counts response bytes.
+pub class Wire[T]:
+    _stream: T
+    _cancel: CancellationToken
+    _until: u64
+    _phase: u64
+    _read_span: u64
+    _write_span: u64
+    _received: i64
+    _failure: Option[ClientError]
+    _key: str
+    _since: u64
+
+    def noted(self: &mut Wire[T], error: ClientError) -> StreamError:
+        match error:
+            case ClientError.Allocation(cause):
+                StreamError.Allocation(cause)
+            case _ as other:
+                self._failure = Some(other)
+                StreamError.Io(IoError.Other)
+
+    pub def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        limit = least(least(after(now_ns(), self._read_span), self._until), self._phase)
+        match self._stream.read_before(buffer, start, stop, &deadline_of(limit), &self._cancel):
+            case Ok(count):
+                self._received += count
+                Ok(count)
+            case Err(error):
+                Err(self.noted(error))
+
+    pub def write(self: &mut Wire[T], source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        limit = least(after(now_ns(), self._write_span), self._until)
+        match self._stream.write_before(source, start, stop, &deadline_of(limit), &self._cancel):
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(self.noted(error))
+
+    pub def flush(self: &mut Wire[T]) -> Result[(), StreamError]:
+        Ok(())
+
+# The cause of a framing failure: the transport's error when there was one.
+def fault[T](conn: &mut BufReader[Wire[T]], error: HttpError) -> ClientError:
+    match replace(conn.inner._failure, Nothing):
+        case Some(cause):
+            cause
+        case Nothing:
+            http_of(error)
+
+def written[T](conn: &mut BufReader[Wire[T]], result: Result[(), HttpError]) -> Result[(), ClientError]:
+    match result:
+        case Ok(_):
+            Ok(())
+        case Err(error):
+            Err(fault(conn, error))
+
+# One response. Read its body with `read_body`, `read_all` or as a std.io
+# Reader, then give it back with `Client.finish` so its connection can be
+# reused. Dropping a response closes its connection.
+pub class Response[T]:
+    pub status: i64
+    pub head: ResponseHead
+    pub url: str
+    pub redirects: i64
+    _body: Option[BodyReader[Wire[T]]]
+    _keep: bool
+    _failure: Option[ClientError]
+
+    # Whether the whole body has been read.
+    pub def is_done(self) -> bool:
+        match &self._body:
+            case Some(body):
+                body.is_done()
+            case Nothing:
+                False
+
+    # Fills part of buffer[start:stop] with body bytes; 0 is the end.
+    pub def read_body(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ClientError]:
+        mut outcome: Result[i64, HttpError] = Err(HttpError.Broken)
+        match &mut self._body:
+            case Some(body):
+                outcome = body.read_body(buffer, start, stop)
+            case Nothing:
+                pass
+        match outcome:
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(self.broken(error))
+
+    # Appends the rest of the body to `out`, within `limits.max_body`.
+    pub def read_all(self: &mut Response[T], out: &mut Bytes) -> Result[i64, ClientError]:
+        mut outcome: Result[i64, HttpError] = Err(HttpError.Broken)
+        match &mut self._body:
+            case Some(body):
+                outcome = std.http.read_to_end(body, out)
+            case Nothing:
+                pass
+        match outcome:
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                Err(self.broken(error))
+
+    # The std.io Reader method. A failure other than a stream or allocation
+    # error is `Io(IoError.InvalidInput)`; `take_failure` returns its cause.
+    pub def read(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        match self.read_body(buffer, start, stop):
+            case Ok(count):
+                Ok(count)
+            case Err(error):
+                match error:
+                    case ClientError.Allocation(cause):
+                        Err(StreamError.Allocation(cause))
+                    case ClientError.Http(HttpError.Truncated):
+                        Err(StreamError.UnexpectedEof)
+                    case _ as other:
+                        self._failure = Some(other)
+                        Err(StreamError.Io(IoError.InvalidInput))
+
+    pub def take_failure(self: &mut Response[T]) -> Option[ClientError]:
+        replace(self._failure, Nothing)
+
+    # After a failed read the connection is closed and the body is gone.
+    def broken(self: &mut Response[T], error: HttpError) -> ClientError:
+        mut cause: Option[ClientError] = Nothing
+        match &mut self._body:
+            case Some(body):
+                match std.http.release(body):
+                    case Some(conn):
+                        mut owned = conn
+                        cause = replace(owned.inner._failure, Nothing)
+                    case Nothing:
+                        pass
+            case Nothing:
+                pass
+        self._body = Nothing
+        self._keep = False
+        match cause:
+            case Some(found):
+                found
+            case Nothing:
+                http_of(error)
+
+const max_interim: i64 = 16
+
+# Bytes of an unwanted redirect body read so its connection can be reused.
+const drain_budget: i64 = 65536
+
+def checked(config: &Config) -> bool:
+    limits = &config.limits
+    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+        return False
+    config.max_idle >= 0 and config.max_idle_per_origin >= 0 and config.redirects >= 0 and config.redirects <= 100 and config.retries >= 0 and config.retries <= 10
+
+def copy_limits(limits: &Limits) -> Limits:
+    Limits(limits.max_line, limits.max_head, limits.max_headers, limits.max_body)
+
+pub class Client[T, C]:
+    _connector: C
+    _config: Config
+    _pool: list[BufReader[Wire[T]]]
+    _stats: Stats
+
+    pub def stats(self) -> Stats:
+        Stats(self._stats.opened, self._stats.reused, self._stats.retried, self._stats.redirected, self._stats.discarded)
+
+    # Connections waiting in the pool.
+    pub def idle(self) -> i64:
+        len(self._pool)
+
+    # Closes every pooled connection.
+    pub def close_idle(self: &mut Client[T, C]) -> ():
+        self._pool.clear()
+
+    # Sends `request` and returns once the final response head has arrived,
+    # following redirects. `deadline` bounds the whole exchange, including
+    # reads of the returned body; `cancel` stops it.
+    pub def send(self: &mut Client[T, C], request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+        until = until_of(deadline)
+        mut current = request
+        mut hops = 0
+        while True:
+            mut response = self.attempt(&current, until, cancel)?
+            mut location: Option[str] = Nothing
+            status = response.status
+            if self._config.redirects > 0 and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308):
+                match std.http.find(&response.head.headers, "location"):
+                    case Some(index):
+                        location = Some(alloc(response.head.headers[index].value.concat(""))?)
+                    case Nothing:
+                        pass
+            match location:
+                case Some(text):
+                    if hops >= self._config.redirects:
+                        return Err(ClientError.TooManyRedirects)
+                    base = target_of(&current.url)?
+                    next = resolved(&base, &text)?
+                    self.drain(response, until)
+                    follow(&mut current, status, next, &self._config.sensitive)?
+                    hops += 1
+                    self._stats.redirected += 1u64
+                case Nothing:
+                    response.url = replace(current.url, "")
+                    response.redirects = hops
+                    return Ok(response)
+        Err(ClientError.TooManyRedirects)
+
+    # Sends `request` and reads the whole body, within `limits.max_body`.
+    pub def fetch(self: &mut Client[T, C], request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
+        mut response = self.send(request, deadline, cancel)?
+        mut body = bytes_of(std.bytes.empty())?
+        response.read_all(&mut body)?
+        status = response.status
+        redirects = response.redirects
+        head = replace(response.head, framed(std.http.response(status, ""))?)
+        url = replace(response.url, "")
+        self.finish(response)
+        Ok(Fetched(status, head, url, redirects, body))
+
+    pub def get(self: &mut Client[T, C], url: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
+        self.fetch(request("GET", url)?, deadline, cancel)
+
+    # Returns a response's connection to the pool when its body was read to
+    # the end and both sides allow reuse; otherwise closes it.
+    pub def finish(self: &mut Client[T, C], response: Response[T]) -> ():
+        mut owned = response
+        if not owned._keep:
+            return
+        match &mut owned._body:
+            case Some(body):
+                if body.is_done():
+                    match std.http.finish(body):
+                        case Ok(conn):
+                            self.park(conn)
+                        case Err(_):
+                            pass
+            case Nothing:
+                pass
+
+    # Reads a little of an unwanted body so that the connection can be
+    # reused; a longer body closes it.
+    def drain(self: &mut Client[T, C], response: Response[T], until: u64) -> ():
+        mut owned = response
+        if not owned._keep:
+            return
+        match std.bytes.with_capacity(4096):
+            case Ok(scratch):
+                mut buffer = scratch
+                if buffer.resize(4096, 0u8).is_err():
+                    return
+                mut total = 0
+                while total < drain_budget and not owned.is_done():
+                    match owned.read_body(&mut buffer, 0, 4096):
+                        case Ok(count):
+                            if count == 0:
+                                break
+                            total += count
+                        case Err(_):
+                            return
+            case Err(_):
+                return
+        self.finish(owned)
+
+    def park(self: &mut Client[T, C], conn: BufReader[Wire[T]]) -> ():
+        config = &self._config
+        if config.max_idle == 0 or config.max_idle_per_origin == 0 or conn.buffered() != 0:
+            self._stats.discarded += 1u64
+            return
+        mut owned = conn
+        owned.inner._since = now_ns()
+        mut same = 0
+        mut oldest = -1
+        for index in range(len(self._pool)):
+            if self._pool[index].inner._key == owned.inner._key:
+                same += 1
+                if oldest < 0:
+                    oldest = index
+        if same >= config.max_idle_per_origin:
+            drop(self._pool.pop(oldest))
+            self._stats.discarded += 1u64
+        elif len(self._pool) >= config.max_idle:
+            drop(self._pool.pop(0))
+            self._stats.discarded += 1u64
+        if self._pool.append(owned).is_err():
+            self._stats.discarded += 1u64
+
+    # The most recently parked live connection for `key`. Expired, closed
+    # and unexpectedly readable connections are closed on the way.
+    def take_idle(self: &mut Client[T, C], key: &str, cancel: &CancellationToken) -> Option[BufReader[Wire[T]]]:
+        now = now_ns()
+        idle_span = self._config.idle_timeout.as_nanoseconds()
+        mut index = 0
+        while index < len(self._pool):
+            if after(self._pool[index].inner._since, idle_span) <= now:
+                drop(self._pool.pop(index))
+                self._stats.discarded += 1u64
+            else:
+                index += 1
+        mut probe = match std.bytes.with_capacity(1):
+            case Ok(made):
+                made
+            case Err(_):
+                return Nothing
+        if probe.resize(1, 0u8).is_err():
+            return Nothing
+        mut at = len(self._pool) - 1
+        while at >= 0:
+            if self._pool[at].inner._key == key:
+                match self._pool.pop(at):
+                    case Some(conn):
+                        mut owned = conn
+                        # A live idle connection has nothing to read; end of
+                        # input or stray bytes mean it cannot carry a request.
+                        match owned.inner._stream.read_before(&mut probe, 0, 1, &deadline_of(0u64), cancel):
+                            case Err(ClientError.Net(NetError.TimedOut)):
+                                return Some(owned)
+                            case _:
+                                self._stats.discarded += 1u64
+                    case Nothing:
+                        pass
+            at -= 1
+        Nothing
+
+    def open(self: &mut Client[T, C], endpoint: &Endpoint, key: &str, until: u64, cancel: &CancellationToken) -> Result[BufReader[Wire[T]], ClientError]:
+        limit = least(after(now_ns(), self._config.connect_timeout.as_nanoseconds()), until)
+        stream = self._connector.open(endpoint, &deadline_of(limit), cancel)?
+        self._stats.opened += 1u64
+        failure: Option[ClientError] = Nothing
+        wire = Wire(stream, cancel.share(), until, u64.MAX, 0u64, 0u64, 0, failure, alloc(key.concat(""))?, 0u64)
+        match std.io.buffered_reader(wire, 4096):
+            case Ok(reader):
+                Ok(reader)
+            case Err(StreamError.Allocation(cause)):
+                Err(ClientError.Allocation(cause))
+            case Err(_):
+                Err(ClientError.InvalidConfig)
+
+    # One request on one connection, replayed on a new connection when a
+    # reused one failed before any response byte arrived and the method is
+    # idempotent.
+    def attempt(self: &mut Client[T, C], request: &Request, until: u64, cancel: &CancellationToken) -> Result[Response[T], ClientError]:
+        target = target_of(&request.url)?
+        for index in range(len(request.headers)):
+            if alloc(managed(&request.headers[index].name))?:
+                return Err(ClientError.InvalidRequest)
+        if request.method == "CONNECT" or not token(&request.method):
+            return Err(ClientError.InvalidRequest)
+        mut endpoint = Endpoint(alloc(target.scheme.concat(""))?, alloc(target.name.concat(""))?, u16(target.port))
+        mut proxied = False
+        match &self._config.proxy:
+            case Some(chosen):
+                if target.scheme == "http":
+                    proxied = True
+                    endpoint = Endpoint(alloc(chosen.endpoint.scheme.concat(""))?, alloc(chosen.endpoint.host.concat(""))?, chosen.endpoint.port)
+            case Nothing:
+                pass
+        key = alloc(key_of(&endpoint, proxied))?
+        head = self.head_of(request, &target, proxied)?
+        mut retried = 0
+        mut fresh = False
+        while True:
+            mut reused = False
+            mut found: Option[BufReader[Wire[T]]] = Nothing
+            if not fresh:
+                found = self.take_idle(&key, cancel)
+            mut conn = match found:
+                case Some(pooled):
+                    reused = True
+                    self._stats.reused += 1u64
+                    pooled
+                case Nothing:
+                    self.open(&endpoint, &key, until, cancel)?
+            conn.inner._cancel = cancel.share()
+            conn.inner._until = until
+            conn.inner._phase = u64.MAX
+            conn.inner._read_span = self._config.read_timeout.as_nanoseconds()
+            conn.inner._write_span = self._config.write_timeout.as_nanoseconds()
+            conn.inner._received = 0
+            conn.inner._failure = Nothing
+            match self.exchange(&mut conn, request, &head):
+                case Ok(answer):
+                    return self.respond(conn, answer, &request.method)
+                case Err(error):
+                    if reused and conn.inner._received == 0 and retried < self._config.retries and idempotent(&request.method) and replayable(&error):
+                        retried += 1
+                        fresh = True
+                        self._stats.retried += 1u64
+                    else:
+                        return Err(error)
+        Err(ClientError.InvalidRequest)
+
+    def head_of(self, request: &Request, target: &Target, proxied: bool) -> Result[RequestHead, ClientError]:
+        mut form = alloc(origin_form(target))?
+        if proxied:
+            form = alloc(absolute_form(target, &form))?
+        mut head = framed(std.http.request(alloc(request.method.concat(""))?, form))?
+        framed(head.add("Host", alloc(authority(target))?))?
+        for index in range(len(request.headers)):
+            framed(head.add(alloc(request.headers[index].name.concat(""))?, alloc(request.headers[index].value.concat(""))?))?
+        size = request.body.len()
+        if size > 0 or request.method == "POST" or request.method == "PUT" or request.method == "PATCH":
+            framed(head.add("Content-Length", alloc(str.from(size))?))?
+        if proxied:
+            match &self._config.proxy:
+                case Some(chosen):
+                    match &chosen.authorization:
+                        case Some(secret):
+                            framed(head.add("Proxy-Authorization", alloc(secret.concat(""))?))?
+                        case Nothing:
+                            pass
+                case Nothing:
+                    pass
+        if self._config.max_idle == 0:
+            framed(head.add("Connection", "close"))?
+        Ok(head)
+
+    # Writes the request and reads up to the final response head.
+    def exchange(self, conn: &mut BufReader[Wire[T]], request: &Request, head: &RequestHead) -> Result[ResponseHead, ClientError]:
+        sent = std.http.write_request(&mut conn.inner, head)
+        written(conn, sent)?
+        size = request.body.len()
+        if size > 0:
+            match std.io.write_all(&mut conn.inner, &request.body, 0, size):
+                case Ok(_):
+                    pass
+                case Err(partial):
+                    return Err(fault(conn, HttpError.Stream(partial.cause)))
+        conn.inner._phase = after(now_ns(), self._config.head_timeout.as_nanoseconds())
+        mut interim = 0
+        while True:
+            match std.http.read_response(conn, &self._config.limits):
+                case Ok(Some(answer)):
+                    if answer.status == 101:
+                        return Err(ClientError.UnexpectedInterim)
+                    if answer.status >= 200:
+                        return Ok(answer)
+                    interim += 1
+                    if interim > max_interim:
+                        return Err(ClientError.UnexpectedInterim)
+                case Ok(Nothing):
+                    return Err(ClientError.Http(HttpError.Truncated))
+                case Err(error):
+                    return Err(fault(conn, error))
+        Err(ClientError.UnexpectedInterim)
+
+    def respond(self, conn: BufReader[Wire[T]], head: ResponseHead, method: &str) -> Result[Response[T], ClientError]:
+        mut owned = conn
+        framing = framed(std.http.response_framing(&head, method))?
+        keep = std.http.response_keeps_alive(&head, &framing) and self._config.max_idle > 0
+        owned.inner._phase = u64.MAX
+        body = framed(std.http.body_reader(owned, &framing, &self._config.limits))?
+        status = head.status
+        failure: Option[ClientError] = Nothing
+        Ok(Response(status, head, "", 0, Some(body), keep, failure))
+
+# Failures that a reused connection closed by its server produces before any
+# response byte arrives.
+def replayable(error: &ClientError) -> bool:
+    match error:
+        case ClientError.Net(NetError.Reset):
+            True
+        case ClientError.Net(NetError.Stream(_)):
+            True
+        case ClientError.Http(HttpError.Truncated):
+            True
+        case ClientError.Http(HttpError.Stream(_)):
+            True
+        case _:
+            False
+
+# Rewrites `request` to follow a redirect to `next`. 303, and 301 or 302 after
+# POST, become GET without a body; 307 and 308 repeat the method and body.
+# Credentials and `sensitive` fields are dropped when the origin changes.
+def follow(request: &mut Request, status: i64, next: str, sensitive: &list[str]) -> Result[(), ClientError]:
+    old = target_of(&request.url)?
+    new = target_of(&next)?
+    if old.scheme == "https" and new.scheme == "http":
+        return Err(ClientError.InvalidRedirect)
+    bodiless = (status == 303 and request.method != "HEAD") or ((status == 301 or status == 302) and request.method == "POST")
+    cross = not same_origin(&old, &new)
+    mut kept = alloc(list[Header].with_capacity(len(request.headers)))?
+    for index in range(len(request.headers)):
+        name = alloc(request.headers[index].name.lower())?
+        mut drop_it = False
+        if bodiless and name.startswith("content-"):
+            drop_it = True
+        if cross and (name == "authorization" or name == "cookie" or listed(sensitive, &name)?):
+            drop_it = True
+        if not drop_it:
+            alloc(kept.append(Header(alloc(request.headers[index].name.concat(""))?, alloc(request.headers[index].value.concat(""))?)))?
+    request.headers = kept
+    if bodiless:
+        request.method = "GET"
+        request.body = bytes_of(std.bytes.empty())?
+    request.url = next
+    Ok(())
+
+def listed(names: &list[str], name: &str) -> Result[bool, ClientError]:
+    for index in range(len(names)):
+        if alloc(names[index].lower())? == name:
+            return Ok(True)
+    Ok(False)
+
+# A client for plain HTTP over std.net TCP.
+pub def client(config: Config) -> Result[Client[Plain, TcpConnector], ClientError]:
+    connector[Plain, TcpConnector](TcpConnector(), config)
+
+# A client over any connector, such as an in-memory one for tests.
+pub def connector[T, C](opener: C, config: Config) -> Result[Client[T, C], ClientError]:
+    if not checked(&config):
+        return Err(ClientError.InvalidConfig)
+    pool = alloc(list[BufReader[Wire[T]]].new())?
+    Ok(Client(opener, config, pool, Stats(0u64, 0u64, 0u64, 0u64, 0u64)))
