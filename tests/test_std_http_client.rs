@@ -1012,3 +1012,138 @@ def main() -> Result[(), Failure]:
     assert_eq!(lines[0], "allocation");
     assert!(lines[280..].iter().all(|line| *line == "body"), "{lines:?}");
 }
+
+/// `fetch` keeps the final head whole (version, reason and every field), the
+/// final URL and the redirect count, and pools the connection behind a fully
+/// read body. A body over `max_body` fails the fetch and closes its
+/// connection.
+#[test]
+fn fetch_keeps_the_final_head_and_pools_its_connection() {
+    runs(
+        SCRIPTED,
+        r##"
+def head_of(fetched: &hc.Fetched) -> Result[(), Failure]:
+    head = &fetched.head
+    print(fetched.status, head.status, head.minor, head.reason)?
+    for index in range(len(head.headers)):
+        print(head.headers[index].name, head.headers[index].value)?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    moved = "HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\n\r\n"
+    final = "HTTP/1.1 203 Translated Here\r\nX-One: 1\r\nX-Two: two\r\nContent-Length: 4\r\n\r\nbody"
+    mut first = script([moved, final, ok("next")?]?, True)?
+    first.echo = False
+    mut client = hc.connector[Script, Scripts](Scripts([first]?, False), hc.config()?)?
+    fetched = client.get("http://h/start", &later()?, &never)?
+    head_of(&fetched)?
+    print(fetched.url, fetched.redirects, fetched.body.to_text()?)?
+    stats(&client)?
+    again = client.get("http://h/again", &later()?, &never)?
+    print(again.body.to_text()?)?
+    stats(&client)?
+    print("--- a body over max_body closes its connection")?
+    mut big = script([ok("too long")?, ok("x")?]?, True)?
+    big.echo = False
+    mut config = hc.config()?
+    config.limits.max_body = 3
+    mut second = hc.connector[Script, Scripts](Scripts([big]?, False), config)?
+    show(second.get("http://h/big", &later()?, &never))?
+    stats(&second)?
+    Ok(())
+"##,
+        r##"203 203 1 Translated Here
+X-One 1
+X-Two two
+Content-Length 4
+http://h/final 1 body
+opened=1 reused=1 retried=0 redirected=1 discarded=0 idle=1
+next
+opened=1 reused=2 retried=0 redirected=1 discarded=0 idle=1
+--- a body over max_body closes its connection
+
+=> error
+std.http.client.ClientError.Http(std.http.HttpError.BodyTooLarge)
+opened=1 reused=0 retried=0 redirected=0 discarded=0 idle=0"##,
+    );
+}
+
+/// `fetch` allocates exactly what `send`, an empty buffer, `read_all` and
+/// `finish` allocate: under every injected allocation failure both report
+/// the same outcome, so no extra allocation (such as a placeholder head)
+/// can fail a fetch whose body has been read.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn fetch_allocates_no_more_than_send_read_all_and_finish() {
+    let result = output(&format!(
+        "{SCRIPTED}{}",
+        r##"
+from std.bytes import BytesError
+
+def client() -> Result[hc.Client[Script, Scripts], Failure]:
+    mut made = script(["HTTP/1.1 200 OK\r\nX-Field-Beyond-Inline: a-value-beyond-inline\r\nContent-Length: 4\r\n\r\nbody"]?, True)?
+    made.echo = False
+    Ok(hc.connector[Script, Scripts](Scripts([made]?, False), hc.config()?)?)
+
+def by_hand(client: &mut hc.Client[Script, Scripts], request: Request, deadline: &Deadline, never: &CancellationToken) -> Result[(), ClientError]:
+    mut response = client.send(request, deadline, never)?
+    mut body = match std.bytes.empty():
+        case Ok(made):
+            made
+        case Err(BytesError.Allocation(cause)):
+            return Err(ClientError.Allocation(cause))
+        case Err(_):
+            return Err(ClientError.Http(HttpError.Broken))
+    response.read_all(&mut body)?
+    client.finish(response)
+    Ok(())
+
+def tag(result: &Result[(), ClientError], idle: i64) -> str:
+    match result:
+        case Ok(_):
+            if idle == 1:
+                "ok-pooled"
+            else:
+                "ok-closed"
+        case Err(ClientError.Allocation(_)):
+            "allocation"
+        case Err(_):
+            "other"
+
+def main() -> Result[(), Failure]:
+    never = CancellationToken()?
+    for attempt in range(200):
+        mut one = client()?
+        mut two = client()?
+        first = hc.request("GET", "http://host-beyond-inline/page")?
+        second = hc.request("GET", "http://host-beyond-inline/page")?
+        deadline = later()?
+        marker = "__test_fail_allocations_after_".concat(str.from(attempt)?)?.concat("__")?
+        print(marker)?
+        fetched: Result[(), ClientError] = match one.fetch(first, &deadline, &never):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(error)
+        print("__test_restore_allocations__")?
+        print(marker)?
+        manual = by_hand(&mut two, second, &deadline, &never)
+        print("__test_restore_allocations__")?
+        print(tag(&fetched, one.idle()), tag(&manual, two.idle()))?
+    Ok(())
+"##
+    ));
+    let lines: Vec<&str> = result.lines().collect();
+    assert_eq!(lines.len(), 200);
+    for line in &lines {
+        let (fetched, manual) = line.split_once(' ').unwrap();
+        assert_eq!(fetched, manual, "{lines:?}");
+        assert!(
+            ["allocation", "ok-pooled", "ok-closed"].contains(&fetched),
+            "{lines:?}"
+        );
+    }
+    assert_eq!(lines[0], "allocation allocation");
+    assert_eq!(lines[199], "ok-pooled ok-pooled");
+}
