@@ -3,7 +3,8 @@
 `import std.http.cookie` reads the `Cookie` fields of a request and writes
 `Set-Cookie` fields (RFC 6265). Reading is lenient; writing is strict, so no
 value can add an attribute or a header field. The module is checked Plenty
-in `stdlib/std/http/cookie.plenty` and adds no runtime primitives.
+in `stdlib/std/http/cookie.plenty` and adds no runtime primitives; signing
+uses [`std.crypto`](crypto.md).
 
 ## Reading
 
@@ -21,7 +22,7 @@ request fail. A value wrapped in double quotes loses them. More than `limit`
 valid cookies is `TooManyCookies`.
 
 Values are not decoded. A cookie's value is whatever the client sends; check
-it, or sign it, before trusting it.
+it, or [sign](#signing) it, before trusting it.
 
 ## Writing
 
@@ -52,10 +53,38 @@ fields to relax them; `format` checks the result each time:
 Empty `path` and `domain` are left out. `CookieError` also has
 `TooManyCookies`, `Http(HttpError)` from `add`, and `Allocation`.
 
+## Signing
+
+| Item | Meaning |
+|---|---|
+| `sign(&keys, name, value)` | `Result[str, CookieError]`: `value.<tag>` |
+| `verify(&keys, name, signed)` | `Result[Option[str], CookieError]`: the value when the tag matches under any key, else `Nothing` |
+| `signed_cookie(&keys, name, value)` | `Result[SetCookie, CookieError]`: `set_cookie(name, sign(...))` |
+| `find_signed(&cookies, &keys, name)` | `Result[Option[str], CookieError]`: `verify` on the first cookie named `name`; `Nothing` when it is absent or forged |
+| `min_key` | `32`: shortest key, in bytes |
+
+The tag is HMAC-SHA256 over `name=value` under a key, in unpadded base64url
+(43 characters) after a `.`. The name is covered, so a value signed for one
+cookie is refused under another. `keys` is a `list[Bytes]`: `sign` uses the
+first, and `verify` tries every key without stopping at a match, each with
+the constant-time comparison of `Mac.verify`, so the time taken depends only
+on the number of keys. To rotate, put the new key first and keep the old
+one listed until cookies signed with it have expired.
+
+An empty list or a key shorter than `min_key` is `InvalidKey`; `sign` also
+checks the name and value as `set_cookie` does. A malformed or mismatched
+tag is `Nothing`, not an error. Signing allocates the result text and a
+fixed-size HMAC state; verification allocates the decoded tag and the
+returned value, and nothing per key beyond the HMAC state.
+
+Signing stops changes, not reading: the value travels in clear. It does
+not expire or bind the cookie to a client; put an expiry time in the value,
+or keep sessions on the server, when that matters.
+
 ## Limits
 
 - No `Expires` (use `max_age`), `Partitioned`, or `Priority` attributes.
-- No signing or encryption; values are sent as given. A session identifier
-  should be a random token from [`std.secrets`](secrets.md), looked up on
-  the server.
+- No encryption; a signed value is still readable. A session identifier
+  can instead be a random token from [`std.secrets`](secrets.md), looked up
+  on the server.
 - `Set-Cookie` fields sent by another server are not parsed.

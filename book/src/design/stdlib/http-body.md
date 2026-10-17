@@ -22,7 +22,7 @@ uses it.
 | `Json(JsonError)` | The document is invalid (400) or over `max_input` (413) | 400 or 413 |
 | `Storage(StreamError)` | Writing an upload to its temporary file failed | 500 |
 | `InvalidLimit` | A negative limit | 500 |
-| `Allocation(AllocError)` | Memory ran out | 500 |
+| `Allocation(AllocError)` | Memory ran out, including while writing an upload to its file | 500 |
 
 `status(&error) -> i64` gives the status, and
 `reject(exchange, &error) -> Result[(), HttpError]` answers with it and its

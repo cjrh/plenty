@@ -255,11 +255,11 @@ timed out`, `handshake failed` and `accept failed`, most with a
 - HTTPS has the [`std.tls` limits](tls.md#limits). The server speaks only
   HTTP/1.x, so its `ServerConfig` should offer no ALPN protocol but
   `http/1.1`.
-- No `Date` header, compression, static file serving (see
-  [the decision](http-proxy.md#static-files)), request trailers in the
-  exchange, or HTTP/2. Forms, JSON, uploads, cookies and forwarded clients
-  are in [`std.http.body`](http-body.md), [`std.http.cookie`](http-cookie.md)
-  and [`std.http.proxy`](http-proxy.md).
+- No `Date` header, compression, request trailers in the exchange, or
+  HTTP/2. Forms, JSON, uploads, cookies and forwarded clients are in
+  [`std.http.body`](http-body.md), [`std.http.cookie`](http-cookie.md)
+  and [`std.http.proxy`](http-proxy.md); static files in
+  [`std.http.files`](http-files.md).
 - A `503` rejection reads only bytes that have already arrived. If more of
   the request arrives after the close, the client may see a reset instead.
 - Captures in `params` are decoded; `path` and `query` are not.

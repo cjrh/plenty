@@ -27,4 +27,5 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Verify clients and choose a protocol](mutual-tls.md)
 - [Serve HTTP requests](http-server.md)
 - [Read forms, cookies and forwarded clients](http-forms.md)
+- [Serve files and sign cookies](http-files.md)
 - [Send HTTP requests](http-client.md)

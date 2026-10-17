@@ -32,6 +32,7 @@ pub enum FsOp {
     SameDir,
     DuplicateRoot,
     MakeTemporaryDir,
+    FileMetadata,
 }
 
 impl FsOp {
@@ -65,6 +66,7 @@ impl FsOp {
             "__fs_same_dir" => Self::SameDir,
             "__fs_duplicate_root" => Self::DuplicateRoot,
             "__fs_make_temporary_dir" => Self::MakeTemporaryDir,
+            "__fs_file_metadata" => Self::FileMetadata,
             _ => return None,
         })
     }
@@ -98,6 +100,7 @@ impl FsOp {
             Self::Anonymous | Self::DuplicateRoot => (vec![Ty::File], Ty::File),
             Self::Publish => (vec![Ty::File, Ty::File, bytes()], Ty::Unit),
             Self::SameDir => (vec![Ty::File, Ty::File, bytes()], Ty::Bool),
+            Self::FileMetadata => (vec![Ty::File], Ty::FsMetadata),
         };
         (inputs, sum::result(output, sum::io_error()))
     }

@@ -1,0 +1,471 @@
+# Static files for std.http.server handlers, confined to one directory. The
+# request path is opened one segment at a time through std.fs Root handles,
+# whose opens refuse symbolic links, so no path or link inside the directory
+# leads out of it. Responses carry a Content-Type from a fixed table, a weak
+# ETag and Last-Modified, answer If-None-Match and If-Modified-Since, and
+# stream the file through one fixed buffer.
+# See book/src/design/stdlib/http-files.md.
+import std.bytes
+import std.fs
+import std.http
+import std.http.server
+import std.io
+import std.path
+from std.bytes import Bytes, BytesError
+from std.fs import Root
+from std.http import Header, HttpError, ResponseHead
+from std.http.server import Exchange, Transport
+from std.io import FileStream, StreamError
+from std.time import Timestamp
+
+pub enum FilesError:
+    Io(IoError)
+    Stream(StreamError)
+    Http(HttpError)
+    # The file ended before the size it had when it was opened.
+    Truncated
+    Allocation(AllocError)
+
+def allocated[T](result: Result[T, AllocError]) -> Result[T, FilesError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(FilesError.Allocation(cause))
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, FilesError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(cause)):
+            Err(FilesError.Allocation(cause))
+        case Err(_):
+            Err(FilesError.Stream(StreamError.OutOfRange))
+
+def http[T](result: Result[T, HttpError]) -> Result[T, FilesError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(HttpError.Allocation(cause)):
+            Err(FilesError.Allocation(cause))
+        case Err(cause):
+            Err(FilesError.Http(cause))
+
+# Buffer for one read and write of the body.
+const chunk: i64 = 16384
+# Longest request path accepted, in bytes.
+pub const max_path: i64 = 4096
+
+# Errors that mean "no such servable file": missing, not a directory, a link
+# (ELOOP from O_NOFOLLOW), a directory where a file was asked for, a name too
+# long, no permission, or not a regular file (InvalidInput).
+def absent(error: &IoError) -> bool:
+    match error:
+        case IoError.System(code):
+            value = *code
+            value == 2i32 or value == 13i32 or value == 20i32 or value == 21i32 or value == 36i32 or value == 40i32 or value == 6i32
+        case IoError.InvalidInput:
+            True
+        case _:
+            False
+
+def opened[T](result: Result[T, IoError]) -> Result[Option[T], FilesError]:
+    match result:
+        case Ok(value):
+            Ok(Some(value))
+        case Err(error):
+            if absent(&error):
+                return Ok(Nothing)
+            Err(FilesError.Io(error))
+
+def segment(data: &Bytes, start: i64, stop: i64) -> Result[Option[std.path.Path], FilesError]:
+    # Empty segments come from a leading `/` or `//`; a leading `.` covers
+    # `.`, `..` and hidden files such as `.env` or `.git`.
+    if stop == start or data[start] == 46u8:
+        return Ok(Nothing)
+    for index in range(start, stop):
+        if data[index] == 0u8:
+            return Ok(Nothing)
+    text = lifted(lifted(data.slice(start, stop))?.to_text())?
+    match std.path.from_text(&text):
+        case Ok(name):
+            Ok(Some(name))
+        case Err(_):
+            Ok(Nothing)
+
+# Opens the regular file at `path` below `root`. `path` is relative and
+# already percent-decoded, such as a `{name...}` capture. `Nothing` when the
+# path is refused (empty, absolute, a segment that is empty or starts with
+# `.`, a NUL byte, longer than max_path) or names no regular file reachable
+# without following a link.
+pub def open_file(root: &Root, path: &str) -> Result[Option[FileStream], FilesError]:
+    if path.byte_len() == 0 or path.byte_len() > max_path:
+        return Ok(Nothing)
+    data = lifted(std.bytes.from_text(path))?
+    count = data.len()
+    mut directory: Option[Root] = Nothing
+    mut at = 0
+    while True:
+        mut stop = count
+        match lifted(data.find(47u8, at, count))?:
+            case Some(found):
+                stop = found
+            case Nothing:
+                pass
+        name = match segment(&data, at, stop)?:
+            case Some(value):
+                value
+            case Nothing:
+                return Ok(Nothing)
+        if stop == count:
+            return match &directory:
+                case Some(parent):
+                    opened(parent.read_file(&name))
+                case Nothing:
+                    opened(root.read_file(&name))
+        child = match &directory:
+            case Some(parent):
+                opened(parent.open_dir(&name))?
+            case Nothing:
+                opened(root.open_dir(&name))?
+        match child:
+            case Some(next):
+                directory = Some(next)
+            case Nothing:
+                return Ok(Nothing)
+        at = stop + 1
+    Ok(Nothing)
+
+# The media type for `name`'s extension, compared without case;
+# application/octet-stream for any other.
+pub def media_type(name: &str) -> str:
+    lower = match name.lower():
+        case Ok(text):
+            text
+        case Err(_):
+            return "application/octet-stream"
+    if lower.endswith(".html") or lower.endswith(".htm"):
+        return "text/html; charset=utf-8"
+    if lower.endswith(".css"):
+        return "text/css; charset=utf-8"
+    if lower.endswith(".js") or lower.endswith(".mjs"):
+        return "text/javascript; charset=utf-8"
+    if lower.endswith(".json"):
+        return "application/json"
+    if lower.endswith(".txt"):
+        return "text/plain; charset=utf-8"
+    if lower.endswith(".csv"):
+        return "text/csv; charset=utf-8"
+    if lower.endswith(".xml"):
+        return "application/xml"
+    if lower.endswith(".svg"):
+        return "image/svg+xml"
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        return "image/jpeg"
+    if lower.endswith(".gif"):
+        return "image/gif"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    if lower.endswith(".ico"):
+        return "image/vnd.microsoft.icon"
+    if lower.endswith(".wasm"):
+        return "application/wasm"
+    if lower.endswith(".pdf"):
+        return "application/pdf"
+    if lower.endswith(".woff2"):
+        return "font/woff2"
+    if lower.endswith(".woff"):
+        return "font/woff"
+    "application/octet-stream"
+
+# Dates
+
+def day_names() -> str:
+    return "ThuFriSatSunMonTueWed"
+
+def month_names() -> str:
+    return "JanFebMarAprMayJunJulAugSepOctNovDec"
+# 9999-12-31T23:59:59Z: the last second an IMF-fixdate can show.
+const last_second: i64 = 253402300799
+
+def two(out: &str, value: i64) -> Result[str, FilesError]:
+    mut text = allocated(str.from(value))?
+    if value < 10:
+        text = allocated("0".concat(&text))?
+    allocated(out.concat(&text))
+
+def days_from_civil(year: i64, month: i64, day: i64) -> i64:
+    mut y = year
+    if month <= 2:
+        y -= 1
+    era = y // 400
+    yoe = y - era * 400
+    shifted = (month + 9) % 12
+    doy = (153 * shifted + 2) // 5 + day - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    era * 146097 + doe - 719468
+
+# `seconds` since the epoch as an IMF-fixdate (RFC 9110 section 5.6.7), such
+# as `Sun, 06 Nov 1994 08:49:37 GMT`. Only 1970 to 9999 are shown.
+pub def http_date(seconds: i64) -> Result[Option[str], FilesError]:
+    if seconds < 0 or seconds > last_second:
+        return Ok(Nothing)
+    days = seconds // 86400
+    clock = seconds % 86400
+    # Howard Hinnant's civil_from_days, for days on or after 1970-01-01.
+    z = days + 719468
+    era = z // 146097
+    doe = z - era * 146097
+    yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    mp = (5 * doy + 2) // 153
+    day = doy - (153 * mp + 2) // 5 + 1
+    mut month = mp + 3
+    if mp >= 10:
+        month = mp - 9
+    mut year = yoe + era * 400
+    if month <= 2:
+        year += 1
+    weekday = days % 7
+    names = lifted(std.bytes.from_text(day_names()))?
+    mut out = lifted(lifted(names.slice(weekday * 3, weekday * 3 + 3))?.to_text())?
+    out = allocated(out.concat(", "))?
+    out = two(&out, day)?
+    months = lifted(std.bytes.from_text(month_names()))?
+    out = allocated(out.concat(" "))?
+    out = allocated(out.concat(&lifted(lifted(months.slice(month * 3 - 3, month * 3))?.to_text())?))?
+    out = allocated(out.concat(" "))?
+    out = allocated(out.concat(&allocated(str.from(year))?))?
+    out = allocated(out.concat(" "))?
+    out = two(&out, clock // 3600)?
+    out = allocated(out.concat(":"))?
+    out = two(&out, clock % 3600 // 60)?
+    out = allocated(out.concat(":"))?
+    out = two(&out, clock % 60)?
+    out = allocated(out.concat(" GMT"))?
+    Ok(Some(out))
+
+# The decimal number in data[start:start + count], or -1.
+def digits(data: &Bytes, start: i64, count: i64) -> i64:
+    mut value = 0
+    for index in range(start, start + count):
+        byte = i64(data[index])
+        if byte < 48 or byte > 57:
+            return -1
+        value = value * 10 + byte - 48
+    value
+
+def same_bytes(data: &Bytes, start: i64, text: &Bytes, offset: i64, count: i64) -> bool:
+    for index in range(count):
+        if data[start + index] != text[offset + index]:
+            return False
+    True
+
+# Seconds since the epoch of an IMF-fixdate. The obsolete RFC 850 and
+# asctime forms are not accepted; a date that does not parse is ignored.
+pub def parse_http_date(text: &str) -> Result[Option[i64], FilesError]:
+    data = lifted(std.bytes.from_text(text))?
+    if data.len() != 29:
+        return Ok(Nothing)
+    tail = lifted(std.bytes.from_text(" GMT"))?
+    if not same_bytes(&data, 25, &tail, 0, 4) or data[3] != 44u8 or data[4] != 32u8 or data[7] != 32u8 or data[11] != 32u8 or data[16] != 32u8 or data[19] != 58u8 or data[22] != 58u8:
+        return Ok(Nothing)
+    months = lifted(std.bytes.from_text(month_names()))?
+    mut month = 0
+    for index in range(12):
+        if same_bytes(&data, 8, &months, index * 3, 3):
+            month = index + 1
+    if month == 0:
+        return Ok(Nothing)
+    day = digits(&data, 5, 2)
+    year = digits(&data, 12, 4)
+    hour = digits(&data, 17, 2)
+    minute = digits(&data, 20, 2)
+    second = digits(&data, 23, 2)
+    if day < 1 or day > 31 or year < 1970 or hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59:
+        return Ok(Nothing)
+    seconds = days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
+    # Formatting the result back rejects 31 February and a wrong weekday.
+    match http_date(seconds)?:
+        case Some(again):
+            if again == text:
+                return Ok(Some(seconds))
+            Ok(Nothing)
+        case Nothing:
+            Ok(Nothing)
+
+# Conditional requests
+
+def trimmed(data: &Bytes, start: i64, stop: i64) -> (i64, i64):
+    mut first = start
+    mut last = stop
+    while first < last and (data[first] == 32u8 or data[first] == 9u8):
+        first += 1
+    while last > first and (data[last - 1] == 32u8 or data[last - 1] == 9u8):
+        last -= 1
+    (first, last)
+
+# Weak comparison (RFC 9110 section 8.8.3.2): `W/` is ignored on both sides.
+def tag_listed(field: &str, tag: &Bytes) -> Result[bool, FilesError]:
+    data = lifted(std.bytes.from_text(field))?
+    count = data.len()
+    # `tag` is `W/"..."`; compare its quoted part.
+    quoted = tag.len() - 2
+    mut at = 0
+    while at <= count:
+        mut stop = count
+        match lifted(data.find(44u8, at, count))?:
+            case Some(found):
+                stop = found
+            case Nothing:
+                pass
+        (first, last) = trimmed(&data, at, stop)
+        if last - first == 1 and data[first] == 42u8:
+            return Ok(True)
+        mut begin = first
+        if last - first >= 2 and data[first] == 87u8 and data[first + 1] == 47u8:
+            begin = first + 2
+        if last - begin == quoted and same_bytes(&data, begin, tag, 2, quoted):
+            return Ok(True)
+        at = stop + 1
+    Ok(False)
+
+# RFC 9110 section 13.2.2: If-None-Match decides when present; otherwise
+# If-Modified-Since, for a file not changed after the given second.
+def unchanged(headers: &list[Header], tag: &Option[Bytes], modified: Option[i64]) -> Result[bool, FilesError]:
+    mut asked = False
+    for index in range(len(headers)):
+        if same_name(&headers[index].name, "if-none-match"):
+            asked = True
+            match tag:
+                case Some(value):
+                    if tag_listed(&headers[index].value, value)?:
+                        return Ok(True)
+                case Nothing:
+                    pass
+    if asked:
+        return Ok(False)
+    match std.http.find(headers, "if-modified-since"):
+        case Some(index):
+            match modified:
+                case Some(seconds):
+                    match parse_http_date(&headers[index].value)?:
+                        case Some(since):
+                            return Ok(seconds <= since)
+                        case Nothing:
+                            pass
+                case Nothing:
+                    pass
+        case Nothing:
+            pass
+    Ok(False)
+
+def same_name(name: &str, lower: &str) -> bool:
+    match name.lower():
+        case Ok(folded):
+            folded == lower
+        case Err(_):
+            False
+
+# Serving
+
+# The validators of an open file: a weak ETag from its size and modification
+# time, and that time in whole seconds.
+class Validators:
+    tag: Option[Bytes]
+    modified: Option[i64]
+
+def validators(size: i64, time: Option[Timestamp]) -> Result[Validators, FilesError]:
+    match time:
+        case Some(stamp):
+            mut text = allocated("W/\"".concat(&allocated(str.from(size))?))?
+            text = allocated(text.concat("-"))?
+            text = allocated(text.concat(&allocated(str.from(stamp.seconds))?))?
+            text = allocated(text.concat("."))?
+            text = allocated(text.concat(&allocated(str.from(stamp.nanoseconds))?))?
+            text = allocated(text.concat("\""))?
+            Ok(Validators(Some(lifted(std.bytes.from_text(&text))?), Some(stamp.seconds)))
+        case Nothing:
+            Ok(Validators(Nothing, Nothing))
+
+def add_validators(head: &mut ResponseHead, found: &Validators) -> Result[(), FilesError]:
+    match &found.tag:
+        case Some(tag):
+            http(head.add("ETag", lifted(tag.to_text())?))?
+        case Nothing:
+            pass
+    match found.modified:
+        case Some(seconds):
+            match http_date(seconds)?:
+                case Some(date):
+                    http(head.add("Last-Modified", date))?
+                case Nothing:
+                    pass
+        case Nothing:
+            pass
+    Ok(())
+
+# Answers a GET or HEAD request with the file at `path` below `root` (see
+# `open_file`) and returns the status sent: 200, 304 when a conditional field
+# matches, 404 for a refused or missing path, 405 with `Allow: GET, HEAD` for
+# any other method. Memory is one 16 KiB buffer and the response head,
+# whatever the file's size.
+pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str) -> Result[i64, FilesError]:
+    method = allocated(exchange.request.method.concat(""))?
+    if method != "GET" and method != "HEAD":
+        mut head = http(std.http.response(405, "Method Not Allowed"))?
+        http(head.add("Allow", "GET, HEAD"))?
+        http(head.add("Content-Type", "text/plain; charset=utf-8"))?
+        http(exchange.respond(head, &lifted(std.bytes.from_text("Method Not Allowed\n"))?))?
+        return Ok(405)
+    mut stream = match open_file(root, path)?:
+        case Some(found):
+            found
+        case Nothing:
+            http(exchange.send_text(404, "Not Found\n"))?
+            return Ok(404)
+    meta = match std.fs.file_metadata(&stream):
+        case Ok(value):
+            value
+        case Err(error):
+            return Err(FilesError.Io(error))
+    size = i64.wrapping_from(meta.size())
+    found = validators(size, meta.modified())?
+    if unchanged(&exchange.request.headers, &found.tag, found.modified)?:
+        mut head = http(std.http.response(304, "Not Modified"))?
+        add_validators(&mut head, &found)?
+        http(exchange.respond(head, &lifted(std.bytes.empty())?))?
+        return Ok(304)
+    mut buffer = lifted(std.bytes.with_capacity(chunk))?
+    lifted(buffer.resize(chunk, 0u8))?
+    mut head = http(std.http.response(200, "OK"))?
+    http(head.add("Content-Type", media_type(path)))?
+    http(head.add("Content-Length", allocated(str.from(size))?))?
+    http(head.add("X-Content-Type-Options", "nosniff"))?
+    add_validators(&mut head, &found)?
+    http(exchange.start(head))?
+    head_only = method == "HEAD"
+    mut remaining = size
+    while remaining > 0:
+        mut want = chunk
+        if remaining < want:
+            want = remaining
+        # A HEAD response sends no body, so the file is not read; the writes
+        # only account for the declared length.
+        mut count = want
+        if not head_only:
+            count = match stream.read(&mut buffer, 0, want):
+                case Ok(value):
+                    value
+                case Err(StreamError.Interrupted):
+                    continue
+                case Err(error):
+                    return Err(FilesError.Stream(error))
+            if count == 0:
+                return Err(FilesError.Truncated)
+        http(exchange.write(&buffer, 0, count))?
+        remaining -= count
+    http(exchange.end())?
+    Ok(200)

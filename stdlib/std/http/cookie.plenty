@@ -1,11 +1,16 @@
 # HTTP cookies (RFC 6265): reading the Cookie fields of a request and
 # writing Set-Cookie fields whose every part is validated, so no value can
 # inject another attribute or field. New cookies default to Secure, HttpOnly,
-# SameSite=Lax and Path=/.
+# SameSite=Lax and Path=/. Signed values carry an HMAC-SHA-256 tag that is
+# checked in constant time under any of several keys.
 # See book/src/design/stdlib/http-cookie.md.
 import std.bytes
+import std.crypto
+import std.encoding
 import std.http
 from std.bytes import Bytes, BytesError
+from std.crypto import Algorithm, CryptoError
+from std.encoding import EncodingError
 from std.http import Header, HttpError, ResponseHead
 
 pub enum CookieError:
@@ -13,6 +18,7 @@ pub enum CookieError:
     InvalidValue
     InvalidAttribute
     TooManyCookies
+    InvalidKey
     Http(HttpError)
     Allocation(AllocError)
 
@@ -244,3 +250,107 @@ pub def removal(name: &str) -> Result[SetCookie, CookieError]:
 pub def add(head: &mut ResponseHead, cookie: &SetCookie) -> Result[(), CookieError]:
     value = cookie.format()?
     http(head.add("Set-Cookie", value))
+
+
+# Signing
+
+# Keys shorter than this are refused: an HMAC-SHA-256 key needs at least the
+# output's 32 bytes of entropy.
+pub const min_key: i64 = 32
+
+def crypto[T](result: Result[T, CryptoError]) -> Result[T, CookieError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(CryptoError.Allocation(cause)):
+            Err(CookieError.Allocation(cause))
+        case Err(_):
+            Err(CookieError.InvalidKey)
+
+def checked_keys(keys: &list[Bytes]) -> Result[(), CookieError]:
+    if len(keys) == 0:
+        return Err(CookieError.InvalidKey)
+    for index in range(len(keys)):
+        if keys[index].len() < min_key:
+            return Err(CookieError.InvalidKey)
+    Ok(())
+
+# The MAC covers `name=value`, so a value signed for one cookie does not
+# verify as another. A token name cannot contain `=`, so the input is
+# unambiguous.
+def tag_state(key: &Bytes, name: &str, value: &Bytes, stop: i64) -> Result[std.crypto.Mac, CookieError]:
+    mut mac = crypto(std.crypto.hmac(Algorithm.Sha256, key))?
+    crypto(mac.update_text(name))?
+    crypto(mac.update_text("="))?
+    crypto(mac.update(value, 0, stop))?
+    Ok(mac)
+
+# `value` followed by `.` and the base64url HMAC-SHA-256 tag of `name=value`
+# under the first key. The others are only for verifying, so a new key goes
+# first and an old one stays after it until its cookies have expired.
+pub def sign(keys: &list[Bytes], name: &str, value: &str) -> Result[str, CookieError]:
+    checked_keys(keys)?
+    if not valid_name(name):
+        return Err(CookieError.InvalidName)
+    if not valid_value(value):
+        return Err(CookieError.InvalidValue)
+    data = lifted(std.bytes.from_text(value))?
+    mut mac = tag_state(&keys[0], name, &data, data.len())?
+    tag = crypto(mac.finish())?
+    encoded = match std.encoding.base64url_text(&tag, 0, tag.len()):
+        case Ok(text):
+            text
+        case Err(EncodingError.Allocation(cause)):
+            return Err(CookieError.Allocation(cause))
+        case Err(_):
+            return Err(CookieError.InvalidValue)
+    allocated(allocated(value.concat("."))?.concat(&encoded))
+
+# The value inside `signed` when its tag verifies for `name` under one of the
+# keys, otherwise `Nothing`. Every key is tried, so the time taken does not
+# show which one matched; each comparison is constant-time.
+pub def verify(keys: &list[Bytes], name: &str, signed: &str) -> Result[Option[str], CookieError]:
+    checked_keys(keys)?
+    if not valid_name(name) or not valid_value(signed):
+        return Ok(Nothing)
+    data = lifted(std.bytes.from_text(signed))?
+    count = data.len()
+    mut dot = count - 1
+    while dot >= 0 and code(&data, dot) != 46:
+        dot -= 1
+    # An HMAC-SHA-256 tag is 43 unpadded base64url characters.
+    if dot < 0 or count - dot - 1 != 43:
+        return Ok(Nothing)
+    tag = match std.encoding.base64url_decode(&data, dot + 1, count):
+        case Ok(bytes):
+            bytes
+        case Err(EncodingError.Allocation(cause)):
+            return Err(CookieError.Allocation(cause))
+        case Err(_):
+            return Ok(Nothing)
+    mut matched = False
+    for index in range(len(keys)):
+        mut mac = tag_state(&keys[index], name, &data, dot)?
+        if crypto(mac.verify(&tag, 0, tag.len()))?:
+            matched = True
+    if not matched:
+        return Ok(Nothing)
+    Ok(Some(lifted(lifted(data.slice(0, dot))?.to_text())?))
+
+# The value of the first cookie named `name` whose signature verifies.
+pub def find_signed(cookies: &list[Cookie], keys: &list[Bytes], name: &str) -> Result[Option[str], CookieError]:
+    checked_keys(keys)?
+    for index in range(len(cookies)):
+        if cookies[index].name == name:
+            match verify(keys, name, &cookies[index].value)?:
+                case Some(value):
+                    return Ok(Some(value))
+                case Nothing:
+                    pass
+    Ok(Nothing)
+
+# `set_cookie(name, sign(keys, name, value))`: a signed cookie with the safe
+# defaults.
+pub def signed_cookie(keys: &list[Bytes], name: &str, value: &str) -> Result[SetCookie, CookieError]:
+    signed = sign(keys, name, value)?
+    set_cookie(name, &signed)

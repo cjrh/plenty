@@ -437,6 +437,11 @@ pub def metadata(path: &Path) -> Result[Metadata, IoError]:
 pub def symlink_metadata(path: &Path) -> Result[Metadata, IoError]:
     Ok(Metadata(__fs_metadata(path.as_bytes(), False)?))
 
+# The open file itself, not whatever its path names now: a file opened
+# through a Root keeps its confinement for this observation too.
+pub def file_metadata(stream: &FileStream) -> Result[Metadata, IoError]:
+    Ok(Metadata(__fs_file_metadata(stream.file)?))
+
 pub def read_link(path: &Path) -> Result[Path, IoError]:
     Ok(from_bytes(__fs_readlink(path.as_bytes())?))
 
