@@ -174,22 +174,26 @@ The mutable binding accepts stateful reusable callbacks as well as named
 functions and consuming closures. A callback is owned even when unused, so
 success drops its captures. Error values need no reporting protocol.
 
-The representative stdlib changes cover three result adapters:
+The initial representative stdlib changes covered three result adapters:
 `std/http/body.plenty` removes `json` and maps directly in `read_json` and
 `send_json`; `std/http/client.plenty` uses mapping in `framed`; and
 `std/json.plenty` uses it in `faulted`. Three explicit success-forwarding
 branches disappear. Two convenience adapters remain and one non-generic
 `bytes_fault` classifier exposes the JSON policy. The number of named
 functions is therefore unchanged, while one adapter disappears completely.
-The other conversion helpers remain available for comparison.
+Other conversion helpers initially remained available for comparison.
 
 A wider initial conversion of eleven adapters exceeded the compiler's global
 256 generic-function specialization cap in the offline HTTP JSON service test.
 Keeping a generic convenience adapter around `map_error` adds another instance
-for each success/callback type. The final adoption is deliberately focused and
-keeps the existing guard unchanged; broader library use needs a separate look
-at specialization budgets and unnecessary wrapper layers. This is a concrete
-scaling constraint, not evidence of recursive error types or hidden allocation.
+for each success/callback type. The follow-up for issue #141 separates a
+256-level dependency-depth guard from a 16,384-instance total resource budget;
+independent specializations no longer consume the depth guard. It restores the
+wider eleven-adapter adoption: body allocation, byte classification, HTTP and
+storage conversions; client allocation; and JSON allocation and location-free
+errors now also use mapping. Their conversion policies are unchanged. This
+addresses the observed scaling constraint without removing finite compiler
+limits or introducing allocation. See [specialization limits](../design/toolchain/02-architecture/emission.md).
 
 Worker integration exposed a real ergonomic restriction: thin function values
 lose their target identity inside the generic helper, so thread effect checking

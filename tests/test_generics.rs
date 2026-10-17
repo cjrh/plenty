@@ -1,5 +1,96 @@
 mod support;
 
+fn independent_templates(count: usize) -> String {
+    use std::fmt::Write;
+    let mut source = String::new();
+    for i in 0..count {
+        writeln!(source, "def generic_case_{i}[T](value: T) -> T:\n    value").unwrap();
+    }
+    source.push_str("def main() -> ():\n");
+    for i in 0..count {
+        writeln!(source, "    drop(generic_case_{i}(0))").unwrap();
+    }
+    source
+}
+
+#[test]
+fn unrelated_templates_do_not_share_the_expansion_limit() {
+    plenty::check_source(&independent_templates(512)).unwrap();
+}
+
+#[test]
+fn total_specialization_budget_has_a_resource_diagnostic() {
+    let error = rejection(&independent_templates(16_385));
+    assert!(
+        error.contains("total generic function specialization budget of 16384 exceeded"),
+        "{error}"
+    );
+    assert!(!error.contains("expanding recursion"), "{error}");
+}
+
+#[test]
+fn one_template_can_have_more_than_256_independent_instances() {
+    use std::fmt::Write;
+    let mut source = String::from("def identity[T](value: T) -> T:\n    value\n");
+    for i in 0..257 {
+        writeln!(source, "class Tag{i}:\n    value: i64").unwrap();
+    }
+    source.push_str("def main() -> ():\n");
+    for i in 0..256 {
+        writeln!(source, "    drop(identity(Tag{i}(0)))").unwrap();
+    }
+    // Explicit and inferred uses still share an existing instance.
+    source.push_str("    drop(identity[Tag0](Tag0(0)))\n    drop(identity(Tag0(1)))\n");
+    plenty::check_source(&source).unwrap();
+    source.push_str("    drop(identity(Tag256(0)))\n");
+    plenty::check_source(&source).unwrap();
+}
+
+#[test]
+fn dependency_depth_is_bounded_separately_from_breadth() {
+    use std::fmt::Write;
+    let mut source = String::new();
+    for i in 0..256 {
+        writeln!(
+            source,
+            "def step_{i}[T](value: T) -> T:\n    step_{}(value)",
+            i + 1
+        )
+        .unwrap();
+    }
+    source.push_str(
+        "def step_256[T](value: T) -> T:\n    value\ndef main() -> ():\n    drop(step_1(0))\n",
+    );
+    plenty::check_source(&source).unwrap();
+    // A cycle back to a cached instance does not add a dependency level.
+    plenty::check_source(&source.replace(
+        "def step_256[T](value: T) -> T:\n    value",
+        "def step_256[T](value: T) -> T:\n    step_1(value)",
+    ))
+    .unwrap();
+    let source = source.replace("drop(step_1(0))", "drop(step_0(0))");
+    let error = rejection(&source);
+    assert!(
+        error.contains("dependency depth limit of 256 exceeded"),
+        "{error}"
+    );
+}
+
+#[test]
+fn expanding_closure_identities_keep_the_depth_guard_through_lifted_code() {
+    for body in [
+        "    grow(def once (n: i64) -> i64: n)\n",
+        "    next = def () -> ():\n        grow(def once (n: i64) -> i64: n)\n    next()\n",
+    ] {
+        let source = format!("def grow[T](value: T) -> ():\n    drop(value)\n{body}\ndef main() -> ():\n    grow(0)\n");
+        let error = rejection(&source);
+        assert!(
+            error.contains("dependency depth limit of 256 exceeded"),
+            "{error}"
+        );
+    }
+}
+
 #[test]
 fn explicit_functions_specialize_numeric_owned_and_borrowed_values() {
     let out = support::run(

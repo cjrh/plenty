@@ -5,9 +5,21 @@ operations are resolved before Cranelift receives IR; runtime metadata describes
 known storage and operations, not dynamic inference.
 
 Placeholder identities and queued concrete signatures break recursive checking
-dependencies. A compilation allows 256 generic function/method instances in total
-and a separate 256 generic data instances. Repeated calls and alias-equivalent
-arguments reuse cached specializations.
+dependencies. A compilation allows 16,384 generic function/method instances in
+total, with at most 256 newly required instances along a dependency chain.
+Independent calls start at depth one, even when they specialize the same
+template with different types. A new instance inherits its first requiring
+caller's depth plus one; lifted closures and generated call wrappers preserve
+that depth. Repeated calls, ordinary recursion, and alias-equivalent arguments
+reuse cached specializations without spending either budget. The depth check
+guards expansion, rather than counting the unrelated generics in a library.
+It is a conservative implementation bound, not a proof of infinite recursion;
+an unusually long finite dependency chain can also reach it. The separate total
+budget bounds broad expansion and reports a resource-budget diagnostic.
+
+The independent limits of 256 generic data instances and 256 concrete generator
+consumer specializations per compilation are unchanged. Type nesting is still
+bounded separately.
 
 Native emission builds and compiles each function on any available core. The
 main thread places finished functions in the object in declaration order,

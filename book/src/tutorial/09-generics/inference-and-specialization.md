@@ -36,3 +36,11 @@ def main() -> Result[(), Failure]:
 ```error
 cannot infer type parameter `T` for `empty` from its arguments
 ```
+
+Calls with the same concrete types share one compiled specialization, including
+recursive calls. Independent uses can specialize many different helpers, or
+the same helper for many types. The compiler separately limits how deeply one
+new specialization requires another and how many are created in total. These
+are compile-time resource limits; generic calls add no runtime allocation.
+See [specialization limits](../../design/toolchain/02-architecture/emission.md)
+for the current bounds.
