@@ -174,15 +174,22 @@ The mutable binding accepts stateful reusable callbacks as well as named
 functions and consuming closures. A callback is owned even when unused, so
 success drops its captures. Error values need no reporting protocol.
 
-The representative stdlib changes cover 11 result adapters: six in
-`std/http/body.plenty` (`allocated`, `http_allocated`, `lifted`, `http`, `json`,
-`stored`), two in `std/http/client.plenty` (`alloc`, `framed`), and three in
-`std/json.plenty` (`faulted`, `reserved`, `unplaced`). All 11 explicit success
-forwarding branches disappear. The 11 convenience functions remain, preserving
-short existing call sites; three non-generic classifiers expose multi-case
-policies (`bytes_failure`, `http_failure`, `bytes_fault`). Thus mapping removes
-branch boilerplate, not every adapter function, and can increase the number of
-named functions. The remaining client classifiers are unchanged for comparison.
+The representative stdlib changes cover three result adapters:
+`std/http/body.plenty` removes `json` and maps directly in `read_json` and
+`send_json`; `std/http/client.plenty` uses mapping in `framed`; and
+`std/json.plenty` uses it in `faulted`. Three explicit success-forwarding
+branches disappear. Two convenience adapters remain and one non-generic
+`bytes_fault` classifier exposes the JSON policy. The number of named
+functions is therefore unchanged, while one adapter disappears completely.
+The other conversion helpers remain available for comparison.
+
+A wider initial conversion of eleven adapters exceeded the compiler's global
+256 generic-function specialization cap in the offline HTTP JSON service test.
+Keeping a generic convenience adapter around `map_error` adds another instance
+for each success/callback type. The final adoption is deliberately focused and
+keeps the existing guard unchanged; broader library use needs a separate look
+at specialization budgets and unnecessary wrapper layers. This is a concrete
+scaling constraint, not evidence of recursive error types or hidden allocation.
 
 Worker integration exposed a real ergonomic restriction: thin function values
 lose their target identity inside the generic helper, so thread effect checking

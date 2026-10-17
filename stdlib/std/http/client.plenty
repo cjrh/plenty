@@ -330,7 +330,11 @@ pub class Fetched:
     pub body: Bytes
 
 def alloc[T](result: Result[T, AllocError]) -> Result[T, ClientError]:
-    std.error.map_error(result, def once (cause: AllocError) -> ClientError: ClientError.Allocation(cause))
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(ClientError.Allocation(cause))
 
 def bytes_of[T](result: Result[T, BytesError]) -> Result[T, ClientError]:
     match result:

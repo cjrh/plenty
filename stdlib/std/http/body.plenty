@@ -78,38 +78,49 @@ pub def reject[T: Transport](exchange: &mut Exchange[T], error: &BodyError) -> R
     exchange.send_text(code, &text)
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, BodyError]:
-    std.error.map_error(result, def once (cause: AllocError) -> BodyError: BodyError.Allocation(cause))
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BodyError.Allocation(cause))
 
 def http_allocated[T](result: Result[T, AllocError]) -> Result[T, HttpError]:
-    std.error.map_error(result, def once (cause: AllocError) -> HttpError: HttpError.Allocation(cause))
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(HttpError.Allocation(cause))
 
 def lifted[T](result: Result[T, BytesError]) -> Result[T, BodyError]:
-    std.error.map_error(result, def once (cause: BytesError) -> BodyError: bytes_failure(cause))
-
-def bytes_failure(error: BytesError) -> BodyError:
-    match error:
-        case BytesError.Allocation(cause):
-            BodyError.Allocation(cause)
-        case BytesError.InvalidUtf8:
-            BodyError.InvalidUtf8
-        case _:
-            BodyError.Malformed
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case BytesError.Allocation(cause):
+                    Err(BodyError.Allocation(cause))
+                case BytesError.InvalidUtf8:
+                    Err(BodyError.InvalidUtf8)
+                case _:
+                    Err(BodyError.Malformed)
 
 def http[T](result: Result[T, HttpError]) -> Result[T, BodyError]:
-    std.error.map_error(result, def once (cause: HttpError) -> BodyError: http_failure(cause))
-
-def http_failure(cause: HttpError) -> BodyError:
-    match cause:
-        case HttpError.Allocation(inner):
-            BodyError.Allocation(inner)
-        case _ as other:
-            BodyError.Http(other)
-
-def json[T](result: Result[T, JsonError]) -> Result[T, BodyError]:
-    std.error.map_error(result, def once (cause: JsonError) -> BodyError: BodyError.Json(cause))
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            match cause:
+                case HttpError.Allocation(inner):
+                    Err(BodyError.Allocation(inner))
+                case _ as other:
+                    Err(BodyError.Http(other))
 
 def stored[T](result: Result[T, IoError]) -> Result[T, BodyError]:
-    std.error.map_error(result, def once (cause: IoError) -> BodyError: storage_failure(StreamError.Io(cause)))
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(storage_failure(StreamError.Io(cause)))
 
 # A storage call that failed for want of memory is an allocation failure,
 # whichever layer reported it.
@@ -399,11 +410,11 @@ pub def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Li
     if not is_json(&media.essence):
         return Err(BodyError.UnsupportedMediaType)
     body = collect(exchange, limits.max_input)?
-    json(std.json.parse(&body, limits))
+    std.error.map_error(std.json.parse(&body, limits), def once (cause: JsonError) -> BodyError: BodyError.Json(cause))
 
 # Encodes `value` and sends it as application/json.
 pub def send_json[T: Transport](exchange: &mut Exchange[T], status: i64, value: &Json, limits: &std.json.Limits) -> Result[(), BodyError]:
-    body = json(std.json.encode(value, limits))?
+    body = std.error.map_error(std.json.encode(value, limits), def once (cause: JsonError) -> BodyError: BodyError.Json(cause))?
     http(exchange.send(status, "application/json", &body))
 
 # Multipart
