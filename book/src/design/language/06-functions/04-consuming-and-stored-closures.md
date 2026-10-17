@@ -15,6 +15,13 @@ bind a mutable local to accommodate mutable reusable closures. Specialization
 still checks concrete move rules: calling a one-shot argument twice is rejected.
 `OnceCallable` is a constraint, not a storage type.
 
+A function returning `OnceClosure` or `Closure`, alone or inside a sum such as
+`Result`, takes the concrete environment from a closure value it returns. The
+signature alone does not specify the captured environment, so a body that
+returns no closure value on any path, such as one that only returns `Err`, is
+rejected with `cannot infer the concrete one-shot closure returned by this
+function` (or `closure` for a reusable one).
+
 Uncalled environments drop captures in reverse order. After entry, the body
 owns cleanup: moved result captures survive and the rest drop on exit. Argument
 failure drops the pending environment without entering the body. One-shot

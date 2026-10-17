@@ -4522,10 +4522,23 @@ fn lower_body(
     }
     if yield_type.is_none() {
         let output = lower.return_type.clone().flatten();
-        if output.as_ref().is_some_and(Ty::unresolved_generator) {
-            return Err(f
-                .at
-                .error("cannot infer the concrete generator returned by this function"));
+        match output.as_ref().and_then(Ty::unresolved_producer) {
+            Some(Ty::Closure(closure)) => {
+                let kind = if closure.once {
+                    "one-shot closure"
+                } else {
+                    "closure"
+                };
+                return Err(f.at.error(format!(
+                    "cannot infer the concrete {kind} returned by this function; a callable signature does not specify the closure's captured environment, so at least one path must return a closure value"
+                )));
+            }
+            Some(_) => {
+                return Err(f
+                    .at
+                    .error("cannot infer the concrete generator returned by this function"));
+            }
+            None => {}
         }
         let inferred_frame = sig.outputs.iter().any(Ty::unresolved_generator);
         // Most bodies return exactly the declared type; the registered

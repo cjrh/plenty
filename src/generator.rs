@@ -200,17 +200,22 @@ pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {
 
 impl Ty {
     pub fn unresolved_generator(&self) -> bool {
+        self.unresolved_producer().is_some()
+    }
+    /// The first closure or generator whose concrete producer is still
+    /// unknown, so diagnostics can name the kind of value that lacks identity.
+    pub fn unresolved_producer(&self) -> Option<Ty> {
         match self {
-            Self::Closure(t) => t.name.is_empty(),
-            Self::Generator(t) => t.name.is_none(),
-            Self::Ref(t, _) => t.unresolved_generator(),
+            Self::Closure(t) if t.name.is_empty() => Some(self.clone()),
+            Self::Generator(t) if t.name.is_none() => Some(self.clone()),
+            Self::Ref(t, _) => t.unresolved_producer(),
             Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
                 .get()
                 .variants
                 .iter()
                 .flat_map(|v| &v.fields)
-                .any(Ty::unresolved_generator),
-            _ => false,
+                .find_map(Ty::unresolved_producer),
+            _ => None,
         }
     }
     /// Whether a value keeps owner-local bytes after its 16-byte slot word.
