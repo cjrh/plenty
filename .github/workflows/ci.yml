@@ -24,3 +24,18 @@ jobs:
       # --all-features, not --features runtime-checks: the runtime crate's
       # allocation-checks unit tests are gated on a feature the root does not forward.
       - run: cargo test --locked --workspace --all-features --verbose
+
+  # std.http.server behind nginx and Caddy (tests/test_std_http_server_proxy.rs).
+  # The images are pulled in their own step so pulls are not timed with the
+  # tests; keep the tags in step with NGINX_IMAGE and CADDY_IMAGE there.
+  proxy_tests:
+    name: Reverse-proxy tests (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable
+      - run: docker version && curl --version
+      - run: docker pull nginx:1.30.6-alpine3.24 && docker pull caddy:2.11.7-alpine
+      - run: "cargo test --locked --test integration test_std_http_server_proxy::"
+        env:
+          PLENTY_DOCKER_TESTS: "1"

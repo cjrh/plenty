@@ -4,12 +4,11 @@
 > [client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md),
 > [TLS](../design/stdlib/tls.md), and deployment helpers ship over checked native
 > I/O effects and bounded workers. The server parks request heads and TLS
-> handshakes, supports signal-driven draining, and has passed local nginx/Caddy
-> reverse-proxy tests. The [qualification record](../design/stdlib/http-qualification.md)
-> owns the evidence and limits; this is not yet a production-readiness claim.
-> Remaining qualification belongs to B66 in the [backlog](../backlog.md), including
-> coverage-guided fuzzing, installed-toolchain workflows, HTTPS benchmarks, and
-> proxy tests in CI. The requirements below retain the original design rationale;
+> handshakes, supports signal-driven draining, and passes nginx/Caddy
+> reverse-proxy tests, which CI runs. The [qualification record](../design/stdlib/http-qualification.md)
+> owns the evidence, plain and HTTPS baselines, and limits; this is not yet a
+> production-readiness claim. Remaining qualification belongs to B66 in the
+> [backlog](../backlog.md), including coverage-guided fuzzing. The requirements below retain the original design rationale;
 > the linked references own shipped names, signatures, and backend choices.
 
 The bundled server should remain usable in production without requiring a

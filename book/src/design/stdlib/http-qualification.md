@@ -26,10 +26,10 @@ tests need a network, once, to pull their images.
 | Supervisor stop | Pass | With [`std.signal.cancel_on`](signal.md#stopping-a-server), `SIGTERM` during a streamed response begins shutdown: the response ends whole, `serve` returns its `Report` and the program exits 0. A second signal ends the program at once (`test_std_signal.rs`) |
 | Allocation failure | Pass | Every allocation on the accepting thread fails in turn; request handling fails in turn through `serve_connection` (`test_std_http_server.rs`). No trap, no leak, and the request is served once allocation succeeds |
 | Resource leaks | Pass | No descriptor survives a load round or a fault round (bad heads, truncated heads, silent and rejected clients), and the allocation-checks runtime finds no live heap after either |
-| Measured baselines | Published | [Baselines](#baselines) |
+| Measured baselines | Published | [Baselines](#baselines), over plain HTTP and HTTPS |
 | Unused backends | Pass | A JSON service using the server and client links none of rustls/ring, SQLite or zlib-rs |
 | Relocated offline toolchain | Pass | The compiler binary, copied alone into a fresh directory and run with an empty environment except `PATH`, builds and runs a JSON service. Installed alone as `PREFIX/bin/plenty` with a fresh home, it fetches a package's Git dependency once; with the repository deleted and `git` replaced by a failing stub, `plenty build --offline --locked` and `plenty run --offline` build a CLI/data tool (`std.cli`, `std.csv`, `std.json`, typed `std.error` reports and exit statuses) and a JSON service over the same dependency. Both run and link no unused backend |
-| TLS and proxy deployment | Pass | Direct TLS is tested with curl and `std.tls` clients. Behind nginx 1.30.6 and Caddy 2.11.7: keep-alive on both sides of the proxy, buffered and streamed bodies, `100-continue`, forwarded `Host` and `X-Forwarded-*`, TLS terminated at the proxy, slow heads, a slow upstream, refusals and a drain on `SIGTERM`. Opt-in (`PLENTY_DOCKER_TESTS=1`); see [Reverse proxies](#reverse-proxies) |
+| TLS and proxy deployment | Pass | Direct TLS is tested with curl and `std.tls` clients. Behind nginx 1.30.6 and Caddy 2.11.7: keep-alive on both sides of the proxy, buffered and streamed bodies, `100-continue`, forwarded `Host` and `X-Forwarded-*`, TLS terminated at the proxy, slow heads, a slow upstream, refusals and a drain on `SIGTERM`. Opt-in locally (`PLENTY_DOCKER_TESTS=1`) and run by CI; see [Reverse proxies](#reverse-proxies) |
 
 ## Supported platforms
 
@@ -60,34 +60,68 @@ So in a handler:
 `examples/http_server_bench.py` builds `examples/http_server_bench.plenty`
 with `--release`, runs it with 4 workers on CPUs 0, 2, 4 and 6 and
 ApacheBench 2.3 on CPUs 8, 10, 12 and 14 (one hardware thread per physical
-core), and repeats each workload against a fresh server.
+core, so at most ten threads are busy), and repeats each workload against a
+fresh server. With `--tls` it builds `examples/https_server_bench.plenty`
+instead, the same handler served by `std.http.tls` with the ECDSA P-256
+certificate in `tests/fixtures/tls`.
 
-Measured on 2026-10-17 at revision `59803fb` plus this change, built
-by rustc 1.99.0 (target `x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)`), on an AMD Ryzen 7 7840HS w/ Radeon 780M Graphics with
-Linux 7.2.9-201.fc44.x86_64, three runs per workload. Other builds were running on
-the machine (load average about 8), so treat the ranges as noise bounds.
+Measured on 2026-10-18 at revision `32c48c0`, built by rustc 1.99.0 (target
+`x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)`), on an AMD Ryzen 7
+7840HS w/ Radeon 780M Graphics with Linux 7.2.9-201.fc44.x86_64, three runs
+per workload. Other builds were running (load average about 4.5 at the
+start of each run), so treat the ranges as noise bounds.
 
 | Workload | Requests/s, median (range) | p50 / p99 latency, ms | Peak RSS, KiB | Failed |
 |---|---:|---:|---:|---:|
-| keep-alive, 1 client | 3785 (2946–4423) | 0.23 / 1.28 | 5556 | 0 |
-| keep-alive, 16 clients | 15371 (15216–17494) | 1.03 / 3.33 | 5624 | 0 |
-| keep-alive, 64 clients | 16744 (15261–16952) | 3.96 / 7.22 | 5592 | 0 |
-| new connection per request, 16 clients | 9239 (7129–9485) | 1.65 / 3.70 | 5620 | 0 |
-| keep-alive 16 KiB response, 16 clients | 13199 (12749–13359) | 1.31 / 4.37 | 5632 | 0 |
-| keep-alive 1 KiB POST echo, 16 clients | 11904 (11425–11952) | 1.33 / 3.69 | 5640 | 0 |
+| keep-alive, 1 client | 5560 (5536–5662) | 0.17 / 0.36 | 6212 | 0 |
+| keep-alive, 16 clients | 33314 (32772–33388) | 0.10 / 2.96 | 6212 | 0 |
+| keep-alive, 64 clients | 32853 (29653–32959) | 0.10 / 9.03 | 6236 | 0 |
+| new connection per request, 16 clients | 16106 (16085–16137) | 0.93 / 1.64 | 6212 | 0 |
+| keep-alive 16 KiB response, 16 clients | 24430 (24323–25589) | 0.14 / 4.30 | 6152 | 0 |
+| keep-alive 1 KiB POST echo, 16 clients | 25850 (25783–25897) | 0.16 / 1.84 | 6160 | 0 |
 
-With 1000 parked keep-alive connections the server's resident
-memory grew from 4392 KiB to 5828 KiB, about
-1.44 KiB per idle connection.
+### HTTPS
 
-Latency is per request as ApacheBench sees it. Peak RSS is the server's
+The same workloads over TLS 1.3 (`TLS_AES_256_GCM_SHA384`, X25519, ECDSA
+P-256 server key; rustls 0.23.46 with ring), measured in the same session:
+
+| Workload | Requests/s, median (range) | p50 / p99 latency, ms | Peak RSS, KiB | Failed |
+|---|---:|---:|---:|---:|
+| keep-alive, 1 client | 3891 (3872–3913) | 0.20 / 0.51 | 8196 | 0 |
+| keep-alive, 16 clients | 25892 (25038–26697) | 0.13 / 2.05 | 9352 | 0 |
+| keep-alive, 64 clients | 24474 (24459–24516) | 3.33 / 6.19 | 11136 | 0 |
+| new connection per request, 16 clients (curl) | 4196 (3939–4235) | 1.43 / 3.76 | 8792 | 0 |
+| keep-alive 16 KiB response, 16 clients | 17858 (17382–19415) | 0.19 / 3.69 | 9268 | 0 |
+| keep-alive 1 KiB POST echo, 16 clients | 19606 (18753–19782) | 0.91 / 1.49 | 9292 | 0 |
+
+Each new HTTPS connection is a full handshake: the server keeps no session
+cache and sends no tickets, so clients cannot resume. ApacheBench cannot
+measure that workload. It leaves Nagle's algorithm on, so each request waits
+about 40 ms for a delayed acknowledgement of its TLS `Finished` (issue #148),
+and it counts connections closed without `close_notify` as failed. The
+script runs curl 8.18.0 (OpenSSL 3.5.9) instead: four processes on the
+client CPUs, each with `--parallel-max 4`, `TCP_NODELAY` (curl's default)
+and no certificate verification. The same curl method against the plain
+server gave 21397 (21225–22032) requests/s, p50 / p99 0.67 / 1.05 ms, so the
+handshake, not the client, sets the HTTPS rate.
+
+With 1000 parked keep-alive connections the server's resident memory grew
+from 4364 KiB to 6680 KiB over plain HTTP, about 2.3 KiB per idle
+connection, and from 5928 KiB to 48552 KiB over HTTPS, about 42.6 KiB per
+idle connection: each TLS session keeps its rustls buffers and keys. Size
+`idle_connections` for HTTPS with that in mind.
+
+Latency is per request as the client sees it. Peak RSS is the server's
 `VmHWM`. `16k` is a 16 KiB response; the POST echoes a 1 KiB body. Each
 keep-alive connection closes after `max_requests` (1000) requests, so
-ApacheBench reconnects.
+ApacheBench reconnects. An earlier plain run, on 2026-10-17 at load average
+about 8, gave 9239 to 16744 requests/s for the same workloads; the
+difference is machine load, not a server change.
 
 Limits of these numbers: one machine, loopback only, a client that is
-itself a bottleneck at high rates, small fixed responses, and no TLS. They
-are a regression baseline, not a capacity plan.
+itself a bottleneck at high rates, small fixed responses, one certificate
+type and no TLS session resumption. They are a regression baseline, not a
+capacity plan.
 
 Before this qualification, a response whose head and body went out as two
 writes (any body over the 4 KiB write buffer) waited about 40 ms for a
@@ -267,11 +301,14 @@ cargo test --locked --all-features --test integration test_std_http_server_quali
 PLENTY_DOCKER_TESTS=1 cargo test --locked --test integration test_std_http_server_proxy::
 cargo build --release --locked
 python3 examples/http_server_bench.py --compiler target/release/plenty --output target/http-bench --runs 3
+python3 examples/http_server_bench.py --compiler target/release/plenty --output target/https-bench --runs 3 --tls
 ```
 
 The curl tests are skipped when curl is not installed. The proxy tests
 need Docker and curl and are skipped, with a message, unless
-`PLENTY_DOCKER_TESTS=1` (see [reverse-proxy tests](../../development/workflow.md#reverse-proxy-tests)); the benchmark needs
-ApacheBench (`ab`) and `taskset`. Busy machines distort the benchmark: check
+`PLENTY_DOCKER_TESTS=1` (see [reverse-proxy tests](../../development/workflow.md#reverse-proxy-tests));
+the `proxy_tests` job in `.github/workflows/ci.yml` runs them on every push
+and pull request. The benchmark needs ApacheBench (`ab`) and `taskset`, and
+with `--tls` also curl. Busy machines distort the benchmark: check
 the load average first, and keep the total number of busy threads at or
 below the number of physical cores.
