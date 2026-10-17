@@ -67,17 +67,63 @@ behind a reverse proxy that terminates TLS:
   program sees plain HTTP from the proxy; check `scheme` rather than
   assuming.
 
-Direct TLS through `serve_connection` and [`std.tls`](../../backlog.md) is
-later work.
+## Serving HTTPS directly
+
+Without a proxy, serve TLS from the program with
+[`std.http.tls`](http-server.md#https). Then it faces clients itself:
+
+- Listen on the public address only through `std.http.tls.serve`; a plain
+  `serve` on the same host should only redirect or be absent.
+- No proxy is trusted, so leave `Proxies` empty: `client_of` returns the
+  peer.
+- Keep the server's limits, timeouts and `idle_connections` tight; nothing
+  in front enforces per-client rates.
+- Cookies keep their `Secure` default, and the scheme is always `https`.
+
+```text
+pub class Site:
+    pub public: Root
+    pub keys: list[Bytes]
+
+    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        if exchange.route == 0:
+            path = exchange.params[0].concat("")?
+            std.http.files.serve(exchange, &self.public, &path)?
+        elif exchange.route == 1:
+            mut head = std.http.response(204, "No Content")?
+            std.http.cookie.add(&mut head, &std.http.cookie.signed_cookie(&self.keys, "session", "user42")?)?
+            exchange.respond(head, &std.bytes.empty()?)?
+        else:
+            found = std.http.cookie.cookies(&exchange.request.headers, 8)?
+            match std.http.cookie.find_signed(&found, &self.keys, "session")?:
+                case Some(user):
+                    exchange.send_text(200, &user)?
+                case Nothing:
+                    exchange.send_text(401, "sign in first")?
+        Ok(())
+
+def main() -> Result[(), Failure]:
+    mut table = std.http.server.router()?
+    table.add("GET", "/s/{path...}", 0)?
+    table.add("POST", "/login", 1)?
+    table.add("GET", "/me", 2)?
+    keys = [std.bytes.from_text(&read_text("/etc/site/session.key")?)?]?
+    site = Site(std.fs.root(&std.path.from_text("/srv/site")?)?, keys)
+    tls = std.tls.server_config(&read_text("/etc/site/chain.pem")?, &read_text("/etc/site/key.pem")?)?
+    listener = std.net.listen(&std.net.parse_address("0.0.0.0:443")?, 128)?
+    stop = CancellationToken()?
+    report = std.http.tls.serve(listener, tls, &table, &site, &std.http.server.config(), &stop)?
+    Ok(())
+```
+
+`tests/test_std_http_files.rs` runs this program on loopback with the test
+certificates in `tests/fixtures/tls`.
 
 ## Static files
 
-No static file helper ships yet. A safe one must open the request path one
-segment at a time through directory handles, as `Root.open_dir` and
-`Root.read_file` in [`std.fs`](fs.md) do for single names, refuse `..`,
-links and anything but regular files, and bound what it reads; cleaning the
-path as a string is not enough, because a link inside the served directory
-can still lead out of it. It also needs media types, `Range`, and
-conditional requests (`ETag`, `If-Modified-Since`) to be useful, and the
-server has none of these. Until then, serve static files from the reverse
-proxy, which already does this well.
+[`std.http.files`](http-files.md) serves files below a `Root`. It opens
+the request path one segment at a time through directory handles, refuses
+`..`, hidden names, links and anything but regular files, and answers
+`ETag` and `If-Modified-Since`; see its limits (no `Range`, no directory
+index). A reverse proxy can still serve static files when it is already in
+front.

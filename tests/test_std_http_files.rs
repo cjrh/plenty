@@ -115,13 +115,11 @@ fn site(dir: &Path) -> std::path::PathBuf {
     std::os::unix::fs::symlink("..", site.join("up")).unwrap();
     std::os::unix::fs::symlink("index.html", site.join("alias.html")).unwrap();
     let fifo = site.join("pipe");
-    assert!(
-        Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .unwrap()
-            .success()
-    );
+    assert!(Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
     site
 }
 
@@ -400,10 +398,9 @@ fn base64url(data: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut text = String::new();
     for chunk in data.chunks(3) {
-        let value = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |acc, (index, byte)| acc | (u32::from(*byte) << (16 - 8 * index)));
+        let value = chunk.iter().enumerate().fold(0u32, |acc, (index, byte)| {
+            acc | (u32::from(*byte) << (16 - 8 * index))
+        });
         for index in 0..=chunk.len() {
             text.push(ALPHABET[(value >> (18 - 6 * index) & 63) as usize] as char);
         }
@@ -545,7 +542,11 @@ fn multipart_failures_are_reported_and_release_files() {
         "manifest-version = 1\n[package]\nname = \"uploads\"\nversion = \"0.1.0\"\n",
     )
     .unwrap();
-    std::fs::write(root.join("src/lib.plenty"), "pub def unused() -> i64:\n    0\n").unwrap();
+    std::fs::write(
+        root.join("src/lib.plenty"),
+        "pub def unused() -> i64:\n    0\n",
+    )
+    .unwrap();
     std::fs::write(root.join("tests/multipart.plenty"), MULTIPART).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
         .arg("test")
@@ -560,5 +561,135 @@ fn multipart_failures_are_reported_and_release_files() {
         "{stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(stdout.contains("test result: ok. 2 passed; 0 failed"), "{stdout}");
+    assert!(
+        stdout.contains("test result: ok. 2 passed; 0 failed"),
+        "{stdout}"
+    );
+}
+
+/// The direct-TLS example from `http-proxy.md`: static files and a signed
+/// session cookie served over HTTPS on loopback, with the test certificates.
+const HTTPS: &str = r##"import std.bytes
+import std.fs
+import std.http
+import std.http.cookie
+import std.http.files
+import std.http.server
+import std.http.tls
+import std.net
+import std.path
+import std.time
+import std.tls
+from std.bytes import Bytes
+from std.fs import Root
+from std.http.server import Exchange
+from std.http.tls import TlsTransport
+from std.sync import CancellationToken
+from std.tls import TlsStream
+
+pub class Site:
+    pub root: Root
+    pub keys: list[Bytes]
+
+    pub def handle(self, exchange: &mut Exchange[TlsTransport]) -> Result[(), Failure]:
+        if exchange.route == 0:
+            path = exchange.params[0].concat("")?
+            std.http.files.serve(exchange, &self.root, &path)?
+        elif exchange.route == 1:
+            mut head = std.http.response(204, "No Content")?
+            std.http.cookie.add(&mut head, &std.http.cookie.signed_cookie(&self.keys, "session", "user42")?)?
+            exchange.respond(head, &std.bytes.empty()?)?
+        else:
+            found = std.http.cookie.cookies(&exchange.request.headers, 8)?
+            match std.http.cookie.find_signed(&found, &self.keys, "session")?:
+                case Some(user):
+                    exchange.send_text(200, &user)?
+                case Nothing:
+                    exchange.send_text(401, "sign in first")?
+        Ok(())
+
+# One request on its own TLS connection; reads until `marker` arrives,
+# since the server sends no close_notify.
+def ask(port: u16, request: &str, marker: &str) -> str:
+    never = CancellationToken().unwrap()
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
+    roots = std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem").unwrap()).unwrap()
+    config = std.tls.client_config(&roots).unwrap()
+    tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never).unwrap()
+    mut stream = std.tls.connect(tcp, &config, "localhost", &deadline, &never).unwrap()
+    data = std.bytes.from_text(request).unwrap()
+    stream.write_all_before(&data, 0, data.len(), &deadline, &never).unwrap()
+    mut out = std.bytes.empty().unwrap()
+    while not out.to_text().unwrap().endswith(marker):
+        at = out.len()
+        out.resize(at + 64, 0u8).unwrap()
+        count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
+        out.truncate(at + count).unwrap()
+    out.to_text().unwrap().replace("\r\n", "|").unwrap()
+
+def client(port: u16, cookie: str, stop: CancellationToken) -> ():
+    print(ask(port, "GET /s/index.html HTTP/1.1\r\nHost: localhost\r\n\r\n", "</h1>\n")).unwrap()
+    print(ask(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n", "\r\n\r\n")).unwrap()
+    request = "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: session=".concat(&cookie).unwrap().concat("\r\n\r\n").unwrap()
+    print(ask(port, &request, "user42")).unwrap()
+    print(ask(port, "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: session=user42\r\n\r\n", "first")).unwrap()
+    stop.cancel()
+
+def main() -> Result[(), Failure]:
+    mut table = std.http.server.router()?
+    table.add("GET", "/s/{path...}", 0)?
+    table.add("POST", "/login", 1)?
+    table.add("GET", "/me", 2)?
+    keys = [std.bytes.from_text(&read_text("SESSION_KEY")?)?]?
+    site = Site(std.fs.root(&std.path.from_text("SITE")?)?, keys)
+    tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    stop = CancellationToken()?
+    cookie = std.http.cookie.sign(&site.keys, "session", "user42")?
+    config = std.http.server.config()
+    with spawn(client, port, cookie, stop.share())? as task:
+        report = std.http.tls.serve(listener, tls, &table, &site, &config, &stop)?
+        print(report.requests)?
+    Ok(())
+"##;
+
+#[test]
+fn https_serves_files_and_signed_sessions_directly() {
+    let dir = tempfile::tempdir().unwrap();
+    let site = site(dir.path());
+    let key = dir.path().join("session.key");
+    std::fs::write(&key, "k".repeat(32)).unwrap();
+    let source = HTTPS
+        .replace(
+            "FIXTURES",
+            &format!("{}/tests/fixtures/tls", env!("CARGO_MANIFEST_DIR")),
+        )
+        .replace("SESSION_KEY", key.to_str().unwrap())
+        .replace("SITE", site.to_str().unwrap());
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, &source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None)
+        .unwrap_or_else(|error| panic!("{error}"));
+    let output = Command::new(executable)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let tag = signature(&[b'k'; 32], b"session=user42");
+    let expected = format!(
+        "HTTP/1.1 200 OK|Content-Type: text/html; charset=utf-8|Content-Length: 12|X-Content-Type-Options: nosniff|ETag: {TAG}|Last-Modified: {DATE}||<h1>hi</h1>
+
+HTTP/1.1 204 No Content|Set-Cookie: session=user42.{tag}; Path=/; Secure; HttpOnly; SameSite=Lax||
+HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||user42
+HTTP/1.1 401 Unauthorized|Content-Type: text/plain; charset=utf-8|Content-Length: 13||sign in first
+4
+"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }
