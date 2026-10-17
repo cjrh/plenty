@@ -377,6 +377,9 @@ mod native {
                         }
                     })
                 }
+                // AT_EMPTY_PATH: the open file itself, however it was reached,
+                // so the observation cannot be redirected by a renamed path.
+                273 => owned_metadata(stat_at(fd, b"\0", 0x1000)?),
                 _ => unreachable!("rooted filesystem opcode"),
             }
         }
@@ -494,20 +497,16 @@ mod native {
         #[cfg(test)]
         STAT_CALLS.with(|count| count.set(count.get() + 1));
         let path = terminated(copy(path)?)?;
+        // AT_FDCWD preserves relative lookup.
+        stat_at(-100, &path, if follow { 0 } else { 0x100 })
+    }
+
+    fn stat_at(fd: i32, path: &[u8], flags: i32) -> Result<Stat, Error> {
         let mut data = Stat::default();
-        // SAFETY: statx writes the stable 256-byte record, using a checked native
-        // path. Unlike std::fs::metadata's long-path CString fallback, all Rust
-        // allocation here is fallible. AT_FDCWD preserves relative lookup.
-        if unsafe {
-            statx(
-                -100,
-                path.as_ptr().cast(),
-                if follow { 0 } else { 0x100 },
-                0xfff,
-                &mut data,
-            )
-        } != 0
-        {
+        // SAFETY: statx writes the stable 256-byte record, using a checked
+        // NUL-terminated native path. Unlike std::fs::metadata's long-path
+        // CString fallback, all Rust allocation here is fallible.
+        if unsafe { statx(fd, path.as_ptr().cast(), flags, 0xfff, &mut data) } != 0 {
             let error = std::io::Error::last_os_error();
             return Err(if error.raw_os_error() == Some(38) {
                 Kind::Unsupported.into()
@@ -525,7 +524,10 @@ mod native {
     thread_local! { static STAT_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
     fn metadata(path: &[u8], follow: bool) -> Result<u128, Error> {
-        let data = stat(path, follow)?;
+        owned_metadata(stat(path, follow)?)
+    }
+
+    fn owned_metadata(data: Stat) -> Result<u128, Error> {
         let owner = memory::try_allocate::<Metadata, u8>(0)?;
         unsafe {
             owner.write(Metadata {

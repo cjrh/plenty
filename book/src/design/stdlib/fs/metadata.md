@@ -12,6 +12,10 @@ a later operation. No metadata cache is kept on an entry. Request another
 path-level observation to refresh it; replacing or changing a file can make
 earlier data stale.
 
+`file_metadata(&stream) -> Result[Metadata, IoError]` observes an open
+`FileStream` itself (`statx` with `AT_EMPTY_PATH`), not whatever its path names
+now. A file opened through a [`Root`](helpers.md) keeps that confinement:
+renaming or replacing the path afterwards cannot redirect the observation.
 | Metadata operation | Value |
 | --- | --- |
 | `file_type()` | `FileType.File`, `.Directory`, `.Symlink`, or `.Other` |

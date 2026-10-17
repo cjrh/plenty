@@ -126,7 +126,18 @@ def stored[T](result: Result[T, IoError]) -> Result[T, BodyError]:
         case Ok(value):
             Ok(value)
         case Err(cause):
-            Err(BodyError.Storage(StreamError.Io(cause)))
+            Err(storage_failure(StreamError.Io(cause)))
+
+# A storage call that failed for want of memory is an allocation failure,
+# whichever layer reported it.
+def storage_failure(cause: StreamError) -> BodyError:
+    match cause:
+        case StreamError.Allocation(inner):
+            BodyError.Allocation(inner)
+        case StreamError.Io(IoError.Data(DataError.Allocation(inner))):
+            BodyError.Allocation(inner)
+        case _ as other:
+            BodyError.Storage(other)
 
 def text_of(data: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
     lifted(lifted(data.slice(start, stop))?.to_text())
@@ -572,7 +583,7 @@ def emit(data: &Bytes, start: i64, stop: i64, file: &mut Option[TempFile], text:
                 case Ok(_):
                     Ok(total)
                 case Err(partial):
-                    Err(BodyError.Storage(partial.cause))
+                    Err(storage_failure(partial.cause))
         case Nothing:
             if total > limits.max_field:
                 return Err(BodyError.TooLarge)
@@ -689,7 +700,7 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
                     case Ok(_):
                         pass
                     case Err(cause):
-                        return Err(BodyError.Storage(cause))
+                        return Err(storage_failure(cause))
                 Content.File(owned)
             case Nothing:
                 Content.Text(lifted(text.to_text())?)

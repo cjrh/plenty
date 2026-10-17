@@ -82,7 +82,8 @@ impl FsOp {
             | Self::Publish
             | Self::SameDir
             | Self::DuplicateRoot
-            | Self::MakeTemporaryDir => Effect::Handle,
+            | Self::MakeTemporaryDir
+            | Self::FileMetadata => Effect::Handle,
             Self::Name
             | Self::Path
             | Self::FileType
