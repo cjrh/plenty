@@ -18,6 +18,7 @@ mod native {
     use super::super::byte_storage::{self, Storage};
     use super::*;
     use crate::memory::AllocError;
+    use std::ffi::c_void;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -107,6 +108,25 @@ mod native {
         fn freeaddrinfo(result: *mut AddrInfo);
         fn socketpair(domain: i32, kind: i32, protocol: i32, ends: *mut i32) -> i32;
         fn send(fd: i32, data: *const u8, length: usize, flags: i32) -> isize;
+    }
+
+    /// glibc's 56-byte `pthread_attr_t`, rounded up.
+    #[repr(C, align(8))]
+    struct Attributes([u64; 8]);
+    const PTHREAD_CREATE_DETACHED: i32 = 1;
+
+    #[link(name = "pthread")]
+    extern "C" {
+        fn pthread_attr_init(attributes: *mut Attributes) -> i32;
+        fn pthread_attr_setstacksize(attributes: *mut Attributes, size: usize) -> i32;
+        fn pthread_attr_setdetachstate(attributes: *mut Attributes, state: i32) -> i32;
+        fn pthread_attr_destroy(attributes: *mut Attributes) -> i32;
+        fn pthread_create(
+            thread: *mut usize,
+            attributes: *const c_void,
+            entry: crate::threads::Entry,
+            argument: *mut c_void,
+        ) -> i32;
     }
 
     fn checked(status: i32) -> Result<i32, Error> {
@@ -421,6 +441,42 @@ mod native {
         true
     }
 
+    struct Job {
+        name: Vec<u8>,
+        writer: OwnedFd,
+        lookup: fn(&[u8]) -> Reply,
+    }
+
+    /// Runs on a detached native thread, not `std::thread`: std frees a
+    /// thread's handle and result packet as the thread exits, after anything
+    /// its closure can signal. Here every Rust allocation of the lookup is
+    /// freed before `LOOKUPS` drops, so allocation checks can wait on it
+    /// (issue #129).
+    unsafe extern "C" fn run_lookup(job: *mut c_void) -> *mut c_void {
+        // SAFETY: `start_lookup` gave this thread sole ownership of the job.
+        let job =
+            unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(job.cast::<Job>(), 1)) };
+        let Job {
+            name,
+            writer,
+            lookup,
+        } = &job[0];
+        let (header, addresses) = lookup(name);
+        let _ = send_all(writer, &header) && send_all(writer, &addresses);
+        drop((job, header, addresses));
+        LOOKUPS.fetch_sub(1, Ordering::AcqRel);
+        std::ptr::null_mut()
+    }
+
+    /// Blocks until every lookup thread, abandoned ones included, has freed
+    /// its memory.
+    #[cfg(any(test, all(feature = "allocation-checks", plenty_runtime_embedded)))]
+    pub(crate) fn wait_for_lookups() {
+        while LOOKUPS.load(Ordering::Acquire) != 0 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
     /// Starts `lookup` on a helper thread and returns the read end of a
     /// socket pair that carries its reply and then end of input. The caller
     /// waits on it with a deadline and token; dropping it abandons the
@@ -449,15 +505,43 @@ mod native {
         // SAFETY: socketpair returned two fresh descriptors owned here only.
         let (reader, writer) =
             unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
-        let spawned = std::thread::Builder::new()
-            .stack_size(LOOKUP_STACK)
-            .spawn(move || {
-                let (header, addresses) = lookup(&name);
-                let _ = send_all(&writer, &header) && send_all(&writer, &addresses);
-                drop(writer);
-                finished();
-            });
-        if spawned.is_err() {
+        let mut job = Vec::new();
+        if job.try_reserve_exact(1).is_err() {
+            finished();
+            return Err(AllocError::OutOfMemory.into());
+        }
+        job.push(Job {
+            name,
+            writer,
+            lookup,
+        });
+        let job = Box::into_raw(job.into_boxed_slice());
+        // SAFETY: glibc's pthread_attr_t fits the zeroed, aligned storage;
+        // the job is handed to the new thread, or reclaimed if none starts.
+        let status = unsafe {
+            let mut attributes = Attributes([0; 8]);
+            let mut status = pthread_attr_init(&mut attributes);
+            if status == 0 {
+                status = pthread_attr_setstacksize(&mut attributes, LOOKUP_STACK);
+            }
+            if status == 0 {
+                status = pthread_attr_setdetachstate(&mut attributes, PTHREAD_CREATE_DETACHED);
+            }
+            if status == 0 {
+                let mut thread = 0usize;
+                status = pthread_create(
+                    &mut thread,
+                    (&raw const attributes).cast(),
+                    run_lookup,
+                    job.cast(),
+                );
+            }
+            pthread_attr_destroy(&mut attributes);
+            status
+        };
+        if status != 0 {
+            // SAFETY: no thread received the job.
+            drop(unsafe { Box::from_raw(job) });
             finished();
             return Err(again());
         }
@@ -516,7 +600,7 @@ mod native {
 
 #[cfg(all(test, target_os = "linux", target_pointer_width = "64"))]
 mod tests {
-    use super::native::{start_lookup, Reply};
+    use super::native::{start_lookup, wait_for_lookups, Reply};
     use std::io::Read;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
@@ -552,13 +636,18 @@ mod tests {
         // lookup, and its later send must not raise SIGPIPE.
         drop(reader);
         assert!(started.elapsed() < Duration::from_millis(250));
-        while !SLOW_DONE.load(Ordering::Acquire) {
-            assert!(started.elapsed() < Duration::from_secs(10));
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        std::thread::sleep(Duration::from_millis(50));
+        wait_for_lookups();
+        assert!(SLOW_DONE.load(Ordering::Acquire));
     }
 }
+
+#[cfg(all(
+    target_os = "linux",
+    target_pointer_width = "64",
+    feature = "allocation-checks",
+    plenty_runtime_embedded
+))]
+pub(crate) use native::wait_for_lookups;
 
 /// Operands are live values of the statically checked signature.
 pub(super) unsafe fn call(op: i64, operands: [u128; 5], descriptor: *const Type) -> u128 {

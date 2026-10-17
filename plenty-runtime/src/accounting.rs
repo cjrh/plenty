@@ -108,6 +108,10 @@ pub(crate) fn checkpoint() {
 }
 #[cfg(plenty_runtime_embedded)]
 pub(crate) fn finish() {
+    // A lookup thread outlives its reply's end of input, and an abandoned one
+    // outlives its caller; both still own runtime memory until they return.
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    crate::aggregates::net::wait_for_lookups();
     let live = LIVE.load(Relaxed);
     let baseline = BASELINE.load(Relaxed);
     if live != baseline {

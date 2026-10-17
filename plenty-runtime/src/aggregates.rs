@@ -16,7 +16,7 @@ mod entry_error;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
 mod filesystem;
-mod net;
+pub(crate) mod net;
 mod process;
 mod readiness;
 #[cfg(test)]

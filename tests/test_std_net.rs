@@ -336,6 +336,22 @@ std.net.NetError.Cancelled\n",
     );
 }
 
+/// The helper thread outlives the reply's end of input; under load it once
+/// still held memory when the program's allocation check ran (issue #129).
+#[test]
+fn a_program_may_end_right_after_a_lookup() {
+    runs(
+        r#"
+def main() -> Result[(), Failure]:
+    cancel = CancellationToken()?
+    for _ in range(8):
+        print(len(resolve("localhost", 80u16, &within(5000u32)?, &cancel).unwrap()) > 0)?
+    Ok(())
+"#,
+        &"True\n".repeat(8),
+    );
+}
+
 #[test]
 fn sockets_close_with_their_owner() {
     runs(
