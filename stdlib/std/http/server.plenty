@@ -439,9 +439,12 @@ def send_some[T: Transport](stream: &mut Option[T], source: &Bytes, start: i64, 
 # connection, and the client can lose the answer it has not yet read. So
 # after a response that may leave input unread, the server ends its output
 # and discards input until the client ends its own, `linger_bytes` have
-# gone, or `linger_ns` (at most `write_timeout`) has passed.
+# gone, or `linger_ns` (at most `write_timeout`) has passed. A reverse proxy
+# forwards a body up to its own limit even after the answer, and reports
+# `502` instead of that answer when the connection resets under it, so the
+# byte budget covers common proxy body limits; the time limit bounds it.
 const linger_ns: u64 = 2000000000u64
-const linger_bytes: i64 = 65536
+const linger_bytes: i64 = 16777216
 const discard_chunk: i64 = 4096
 
 def linger_span(config: &Config) -> u64:

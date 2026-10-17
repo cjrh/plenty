@@ -7,8 +7,11 @@ gate fails, but some are only partly covered; see [Gates](#gates). HTTP/2 and HT
 separate adoption decisions and are not part of these gates.
 
 The suites are in `tests/test_std_http_server_qualification.rs`, with the
-request corpus in `tests/fixtures/http_server/`. The benchmark is
-`examples/http_server_bench.py`. Everything runs on loopback with no network.
+request corpus in `tests/fixtures/http_server/`, and in
+`tests/test_std_http_server_proxy.rs`, which runs the server behind nginx and
+Caddy in Docker (see [Reverse proxies](#reverse-proxies)). The benchmark is
+`examples/http_server_bench.py`. Everything runs on loopback; only the proxy
+tests need a network, once, to pull their images.
 
 ## Gates
 
@@ -26,7 +29,7 @@ request corpus in `tests/fixtures/http_server/`. The benchmark is
 | Measured baselines | Published | [Baselines](#baselines) |
 | Unused backends | Pass | A JSON service using the server and client links none of rustls/ring, SQLite or zlib-rs |
 | Relocated offline toolchain | Partial | The compiler binary, copied alone into a fresh directory and run with an empty environment except `PATH`, builds and runs a JSON service. An installed package workflow (`plenty build --offline` from an installed toolchain) and the CLI/data workflow are not covered |
-| TLS and proxy deployment | Partial | Direct TLS is tested with curl and `std.tls` clients. Reverse-proxy deployment is documented below but not tested against a real proxy |
+| TLS and proxy deployment | Pass | Direct TLS is tested with curl and `std.tls` clients. Behind nginx 1.30.6 and Caddy 2.11.7: keep-alive on both sides of the proxy, buffered and streamed bodies, `100-continue`, forwarded `Host` and `X-Forwarded-*`, TLS terminated at the proxy, slow heads, a slow upstream, refusals and a drain on `SIGTERM`. Opt-in (`PLENTY_DOCKER_TESTS=1`); see [Reverse proxies](#reverse-proxies) |
 
 ## Supported platforms
 
@@ -137,10 +140,72 @@ sending the request and then reading to the end:
 The results were the same with `IDLE=0`, where the worker lingers. Before
 the fix a client reading to the end saw `ECONNRESET`, sometimes after
 reading the answer. Now the
-server ends its output, discards up to 64 KiB for up to 2 s, then closes
+server ends its output, discards up to 16 MiB (64 KiB until the proxy tests
+below) for up to 2 s, then closes
 (see [Lingering close](http-server.md#lingering-close)).
 `refusals_end_cleanly_instead_of_resetting` and
 `tls_refusals_end_with_close_notify` in the qualification suite check this.
+
+## Reverse proxies
+
+`tests/test_std_http_server_proxy.rs` puts nginx and Caddy, each in its stock
+image, in front of the server, and drives them with curl and raw sockets. The
+server runs on the host (it links the host's C library, so it does not run on
+Alpine); the proxy container uses `--network host` and reaches it on
+loopback. The configurations are `tests/fixtures/proxy/nginx.conf` and
+`tests/fixtures/proxy/Caddyfile`; the server is
+`tests/fixtures/proxy/server.plenty`.
+
+| Image | Digest |
+|---|---|
+| `nginx:1.30.6-alpine3.24` | `sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5` |
+| `caddy:2.11.7-alpine` | `sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f` |
+
+Each test runs against both proxies. Clients connect from `127.0.0.2`, so the
+handler can tell them from the proxy at `127.0.0.1`.
+
+| Test | Checks |
+|---|---|
+| `*_forwarding_keep_alive_and_tls` | `exchange.authority` and `Host` keep the client's `Host`; `X-Forwarded-Proto` is `http` or `https`; [`client_of`](http-proxy.md#clients), trusting only `127.0.0.1`, finds the client and ignores a spoofed `X-Forwarded-For`; curl reuses its connection to the proxy; twelve requests reach the server over at most three connections; TLS terminated at the proxy, with a 700 KB upload |
+| `*_bodies_and_continue` | Sized, chunked and `Expect: 100-continue` uploads of 700 KB and a 1 MiB chunked download, through a buffering and a streaming location; a client that waits for `100 Continue` before sending; a streamed response reaches the client before the handler ends it |
+| `*_slow_clients_timeouts_and_refusals` | A partial request head is closed by the proxy at its 2 s header timeout and never reaches the server; a handler slower than the proxy's 2 s upstream timeout gets `504` and the next request is served; five rounds of `413` refusals of 2 MiB bodies and early answers to 1000 KiB bodies the handler does not read, sized and chunked, buffered and streamed, all reach the client |
+| `*_shutdown_drains` | `SIGTERM` while a response streams through the proxy: it ends whole, the server exits 0 with its report, and the proxy then answers `502` |
+
+Differences between the proxies, none of them a server fault:
+
+- nginx appends to a client's `X-Forwarded-For` (`203.0.113.9, 127.0.0.2`);
+  Caddy, trusting no proxies by default, replaces it (`127.0.0.2`). With
+  only the proxy trusted, `client_of` gives `127.0.0.2` for both.
+- nginx sends `100 Continue` itself and buffers the body. Caddy streams it
+  and also relays the server's own `100 Continue`, so the client sees two
+  interim responses, which RFC 9110 section 15.2 requires clients to accept.
+- Caddy offers HTTP/2 to TLS clients and speaks HTTP/1.1 to the server.
+- After relaying an answer sent before a large body was read, Caddy closes
+  the client's connection with the rest of the body unread, so a client
+  still sending may see a reset after the answer. The test accepts that
+  reset (curl exit 55) for Caddy only.
+- nginx reuses connections to the server only with an `upstream` block
+  with `keepalive`, `proxy_http_version 1.1` and an empty `Connection`
+  header, as in the test configuration.
+
+The tests found one server defect (issue #142). A refusal, or an answer
+sent before the body was read, closed lingering after discarding at most
+64 KiB. A proxy forwards the whole body regardless, so it was often still
+sending when the server closed; the connection reset under it, and it
+answered `502` instead of passing on the server's answer. The budget is now 16 MiB, still
+within 2 s. Twenty requests per case, measured on 2026-10-17:
+
+| Request | Proxy | 64 KiB budget | 16 MiB budget |
+|---|---|---|---|
+| 2 MiB sized body, `413` | nginx, buffering | 14 of 20 `502` | 0 |
+| 2 MiB chunked body, `413` | nginx, buffering | 15 of 20 `502` | 0 |
+| 2 MiB sized body, `413` | nginx, streaming | 2 of 20 `502` | 0 |
+| 1000 KiB sized body, early `200` | nginx, buffering | 1 of 20 `502` | 0 |
+| 1000 KiB chunked body, early `200` | nginx, buffering | 7 of 20 `502` | 0 |
+| 2 MiB bodies, `413`, four variants | Caddy | 1 to 3 of 20 `502` each | 0 |
+| 1000 KiB chunked body, early `200` | Caddy | 1 of 20 `502` | 0 |
+
+With 200 KiB bodies neither proxy saw a `502` under either budget.
 
 ## Deployment
 
@@ -150,6 +215,7 @@ The proxy also absorbs slow clients beyond what `idle_connections` bounds:
 
 - Buffer whole request heads, and preferably bodies, before forwarding
   (nginx does both by default; keep `proxy_request_buffering on`).
+  `tests/fixtures/proxy/` has tested nginx and Caddy configurations.
 - Connect to the server over loopback or a private network with
   `proxy_http_version 1.1` and keep-alive, so connections are reused.
 - Set the proxy's client timeouts and connection limits per client; the
@@ -195,11 +261,14 @@ linked into a program that only serves HTTP.
 
 ```text
 cargo test --locked --all-features --test test_std_http_server_qualification
+PLENTY_DOCKER_TESTS=1 cargo test --locked --test test_std_http_server_proxy
 cargo build --release --locked
 python3 examples/http_server_bench.py --compiler target/release/plenty --output target/http-bench --runs 3
 ```
 
-The curl tests are skipped when curl is not installed; the benchmark needs
+The curl tests are skipped when curl is not installed. The proxy tests
+need Docker and curl and are skipped, with a message, unless
+`PLENTY_DOCKER_TESTS=1` (see [reverse-proxy tests](../../development/workflow.md#reverse-proxy-tests)); the benchmark needs
 ApacheBench (`ab`) and `taskset`. Busy machines distort the benchmark: check
 the load average first, and keep the total number of busy threads at or
 below the number of physical cores.

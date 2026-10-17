@@ -67,6 +67,10 @@ behind a reverse proxy that terminates TLS:
   program sees plain HTTP from the proxy; check `scheme` rather than
   assuming.
 
+nginx and Caddy configurations tested in front of the server are in
+`tests/fixtures/proxy/`; the results are under
+[reverse proxies](http-qualification.md#reverse-proxies).
+
 ## Serving HTTPS directly
 
 Without a proxy, serve TLS from the program with

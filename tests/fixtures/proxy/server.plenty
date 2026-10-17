@@ -1,0 +1,138 @@
+import std.bytes
+import std.http
+import std.http.proxy
+import std.http.server
+import std.net
+import std.signal
+import std.time
+from std.http.proxy import Forwarding, Proxies
+from std.http.server import Exchange, Report
+from std.net import TcpStream
+from std.sync import CancellationToken
+
+# The upstream of tests/test_std_http_server_proxy.rs. Paths under /stream/
+# reach the same routes through a proxy location that does not buffer.
+#
+# 0 GET /info: what reached the handler, one `name=value` per line
+# 1 POST /echo: the request body
+# 2 GET /big: 1 MiB, chunked
+# 3 GET /hold: "first", then "second" once /release has been requested
+# 4 GET /release
+# 5 GET /slow: answers after 4 s
+# 6 POST /early: answers without reading the body
+# 7 GET /tick: "tick" every 20 ms until shutdown begins, then "bye"
+pub class App:
+    pub release: CancellationToken
+    pub proxies: Proxies
+    pub piece: std.bytes.Bytes
+
+    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        route = exchange.route
+        if route == 0:
+            text = info(exchange, &self.proxies)?
+            exchange.send_text(200, &text)?
+        elif route == 1:
+            mut body = std.bytes.empty()?
+            exchange.read_all(&mut body)?
+            exchange.send(200, "application/octet-stream", &body)?
+        elif route == 2:
+            exchange.start(std.http.response(200, "OK")?)?
+            for index in range(16):
+                exchange.write(&self.piece, 0, self.piece.len())?
+        elif route == 3:
+            exchange.start(std.http.response(200, "OK")?)?
+            first = std.bytes.from_text("first\n")?
+            exchange.write(&first, 0, first.len())?
+            mut waited = 0
+            while not self.release.is_cancelled() and waited < 1000:
+                std.time.sleep(&std.time.milliseconds(10u32))
+                waited += 1
+            second = std.bytes.from_text("second\n")?
+            exchange.write(&second, 0, second.len())?
+        elif route == 4:
+            self.release.cancel()
+            exchange.send_text(200, "released")?
+        elif route == 5:
+            std.time.sleep(&std.time.seconds(4u32))
+            exchange.send_text(200, "late")?
+        elif route == 6:
+            exchange.send_text(200, "early")?
+        else:
+            exchange.start(std.http.response(200, "OK")?)?
+            tick = std.bytes.from_text("tick\n")?
+            while not exchange.stopping():
+                exchange.write(&tick, 0, tick.len())?
+                std.time.sleep(&std.time.milliseconds(20u32))
+            bye = std.bytes.from_text("bye\n")?
+            exchange.write(&bye, 0, bye.len())?
+        Ok(())
+
+def field(exchange: &Exchange[TcpStream], name: &str) -> Result[str, Failure]:
+    match std.http.find(&exchange.request.headers, name):
+        case Some(index):
+            Ok(exchange.request.headers[index].value.concat("")?)
+        case Nothing:
+            Ok("-")
+
+def info(exchange: &Exchange[TcpStream], proxies: &Proxies) -> Result[str, Failure]:
+    mut text = "authority=".concat(&exchange.authority)?
+    for name in ["Host", "X-Forwarded-For", "X-Forwarded-Proto", "Expect"]?:
+        text = text.concat("\n")?.concat(name)?.concat("=")?.concat(field(exchange, name)?)?
+    match &exchange.peer:
+        case Some(peer):
+            text = text.concat("\npeer=")?.concat(std.net.format_ip(peer.ip)?)?
+        case Nothing:
+            text = text.concat("\npeer=-")?
+    match std.http.proxy.client_of(exchange, proxies):
+        case Ok(client):
+            text = text.concat("\nclient=")?.concat(std.net.format_ip(client.address)?)?
+            match client.scheme:
+                case Some(scheme):
+                    text = text.concat(" ")?.concat(&scheme)?
+                case Nothing:
+                    pass
+        case Err(_):
+            text = text.concat("\nclient=invalid")?
+    Ok(text)
+
+def routes() -> Result[std.http.server.Router, Failure]:
+    mut table = std.http.server.router()?
+    for prefix in ["", "/stream"]?:
+        table.add("GET", prefix.concat("/info")?, 0)?
+        table.add("POST", prefix.concat("/echo")?, 1)?
+        table.add("GET", prefix.concat("/big")?, 2)?
+        table.add("GET", prefix.concat("/hold")?, 3)?
+        table.add("GET", prefix.concat("/release")?, 4)?
+        table.add("GET", prefix.concat("/slow")?, 5)?
+        table.add("POST", prefix.concat("/early")?, 6)?
+        table.add("GET", prefix.concat("/tick")?, 7)?
+    Ok(table)
+
+def counts(report: &Report) -> Result[str, Failure]:
+    mut text = "connections=".concat(str.from(report.connections)?)?
+    text = text.concat(" requests=")?.concat(str.from(report.requests)?)?
+    text = text.concat(" handler_errors=")?.concat(str.from(report.handler_errors)?)?
+    text = text.concat(" protocol_errors=")?.concat(str.from(report.protocol_errors)?)?
+    text = text.concat(" timeouts=")?.concat(str.from(report.timeouts)?)?
+    text = text.concat(" cancelled=")?.concat(str.from(report.cancelled)?)?
+    text = text.concat(" rejected=")?.concat(str.from(report.rejected)?)?
+    Ok(text)
+
+# Prints the port, serves until SIGTERM, then prints the report.
+def main() -> Result[(), Failure]:
+    signals = std.signal.listen()?
+    table = routes()?
+    mut proxies = std.http.proxy.proxies(Forwarding.XForwardedFor)?
+    proxies.trust("127.0.0.1")?
+    mut piece = std.bytes.with_capacity(65536)?
+    piece.resize(65536, 120u8)?
+    site = App(CancellationToken()?, proxies, piece)
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 64)?
+    print("port ".concat(str.from(i64(listener.local_address()?.port))?)?)?
+    stop = CancellationToken()?
+    with spawn(std.signal.cancel_on, signals, stop.share())? as watcher:
+        served = std.http.server.serve(listener, &table, &site, &std.http.server.config(), &stop)
+        stop.cancel()
+        watcher.join()?
+        print(counts(&served?)?)?
+    Ok(())

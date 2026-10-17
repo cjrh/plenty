@@ -66,6 +66,31 @@ example `python3 -B scripts/check_links.py book/src proposals`.
 Check the workflow helpers with
 `python3 -B -m unittest discover -s scripts -p 'test_*.py'`.
 
+## Reverse-proxy tests
+
+`tests/test_std_http_server_proxy.rs` runs `std.http.server` behind nginx and
+Caddy (see [reverse proxies](../design/stdlib/http-qualification.md#reverse-proxies)).
+They need Docker and curl, so they run only when asked:
+
+```sh
+PLENTY_DOCKER_TESTS=1 cargo test --locked --test test_std_http_server_proxy
+```
+
+Without the variable each test prints that it is skipped and passes, so the
+ordinary suite needs no Docker and does not slow down. With it, a missing
+Docker daemon or curl fails the tests. The first run pulls the two pinned images
+(about 70 MB each). Each test starts its own containers with `--network host`
+on free loopback ports, names them `plenty-proxy-test-<pid>-<n>` with the label
+`plenty-test=proxy`, and removes them when it ends, also on failure; nothing
+else is stopped or pruned. A test process killed outright leaves its
+containers running; list them with
+`docker ps --filter label=plenty-test=proxy`.
+
+For CI, use a Linux runner with Docker (GitHub's `ubuntu-latest` has Docker and
+curl) and add a step that sets `PLENTY_DOCKER_TESTS=1` and runs the command
+above. Pull `nginx:1.30.6-alpine3.24` and `caddy:2.11.7-alpine` in an earlier
+step, or cache them, so pulls are not timed with the tests.
+
 ## Quick reproductions
 
 The compiler expects a complete program with a `main` entry point. Put probe
