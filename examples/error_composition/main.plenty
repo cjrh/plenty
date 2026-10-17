@@ -1,0 +1,43 @@
+# Run with: cargo run -- examples/error_composition/main.plenty
+import std.bytes
+from std.bytes import Bytes
+from streams import StepError, CopyFailure, ReadFailure, copy_all
+from http_body import FramingError, fixed_body
+
+pub enum TransportError:
+    Disconnected(i64)
+
+pub enum StoreError:
+    Full
+
+pub class Wire:
+    delivered: bool
+
+    pub def read(self: &mut Wire, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[TransportError]]:
+        if self.delivered:
+            return Err(StepError[TransportError].Source(TransportError.Disconnected(104)))
+        # The prototype calls this with nonempty scratch; fill just one byte.
+        buffer.set(start, 65u8).unwrap()
+        self.delivered = True
+        Ok(1)
+
+pub class Store:
+    count: i64
+
+    pub def write(self: &mut Store, buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[StoreError]]:
+        self.count += stop - start
+        Ok(stop - start)
+
+def main() -> Result[(), Failure]:
+    mut scratch = std.bytes.with_capacity(4)?
+    scratch.resize(4, 0u8)?
+    mut body = fixed_body(Wire(False), 4)?
+    mut store = Store(0)
+    outcome = copy_all(&mut body, &mut store, &mut scratch)
+    match outcome:
+        case Err(CopyFailure.Read(completed, ReadFailure.Source(FramingError.Transport(TransportError.Disconnected(code))))):
+            print(completed)?
+            print(code)?
+        case _:
+            print("unexpected outcome")?
+    Ok(())

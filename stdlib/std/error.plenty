@@ -1,5 +1,15 @@
 from std.path import Path
 
+# The callback is owned so it may consume its captures on failure. On success,
+# ordinary scope cleanup drops the unused callback without invoking it.
+pub def map_error[T, E, G, F: OnceCallable[[E], G]](result: Result[T, E], mapper: F) -> Result[T, G]:
+    mut convert = mapper
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(convert(cause))
+
 # What the failed operation acted on. Unavailable records that copying the
 # path failed; the context still keeps its operation and typed cause.
 pub enum Subject:

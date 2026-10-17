@@ -5,6 +5,7 @@
 # fails, is cancelled, or is dropped leaves nothing behind on disk.
 # See book/src/design/stdlib/http-body.md.
 import std.bytes
+import std.error
 import std.fs
 import std.http
 import std.http.server
@@ -77,56 +78,38 @@ pub def reject[T: Transport](exchange: &mut Exchange[T], error: &BodyError) -> R
     exchange.send_text(code, &text)
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, BodyError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(BodyError.Allocation(cause))
+    std.error.map_error(result, def once (cause: AllocError) -> BodyError: BodyError.Allocation(cause))
 
 def http_allocated[T](result: Result[T, AllocError]) -> Result[T, HttpError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(HttpError.Allocation(cause))
+    std.error.map_error(result, def once (cause: AllocError) -> HttpError: HttpError.Allocation(cause))
 
 def lifted[T](result: Result[T, BytesError]) -> Result[T, BodyError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(BodyError.Allocation(cause))
-                case BytesError.InvalidUtf8:
-                    Err(BodyError.InvalidUtf8)
-                case _:
-                    Err(BodyError.Malformed)
+    std.error.map_error(result, def once (cause: BytesError) -> BodyError: bytes_failure(cause))
+
+def bytes_failure(error: BytesError) -> BodyError:
+    match error:
+        case BytesError.Allocation(cause):
+            BodyError.Allocation(cause)
+        case BytesError.InvalidUtf8:
+            BodyError.InvalidUtf8
+        case _:
+            BodyError.Malformed
 
 def http[T](result: Result[T, HttpError]) -> Result[T, BodyError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            match cause:
-                case HttpError.Allocation(inner):
-                    Err(BodyError.Allocation(inner))
-                case _ as other:
-                    Err(BodyError.Http(other))
+    std.error.map_error(result, def once (cause: HttpError) -> BodyError: http_failure(cause))
+
+def http_failure(cause: HttpError) -> BodyError:
+    match cause:
+        case HttpError.Allocation(inner):
+            BodyError.Allocation(inner)
+        case _ as other:
+            BodyError.Http(other)
 
 def json[T](result: Result[T, JsonError]) -> Result[T, BodyError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(BodyError.Json(cause))
+    std.error.map_error(result, def once (cause: JsonError) -> BodyError: BodyError.Json(cause))
 
 def stored[T](result: Result[T, IoError]) -> Result[T, BodyError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(storage_failure(StreamError.Io(cause)))
+    std.error.map_error(result, def once (cause: IoError) -> BodyError: storage_failure(StreamError.Io(cause)))
 
 # A storage call that failed for want of memory is an allocation failure,
 # whichever layer reported it.

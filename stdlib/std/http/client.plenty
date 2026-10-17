@@ -8,6 +8,7 @@
 # ones, so this module does not import std.tls and plain clients link none
 # of it. See book/src/design/stdlib/http-client.md.
 import std.bytes
+import std.error
 import std.http
 import std.io
 import std.net
@@ -329,11 +330,7 @@ pub class Fetched:
     pub body: Bytes
 
 def alloc[T](result: Result[T, AllocError]) -> Result[T, ClientError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(ClientError.Allocation(cause))
+    std.error.map_error(result, def once (cause: AllocError) -> ClientError: ClientError.Allocation(cause))
 
 def bytes_of[T](result: Result[T, BytesError]) -> Result[T, ClientError]:
     match result:
@@ -354,11 +351,7 @@ def http_of(error: HttpError) -> ClientError:
             ClientError.Http(other)
 
 def framed[T](result: Result[T, HttpError]) -> Result[T, ClientError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            Err(http_of(error))
+    std.error.map_error(result, def once (cause: HttpError) -> ClientError: http_of(cause))
 
 def netted[T](result: Result[T, NetError]) -> Result[T, ClientError]:
     match result:

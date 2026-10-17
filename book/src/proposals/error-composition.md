@@ -1,7 +1,7 @@
 # Explicit error composition
 
-Status: proposed, not implemented. This is a design assessment, not a change
-to the current error contract. Scheduling belongs in [B71](../backlog.md).
+Status: library mapping implemented; typed streams prototyped outside the
+stdlib API. The `?` error contract is unchanged. Remaining work belongs in [B71](../backlog.md).
 The companion [error sets](error-sets.md) page evaluates anonymous sums;
 [typestate](typestate-and-owned-transitions.md) addresses lifecycle invariants.
 
@@ -39,7 +39,7 @@ intentional public API policy.
 
 ## Explicit mapping
 
-Proposed spelling (not current executable Plenty):
+Possible future method spelling (not current executable Plenty):
 
 ```text
 body = std.json.encode(value, limits).map_err(body_json_error)?
@@ -50,11 +50,10 @@ def body_json_error(cause: JsonError) -> BodyError:
 
 The operation consumes `Result[T, E]` and a mapper constrained by
 `F: OnceCallable[[E], G]`, returning `Result[T, G]`.
-A free `std.error.map_error(result, mapper)` is a smaller library prototype;
-method syntax is an ergonomic choice, not required semantics. A standalone
-generic helper using this bound and a named mapper type-checked with the
-available local debug compiler during the assessment. This establishes a
-library-only starting point, not a fresh-build or full ownership-test result.
+The implemented `std.error.map_error(result, mapper)` provides these semantics
+as an ordinary library function. Method syntax remains an ergonomic choice,
+not required semantics. See [the reference](../design/stdlib/error.md#explicit-error-mapping)
+and [the tutorial](../tutorial/03-absence/error-details.md).
 
 - Evaluate the result and mapper expressions once, left to right.
 - Invoke the mapper exactly once on `Err`, never on `Ok`.
@@ -166,3 +165,70 @@ without mapping allocation, destruction of affine payloads/captures, partial
 progress, interruption, cancellation, and allocation failure. Check diagnostic
 quality for incompatible error types and protocol inference. Tutorial/reference
 changes belong with an implementation, not this proposal.
+
+## Prototype findings
+
+The first implementation needs no compiler or runtime changes. `map_error`
+uses `OnceCallable`, a mutable local callback binding, and an ordinary match.
+The mutable binding accepts stateful reusable callbacks as well as named
+functions and consuming closures. A callback is owned even when unused, so
+success drops its captures. Error values need no reporting protocol.
+
+The representative stdlib changes cover 11 result adapters: six in
+`std/http/body.plenty` (`allocated`, `http_allocated`, `lifted`, `http`, `json`,
+`stored`), two in `std/http/client.plenty` (`alloc`, `framed`), and three in
+`std/json.plenty` (`faulted`, `reserved`, `unplaced`). All 11 explicit success
+forwarding branches disappear. The 11 convenience functions remain, preserving
+short existing call sites; three non-generic classifiers expose multi-case
+policies (`bytes_failure`, `http_failure`, `bytes_fault`). Thus mapping removes
+branch boilerplate, not every adapter function, and can increase the number of
+named functions. The remaining client classifiers are unchanged for comparison.
+
+Worker integration exposed a real ergonomic restriction: thin function values
+lose their target identity inside the generic helper, so thread effect checking
+rejects their indirect calls. The stdlib adopters use concrete consuming
+closures (`def once (...)`) instead; their bodies remain inspectable and allocate
+nothing. Named classifiers are called directly from these closures. This keeps
+worker checks intact but adds a wrapper at those sites. Mapping does not solve
+that existing callable-design limitation.
+
+The isolated modules in `examples/error_composition/` explore a normalized
+`StepError[E]` envelope: `Interrupted` requests retry; `Source(E)` preserves
+everything else, including cancellation and allocation failure. `Reader[E]`
+and `Writer[E]` feed `read_exact`, `write_all`, and `copy_all`; helper-generated
+failures have their own variants. Copy errors distinguish reader and writer
+types and count bytes delivered to the writer, including partial writes.
+Caller-provided scratch storage avoids allocation in the helpers.
+
+`FixedBody[E, R]` demonstrates Content-Length body framing over a typed
+transport. Its failures distinguish `Transport(E)`, truncation, invalid
+progress, invalid range, and reuse after failure. Interruption leaves it
+usable; terminal framing/transport failures mark it broken. The full body-copy
+path returns the original transport cause through `FramingError[E]` and
+`CopyFailure[FramingError[E], W]`. It contains zero error-storage fields and
+zero retrieval methods. Production `_failure` fields and `take_failure`
+methods are unchanged: the experiment does not yet justify their removal.
+
+This is one complete **body-transfer** path, not a complete HTTP client. It
+assumes a previously validated Content-Length and response semantics. It does
+not parse heads, implement chunked/close-delimited framing, perform TLS or
+network I/O, or manage connection reuse. Scripted sources exercise rich TLS-like
+errors and cancellation as typed data, not real handshakes or cancellation
+tokens. Those boundaries must be covered before a production migration.
+
+Protocol-bound inference recovers the error types from concrete methods, even
+through the framing adapter: `fixed_body(source, length)` and
+`copy_all(&mut body, &mut writer, &mut scratch)` need no explicit type arguments.
+The generic definitions and nested error signatures are still long. A normalized
+envelope keeps retry policy simple but
+requires adapters to wrap their failures. A classifier callback would leave
+transport signatures alone, at the cost of threading retry policy through
+helpers; it remains an alternative, not implemented here. Arbitrary errors
+must not be retried by guessing their meaning.
+
+Focused tests live in `tests/test_error_composition.rs` and
+`tests/test_typed_stream_prototype.rs`. They cover mapper ownership, allocation
+failure, nested results, evaluation order, progress, retry, EOF, cancellation,
+failure-side attribution, and typed transport preservation. The next decision
+is whether the stream signature cost warrants a broader framing experiment;
+mapping is independently usable today.
