@@ -2,6 +2,12 @@
 name = "plenty"
 version = "0.1.0"
 edition = "2021"
+# Integration tests are modules of one binary; see tests/integration.rs.
+autotests = false
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
 
 [workspace]
 members = ["plenty-runtime"]

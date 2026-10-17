@@ -36,6 +36,36 @@ Tests inherit the development settings, and benchmarks inherit the release
 settings. These profiles are configured in the workspace's `.cargo/config.toml`
 so they take precedence over user-wide Cargo profile settings.
 
+## Running tests
+
+`cargo test --locked --workspace --all-features` runs the full suite, as CI
+does. When several workers share a machine, add `-j 3 -- --test-threads=3`.
+
+The integration tests in `tests/test_*.rs` are modules of one test binary,
+`tests/integration.rs`, so all of them share one pool of test threads and the
+binary is linked once. Select one file's tests by module, or one test by path:
+
+```sh
+cargo test --locked --test integration test_std_url::
+cargo test --locked --test integration -- --exact test_std_url::rfc_3986_examples_split_into_components
+```
+
+Cargo builds separately for each set of `--workspace` and feature flags, so
+add the full suite's flags to reuse its build. List a new test file in
+`tests/integration.rs`; `every_test_file_is_listed` fails until it is. Editing
+any test file recompiles the whole binary.
+
+Most tests compile a Plenty program and link it with `cc`. The workspace's
+`.cargo/config.toml` sets `COMPILER_PATH` for the processes Cargo starts, so
+where mold is installed as `/usr/libexec/mold/ld`, `cc` links these programs
+with mold, several times faster than GNU ld. Elsewhere `cc` uses its default
+linker. The setting does not change the compiler's default `cc` driver or the
+Rust linker; `COMPILER_PATH= cargo test ...` links with the system default.
+Tests must not depend on one linker's output, such as the exact symbol table.
+
+[cargo-nextest](https://nexte.st) is optional: `cargo nextest run --workspace
+--all-features` runs each test in its own process. It does not run doctests.
+
 ## Runnable documentation
 
 `tests/test_tutorial.rs` reads tutorial and `design/examples/` pages in
@@ -43,7 +73,9 @@ so they take precedence over user-wide Cargo profile settings.
 compile-and-run and an explicitly compiled binary. A `plenty-error` fence has an
 `error` substring and must fail without executing effects. A `plenty-file`
 companion module remains on the same page as its example. Every book page must
-appear in `SUMMARY.md`.
+appear in `SUMMARY.md`. The examples run as 16 tests in parallel, each taking
+every 16th example in reading order; a failure names the example's page and
+line.
 
 Proposal fences are illustrative and are not executed by the tutorial suite.
 Use `text` fences for proposed syntax; check implemented behavior with a complete
@@ -52,7 +84,7 @@ program or an executable lesson.
 After documentation moves, run:
 
 ```sh
-cargo test --locked --test test_tutorial
+cargo test --locked --test integration test_tutorial::
 mdbook build book
 python3 -B scripts/check_links.py book/src
 ```

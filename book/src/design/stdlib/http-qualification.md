@@ -170,7 +170,7 @@ linked into a program that only serves HTTP.
 ## Reproducing
 
 ```text
-cargo test --locked --all-features --test test_std_http_server_qualification
+cargo test --locked --all-features --test integration test_std_http_server_qualification::
 cargo build --release --locked
 python3 examples/http_server_bench.py --compiler target/release/plenty --output target/http-bench --runs 3
 ```

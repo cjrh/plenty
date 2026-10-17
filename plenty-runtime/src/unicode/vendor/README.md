@@ -19,7 +19,8 @@ three license/copyright files unchanged, inspect API/version changes, update
 `tests/fixtures/unicode-17/NormalizationTest.txt` with the matching official UCD
 fixture (renaming the fixture directory and test include when appropriate).
 The fixture source is https://www.unicode.org/Public/17.0.0/ucd/NormalizationTest.txt;
-its Unicode license is stored beside it. Run `cargo test --locked --test
-test_std_text_unicode --features runtime-checks`, tutorial and runtime-packaging
-tests, and strict workspace Clippy. Review changed normalization output as an
-intentional library contract update. Nothing is downloaded during normal builds.
+its Unicode license is stored beside it. Run `cargo test --locked --features
+runtime-checks --test integration test_std_text_unicode::`, tutorial and
+runtime-packaging tests, and strict workspace Clippy. Review changed
+normalization output as an intentional library contract update. Nothing is
+downloaded during normal builds.

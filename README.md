@@ -79,7 +79,7 @@ place ABI, lifetime, and aliasing obligations on foreign code.
 
 ```sh
 cargo test --workspace --all-features
-cargo test --test test_tutorial
+cargo test --test integration test_tutorial::
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 

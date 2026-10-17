@@ -22,6 +22,6 @@ mdbook serve book --open
 
 ## Tested examples
 
-`cargo test --test test_tutorial` compiles and runs every example in
-*Learn Plenty*. It compares the output with the expected output on the page.
-An example that must fail must give the expected diagnostic.
+`cargo test --test integration test_tutorial::` compiles and runs every
+example in *Learn Plenty*. It compares the output with the expected output on
+the page. An example that must fail must give the expected diagnostic.
