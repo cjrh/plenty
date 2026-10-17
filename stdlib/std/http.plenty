@@ -558,7 +558,7 @@ pub def request_target(head: &RequestHead) -> Result[RequestTarget, HttpError]:
     mut authority = ""
     if target.startswith("/"):
         if host >= 0:
-            authority = listed(head.headers[host].value.concat(""))?
+            authority = head.headers[host].value
     else:
         begin = authority_start(target)?
         start = begin
