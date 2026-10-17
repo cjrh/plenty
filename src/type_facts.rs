@@ -395,7 +395,7 @@ mod tests {
                 element: list(&Ty::I64),
                 name: Some("frame".into()),
                 slots: OnceLock::new(),
-                bytes: OnceLock::new(),
+                layout: OnceLock::new(),
             })),
             Ty::Task(Arc::new(crate::threading::Task {
                 adapter: "adapter".into(),

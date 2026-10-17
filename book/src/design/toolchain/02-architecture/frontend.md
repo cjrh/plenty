@@ -38,6 +38,11 @@ methods, runs on all cores when the module has at least 256 functions or 64
 classes: each reads only the module's scope. Frame layout and generator
 operation validation after lowering also run on all cores. Both report the
 first error in source or program order, as a serial pass would.
+Threads share generator, closure, and nominal layout caches. A cached layout
+records how deep its frames and environments nest, and is reused only where it
+cannot hide the nesting limit of 64; otherwise the type is measured again. Each
+function's layout error is therefore the same whichever thread measured a type
+first (issue #126).
 
 Parsing, the rest of name resolution, type resolution, class expansion,
 generic preparation, signatures, and lowering bodies to operations run on one

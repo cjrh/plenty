@@ -1,5 +1,6 @@
 //! Concrete, owner-local closure environments. Code is statically selected;
 //! capture storage is part of the value, never an implicit heap allocation.
+use crate::generator::{Measured, NESTING_LIMIT};
 use crate::op::{CallableSig, Ty};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -17,7 +18,7 @@ pub struct ClosureType {
     pub once: bool,
     pub depth: usize,
     pub borrowed: bool,
-    bytes: OnceLock<usize>,
+    layout: OnceLock<Measured>,
 }
 
 // A concrete expression has one environment identity. Hashing its entire
@@ -49,18 +50,20 @@ impl ClosureType {
         writable: Vec<bool>,
         once: bool,
     ) -> Result<Self, String> {
-        let bytes = OnceLock::new();
+        let layout = OnceLock::new();
         // Captured frame bodies are finalized by the normal lowering work queue.
         // Defer only their dependent sizes, avoiding recursive body lowering.
+        // A size known now is never measured, so no nesting limit applies.
         if !captures.iter().any(|(_, ty)| ty.contains_generator_frame()) {
-            bytes
-                .set(captures.iter().try_fold(16usize, |size, (_, ty)| {
-                    size.checked_add(ty.slot_bytes())
-                        .filter(|n| *n <= i32::MAX as usize)
-                        .ok_or_else(|| {
-                            "closure environment exceeds the native stack-layout limit".to_string()
-                        })
-                })?)
+            let bytes = captures.iter().try_fold(16usize, |size, (_, ty)| {
+                size.checked_add(ty.slot_bytes())
+                    .filter(|n| *n <= i32::MAX as usize)
+                    .ok_or_else(|| {
+                        "closure environment exceeds the native stack-layout limit".to_string()
+                    })
+            })?;
+            layout
+                .set(Measured { bytes, reach: 0 })
                 .expect("new environment layout");
         }
         let depth = 1 + captures
@@ -80,7 +83,7 @@ impl ClosureType {
             once,
             depth,
             borrowed,
-            bytes,
+            layout,
         })
     }
     pub fn parameter(&self, index: usize) -> Ty {
@@ -92,31 +95,36 @@ impl ClosureType {
         }
     }
     pub fn bytes(&self) -> usize {
-        *self.bytes.get().expect("resolved closure layout")
+        self.layout.get().expect("resolved closure layout").bytes
     }
 
-    pub fn layout(&self, active: &mut Vec<String>) -> Result<usize, String> {
-        if let Some(bytes) = self.bytes.get() {
-            return Ok(*bytes);
+    pub fn layout(&self, active: &mut Vec<String>) -> Result<Measured, String> {
+        if let Some(cached) = self.layout.get().and_then(|m| m.at_depth(active.len())) {
+            return Ok(cached);
         }
         if active.contains(&self.name) {
             return Err("recursive inline closure layout has no finite size".into());
         }
-        if active.len() >= 64 {
+        if active.len() >= NESTING_LIMIT {
             return Err("inline closure nesting exceeds the implementation limit of 64".into());
         }
         active.push(self.name.clone());
+        let mut reach = 0;
         let bytes = self.captures.iter().try_fold(16usize, |size, (_, ty)| {
-            size.checked_add(16 + crate::generator::layout(ty, active)?)
+            let capture = crate::generator::measure(ty, active)?;
+            reach = reach.max(capture.reach);
+            size.checked_add(16 + capture.bytes)
                 .filter(|n| *n <= i32::MAX as usize)
                 .ok_or_else(|| {
                     "closure environment exceeds the native stack-layout limit".to_string()
                 })
         })?;
         active.pop();
-        // Frames are validated on several threads, which may measure the
-        // same environment at once; every measurement is the same.
-        Ok(*self.bytes.get_or_init(|| bytes))
+        // Threads measuring the same environment at once agree.
+        Ok(*self.layout.get_or_init(|| Measured {
+            bytes,
+            reach: reach + 1,
+        }))
     }
 
     pub fn offset(&self, index: usize) -> usize {

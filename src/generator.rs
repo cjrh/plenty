@@ -10,7 +10,32 @@ pub struct GeneratorType {
     /// None is a source annotation awaiting a concrete producer.
     pub name: Option<String>,
     pub slots: OnceLock<Vec<Ty>>,
-    pub bytes: OnceLock<usize>,
+    pub layout: OnceLock<Measured>,
+}
+
+/// Frames and environments nested more deeply than this are rejected.
+pub const NESTING_LIMIT: usize = 64;
+
+/// A finished inline layout measurement. `reach` counts the nominal layouts
+/// from this one, inclusive, down to the deepest frame or environment the
+/// nesting limit applies to, or is zero when the limit applies to none.
+///
+/// Frames are validated on several threads that share these caches, so a
+/// measurement may meet a type another thread already measured. A cached
+/// layout is used only where measuring it again could not reach the limit;
+/// otherwise the type is measured again and reports the same error a serial,
+/// uncached measurement would (issue #126).
+#[derive(Clone, Copy, Debug)]
+pub struct Measured {
+    pub bytes: usize,
+    pub reach: usize,
+}
+
+impl Measured {
+    /// This cached layout, if it does not hide a nesting error at `depth`.
+    pub fn at_depth(&self, depth: usize) -> Option<Self> {
+        (depth + self.reach <= NESTING_LIMIT).then_some(*self)
+    }
 }
 impl PartialEq for GeneratorType {
     fn eq(&self, other: &Self) -> bool {
@@ -64,7 +89,7 @@ pub fn ty(element: Ty, name: Option<String>) -> Ty {
         element,
         name,
         slots: OnceLock::new(),
-        bytes: OnceLock::new(),
+        layout: OnceLock::new(),
     }))
 }
 
@@ -221,7 +246,7 @@ impl Ty {
         match self {
             Self::Closure(t) => t.bytes(),
             Self::Range(_) => 32,
-            Self::Generator(t) => *t.bytes.get().expect("resolved generator layout"),
+            Self::Generator(t) => t.layout.get().expect("resolved generator layout").bytes,
             Self::Enum(t) => *t.get().payload_bytes.get_or_init(|| {
                 t.get()
                     .variants
@@ -261,6 +286,11 @@ fn variant_bytes<E>(
 pub const INLINE_LIMIT: usize = 64 * 1024;
 
 pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
+    measure(ty, active).map(|m| m.bytes)
+}
+
+/// The layout of `ty` nested inside the nominal types in `active`.
+pub fn measure(ty: &Ty, active: &mut Vec<String>) -> Result<Measured, String> {
     match ty {
         Ty::Closure(t) => {
             if t.name.is_empty() {
@@ -271,8 +301,8 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
             t.layout(active)
         }
         Ty::Generator(t) => {
-            if let Some(bytes) = t.bytes.get() {
-                return Ok(*bytes);
+            if let Some(cached) = t.layout.get().and_then(|m| m.at_depth(active.len())) {
+                return Ok(cached);
             }
             let name = t
                 .name
@@ -281,82 +311,131 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
             if active.contains(name) {
                 return Err(format!("recursive inline generator layout involving `{name}`; nested frames must have a finite size"));
             }
-            if active.len() >= 64 {
+            if active.len() >= NESTING_LIMIT {
                 return Err(
                     "inline generator nesting exceeds the implementation limit of 64".into(),
                 );
             }
             active.push(name.clone());
             let mut bytes = 64usize;
+            let mut reach = 0;
             for slot in t.slots.get().ok_or("missing generator frame body")? {
+                let slot = measure(slot, active)?;
+                reach = reach.max(slot.reach);
                 bytes = bytes
-                    .checked_add(16 + layout(slot, active)?)
+                    .checked_add(16 + slot.bytes)
                     .filter(|n| *n <= i32::MAX as usize)
                     .ok_or("generator frame exceeds the native stack-layout limit")?;
             }
             active.pop();
-            // Frames are validated on several threads, which may measure the
-            // same generator at once; every measurement is the same.
-            Ok(*t.bytes.get_or_init(|| bytes))
+            // Threads measuring the same generator at once agree.
+            Ok(*t.layout.get_or_init(|| Measured {
+                bytes,
+                reach: reach + 1,
+            }))
         }
+        // Only an enum with restricted storage can hold a frame or an
+        // environment, so only its cached size could hide a nesting error.
+        // It is measured again; its contents' layouts are cached.
         Ty::Enum(t) => {
-            if let Some(bytes) = t.get().payload_bytes.get() {
-                return Ok(*bytes);
-            }
-            nested(&t.name, active, |active| {
-                t.get().variants.iter().try_fold(0, |n, v| {
-                    Ok(n.max(variant_bytes(&v.fields, |t| layout(t, active))?))
-                })
-            })
-            .map(|bytes| *t.get().payload_bytes.get_or_init(|| bytes))
-        }
-        Ty::Class(t) => {
-            if let Some(bytes) = t.get().bytes.get() {
-                return Ok(*bytes);
+            if !t.get().restricted_storage {
+                if let Some(bytes) = t.get().payload_bytes.get() {
+                    return Ok(Measured {
+                        bytes: *bytes,
+                        reach: 0,
+                    });
+                }
             }
             nested(&t.name, active, |active| {
                 t.get()
-                    .fields
+                    .variants
                     .iter()
-                    .try_fold(t.get().state_bytes(), |n, (_, t)| {
-                        Ok(n + 16 + layout(t, active)?)
+                    .try_fold(Measured { bytes: 0, reach: 0 }, |n, v| {
+                        let mut reach = n.reach;
+                        let bytes = variant_bytes(&v.fields, |t| {
+                            let field = measure(t, active)?;
+                            reach = reach.max(field.reach);
+                            Ok::<_, String>(field.bytes)
+                        })?;
+                        Ok(Measured {
+                            bytes: n.bytes.max(bytes),
+                            reach,
+                        })
                     })
             })
-            .map(|bytes| *t.get().bytes.get_or_init(|| bytes))
+            .map(|m| Measured {
+                bytes: *t.get().payload_bytes.get_or_init(|| m.bytes),
+                reach: m.reach,
+            })
+        }
+        // Class fields cannot hold a frame or a frame-dependent environment.
+        Ty::Class(t) => {
+            if let Some(bytes) = t.get().bytes.get() {
+                return Ok(Measured {
+                    bytes: *bytes,
+                    reach: 0,
+                });
+            }
+            nested(&t.name, active, |active| {
+                t.get().fields.iter().try_fold(
+                    Measured {
+                        bytes: t.get().state_bytes(),
+                        reach: 0,
+                    },
+                    |n, (_, t)| {
+                        let field = measure(t, active)?;
+                        Ok(Measured {
+                            bytes: n.bytes + 16 + field.bytes,
+                            reach: n.reach.max(field.reach),
+                        })
+                    },
+                )
+            })
+            .map(|m| Measured {
+                bytes: *t.get().bytes.get_or_init(|| m.bytes),
+                reach: m.reach,
+            })
         }
         // A box's content is laid out where the content type itself occurs,
         // so a recursive type does not measure itself through its boxes.
-        Ty::Box(_) => Ok(0),
-        Ty::Range(_) => Ok(32),
-        Ty::Ref(t, _) => {
-            layout(t, active)?;
-            Ok(0)
-        }
-        _ => Ok(0),
+        Ty::Box(_) => Ok(Measured { bytes: 0, reach: 0 }),
+        Ty::Range(_) => Ok(Measured {
+            bytes: 32,
+            reach: 0,
+        }),
+        Ty::Ref(t, _) => Ok(Measured {
+            bytes: 0,
+            reach: measure(t, active)?.reach,
+        }),
+        _ => Ok(Measured { bytes: 0, reach: 0 }),
     }
 }
 
 /// Lay out a nominal type's storage, rejecting a value that contains itself.
+/// The type itself is one level of nesting above its contents.
 fn nested(
     name: &str,
     active: &mut Vec<String>,
-    measure: impl FnOnce(&mut Vec<String>) -> Result<usize, String>,
-) -> Result<usize, String> {
+    measure: impl FnOnce(&mut Vec<String>) -> Result<Measured, String>,
+) -> Result<Measured, String> {
     if active.iter().any(|n| n == name) {
         return Err(format!(
             "`{name}` contains itself and would have infinite size; store the recursive field in a `Box`, list, set, or dict"
         ));
     }
     active.push(name.into());
-    let bytes = measure(active);
+    let measured = measure(active);
     active.pop();
-    let bytes = bytes?;
+    let Measured { bytes, reach } = measured?;
     if bytes > INLINE_LIMIT {
         return Err(format!(
             "`{name}` needs {bytes} bytes of inline storage, more than the limit of {INLINE_LIMIT}; store large fields in a `Box`"
         ));
     }
-    Ok(bytes)
+    Ok(Measured {
+        bytes,
+        reach: if reach == 0 { 0 } else { reach + 1 },
+    })
 }
 
 /// Include types that occur only in temporary operands (such as an empty
@@ -445,4 +524,46 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Generators `g0` to `g70`, each holding two of the next, so a frame
+    /// doubles in size at each level.
+    fn chain() -> Vec<Ty> {
+        let mut frames = vec![ty(Ty::I64, Some("g70".into()))];
+        let Ty::Generator(last) = &frames[0] else {
+            unreachable!()
+        };
+        last.set_slots(Vec::new()).unwrap();
+        for i in (0..70).rev() {
+            let next = frames.last().unwrap().clone();
+            let frame = ty(Ty::I64, Some(format!("g{i}")));
+            let Ty::Generator(t) = &frame else {
+                unreachable!()
+            };
+            t.set_slots(vec![next.clone(), next]).unwrap();
+            frames.push(frame);
+        }
+        frames.reverse();
+        frames
+    }
+
+    #[test]
+    fn cached_layouts_do_not_change_the_error() {
+        let fresh = layout(&chain()[0], &mut Vec::new()).unwrap_err();
+        assert!(fresh.contains("nesting exceeds"), "{fresh}");
+        // Another thread may already have measured the deeper frames, which
+        // fit by themselves.
+        let frames = chain();
+        let measured = frames
+            .iter()
+            .rev()
+            .take_while(|frame| layout(frame, &mut Vec::new()).is_ok())
+            .count();
+        assert!((10..60).contains(&measured), "{measured}");
+        assert_eq!(layout(&frames[0], &mut Vec::new()).unwrap_err(), fresh);
+    }
 }
