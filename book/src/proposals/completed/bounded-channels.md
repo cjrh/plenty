@@ -1,13 +1,13 @@
 # Bounded channel implementation decision
 
-> **Status: Implemented.** [Channels](../design/facilities/03-concurrency/channels.md)
+> **Status: Implemented.** [Channels](../../design/facilities/03-concurrency/channels.md)
 > own the source contract and
-> [concurrency architecture](../design/toolchain/02-architecture/concurrency.md)
+> [concurrency architecture](../../design/toolchain/02-architecture/concurrency.md)
 > the runtime.
 >
 > **Shipped differently:** construction makes one allocation, and the endpoint
 > pair is an inline tuple.
-> [Timed selection](../design/facilities/03-concurrency/timed-selection.md)
+> [Timed selection](../../design/facilities/03-concurrency/timed-selection.md)
 > later added waiter nodes to the core.
 >
 > **Remaining:** zero-capacity rendezvous, and send-side or larger selection
@@ -74,4 +74,4 @@ The mutex serializes transfers and provides a straightforward publication point.
 There is no lock-free or strict fairness claim. Positive capacities cover the
 initial contract; zero-capacity rendezvous is a distinct handshake rather than
 a disguised one-slot queue. Scheduling and subsequent extensions remain in the
-[backlog](../backlog.md).
+[backlog](../../backlog.md).

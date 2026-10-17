@@ -1,10 +1,10 @@
 # Generics, structural protocols, context managers, and error propagation
 
 > **Status: Implemented.** Proposed 2026-10-05; all four parts shipped.
-> [Generics](../design/language/07-generics/index.md),
-> [protocols](../design/language/07-generics/protocols.md),
-> [resource scopes](../design/language/08-errors/03-resource-scopes.md), and
-> [sums and propagation](../design/language/08-errors/01-sums-and-propagation.md)
+> [Generics](../../design/language/07-generics/index.md),
+> [protocols](../../design/language/07-generics/protocols.md),
+> [resource scopes](../../design/language/08-errors/03-resource-scopes.md), and
+> [sums and propagation](../../design/language/08-errors/01-sums-and-propagation.md)
 > own the contract.
 >
 > **Shipped differently:** a protocol requirement ends in `:` with a `pass`
@@ -173,7 +173,7 @@ allocation-free error carrier or an equivalent verified lowering; reusing an
 existing container is insufficient if its type metadata or ownership contract
 changes. Error mapping performed explicitly by user code may itself be fallible,
 but the primitive propagation path and OOM error construction must work without
-allocating. See [memory, parallelism, and SIMD](memory-parallelism-and-simd.md).
+allocating. See [memory, parallelism, and SIMD](../memory-parallelism-and-simd.md).
 
 Rust supplies a familiar precedent but permits conversion on `Result` error
 propagation. Plenty should initially require exact error types and explicit

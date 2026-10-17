@@ -111,7 +111,7 @@ and measure generated-code growth. This costs some compile time, but remains a
 tractable first design without specialization, blanket implementations, or a large
 trait-resolution engine.
 
-The [protocols, generics, and context managers proposal](protocols-generics-and-context-managers.md)
+The [protocols, generics, and context managers proposal](completed/protocols-generics-and-context-managers.md)
 contains the proposed matching and specialization rules.
 
 ## Context managers and `?`

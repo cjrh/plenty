@@ -2,15 +2,15 @@
 
 > **Status: Implemented** (B22). Scoped threads, bounded channels, executors,
 > futures, parallel map and reduction, cancellation, and timed selection
-> shipped. The [concurrency reference](../design/facilities/03-concurrency/index.md)
+> shipped. The [concurrency reference](../../design/facilities/03-concurrency/index.md)
 > owns the source contract and
-> [concurrency architecture](../design/toolchain/02-architecture/concurrency.md)
+> [concurrency architecture](../../design/toolchain/02-architecture/concurrency.md)
 > the runtime.
 >
 > **Shipped differently:** generator frames and executor or future handles
 > cannot enter workers. Native files and network handles now cross threads
 > under ordinary ownership and loan rules; the compiler certifies
-> [native effects](../design/facilities/03-concurrency/effects.md) without a stdlib
+> [native effects](../../design/facilities/03-concurrency/effects.md) without a stdlib
 > exemption. Foreign calls and opaque foreign resources remain unsupported in
 > workers. The audit below records the earlier restrictions.
 > A failed fallible map returns the earliest failed input's error as

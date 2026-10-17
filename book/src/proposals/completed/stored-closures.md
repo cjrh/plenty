@@ -1,9 +1,9 @@
 # Stored closure environments
 
 > **Status: Implemented.** This records B32's storage decision.
-> [Consuming and stored closures](../design/language/06-functions/04-consuming-and-stored-closures.md)
+> [Consuming and stored closures](../../design/language/06-functions/04-consuming-and-stored-closures.md)
 > owns the contract and
-> [environments](../design/toolchain/02-architecture/environments.md) the
+> [environments](../../design/toolchain/02-architecture/environments.md) the
 > layout.
 >
 > **Shipped differently:** classes, tuples, and enums are inline, so only a
@@ -11,7 +11,7 @@
 > heap storage.
 >
 > **Shared-call erasure implemented:** explicit fallible
-> [BoxedCallable](../design/language/06-functions/05-boxed-callables.md) addresses
+> [BoxedCallable](../../design/language/06-functions/05-boxed-callables.md) addresses
 > heterogeneous shared-call storage (issue #25).
 >
 > **Remaining:** mutable/consuming erased modes and generator-containing

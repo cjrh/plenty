@@ -1,7 +1,7 @@
 # Runtime allocation audit
 
 > **Status: Implemented.** Reconciled with the compiler on 2026-10-10.
-> [Allocation and traps](../design/language/08-errors/02-allocation-and-traps.md)
+> [Allocation and traps](../../design/language/08-errors/02-allocation-and-traps.md)
 > owns the contract; this page is the per-path audit behind it.
 >
 > **Remaining:** public allocator selection, allocator lifetimes, and routing of
@@ -45,7 +45,7 @@ outer display is not an exception handler. Earlier side effects are not rolled b
 
 `Result` and `Option` wrappers, builtin error payloads, propagation, and native
 entrypoint status conversion need no allocation. A `main` that returns `Err`
-[reports it](../design/toolchain/01-building/entry-report.md) on standard error
+[reports it](../../design/toolchain/01-building/entry-report.md) on standard error
 and exits with status one. If formatting the report fails to allocate, it falls
 back to a fixed allocation-free message.
 

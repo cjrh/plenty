@@ -1,9 +1,9 @@
 # Allocation-free generator frames and ranges
 
 > **Status: Implemented** (B25, B26).
-> [Generators](../design/language/09-iteration/03-generators.md) and
-> [ranges](../design/facilities/01-builtins/ranges.md) own the contract, and
-> [environments](../design/toolchain/02-architecture/environments.md) the frame
+> [Generators](../../design/language/09-iteration/03-generators.md) and
+> [ranges](../../design/facilities/01-builtins/ranges.md) own the contract, and
+> [environments](../../design/toolchain/02-architecture/environments.md) the frame
 > ABI.
 >
 > **Settled since:** the "original design questions" below are answered. A

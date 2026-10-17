@@ -22,26 +22,22 @@ Below its status block a proposal keeps its original wording. It may say
 syntax that never shipped. Proposal code is not compiled by the test suite.
 
 A change that implements or alters a proposed design updates that proposal's
-status block in the same change. A proposal that is superseded or abandoned, or
-that only records completed work, is deleted; Git history keeps it. Statuses
-were last scanned against merged implementation work on 2026-10-17.
+status block in the same change. Move proposals whose agreed scope has shipped
+into [completed/](completed/index.md), preserving their rationale and updating
+links and the book navigation. Completion does not require implementing every
+alternative or future extension discussed in the original text.
 
-## Implemented
+Partly implemented and not implemented proposals stay in this folder. Keep their
+status blocks explicit about what shipped and what remains. Superseded or
+abandoned proposals can be retained separately in `archived/` when needed; they
+are not completed implementations. The reference and tutorial remain authoritative
+for current behavior. Statuses were last scanned against merged implementation
+work on 2026-10-17.
 
-| Proposal | Reference | Remaining |
-| --- | --- | --- |
-| [Runtime allocation audit](allocation-audit.md) | [Allocation and traps](../design/language/08-errors/02-allocation-and-traps.md) | B13 |
-| [References, ownership, and explicit copying](references-and-copying.md) | [Ownership](../design/language/05-ownership/index.md) | B11 |
-| [One immutable `str` with explicit lengths](strings.md) | [Text](../design/facilities/01-builtins/text.md) | B12, B27 |
-| [Sum types and enums](sum-types.md) | [Enums](../design/language/03-types/enums.md), [matching](../design/language/04-expressions/matching.md) | B19, B33 |
-| [Generics, structural protocols, context managers, and error propagation](protocols-generics-and-context-managers.md) | [Generics](../design/language/07-generics/index.md), [resource scopes](../design/language/08-errors/03-resource-scopes.md) | B11, B14, B29 |
-| [Native owned generators](generators.md) | [Generators](../design/language/09-iteration/03-generators.md) | Unscheduled |
-| [Allocation-free generator frames and ranges](allocation-free-generators.md) | [Generators](../design/language/09-iteration/03-generators.md), [ranges](../design/facilities/01-builtins/ranges.md) | B12 |
-| [Callable surface review](callable-simplicity.md) | [Functions](../design/language/06-functions/index.md) | B32 |
-| [Stored closure environments](stored-closures.md) | [Consuming and stored closures](../design/language/06-functions/04-consuming-and-stored-closures.md) | B11, B32 |
-| [Native concurrency contract](native-concurrency.md) | [Concurrency](../design/facilities/03-concurrency/index.md) | B13, B24, B28 |
-| [Bounded channel implementation](bounded-channels.md) | [Channels](../design/facilities/03-concurrency/channels.md) | Deferred B22 extensions |
-| [Named arguments and fresh defaults](named-arguments-and-fresh-defaults.md) | [Signatures and calls](../design/language/06-functions/01-signatures-and-calls.md) | B36 refinements; unpacking remains separate |
+## Completed
+
+See [Completed proposals](completed/index.md) for shipped designs and their
+reference pages. Further extensions remain tracked in the backlog.
 
 ## Partly implemented
 

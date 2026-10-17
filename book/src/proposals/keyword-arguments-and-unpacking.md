@@ -1,6 +1,6 @@
 # Keyword arguments, defaults, and static unpacking
 
-> **Revised direction, 2026-10-17:** [Named arguments and fresh defaults](named-arguments-and-fresh-defaults.md)
+> **Revised direction, 2026-10-17:** [Named arguments and fresh defaults](completed/named-arguments-and-fresh-defaults.md)
 > is the preferred narrow proposal for B36. It separates named calls and defaults
 > from splat unpacking and signature markers, and implements fresh fallible defaults.
 > This older document retains the broader alternatives;
