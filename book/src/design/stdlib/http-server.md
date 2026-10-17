@@ -255,6 +255,11 @@ Cancelling `stop` begins shutdown:
 Cancellation is cooperative. A handler that loops without reading, writing
 or checking `cancelled()` keeps its worker, and `serve` waits for it.
 
+To drain when a supervisor sends `SIGTERM` (or on Ctrl-C), run
+[`std.signal.cancel_on`](signal.md#stopping-a-server) on a thread beside
+`serve`: it cancels `stop` when the signal arrives. A second signal ends the
+process at once.
+
 ## Reports and events
 
 `Report` counts, as `u64`: `connections`, `rejected`, `requests`,

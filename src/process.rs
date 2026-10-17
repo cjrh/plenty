@@ -15,6 +15,7 @@ pub enum ProcessOp {
     Wait,
     Signal,
     Poll,
+    SignalListen,
 }
 
 impl ProcessOp {
@@ -29,6 +30,7 @@ impl ProcessOp {
             "__process_wait" => Self::Wait,
             "__process_signal" => Self::Signal,
             "__process_poll" => Self::Poll,
+            "__signal_listen" => Self::SignalListen,
             _ => return None,
         })
     }
@@ -45,15 +47,18 @@ impl ProcessOp {
             Self::Wait => (vec![Ty::I64, Ty::Bool], Ty::I64),
             Self::Signal => (vec![Ty::I64, Ty::I64], Ty::Unit),
             Self::Poll => (vec![Ty::I64, Ty::I64, Ty::I64], Ty::I64),
+            // The readable end on which each caught signal arrives as a byte.
+            Self::SignalListen => (vec![], Ty::File),
         };
         (inputs, sum::result(output, sum::io_error()))
     }
 
-    /// 193–199, then 228 onward: the range between belongs to other modules.
+    /// 193–199, 228–229, then 500: the ranges between belong to other modules.
     pub fn opcode(self) -> i64 {
         match self as i64 {
             index @ 0..=6 => 193 + index,
-            index => 228 + index - 7,
+            index @ 7..=8 => 228 + index - 7,
+            index => 500 + index - 9,
         }
     }
 }

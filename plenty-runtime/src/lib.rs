@@ -31,6 +31,7 @@ mod open_modes;
 mod ranges;
 mod regex;
 mod render_buffer;
+mod signals;
 mod stack_overflow;
 mod strings;
 #[cfg(test)]

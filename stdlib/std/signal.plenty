@@ -1,0 +1,115 @@
+# Termination signals as events. `listen` catches SIGINT and SIGTERM for the
+# whole process; the runtime sends each caught signal as one byte on a socket
+# the returned handle owns, so a program waits for it like any other handle,
+# alone or on a selector. After the first signal both have their default
+# action again, so a second one ends the process at once. See
+# book/src/design/stdlib/signal.md.
+import std.bytes
+import std.io
+import std.ready
+from std.bytes import Bytes, BytesError
+from std.io import FileStream, StreamError, classify
+from std.ready import Interest, Selector, WaitError
+from std.sync import CancellationToken
+from std.time import Deadline, deadline_at, instant_at, monotonic_now
+
+# Signal numbers on Linux, as the runtime writes them.
+const interrupt_number: u8 = 2u8
+
+pub enum Signal:
+    Interrupt
+    Terminate
+
+pub enum SignalError:
+    AlreadyListening
+    Stream(StreamError)
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, SignalError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(cause)):
+            Err(SignalError.Stream(StreamError.Allocation(cause)))
+        case Err(_):
+            Err(SignalError.Stream(StreamError.OutOfRange))
+
+def moved(result: Result[i64, StreamError]) -> Result[i64, WaitError]:
+    match result:
+        case Ok(count):
+            Ok(count)
+        case Err(cause):
+            Err(WaitError.Stream(cause))
+
+# The handle on which caught signals arrive. Closing or dropping it puts the
+# default action back in effect for the next signal.
+pub class Signals:
+    _stream: FileStream
+    _byte: Bytes
+
+    def decoded(self: &mut Signals, count: i64) -> Result[Signal, WaitError]:
+        # The runtime never closes its end, so a read returns at least one byte.
+        if count == 0:
+            return Err(WaitError.Stream(StreamError.UnexpectedEof))
+        if self._byte[0] == interrupt_number:
+            return Ok(Signal.Interrupt)
+        Ok(Signal.Terminate)
+
+    # Waits for the next caught signal, bounded by `deadline` and `cancel` as
+    # in std.ready.wait.
+    pub def wait(self: &mut Signals, deadline: &Deadline, cancel: &CancellationToken) -> Result[Signal, WaitError]:
+        count = std.ready.read_before(&mut self._stream, &mut self._byte, 0, 1, deadline, cancel)?
+        self.decoded(count)
+
+    # A signal caught and not yet taken, without waiting.
+    pub def received(self: &mut Signals) -> Result[Option[Signal], WaitError]:
+        match std.ready.wait_until(&self._stream.file, Interest.Read, &deadline_at(&monotonic_now())):
+            case Ok(_):
+                count = moved(self._stream.read(&mut self._byte, 0, 1))?
+                Ok(Some(self.decoded(count)?))
+            case Err(WaitError.TimedOut):
+                Ok(Nothing)
+            case Err(other):
+                Err(other)
+
+    # Registers the handle for reading under `key`; after the selector
+    # reports it, `received` takes the signal.
+    pub def watch(self, selector: &mut Selector, key: u64) -> Result[(), WaitError]:
+        selector.watch(&self._stream.file, key, Interest.Read)
+
+    pub def unwatch(self, selector: &mut Selector) -> Result[(), WaitError]:
+        selector.unwatch(&self._stream.file)
+
+    pub def close(self: &mut Signals) -> Result[(), WaitError]:
+        match self._stream.file.close():
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(WaitError.Stream(classify(error)))
+
+# Catches SIGINT and SIGTERM for the rest of the process. A process listens
+# once: a second call is AlreadyListening. Only the main thread may call it.
+pub def listen() -> Result[Signals, SignalError]:
+    mut byte = lifted(std.bytes.with_capacity(1))?
+    lifted(byte.resize(1, 0u8))?
+    match __signal_listen():
+        case Ok(file):
+            Ok(Signals(std.io.from_file(file), byte))
+        case Err(IoError.System(16i32)):
+            Err(SignalError.AlreadyListening)
+        case Err(error):
+            Err(SignalError.Stream(classify(error)))
+
+# Waits for a signal and cancels `stop`, returning which signal it was; or
+# returns Nothing once something else cancels `stop`. Run it on its own
+# thread beside work that stops on `stop`, such as std.http.server.serve.
+pub def cancel_on(signals: Signals, stop: CancellationToken) -> Result[Option[Signal], WaitError]:
+    mut owned = signals
+    never = deadline_at(&instant_at(u64.MAX))
+    match owned.wait(&never, &stop):
+        case Ok(signal):
+            stop.cancel()
+            Ok(Some(signal))
+        case Err(WaitError.Cancelled):
+            Ok(Nothing)
+        case Err(other):
+            Err(other)
