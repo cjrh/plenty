@@ -15,6 +15,7 @@ use crate::op::{
 use crate::value::{Heap, Value};
 mod byte_buffers;
 mod callables;
+mod calls;
 mod casts;
 mod channels;
 mod classes;
@@ -4417,6 +4418,7 @@ fn lower_body(
             },
         );
     }
+    lower.validate_defaults(&f)?;
     let mut body = Vec::new();
     // Parameter loans start at the function header.
     lower.mark(&f.at, &mut body);
