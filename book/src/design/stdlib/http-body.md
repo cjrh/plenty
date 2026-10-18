@@ -78,7 +78,8 @@ preamble, delimiters and epilogue. A declared `Content-Length` over
 A part with a `filename` parameter is an upload. Its content is streamed into
 a new [unnamed temporary file](fs/temporary.md) in `storage` as it arrives,
 never held whole in memory, and the file is rewound before it is returned:
-read it through `content.stream`, or keep it with `publish(&name)`. Because
+read it through `file.stream` after matching `Content.File(file)`, or keep
+it with `file.publish(&name)`. Because
 the file has no name until published, a request that fails, a connection
 that is cancelled, and a part the handler drops all leave nothing on disk.
 The descriptors are closed when the `TempFile`s drop. Each upload holds two
