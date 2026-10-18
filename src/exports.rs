@@ -297,11 +297,6 @@ impl Interface {
                 .unwrap_or("()".into());
             if let Some((ok, error)) = result {
                 let raw = format!("_plenty_c_{}", export.name);
-                if exports.iter().any(|e| e.name == raw) {
-                    return Err(
-                        format!("export name `{raw}` conflicts with a generated adapter").into(),
-                    );
-                }
                 let (mut raw_parameters, mut args, transfers) = handles::arguments(export);
                 let mut body = String::from("    _plenty_require_contract()\n");
                 let owner = if let Ty::Class(class) = ok {
