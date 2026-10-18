@@ -16,6 +16,116 @@ enum ModuleSource {
     Standard(&'static str),
 }
 
+/// Every importable standard module, with its embedded source. Concurrency
+/// modules are compiler-provided and have no Plenty source. Order is the order
+/// the unknown-module diagnostic lists them.
+const STANDARD_MODULES: &[(&str, &str)] = &[
+    ("std.math", include_str!("../../stdlib/std/math.plenty")),
+    ("std.fs", include_str!("../../stdlib/std/fs.plenty")),
+    ("std.path", include_str!("../../stdlib/std/path.plenty")),
+    ("std.deque", include_str!("../../stdlib/std/deque.plenty")),
+    ("std.error", include_str!("../../stdlib/std/error.plenty")),
+    ("std.bytes", include_str!("../../stdlib/std/bytes.plenty")),
+    ("std.time", include_str!("../../stdlib/std/time.plenty")),
+    ("std.cli", include_str!("../../stdlib/std/cli.plenty")),
+    ("std.text", include_str!("../../stdlib/std/text.plenty")),
+    ("std.fmt", include_str!("../../stdlib/std/fmt.plenty")),
+    ("std.report", include_str!("../../stdlib/std/report.plenty")),
+    (
+        "std.unicode",
+        include_str!("../../stdlib/std/unicode.plenty"),
+    ),
+    ("std.thread", ""),
+    ("std.channel", ""),
+    ("std.concurrent", ""),
+    ("std.sync", ""),
+    ("std.io", include_str!("../../stdlib/std/io.plenty")),
+    (
+        "std.io.typed",
+        include_str!("../../stdlib/std/io/typed.plenty"),
+    ),
+    (
+        "std.encoding",
+        include_str!("../../stdlib/std/encoding.plenty"),
+    ),
+    (
+        "std.collections",
+        include_str!("../../stdlib/std/collections.plenty"),
+    ),
+    ("std.iter", include_str!("../../stdlib/std/iter.plenty")),
+    ("std.url", include_str!("../../stdlib/std/url.plenty")),
+    ("std.csv", include_str!("../../stdlib/std/csv.plenty")),
+    ("std.random", include_str!("../../stdlib/std/random.plenty")),
+    (
+        "std.secrets",
+        include_str!("../../stdlib/std/secrets.plenty"),
+    ),
+    ("std.crypto", include_str!("../../stdlib/std/crypto.plenty")),
+    (
+        "std.compress",
+        include_str!("../../stdlib/std/compress.plenty"),
+    ),
+    (
+        "std.archive",
+        include_str!("../../stdlib/std/archive.plenty"),
+    ),
+    ("std.regex", include_str!("../../stdlib/std/regex.plenty")),
+    ("std.json", include_str!("../../stdlib/std/json.plenty")),
+    ("std.log", include_str!("../../stdlib/std/log.plenty")),
+    ("std.toml", include_str!("../../stdlib/std/toml.plenty")),
+    ("std.env", include_str!("../../stdlib/std/env.plenty")),
+    (
+        "std.process",
+        include_str!("../../stdlib/std/process.plenty"),
+    ),
+    ("std.signal", include_str!("../../stdlib/std/signal.plenty")),
+    ("std.ready", include_str!("../../stdlib/std/ready.plenty")),
+    ("std.net", include_str!("../../stdlib/std/net.plenty")),
+    ("std.tls", include_str!("../../stdlib/std/tls.plenty")),
+    ("std.http", include_str!("../../stdlib/std/http.plenty")),
+    (
+        "std.http.server",
+        include_str!("../../stdlib/std/http/server.plenty"),
+    ),
+    (
+        "std.http.tls",
+        include_str!("../../stdlib/std/http/tls.plenty"),
+    ),
+    (
+        "std.http.body",
+        include_str!("../../stdlib/std/http/body.plenty"),
+    ),
+    (
+        "std.http.typed",
+        include_str!("../../stdlib/std/http/typed.plenty"),
+    ),
+    (
+        "std.http.cookie",
+        include_str!("../../stdlib/std/http/cookie.plenty"),
+    ),
+    (
+        "std.http.proxy",
+        include_str!("../../stdlib/std/http/proxy.plenty"),
+    ),
+    (
+        "std.http.files",
+        include_str!("../../stdlib/std/http/files.plenty"),
+    ),
+    (
+        "std.http.client",
+        include_str!("../../stdlib/std/http/client.plenty"),
+    ),
+    (
+        "std.http.https",
+        include_str!("../../stdlib/std/http/https.plenty"),
+    ),
+    (
+        "std.db.sqlite",
+        include_str!("../../stdlib/std/db/sqlite.plenty"),
+    ),
+    ("std.test", include_str!("../../stdlib/std/test.plenty")),
+];
+
 impl ModuleSource {
     fn path(&self) -> PathBuf {
         match self {
@@ -26,100 +136,12 @@ impl ModuleSource {
 
     fn read(&self) -> Result<String> {
         match self {
-            Self::Standard("std.math") => Ok(include_str!("../../stdlib/std/math.plenty").into()),
-            Self::Standard("std.fs") => Ok(include_str!("../../stdlib/std/fs.plenty").into()),
-            Self::Standard("std.path") => Ok(include_str!("../../stdlib/std/path.plenty").into()),
-            Self::Standard("std.deque") => Ok(include_str!("../../stdlib/std/deque.plenty").into()),
-            Self::Standard("std.error") => Ok(include_str!("../../stdlib/std/error.plenty").into()),
-            Self::Standard("std.bytes") => Ok(include_str!("../../stdlib/std/bytes.plenty").into()),
-            Self::Standard("std.time") => Ok(include_str!("../../stdlib/std/time.plenty").into()),
-            Self::Standard("std.cli") => Ok(include_str!("../../stdlib/std/cli.plenty").into()),
-            Self::Standard("std.text") => Ok(include_str!("../../stdlib/std/text.plenty").into()),
-            Self::Standard("std.fmt") => Ok(include_str!("../../stdlib/std/fmt.plenty").into()),
-            Self::Standard("std.report") => {
-                Ok(include_str!("../../stdlib/std/report.plenty").into())
-            }
-            Self::Standard("std.env") => Ok(include_str!("../../stdlib/std/env.plenty").into()),
-            Self::Standard("std.process") => {
-                Ok(include_str!("../../stdlib/std/process.plenty").into())
-            }
-            Self::Standard("std.unicode") => {
-                Ok(include_str!("../../stdlib/std/unicode.plenty").into())
-            }
-            Self::Standard("std.thread" | "std.channel" | "std.concurrent" | "std.sync") => {
-                Ok(String::new())
-            }
-            Self::Standard("std.io") => Ok(include_str!("../../stdlib/std/io.plenty").into()),
-            Self::Standard("std.io.typed") => {
-                Ok(include_str!("../../stdlib/std/io/typed.plenty").into())
-            }
-            Self::Standard("std.http.typed") => {
-                Ok(include_str!("../../stdlib/std/http/typed.plenty").into())
-            }
-            Self::Standard("std.encoding") => {
-                Ok(include_str!("../../stdlib/std/encoding.plenty").into())
-            }
-            Self::Standard("std.collections") => {
-                Ok(include_str!("../../stdlib/std/collections.plenty").into())
-            }
-            Self::Standard("std.iter") => Ok(include_str!("../../stdlib/std/iter.plenty").into()),
-            Self::Standard("std.url") => Ok(include_str!("../../stdlib/std/url.plenty").into()),
-            Self::Standard("std.csv") => Ok(include_str!("../../stdlib/std/csv.plenty").into()),
-            Self::Standard("std.random") => {
-                Ok(include_str!("../../stdlib/std/random.plenty").into())
-            }
-            Self::Standard("std.secrets") => {
-                Ok(include_str!("../../stdlib/std/secrets.plenty").into())
-            }
-            Self::Standard("std.compress") => {
-                Ok(include_str!("../../stdlib/std/compress.plenty").into())
-            }
-            Self::Standard("std.archive") => {
-                Ok(include_str!("../../stdlib/std/archive.plenty").into())
-            }
-            Self::Standard("std.regex") => Ok(include_str!("../../stdlib/std/regex.plenty").into()),
-            Self::Standard("std.db.sqlite") => {
-                Ok(include_str!("../../stdlib/std/db/sqlite.plenty").into())
-            }
-            Self::Standard("std.crypto") => {
-                Ok(include_str!("../../stdlib/std/crypto.plenty").into())
-            }
-            Self::Standard("std.json") => Ok(include_str!("../../stdlib/std/json.plenty").into()),
-            Self::Standard("std.log") => Ok(include_str!("../../stdlib/std/log.plenty").into()),
-            Self::Standard("std.toml") => Ok(include_str!("../../stdlib/std/toml.plenty").into()),
-            Self::Standard("std.ready") => Ok(include_str!("../../stdlib/std/ready.plenty").into()),
-            Self::Standard("std.signal") => {
-                Ok(include_str!("../../stdlib/std/signal.plenty").into())
-            }
-            Self::Standard("std.net") => Ok(include_str!("../../stdlib/std/net.plenty").into()),
-            Self::Standard("std.tls") => Ok(include_str!("../../stdlib/std/tls.plenty").into()),
-            Self::Standard("std.http") => Ok(include_str!("../../stdlib/std/http.plenty").into()),
-            Self::Standard("std.http.server") => {
-                Ok(include_str!("../../stdlib/std/http/server.plenty").into())
-            }
-            Self::Standard("std.http.tls") => {
-                Ok(include_str!("../../stdlib/std/http/tls.plenty").into())
-            }
-            Self::Standard("std.http.body") => {
-                Ok(include_str!("../../stdlib/std/http/body.plenty").into())
-            }
-            Self::Standard("std.http.cookie") => {
-                Ok(include_str!("../../stdlib/std/http/cookie.plenty").into())
-            }
-            Self::Standard("std.http.files") => {
-                Ok(include_str!("../../stdlib/std/http/files.plenty").into())
-            }
-            Self::Standard("std.http.proxy") => {
-                Ok(include_str!("../../stdlib/std/http/proxy.plenty").into())
-            }
-            Self::Standard("std.http.client") => {
-                Ok(include_str!("../../stdlib/std/http/client.plenty").into())
-            }
-            Self::Standard("std.http.https") => {
-                Ok(include_str!("../../stdlib/std/http/https.plenty").into())
-            }
-            Self::Standard("std.test") => Ok(include_str!("../../stdlib/std/test.plenty").into()),
-            Self::Standard(_) => unreachable!("validated standard module"),
+            Self::Standard(name) => Ok(STANDARD_MODULES
+                .iter()
+                .find(|(standard, _)| standard == name)
+                .map(|(_, text)| *text)
+                .expect("validated standard module")
+                .into()),
             Self::File(path) if super::ide::active() => match super::ide::overlay(path) {
                 Some(text) => Ok(text),
                 None => std::fs::read_to_string(path)
@@ -712,63 +734,18 @@ impl Loader {
     fn import_path(&self, import: &Import, package: usize) -> Result<(ModuleSource, usize)> {
         let first = import.module.split('.').next().unwrap();
         if first == "std" {
-            let standard = match import.module.as_str() {
-                "std.math" => Ok(ModuleSource::Standard("std.math")),
-                "std.fs" => Ok(ModuleSource::Standard("std.fs")),
-                "std.path" => Ok(ModuleSource::Standard("std.path")),
-                "std.deque" => Ok(ModuleSource::Standard("std.deque")),
-                "std.error" => Ok(ModuleSource::Standard("std.error")),
-                "std.bytes" => Ok(ModuleSource::Standard("std.bytes")),
-                "std.time" => Ok(ModuleSource::Standard("std.time")),
-                "std.cli" => Ok(ModuleSource::Standard("std.cli")),
-                "std.text" => Ok(ModuleSource::Standard("std.text")),
-                "std.fmt" => Ok(ModuleSource::Standard("std.fmt")),
-                "std.report" => Ok(ModuleSource::Standard("std.report")),
-                "std.unicode" => Ok(ModuleSource::Standard("std.unicode")),
-                "std.thread" => Ok(ModuleSource::Standard("std.thread")),
-                "std.channel" => Ok(ModuleSource::Standard("std.channel")),
-                "std.concurrent" => Ok(ModuleSource::Standard("std.concurrent")),
-                "std.sync" => Ok(ModuleSource::Standard("std.sync")),
-                "std.io" => Ok(ModuleSource::Standard("std.io")),
-                "std.io.typed" => Ok(ModuleSource::Standard("std.io.typed")),
-                "std.http.typed" => Ok(ModuleSource::Standard("std.http.typed")),
-                "std.encoding" => Ok(ModuleSource::Standard("std.encoding")),
-                "std.collections" => Ok(ModuleSource::Standard("std.collections")),
-                "std.iter" => Ok(ModuleSource::Standard("std.iter")),
-                "std.url" => Ok(ModuleSource::Standard("std.url")),
-                "std.csv" => Ok(ModuleSource::Standard("std.csv")),
-                "std.random" => Ok(ModuleSource::Standard("std.random")),
-                "std.secrets" => Ok(ModuleSource::Standard("std.secrets")),
-                "std.crypto" => Ok(ModuleSource::Standard("std.crypto")),
-                "std.compress" => Ok(ModuleSource::Standard("std.compress")),
-                "std.archive" => Ok(ModuleSource::Standard("std.archive")),
-                "std.regex" => Ok(ModuleSource::Standard("std.regex")),
-                "std.json" => Ok(ModuleSource::Standard("std.json")),
-                "std.log" => Ok(ModuleSource::Standard("std.log")),
-                "std.toml" => Ok(ModuleSource::Standard("std.toml")),
-                "std.env" => Ok(ModuleSource::Standard("std.env")),
-                "std.process" => Ok(ModuleSource::Standard("std.process")),
-                "std.ready" => Ok(ModuleSource::Standard("std.ready")),
-                "std.signal" => Ok(ModuleSource::Standard("std.signal")),
-                "std.net" => Ok(ModuleSource::Standard("std.net")),
-                "std.tls" => Ok(ModuleSource::Standard("std.tls")),
-                "std.http" => Ok(ModuleSource::Standard("std.http")),
-                "std.http.server" => Ok(ModuleSource::Standard("std.http.server")),
-                "std.http.tls" => Ok(ModuleSource::Standard("std.http.tls")),
-                "std.http.body" => Ok(ModuleSource::Standard("std.http.body")),
-                "std.http.cookie" => Ok(ModuleSource::Standard("std.http.cookie")),
-                "std.http.files" => Ok(ModuleSource::Standard("std.http.files")),
-                "std.http.proxy" => Ok(ModuleSource::Standard("std.http.proxy")),
-                "std.http.client" => Ok(ModuleSource::Standard("std.http.client")),
-                "std.http.https" => Ok(ModuleSource::Standard("std.http.https")),
-                "std.test" => Ok(ModuleSource::Standard("std.test")),
-                "std.db.sqlite" => Ok(ModuleSource::Standard("std.db.sqlite")),
-                _ => Err(import.at.error(format!(
-                "unknown standard library module `{}`; available modules: std.math, std.fs, std.path, std.deque, std.error, std.bytes, std.time, std.cli, std.text, std.fmt, std.report, std.unicode, std.thread, std.channel, std.concurrent, std.sync, std.io, std.io.typed, std.encoding, std.collections, std.iter, std.url, std.csv, std.random, std.secrets, std.crypto, std.compress, std.archive, std.regex, std.json, std.log, std.toml, std.env, std.process, std.signal, std.ready, std.net, std.tls, std.http, std.http.server, std.http.tls, std.http.body, std.http.typed, std.http.cookie, std.http.proxy, std.http.files, std.http.client, std.http.https, std.db.sqlite, std.test",
-                    import.module
-            ))),
+            let Some(&(name, _)) = STANDARD_MODULES
+                .iter()
+                .find(|(name, _)| *name == import.module)
+            else {
+                let available: Vec<_> = STANDARD_MODULES.iter().map(|(name, _)| *name).collect();
+                return Err(import.at.error(format!(
+                    "unknown standard library module `{}`; available modules: {}",
+                    import.module,
+                    available.join(", ")
+                )));
             };
-            return standard.map(|source| (source, package));
+            return Ok((ModuleSource::Standard(name), package));
         }
         let parts: Vec<_> = import.module.split('.').collect();
         let current = &self.packages[package];

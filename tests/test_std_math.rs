@@ -384,6 +384,27 @@ fn fixed_width_integer_algorithms_cover_the_range() {
 }
 
 #[test]
+fn every_listed_standard_module_imports() {
+    // The unknown-module diagnostic and module loading share one table; this
+    // keeps the listed names importable (issue #217).
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("main.plenty");
+    std::fs::write(&source, "import std.missing\ndef main() -> ():\n    pass\n").unwrap();
+    let message = plenty::check_file(&source, None).unwrap_err().to_string();
+    let listed = message.split("available modules: ").nth(1).unwrap();
+    let names: Vec<_> = listed.lines().next().unwrap().split(", ").collect();
+    assert!(names.contains(&"std.db.sqlite"), "{message}");
+    let imports: String = names
+        .iter()
+        .map(|name| format!("import {name}\n"))
+        .collect();
+    std::fs::write(&source, format!("{imports}def main() -> ():\n    pass\n")).unwrap();
+    if let Err(error) = plenty::check_file(&source, None) {
+        panic!("{error}");
+    }
+}
+
+#[test]
 fn std_is_reserved_and_unknown_modules_fail_without_filesystem_fallback() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.plenty");
