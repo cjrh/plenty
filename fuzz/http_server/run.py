@@ -3,7 +3,8 @@
 
 Builds fuzz/http_server/main.plenty with `plenty --fuzz`, writes the cases of
 tests/fixtures/http_server/corpus.txt as seeds, and runs the target. Inputs
-that crash it are saved in WORK/findings. See
+that crash it are saved in WORK/findings; only those of this run are reported
+and set the exit status. See
 book/src/design/stdlib/http-qualification.md#fuzzing.
 
     python3 fuzz/http_server/run.py --plenty target/release/plenty --time 600 --jobs 2
@@ -95,6 +96,8 @@ def main():
     findings = work / "findings"
     corpus.mkdir(parents=True, exist_ok=True)
     findings.mkdir(parents=True, exist_ok=True)
+    # Findings of earlier runs stay in place; only this run's count.
+    earlier = set(findings.iterdir())
     build(args.plenty, target, not args.debug_build)
     count = write_seeds(work / "seeds")
     print(f"{count} seeds from {CORPUS.relative_to(ROOT)}", flush=True)
@@ -121,7 +124,9 @@ def main():
     command += args.extra
     command += [str(corpus), str(work / "seeds")]
     status = subprocess.run(command, cwd=work).returncode
-    found = sorted(findings.iterdir())
+    found = sorted(set(findings.iterdir()) - earlier)
+    if earlier:
+        print(f"{len(earlier)} earlier findings in {findings}")
     for path in found:
         print(f"finding: {path}")
     return status if status != 0 or not found else 1

@@ -208,7 +208,9 @@ are findings too.
 every corpus case in four variants (64-byte reads, 7-byte reads, 1-byte reads,
 7-byte reads with small limits) and runs it with the HTTP dictionary `fuzz/http_server/http.dict`.
 Findings go to `WORK/findings`; the default `WORK` is
-`target/fuzz-http-server`.
+`target/fuzz-http-server`. Findings persist across runs: the script lists
+only the files the current run added, and exits nonzero only for those or for
+a libFuzzer failure.
 
 ```text
 cargo build --release --locked
