@@ -512,6 +512,31 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == "|" {
+            let members = self
+                .args
+                .iter()
+                .map(|t| t.resolve(aliases).map(|t| t.unwrap_or(Ty::Unit)))
+                .collect::<Result<Vec<_>>>()?;
+            if members
+                .iter()
+                .map(|t| t.identity_name().len())
+                .sum::<usize>()
+                > 16_384
+            {
+                return Err(self
+                    .at
+                    .error("concrete type name exceeds the implementation limit"));
+            }
+            let restricted = members.iter().any(|t| !t.heap_storable());
+            let normalized = crate::sum::anonymous(members);
+            if restricted && matches!(&normalized, Ty::Enum(t) if t.anonymous()) {
+                return Err(self
+                    .at
+                    .error("anonymous sum members must be storable owned types"));
+            }
+            return Ok((normalized != Ty::Unit).then_some(normalized));
+        }
         if name == "OnceCallable" {
             return Err(self.at.error("OnceCallable is a generic constraint; use Callable or OnceClosure for a value annotation"));
         }
@@ -1078,29 +1103,57 @@ impl Parser {
                 .error("type nesting exceeds the implementation limit of 64"));
         }
         self.type_depth += 1;
-        let result = self.ty_inner();
+        let result = self.ty_sum();
         self.type_depth -= 1;
         result
+    }
+    fn ty_sum(&mut self) -> Result<TypeRef> {
+        let first = self.ty_inner()?;
+        if !self.eat("|") {
+            return Ok(first);
+        }
+        let at = first.at.clone();
+        let mut args = vec![first, self.ty_inner()?];
+        while self.eat("|") {
+            args.push(self.ty_inner()?);
+        }
+        Ok(TypeRef {
+            concrete: None,
+            at,
+            name: Some("|".into()),
+            args,
+        })
     }
     fn ty_inner(&mut self) -> Result<TypeRef> {
         let at = self.peek().clone();
         if self.eat("&") {
             let name = if self.eat("mut") { "&mut" } else { "&" };
+            if self.type_depth >= 64 {
+                return Err(at.error("type nesting exceeds the implementation limit of 64"));
+            }
+            self.type_depth += 1;
+            let inner = self.ty_inner();
+            self.type_depth -= 1;
             return Ok(TypeRef {
                 concrete: None,
                 at,
                 name: Some(name.into()),
-                args: vec![self.ty()?],
+                args: vec![inner?],
             });
         }
         if self.eat("(") {
             let mut args = Vec::new();
+            let mut comma = false;
             while !self.eat(")") {
                 args.push(self.ty()?);
                 if self.eat(")") {
                     break;
                 }
                 self.expect(",")?;
+                comma = true;
+            }
+            if args.len() == 1 && !comma {
+                return Ok(args.pop().unwrap());
             }
             return Ok(TypeRef {
                 concrete: None,
@@ -2698,6 +2751,20 @@ impl Lower<'_> {
             )));
         }
         if !source.is_option() && !target.accepts_result_error(&source) {
+            let target_error = &target.get().variants[1].fields[0];
+            let source_error = &source.get().variants[1].fields[0];
+            if matches!(target_error, Ty::Enum(t) if t.anonymous())
+                || matches!(source_error, Ty::Enum(t) if t.anonymous())
+            {
+                let allowed = crate::sum::members(target_error);
+                let missing = crate::sum::members(source_error)
+                    .into_iter()
+                    .filter(|t| !allowed.contains(t))
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(e.at.error(format!("`?` operand error {source_error} cannot propagate as {target_error}; missing alternatives: {missing}")));
+            }
             if literal {
                 let error = &target.get().variants[1].fields[0];
                 return Err(e.at.error(format!("`?` requires identical Result error types; a collection literal fails with AllocError, which cannot propagate as {error}; return Result[_, AllocError] or Result[_, Failure], or match the literal and convert the error explicitly")));

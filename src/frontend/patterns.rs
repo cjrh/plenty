@@ -25,6 +25,7 @@ pub(super) enum PatKind {
     Wildcard,
     /// A bare name at a payload position, or `_ as name` at the case position.
     Binding(String),
+    Member(String, Box<TypeRef>),
     /// Qualifier (absent for `Some`, `Nothing`, `Ok`, and `Err`), variant name,
     /// and payload patterns (absent without parentheses).
     Variant(Option<Box<TypeRef>>, String, Option<Vec<Pat>>),
@@ -46,7 +47,7 @@ impl Pat {
         fn walk<'a>(pattern: &'a Pat, names: &mut Vec<&'a String>) {
             match &pattern.kind {
                 PatKind::Wildcard | PatKind::Literal(_) => {}
-                PatKind::Binding(name) => {
+                PatKind::Binding(name) | PatKind::Member(name, _) => {
                     if !names.contains(&name) {
                         names.push(name);
                     }
@@ -73,6 +74,7 @@ impl Pat {
         visit: &mut dyn FnMut(&mut TypeRef) -> Result<()>,
     ) -> Result<()> {
         match &mut self.kind {
+            PatKind::Member(_, ty) => visit(ty),
             PatKind::Wildcard | PatKind::Binding(_) | PatKind::Literal(_) => Ok(()),
             PatKind::Variant(qualifier, _, payload) => {
                 if let Some(qualifier) = qualifier {
@@ -178,6 +180,20 @@ impl Parser {
             ));
         }
         let mut path = vec![self.name()?];
+        if depth == 0
+            && !enums::prelude_variant(&path[0])
+            && self.peek().is(":")
+            && self
+                .token(self.pos + 1)
+                .is_some_and(|t| !matches!(t.kind, Kind::Newline | Kind::Eof))
+            && self.eat(":")
+        {
+            let ty = self.ty()?;
+            return Ok(Pat {
+                at,
+                kind: PatKind::Member(path.pop().unwrap(), Box::new(ty)),
+            });
+        }
         while self.eat(".") {
             path.push(self.name()?);
         }
@@ -831,6 +847,42 @@ impl Lower<'_> {
             content = inner;
         }
         match &pattern.kind {
+            PatKind::Member(name, member) => {
+                let member = member.resolve(self.aliases)?.unwrap_or(Ty::Unit);
+                if matches!(&member, Ty::Enum(t) if t.anonymous()) {
+                    return Err(pattern
+                        .at
+                        .error("a member pattern requires one whole member type, not a sum"));
+                }
+                if bound.iter().any(|(other, _)| other == name) {
+                    return Err(pattern.at.error("duplicate payload binding"));
+                }
+                if member == *ty {
+                    bound.push((name.clone(), member));
+                    return Ok(Checked::Binding(name.clone()));
+                }
+                let Ty::Enum(t) = content else {
+                    return Err(pattern
+                        .at
+                        .error(format!("member type {member} is absent from {ty}")));
+                };
+                let tag = t
+                    .anonymous()
+                    .then(|| t.get().variants.iter().position(|v| v.fields[0] == member))
+                    .flatten()
+                    .ok_or_else(|| {
+                        pattern
+                            .at
+                            .error(format!("member type {member} is absent from {ty}"))
+                    })?;
+                bound.push((name.clone(), member));
+                Ok(Checked::Variant {
+                    boxes,
+                    t: t.clone(),
+                    tag,
+                    fields: vec![Checked::Binding(name.clone())],
+                })
+            }
             PatKind::Wildcard => Ok(Checked::Wildcard),
             PatKind::Binding(name) => {
                 if let Ty::Enum(t) = content {

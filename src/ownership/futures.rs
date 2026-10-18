@@ -17,7 +17,7 @@ fn transparent(op: &Op) -> bool {
         Op::Site(_) | Op::CallerSite(_) | Op::UseLoan(_) | Op::Access(..) | Op::Loan(_)
     ) || matches!(
         op,
-        Op::Enum(EnumOp::Unwrap(_) | EnumOp::Field(..) | EnumOp::Take(..))
+        Op::Enum(EnumOp::Unwrap(_) | EnumOp::Field(..) | EnumOp::Take(..) | EnumOp::Widen(..))
     ) || matches!(op, Op::Enum(EnumOp::New(ty, tag)) if ty.get().variants[*tag].fields.len() == 1)
 }
 

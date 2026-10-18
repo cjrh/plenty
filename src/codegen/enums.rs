@@ -159,6 +159,14 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
+        if let EnumOp::Widen(source, target) = op {
+            let (value, _) = self.pop_typed((**source).clone())?;
+            let packed = self.pack(value, source);
+            let result = self.widen_sum(packed, source, target);
+            let result = self.unpack(result, target);
+            self.stack.push((result, (**target).clone()));
+            return Ok(());
+        }
         if let EnumOp::TagRef(t, _) | EnumOp::FieldRef(t, ..) = op {
             let (reference, _) = self.pop_typed(inputs[0].clone())?;
             let result = match op {
@@ -202,7 +210,7 @@ impl Lowerer<'_, '_> {
             | EnumOp::Tag(t)
             | EnumOp::Field(t, _, _)
             | EnumOp::Take(t, _, _) => t,
-            EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
+            EnumOp::TagRef(..) | EnumOp::FieldRef(..) | EnumOp::Widen(..) => unreachable!(),
         };
         let result = match op {
             EnumOp::Unwrap(t) => {
@@ -286,11 +294,79 @@ impl Lowerer<'_, '_> {
                     self.pack(field_value, &output)
                 }
             }
-            EnumOp::TagRef(..) | EnumOp::FieldRef(..) => unreachable!(),
+            EnumOp::TagRef(..) | EnumOp::FieldRef(..) | EnumOp::Widen(..) => unreachable!(),
         };
         let result = self.unpack(result, &output);
         self.stack.push((result, output));
         Ok(())
+    }
+
+    /// Retag packed values without retaining, releasing, or allocating payloads.
+    fn widen_sum(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+        source: &Ty,
+        target: &Ty,
+    ) -> cranelift_codegen::ir::Value {
+        if source == target {
+            return value;
+        }
+        let Ty::Enum(to) = target else { unreachable!() };
+        if to.anonymous() {
+            let targets = crate::sum::members(target);
+            if let Ty::Enum(from) = source {
+                if from.anonymous() {
+                    let tags = self.bcx.ins().ushr_imm(value, 64);
+                    let tags = self.raw_word(tags);
+                    let mask = (from.get().variants.len().next_power_of_two() - 1).max(1);
+                    let old_tag = self.bcx.ins().band_imm(tags, mask as i64);
+                    let mut tag = self.bcx.ins().iconst(types::I64, 0);
+                    for (index, member) in crate::sum::members(source).iter().enumerate() {
+                        let destination = targets.iter().position(|t| t == member).unwrap();
+                        let selected = self.bcx.ins().icmp_imm(IntCC::Equal, old_tag, index as i64);
+                        let new_tag = self.bcx.ins().iconst(types::I64, destination as i64);
+                        tag = self.bcx.ins().select(selected, new_tag, tag);
+                    }
+                    let payload = self.tagged_payload(value, from.tag_bits());
+                    let wrapped = self.wrap_tagged(payload, 0, to.tag_bits());
+                    let tag = self.bcx.ins().uextend(types::I128, tag);
+                    let tag = self.bcx.ins().ishl_imm(tag, 64);
+                    return self.bcx.ins().bor(wrapped, tag);
+                }
+            }
+            return self.wrap_tagged(
+                value,
+                targets.iter().position(|t| t == source).unwrap(),
+                to.tag_bits(),
+            );
+        }
+        let Ty::Enum(from) = source else {
+            unreachable!()
+        };
+        debug_assert!(from.is_result() && to.is_result());
+        let success = self.bcx.create_block();
+        let failure = self.bcx.create_block();
+        let done = self.bcx.create_block();
+        self.bcx.append_block_param(done, types::I128);
+        let tag = self.sum_tag(value);
+        let ok = self.bcx.ins().icmp_imm(IntCC::Equal, tag, 0);
+        self.bcx.ins().brif(ok, success, &[], failure, &[]);
+        self.bcx.switch_to_block(success);
+        self.bcx.seal_block(success);
+        self.bcx.ins().jump(done, &[value.into()]);
+        self.bcx.switch_to_block(failure);
+        self.bcx.seal_block(failure);
+        let payload = self.sum_payload(value);
+        let widened = self.widen_sum(
+            payload,
+            &from.get().variants[1].fields[0],
+            &to.get().variants[1].fields[0],
+        );
+        let result = self.wrap_sum(widened, 1);
+        self.bcx.ins().jump(done, &[result.into()]);
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
+        self.bcx.block_params(done)[0]
     }
 
     pub(super) fn pack(
@@ -412,6 +488,15 @@ impl Lowerer<'_, '_> {
             let marker = self.bcx.ins().uextend(types::I128, zero);
             self.wrap_sum(marker, 1)
         } else {
+            let payload = if source.is_result() {
+                self.widen_sum(
+                    payload,
+                    &source.get().variants[1].fields[0],
+                    &target.get().variants[1].fields[0],
+                )
+            } else {
+                payload
+            };
             self.wrap_sum(payload, 1 - success_tag)
         };
         // The error has either transferred into residual or been discarded.

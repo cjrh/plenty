@@ -1,9 +1,12 @@
 # Finite error sets as anonymous sums
 
-Status: not implemented. General anonymous sums are the agreed direction;
-error composition is their first implementation use case. The current
+Status: the initial general-sum implementation is described in the
+[anonymous-sum reference](../design/language/03-types/anonymous-sums.md).
+It adopts `case cause: Type:` at the case position, grouped types and inline
+normalization/injection/widening. Existing pattern guards remain unsupported.
+Formatting and removal of `Failure` remain separate migration work. The current
 [propagation reference](../design/language/08-errors/01-sums-and-propagation.md)
-remains authoritative until implementation. Scheduling belongs in B14/B71 in
+remains authoritative. Scheduling belongs in B14/B71 in
 the [backlog](../backlog.md). Human-readable presentation is specified separately
 in [formatting and error reports](error-formatting.md).
 
@@ -33,7 +36,7 @@ design analysis, not attributed community consensus.
 
 ## Agreed initial contract
 
-The following notation describes the target design, not executable Plenty today:
+The following notation describes the implemented composition contract:
 
 ```text
 def load() -> Result[Config, IoError | ParseError]:
@@ -64,9 +67,9 @@ the type system must not restrict sums to the second argument of Result.
    the missing alternatives and source operation. The final design removes
    builtin `Failure` and its special erasure rule; the existing rule remains
    only during migration.
-5. Provide exhaustive, unambiguous matching by member type. Exact syntax needs
-   a separate decision: existing enum constructor patterns cannot identify every
-   possible class payload. Do not silently reinterpret existing pattern `|`.
+5. Provide exhaustive, unambiguous matching by member type using
+   `case cause: MemberType:`. Existing enum constructor patterns cannot identify
+   every class payload; existing pattern `|` keeps its separate meaning.
 6. Do not implicitly flatten named enum variants. `HttpError | AllocError`
    may still contain `HttpError.Allocation`; deduplicating that semantic overlap
    requires an explicit classifier. Otherwise API abstraction is broken.
@@ -91,12 +94,13 @@ general sums do not independently introduce stored references.
 ## Matching and remaining surface decisions
 
 Matching must select a whole member type and bind its payload, including class
-payloads. A proposed spelling is `case cause: IoError:`. This spelling remains
-subject to a parser/pattern review; it is not an accepted extension of existing
-pattern `|`. An enum member can then be matched by its constructors normally.
+payloads. The implemented spelling is `case cause: IoError:` at the case
+position. It does not extend existing pattern `|`. An enum member can then
+be matched by its constructors normally.
 
 The initial contract requires exhaustive coverage of normalized members, or a
-wildcard. A guarded arm alone cannot establish coverage. Reject duplicate
+wildcard. Case guards remain unsupported; a future guarded arm alone cannot
+establish coverage. Reject duplicate
 unguarded member arms, including members that coincide after generic
 substitution. Specify those diagnostics on concrete specializations rather than
 pretending generic alternatives always remain distinct.
@@ -107,11 +111,11 @@ outlive the owner. A wildcard does not infer a smaller residual sum in this
 version. Empty sums, automatic error-set subtraction, and automatic conversion
 to infallible values are deferred.
 
-Before implementation, settle type-expression precedence and grouping with
-callable types, the typed-member pattern grammar, and how member patterns behave
-when normalization leaves a single ordinary type. Diagnostics must cover these
-cases alongside generic inference ambiguity. These are bounded surface decisions,
-not reasons to restrict sums to errors.
+The implementation puts `|` below references and type applications, uses `(T)`
+for grouping and `(T,)` for singleton tuples, and allows typed-member binding
+when normalization leaves an ordinary type. Callable brackets delimit their
+argument/result types. Diagnostics cover these cases alongside generic inference
+ambiguity; ambiguous constructors require an explicitly typed intermediate.
 
 ## Replacing Failure
 

@@ -360,8 +360,22 @@ fn infer(
     aliases: &TypeAliases,
     at: &Token,
 ) -> Result<()> {
+    infer_inner(pattern, actual, template, inferred, aliases, at, true)
+}
+
+fn infer_inner(
+    pattern: &TypeRef,
+    actual: &Ty,
+    template: &Function,
+    inferred: &mut HashMap<String, Ty>,
+    aliases: &TypeAliases,
+    at: &Token,
+    coercible: bool,
+) -> Result<()> {
     if let Some(expected) = &pattern.concrete {
-        if crate::generator::refine(expected, actual).is_none() {
+        if crate::generator::refine(expected, actual).is_none()
+            && !(coercible && crate::sum::accepts(expected, actual))
+        {
             let hint = callables::mismatch_hint(expected, actual).unwrap_or_default();
             return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
         }
@@ -388,16 +402,56 @@ fn infer(
     }
     if !mentions_parameter(pattern, template) {
         let expected = pattern.resolve(aliases)?.unwrap_or(Ty::Unit);
-        if crate::generator::refine(&expected, actual).is_none() {
+        if crate::generator::refine(&expected, actual).is_none()
+            && !(coercible && crate::sum::accepts(&expected, actual))
+        {
             let hint = callables::mismatch_hint(&expected, actual).unwrap_or_default();
             return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
         }
         return Ok(());
     }
+    if pattern.name.as_deref() == Some("|") {
+        let mut candidates = vec![inferred.clone()];
+        for member in crate::sum::members(actual) {
+            let mut next = Vec::new();
+            for candidate in &candidates {
+                for alternative in &pattern.args {
+                    let mut attempt = candidate.clone();
+                    if infer_inner(
+                        alternative,
+                        &member,
+                        template,
+                        &mut attempt,
+                        aliases,
+                        at,
+                        false,
+                    )
+                    .is_ok()
+                        && !next.contains(&attempt)
+                    {
+                        next.push(attempt);
+                    }
+                }
+            }
+            if next.len() > 64 {
+                return Err(
+                    at.error("ambiguous anonymous sum inference; supply explicit type arguments")
+                );
+            }
+            candidates = next;
+        }
+        if candidates.len() != 1 {
+            return Err(at.error(
+                "ambiguous or incompatible anonymous sum inference; supply explicit type arguments",
+            ));
+        }
+        *inferred = candidates.pop().unwrap();
+        return Ok(());
+    }
     if let Some((name, arguments)) = aliases.data.arguments(actual) {
         if pattern.name.as_ref() == Some(&name) && pattern.args.len() == arguments.len() {
             for (pattern, argument) in pattern.args.iter().zip(&arguments) {
-                infer(pattern, argument, template, inferred, aliases, at)?;
+                infer_inner(pattern, argument, template, inferred, aliases, at, false)?;
             }
             return Ok(());
         }
@@ -472,8 +526,17 @@ fn infer(
     let Some(children) = children.filter(|c| c.len() == pattern.args.len()) else {
         return Err(at.error(format!("argument type {actual} does not match parameter type in `{}`; supply matching arguments", template.name)));
     };
-    for (pattern, concrete) in pattern.args.iter().zip(children) {
-        infer(pattern, concrete, template, inferred, aliases, at)?;
+    for (index, (child, concrete)) in pattern.args.iter().zip(children).enumerate() {
+        let child_coercible = coercible && index == 1 && pattern.name.as_deref() == Some("Result");
+        infer_inner(
+            child,
+            concrete,
+            template,
+            inferred,
+            aliases,
+            at,
+            child_coercible,
+        )?;
     }
     Ok(())
 }
@@ -655,6 +718,7 @@ impl Lower<'_> {
         let mut inferred = HashMap::new();
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
+        let mut argument_ends = Vec::new();
         // Lower once, left to right, using ordinary ownership and borrow rules.
         // Generic positions get no contextual type: literals use their defaults.
         let mut reservation = None;
@@ -703,6 +767,7 @@ impl Lower<'_> {
                 &arg.at,
             )?;
             arguments.push(ty);
+            argument_ends.push(ops.len());
             if method && index == 0 && matches!(arguments[0], Ty::Ref(_, true)) {
                 reservation = Some(loans[0]);
                 self.reserve_receiver(loans[0], ops);
@@ -715,8 +780,21 @@ impl Lower<'_> {
             inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from its arguments; supply explicit type arguments")))
         }).collect::<Result<_>>()?;
         let symbol = self.specialize(name, actual, at)?;
-        let callee = self.specialize_frames(&symbol, arguments, at)?;
+        let callee = self.specialize_frames(&symbol, arguments.clone(), at)?;
         let sig = self.sigs[&callee].clone();
+        for ((source, (_, target)), end) in
+            arguments.iter().zip(&sig.inputs).zip(argument_ends).rev()
+        {
+            if source != target && crate::sum::accepts(target, source) {
+                ops.insert(
+                    end,
+                    Op::Enum(crate::sum::EnumOp::Widen(
+                        Box::new(source.clone()),
+                        Box::new(target.clone()),
+                    )),
+                );
+            }
+        }
         if let Some(loan) = reservation {
             self.mark(at, ops);
             loans[0] = self.activate_receiver(loan, ops);

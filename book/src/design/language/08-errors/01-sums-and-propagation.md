@@ -33,8 +33,9 @@ there is no source-visible null or numeric sentinel reserved for absence.
 Postfix `value?` evaluates once. `Some(value)` or `Ok(value)` produces its
 payload. `Nothing` returns `Nothing` from the enclosing function;
 `Err(error)` returns `Err(error)`. The function must return the same sum
-family; Result error types must be identical after alias resolution, except
-for explicit `Failure` erasure below. Success types may differ. There are
+family; Result errors must be identical or widen losslessly into a declared
+[anonymous sum](../03-types/anonymous-sums.md), except for explicit `Failure`
+erasure below. Success types may differ. There are
 no implicit Result/Option conversions. A unit success produces unit.
 
 For explicit error conversion, [`std.error.map_error(result, mapper)`](../../stdlib/error.md#explicit-error-mapping)
@@ -69,7 +70,8 @@ does not catch traps, and does not convert `Nothing`. User cleanup retains
 its own effects and allocations.
 
 Erasure applies only at `?`. Assignments, arguments, direct returns, and
-explicit `Err(payload)` still require the declared error type. Use
+explicit `Err(payload)` still require the declared error type or lossless
+anonymous-sum membership/widening. Use
 `Err(Failure.Unspecified)` to construct that error and `Ok(())` for unit
 success. An allocating expression propagated this way still has its own
 `AllocError` type before propagation.
