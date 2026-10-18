@@ -163,6 +163,24 @@ impl Lower<'_> {
         if !(1..=2).contains(&args.len()) {
             return Err(at.error("sorted takes a list and an optional descending bool; use sort_by_key on the copied list for key ordering"));
         }
+        // Reject non-orderable elements here; otherwise the helper's body
+        // reports them as a rejected instantiation of an internal name.
+        let mut list = match &ungroup(&args[0]).kind {
+            Expression::Unary(op, place) if op == "&" || op == "&mut" => self
+                .place_type(place)
+                .or_else(|| self.expression_type_hint(place)),
+            _ => self.expression_type_hint(&args[0]),
+        };
+        while let Some(Ty::Ref(inner, _)) = list {
+            list = Some((*inner).clone());
+        }
+        if let Some(Ty::List(element)) = list.map(classes::unbox) {
+            if !element.is_orderable() {
+                return Err(at.error(format!(
+                    "sorted does not order {element} elements; it orders integers, floats, str, and tuples of those"
+                )));
+            }
+        }
         self.sorting_helper("__plenty_sorted", "def sorteditems[T](items: &list[T], descending: bool) -> Result[list[T], AllocError]:\n    mut result = copy(items)?\n    result.sort(descending)\n    Ok(result)\n")?;
         let descending = Self::reverse_argument(&args[1..], at);
         self.generic_call(
