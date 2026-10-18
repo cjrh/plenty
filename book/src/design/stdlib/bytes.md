@@ -310,7 +310,9 @@ Methods named `crypto_*`, and the functions `crypto_state` and
 `crypto_keyed_state`, are the native back end of [`std.crypto`](crypto.md).
 They operate only on states that module creates; import it instead. The
 `compress_*` methods and `compress_state` are likewise the back end of
-[`std.compress`](compress.md).
+[`std.compress`](compress.md). `compress_state` rejects a capacity below 1
+with `OutOfRange`, since a state with no output room could never make
+progress.
 
 The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with

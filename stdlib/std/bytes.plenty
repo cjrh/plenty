@@ -355,9 +355,10 @@ pub def crypto_keyed_state(kind: u8, key: &Bytes, start: i64, stop: i64) -> Resu
     checked(start, stop, __bytes_len(key._owner))?
     Ok(Bytes(allocated(__crypto_new_keyed(kind, key._owner, start, stop))?))
 
-# std.compress's codec states. Import std.compress instead.
+# std.compress's codec states. Import std.compress instead. A zero capacity
+# leaves no output room, so `step` and `flush` could never make progress.
 pub def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, BytesError]:
-    if capacity < 0:
+    if capacity < 1:
         return Err(BytesError.OutOfRange)
     Ok(Bytes(allocated(__compress_new(kind, level, capacity))?))
 

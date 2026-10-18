@@ -320,7 +320,9 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
         match op {
             320 => {
                 let capacity = usize::try_from(c as i64)
-                    .unwrap_or_else(|_| crate::fail("negative compression buffer"));
+                    .ok()
+                    .filter(|&capacity| capacity > 0)
+                    .unwrap_or_else(|| crate::fail("empty compression buffer"));
                 result(create(a, b as i64, capacity))
             }
             321 => step(a, slice(b, c, d)) as u128,
