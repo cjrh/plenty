@@ -371,6 +371,7 @@ def main() -> Result[(), Failure]:
     ask(&app, "GET /session", "Cookie: session=user43.{tag}\r\n")?
     ask(&app, "GET /session", "Cookie: session=user42\r\n")?
     ask(&app, "GET /session", "")?
+    ask(&app, "GET /session", "Cookie: session=user43.{tag}; session=user42.{tag}\r\n")?
     Ok(())
 "#
     ));
@@ -378,7 +379,7 @@ def main() -> Result[(), Failure]:
     assert_eq!(
         output,
         format!(
-            "HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||user42\n{unsigned}{unsigned}{unsigned}"
+            "HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||user42\n{unsigned}{unsigned}{unsigned}HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||user42\n"
         )
     );
 }
