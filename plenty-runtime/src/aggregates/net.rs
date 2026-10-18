@@ -567,7 +567,11 @@ mod native {
                 410 => open(&contiguous(a)?, b as u8, c as i64, output),
                 411 => accept(file(a)?, output),
                 412 => finish_connect(file(a)?),
-                413 => address(file(a)?, b == 1, output),
+                413 => match b {
+                    0 => address(file(a)?, false, output),
+                    1 => address(file(a)?, true, output),
+                    _ => Err(Kind::InvalidInput.into()),
+                },
                 414 => {
                     let how = match b {
                         0 => 0,
