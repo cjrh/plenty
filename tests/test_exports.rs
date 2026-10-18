@@ -801,6 +801,8 @@ fn generated_library_names_reject_collisions_before_publication() {
         ("import discovery\nexport def answer() -> i32 = \"calc_answer\":\n    42\n", "imported C symbol"),
         ("import first\nimport second\nexport def a(x: &first.Item) -> i64 = \"calc_a\":\n    x.value\nexport def b(x: &second.Item) -> i64 = \"calc_b\":\n    x.value\n", "conflicting interface name"),
         ("export def _plenty_require_contract() -> () = \"calc_bad\":\n    pass\n", "reserved"),
+        // A generated adapter is named `_plenty_c_<export>`; the `_plenty_` guard rejects the collision.
+        ("export def make() -> Result[i64, AllocError] = \"calc_make\":\n    Ok(1)\nexport def _plenty_c_make() -> () = \"calc_raw\":\n    pass\n", "reserved for generated adapters"),
         ("class plenty_metadata:\n    value: i64\nexport def read(x: &plenty_metadata) -> i64 = \"calc_read\":\n    x.value\n", "reserved C metadata"),
         ("export def guard() -> () = \"calc_plenty_contract_other\":\n    pass\n", "reserved"),
     ] {
