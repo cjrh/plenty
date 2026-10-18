@@ -1441,9 +1441,10 @@ impl Parser {
                 return Err(at.error("lifecycle methods cannot declare their own type parameters"));
             }
             loop {
+                let param_at = self.peek().clone();
                 let param = self.name()?;
                 if builtin(&param) || type_params.iter().any(|(n, _)| n == &param) {
-                    return Err(at.error("duplicate or builtin type parameter"));
+                    return Err(param_at.error("duplicate or builtin type parameter"));
                 }
                 let bound = if self.eat(":") {
                     Some(self.ty()?)
