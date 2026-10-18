@@ -159,7 +159,8 @@ The response methods return `Result[(), HttpError]`. A handler answers once.
 (`LengthMismatch`). `start` streams exactly `Content-Length` bytes when the
 head declares it; otherwise it adds chunked framing for HTTP/1.1 or closes
 the connection after the body for HTTP/1.0. Writing past a declared length,
-or ending short of it, is `LengthMismatch`. A streamed response the handler
+or ending short of it, is `LengthMismatch`; a `HEAD` response sends no body,
+so it may end without writing. A streamed response the handler
 leaves unended is ended after it returns.
 
 The first body read sends `100 Continue` when the request asked for it. A
