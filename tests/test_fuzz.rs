@@ -178,13 +178,16 @@ def main() -> ():
 }
 
 /// A short run of the std.http.server target in fuzz/http_server, seeded
-/// from the qualification corpus, finds nothing.
+/// from the qualification corpus, finds nothing. A finding left by an earlier
+/// run is not reported again (issue #296).
 #[test]
 fn http_server_target_survives_a_short_run() {
     if libfuzzer().is_none() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("findings")).unwrap();
+    std::fs::write(dir.path().join("findings/crash-earlier"), b"old").unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = Command::new("python3")
         .arg("-B")
@@ -196,12 +199,11 @@ fn http_server_target_survives_a_short_run() {
         .output()
         .unwrap();
     let log = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "{}\n{log}",
-        String::from_utf8_lossy(&output.stdout)
-    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}\n{log}");
     assert!(log.contains("Done 20000 runs"), "{log}");
+    assert!(!stdout.contains("finding:"), "{stdout}");
+    assert!(stdout.contains("1 earlier findings"), "{stdout}");
 }
 
 /// libFuzzer's entry points, recording what the driver hands them: it runs
