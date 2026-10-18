@@ -230,65 +230,63 @@ impl Lower<'_> {
                 )
             }
             Expression::Method(base, name, _, _) => {
-                if self.place_type(base) == Some(Ty::CancellationToken) {
-                    return match name.as_str() {
-                        "share" => Some(Ty::CancellationToken),
-                        "is_cancelled" | "wait_timeout" => Some(Ty::Bool),
-                        _ => None,
-                    };
-                }
-                if let Some(Ty::Future(t)) = self.place_type(base) {
-                    return match name.as_str() {
-                        "result" => Some(
-                            crate::executor::ExecutorOp::Result((*t).clone())
+                match self.place_type(base) {
+                    Some(Ty::CancellationToken) => {
+                        return match name.as_str() {
+                            "share" => Some(Ty::CancellationToken),
+                            "is_cancelled" | "wait_timeout" => Some(Ty::Bool),
+                            _ => None,
+                        };
+                    }
+                    Some(Ty::Future(t)) => {
+                        return match name.as_str() {
+                            "result" => Some(
+                                crate::executor::ExecutorOp::Result((*t).clone())
+                                    .signature()
+                                    .1,
+                            ),
+                            "done" | "cancel" | "wait_timeout" => Some(Ty::Bool),
+                            _ => None,
+                        };
+                    }
+                    Some(ty @ Ty::Channel(_, _)) if name == "share" => return Some(ty),
+                    Some(Ty::Channel(message, sender)) => {
+                        if sender && name == "send_timeout" {
+                            return Some(
+                                crate::channel::ChannelOp::SendTimeout((*message).clone())
+                                    .signature()
+                                    .1,
+                            );
+                        }
+                        if !sender && name == "recv_timeout" {
+                            return Some(
+                                crate::channel::ChannelOp::RecvTimeout((*message).clone())
+                                    .signature()
+                                    .1,
+                            );
+                        }
+                        if sender && matches!(name.as_str(), "send" | "send_nowait") {
+                            return Some(
+                                crate::channel::ChannelOp::Send(
+                                    (*message).clone(),
+                                    name == "send_nowait",
+                                )
                                 .signature()
                                 .1,
-                        ),
-                        "done" | "cancel" | "wait_timeout" => Some(Ty::Bool),
-                        _ => None,
-                    };
-                }
-                if let Some(ty @ Ty::Channel(_, _)) = self.place_type(base) {
-                    if name == "share" {
-                        return Some(ty);
-                    }
-                    let Ty::Channel(message, sender) = ty else {
-                        unreachable!()
-                    };
-                    if sender && name == "send_timeout" {
-                        return Some(
-                            crate::channel::ChannelOp::SendTimeout((*message).clone())
+                            );
+                        }
+                        if !sender && matches!(name.as_str(), "recv" | "recv_nowait") {
+                            return Some(
+                                crate::channel::ChannelOp::Recv(
+                                    (*message).clone(),
+                                    name == "recv_nowait",
+                                )
                                 .signature()
                                 .1,
-                        );
+                            );
+                        }
                     }
-                    if !sender && name == "recv_timeout" {
-                        return Some(
-                            crate::channel::ChannelOp::RecvTimeout((*message).clone())
-                                .signature()
-                                .1,
-                        );
-                    }
-                    if sender && matches!(name.as_str(), "send" | "send_nowait") {
-                        return Some(
-                            crate::channel::ChannelOp::Send(
-                                (*message).clone(),
-                                name == "send_nowait",
-                            )
-                            .signature()
-                            .1,
-                        );
-                    }
-                    if !sender && matches!(name.as_str(), "recv" | "recv_nowait") {
-                        return Some(
-                            crate::channel::ChannelOp::Recv(
-                                (*message).clone(),
-                                name == "recv_nowait",
-                            )
-                            .signature()
-                            .1,
-                        );
-                    }
+                    _ => {}
                 }
                 let field = Expr {
                     at: e.at.clone(),
