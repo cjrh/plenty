@@ -1,0 +1,146 @@
+# Typed byte streams with explicit retry policy and partial progress.
+from std.bytes import Bytes
+import std.io
+from std.io import StreamError
+
+# Interruption is a retry signal; every other transport cause stays intact.
+# Err reports no progress from that attempt. A short successful read/write must
+# return Ok(count) before a later attempt can report failure. Reader Ok(0) is EOF.
+pub enum StepError[E]:
+    Interrupted
+    Source(E)
+
+# Compatibility only preserves what the legacy method actually returns.
+def legacy_step(result: Result[i64, StreamError]) -> Result[i64, StepError[StreamError]]:
+    match result:
+        case Ok(count):
+            Ok(count)
+        case Err(StreamError.Interrupted):
+            Err(StepError[StreamError].Interrupted)
+        case Err(cause):
+            Err(StepError[StreamError].Source(cause))
+
+pub class LegacyReader[R]:
+    inner: Option[R]
+
+    pub def read(self: &mut LegacyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[StreamError]]:
+        match &mut self.inner:
+            case Some(inner):
+                legacy_step(inner.read(buffer, start, stop))
+            case Nothing:
+                Err(StepError[StreamError].Source(StreamError.InvalidProgress))
+
+pub def reader[R: std.io.Reader](inner: R) -> LegacyReader[R]:
+    LegacyReader[R](Some(inner))
+
+pub def unwrap_reader[R](reader: LegacyReader[R]) -> R:
+    mut owned = reader
+    replace(owned.inner, Nothing).unwrap()
+
+pub class LegacyWriter[W]:
+    inner: Option[W]
+
+    pub def write(self: &mut LegacyWriter[W], buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[StreamError]]:
+        match &mut self.inner:
+            case Some(inner):
+                legacy_step(inner.write(buffer, start, stop))
+            case Nothing:
+                Err(StepError[StreamError].Source(StreamError.InvalidProgress))
+
+pub def writer[W: std.io.Writer](inner: W) -> LegacyWriter[W]:
+    LegacyWriter[W](Some(inner))
+
+pub def unwrap_writer[W](writer: LegacyWriter[W]) -> W:
+    mut owned = writer
+    replace(owned.inner, Nothing).unwrap()
+
+pub protocol Reader[E]:
+    def read(self: &mut Reader[E], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[E]]:
+        pass
+
+pub protocol Writer[E]:
+    def write(self: &mut Writer[E], buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[E]]:
+        pass
+
+pub enum ReadFailure[E]:
+    Source(E)
+    UnexpectedEof
+    InvalidProgress
+    OutOfRange
+
+pub enum WriteFailure[E]:
+    Source(E)
+    WriteZero
+    InvalidProgress
+    OutOfRange
+
+pub class Partial[E]:
+    pub completed: i64
+    pub cause: E
+
+pub enum CopyFailure[R, W]:
+    Read(i64, ReadFailure[R])
+    Write(i64, WriteFailure[W])
+
+pub def within(start: i64, stop: i64, size: i64) -> bool:
+    start >= 0 and start <= stop and stop <= size
+
+pub def read_exact[E, R: Reader[E]](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial[ReadFailure[E]]]:
+    if not within(start, stop, buffer.len()):
+        return Err(Partial(0, ReadFailure[E].OutOfRange))
+    mut at = start
+    while at < stop:
+        match reader.read(buffer, at, stop):
+            case Ok(count):
+                if count == 0:
+                    return Err(Partial(at - start, ReadFailure[E].UnexpectedEof))
+                if count < 0 or count > stop - at:
+                    return Err(Partial(at - start, ReadFailure[E].InvalidProgress))
+                at += count
+            case Err(StepError.Interrupted):
+                pass
+            case Err(StepError.Source(cause)):
+                return Err(Partial(at - start, ReadFailure[E].Source(cause)))
+    Ok(())
+
+pub def write_all[E, W: Writer[E]](writer: &mut W, buffer: &Bytes, start: i64, stop: i64) -> Result[(), Partial[WriteFailure[E]]]:
+    if not within(start, stop, buffer.len()):
+        return Err(Partial(0, WriteFailure[E].OutOfRange))
+    mut at = start
+    while at < stop:
+        match writer.write(buffer, at, stop):
+            case Ok(count):
+                if count == 0:
+                    return Err(Partial(at - start, WriteFailure[E].WriteZero))
+                if count < 0 or count > stop - at:
+                    return Err(Partial(at - start, WriteFailure[E].InvalidProgress))
+                at += count
+            case Err(StepError.Interrupted):
+                pass
+            case Err(StepError.Source(cause)):
+                return Err(Partial(at - start, WriteFailure[E].Source(cause)))
+    Ok(())
+
+# completed always counts delivery to the writer, including a partial write.
+pub def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, scratch: &mut Bytes) -> Result[i64, CopyFailure[E, G]]:
+    size = scratch.len()
+    if size == 0:
+        return Err(CopyFailure[E, G].Read(0, ReadFailure[E].OutOfRange))
+    mut total = 0
+    while True:
+        match reader.read(scratch, 0, size):
+            case Ok(count):
+                if count == 0:
+                    return Ok(total)
+                if count < 0 or count > size or count > i64.MAX - total:
+                    return Err(CopyFailure[E, G].Read(total, ReadFailure[E].InvalidProgress))
+                match write_all[G, W](writer, scratch, 0, count):
+                    case Ok(_):
+                        total += count
+                    case Err(partial):
+                        return Err(CopyFailure[E, G].Write(total + partial.completed, partial.cause))
+            case Err(StepError.Interrupted):
+                pass
+            case Err(StepError.Source(cause)):
+                return Err(CopyFailure[E, G].Read(total, ReadFailure[E].Source(cause)))
+    Ok(total)

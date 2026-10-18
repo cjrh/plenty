@@ -1,0 +1,75 @@
+# Typed HTTP body framing after head validation.
+# Construct only after validating a Content-Length and the response semantics.
+from std.bytes import Bytes
+from std.io.typed import Reader, StepError, within
+
+pub enum FramingError[E]:
+    Transport(E)
+    Truncated
+    InvalidProgress
+    OutOfRange
+    Broken
+
+pub def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]:
+    if length < 0:
+        return Err(FramingError[E].OutOfRange)
+    Ok(FixedBody[E, R](inner, length, False))
+
+pub class FixedBody[E, R]:
+    inner: R
+    remaining: i64
+    broken: bool
+
+    pub def read(self: &mut FixedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        if self.broken:
+            return Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
+        if not within(start, stop, buffer.len()) or self.remaining < 0:
+            return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
+        if start == stop or self.remaining == 0:
+            return Ok(0)
+        mut offered = stop - start
+        if offered > self.remaining:
+            offered = self.remaining
+        match self.inner.read(buffer, start, start + offered):
+            case Ok(count):
+                if count <= 0 or count > offered:
+                    self.broken = True
+                    if count == 0:
+                        return Err(StepError[FramingError[E]].Source(FramingError[E].Truncated))
+                    return Err(StepError[FramingError[E]].Source(FramingError[E].InvalidProgress))
+                self.remaining -= count
+                Ok(count)
+            case Err(StepError.Interrupted):
+                Err(StepError[FramingError[E]].Interrupted)
+            case Err(StepError.Source(cause)):
+                self.broken = True
+                Err(StepError[FramingError[E]].Source(FramingError[E].Transport(cause)))
+# EOF completes this framing mode; its connection must never be reused.
+pub def close_body[E, R: Reader[E]](inner: R) -> CloseBody[E, R]:
+    CloseBody[E, R](inner, False, False)
+
+pub class CloseBody[E, R]:
+    inner: R
+    finished: bool
+    broken: bool
+
+    pub def read(self: &mut CloseBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        if self.broken:
+            return Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
+        if not within(start, stop, buffer.len()):
+            return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
+        if start == stop or self.finished:
+            return Ok(0)
+        match self.inner.read(buffer, start, stop):
+            case Ok(count):
+                if count < 0 or count > stop - start:
+                    self.broken = True
+                    return Err(StepError[FramingError[E]].Source(FramingError[E].InvalidProgress))
+                if count == 0:
+                    self.finished = True
+                Ok(count)
+            case Err(StepError.Interrupted):
+                Err(StepError[FramingError[E]].Interrupted)
+            case Err(StepError.Source(cause)):
+                self.broken = True
+                Err(StepError[FramingError[E]].Source(FramingError[E].Transport(cause)))
