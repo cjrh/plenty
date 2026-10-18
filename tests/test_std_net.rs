@@ -325,6 +325,25 @@ std.net.NetError.Stream(std.io.StreamError.Io(IoError.System(90)))\n",
     );
 }
 
+/// Selectors other than 0 (local) and 1 (peer) are rejected (issue #278).
+#[test]
+fn address_selectors_outside_local_and_peer_are_invalid() {
+    runs(
+        r#"
+def main() -> Result[(), Failure]:
+    socket = __net_open([4u8, 0u8, 0u8, 127u8, 0u8, 0u8, 1u8]?, 2u8, 0).unwrap()
+    for which in [0u8, 2u8, 255u8]?:
+        match __net_address(&socket, which):
+            case Ok(data):
+                print(len(data))?
+            case Err(error):
+                print(str.repr(error)?)?
+    Ok(())
+"#,
+        "7\nIoError.InvalidInput\nIoError.InvalidInput\n",
+    );
+}
+
 /// Writes take any `std.bytes.ByteSource`, so literals need no copy (issue #156).
 #[test]
 fn byte_literals_are_sent_in_place() {
