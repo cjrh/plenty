@@ -633,8 +633,13 @@ pub fn dependency_line(alias: &str, dependency: &Dependency) -> String {
 
 /// `text` with `line` added as the last entry of its `[dependencies]` table,
 /// or in a new table at the end. Everything else, including comments and
-/// layout, is kept.
+/// layout, is kept. New line breaks match the file's first one, so a CRLF
+/// manifest stays CRLF.
 pub fn insert_dependency(text: &str, line: &str) -> String {
+    let nl = match text.find('\n') {
+        Some(i) if text[..i].ends_with('\r') => "\r\n",
+        _ => "\n",
+    };
     let lines: Vec<&str> = text.lines().collect();
     let header = lines.iter().position(|l| {
         l.trim()
@@ -644,9 +649,9 @@ pub fn insert_dependency(text: &str, line: &str) -> String {
     let Some(header) = header else {
         let mut out = text.to_owned();
         if !out.is_empty() && !out.ends_with('\n') {
-            out.push('\n');
+            out.push_str(nl);
         }
-        out.push_str(&format!("\n[dependencies]\n{line}\n"));
+        out.push_str(&format!("{nl}[dependencies]{nl}{line}{nl}"));
         return out;
     };
     let end = lines[header + 1..]
@@ -664,7 +669,7 @@ pub fn insert_dependency(text: &str, line: &str) -> String {
     let mut out: Vec<&str> = lines[..at].to_vec();
     out.push(line);
     out.extend(&lines[at..]);
-    out.join("\n") + "\n"
+    out.join(nl) + nl
 }
 
 #[cfg(test)]
@@ -685,6 +690,19 @@ mod tests {
         assert_eq!(
             insert_dependency("a = 1", line),
             "a = 1\n\n[dependencies]\nx = { path = \"../x\" }\n"
+        );
+    }
+
+    #[test]
+    fn inserting_dependencies_keeps_crlf_line_endings() {
+        let line = "x = { path = \"../x\" }";
+        assert_eq!(
+            insert_dependency("a = 1\r\n[dependencies]\r\ny = 2\r\n[lib]\r\n", line),
+            "a = 1\r\n[dependencies]\r\ny = 2\r\nx = { path = \"../x\" }\r\n[lib]\r\n"
+        );
+        assert_eq!(
+            insert_dependency("a = 1\r\nb = 2", line),
+            "a = 1\r\nb = 2\r\n\r\n[dependencies]\r\nx = { path = \"../x\" }\r\n"
         );
     }
 
