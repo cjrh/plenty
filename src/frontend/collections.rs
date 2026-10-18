@@ -467,17 +467,19 @@ impl Lower<'_> {
         let mut types = Vec::new();
         for (i, value) in values.iter().enumerate() {
             let expected = fields.map(|f| f[i].clone());
-            let actual = self
-                .expr_expected(value, expected.clone(), ops)?
-                .unwrap_or(Ty::Unit);
+            // `expr_expected` pushes the unit itself when it has an expectation.
+            let actual = match self.expr_expected(value, expected.clone(), ops)? {
+                Some(actual) => actual,
+                None => {
+                    ops.push(Op::PushUnit);
+                    Ty::Unit
+                }
+            };
             if let Some(expected) = expected {
                 self.same(Some(actual.clone()), Some(expected), &value.at)?;
             }
             if let Some(barrier) = actual.storage_barrier() {
                 return Err(value.at.error(barrier.message("tuples")));
-            }
-            if actual == Ty::Unit {
-                ops.push(Op::PushUnit);
             }
             types.push(actual);
         }
