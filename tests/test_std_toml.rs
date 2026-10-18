@@ -900,6 +900,50 @@ for which in range(3):
     );
 }
 
+/// Integers, booleans, and punctuation are written without temporaries: an
+/// array of 1200 of them needs under 100 allocations, where one per token
+/// would need thousands (issue #261). Keys, strings, and floats each still
+/// take one temporary, as the reference's cost table says.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn encoding_integers_and_booleans_allocates_nothing_per_token() {
+    native(
+        r#"
+bounds = std.toml.limits()
+mut items = list[Toml]()?
+for index in range(1200):
+    if index % 3 == 0:
+        items.append(Toml.Bool(index % 2 == 0))?
+    elif index % 3 == 1:
+        items.append(Toml.Int(index * -1000003))?
+    else:
+        mut pair = list[Toml]()?
+        pair.append(Toml.Int(index))?
+        pair.append(Toml.Array(list[Toml]()?))?
+        items.append(Toml.Array(pair))?
+mut entries = list[Entry]()?
+entries.append(Entry("k", Toml.Array(items)))?
+value = Toml.Table(entries)
+mut markers = list[str]()?
+for count in range(100):
+    markers.append("".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?)?
+mut first = -1
+for count in range(100):
+    if first < 0:
+        print(markers[count])?
+        result = std.toml.encode(&value, &bounds)
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(_):
+                first = count
+            case Err(_):
+                pass
+print(first > 0 and first < 100)?
+"#,
+        "True",
+    );
+}
+
 /// xorshift64: the fuzz inputs are the same on every run.
 struct Random(u64);
 

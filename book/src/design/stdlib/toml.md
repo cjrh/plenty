@@ -211,7 +211,7 @@ printed and compared.
 |---|---|---|
 | `parse`, `parse_text` | One copy of the input; one node per key, table, and value; one index entry per named key; one scratch buffer as long as the longest key, string, or number; then the tree | Linear in the input, expected |
 | `read_value` | The input buffer, grown in chunks of 4096 bytes, then as `parse` without the copy | As `parse`, plus the reads |
-| `encode`, `write_value` | The whole output buffer; one key set per table with two or more entries | Linear in the output, expected |
+| `encode`, `write_value` | The whole output buffer; one key set per table with two or more entries; a temporary copy of each key and string and a temporary `str` per float, each released before the next | Linear in the output, expected |
 | `encode_text` | The output buffer, then a `str` copy | Linear |
 | `find` | Nothing | Linear in the entry count |
 
