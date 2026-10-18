@@ -20,6 +20,7 @@ graph; imports never fetch or resolve packages.
 | `plenty update [PACKAGE...] [--offline]` | Move [Git dependencies](#git-dependencies) to the commits their tags and revisions name now |
 | `plenty graph [--locked] [--offline]` | Print the [package graph file](#package-graph-files) for `plentyc --package-graph` |
 | `plenty clean` | Remove `target/` |
+| `plenty lsp` | Serve the [language server](language-server.md) on stdin and stdout |
 
 `--locked` fails instead of creating or changing `plenty.lock`. `--offline`
 never runs `git fetch`; it uses only the package cache in `.pkg/`.

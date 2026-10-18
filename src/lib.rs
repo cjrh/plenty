@@ -26,6 +26,7 @@ mod generator;
 mod lexer;
 mod library;
 mod library_metadata;
+pub mod lsp;
 mod net;
 mod nominal;
 mod numeric;
@@ -49,6 +50,13 @@ mod toolchain;
 mod type_facts;
 mod unicode;
 mod value;
+
+/// Editor queries over a checked file, for the language server (issue #155).
+pub mod ide {
+    pub use crate::frontend::ide::{
+        analyze, Analysis, Diagnostic, File, Location, Reference, Symbol, SymbolKind,
+    };
+}
 
 pub use codegen::{
     compile_file_to_executable, compile_file_to_executable_with_options, compile_file_to_object,

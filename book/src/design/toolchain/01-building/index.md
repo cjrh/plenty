@@ -7,7 +7,10 @@ embedded in the compiler. Program builds invoke neither Cargo nor rustc.
 - [Installing a release](installing.md): release archives, requirements, and
   `PATH` setup.
 - [Commands](commands.md): checking, running, executable and library output.
-- [Neovim](neovim.md): file detection, syntax highlighting, and editing defaults.
+- [Neovim](neovim.md): file detection, syntax highlighting, editing defaults,
+  and language server setup.
+- [Language server](language-server.md): `plenty lsp` diagnostics, hover, go
+  to definition, and completion.
 - [Packages](packages.md): `plenty.toml`, path dependencies, `plenty.lock`,
   profiles, and the `plenty build`, `run`, `check`, and `test` commands.
 - [Application exits](entry-report.md): statuses and returned-error reports.

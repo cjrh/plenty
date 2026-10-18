@@ -420,8 +420,8 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
                 free_names(value, bound, names);
             }
         }
-        Expression::Method(base, _, args)
-        | Expression::GenericMethod(base, _, _, args)
+        Expression::Method(base, _, args, _)
+        | Expression::GenericMethod(base, _, _, args, _)
         | Expression::Invoke(base, args) => {
             free_names(base, bound, names);
             for arg in args {
@@ -430,7 +430,7 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
         }
         Expression::Try(base)
         | Expression::NamedArgument(_, base)
-        | Expression::Member(base, _)
+        | Expression::Member(base, _, _)
         | Expression::Group(base)
         | Expression::Unary(_, base)
         | Expression::ClassReady(_, base) => free_names(base, bound, names),

@@ -203,6 +203,8 @@ mod test_list_queries;
 mod test_list_removal;
 #[path = "test_loops.rs"]
 mod test_loops;
+#[path = "test_lsp.rs"]
+mod test_lsp;
 #[path = "test_match_values.rs"]
 mod test_match_values;
 #[path = "test_modern.rs"]
