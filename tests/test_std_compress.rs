@@ -440,6 +440,19 @@ print(str.repr(std.compress.crc32(-1, &data, 0, 1))?)?
     );
 }
 
+// Issue #238: a zero-capacity state could never make step or flush progress.
+#[test]
+fn codec_states_need_output_room() {
+    native(
+        r#"
+print(str.repr(std.bytes.compress_state(1u8, 6, 0))?)?
+print(str.repr(std.bytes.compress_state(1u8, 6, -1))?)?
+print(std.bytes.compress_state(1u8, 6, 1).is_ok())?
+"#,
+        "Result[Bytes, BytesError].Err(BytesError.OutOfRange)\nResult[Bytes, BytesError].Err(BytesError.OutOfRange)\nTrue",
+    );
+}
+
 #[test]
 fn codec_states_cannot_be_forged() {
     let output = run(&program(
