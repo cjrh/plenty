@@ -82,6 +82,28 @@ print(str.repr(work()).unwrap()).unwrap()
 }
 
 #[test]
+fn closed_reads_file_temporaries() {
+    let (out, _) = run(
+        r#"
+def work() -> Result[(), IoError]:
+    print(open("sample.txt")?.closed).unwrap()
+    print((open("sample.txt")?).closed).unwrap()
+    Ok(())
+print(str.repr(work()).unwrap()).unwrap()
+"#,
+        Some(b"text"),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "False\nFalse\nResult[(), IoError].Ok(())\n"
+    );
+    reject(
+        "def work() -> Result[(), IoError]:\n    print(open(\"x\")?.name).unwrap()\n    Ok(())\n",
+        "unknown File property `name`",
+    );
+}
+
+#[test]
 fn file_capabilities_use_shared_references_and_validate_closed_state() {
     let (out, _) = run(
         r#"
