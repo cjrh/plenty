@@ -6,7 +6,8 @@ Formatting policy is checked Plenty; the native primitives only write
 floating-point spellings into existing byte storage. There is no runtime
 reflection, format-string interpreter, or dynamic writer object.
 [f-strings](../language/04-expressions/format-strings.md) compile to calls on
-this module.
+this module, and `out.format(f"...")` writes one to a formatter `out` without an
+intermediate `str`.
 
 ## Writers and strings
 
@@ -32,6 +33,7 @@ All formatting methods use an exclusive receiver and return
 |---|---|
 | `text(&str)` | Exact UTF-8, including embedded NUL |
 | `debug_text(&str)` | Double quotes; escapes `"`, `\`, LF, CR, TAB; other C0/C1 controls use lowercase `\u{hex}`; other Unicode is preserved |
+| `ascii_text(&str)` | The text with each non-ASCII scalar as lowercase `\u{hex}`; ASCII is unchanged |
 | `boolean(bool)` | `True` or `False` |
 | `integer(i64, width)` | Signed decimal, including `i64.MIN` |
 | `unsigned(u64, base, width)` | Base 2, 8, 10, or 16, lowercase digits, no prefix |
@@ -43,23 +45,27 @@ It never truncates. Negative widths and unsupported bases fail before output.
 These numeric spellings are ASCII, so byte and scalar widths coincide; no
 grapheme or terminal-cell width is promised. Text has no implicit padding.
 `floating` has no precision or locale controls; promoting `f32` to `f64`
-spells the promoted value. The spec methods below add Python's options.
-Dynamic format specifications are unsupported.
+spells the promoted value. The spec methods below add Python's options. There
+is no format-spec parser: a `Spec` is built from its fields, and f-strings
+parse their specs while compiling.
 
 ## Format specs
 
-`Spec` holds one field's options as public fields: `fill` (one scalar),
-`align` (`""`, `"<"`, `">"`, `"^"`, `"="`), `sign` (`""`, `"+"`, `"-"`,
-`" "`), `alternate` (`#`), `zero` (`0`), `width`, `grouping` (`""`, `","`,
-`"_"`), `precision` (`-1` when absent), and `kind` (the type letter or `""`).
-`spec(...)` builds one with keyword defaults, for example
-`spec(width=8, precision=2, kind="f")`. Width and precision are at most 4096.
+`Spec` holds one field's options as public fields, in this order: `fill` (one
+scalar), `align` (`""`, `"<"`, `">"`, `"^"`, `"="`), `sign` (`""`, `"+"`,
+`"-"`, `" "`), `coerce_zero` (`z`), `alternate` (`#`), `zero` (`0`), `width`,
+`grouping` (`""`, `","`, `"_"`), `precision` (`-1` when absent), and `kind`
+(the type letter or `""`). `spec(...)` builds one with keyword defaults, for
+example `spec(width=8, precision=2, kind="f")`. Width and precision are at most
+4096.
 
 | Method | Options |
 |---|---|
 | `text_spec(&str, &Spec)` | Fill, alignment (default left), width; precision truncates. Widths count scalars |
 | `signed_spec(i64, &Spec)`, `unsigned_spec(u64, &Spec)` | Types `d`, `x`, `X`, `o`, `b`; `#` prefixes; sign; `,` (decimal) or `_` grouping; `0` grouped zero padding; default right |
-| `float_spec(f64, &Spec)`, `float32_spec(f32, &Spec)` | Types `e`, `E`, `f`, `F`, `g`, `G`, `%`, or none; precision (default 6 when typed); `#`; sign; grouping; `0` padding |
+| `signed_spec`, `unsigned_spec` with kind `n` | As `d`, without grouping |
+| `char_spec(i64, &Spec)` | Kind `c`: the scalar with that code point; fill, alignment (default right), width, `0` padding; `InvalidSpec` for a value that is not a Unicode scalar |
+| `float_spec(f64, &Spec)`, `float32_spec(f32, &Spec)` | Types `e`, `E`, `f`, `F`, `g`, `G`, `%`, `n` (as `g`, without grouping), or none; precision (default 6 when typed); `#`; sign; `coerce_zero` drops the sign of a result whose digits are all zero; grouping; `0` padding |
 
 Their spellings match Python's `format`, except that a float with neither type
 nor precision uses `print`'s spelling. A combination the method's type does not
@@ -71,8 +77,14 @@ scratch, such as a 64-digit binary integer or `1e300` with `f`, first grows the
 scratch fallibly (`Bytes(Allocation(...))`); preallocate scratch to keep
 formatting allocation-free. `represent(&value, &mut out)` writes the `str.repr`
 spelling of any value `str.repr` accepts, which allocates a temporary string.
-`repr_string(&value)` and `debug_string(&text)` return the `str.repr` and
-`debug_text` spellings as fallible strings.
+`repr_string(&value)`, `debug_string(&text)`, and `ascii_string(&text)` return
+the `str.repr`, `debug_text`, and `ascii_text` spellings as fallible strings.
+
+f-strings check the values of a spec's nested fields with three functions, each
+returning `InvalidSpec` for a value the spec cannot take: `spec_align(&align)`
+accepts `""`, `<`, `>`, `^`, and `=`; `spec_fill(&fill, &align)` turns `""` into
+the default space and otherwise requires one scalar and a non-empty alignment;
+`spec_count(n)` accepts a width or precision in `0..=4096`.
 
 ## Static user contracts and aggregates
 

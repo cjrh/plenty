@@ -1,9 +1,11 @@
 //! `f"..."` literals. The lexer splits a template into literal text and
-//! fields, the parser checks each field's restricted expression and format
-//! spec, and lowering calls a generated generic function that writes the
-//! pieces to a `std.fmt` string formatter. Specializing that function gives
-//! every field a concrete type, so each spec is checked against its type at
-//! compile time and nothing interprets a template at run time.
+//! fields, the parser parses each field's expression and static format spec,
+//! and lowering calls a generated generic function that writes the pieces to a
+//! `std.fmt` string formatter, or to the formatter of `out.format(f"...")`.
+//! Specializing that function gives every field a concrete type, so each spec
+//! is checked against its type at compile time and nothing interprets a
+//! template at run time. Nested fields in a spec supply only a fill,
+//! alignment, width, or precision; their values are checked when formatting.
 use super::*;
 
 /// The module binding of the `std.fmt` import that every module using an
@@ -26,7 +28,17 @@ pub(super) struct LexedField {
     /// `{expr=}`: the source text through `=` and any spaces after it.
     debug: Option<String>,
     conversion: Option<char>,
-    spec: Option<(String, Token)>,
+    // Boxed: an inline spec would make every lexed part as large as a field.
+    spec: Option<Box<LexedSpec>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct LexedSpec {
+    /// The spec's text with each nested field written `{}`, which cannot
+    /// otherwise occur in a spec.
+    text: String,
+    at: Token,
+    fields: Vec<LexedField>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -40,27 +52,54 @@ enum Conversion {
     None,
     Repr,
     Str,
+    Ascii,
+}
+
+/// A spec option written in the spec, or supplied by its nested field `n`.
+#[derive(Clone, Copy, PartialEq)]
+enum Opt<T> {
+    Static(T),
+    Nested(usize),
+}
+
+/// What a nested field's type lets it supply.
+#[derive(Clone, Copy, PartialEq)]
+enum Nested {
+    /// An integer: a width or precision.
+    Count,
+    /// A `str`: a fill or alignment.
+    Text,
 }
 
 #[derive(Clone)]
 struct Spec {
     text: String,
-    fill: Option<char>,
-    align: Option<char>,
+    fill: Option<Opt<char>>,
+    align: Option<Opt<char>>,
     sign: Option<char>,
+    coerce_zero: bool,
     alternate: bool,
     zero: bool,
-    width: usize,
+    width: Opt<usize>,
     grouping: Option<char>,
-    precision: Option<usize>,
+    precision: Option<Opt<usize>>,
     kind: Option<char>,
+}
+
+#[derive(Clone)]
+enum FieldSpec {
+    Static(Spec),
+    /// Parsed when the nested fields' types are known; see [`parse_spec`].
+    Nested(String, Token),
 }
 
 #[derive(Clone)]
 struct Field {
     at: Token,
     conversion: Conversion,
-    spec: Option<Spec>,
+    spec: Option<FieldSpec>,
+    /// Where each nested field of the spec was written.
+    nested: Vec<Token>,
 }
 
 #[derive(Clone)]
@@ -77,22 +116,21 @@ pub(super) struct Template {
 pub(super) enum Format {
     /// The literal: its template and one value per field, in order.
     Literal(Arc<Template>, Vec<Expr>),
-    /// Inside a generated function only: write field `index` of the template,
-    /// whose value is `value`, to the formatter `__plenty_out`.
-    Field(Arc<Template>, usize, Expr),
+    /// Inside a generated function only: write field `index` of the template
+    /// to the formatter `__plenty_out`. The values are the field's, then
+    /// those of its spec's nested fields.
+    Field(Arc<Template>, usize, Vec<Expr>),
 }
 
 impl Format {
     pub(super) fn operands(&self) -> Vec<&Expr> {
         match self {
-            Format::Literal(_, values) => values.iter().collect(),
-            Format::Field(_, _, value) => vec![value],
+            Format::Literal(_, values) | Format::Field(_, _, values) => values.iter().collect(),
         }
     }
     pub(super) fn operands_mut(&mut self) -> Vec<&mut Expr> {
         match self {
-            Format::Literal(_, values) => values.iter_mut().collect(),
-            Format::Field(_, _, value) => vec![value],
+            Format::Literal(_, values) | Format::Field(_, _, values) => values.iter_mut().collect(),
         }
     }
 }
@@ -190,7 +228,7 @@ impl Lexer<'_> {
                     if !text.is_empty() {
                         parts.push(Part::Literal(std::mem::take(&mut text)));
                     }
-                    parts.push(Part::Field(self.format_field(quote, triple, &at)?));
+                    parts.push(Part::Field(self.format_field(quote, triple, &at, false)?));
                 }
                 _ => text.push(c),
             }
@@ -201,8 +239,15 @@ impl Lexer<'_> {
         Ok(Kind::Format(parts))
     }
 
-    /// Lexes one field after its `{`, through its `}`.
-    fn format_field(&mut self, quote: char, triple: bool, open: &Token) -> Result<LexedField> {
+    /// Lexes one field after its `{`, through its `}`. A `nested` field is
+    /// inside a spec and cannot contain another.
+    fn format_field(
+        &mut self,
+        quote: char,
+        triple: bool,
+        open: &Token,
+        nested: bool,
+    ) -> Result<LexedField> {
         let unterminated = || open.error("unterminated f-string field; expected `}`");
         let begin = self.pos;
         let first = self.here();
@@ -284,9 +329,8 @@ impl Lexer<'_> {
             self.advance();
             let at = self.here();
             field.conversion = match self.advance() {
-                Some(c @ ('r' | 's')) => Some(c),
-                Some('a') => return Err(at.error("the `!a` conversion is not supported; use `!r`")),
-                _ => return Err(at.error("expected the conversion `r` or `s` after `!`")),
+                Some(c @ ('r' | 's' | 'a')) => Some(c),
+                _ => return Err(at.error("expected the conversion `r`, `s`, or `a` after `!`")),
             };
             terminator = self.char_at(0).ok_or_else(unterminated)?;
             if !matches!(terminator, ':' | '}') {
@@ -298,22 +342,41 @@ impl Lexer<'_> {
         if terminator == ':' {
             self.advance();
             let at = self.here();
-            let begin = self.pos;
+            let mut text = String::new();
+            let mut fields = Vec::new();
             loop {
                 match self.char_at(0) {
                     None => return Err(unterminated()),
                     Some('}') => break,
-                    Some('{') => return Err(self.here().error(
-                        "nested replacement fields in a format spec are not supported; write the width and precision as numbers",
-                    )),
+                    Some('{') if nested => {
+                        return Err(self
+                            .here()
+                            .error("a nested f-string field cannot contain another field"))
+                    }
+                    Some('{') => {
+                        let open = self.here();
+                        self.advance();
+                        let inner = self.format_field(quote, triple, &open, true)?;
+                        if inner.debug.is_some()
+                            || inner.conversion.is_some()
+                            || inner.spec.is_some()
+                        {
+                            return Err(open.error(
+                                "a nested f-string field is an expression without `=`, a conversion, or a spec",
+                            ));
+                        }
+                        fields.push(inner);
+                        text.push_str("{}");
+                    }
                     Some('\n') => return Err(unterminated()),
                     Some(c) if c == quote => return Err(unterminated()),
-                    Some(_) => {
+                    Some(c) => {
                         self.advance();
+                        text.push(c);
                     }
                 }
             }
-            field.spec = Some((self.source[begin..self.pos].into(), at));
+            field.spec = Some(Box::new(LexedSpec { text, at, fields }));
         }
         self.advance(); // }
         Ok(field)
@@ -341,129 +404,188 @@ fn is_align(c: char) -> bool {
     matches!(c, '<' | '>' | '^' | '=')
 }
 
-fn parse_spec(text: &str, at: &Token) -> Result<Spec> {
+/// One item of a spec: a character, or nested field `n`.
+#[derive(Clone, Copy, PartialEq)]
+enum Item {
+    Char(char),
+    Nested(usize),
+}
+
+/// Parses a spec whose nested fields, written `{}`, have the given kinds.
+/// Each nested field supplies exactly one option, chosen by its position and
+/// type: a `str` is the fill or alignment, an integer the width or precision.
+fn parse_spec(text: &str, at: &Token, kinds: &[Nested]) -> Result<Spec> {
     let invalid = |reason: &str| at.error(format!("invalid format spec `{text}`: {reason}"));
-    let chars: Vec<char> = text.chars().collect();
+    let mut items = Vec::new();
+    let mut chars = text.chars().peekable();
+    let mut count = 0;
+    while let Some(c) = chars.next() {
+        if c == '{' && chars.peek() == Some(&'}') {
+            chars.next();
+            items.push(Item::Nested(count));
+            count += 1;
+        } else {
+            items.push(Item::Char(c));
+        }
+    }
+    let char_at = |i: usize| match items.get(i) {
+        Some(Item::Char(c)) => Some(*c),
+        _ => None,
+    };
+    let text_at = |i: usize| match items.get(i) {
+        Some(Item::Nested(n)) if kinds[*n] == Nested::Text => Some(Opt::Nested(*n)),
+        _ => None,
+    };
+    let align_at = |i: usize| {
+        char_at(i)
+            .filter(|c| is_align(*c))
+            .map(Opt::Static)
+            .or_else(|| text_at(i))
+    };
+    let fill_at = |i: usize| char_at(i).map(Opt::Static).or_else(|| text_at(i));
     let mut i = 0;
     let mut spec = Spec {
         text: text.into(),
         fill: None,
         align: None,
         sign: None,
+        coerce_zero: false,
         alternate: false,
         zero: false,
-        width: 0,
+        width: Opt::Static(0),
         grouping: None,
         precision: None,
         kind: None,
     };
-    if chars.len() >= 2 && is_align(chars[1]) {
-        spec.fill = Some(chars[0]);
-        spec.align = Some(chars[1]);
+    if let (Some(fill), Some(align)) = (fill_at(0), align_at(1)) {
+        spec.fill = Some(fill);
+        spec.align = Some(align);
         i = 2;
-    } else if chars.first().is_some_and(|c| is_align(*c)) {
-        spec.align = Some(chars[0]);
+    } else if let Some(align) = align_at(0) {
+        spec.align = Some(align);
         i = 1;
     }
-    if let Some(c @ ('+' | '-' | ' ')) = chars.get(i) {
-        spec.sign = Some(*c);
+    if let Some(c @ ('+' | '-' | ' ')) = char_at(i) {
+        spec.sign = Some(c);
         i += 1;
     }
-    if chars.get(i) == Some(&'z') {
-        return Err(invalid("the `z` option is not supported"));
+    if char_at(i) == Some('z') {
+        spec.coerce_zero = true;
+        i += 1;
     }
-    if chars.get(i) == Some(&'#') {
+    if char_at(i) == Some('#') {
         spec.alternate = true;
         i += 1;
     }
-    if chars.get(i) == Some(&'0') {
+    if char_at(i) == Some('0') {
         spec.zero = true;
         i += 1;
     }
-    let number = |i: &mut usize| -> Result<Option<usize>> {
+    let number = |i: &mut usize| -> Result<Option<Opt<usize>>> {
+        if let Some(Item::Nested(n)) = items.get(*i) {
+            if kinds[*n] == Nested::Count {
+                *i += 1;
+                return Ok(Some(Opt::Nested(*n)));
+            }
+        }
         let start = *i;
-        while chars.get(*i).is_some_and(char::is_ascii_digit) {
+        while char_at(*i).is_some_and(|c| c.is_ascii_digit()) {
             *i += 1;
         }
         if start == *i {
             return Ok(None);
         }
-        let value: String = chars[start..*i].iter().collect();
+        let value: String = (start..*i).filter_map(char_at).collect();
         match value.parse::<usize>() {
-            Ok(n) if n <= SPEC_LIMIT => Ok(Some(n)),
+            Ok(n) if n <= SPEC_LIMIT => Ok(Some(Opt::Static(n))),
             _ => Err(invalid(&format!(
                 "widths and precisions are limited to {SPEC_LIMIT}"
             ))),
         }
     };
-    spec.width = number(&mut i)?.unwrap_or(0);
-    if let Some(c @ (',' | '_')) = chars.get(i) {
-        spec.grouping = Some(*c);
+    spec.width = number(&mut i)?.unwrap_or(Opt::Static(0));
+    if let Some(c @ (',' | '_')) = char_at(i) {
+        spec.grouping = Some(c);
         i += 1;
     }
-    if chars.get(i) == Some(&'.') {
+    if char_at(i) == Some('.') {
         i += 1;
         spec.precision = Some(number(&mut i)?.ok_or_else(|| invalid("expected digits after `.`"))?);
     }
-    match chars.get(i) {
-        Some(c) if "sdxXobeEfFgG%".contains(*c) => {
-            spec.kind = Some(*c);
-            i += 1;
-        }
-        Some(c @ ('n' | 'c')) => {
-            return Err(invalid(&format!("the type `{c}` is not supported")));
-        }
-        _ => {}
+    if let Some(c) = char_at(i).filter(|c| "sdxXobcneEfFgG%".contains(*c)) {
+        spec.kind = Some(c);
+        i += 1;
     }
-    if i != chars.len() {
-        return Err(invalid(&format!(
-            "unexpected `{}`; the form is [[fill]align][sign][#][0][width][grouping][.precision][type]",
-            chars[i]
-        )));
+    match items.get(i) {
+        None => {}
+        Some(Item::Nested(n)) if kinds[*n] == Nested::Text => {
+            return Err(invalid(
+                "a nested `str` field is the fill or the alignment, at the start of the spec",
+            ))
+        }
+        Some(Item::Nested(_)) => {
+            return Err(invalid(
+                "a nested integer field is the width or, after `.`, the precision",
+            ))
+        }
+        Some(Item::Char(c)) => {
+            return Err(invalid(&format!(
+                "unexpected `{c}`; the form is [[fill]align][sign][z][#][0][width][grouping][.precision][type]"
+            )))
+        }
     }
-    if spec.zero && spec.align.is_some() {
-        spec.fill.get_or_insert('0');
-        spec.zero = false;
+    if spec.zero {
+        match spec.align {
+            Some(Opt::Static(_)) => {
+                spec.fill.get_or_insert(Opt::Static('0'));
+                spec.zero = false;
+            }
+            Some(Opt::Nested(_)) => {
+                return Err(invalid(
+                    "`0` cannot follow a nested alignment field; write the fill instead",
+                ))
+            }
+            None => {}
+        }
     }
     Ok(spec)
 }
 
-/// The first slice accepts names and literals combined with field access,
-/// indexing, and calls; call arguments and indices may also borrow.
-fn restricted(e: &Expr, argument: bool) -> bool {
-    match &e.kind {
-        Expression::Name(_)
-        | Expression::Number(_)
-        | Expression::Text(_)
-        | Expression::Bytes(_)
-        | Expression::Bool(_)
-        | Expression::Unit
-        | Expression::GenericValue(..) => true,
-        Expression::Unary(op, inner) if op == "-" => {
-            matches!(inner.kind, Expression::Number(_))
-        }
-        Expression::Unary(op, inner) if op == "&" || op == "&mut" => {
-            argument && restricted(inner, false)
-        }
-        Expression::NamedArgument(_, inner) => argument && restricted(inner, true),
-        Expression::Member(base, _, _) => restricted(base, false),
-        Expression::Index(base, index) => restricted(base, false) && restricted(index, true),
-        Expression::Ambiguous { generic, index } => {
-            restricted(generic, false) && restricted(index, false)
-        }
-        Expression::Call(_, args) | Expression::GenericCall(_, _, args) => {
-            args.iter().all(|a| restricted(a, true))
-        }
-        Expression::Method(base, _, args, _)
-        | Expression::GenericMethod(base, _, _, args, _)
-        | Expression::Invoke(base, args) => {
-            restricted(base, false) && args.iter().all(|a| restricted(a, true))
-        }
-        _ => false,
-    }
-}
-
 impl Parser {
+    /// Parses a field's expression from its lexed tokens.
+    fn field_expression(&self, field: &LexedField) -> Result<Expr> {
+        let mut parser = Parser::new(self.end.source.clone());
+        parser.tokens = field.tokens.iter().map(|t| self.located(t)).collect();
+        parser.end = self.located(&field.end);
+        parser.in_brackets = parser.tokens.iter().map(|_| true).collect();
+        parser.complete = true;
+        parser.depth = self.depth;
+        let mut value = parser.expr(0)?;
+        // As in Python, `{a, b}` is a tuple without its parentheses.
+        if parser.peek().is(",") {
+            let at = value.at.clone();
+            let mut values = vec![value];
+            while parser.eat(",") && parser.peek().kind != Kind::Eof {
+                values.push(parser.expr(0)?);
+            }
+            value = Expr {
+                at,
+                kind: Expression::Tuple(values),
+            };
+        }
+        if parser.peek().kind != Kind::Eof {
+            return Err(parser.peek().error("unexpected token in an f-string field"));
+        }
+        Ok(value)
+    }
+
+    fn located(&self, token: &Token) -> Token {
+        Token {
+            source: self.end.source.clone(),
+            ..token.clone()
+        }
+    }
+
     /// Parses each field's tokens and spec into a template.
     pub(super) fn format_literal(&mut self, parts: &[Part]) -> Result<Expression> {
         let mut pieces = Vec::new();
@@ -480,33 +602,30 @@ impl Parser {
                 }
                 Part::Field(field) => field,
             };
-            let located = |token: &Token| Token {
-                source: self.end.source.clone(),
-                ..token.clone()
+            let value = self.field_expression(field)?;
+            let mut at = value.at.clone();
+            values.push(value);
+            let mut nested = Vec::new();
+            let spec = match &field.spec {
+                None => None,
+                Some(spec) => {
+                    at = self.located(&spec.at);
+                    for inner in &spec.fields {
+                        let value = self.field_expression(inner)?;
+                        nested.push(value.at.clone());
+                        values.push(value);
+                    }
+                    Some(if spec.fields.is_empty() {
+                        FieldSpec::Static(parse_spec(&spec.text, &at, &[])?)
+                    } else {
+                        FieldSpec::Nested(spec.text.clone(), at.clone())
+                    })
+                }
             };
-            let mut parser = Parser::new(self.end.source.clone());
-            parser.tokens = field.tokens.iter().map(located).collect();
-            parser.end = located(&field.end);
-            parser.in_brackets = parser.tokens.iter().map(|_| true).collect();
-            parser.complete = true;
-            parser.depth = self.depth;
-            let value = parser.expr(0)?;
-            if parser.peek().kind != Kind::Eof {
-                return Err(parser.peek().error("unexpected token in an f-string field"));
-            }
-            if !restricted(&value, false) {
-                return Err(value.at.error(
-                    "an f-string field is a name or literal with field access, indexing, and calls; bind other expressions to a name first",
-                ));
-            }
-            let spec = field
-                .spec
-                .as_ref()
-                .map(|(text, at)| parse_spec(text, &located(at)))
-                .transpose()?;
             let mut conversion = match field.conversion {
                 Some('r') => Conversion::Repr,
                 Some('s') => Conversion::Str,
+                Some('a') => Conversion::Ascii,
                 _ => Conversion::None,
             };
             if let Some(debug) = &field.debug {
@@ -516,14 +635,11 @@ impl Parser {
                 }
             }
             pieces.push(Piece::Field(Field {
-                at: field
-                    .spec
-                    .as_ref()
-                    .map_or_else(|| value.at.clone(), |(_, at)| located(at)),
+                at,
                 conversion,
                 spec,
+                nested,
             }));
-            values.push(value);
         }
         self.formats = true;
         Ok(Expression::Format(Box::new(Format::Literal(
@@ -596,19 +712,59 @@ enum Category {
 }
 
 impl Spec {
-    fn arguments(&self, at: &Token) -> Vec<Expr> {
+    /// The `std.fmt.Spec` constructor arguments. `nested` holds the values of
+    /// the spec's nested fields, each a reference to a `str` or an integer.
+    fn arguments(&self, at: &Token, nested: &[Expr]) -> Vec<Expr> {
         let char_text = |c: Option<char>| text(at, &c.map(String::from).unwrap_or_default());
         let flag = |b: bool| expr(at, Expression::Bool(b));
+        let source = |part: Option<Opt<char>>| match part {
+            Some(Opt::Nested(n)) => nested[n].clone(),
+            Some(Opt::Static(c)) => char_text(Some(c)),
+            None => char_text(None),
+        };
+        let count = |part: Opt<usize>| match part {
+            Opt::Static(n) => number(at, &n.to_string()),
+            // Wrapping maps a `u64` beyond `i64.MAX` to a negative count,
+            // which `spec_count` rejects like any other negative count.
+            Opt::Nested(n) => try_(call(
+                at,
+                &fmt("spec_count"),
+                vec![method(
+                    at,
+                    name(at, "i64"),
+                    "wrapping_from",
+                    vec![unary(at, "*", nested[n].clone())],
+                )],
+            )),
+        };
+        let dynamic = |part: Option<Opt<char>>| matches!(part, Some(Opt::Nested(_)));
+        let (fill, align) = if dynamic(self.fill) || dynamic(self.align) {
+            (
+                try_(call(
+                    at,
+                    &fmt("spec_fill"),
+                    vec![source(self.fill), source(self.align)],
+                )),
+                try_(call(at, &fmt("spec_align"), vec![source(self.align)])),
+            )
+        } else {
+            let fill = match self.fill {
+                Some(Opt::Static(c)) => c,
+                _ => ' ',
+            };
+            (text(at, &fill.to_string()), source(self.align))
+        };
         vec![
-            text(at, &self.fill.unwrap_or(' ').to_string()),
-            char_text(self.align),
+            fill,
+            align,
             char_text(self.sign),
+            flag(self.coerce_zero),
             flag(self.alternate),
             flag(self.zero),
-            number(at, &self.width.to_string()),
+            count(self.width),
             char_text(self.grouping),
             match self.precision {
-                Some(p) => number(at, &p.to_string()),
+                Some(p) => count(p),
                 None => unary(at, "-", number(at, "1")),
             },
             char_text(self.kind),
@@ -624,6 +780,14 @@ impl Spec {
             ))
         };
         let kind = self.kind;
+        if self.coerce_zero && !matches!(category, Category::Float(_)) {
+            return Err(invalid("the `z` option applies to floats".into()));
+        }
+        if kind == Some('n') && self.grouping.is_some() {
+            return Err(invalid(
+                "type `n` takes no grouping; it groups nothing without a locale".into(),
+            ));
+        }
         match category {
             Category::Signed | Category::Unsigned => {
                 if self.precision.is_some() {
@@ -633,7 +797,21 @@ impl Spec {
                     ));
                 }
                 match kind {
-                    None | Some('d' | 'x' | 'X' | 'o' | 'b') => {}
+                    None | Some('d' | 'x' | 'X' | 'o' | 'b' | 'n') => {}
+                    Some('c') => {
+                        let option = if self.sign.is_some() {
+                            Some("sign")
+                        } else if self.alternate {
+                            Some("`#`")
+                        } else if self.grouping.is_some() {
+                            Some("grouping")
+                        } else {
+                            None
+                        };
+                        if let Some(option) = option {
+                            return Err(invalid(format!("type `c` takes no {option}")));
+                        }
+                    }
                     Some('s') => {
                         return Err(invalid(
                             "type `s` formats text; use `!s` to format the value's text".into(),
@@ -653,7 +831,7 @@ impl Spec {
                 }
             }
             Category::Float(_) => match kind {
-                None | Some('e' | 'E' | 'f' | 'F' | 'g' | 'G' | '%') => {}
+                None | Some('e' | 'E' | 'f' | 'F' | 'g' | 'G' | '%' | 'n') => {}
                 Some('s') => {
                     return Err(invalid(
                         "type `s` formats text; use `!s` to format the value's text".into(),
@@ -674,7 +852,7 @@ impl Spec {
                     Some("`0` padding")
                 } else if self.grouping.is_some() {
                     Some("grouping")
-                } else if self.align == Some('=') {
+                } else if self.align == Some(Opt::Static('=')) {
                     Some("`=` alignment")
                 } else {
                     None
@@ -692,13 +870,24 @@ impl Spec {
 }
 
 /// A stable symbol for the template at `at`, shared by every instance of a
-/// generic function that contains it.
-fn symbol(at: &Token) -> String {
+/// generic function that contains it. `write` names the form that writes to
+/// a caller's formatter.
+fn symbol(at: &Token, write: bool) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for byte in at.location().bytes() {
         hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
     }
-    format!("__plenty_fstring_{hash:016x}")
+    let form = if write { "write_" } else { "" };
+    format!("__plenty_fstring_{form}{hash:016x}")
+}
+
+/// Whether `ty` is a `std.fmt.Formatter`, directly or through a reference.
+fn formatter(ty: &Ty) -> Option<bool> {
+    match ty {
+        Ty::Class(class) if class.name.starts_with("std.fmt.Formatter[") => Some(false),
+        Ty::Ref(inner, _) => formatter(inner).map(|_| true),
+        _ => None,
+    }
 }
 
 impl Lower<'_> {
@@ -709,8 +898,10 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         match format {
-            Format::Literal(template, values) => self.format_literal(template, values, at, ops),
-            Format::Field(template, index, value) => {
+            Format::Literal(template, values) => {
+                self.format_literal(template, values, None, at, ops)
+            }
+            Format::Field(template, index, values) => {
                 let Piece::Field(field) = template
                     .pieces
                     .iter()
@@ -720,108 +911,71 @@ impl Lower<'_> {
                 else {
                     unreachable!()
                 };
-                let write = self.format_field(field, value)?;
+                let write = self.format_field(field, values)?;
                 self.expr(&write, ops)
             }
         }
     }
 
-    /// Calls the generated function, registering it on first use.
+    /// `out.format(f"...")` when `out` is a `std.fmt.Formatter` or a
+    /// reference to one: writes the f-string to it without building a `str`.
+    /// Returns `None` when `base` is not a formatter.
+    pub(super) fn format_method(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Option<Result<Type>> {
+        let reference = formatter(self.expression_type_hint(base).as_ref()?)?;
+        let [Expr {
+            kind: Expression::Format(format),
+            at: literal_at,
+        }] = args
+        else {
+            return Some(Err(at.error(
+                "`Formatter.format` takes one f-string literal, as in `out.format(f\"{x}\")`",
+            )));
+        };
+        let Format::Literal(template, values) = &**format else {
+            unreachable!("only generated functions contain field writes")
+        };
+        let target = if reference {
+            base.clone()
+        } else {
+            unary(&base.at, "&mut", base.clone())
+        };
+        Some(self.format_literal(template, values, Some(target), literal_at, ops))
+    }
+
+    /// Calls the generated function, registering it on first use. With a
+    /// `target` formatter, the function writes to it instead of a new string.
     fn format_literal(
         &mut self,
         template: &Arc<Template>,
         values: &[Expr],
+        target: Option<Expr>,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        let name = symbol(at);
+        let name = symbol(at, target.is_some());
         if !self.generics.templates.contains_key(&name) {
-            let function = self.format_function(&name, template, at);
+            let function = format_function(&name, template, target.is_some(), at);
             self.generics.validate_template(&function, self.aliases)?;
             self.generics
                 .templates
                 .insert(name.clone(), Arc::new(function));
         }
         // Every field is lent; a reference value is lent again.
-        let args: Vec<Expr> = values
-            .iter()
-            .map(|value| unary(&value.at, "&", value.clone()))
+        let args: Vec<Expr> = target
+            .into_iter()
+            .chain(
+                values
+                    .iter()
+                    .map(|value| unary(&value.at, "&", value.clone())),
+            )
             .collect();
         self.generic_call(&name, None, &args, at, ops)
-    }
-
-    fn format_function(&self, symbol: &str, template: &Arc<Template>, at: &Token) -> Function {
-        let out = || name(at, OUT);
-        let mut body = vec![Stmt {
-            at: at.clone(),
-            kind: Statement::Assign {
-                name: OUT.into(),
-                mutable: true,
-                annotation: None,
-                value: try_(call(
-                    at,
-                    &fmt("string_formatter"),
-                    vec![number(at, NO_BUDGET), number(at, DEPTH)],
-                )),
-            },
-        }];
-        let mut inputs = Vec::new();
-        let mut type_params = Vec::new();
-        for piece in &template.pieces {
-            match piece {
-                Piece::Literal(literal) => body.push(statement(try_(method(
-                    at,
-                    out(),
-                    "text",
-                    vec![text(at, literal)],
-                )))),
-                Piece::Field(field) => {
-                    let index = inputs.len();
-                    let parameter = format!("__plenty_v{index}");
-                    let ty = format!("__plenty_T{index}");
-                    inputs.push((
-                        parameter.clone(),
-                        type_ref(at, "&", vec![type_ref(at, &ty, vec![])]),
-                    ));
-                    type_params.push((ty, None));
-                    body.push(statement(try_(expr(
-                        &field.at,
-                        Expression::Format(Box::new(Format::Field(
-                            template.clone(),
-                            index,
-                            name(&field.at, &parameter),
-                        ))),
-                    ))));
-                }
-            }
-        }
-        body.push(statement(call(
-            at,
-            &fmt("finish"),
-            vec![unary(at, "&", out())],
-        )));
-        Function {
-            once: false,
-            captures: vec![],
-            foreign: None,
-            export: None,
-            name: symbol.into(),
-            type_params,
-            at: at.clone(),
-            defaults: vec![None; inputs.len()],
-            inputs,
-            output: type_ref(
-                at,
-                "Result",
-                vec![
-                    type_ref(at, "str", vec![]),
-                    type_ref(at, &fmt("FormatError"), vec![]),
-                ],
-            ),
-            doc: String::new(),
-            doc_at: None,
-            body,
-        }
     }
 
     fn has_method(&self, ty: &Ty, name: &str) -> bool {
@@ -834,20 +988,45 @@ impl Lower<'_> {
         self.generics.templates.contains_key(&symbol) || self.sigs.contains_key(&symbol)
     }
 
-    /// The call that writes one field, chosen by the value's concrete type.
-    fn format_field(&mut self, field: &Field, value: &Expr) -> Result<Expr> {
-        let at = &field.at;
+    /// A generated parameter `&T` with any further reference levels of `T`
+    /// removed, and `T` itself.
+    fn field_value(&self, value: &Expr, at: &Token) -> (Expr, Ty) {
         let Some(Ty::Ref(mut ty, _)) = self.expression_type_hint(value) else {
             unreachable!("generated f-string parameters are references")
         };
-        // `value` has type `&T`; a borrowed reference field adds one level.
         let mut value = value.clone();
         while let Ty::Ref(inner, _) = &*ty {
             value = unary(at, "*", value);
             ty = inner.clone();
         }
-        let ty = (*ty).clone();
-        let wanted = if field.conversion == Conversion::Repr {
+        (value, (*ty).clone())
+    }
+
+    /// The call that writes one field, chosen by the value's concrete type.
+    fn format_field(&mut self, field: &Field, values: &[Expr]) -> Result<Expr> {
+        let at = &field.at;
+        let (value, ty) = self.field_value(&values[0], at);
+        let mut nested = Vec::new();
+        let mut kinds = Vec::new();
+        for (written, parameter) in field.nested.iter().zip(&values[1..]) {
+            let (value, ty) = self.field_value(parameter, at);
+            kinds.push(match ty {
+                Ty::Str => Nested::Text,
+                t if t.is_int() => Nested::Count,
+                t => {
+                    return Err(written.error(format!(
+                        "a nested field in a format spec is an integer width or precision, or a `str` fill or alignment, not {t}"
+                    )))
+                }
+            });
+            nested.push(value);
+        }
+        let spec = match &field.spec {
+            None => None,
+            Some(FieldSpec::Static(spec)) => Some(spec.clone()),
+            Some(FieldSpec::Nested(text, spec_at)) => Some(parse_spec(text, spec_at, &kinds)?),
+        };
+        let wanted = if matches!(field.conversion, Conversion::Repr | Conversion::Ascii) {
             "debug"
         } else {
             "display"
@@ -862,6 +1041,38 @@ impl Lower<'_> {
             t if self.has_method(t, wanted) => Category::Method,
             _ => Category::Repr,
         };
+        let out = name(at, OUT);
+        let out_mut = || unary(at, "&mut", name(at, OUT));
+        let temporary =
+            |function: &str, args: Vec<Expr>| unary(at, "&", try_(call(at, &fmt(function), args)));
+        let spec_value =
+            |spec: &Spec| unary(at, "&", call(at, &fmt("Spec"), spec.arguments(at, &nested)));
+        let padded = |text_value: Expr, spec: &Spec| {
+            method(
+                at,
+                name(at, OUT),
+                "text_spec",
+                vec![text_value, spec_value(spec)],
+            )
+        };
+        if field.conversion == Conversion::Ascii {
+            // Python's `ascii()`: the `!r` text with non-ASCII scalars escaped.
+            let repr = match category {
+                Category::Text => temporary("debug_string", vec![value]),
+                Category::Method => temporary(
+                    "to_debug",
+                    vec![value, number(at, NO_BUDGET), number(at, DEPTH)],
+                ),
+                _ => temporary("repr_string", vec![value]),
+            };
+            return Ok(match &spec {
+                None => method(at, out, "ascii_text", vec![repr]),
+                Some(spec) => {
+                    spec.check(&Category::Text, &ty, at)?;
+                    padded(temporary("ascii_string", vec![repr]), spec)
+                }
+            });
+        }
         // A conversion spells the value as text first.
         let category = match (field.conversion, category) {
             (Conversion::None, category)
@@ -873,7 +1084,7 @@ impl Lower<'_> {
             _ => Category::Repr,
         };
         let repr_text = field.conversion == Conversion::Repr && matches!(ty, Ty::Str);
-        if let Some(spec) = &field.spec {
+        if let Some(spec) = &spec {
             let checked = if repr_text {
                 Category::Text
             } else {
@@ -888,10 +1099,8 @@ impl Lower<'_> {
                 at,
             )?;
         }
-        let out = name(at, OUT);
-        let out_mut = || unary(at, "&mut", name(at, OUT));
         let scalar = || unary(at, "*", value.clone());
-        let Some(spec) = &field.spec else {
+        let Some(spec) = &spec else {
             return Ok(match category {
                 Category::Text if repr_text => method(at, out, "debug_text", vec![value]),
                 Category::Text => method(at, out, "text", vec![value]),
@@ -922,55 +1131,164 @@ impl Lower<'_> {
                 Category::Repr => call(at, &fmt("represent"), vec![value, out_mut()]),
             });
         };
-        let spec_value = unary(at, "&", call(at, &fmt("Spec"), spec.arguments(at)));
-        let padded = |text_value: Expr| {
-            method(
-                at,
-                name(at, OUT),
-                "text_spec",
-                vec![text_value, spec_value.clone()],
-            )
-        };
-        let temporary =
-            |function: &str, args: Vec<Expr>| unary(at, "&", try_(call(at, &fmt(function), args)));
         Ok(match category {
-            Category::Text if repr_text => padded(temporary("debug_string", vec![value])),
-            Category::Text => padded(value),
-            Category::Bool => padded(expr(
+            Category::Text if repr_text => padded(temporary("debug_string", vec![value]), spec),
+            Category::Text => padded(value, spec),
+            Category::Bool => padded(
+                expr(
+                    at,
+                    Expression::Conditional {
+                        condition: Box::new(scalar()),
+                        yes: Box::new(text(at, "True")),
+                        no: Box::new(text(at, "False")),
+                    },
+                ),
+                spec,
+            ),
+            Category::Signed | Category::Unsigned if spec.kind == Some('c') => method(
                 at,
-                Expression::Conditional {
-                    condition: Box::new(scalar()),
-                    yes: Box::new(text(at, "True")),
-                    no: Box::new(text(at, "False")),
-                },
-            )),
+                out,
+                "char_spec",
+                vec![
+                    method(at, name(at, "i64"), "wrapping_from", vec![scalar()]),
+                    spec_value(spec),
+                ],
+            ),
             Category::Signed => method(
                 at,
                 out,
                 "signed_spec",
-                vec![call(at, "i64", vec![scalar()]), spec_value],
+                vec![call(at, "i64", vec![scalar()]), spec_value(spec)],
             ),
             Category::Unsigned => method(
                 at,
                 out,
                 "unsigned_spec",
-                vec![call(at, "u64", vec![scalar()]), spec_value],
+                vec![call(at, "u64", vec![scalar()]), spec_value(spec)],
             ),
             Category::Float(single) => method(
                 at,
                 out,
                 if single { "float32_spec" } else { "float_spec" },
-                vec![scalar(), spec_value],
+                vec![scalar(), spec_value(spec)],
             ),
-            Category::Method => padded(temporary(
-                if wanted == "debug" {
-                    "to_debug"
-                } else {
-                    "to_string"
-                },
-                vec![value, number(at, NO_BUDGET), number(at, DEPTH)],
-            )),
-            Category::Repr => padded(temporary("repr_string", vec![value])),
+            Category::Method => padded(
+                temporary(
+                    if wanted == "debug" {
+                        "to_debug"
+                    } else {
+                        "to_string"
+                    },
+                    vec![value, number(at, NO_BUDGET), number(at, DEPTH)],
+                ),
+                spec,
+            ),
+            Category::Repr => padded(temporary("repr_string", vec![value]), spec),
         })
+    }
+}
+
+/// The generic function an f-string calls. It takes each field value, and
+/// each nested spec field's value, by reference. With `write`, its first
+/// parameter is the caller's formatter and it returns `Result[(), FormatError]`;
+/// otherwise it builds and returns a new `str`.
+fn format_function(symbol: &str, template: &Arc<Template>, write: bool, at: &Token) -> Function {
+    let out = || name(at, OUT);
+    let mut inputs = Vec::new();
+    let mut type_params = Vec::new();
+    let mut body = Vec::new();
+    if write {
+        let writer = "__plenty_W";
+        type_params.push((writer.into(), None));
+        inputs.push((
+            OUT.into(),
+            type_ref(
+                at,
+                "&mut",
+                vec![type_ref(
+                    at,
+                    &fmt("Formatter"),
+                    vec![type_ref(at, writer, vec![])],
+                )],
+            ),
+        ));
+    } else {
+        body.push(Stmt {
+            at: at.clone(),
+            kind: Statement::Assign {
+                name: OUT.into(),
+                mutable: true,
+                annotation: None,
+                value: try_(call(
+                    at,
+                    &fmt("string_formatter"),
+                    vec![number(at, NO_BUDGET), number(at, DEPTH)],
+                )),
+            },
+        });
+    }
+    let mut index = 0;
+    for piece in &template.pieces {
+        match piece {
+            Piece::Literal(literal) => body.push(statement(try_(method(
+                at,
+                out(),
+                "text",
+                vec![text(at, literal)],
+            )))),
+            Piece::Field(field) => {
+                let mut values = Vec::new();
+                for _ in 0..=field.nested.len() {
+                    let parameter = format!("__plenty_v{}", type_params.len());
+                    let ty = format!("__plenty_T{}", type_params.len());
+                    inputs.push((
+                        parameter.clone(),
+                        type_ref(at, "&", vec![type_ref(at, &ty, vec![])]),
+                    ));
+                    type_params.push((ty, None));
+                    values.push(name(&field.at, &parameter));
+                }
+                body.push(statement(try_(expr(
+                    &field.at,
+                    Expression::Format(Box::new(Format::Field(template.clone(), index, values))),
+                ))));
+                index += 1;
+            }
+        }
+    }
+    let result = if write {
+        call(at, "Ok", vec![expr(at, Expression::Unit)])
+    } else {
+        call(at, &fmt("finish"), vec![unary(at, "&", out())])
+    };
+    body.push(statement(result));
+    let output = if write {
+        TypeRef {
+            concrete: None,
+            at: at.clone(),
+            name: None,
+            args: vec![],
+        }
+    } else {
+        type_ref(at, "str", vec![])
+    };
+    Function {
+        once: false,
+        captures: vec![],
+        foreign: None,
+        export: None,
+        name: symbol.into(),
+        type_params,
+        at: at.clone(),
+        defaults: vec![None; inputs.len()],
+        inputs,
+        output: type_ref(
+            at,
+            "Result",
+            vec![output, type_ref(at, &fmt("FormatError"), vec![])],
+        ),
+        doc: String::new(),
+        doc_at: None,
+        body,
     }
 }

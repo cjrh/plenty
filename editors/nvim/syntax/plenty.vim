@@ -32,9 +32,10 @@ syntax region plentyString start=/'/ skip=/\\./ end=/'/ oneline contains=plentyE
 " Later definitions take precedence over the single-quote regions.
 syntax region plentyString start=/"""/ skip=/\\./ end=/"""/ contains=plentyEscape,@Spell
 syntax region plentyString start=/'''/ skip=/\\./ end=/'''/ contains=plentyEscape,@Spell
-" f-strings: `{{` and `}}` are literal braces; a field is ordinary code.
+" f-strings: `{{` and `}}` are literal braces; a field is ordinary code,
+" and its spec may hold nested fields.
 syntax match plentyFormatBrace /{{\|}}/ contained
-syntax region plentyFormatField matchgroup=plentySpecial start=/{\%({\)\@!/ end=/}/ contained contains=plentyKeyword,plentyBoolean,plentyType,plentyNumber,plentyFloat,plentyOperator,plentyDelimiter,plentyString
+syntax region plentyFormatField matchgroup=plentySpecial start=/{\%({\)\@!/ end=/}/ contained contains=plentyFormatField,plentyKeyword,plentyBoolean,plentyType,plentyNumber,plentyFloat,plentyOperator,plentyDelimiter,plentyString
 syntax region plentyFormatString start=/\<f"/ skip=/\\./ end=/"/ oneline contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
 syntax region plentyFormatString start=/\<f'/ skip=/\\./ end=/'/ oneline contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
 syntax region plentyFormatString start=/\<f"""/ skip=/\\./ end=/"""/ contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
