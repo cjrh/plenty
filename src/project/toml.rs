@@ -25,6 +25,9 @@ pub(crate) struct Entry {
     pub(crate) value: Value,
     /// 1-based line of the key, for diagnostics.
     pub(crate) line: usize,
+    /// Whether `[[...]]` headers created this array. TOML lets headers extend
+    /// and descend into only these arrays, not statically defined ones.
+    pub(crate) table_array: bool,
 }
 
 impl Value {
@@ -166,11 +169,10 @@ impl Parser<'_> {
                         let entry = table.entry(last[0].clone()).or_insert(Entry {
                             value: Value::Array(vec![]),
                             line,
+                            table_array: true,
                         });
                         match &mut entry.value {
-                            Value::Array(items)
-                                if items.iter().all(|v| matches!(v, Value::Table(_))) =>
-                            {
+                            Value::Array(items) if entry.table_array => {
                                 items.push(Value::Table(Table::new()));
                             }
                             _ => {
@@ -238,7 +240,14 @@ impl Parser<'_> {
                     if table.contains_key(&key) {
                         return self.error_at(line, format!("key `{key}` is defined twice"));
                     }
-                    table.insert(key, Entry { value, line });
+                    table.insert(
+                        key,
+                        Entry {
+                            value,
+                            line,
+                            table_array: false,
+                        },
+                    );
                 }
             }
         }
@@ -257,15 +266,14 @@ impl Parser<'_> {
             let entry = table.entry(part.clone()).or_insert(Entry {
                 value: Value::Table(Table::new()),
                 line,
+                table_array: false,
             });
             table = match &mut entry.value {
                 Value::Table(table) => table,
-                Value::Array(items) if matches!(items.last(), Some(Value::Table(_))) => {
-                    match items.last_mut() {
-                        Some(Value::Table(table)) => table,
-                        _ => unreachable!(),
-                    }
-                }
+                Value::Array(items) if entry.table_array => match items.last_mut() {
+                    Some(Value::Table(table)) => table,
+                    _ => unreachable!("array of tables holds tables"),
+                },
                 _ => {
                     return Err(format!(
                         "{}:{line}: `{}` is not a table",
@@ -377,7 +385,14 @@ impl Parser<'_> {
                     if table.contains_key(&key) {
                         return self.error_at(line, format!("key `{key}` is defined twice"));
                     }
-                    table.insert(key, Entry { value, line });
+                    table.insert(
+                        key,
+                        Entry {
+                            value,
+                            line,
+                            table_array: false,
+                        },
+                    );
                     self.blank();
                     match self.peek() {
                         Some(b',') => self.pos += 1,
@@ -565,6 +580,23 @@ mod tests {
             (
                 "[x]\n[[x.a]]\n[x.a]\n",
                 "plenty.toml:3: `x.a` is already defined as an array",
+            ),
+            // TOML forbids extending or descending into a static array.
+            (
+                "a = []\n[[a]]\n",
+                "plenty.toml:2: `a` is already defined as a value",
+            ),
+            (
+                "a = [{ x = 1 }]\n[[a]]\n",
+                "plenty.toml:2: `a` is already defined as a value",
+            ),
+            (
+                "a = [{ x = 1 }]\n[a.b]\n",
+                "plenty.toml:2: `a` is not a table",
+            ),
+            (
+                "a = [{ x = 1 }]\n[[a.b]]\n",
+                "plenty.toml:2: `a` is not a table",
             ),
             (
                 "a = \"\"\"x\"\"\"\n",
