@@ -312,8 +312,9 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     let [a, b, c, d] = operands;
     // SAFETY: see above. The input view borrows a separate buffer's storage.
     unsafe {
+        // An input may also be a `bytes` literal.
         let slice = |value: u128, start: u128, stop: u128| {
-            let bytes = (*(value as *const Storage)).bytes.as_slice();
+            let bytes = super::byte_storage::source(value);
             &bytes[range(start, stop, bytes.len())]
         };
         match op {

@@ -1757,11 +1757,17 @@ fn resolve(
             for method in &mut p.methods {
                 scope.function(method)?;
                 if public {
+                    let parameters: Vec<_> = parameters
+                        .iter()
+                        .chain(&method.type_params)
+                        .cloned()
+                        .collect();
                     for t in method
                         .inputs
                         .iter()
                         .map(|(_, t)| t)
                         .chain(std::iter::once(&method.output))
+                        .chain(method.type_params.iter().filter_map(|(_, b)| b.as_ref()))
                     {
                         data_public_types(t, &parameters, &mut result.public_api);
                     }

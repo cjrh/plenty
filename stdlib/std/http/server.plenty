@@ -11,7 +11,7 @@ import std.net
 import std.ready
 import std.time
 import std.url
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
 from std.http import BodyReader, Framing, Header, HttpError, Limits, RequestHead, RequestTarget, ResponseHead
 from std.io import BufReader, StreamError
 from std.log import ChannelSink, Field, Level
@@ -36,7 +36,7 @@ pub protocol Transport:
     def read_before(self: &mut Transport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         pass
 
-    def write_before(self: &mut Transport, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    def write_before[S: ByteSource](self: &mut Transport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         pass
 
     # The server only ends writes (`Shutdown.Write`), before a lingering
@@ -411,7 +411,7 @@ def gather[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limits, 
 
 # Connections
 
-def send_all[T: Transport](stream: &mut T, source: &Bytes, start: i64, stop: i64, span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
+def send_all[T: Transport, S: ByteSource](stream: &mut T, source: &S, start: i64, stop: i64, span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
     mut at = start
     while at < stop:
         limit = least(after(now_ns(), span), until)
@@ -428,7 +428,7 @@ def read_some[T: Transport](stream: &mut Option[T], buffer: &mut Bytes, start: i
         case Nothing:
             Err(NetError.Stream(StreamError.Io(IoError.Closed)))
 
-def send_some[T: Transport](stream: &mut Option[T], source: &Bytes, start: i64, stop: i64, span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
+def send_some[T: Transport, S: ByteSource](stream: &mut Option[T], source: &S, start: i64, stop: i64, span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
     match stream:
         case Some(open):
             send_all(open, source, start, stop, span, until, cancel)
@@ -532,7 +532,7 @@ pub class Conn[T]:
             case Err(error):
                 Err(self.noted(error))
 
-    pub def write(self: &mut Conn[T], source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Conn[T], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start < 0 or start > stop or stop > source.len():
             return Err(StreamError.OutOfRange)
         if self._out.len() + (stop - start) > self._out_limit:

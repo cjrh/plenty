@@ -56,7 +56,7 @@ contents cannot change.
 
 | Operation | Result |
 |---|---|
-| `len(value)` | Number of bytes, `i64` |
+| `len(value)`, `value.len()` | Number of bytes, `i64` |
 | `value[i]` | The byte at `i`, `u8`; list index rules: negative counts from the end, a missing index stops the program with `index out of bounds` |
 | `for byte in value`, `reversed(value)` | Each byte as `u8` |
 | `x in value` | Whether the `u8` `x` occurs |
@@ -64,19 +64,26 @@ contents cannot change.
 | `print(value)` | The literal spelling, printable ASCII with `\xhh` for every other byte |
 
 `bytes` values can be elements, set members, dictionary keys, class fields, and
-enum payloads, and can be captured and passed to scoped threads. There are no
-methods, no ordering comparisons, no concatenation, and no slicing. `bytes` and
+enum payloads, and can be captured and passed to scoped threads. `len` is the
+only method; it lets `bytes` satisfy a [protocol](../07-generics/protocols.md)
+that requires it. There are no ordering comparisons, no concatenation, and no
+slicing. `bytes` and
 `str` are distinct: neither converts to the other implicitly.
 
 ## Owned buffers
 
 [`std.bytes.Bytes`](../../stdlib/bytes.md) is the owned, growable buffer.
 `std.bytes.from_bytes(value)` copies a literal into a new `Bytes` and returns a
-`Result`, because the copy allocates. Existing `Bytes` operations, stream
-writes, and other `&Bytes` parameters take such a copy; they do not yet accept
-`bytes` directly.
+`Result`, because the copy allocates.
+
+Operations that only read bytes, such as `find_bytes`, `matches`, `extend`, and
+every `std.io`, `std.net`, and `std.tls` stream write, take a
+[`std.bytes.ByteSource`](../../stdlib/bytes.md#byte-sources): a generic `&S`
+satisfied by both `bytes` and `Bytes`. A literal passed there is read in place;
+nothing is copied or converted, and there is no implicit conversion between the
+two types. Changing or growing bytes needs a `Bytes`.
 
 The literal type is a separate prelude type rather than a static `&Bytes` view
 so that the prelude does not depend on `std.bytes`: every program would
-otherwise know the library class. The cost is the explicit copy above until
-read operations accept both forms.
+otherwise know the library class. A generic protocol, rather than a third
+read-only view type, is what lets one parameter accept both.

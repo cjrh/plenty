@@ -92,15 +92,31 @@ pub(super) fn prepare(
         }
         // Validate requirements even if no function uses this protocol. The
         // receiver placeholder is replaced by the implementing class at use.
-        aliases.probe(
-            std::iter::once(&protocol.name).chain(protocol.type_params.iter().map(|(n, _)| n)),
-            |validation| {
-                for method in &protocol.methods {
-                    protocols::signature(method, validation)?;
+        for method in &protocol.methods {
+            aliases.probe(
+                std::iter::once(&protocol.name)
+                    .chain(protocol.type_params.iter().map(|(n, _)| n))
+                    .chain(method.type_params.iter().map(|(n, _)| n)),
+                |validation| protocols::signature(method, validation).map(drop),
+            )?;
+        }
+    }
+    // Requirement parameters are constrained by protocols, which may be
+    // declared after the protocol that uses them.
+    for protocol in &protocols {
+        for method in &protocol.methods {
+            for bound in method.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+                if !bound
+                    .name
+                    .as_ref()
+                    .is_some_and(|name| declarations.contains_key(name))
+                {
+                    return Err(bound
+                        .at
+                        .error("requirement parameters take only protocol constraints"));
                 }
-                Ok(())
-            },
-        )?;
+            }
+        }
     }
     let mut methods = HashMap::new();
     let mut signatures = Vec::with_capacity(functions.len());
@@ -280,7 +296,7 @@ impl Engine {
     }
 }
 
-type Substitution = HashMap<String, TypeRef>;
+pub(super) type Substitution = HashMap<String, TypeRef>;
 
 /// Reify concrete types without parsing their display names or losing nominal identity.
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
@@ -1056,7 +1072,16 @@ impl Engine {
                         aliases,
                         at,
                     )?;
-                    protocols::check(&protocol, ty, &self.methods, aliases, access, &bound.at, at)?;
+                    protocols::check(
+                        &protocol,
+                        ty,
+                        &self.methods,
+                        &self.templates,
+                        aliases,
+                        access,
+                        &bound.at,
+                        at,
+                    )?;
                 }
             }
         }

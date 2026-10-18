@@ -64,7 +64,7 @@ addresses in dotted form (`::ffff:192.0.2.1`).
 | `listener.close()` | `Result[(), NetError]` |
 | `connect(address: &SocketAddress, deadline, cancel)` | `Result[TcpStream, NetError]` |
 | `stream.read_before(buffer, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one read; 0 is end of input |
-| `stream.write_before(source, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one write of at most 4096 bytes |
+| `stream.write_before(source, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one write of at most 4096 bytes; `source` is any [`ByteSource`](bytes.md#byte-sources) |
 | `stream.write_all_before(source, start, stop, deadline, cancel)` | `Result[(), NetError]` |
 | `stream.read`, `write`, `flush`, `close` | The [`std.io`](io.md) `Reader` and `Writer` methods; `read` and `write` block without a bound |
 | `stream.shutdown(direction: Shutdown)` | `Result[(), NetError]`; `Shutdown.Read`, `Write` or `Both` |
@@ -122,7 +122,7 @@ for index in range(count):
 | Function or method | Result |
 |---|---|
 | `bind_udp(address: &SocketAddress)` | `Result[UdpSocket, NetError]` |
-| `socket.send_to(source, start, stop, target: &SocketAddress, deadline, cancel)` | `Result[i64, NetError]` |
+| `socket.send_to(source, start, stop, target: &SocketAddress, deadline, cancel)` | `Result[i64, NetError]`; `source` is any `ByteSource` |
 | `socket.receive_from(buffer, start, stop, deadline, cancel)` | `Result[Datagram, NetError]` |
 | `socket.set_broadcast(enabled: bool)` | `Result[(), NetError]` |
 | `socket.local_address()`, `close()` | As for TCP |

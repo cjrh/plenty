@@ -1,7 +1,7 @@
 # std.bytes
 
 `import std.bytes` provides `Bytes`, an owning contiguous buffer that stores one
-byte per element, and `BytesError`. A `list[u8]` stores each element in a
+byte per element, `BytesError`, and the `ByteSource` protocol. A `list[u8]` stores each element in a
 general collection slot; `Bytes` exists for binary data large enough for that to
 matter. Bytes are never text: converting to `str` is an explicit, validated
 operation.
@@ -23,9 +23,9 @@ available on the supported x86-64 Linux GNU target.
 constructor allocates and can report `Allocation`.
 
 A byte literal such as `b"\r\n"` has the separate, immutable prelude type
-`bytes`, which lives in read-only data and never allocates. `Bytes` operations
-take `&Bytes`, not `bytes`, so a literal used as a needle, a `matches` source,
-or stream data is first copied with `from_bytes`.
+`bytes`, which lives in read-only data and never allocates. Operations that only
+read another byte sequence accept a literal or a buffer through
+[`ByteSource`](#byte-sources), without copying.
 
 ## Operations
 
@@ -63,7 +63,8 @@ or stream data is first copied with `from_bytes`.
 | `pop()` | exclusive | `Option[u8]` | Remove and return the last byte, or `Nothing` |
 | `clear()` | exclusive | `()` | Set the length to zero, keeping capacity |
 
-`source`, `set`, and `needle` parameters are `&Bytes`. `==` and `!=` compare contents. Printing a
+`source`, `set`, and `needle` parameters are `&S` for any `S: ByteSource`: a
+`Bytes` or a `bytes` literal. `==` and `!=` compare contents. Printing a
 buffer shows printable ASCII and writes every other byte as `\xhh`; it is a
 diagnostic form, not a conversion.
 
@@ -71,6 +72,49 @@ diagnostic form, not a conversion.
 `copy` rejects it. Duplication is always the fallible `copy()` or `slice()`
 method. It has no hashing. A buffer can be stored in collections, sent through
 channels, and moved into worker threads.
+
+## Byte sources
+
+```text
+pub protocol ByteSource:
+    def len(self) -> i64:
+        pass
+```
+
+`ByteSource` names bytes that an operation reads in place. It has two
+implementations: `Bytes`, and the built-in [`bytes`](../language/03-types/bytes.md),
+whose one method is `len`. A parameter `source: &S` with `S: ByteSource`
+accepts `&buffer`, `b"..."`, or a `bytes` value; each call is compiled for the
+type passed, so neither form is copied or converted:
+
+```plenty
+import std.bytes
+from std.bytes import ByteSource
+
+def ends_line[S: ByteSource](line: &S) -> bool:
+    count = line.len()
+    count >= 2 and line[count - 2] == 13u8 and line[count - 1] == 10u8
+
+def main() -> Result[(), Failure]:
+    mut head = std.bytes.from_text("Host: example")?
+    head.extend(b"\r\n")?
+    print(head.find_bytes(b": ", 0, head.len())?, ends_line(&head), ends_line(b"no"))?
+    Ok(())
+```
+```output
+Option[i64].Some(4) True False
+```
+
+The operations taking a `ByteSource` are `extend`, `extend_range`,
+`overwrite`, `find_in`, `find_not_in`, `find_bytes`, and `matches` here, and
+the stream writes in [`std.io`](io.md), [`std.net`](net.md), and
+[`std.tls`](tls.md). Generic code is [checked for each concrete
+type](../language/07-generics/protocols.md), so it can also index and iterate a
+source, which both forms support. Other types may declare `len`, but the
+operations above read a source's bytes natively and reject anything other than
+`Bytes` and `bytes` when the call is compiled. The receiver of a `Bytes`
+method is always a buffer: copy a literal with `from_bytes` to scan it with
+`find` or `count`, or to change it.
 
 ## Index syntax and iteration
 

@@ -6,7 +6,7 @@ const HEADER: &str = r#"import std.bytes
 import std.compress
 import std.encoding
 import std.io
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.compress import Format, CompressError
 from std.io import StreamError
 
@@ -78,7 +78,7 @@ pub class Drip:
     pause: bool
     broken: bool
 
-    pub def write(self: &mut Drip, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Drip, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         if self.broken:
             return Err(StreamError.Io(IoError.Other))
         self.pause = not self.pause
@@ -99,7 +99,7 @@ pub class Drip:
 pub class Counter:
     total: i64
 
-    pub def write(self: &mut Counter, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Counter, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         self.total += stop - start
         Ok(stop - start)
 

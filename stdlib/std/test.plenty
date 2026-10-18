@@ -6,7 +6,7 @@ import std.bytes
 import std.env
 import std.fs
 import std.random
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
 from std.fs import FsError, Root, TempDir
 from std.io import StreamError
 from std.path import Path, from_text
@@ -315,7 +315,7 @@ pub class FakeStream:
         self._read += count
         Ok(count)
 
-    pub def write(self: &mut FakeStream, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut FakeStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         span(start, stop, source.len())?
         self.begin()?
         count = self.allowed(stop - start)

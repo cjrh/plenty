@@ -20,7 +20,7 @@ deployment guidance; the server is production-ready.
 | `serve_connection[T: Transport, H: Handler[T]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
 | `serve_connection_from[T, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
 | `protocol Handler[T]` | `def handle(self, exchange: &mut Exchange[T]) -> Result[(), Failure]` |
-| `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s |
+| `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s; `write_before` is generic in its `S: ByteSource` source |
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
 
 `serve` takes ownership of the listener and runs on the calling thread. It

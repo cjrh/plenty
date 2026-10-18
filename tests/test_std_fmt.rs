@@ -95,12 +95,12 @@ fn short_interrupted_zero_invalid_and_failed_writers_keep_progress() {
     assert_eq!(run(r#"
 import std.fmt
 import std.bytes
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.io import StreamError
 pub class Sink:
     calls: i64
     fail: i64
-    pub def write(self: &mut Sink, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Sink, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         self.calls += 1
         if self.calls == 1:
             return Err(StreamError.Interrupted)

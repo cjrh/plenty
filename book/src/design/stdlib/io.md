@@ -4,6 +4,8 @@
 stream contracts, helpers that retry until a range is complete, fixed-capacity
 buffering, and adapters for files, the process streams, and memory. Data moves
 through [`std.bytes.Bytes`](bytes.md) ranges; no operation creates a `list[u8]`.
+Writes read any [`ByteSource`](bytes.md#byte-sources), so a `b"..."` literal is
+written as it is, without a copy.
 
 The module is embedded Plenty code over five native transport calls. It is
 available on the supported x86-64 Linux GNU target.
@@ -17,7 +19,7 @@ dispatch and no stream object type.
 | Protocol | Method | Result |
 |---|---|---|
 | `Reader` | `read(self: &mut, buffer: &mut Bytes, start: i64, stop: i64)` | `Result[i64, StreamError]` |
-| `Writer` | `write(self: &mut, source: &Bytes, start: i64, stop: i64)` | `Result[i64, StreamError]` |
+| `Writer` | `write[S: ByteSource](self: &mut, source: &S, start: i64, stop: i64)` | `Result[i64, StreamError]` |
 | `Writer` | `flush(self: &mut)` | `Result[(), StreamError]` |
 | `Seeker` | `seek(self: &mut, target: SeekFrom)` | `Result[i64, StreamError]` |
 | `Closer` | `close(self: &mut)` | `Result[(), StreamError]` |
@@ -39,6 +41,41 @@ One call makes at most one attempt and returns the number of bytes it moved.
 A range outside its buffer is `OutOfRange`. A stream that returns a negative
 count or more than it was offered is reported as `InvalidProgress` by every
 helper and buffer, which then stop using that count.
+
+`write` has its own type parameter, so an implementation declares one too,
+with the same `ByteSource` constraint (the name may differ), and passes the
+source on to operations that accept a `ByteSource`, such as
+`Bytes.extend_range` or another stream's `write`:
+
+```plenty
+import std.bytes
+import std.io
+from std.bytes import ByteSource, Bytes
+from std.io import StreamError
+
+pub class Tally:
+    pub data: Bytes
+
+    pub def write[S: ByteSource](self: &mut Tally, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+        match self.data.extend_range(source, start, stop):
+            case Ok(_):
+                Ok(stop - start)
+            case Err(_):
+                Err(StreamError.OutOfRange)
+
+    pub def flush(self: &mut Tally) -> Result[(), StreamError]:
+        Ok(())
+
+def main() -> Result[(), Failure]:
+    mut tally = Tally(std.bytes.empty()?)
+    std.io.write_all(&mut tally, b"ab", 0, 2)?
+    std.io.write_all(&mut tally, &std.bytes.from_text("cd")?, 0, 2)?
+    print(tally.data.to_text()?)?
+    Ok(())
+```
+```output
+abcd
+```
 
 A helper names the one protocol it needs, such as `[R: Reader]`. Protocols
 cannot be combined in one bound, so `close_buffered` requires `Closer` and

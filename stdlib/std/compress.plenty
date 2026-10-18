@@ -3,7 +3,7 @@
 # buffering, the output limit and the trailing-data policy. See
 # book/src/design/stdlib/compress.md.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
 from std.io import StreamError
 
 pub enum Format:
@@ -221,7 +221,7 @@ pub class Compressor[W]:
         self._start = 0
         Ok(())
 
-    pub def write(self: &mut Compressor[W], source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Compressor[W], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start < 0 or start > stop or stop > source.len():
             return Err(StreamError.OutOfRange)
         if self._finished or self._state.compress_ended():

@@ -11,7 +11,7 @@ const HEADER: &str = r#"import std.bytes
 import std.encoding
 import std.io
 import std.json
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.io import StreamError
 from std.json import DuplicateKeys, Event, Json, JsonError, JsonFault, Limits, Member
 
@@ -1048,7 +1048,7 @@ pub class Sip:
     pub data: Bytes
     pub room: i64
 
-    pub def write(self: &mut Sip, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Sip, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start == stop:
             return Ok(0)
         if self.data.len() >= self.room:

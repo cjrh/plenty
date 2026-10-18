@@ -5,7 +5,7 @@
 # See book/src/design/stdlib/http-server.md.
 import std.http.server
 import std.tls
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.http.server import Config, Handler, OpenError, Report, Router, ServerError
 from std.io import StreamError
 from std.net import NetError, Shutdown, TcpListener, TcpStream
@@ -23,7 +23,7 @@ pub class TlsTransport:
     pub def read_before(self: &mut TlsTransport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         transported(self.stream.read_before(buffer, start, stop, deadline, cancel))
 
-    pub def write_before(self: &mut TlsTransport, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before[S: ByteSource](self: &mut TlsTransport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         transported(self.stream.write_before(source, start, stop, deadline, cancel))
 
     pub def shutdown(self: &mut TlsTransport, direction: Shutdown) -> Result[(), NetError]:

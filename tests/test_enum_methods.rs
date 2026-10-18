@@ -162,7 +162,7 @@ fn protocol_checks_reject_missing_wrong_and_method_generic_signatures() {
         ),
         (
             "    def read[T](self) -> i64:\n        1\n",
-            "missing method `read`",
+            "signature of `read`",
         ),
     ] {
         let source = format!("{prefix}enum E:\n    V\n{method}value = E.V\nread(&value)\n");
