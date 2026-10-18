@@ -679,6 +679,8 @@ class Compiler:
         mut letters = 0
         mut code = self.peek_code(pattern)
         while code != 41 and code != 58:
+            if code == -1:
+                return Err(RegexError.Syntax(SyntaxError(open, "unclosed group")))
             self.bump(pattern)
             if code == 45:
                 if negate:

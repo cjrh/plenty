@@ -319,6 +319,9 @@ fn syntax_errors_report_the_byte_offset() {
         "(?x)a",
         "(?)",
         "(?i-m-s)",
+        "(?i",
+        "(?",
+        "(?-",
     ];
     let body = cases
         .iter()
@@ -356,6 +359,9 @@ Syntax(SyntaxError(offset=7, message="duplicate group name"))
 Syntax(SyntaxError(offset=0, message="unknown flag; expected `i`, `m`, or `s`"))
 Syntax(SyntaxError(offset=0, message="empty flag group"))
 Syntax(SyntaxError(offset=0, message="repeated `-` in flags"))
+Syntax(SyntaxError(offset=0, message="unclosed group"))
+Syntax(SyntaxError(offset=0, message="unclosed group"))
+Syntax(SyntaxError(offset=0, message="unclosed group"))
 "#;
     native(&body, expected);
 }
