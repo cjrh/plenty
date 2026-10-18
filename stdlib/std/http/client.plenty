@@ -512,32 +512,34 @@ def resolved(base: &Target, location: &str) -> Result[str, ClientError]:
     alloc(joined(base, location))
 
 def joined(base: &Target, location: &str) -> Result[str, AllocError]:
-    if location.startswith("//"):
-        return base.scheme.concat(":")?.concat(location)
+    # RFC 3986 section 3.5: everything after the first `#` is the fragment,
+    # which is never sent, even when a `?` follows it.
+    mut reference = *location
+    match reference.find("#"):
+        case Some(at):
+            reference = reference.slice(0, at)?
+        case Nothing:
+            pass
+    if reference.startswith("//"):
+        return base.scheme.concat(":")?.concat(&reference)
     prefix = base.scheme.concat("://")?.concat(&authority(base)?)?
-    if location.byte_len() == 0:
+    if reference.byte_len() == 0:
         return prefix.concat(&origin_form(base)?)
-    if location.startswith("?"):
-        return prefix.concat(&base.path)?.concat(location)
-    mut relative = *location
-    if not location.startswith("/"):
+    if reference.startswith("?"):
+        return prefix.concat(&base.path)?.concat(&reference)
+    mut path = reference
+    if not path.startswith("/"):
         mut directory = "/"
         match base.path.rfind("/"):
             case Some(at):
                 directory = base.path.slice(0, at + 1)?
             case Nothing:
                 pass
-        relative = directory.concat(location)?
-    mut path = relative
+        path = directory.concat(&path)?
     mut query = ""
     match path.find("?"):
         case Some(at):
             query = path.slice(at, path.byte_len())?
-            path = path.slice(0, at)?
-        case Nothing:
-            pass
-    match path.find("#"):
-        case Some(at):
             path = path.slice(0, at)?
         case Nothing:
             pass
