@@ -8,7 +8,11 @@ Annotations, parameters, returns, and typed arithmetic operands guide
 unsuffixed literals within an expression. Already typed values and suffixed
 literals must match exactly; no numeric widening occurs. Operands of different
 numeric types are rejected with the cast that reconciles them, for example
-``cannot combine i64 with f64; convert with `f64(n)` ``. Ordinary generic calls
+``cannot combine i64 with f64; convert with `f64(n)` ``. The suggested cast
+never fails: an unsigned and a signed integer convert to the narrowest signed
+type wider than the unsigned one, both operands if neither has that type
+(`i8` with `u16` suggests `i32` for each). `u64` with a signed type has no such
+type, so the message names no cast. Ordinary generic calls
 have [argument inference rules](../07-generics/inference.md) that do not infer
 one argument's literal width from another.
 

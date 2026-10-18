@@ -4360,25 +4360,52 @@ fn list_display(e: &Expr) -> Option<&Expr> {
     }
 }
 
-/// Arithmetic never converts between numeric types. The suggested cast widens
-/// where one operand's type holds the other's values: to the float of an
-/// integer/float pair, otherwise to the wider type.
+/// Arithmetic never converts between numeric types. The suggested cast never
+/// fails for a valid operand: to the float of an integer/float pair, to the
+/// wider type of a same-signedness pair, and otherwise to the narrowest signed
+/// type wider than the unsigned operand. When neither operand's type is that
+/// signed type, both are converted; past `i64` no suggestion is made.
 fn mixed_numeric(left: &Expr, a: &Ty, right: &Expr, b: &Ty) -> Box<dyn Error> {
     let bits = |ty: &Ty| ty.to_string()[1..].parse::<u32>().unwrap_or(0);
-    let convert_left = if a.is_float() == b.is_float() {
-        bits(a) < bits(b)
+    let signed = |ty: &Ty| ty.to_string().starts_with('i');
+    let spelled = |operand: &Expr| match &ungroup(operand).kind {
+        Expression::Name(name) => name.as_str().to_string(),
+        Expression::Number(text) => text.clone(),
+        _ => "...".into(),
+    };
+    if a.is_float() || b.is_float() || signed(a) == signed(b) {
+        let convert_left = if a.is_float() == b.is_float() {
+            bits(a) < bits(b)
+        } else {
+            b.is_float()
+        };
+        let (operand, target) = if convert_left { (left, b) } else { (right, a) };
+        return operand.at.error(format!(
+            "cannot combine {a} with {b}; convert with `{target}({})`",
+            spelled(operand)
+        ));
+    }
+    let (unsigned, unsigned_ty, signed_operand, signed_ty) = if signed(a) {
+        (right, b, left, a)
     } else {
-        b.is_float()
+        (left, a, right, b)
     };
-    let (operand, target) = if convert_left { (left, b) } else { (right, a) };
-    let spelled = match &ungroup(operand).kind {
-        Expression::Name(name) => name.as_str(),
-        Expression::Number(text) => text.as_str(),
-        _ => "...",
-    };
-    operand.at.error(format!(
-        "cannot combine {a} with {b}; convert with `{target}({spelled})`"
-    ))
+    if bits(signed_ty) > bits(unsigned_ty) {
+        return unsigned.at.error(format!(
+            "cannot combine {a} with {b}; convert with `{signed_ty}({})`",
+            spelled(unsigned)
+        ));
+    }
+    match bits(unsigned_ty) * 2 {
+        width @ ..=64 => left.at.error(format!(
+            "cannot combine {a} with {b}; convert both with `i{width}({})` and `i{width}({})`",
+            spelled(left),
+            spelled(right)
+        )),
+        _ => signed_operand.at.error(format!(
+            "cannot combine {a} with {b}; no integer type holds both"
+        )),
+    }
 }
 
 fn ungroup(mut e: &Expr) -> &Expr {
