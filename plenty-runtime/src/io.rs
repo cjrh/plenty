@@ -76,22 +76,24 @@ pub(crate) fn flush() {
 
 pub(crate) unsafe fn repr(text: *const Text, legacy: bool, out: &mut crate::render_buffer::Buffer) {
     out.push(b'"');
+    // Iterate scalars, not bytes, so the legacy escape names the code point
+    // (`é` is `\u{e9}`), matching `!a` in format strings.
     // SAFETY: the caller borrows a live, validated string throughout rendering.
-    for &byte in unsafe { strings::bytes(&text) } {
+    for c in unsafe { strings::utf8(&text) }.chars() {
         if out.failed() {
             return;
         }
-        match byte {
-            b'"' => out.extend_from_slice(b"\\\""),
-            b'\\' => out.extend_from_slice(b"\\\\"),
-            b'\n' => out.extend_from_slice(b"\\n"),
-            b'\r' => out.extend_from_slice(b"\\r"),
-            b'\t' => out.extend_from_slice(b"\\t"),
-            0 => out.extend_from_slice(b"\\0"),
-            c if c < 0x20 || (legacy && c > 0x7e) => {
-                write!(out, "\\u{{{c:x}}}").unwrap();
+        match c {
+            '"' => out.extend_from_slice(b"\\\""),
+            '\\' => out.extend_from_slice(b"\\\\"),
+            '\n' => out.extend_from_slice(b"\\n"),
+            '\r' => out.extend_from_slice(b"\\r"),
+            '\t' => out.extend_from_slice(b"\\t"),
+            '\0' => out.extend_from_slice(b"\\0"),
+            c if c < ' ' || (legacy && c > '~') => {
+                write!(out, "\\u{{{:x}}}", u32::from(c)).unwrap();
             }
-            c => out.push(c),
+            c => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
         }
     }
     out.push(b'"');

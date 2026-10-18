@@ -457,6 +457,14 @@ native_output!(
     r#""hello" ."#,
 );
 
+// Issue #235: escape one code point per scalar, not one per UTF-8 byte.
+native_output!(
+    string_display_escapes_non_ascii_scalars,
+    "str-non-ascii",
+    "[\"caf\\u{e9} \\u{1f600}\\u{7f}\"]\n",
+    "\"caf\u{e9} \u{1f600}\u{7f}\" .",
+);
+
 native_output!(
     string_concat,
     "str-concat",
