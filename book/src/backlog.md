@@ -31,10 +31,13 @@ not mean all candidates or every concurrency diagnostic are implemented.
 2. **Validate composition in existing applications.** Reuse the installed
    CLI/data and JSON-service workflows already qualified under B66 to check
    precise errors, context, reporting and cleanup through real library calls.
-   Extend the typed-stream prototype to production stream/HTTP composition as
-   a separately scoped B71 slice, preserving operation and partial-progress
-   information. These workflows supply acceptance checks, not another library
-   foundation project.
+   The additive B71 [typed-stream API](design/stdlib/io-typed.md), legacy stream
+   bridges, and [fixed/close-delimited HTTP bodies](design/stdlib/http-typed.md)
+   preserve operation, cause and partial-progress information. Chunked framing,
+   validated-head integration and complete HTTP client adoption remain; retain
+   existing side channels until those paths preserve their full causes.
+   These workflows supply acceptance checks, not another library foundation
+   project.
 3. **Measured compiler follow-up (B19/B17).** Use the phase profiler to choose
    bounded improvements and verify cold/warm build time, allocation and memory
    costs. Per-module caching is the next cache-design candidate; remote caching

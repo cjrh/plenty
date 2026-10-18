@@ -1,7 +1,7 @@
 # Explicit error composition
 
-Status: partly implemented. Library mapping implemented; typed streams prototyped
-outside the stdlib API. The `?` error contract is unchanged. Remaining work
+Status: partly implemented. Library mapping and additive typed stream/body APIs
+are implemented. The `?` error contract is unchanged. Remaining work
 belongs in [B71](../backlog.md).
 The companion [error sets](error-sets.md) page records the agreed general-sum
 direction and removal of builtin Failure; [formatting](error-formatting.md)
@@ -252,3 +252,41 @@ failure, nested results, evaluation order, progress, retry, EOF, cancellation,
 failure-side attribution, and typed transport preservation. The next decision
 is whether the stream signature cost warrants a broader framing experiment;
 mapping is independently usable today.
+
+## Additive production slice
+
+[`std.io.typed`](../design/stdlib/io-typed.md) now makes the prototype's typed
+protocols and progress helpers available without copying example modules.
+Its owned legacy reader/writer bridges preserve the returned `StreamError`
+and classify only explicit interruption as retryable. A consuming free function
+recovers each bridge's stream for explicit flushing, closing or seeking.
+The private optional slot supports extraction under existing field-move rules;
+it allocates no storage.
+
+[`std.http.typed`](../design/stdlib/http-typed.md) provides fixed-length and
+close-delimited body readers. Close-delimited EOF is sticky, empty reads do not
+consume input, and its connection is never reusable. Both return
+`FramingError[E]` through the typed protocol without error-storage fields or
+retrieval methods. The production tests run the prototype's cause/progress
+cases against both implementations and exercise real `std.io.Cursor`
+bridges through both framing modes. The standalone `standard.plenty` example
+is the public-module counterpart to `main.plenty`.
+
+This is still a body-transfer slice: validated heads, chunked framing, TLS
+setup, deadlines, connection recovery and client migration remain outside its
+contract. Existing HTTP adapters retain all their side channels; bridging them
+does not reconstruct causes they already discarded. No builtin Failure,
+general-sum, or reporting change is needed by these modules.
+
+On 2026-10-18, a local unoptimized compiler comparison of `main.plenty`
+against `standard.plenty` used five `--compile` runs each with
+`PLENTY_CACHE=off`. Median wall time was 0.196 s versus 0.216 s (ranges
+0.163–0.209 s and 0.181–0.225 s); linked executable sizes were 3,286,648
+and 3,290,816 bytes. Other validation builds were running concurrently, so
+these timings are a bounded smoke measurement, not a performance guarantee.
+The public fixed path adds roughly 4 KiB in this probe; it imports the legacy
+stream module to define bridges. Both copy signatures still carry two error
+types and two stream types, while fixed framing carries one error and one
+reader type. Call sites infer these parameters. No specialization-count
+instrumentation was added, and this small case does not establish scaling for
+a complete HTTP client.

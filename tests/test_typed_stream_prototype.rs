@@ -80,7 +80,20 @@ fn fixture(source: &str) -> tempfile::TempDir {
 }
 
 fn execute(body: &str, expected: &str) {
-    let workspace = fixture(&format!("{FIXTURES}\n{body}"));
+    execute_modules(body, expected, false);
+    execute_modules(body, expected, true);
+}
+
+fn execute_modules(body: &str, expected: &str, standard: bool) {
+    let source = format!("{FIXTURES}\n{body}");
+    let source = if standard {
+        source
+            .replace("from streams import", "from std.io.typed import")
+            .replace("from http_body import", "from std.http.typed import")
+    } else {
+        source
+    };
+    let workspace = fixture(&source);
     let file = workspace.path().join("main.plenty");
     let binary = workspace.path().join("program");
     plenty::compile_file_to_executable(&file, &binary, None).unwrap();
@@ -106,6 +119,149 @@ fn incompatible_protocol_error_is_diagnosed() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("signature"), "{error}");
+}
+
+#[test]
+fn production_bridges_copy_fixed_and_close_delimited_bodies() {
+    execute_modules(
+        r#"
+import std.io
+import std.io.typed
+from std.http.typed import close_body
+def main() -> Result[(), Failure]:
+    mut data = scratch()?
+    data.set(0, 65u8)?
+    data.set(1, 66u8)?
+    mut buffer = scratch()?
+    mut fixed = fixed_body(std.io.typed.reader(std.io.cursor(data)), 2)?
+    mut destination = std.io.typed.writer(std.io.cursor(std.bytes.with_capacity(4)?))
+    print(copy_all(&mut fixed, &mut destination, &mut buffer)?)?
+    mut cursor = std.io.typed.unwrap_writer(destination)
+    print(cursor.position())?
+    cursor.seek(std.io.SeekFrom.Start(0))?
+    mut closed = close_body(std.io.typed.reader(cursor))
+    mut output = std.io.typed.writer(std.io.cursor(std.bytes.with_capacity(4)?))
+    print(copy_all(&mut closed, &mut output, &mut buffer)?)?
+    print(closed.read(&mut buffer, 0, 4)?)?
+    mut output_cursor = std.io.typed.unwrap_writer(output)
+    output_cursor.seek(std.io.SeekFrom.Start(0))?
+    print(output_cursor.read(&mut buffer, 0, 4)?)?
+    print(buffer.get(0).unwrap())?
+    print(buffer.get(1).unwrap())?
+    Ok(())
+"#,
+        "2\n2\n2\n0\n2\n65\n66\n",
+        true,
+    );
+}
+
+#[test]
+fn close_body_preserves_causes_progress_and_terminal_state() {
+    execute_modules(
+        r#"
+from std.http.typed import close_body
+def main() -> Result[(), Failure]:
+    mut buffer = scratch()?
+    mut body = close_body(Source(1, 0))
+    match body.read(&mut buffer, -1, 0):
+        case Err(StepError.Source(FramingError.OutOfRange)):
+            print("range")?
+        case _:
+            print("wrong")?
+    print(body.read(&mut buffer, 0, 0)?)?
+    mut sink = Sink(0, 0, 0)
+    match copy_all(&mut body, &mut sink, &mut buffer):
+        case Err(CopyFailure.Read(count, ReadFailure.Source(FramingError.Transport(Transport.Tls(code, message))))):
+            print(count)?
+            print(code)?
+            print(message)?
+        case _:
+            print("wrong")?
+    match body.read(&mut buffer, 0, 4):
+        case Err(StepError.Source(FramingError.Broken)):
+            print("broken")?
+        case _:
+            print("wrong")?
+    mut invalid = close_body(Source(3, 2))
+    match invalid.read(&mut buffer, 0, 4):
+        case Err(StepError.Source(FramingError.InvalidProgress)):
+            print("progress")?
+        case _:
+            print("wrong")?
+    mut cancelled = close_body(Source(2, 2))
+    match cancelled.read(&mut buffer, 0, 4):
+        case Err(StepError.Source(FramingError.Transport(Transport.Cancelled))):
+            print("cancelled")?
+        case _:
+            print("wrong")?
+    Ok(())
+"#,
+        "range\n0\n2\n47\nhandshake\nbroken\nprogress\ncancelled\n",
+        true,
+    );
+}
+
+#[test]
+fn close_body_empty_reads_do_not_consume_input_and_eof_is_sticky() {
+    execute_modules(
+        r#"
+from std.http.typed import close_body
+pub class Ends:
+    calls: i64
+    pub def read(self: &mut Ends, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[Transport]]:
+        self.calls += 1
+        print(self.calls).unwrap()
+        if self.calls == 1:
+            return Ok(0)
+        Err(StepError[Transport].Source(Transport.Cancelled))
+def main() -> Result[(), Failure]:
+    mut body = close_body(Ends(0))
+    mut buffer = scratch()?
+    print(body.read(&mut buffer, 2, 2)?)?
+    print(body.read(&mut buffer, 0, 4)?)?
+    print(body.read(&mut buffer, 0, 4)?)?
+    Ok(())
+"#,
+        "0\n1\n0\n0\n",
+        true,
+    );
+}
+
+#[test]
+fn legacy_bridges_retry_only_interruption_and_preserve_io_errors() {
+    execute_modules(
+        r#"
+import std.io
+import std.io.typed
+pub class Legacy:
+    calls: i64
+    pub def read(self: &mut Legacy, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, std.io.StreamError]:
+        self.calls += 1
+        if self.calls == 1:
+            return Err(std.io.StreamError.Interrupted)
+        if self.calls == 2:
+            return Ok(1)
+        Err(std.io.StreamError.Io(IoError.Other))
+def main() -> Result[(), Failure]:
+    mut reader = std.io.typed.reader(Legacy(0))
+    mut buffer = scratch()?
+    match read_exact(&mut reader, &mut buffer, 0, 4):
+        case Err(partial):
+            print(partial.completed)?
+            match partial.cause:
+                case ReadFailure.Source(std.io.StreamError.Io(IoError.Other)):
+                    print("io")?
+                case _:
+                    print("wrong")?
+        case Ok(_):
+            print("wrong")?
+    original = std.io.typed.unwrap_reader(reader)
+    print(original.calls)?
+    Ok(())
+"#,
+        "1\nio\n3\n",
+        true,
+    );
 }
 
 #[test]
