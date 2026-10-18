@@ -84,7 +84,8 @@ time=1700000000.000001234 level=info msg="listening" port=8080 host="db" tls=fal
 ```
 
 - `time` appears only for a stamped event: seconds since the Unix epoch, a
-  dot, and exactly nine digits of nanoseconds.
+  dot, and exactly nine digits of nanoseconds. A `time` whose `nanoseconds`
+  is 1,000,000,000 or more returns `InvalidSpec` and writes nothing.
 - `level` is the lowercase name. `msg` and text values use the
   [`debug_text`](fmt.md#writers-and-strings) form: double quotes, with `"`,
   `\`, LF, CR, TAB, and other control characters escaped, so one event is
@@ -140,7 +141,7 @@ the draining thread.
 
 | `LogError` | Meaning |
 |---|---|
-| `InvalidSpec` | A negative capacity or a line limit below one |
+| `InvalidSpec` | A negative capacity, a line limit below one, or an event `time` with out-of-range nanoseconds |
 | `InvalidKey` | A field key `TextSink` cannot write unambiguously |
 | `UnknownLevel` | `parse_level` received another name |
 | `TooLarge` | The line would exceed `max_line` |
