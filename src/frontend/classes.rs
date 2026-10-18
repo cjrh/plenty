@@ -708,16 +708,6 @@ impl Lower<'_> {
         ops[end - call..].rotate_left(call);
     }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
-        if let Expression::Member(base, name, _) = &e.kind {
-            if self.place_type(base) == Some(Ty::File) {
-                if name != "closed" {
-                    return Err(e.at.error(format!("unknown File property `{name}`")));
-                }
-                let (_, loans) = self.observe(base, ops)?;
-                ops.push(Op::Collection(CollectionOp::FileClosed));
-                return Ok((Ty::Bool, loans));
-            }
-        }
         if self.place_type(e).is_some() {
             let (reference, loan) = self.borrow(e, false, ops)?;
             let Ty::Ref(ty, _) = reference else {
@@ -730,6 +720,15 @@ impl Lower<'_> {
             unreachable!()
         };
         let (ty, loans) = self.observe(base, ops)?;
+        // Checked after `observe` so a temporary such as `open(p)?.closed`
+        // reaches the property, not only a named place.
+        if ty == Ty::File {
+            if name != "closed" {
+                return Err(e.at.error(format!("unknown File property `{name}`")));
+            }
+            ops.push(Op::Collection(CollectionOp::FileClosed));
+            return Ok((Ty::Bool, loans));
+        }
         let Ty::Class(class) = ty else {
             return Err(e.at.error("field access requires a class instance"));
         };
