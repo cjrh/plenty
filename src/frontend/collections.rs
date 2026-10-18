@@ -2035,14 +2035,14 @@ impl Lower<'_> {
         if matches!(self.place_type(base), Some(Ty::Executor | Ty::Future(_))) {
             return self.executor_method(base, name, args, ops);
         }
-        let field = Expr {
-            at: base.at.clone(),
-            kind: Expression::Member(Box::new(base.clone()), name.into(), Pos::default()),
-        };
         if matches!(
-            self.place_type(&field),
+            self.field_type(base, name),
             Some(Ty::Callable(_) | Ty::BoxedCallable(_) | Ty::Closure(_))
         ) {
+            let field = Expr {
+                at: base.at.clone(),
+                kind: Expression::Member(Box::new(base.clone()), name.into(), Pos::default()),
+            };
             return self.call_value(&field, args, ops);
         }
         if name == "null" {

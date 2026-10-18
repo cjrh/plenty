@@ -840,18 +840,21 @@ impl Lower<'_> {
                 t if self.reference_binding(base) => Some(t),
                 _ => None,
             },
-            Expression::Member(base, n, _) => {
-                let Ty::Class(t) = unbox(self.place_type(base)?) else {
-                    return None;
-                };
-                t.get()
-                    .fields
-                    .iter()
-                    .find(|(f, _)| f == n)
-                    .map(|(_, t)| t.clone())
-            }
+            Expression::Member(base, n, _) => self.field_type(base, n),
             _ => None,
         }
+    }
+    /// The type of field `name` on place `base`, without building the member
+    /// expression: method calls probe this for callable fields (issue #208).
+    pub(super) fn field_type(&self, base: &Expr, name: &str) -> Option<Ty> {
+        let Ty::Class(t) = unbox(self.place_type(base)?) else {
+            return None;
+        };
+        t.get()
+            .fields
+            .iter()
+            .find(|(f, _)| f == name)
+            .map(|(_, t)| t.clone())
     }
     pub(super) fn class_method(
         &mut self,
