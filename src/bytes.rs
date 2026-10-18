@@ -143,7 +143,8 @@ impl BytesOp {
                     Ty::Unit,
                 )
             }
-            // A found index, or -1 for none.
+            // Find returns a found index, or -1 for none; Count returns the number of
+            // matching bytes.
             Self::Find | Self::Count => {
                 return (vec![storage(), Ty::U8, Ty::I64, Ty::I64], Ty::I64)
             }
