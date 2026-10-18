@@ -30,22 +30,7 @@ impl Ty {
                 | Self::Dict(..)
                 | Self::Box(_)
         ) {
-            let resource = matches!(
-                self,
-                Self::File
-                    | Self::FsReadDir
-                    | Self::FsDirEntry
-                    | Self::FsMetadata
-                    | Self::ByteStorage
-                    | Self::Generator(_)
-                    | Self::Closure(_)
-                    | Self::BoxedCallable(_)
-                    | Self::Task(_)
-                    | Self::Channel(..)
-                    | Self::CancellationToken
-                    | Self::Executor
-                    | Self::Future(_)
-            );
+            let resource = self.is_resource() || matches!(self, Self::Task(_));
             return Facts {
                 affine: resource,
                 copyable: !resource && !matches!(self, Self::Ref(..)),
@@ -53,10 +38,7 @@ impl Ty {
                 complete: true,
                 reflexive: !self.is_float(),
                 closure: matches!(self, Self::Closure(_) | Self::BoxedCallable(_)),
-                concurrent_handle: matches!(
-                    self,
-                    Self::Channel(..) | Self::CancellationToken | Self::Executor | Self::Future(_)
-                ),
+                concurrent_handle: self.is_concurrent_handle(),
                 ..Facts::default()
             };
         }
@@ -79,6 +61,30 @@ impl Ty {
             }
         }
         facts
+    }
+    /// A leaf that owns a runtime resource: affine, not copyable, and dropped
+    /// by a destructor wherever a walk reaches it. `Task` is deliberately
+    /// absent: only `facts` on a task itself treats it as a resource, and a
+    /// walk never does (see `owner_facts`). Every concurrent handle is a
+    /// resource.
+    fn is_resource(&self) -> bool {
+        matches!(
+            self,
+            Self::File
+                | Self::FsReadDir
+                | Self::FsDirEntry
+                | Self::FsMetadata
+                | Self::ByteStorage
+                | Self::Generator(_)
+                | Self::Closure(_)
+                | Self::BoxedCallable(_)
+        ) || self.is_concurrent_handle()
+    }
+    fn is_concurrent_handle(&self) -> bool {
+        matches!(
+            self,
+            Self::Channel(..) | Self::CancellationToken | Self::Executor | Self::Future(_)
+        )
     }
     /// Facts of a collection or box, combined from those of its contents
     /// instead of walking the graph again; nominal contents answer from their
@@ -140,10 +146,7 @@ impl Ty {
         let mut i = 0;
         while i < nodes.len() {
             facts.closure |= matches!(nodes[i], Self::Closure(_) | Self::BoxedCallable(_));
-            facts.concurrent_handle |= matches!(
-                nodes[i],
-                Self::Channel(..) | Self::CancellationToken | Self::Executor | Self::Future(_)
-            );
+            facts.concurrent_handle |= nodes[i].is_concurrent_handle();
             facts.reflexive &= !nodes[i].is_float();
             let weight = match &nodes[i] {
                 Self::Enum(t) => t.try_get().map_or(0, |definition| {
@@ -197,18 +200,7 @@ impl Ty {
                     facts.affine = true;
                     vec![(**k).clone(), (**v).clone()]
                 }
-                Self::File
-                | Self::FsReadDir
-                | Self::FsDirEntry
-                | Self::FsMetadata
-                | Self::ByteStorage
-                | Self::Closure(_)
-                | Self::BoxedCallable(_)
-                | Self::Generator(_)
-                | Self::Channel(..)
-                | Self::CancellationToken
-                | Self::Executor
-                | Self::Future(_) => {
+                node if node.is_resource() => {
                     facts.affine = true;
                     facts.copyable = false;
                     facts.destructor = true;
