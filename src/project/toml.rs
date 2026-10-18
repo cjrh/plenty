@@ -482,6 +482,8 @@ impl Parser<'_> {
                             let hex = self
                                 .bytes
                                 .get(self.pos + 1..self.pos + 5)
+                                // `from_str_radix` alone would accept a `+` sign.
+                                .filter(|h| h.iter().all(u8::is_ascii_hexdigit))
                                 .and_then(|h| std::str::from_utf8(h).ok())
                                 .and_then(|h| u32::from_str_radix(h, 16).ok())
                                 .and_then(char::from_u32);
@@ -652,6 +654,7 @@ mod tests {
                 "multi-line strings are not supported",
             ),
             ("a = 007\n", "only decimal integers"),
+            ("a = \"\\u+041\"\n", "plenty.toml:1: invalid \\u escape"),
         ] {
             let error = parse(text, "plenty.toml").unwrap_err();
             assert!(error.contains(message), "{text:?}: {error}");
