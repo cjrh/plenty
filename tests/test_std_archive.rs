@@ -707,6 +707,13 @@ fn corrupt_archives_are_reported_and_leave_nothing() {
     reseal(&mut bad_number[..512]);
     let duplicate = tar_of(&[(b"a.txt", b'0', b"1"), (b"a.txt", b'0', b"2")]);
     let shadowed = tar_of(&[(b"a", b'0', b"1"), (b"a/b", b'0', b"2")]);
+    // A global pax header whose base-256 size is i64::MAX: its padding
+    // must not overflow (issue #241).
+    let mut huge_global = tar_of(&[(b"g", b'g', b""), (b"a.txt", b'0', b"1")]);
+    huge_global[124..136].fill(0);
+    huge_global[124] = 0x80;
+    huge_global[128..136].copy_from_slice(&i64::MAX.to_be_bytes());
+    reseal(&mut huge_global[..512]);
     for (data, expected) in [
         (&tar[..600], "Truncated"),
         (&tar[..1536], "Truncated"),
@@ -715,6 +722,7 @@ fn corrupt_archives_are_reported_and_leave_nothing() {
         (&bad_number[..], "Corrupt"),
         (&duplicate[..], "Duplicate"),
         (&shadowed[..], "Duplicate"),
+        (&huge_global[..], "Corrupt"),
     ] {
         let (report, names) = extract("in.tar", data, "");
         assert_eq!(report, expected);

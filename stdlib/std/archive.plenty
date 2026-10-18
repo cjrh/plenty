@@ -503,6 +503,9 @@ pub class TarReader[R]:
                 pax_records(&data, &mut pending)?
             elif flag == 103:
                 # Global pax headers apply to no field this reader keeps.
+                # Keeps the content and its padding representable.
+                if size > max_size:
+                    return Err(ArchiveError.Corrupt)
                 self.skip(size + (block_size - size % block_size) % block_size)?
             elif flag == 76 or flag == 75:
                 data = self.metadata(size)?
