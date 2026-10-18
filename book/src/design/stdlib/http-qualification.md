@@ -205,8 +205,8 @@ and 505. Traps of the server itself, stack exhaustion and hangs over 10 s
 are findings too.
 
 `fuzz/http_server/run.py` builds the target with `--release`, seeds it with
-every corpus case in four variants (whole, 7-byte reads, 1-byte reads, small
-limits) and runs it with the HTTP dictionary `fuzz/http_server/http.dict`.
+every corpus case in four variants (64-byte reads, 7-byte reads, 1-byte reads,
+7-byte reads with small limits) and runs it with the HTTP dictionary `fuzz/http_server/http.dict`.
 Findings go to `WORK/findings`; the default `WORK` is
 `target/fuzz-http-server`.
 
