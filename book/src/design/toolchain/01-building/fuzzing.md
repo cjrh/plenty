@@ -48,10 +48,11 @@ def main() -> Result[(), Failure]:
 ```
 
 A finding is a [fatal runtime error](entry-report.md) such as an index out
-of range or `unwrap` of an `Err`, stack exhaustion, or `main` ending with a
-nonzero status, including `Err`. libFuzzer reports the first as "fuzz target
-exited" and the others as "deadly signal", saves the input, and exits with
-status 77. To check a property, return `Err` when it fails.
+of range or `unwrap` of an `Err`, stack exhaustion on the thread running
+inputs (see [the driver](#the-driver)), or `main` ending with a nonzero
+status, including `Err`. libFuzzer reports the first as "fuzz target
+exited" and the others as "deadly signal", saves the input, and exits
+with status 77. To check a property, return `Err` when it fails.
 
 Each input runs the whole program, as the runtime's `main` would, in the same
 process, so state outside the program, such as files it writes, persists
@@ -100,6 +101,8 @@ on the faulting thread's stack. So that they still run when a program has
 exhausted its stack, the driver gives the thread running inputs a 256 KiB
 alternate stack and moves the handlers onto it. The runtime's own
 stack-overflow message is not printed in fuzz builds.
+Only the thread running inputs has the alternate stack. A stack overflow
+on a thread the program spawns kills the process without saving the input.
 
 Without AddressSanitizer libFuzzer has no leak checking or stack traces.
 Plenty code needs neither for memory safety; a trap prints its source
