@@ -447,39 +447,19 @@ fn nested(
 /// Option[Generator[T]]) so unresolved annotations cannot reach native layout.
 pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
     use crate::op::Op;
+    let flatten = |(mut inputs, output): (Vec<Ty>, Ty)| {
+        inputs.push(output);
+        inputs
+    };
     for op in ops {
         let types = match op {
             Op::ClosureNew(t) | Op::ClosureCall(t) => vec![Ty::Closure(t.clone())],
-            Op::Collection(op) => {
-                let (mut inputs, output) = op.signature();
-                inputs.push(output);
-                inputs
-            }
-            Op::Channel(op) => {
-                let (mut inputs, output) = op.signature();
-                inputs.push(output);
-                inputs
-            }
-            Op::Executor(op) => {
-                let (mut inputs, output) = op.signature();
-                inputs.push(output);
-                inputs
-            }
-            Op::Control(op) => {
-                let (mut inputs, output) = op.signature();
-                inputs.push(output);
-                inputs
-            }
-            Op::Enum(op) => {
-                let (mut inputs, output) = op.signature().ok_or("invalid enum operation")?;
-                inputs.push(output);
-                inputs
-            }
-            Op::Box(op) => {
-                let (mut inputs, output) = op.signature();
-                inputs.push(output);
-                inputs
-            }
+            Op::Collection(op) => flatten(op.signature()),
+            Op::Channel(op) => flatten(op.signature()),
+            Op::Executor(op) => flatten(op.signature()),
+            Op::Control(op) => flatten(op.signature()),
+            Op::Enum(op) => flatten(op.signature().ok_or("invalid enum operation")?),
+            Op::Box(op) => flatten(op.signature()),
             Op::Split(t, tag) => {
                 let mut types = vec![Ty::Enum(t.clone())];
                 types.extend(t.get().variants[*tag].fields.iter().cloned());
