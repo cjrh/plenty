@@ -954,3 +954,52 @@ InvalidInput
 78"
     );
 }
+
+#[test]
+fn tar_writer_refuses_entries_and_finish_after_a_failed_write() {
+    let directory = tempfile::tempdir().unwrap();
+    // The first entry takes a 512-byte header and one padded data block; the
+    // second fails three bytes into its data, after its header reached `inner`.
+    let program = Program::new(
+        r#"
+mut tar = archive.tar_writer(Budget(io.cursor(std.bytes.empty()?), 1539))?
+outcome(tar.add_file(&name("a.txt")?, &text("hello")?, 420, 1700000000))?
+outcome(tar.add_file(&name("b.txt")?, &text("world world")?, 420, 1700000000))?
+tar.inner.left = 10000
+outcome(tar.add_dir(&name("c")?, 493, 1700000000))?
+outcome(tar.add_file(&name("d.txt")?, &text("later")?, 420, 1700000000))?
+outcome(tar.finish())?
+print(tar.inner.inner.data.len())?
+"#,
+    );
+    assert_eq!(
+        program.run(directory.path()),
+        "ok
+Stream(std.io.StreamError.WriteZero)
+InvalidInput
+InvalidInput
+InvalidInput
+1539"
+    );
+}
+
+#[test]
+fn tar_writer_rejected_argument_does_not_poison_the_writer() {
+    let directory = tempfile::tempdir().unwrap();
+    let program = Program::new(
+        r#"
+mut tar = archive.tar_writer(io.cursor(std.bytes.empty()?))?
+outcome(tar.add_file(&name("a.txt")?, &text("hello")?, 9999, 1700000000))?
+outcome(tar.add_file(&name("a.txt")?, &text("hello")?, 420, 1700000000))?
+outcome(tar.finish())?
+print(tar.inner.data.len())?
+"#,
+    );
+    assert_eq!(
+        program.run(directory.path()),
+        "InvalidInput
+ok
+ok
+2048"
+    );
+}

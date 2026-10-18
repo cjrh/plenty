@@ -656,11 +656,13 @@ def pax_record(out: &mut Bytes, key: &str, value: &list[u8]) -> Result[(), Archi
 
 # A streaming TAR writer (POSIX ustar, with pax records for names and link
 # targets longer than 100 bytes). `finish` writes the end-of-archive blocks;
-# without it the archive is truncated.
+# without it the archive is truncated. After any failed write to inner,
+# later entries and `finish` return InvalidInput.
 pub class TarWriter[W]:
     pub inner: W
     _block: Bytes
     _finished: bool
+    _failed: bool
 
     def zero(self: &mut TarWriter[W]) -> ():
         self._block.clear()
@@ -675,7 +677,7 @@ pub class TarWriter[W]:
         send(&mut self.inner, &self._block, 0, count)
 
     def header(self: &mut TarWriter[W], name: &list[u8], flag: u8, size: i64, mode: i64, mtime: i64, link: &list[u8]) -> Result[(), ArchiveError]:
-        if self._finished:
+        if self._finished or self._failed:
             return Err(ArchiveError.InvalidInput)
         if size < 0 or mode < 0 or mode > 4095 or mtime < 0 or mtime > 8589934591:
             return Err(ArchiveError.InvalidInput)
@@ -687,10 +689,14 @@ pub class TarWriter[W]:
                 pax_record(&mut records, "linkpath", link)?
             label = system(encode_utf8("././@PaxHeader"))?
             self.fields(&label, 120u8, records.len(), 420, mtime, &owned(list[u8].new())?)?
+            # Latched from the first write until the public add_* call
+            # completes the entry, so a partial entry poisons the writer.
+            self._failed = True
             self.emit()?
             send(&mut self.inner, &records, 0, records.len())?
             self.pad(records.len())?
         self.fields(name, flag, size, mode, mtime, link)?
+        self._failed = True
         self.emit()
 
     def fields(self: &mut TarWriter[W], name: &list[u8], flag: u8, size: i64, mode: i64, mtime: i64, link: &list[u8]) -> Result[(), ArchiveError]:
@@ -726,7 +732,9 @@ pub class TarWriter[W]:
         stored = stored_name(name, False)?
         self.header(&stored, 48u8, data.len(), mode, mtime, &owned(list[u8].new())?)?
         send(&mut self.inner, data, 0, data.len())?
-        self.pad(data.len())
+        self.pad(data.len())?
+        self._failed = False
+        Ok(())
 
     # Copies exactly `size` bytes from `source` as the content of `name`.
     # A source that ends early is Truncated, leaving the archive unusable.
@@ -739,30 +747,40 @@ pub class TarWriter[W]:
             fill(source, &mut self._block, step)?
             send(&mut self.inner, &self._block, 0, step)?
             left -= step
-        self.pad(size)
+        self.pad(size)?
+        self._failed = False
+        Ok(())
 
     pub def add_dir(self: &mut TarWriter[W], name: &Path, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
         stored = stored_name(name, True)?
-        self.header(&stored, 53u8, 0, mode, mtime, &owned(list[u8].new())?)
+        self.header(&stored, 53u8, 0, mode, mtime, &owned(list[u8].new())?)?
+        self._failed = False
+        Ok(())
 
     pub def add_symlink(self: &mut TarWriter[W], name: &Path, target: &Path, mtime: i64) -> Result[(), ArchiveError]:
         stored = stored_name(name, False)?
         if len(target.as_bytes()) == 0 or has_nul(target.as_bytes()):
             return Err(ArchiveError.InvalidInput)
-        self.header(&stored, 50u8, 0, 511, mtime, target.as_bytes())
+        self.header(&stored, 50u8, 0, 511, mtime, target.as_bytes())?
+        self._failed = False
+        Ok(())
 
     pub def finish(self: &mut TarWriter[W]) -> Result[(), ArchiveError]:
+        if self._failed:
+            return Err(ArchiveError.InvalidInput)
         if not self._finished:
             self.zero()
+            self._failed = True
             self.emit()?
             self.emit()?
+            self._failed = False
             self._finished = True
         moved(self.inner.flush())
 
 pub def tar_writer[W](inner: W) -> Result[TarWriter[W], ArchiveError]:
     mut block = held(std.bytes.with_capacity(block_size))?
     held(block.resize(block_size, 0u8))?
-    Ok(TarWriter(inner, block, False))
+    Ok(TarWriter(inner, block, False, False))
 
 # DOS dates
 
