@@ -29,6 +29,7 @@ mod enums;
 mod executors;
 mod files;
 mod foreign;
+mod fstrings;
 mod generators;
 mod generics;
 pub(crate) mod ide;
@@ -59,6 +60,8 @@ enum Kind {
     Word(String),
     Number(String),
     Text(String),
+    /// An `f"..."` literal's text and fields; see `fstrings`.
+    Format(Vec<fstrings::Part>),
     Bytes(Vec<u8>),
     Symbol(String),
     Newline,
@@ -112,7 +115,7 @@ fn sendable(error: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Token {
     kind: Kind,
     line: usize,
@@ -219,6 +222,11 @@ impl<'a> Lexer<'a> {
         let prefix = match &bytes[self.pos..self.pos + width] {
             b"b" => Ok(Prefix::Bytes),
             b"B" => Err("byte literals use a lowercase `b` prefix"),
+            b"f" => Ok(Prefix::Format),
+            b"F" => Err("f-strings use a lowercase `f` prefix"),
+            b"bf" | b"fb" | b"Bf" | b"bF" | b"fB" | b"Fb" | b"BF" | b"FB" => Err(
+                "byte f-strings are not supported; build text with an f-string, then convert it to bytes",
+            ),
             _ => return None,
         };
         Some((prefix, width))
@@ -413,6 +421,10 @@ impl<'a> Lexer<'a> {
                         Prefix::Bytes => {
                             let value = self.byte_literal(&start)?;
                             self.push(out, Kind::Bytes(value), line, column);
+                        }
+                        Prefix::Format => {
+                            let kind = self.format_string(&start)?;
+                            self.push(out, kind, line, column);
                         }
                     }
                 }
@@ -952,6 +964,8 @@ enum Expression {
     Member(Box<Expr>, String, Pos),
     Number(String),
     Text(String),
+    /// An f-string, or one of its fields inside a generated function.
+    Format(Box<fstrings::Format>),
     Bytes(Vec<u8>),
     Bool(bool),
     Collection {
@@ -1048,6 +1062,8 @@ struct Parser {
     /// parsed after its left operand moves that operand down a level, so the
     /// depth of the calls into `expr` alone does not bound the tree.
     deepest: usize,
+    /// Whether the module has an f-string, which needs `std.fmt`.
+    formats: bool,
 }
 impl Parser {
     /// A parser for a module whose tokens name `origin` as their source file.
@@ -1069,6 +1085,7 @@ impl Parser {
             type_depth: 0,
             depth: 0,
             deepest: 0,
+            formats: false,
         }
     }
     /// Releases the tokens of the items already parsed and buffers the next
@@ -2025,6 +2042,7 @@ impl Parser {
         let kind = match &at.kind {
             Kind::Number(n) => Expression::Number(n.clone()),
             Kind::Text(s) => Expression::Text(s.clone()),
+            Kind::Format(parts) => self.format_literal(parts)?,
             Kind::Bytes(b) => Expression::Bytes(b.clone()),
             Kind::Word(s) if s == "True" || s == "False" => Expression::Bool(s == "True"),
             Kind::Word(s) if s == "not" => Expression::Unary(s.clone(), Box::new(self.expr(3)?)),
@@ -2255,6 +2273,7 @@ impl Parser {
 #[derive(Clone, Copy, Debug)]
 enum Prefix {
     Bytes,
+    Format,
 }
 
 /// Decodes the escape after a backslash in byte text: a shared escape or
@@ -3040,6 +3059,7 @@ impl Lower<'_> {
                 }
             }
             Expression::Tuple(values) => Some(self.tuple(values, None, &e.at, ops)?),
+            Expression::Format(format) => self.format(format, &e.at, ops)?,
             Expression::Collection { .. } => Some(self.fallible_display(e, None, ops)?),
             Expression::Index(..) => {
                 let ty = self.index(e, ops)?;
@@ -3051,6 +3071,11 @@ impl Lower<'_> {
                 }
             }
             Expression::Method(base, name, args, pos) => {
+                if name == "format" {
+                    if let Some(ty) = self.format_method(base, args, &e.at, ops) {
+                        return ty;
+                    }
+                }
                 ide::enter_method(*pos, name);
                 let ty = self.method(base, name, args, ops);
                 ide::leave_method();
@@ -3507,19 +3532,41 @@ impl Lower<'_> {
                     return self.bytes_call(operation, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::stream::StreamOp::named(name) {
+                    let operation = match operation.literal() {
+                        Some(literal) if self.literal_source(operation.source(), args) => literal,
+                        _ => operation,
+                    };
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Stream(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                    return self.exclusive_call(
+                        call,
+                        &exclusive,
+                        operation.source(),
+                        args,
+                        &e.at,
+                        ops,
+                    );
                 }
                 if let Some(operation) = crate::crypto::CryptoOp::named(name) {
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Crypto(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                    return self.exclusive_call(call, &exclusive, None, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::compress::CompressOp::named(name) {
+                    let operation = match operation.literal() {
+                        Some(literal) if self.literal_source(operation.source(), args) => literal,
+                        _ => operation,
+                    };
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Compress(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                    return self.exclusive_call(
+                        call,
+                        &exclusive,
+                        operation.source(),
+                        args,
+                        &e.at,
+                        ops,
+                    );
                 }
                 if let Some(operation) = crate::process::ProcessOp::named(name) {
                     return self.system_call(CollectionOp::Process(operation), args, &e.at, ops);
@@ -3540,17 +3587,39 @@ impl Lower<'_> {
                     return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::net::NetOp::named(name) {
+                    let operation = match operation.literal() {
+                        Some(literal) if self.literal_source(operation.source(), args) => literal,
+                        _ => operation,
+                    };
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Net(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                    return self.exclusive_call(
+                        call,
+                        &exclusive,
+                        operation.source(),
+                        args,
+                        &e.at,
+                        ops,
+                    );
                 }
                 if let Some(operation) = crate::sqlite::SqliteOp::named(name) {
                     return self.system_call(CollectionOp::Sqlite(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::tls::TlsOp::named(name) {
+                    let operation = match operation.literal() {
+                        Some(literal) if self.literal_source(operation.source(), args) => literal,
+                        _ => operation,
+                    };
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Tls(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                    return self.exclusive_call(
+                        call,
+                        &exclusive,
+                        operation.source(),
+                        args,
+                        &e.at,
+                        ops,
+                    );
                 }
                 if self.names.contains_key(name) {
                     return Err(e.at.error(format!("binding `{name}` is not callable")));

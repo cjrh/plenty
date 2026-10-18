@@ -28,6 +28,9 @@ pub enum NetOp {
     SelectorOpen,
     SelectorWatch,
     Select,
+    // The operations above reading their `source` operand from a `bytes`
+    // literal, which the runtime tells from a buffer by its header.
+    SendToLiteral,
 }
 
 impl NetOp {
@@ -50,7 +53,37 @@ impl NetOp {
         })
     }
 
+    /// The operand the primitive only reads bytes from, which a `Bytes`
+    /// buffer or a `bytes` literal can supply.
+    pub fn source(self) -> Option<usize> {
+        match self.buffer_form() {
+            Self::SendTo => Some(0),
+            _ => None,
+        }
+    }
+
+    /// The variant reading `source` from a `bytes` literal.
+    pub fn literal(self) -> Option<Self> {
+        Some(match self {
+            Self::SendTo => Self::SendToLiteral,
+            _ => return None,
+        })
+    }
+
+    fn buffer_form(self) -> Self {
+        match self {
+            Self::SendToLiteral => Self::SendTo,
+            other => other,
+        }
+    }
+
     pub fn signature(self) -> (Vec<Ty>, Ty) {
+        let form = self.buffer_form();
+        if form != self {
+            let (mut inputs, output) = form.signature();
+            inputs[form.source().unwrap()] = Ty::ByteStr;
+            return (inputs, output);
+        }
         let address = || Ty::List(Arc::new(Ty::U8));
         let range = || vec![Ty::ByteStorage, Ty::I64, Ty::I64, Ty::File];
         let (inputs, output) = match self {
@@ -80,6 +113,9 @@ impl NetOp {
                 vec![Ty::ByteStorage, Ty::File, Ty::U64, Ty::CancellationToken],
                 Ty::I64,
             ),
+            Self::SendToLiteral => {
+                unreachable!("a literal variant defers to its buffer form")
+            }
         };
         (inputs, sum::result(output, sum::io_error()))
     }
@@ -88,6 +124,10 @@ impl NetOp {
     /// changes. Accepting and reading addresses share a listener, so several
     /// workers can accept from one borrowed listener.
     pub fn exclusive(self, operand: usize) -> bool {
+        let form = self.buffer_form();
+        if form != self {
+            return form.exclusive(operand);
+        }
         match self {
             Self::FinishConnect | Self::Shutdown | Self::SetOption | Self::SelectorWatch => {
                 operand == 0
@@ -101,14 +141,25 @@ impl NetOp {
             | Self::Resolve
             | Self::ReadyWait
             | Self::SelectorOpen => false,
+            Self::SendToLiteral => {
+                unreachable!("a literal variant defers to its buffer form")
+            }
         }
     }
 
     pub fn opcode(self) -> i64 {
+        let form = self.buffer_form();
+        if form != self {
+            return form.opcode();
+        }
         410 + self as i64
     }
 
     pub fn effect(self) -> Effect {
+        let form = self.buffer_form();
+        if form != self {
+            return form.effect();
+        }
         match self {
             Self::Open | Self::Resolve => Effect::Network,
             Self::Accept
@@ -122,6 +173,9 @@ impl NetOp {
             | Self::SelectorOpen
             | Self::SelectorWatch
             | Self::Select => Effect::Handle,
+            Self::SendToLiteral => {
+                unreachable!("a literal variant defers to its buffer form")
+            }
         }
     }
 }

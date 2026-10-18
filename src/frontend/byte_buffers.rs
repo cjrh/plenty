@@ -118,7 +118,7 @@ impl Lower<'_> {
 
     /// A reference to the storage of the named buffer `base`, under a loan
     /// of the whole buffer that the caller ends.
-    fn byte_storage_place(
+    pub(super) fn byte_storage_place(
         &mut self,
         class: &Nominal<ClassType>,
         base: &Expr,

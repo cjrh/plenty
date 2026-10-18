@@ -8,7 +8,7 @@ import std.http
 import std.http.server
 import std.net
 import std.time
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.http import Header, HttpError
 from std.http.server import Config, Exchange, Report, Router, ServerError, Transport
 from std.net import NetError, Shutdown, TcpStream
@@ -45,7 +45,7 @@ pub class Script:
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
             return Err(NetError.Cancelled)
         if self.echo:
@@ -178,7 +178,7 @@ import std.http.server
 import std.net
 import std.time
 import std.http
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.http.server import Exchange, Report
 from std.net import NetError, TcpStream
 from std.sync import CancellationToken

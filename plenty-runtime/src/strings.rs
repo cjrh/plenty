@@ -91,6 +91,18 @@ pub(crate) unsafe fn bytes(text: &*const Text) -> &[u8] {
         )
     }
 }
+/// The data of a text that is never inline, such as a compiler literal, for
+/// as long as the text lives.
+pub(crate) unsafe fn heap_bytes<'a>(text: *const Text) -> &'a [u8] {
+    debug_assert!(!is_inline(text));
+    // SAFETY: the caller passes a live heap or literal text.
+    unsafe {
+        slice::from_raw_parts(
+            ptr::addr_of!((*text).data).cast::<u8>(),
+            (*text).byte_len as usize,
+        )
+    }
+}
 pub(crate) unsafe fn utf8(text: &*const Text) -> &str {
     // SAFETY: both new() and compiler literals validate UTF-8.
     unsafe { str::from_utf8_unchecked(bytes(text)) }

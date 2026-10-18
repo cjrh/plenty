@@ -51,6 +51,25 @@
             end: multiline ? quote : new RegExp(quote + "|$"),
             contains: [prefix ? byteEscape : escape],
         });
+        // An f-string: `{{` and `}}` are literal braces, and a field holds
+        // ordinary code up to its closing brace, including nested fields in
+        // its format spec.
+        const fstring = (quote, multiline) => ({
+            className: "string",
+            begin: new RegExp("\\bf" + quote),
+            end: multiline ? quote : new RegExp(quote + "|$"),
+            contains: [
+                escape,
+                { begin: /\{\{|\}\}/, relevance: 0 },
+                {
+                    className: "subst",
+                    begin: /\{/,
+                    end: /\}/,
+                    relevance: 0,
+                    contains: [{ begin: /\{/, end: /\}/, relevance: 0 }],
+                },
+            ],
+        });
         // A declaration keyword, then the declared name. `def once(...)`
         // makes a closure that runs once, so there `once` is a keyword.
         const declaration = (keywords, title) => ({
@@ -71,6 +90,10 @@
             },
             contains: [
                 hljs.HASH_COMMENT_MODE,
+                fstring('"""', true),
+                fstring("'''", true),
+                fstring('"', false),
+                fstring("'", false),
                 string('"""', true, "b"),
                 string("'''", true, "b"),
                 string('"', false, "b"),

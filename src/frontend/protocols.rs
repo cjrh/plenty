@@ -37,10 +37,21 @@ impl Parser {
                     .at
                     .error("protocol requirements cannot declare parameter defaults"));
             }
-            if !f.type_params.is_empty() {
-                return Err(f
-                    .at
-                    .error("protocol requirements cannot declare method type parameters"));
+            // Method-local parameters, such as `def write[S: ByteSource](...)`,
+            // must be declared alike by every implementation.
+            for (parameter, bound) in &f.type_params {
+                if parameter == &name || type_params.iter().any(|(n, _)| n == parameter) {
+                    return Err(f.at.error(
+                        "a requirement parameter cannot shadow its protocol or the protocol's parameters",
+                    ));
+                }
+                if bound.as_ref().is_some_and(|b| {
+                    generics::callable_bound(b) || generics::numeric_bound(b).is_some()
+                }) {
+                    return Err(f
+                        .at
+                        .error("requirement parameters take only protocol constraints"));
+                }
             }
             if !seen.insert(f.name.clone()) {
                 return Err(f.at.error("duplicate protocol method"));
@@ -149,6 +160,13 @@ pub(super) fn instantiate(
     let mut concrete = protocol.clone();
     concrete.type_params.clear();
     for method in &mut concrete.methods {
+        for bound in method
+            .type_params
+            .iter_mut()
+            .filter_map(|(_, b)| b.as_mut())
+        {
+            generics::substitute(bound, &substitutions)?;
+        }
         for (_, ty) in &mut method.inputs {
             generics::substitute(ty, &substitutions)?;
         }
@@ -157,37 +175,165 @@ pub(super) fn instantiate(
     Ok(concrete)
 }
 
+/// The methods a built-in type brings to protocols, as `(name, signature)`.
+/// `bytes` has `len`, which `std.bytes.ByteSource` requires.
+fn builtin_methods(ty: &Ty) -> Option<Vec<(&'static str, generics::Signature)>> {
+    match ty {
+        Ty::ByteStr => Some(vec![(
+            "len",
+            (
+                vec![Ty::Ref(std::sync::Arc::new(Ty::ByteStr), false)],
+                Some(Ty::I64),
+            ),
+        )]),
+        _ => None,
+    }
+}
+
+/// A type no program can name, standing for one requirement parameter.
+fn placeholder(name: &str) -> Ty {
+    Ty::Class(crate::nominal::Nominal::new(crate::record::ClassType {
+        name: format!("<requirement parameter {name}>"),
+        fields: vec![],
+        destructor: None,
+        fallible_init: false,
+        bytes: std::sync::OnceLock::new(),
+        managed: std::sync::OnceLock::new(),
+    }))
+}
+
+fn same_shape(a: &TypeRef, b: &TypeRef) -> bool {
+    a.name == b.name
+        && a.concrete == b.concrete
+        && a.args.len() == b.args.len()
+        && a.args.iter().zip(&b.args).all(|(a, b)| same_shape(a, b))
+}
+
+/// Whether the generic `method` declares `requirement`'s parameters, with the
+/// same constraints, and its signature once they are renamed. Both resolve in
+/// a shape probe, so the placeholders never become program types.
+fn same_generic(
+    requirement: &Function,
+    method: &Function,
+    implementing: (&str, &Ty),
+    aliases: &TypeAliases,
+) -> Result<bool> {
+    if requirement.type_params.len() != method.type_params.len() {
+        return Ok(false);
+    }
+    let renamed: generics::Substitution = method
+        .type_params
+        .iter()
+        .zip(&requirement.type_params)
+        .map(|((own, _), (name, _))| {
+            let reference = TypeRef {
+                concrete: None,
+                at: method.at.clone(),
+                name: Some(name.clone()),
+                args: vec![],
+            };
+            (own.clone(), reference)
+        })
+        .collect();
+    for ((_, own), (_, expected)) in method.type_params.iter().zip(&requirement.type_params) {
+        match (own, expected) {
+            (None, None) => {}
+            (Some(own), Some(expected)) => {
+                let mut own = own.clone();
+                generics::substitute(&mut own, &renamed)?;
+                if !same_shape(&own, expected) {
+                    return Ok(false);
+                }
+            }
+            _ => return Ok(false),
+        }
+    }
+    let mut own = method.clone();
+    for (_, ty) in &mut own.inputs {
+        generics::substitute(ty, &renamed)?;
+    }
+    generics::substitute(&mut own.output, &renamed)?;
+    let placeholders: Vec<_> = requirement
+        .type_params
+        .iter()
+        .map(|(name, _)| (name, placeholder(name)))
+        .collect();
+    let protocol = implementing.0.to_owned();
+    aliases.probe_bound(
+        std::iter::once((&protocol, implementing.1.clone())).chain(placeholders),
+        |probe| Ok(signature(&own, probe)? == signature(requirement, probe)?),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn check(
     protocol: &Protocol,
     actual: &Ty,
     methods: &HashMap<String, generics::Signature>,
+    templates: &HashMap<String, std::sync::Arc<Function>>,
     aliases: &TypeAliases,
     access: &modules::AccessMap,
     bound: &Token,
     call: &Token,
 ) -> Result<()> {
-    let Some(owner) = classes::method_owner(actual) else {
-        return Err(call.error(format!(
-            "{actual} does not satisfy {}; protocols currently require classes or enums",
+    let mismatch = |name: &str| {
+        call.error(format!("{actual} does not satisfy {}: signature of `{name}` does not match (including receiver borrowing, type parameters, and return type)", protocol.name))
+    };
+    let missing = |name: &str| {
+        call.error(format!(
+            "{actual} does not satisfy {}: missing method `{name}`",
             protocol.name
-        )));
+        ))
     };
     let mut aliases = aliases.clone();
     aliases.insert(protocol.name.clone(), Some(actual.clone()));
+    if let Some(builtin) = builtin_methods(actual) {
+        for requirement in &protocol.methods {
+            let name = &requirement.name;
+            let method = builtin
+                .iter()
+                .find(|(n, _)| n == name)
+                .ok_or_else(|| missing(name))?;
+            if !requirement.type_params.is_empty() || method.1 != signature(requirement, &aliases)?
+            {
+                return Err(mismatch(name));
+            }
+        }
+        return Ok(());
+    }
+    let Some(owner) = classes::method_owner(actual) else {
+        return Err(call.error(format!(
+            "{actual} does not satisfy {}; protocols currently require classes, enums, or `bytes`",
+            protocol.name
+        )));
+    };
     for requirement in &protocol.methods {
         let name = &requirement.name;
-        let method = methods
-            .get(&crate::record::method(owner, name))
-            .ok_or_else(|| {
-                call.error(format!(
-                    "{actual} does not satisfy {}: missing method `{name}`",
-                    protocol.name
-                ))
+        let key = crate::record::method(owner, name);
+        if requirement.type_params.is_empty() {
+            let method = methods.get(&key).ok_or_else(|| {
+                if templates.contains_key(&key) {
+                    mismatch(name)
+                } else {
+                    missing(name)
+                }
             })?;
-        modules::check_member_at(access, owner, name, bound, call)?;
-        let expected = signature(requirement, &aliases)?;
-        if *method != expected {
-            return Err(call.error(format!("{actual} does not satisfy {}: signature of `{name}` does not match (including receiver borrowing and return type)", protocol.name)));
+            modules::check_member_at(access, owner, name, bound, call)?;
+            if *method != signature(requirement, &aliases)? {
+                return Err(mismatch(name));
+            }
+        } else {
+            let method = templates.get(&key).ok_or_else(|| {
+                if methods.contains_key(&key) {
+                    mismatch(name)
+                } else {
+                    missing(name)
+                }
+            })?;
+            modules::check_member_at(access, owner, name, bound, call)?;
+            if !same_generic(requirement, method, (&protocol.name, actual), &aliases)? {
+                return Err(mismatch(name));
+            }
         }
     }
     Ok(())

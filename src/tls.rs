@@ -33,6 +33,9 @@ pub enum TlsOp {
     PeerCertificate,
     Version,
     Suite,
+    // The operations above reading their `source` operand from a `bytes`
+    // literal, which the runtime tells from a buffer by its header.
+    WriteLiteral,
 }
 
 impl TlsOp {
@@ -70,7 +73,37 @@ impl TlsOp {
     /// Roots, configurations and sessions are byte storage owned by
     /// `std.tls`. Failures are negative codes that `std.tls` names; transfers
     /// return a byte count.
+    /// The operand the primitive only reads bytes from, which a `Bytes`
+    /// buffer or a `bytes` literal can supply.
+    pub fn source(self) -> Option<usize> {
+        match self.buffer_form() {
+            Self::Write => Some(1),
+            _ => None,
+        }
+    }
+
+    /// The variant reading `source` from a `bytes` literal.
+    pub fn literal(self) -> Option<Self> {
+        Some(match self {
+            Self::Write => Self::WriteLiteral,
+            _ => return None,
+        })
+    }
+
+    fn buffer_form(self) -> Self {
+        match self {
+            Self::WriteLiteral => Self::Write,
+            other => other,
+        }
+    }
+
     pub fn signature(self) -> (Vec<Ty>, Ty) {
+        let form = self.buffer_form();
+        if form != self {
+            let (mut inputs, output) = form.signature();
+            inputs[form.source().unwrap()] = Ty::ByteStr;
+            return (inputs, output);
+        }
         let handle = || Ty::ByteStorage;
         let opened = || sum::result(handle(), Ty::I64);
         let range = || vec![handle(), handle(), Ty::I64, Ty::I64];
@@ -99,6 +132,9 @@ impl TlsOp {
             Self::Client => (vec![handle(), Ty::Str], opened()),
             // Session, buffer, start, stop.
             Self::Feed | Self::Take | Self::Read | Self::Write => (range(), Ty::I64),
+            Self::WriteLiteral => {
+                unreachable!("a literal variant defers to its buffer form")
+            }
         }
     }
 
@@ -106,6 +142,10 @@ impl TlsOp {
     /// a lock in the runtime, never in its byte view, so sessions are shared
     /// operands; so is a builder's plan.
     pub fn exclusive(self, operand: usize) -> bool {
+        let form = self.buffer_form();
+        if form != self {
+            return form.exclusive(operand);
+        }
         matches!(
             self,
             Self::Take | Self::Read | Self::Protocol | Self::ServerName | Self::PeerCertificate
@@ -115,6 +155,10 @@ impl TlsOp {
     /// Starting a session draws randomness; feeding one may verify a
     /// certificate against the wall clock. The rest is memory and computation.
     pub fn effect(self) -> Effect {
+        let form = self.buffer_form();
+        if form != self {
+            return form.effect();
+        }
         match self {
             Self::Client | Self::Server => Effect::Entropy,
             Self::Feed => Effect::Clock,
@@ -140,10 +184,17 @@ impl TlsOp {
             | Self::PeerCertificate
             | Self::Version
             | Self::Suite => Effect::Compute,
+            Self::WriteLiteral => {
+                unreachable!("a literal variant defers to its buffer form")
+            }
         }
     }
 
     pub fn opcode(self) -> i64 {
+        let form = self.buffer_form();
+        if form != self {
+            return form.opcode();
+        }
         470 + self as i64
     }
 }

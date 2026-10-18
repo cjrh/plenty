@@ -286,6 +286,39 @@ std.net.NetError.Stream(std.io.StreamError.Io(IoError.System(90)))\n",
     );
 }
 
+/// Writes take any `std.bytes.ByteSource`, so literals need no copy (issue #156).
+#[test]
+fn byte_literals_are_sent_in_place() {
+    runs(
+        r#"
+def main() -> Result[(), Failure]:
+    cancel = CancellationToken()?
+    deadline = within(5000u32)?
+    listener = listen(&loopback_v4(0u16), 4).unwrap()
+    address = listener.local_address().unwrap()
+    with spawn(echo, &listener, &deadline, &cancel)? as task:
+        mut stream = connect(&address, &deadline, &cancel).unwrap()
+        stream.write_all_before(b"literal, ", 0, 9, &deadline, &cancel).unwrap()
+        print(stream.write_before(b"then more", 5, 9, &deadline, &cancel).unwrap())?
+        stream.write(b"!", 0, 1).unwrap()
+        stream.shutdown(Shutdown.Write).unwrap()
+        print(read_all(&mut stream, &deadline, &cancel).unwrap().to_text()?)?
+        print(task.join().unwrap())?
+    mut sender = bind_udp(&loopback_v4(0u16)).unwrap()
+    mut receiver = bind_udp(&loopback_v4(0u16)).unwrap()
+    target = receiver.local_address().unwrap()
+    print(sender.send_to(b"datagram", 4, 8, &target, &deadline, &cancel).unwrap())?
+    print(outcome(sender.send_to(b"datagram", 4, 9, &target, &deadline, &cancel))?)?
+    mut buffer = zeroed(8)?
+    got = receiver.receive_from(&mut buffer, 0, 8, &deadline, &cancel).unwrap()
+    print(buffer.slice(0, got.stored)?.to_text()?)?
+    Ok(())
+"#,
+        "4\nliteral, more!\n14\n4\n\
+std.net.NetError.Stream(std.io.StreamError.Io(IoError.InvalidInput))\ngram\n",
+    );
+}
+
 #[test]
 fn ipv6_loopback_carries_streams_and_datagrams() {
     // A host without IPv6 reports that instead of failing the test.

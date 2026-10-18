@@ -6,7 +6,7 @@
 # See book/src/design/stdlib/net.md.
 import std.bytes
 import std.ready
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
 from std.io import FileStream, StreamError, classify
 from std.ready import Interest, Selector, WaitError, wait
 from std.sync import CancellationToken
@@ -100,6 +100,13 @@ pub def any_v4(port: u16) -> SocketAddress:
 
 pub def any_v6(port: u16) -> SocketAddress:
     SocketAddress(IpAddress.V6(0u64, 0u64), port, 0u32)
+
+# One datagram of source[start:stop] to an encoded address. A bad range is
+# InvalidInput and sends nothing.
+def sent_to[S: ByteSource](source: &S, socket: &mut File, start: i64, stop: i64, address: &list[u8]) -> Result[i64, IoError]:
+    if start < 0 or start > stop or stop > source.len():
+        return Err(IoError.InvalidInput)
+    __net_send_to(source, start, stop, socket, address)
 
 def lifted[T](result: Result[T, BytesError]) -> Result[T, NetError]:
     match result:
@@ -565,7 +572,7 @@ pub class TcpStream:
     pub def read(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         self._stream.read(buffer, start, stop)
 
-    pub def write(self: &mut TcpStream, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         self._stream.write(source, start, stop)
 
     # Writes are not buffered.
@@ -581,12 +588,12 @@ pub class TcpStream:
         counted(std.ready.read_before(&mut self._stream, buffer, start, stop, deadline, cancel))
 
     # Waits for space, then makes one write of at most 4096 bytes.
-    pub def write_before(self: &mut TcpStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         counted(std.ready.write_before(&mut self._stream, source, start, stop, deadline, cancel))
 
     # Writes all of source[start:stop]. On failure, an unknown prefix has
     # been sent.
-    pub def write_all_before(self: &mut TcpStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]:
+    pub def write_all_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]:
         mut at = start
         while at < stop:
             at += self.write_before(source, at, stop, deadline, cancel)?
@@ -720,10 +727,10 @@ pub class UdpSocket:
         done(__net_set_option(self._file, 2u8, value))
 
     # Sends source[start:stop] as one datagram.
-    pub def send_to(self: &mut UdpSocket, source: &Bytes, start: i64, stop: i64, target: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def send_to[S: ByteSource](self: &mut UdpSocket, source: &S, start: i64, stop: i64, target: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         address = encoded(target)?
         while True:
-            match source.net_send_to(&mut self._file, start, stop, &address):
+            match sent_to(source, &mut self._file, start, stop, &address):
                 case Ok(count):
                     return Ok(count)
                 case Err(error):

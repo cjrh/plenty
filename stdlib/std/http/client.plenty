@@ -14,7 +14,7 @@ import std.io
 import std.net
 import std.time
 import std.url
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
 from std.http import BodyReader, Header, HttpError, Limits, RequestHead, ResponseHead
 from std.io import BufReader, Reader, StreamError
 from std.net import NetError, TcpStream
@@ -76,7 +76,7 @@ pub protocol Transport:
     def read_before(self: &mut Transport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         pass
 
-    def write_before(self: &mut Transport, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+    def write_before[S: ByteSource](self: &mut Transport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         pass
 
 # Opens a new connection to an endpoint within the deadline.
@@ -91,7 +91,7 @@ pub class Plain:
     pub def read_before(self: &mut Plain, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         netted(self._stream.read_before(buffer, start, stop, deadline, cancel))
 
-    pub def write_before(self: &mut Plain, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+    pub def write_before[S: ByteSource](self: &mut Plain, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         netted(self._stream.write_before(source, start, stop, deadline, cancel))
 
 # Opens plain TCP connections. Only the `http` scheme is accepted.
@@ -160,7 +160,7 @@ pub class Dialled:
             case Err(error):
                 Err(self.noted(error))
 
-    pub def write(self: &mut Dialled, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Dialled, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
                 tcp.write_before(source, start, stop, &deadline_of(self.until), &self.cancel)
@@ -598,7 +598,7 @@ pub class Wire[T]:
             case Err(error):
                 Err(self.noted(error))
 
-    pub def write(self: &mut Wire[T], source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Wire[T], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         limit = least(after(now_ns(), self._write_span), self._until)
         match self._stream.write_before(source, start, stop, &deadline_of(limit), &self._cancel):
             case Ok(count):

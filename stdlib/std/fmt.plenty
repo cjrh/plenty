@@ -15,7 +15,74 @@ def stored[T](result: Result[T, BytesError]) -> Result[T, FormatError]:
         case Err(error):
             Err(FormatError.Bytes(error))
 
-# Scratch is reused, never grown. Each emission checks the remaining byte
+# Options of one Python format-spec field. Strings hold the spec characters
+# themselves; `precision` is -1 when absent. f-strings check them at compile
+# time; direct callers get `InvalidSpec` for a combination the type rejects.
+pub class Spec:
+    pub fill: str
+    pub align: str
+    pub sign: str
+    pub coerce_zero: bool
+    pub alternate: bool
+    pub zero: bool
+    pub width: i64
+    pub grouping: str
+    pub precision: i64
+    pub kind: str
+
+pub def spec(fill: str = " ", align: str = "", sign: str = "", coerce_zero: bool = False, alternate: bool = False, zero: bool = False, width: i64 = 0, grouping: str = "", precision: i64 = -1, kind: str = "") -> Spec:
+    Spec(fill, align, sign, coerce_zero, alternate, zero, width, grouping, precision, kind)
+
+# Checks the parts of a spec that an f-string's nested fields supply at run
+# time; the rest of the spec was checked when compiling. A fill needs an
+# alignment, so a nested value cannot silently change a spec's meaning.
+pub def spec_fill(fill: &str, align: &str) -> Result[str, FormatError]:
+    if fill == "":
+        return Ok(" ")
+    if align == "":
+        return Err(FormatError.InvalidSpec)
+    match ord(fill):
+        case Ok(code):
+            match chr(code):
+                case Ok(scalar):
+                    Ok(scalar)
+                case Err(_):
+                    Err(FormatError.InvalidSpec)
+        case Err(_):
+            Err(FormatError.InvalidSpec)
+
+pub def spec_align(align: &str) -> Result[str, FormatError]:
+    if align == "":
+        Ok("")
+    elif align == "<":
+        Ok("<")
+    elif align == ">":
+        Ok(">")
+    elif align == "^":
+        Ok("^")
+    elif align == "=":
+        Ok("=")
+    else:
+        Err(FormatError.InvalidSpec)
+
+pub def spec_count(value: i64) -> Result[i64, FormatError]:
+    if value < 0 or value > 4096:
+        return Err(FormatError.InvalidSpec)
+    Ok(value)
+
+def valid_layout(spec: &Spec) -> bool:
+    if len(spec.fill) != 1 or spec.width < 0 or spec.width > 4096 or spec.precision < -1 or spec.precision > 4096:
+        return False
+    if spec.zero and spec.align != "":
+        return False
+    (spec.align == "" or spec.align == "<" or spec.align == ">" or spec.align == "^" or spec.align == "=") and (spec.sign == "" or spec.sign == "+" or spec.sign == "-" or spec.sign == " ") and (spec.grouping == "" or spec.grouping == "," or spec.grouping == "_")
+
+# Spec-driven numbers are spelled into scratch at this offset, above the bytes
+# that single-scalar emission reuses.
+const SPELLING: i64 = 8
+
+# Scratch is reused; only spec-driven numbers grow it, fallibly, when it is
+# shorter than their spelling. Each emission checks the remaining byte
 # budget before calling the writer; the successful prefix remains observable.
 pub class Formatter[W]:
     pub writer: W
@@ -29,15 +96,19 @@ pub class Formatter[W]:
         self._written
 
     def emit(self: &mut Formatter[W], count: i64) -> Result[(), FormatError]:
+        self.emit_span(0, count)
+
+    def emit_span(self: &mut Formatter[W], begin: i64, end: i64) -> Result[(), FormatError]:
+        count = end - begin
         if count > self._limit - self._written:
             return Err(FormatError.LimitExceeded)
-        mut at = 0
-        while at < count:
-            match self.writer.write(&self._scratch, at, count):
+        mut at = begin
+        while at < end:
+            match self.writer.write(&self._scratch, at, end):
                 case Ok(moved):
                     if moved == 0:
                         return Err(FormatError.Output(StreamError.WriteZero))
-                    if moved < 0 or moved > count - at:
+                    if moved < 0 or moved > end - at:
                         return Err(FormatError.Output(StreamError.InvalidProgress))
                     at += moved
                     self._written += moved
@@ -168,6 +239,279 @@ pub class Formatter[W]:
                     self.text(scalar)?
         self.text("\"")
 
+    # `!a`: the text with every non-ASCII scalar spelled `\u{hex}`, as
+    # `debug_text` spells controls.
+    pub def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]:
+        for scalar in value:
+            code = ord(scalar).unwrap()
+            if code < 128u32:
+                self.text(scalar)?
+            else:
+                self.text("\\u{")?
+                self.unsigned(u64(code), 16, 0)?
+                self.text("}")?
+        Ok(())
+
+    # Type `c`: the scalar with code point `code`, laid out like a number
+    # (default right; `0` pads with zeros) without sign, `#`, grouping, or
+    # precision. A value that is not a Unicode scalar is `InvalidSpec`.
+    pub def char_spec(self: &mut Formatter[W], code: i64, spec: &Spec) -> Result[(), FormatError]:
+        if not valid_layout(spec) or spec.sign != "" or spec.coerce_zero or spec.alternate or spec.grouping != "" or spec.precision != -1 or spec.kind != "c":
+            return Err(FormatError.InvalidSpec)
+        if code < 0 or code > 1114111:
+            return Err(FormatError.InvalidSpec)
+        match chr(u32(code)):
+            case Ok(value):
+                padding = spec.width - 1
+                if spec.zero:
+                    self.repeat_fill("0", padding)?
+                    return self.text(&value)
+                mut before = padding
+                if spec.align == "<":
+                    before = 0
+                elif spec.align == "^":
+                    before = padding // 2
+                self.repeat_fill(&spec.fill, before)?
+                self.text(&value)?
+                self.repeat_fill(&spec.fill, padding - before)
+            case Err(_):
+                Err(FormatError.InvalidSpec)
+
+    def ensure_scratch(self: &mut Formatter[W], size: i64) -> Result[(), FormatError]:
+        if self._scratch.len() < size:
+            stored(self._scratch.resize(size, 0u8))?
+        Ok(())
+
+    def repeat_fill(self: &mut Formatter[W], fill: &str, count: i64) -> Result[(), FormatError]:
+        mut left = count
+        while left > 0:
+            self.text(fill)?
+            left -= 1
+        Ok(())
+
+    # Text options: fill, alignment (default left), width and precision, which
+    # truncates. Both count Unicode scalars.
+    pub def text_spec(self: &mut Formatter[W], value: &str, spec: &Spec) -> Result[(), FormatError]:
+        if not valid_layout(spec) or spec.align == "=" or spec.sign != "" or spec.coerce_zero or spec.alternate or spec.zero or spec.grouping != "" or (spec.kind != "" and spec.kind != "s"):
+            return Err(FormatError.InvalidSpec)
+        mut shown = len(value)
+        if spec.precision >= 0 and spec.precision < shown:
+            shown = spec.precision
+        padding = spec.width - shown
+        mut before = 0
+        if spec.align == ">":
+            before = padding
+        elif spec.align == "^":
+            before = padding // 2
+        self.repeat_fill(&spec.fill, before)?
+        if shown == len(value):
+            self.text(value)?
+        else:
+            mut taken = 0
+            for scalar in value:
+                if taken == shown:
+                    break
+                self.text(scalar)?
+                taken += 1
+        self.repeat_fill(&spec.fill, padding - before)
+
+    # Integer options: types d, x, X, o, b; `#` prefixes; `,` (decimal only)
+    # or `_` grouping; sign; `0` sign-aware zero padding. Default right-aligned.
+    pub def signed_spec(self: &mut Formatter[W], value: i64, spec: &Spec) -> Result[(), FormatError]:
+        if value < 0:
+            return self.whole(u64(-(value + 1)) + 1u64, True, spec)
+        self.whole(u64(value), False, spec)
+
+    pub def unsigned_spec(self: &mut Formatter[W], value: u64, spec: &Spec) -> Result[(), FormatError]:
+        self.whole(value, False, spec)
+
+    def whole(self: &mut Formatter[W], magnitude: u64, negative: bool, spec: &Spec) -> Result[(), FormatError]:
+        if not valid_layout(spec) or spec.precision != -1 or spec.coerce_zero:
+            return Err(FormatError.InvalidSpec)
+        if spec.kind == "n" and spec.grouping != "":
+            return Err(FormatError.InvalidSpec)
+        mut base = 10
+        mut prefix = ""
+        mut letters = 87u8
+        if spec.kind == "x" or spec.kind == "X":
+            base = 16
+            prefix = "0x"
+            if spec.kind == "X":
+                prefix = "0X"
+                letters = 55u8
+        elif spec.kind == "o":
+            base = 8
+            prefix = "0o"
+        elif spec.kind == "b":
+            base = 2
+            prefix = "0b"
+        elif spec.kind != "" and spec.kind != "d" and spec.kind != "n":
+            return Err(FormatError.InvalidSpec)
+        if base != 10 and spec.grouping == ",":
+            return Err(FormatError.InvalidSpec)
+        if not spec.alternate:
+            prefix = ""
+        radix = u64(base)
+        mut digits = 1
+        mut rest = magnitude
+        while rest >= radix:
+            rest //= radix
+            digits += 1
+        self.ensure_scratch(SPELLING + digits)?
+        mut at = SPELLING + digits
+        rest = magnitude
+        while at > SPELLING:
+            at -= 1
+            digit = u8(rest % radix)
+            if digit >= 10u8:
+                stored(self._scratch.set(at, letters + digit))?
+            else:
+                stored(self._scratch.set(at, 48u8 + digit))?
+            rest //= radix
+        mut group = 3
+        if base != 10:
+            group = 4
+        self.number(negative, prefix, SPELLING + digits, SPELLING + digits, "", group, spec)
+
+    # Float options: types e, E, f, F, g, G, % and none; precision (default 6
+    # for typed fields); `#`; `,` or `_` grouping of the integer digits; sign;
+    # `0` zero padding. Without type or precision the spelling is `print`'s.
+    pub def float_spec(self: &mut Formatter[W], value: f64, spec: &Spec) -> Result[(), FormatError]:
+        self.real(value, 5, spec)
+
+    pub def float32_spec(self: &mut Formatter[W], value: f32, spec: &Spec) -> Result[(), FormatError]:
+        self.real(f64(value), 6, spec)
+
+    def real(self: &mut Formatter[W], value: f64, display: i64, spec: &Spec) -> Result[(), FormatError]:
+        if not valid_layout(spec):
+            return Err(FormatError.InvalidSpec)
+        mut precision = spec.precision
+        if precision < 0:
+            precision = 6
+        mut style = 1
+        mut scaled = value
+        mut suffix = ""
+        kind = spec.kind
+        if kind == "":
+            if spec.precision < 0:
+                style = display
+                precision = 0
+            else:
+                style = 4
+        elif kind == "e" or kind == "E":
+            style = 2
+        elif kind == "g" or kind == "G" or kind == "n":
+            if kind == "n" and spec.grouping != "":
+                return Err(FormatError.InvalidSpec)
+            style = 3
+        elif kind == "%":
+            scaled = value * 100.0
+            suffix = "%"
+        elif kind != "f" and kind != "F":
+            return Err(FormatError.InvalidSpec)
+        if spec.alternate:
+            style += 16
+        mut size = stored(self._scratch.write_float_spec(scaled, style, precision, SPELLING))?
+        if size < 0:
+            self.ensure_scratch(-size)?
+            size = stored(self._scratch.write_float_spec(scaled, style, precision, SPELLING))?
+        end = SPELLING + size
+        if kind == "E" or kind == "F" or kind == "G":
+            mut at = SPELLING
+            while at < end:
+                code = stored(self._scratch.get(at))?
+                if code >= 97u8 and code <= 122u8:
+                    stored(self._scratch.set(at, code - 32u8))?
+                at += 1
+        negative = stored(self._scratch.get(SPELLING))? == 45u8
+        mut start = SPELLING
+        if negative:
+            start += 1
+        # `z`: a spelling whose digits before any exponent are all zero, such
+        # as `-0.00`, loses its sign. `-inf` has no digits and keeps it.
+        mut signed = negative
+        if negative and spec.coerce_zero:
+            mut digits = 0
+            mut nonzero = False
+            mut at = start
+            while at < end:
+                code = stored(self._scratch.get(at))?
+                if code == 101u8 or code == 69u8:
+                    break
+                if code >= 48u8 and code <= 57u8:
+                    digits += 1
+                    if code != 48u8:
+                        nonzero = True
+                at += 1
+            signed = digits == 0 or nonzero
+        mut digits_end = start
+        while digits_end < end:
+            code = stored(self._scratch.get(digits_end))?
+            if code < 48u8 or code > 57u8:
+                break
+            digits_end += 1
+        # The sign is emitted separately, so shift the spelling past it.
+        if negative:
+            mut at = SPELLING
+            while at + 1 < end:
+                stored(self._scratch.set(at, stored(self._scratch.get(at + 1))?))?
+                at += 1
+            return self.number(signed, "", digits_end - 1, end - 1, suffix, 3, spec)
+        self.number(False, "", digits_end, end, suffix, 3, spec)
+
+    # Lays out an unsigned spelling held in scratch: integer digits from
+    # SPELLING to `digits_end`, then the rest of the spelling to `end`.
+    def number(self: &mut Formatter[W], negative: bool, prefix: &str, digits_end: i64, end: i64, suffix: &str, group: i64, spec: &Spec) -> Result[(), FormatError]:
+        mut sign = ""
+        if negative:
+            sign = "-"
+        elif spec.sign == "+" or spec.sign == " ":
+            sign = spec.sign
+        digits = digits_end - SPELLING
+        mut zeros = 0
+        mut separator_every = 0
+        if spec.grouping != "":
+            separator_every = group
+        fixed = len(sign) + len(prefix) + end - digits_end + len(suffix)
+        mut padding = spec.width - fixed - grouped(digits, separator_every)
+        if spec.zero:
+            while padding > 0:
+                zeros += 1
+                padding = spec.width - fixed - grouped(digits + zeros, separator_every)
+            padding = 0
+        mut before = padding
+        if spec.align == "<" or spec.align == "=":
+            before = 0
+        elif spec.align == "^":
+            before = padding // 2
+        self.repeat_fill(&spec.fill, before)?
+        self.text(sign)?
+        self.text(prefix)?
+        if spec.align == "=":
+            self.repeat_fill(&spec.fill, padding)?
+        total = digits + zeros
+        mut index = 0
+        while index < total:
+            # One run of positions up to the next separator.
+            mut stop = total
+            if separator_every != 0:
+                stop = index + 1
+                while (total - stop) % separator_every != 0:
+                    stop += 1
+            while index < stop and index < zeros:
+                self.byte(48u8)?
+                index += 1
+            if index < stop:
+                self.emit_span(SPELLING + index - zeros, SPELLING + stop - zeros)?
+                index = stop
+            if index < total:
+                self.text(&spec.grouping)?
+        self.emit_span(digits_end, end)?
+        self.text(suffix)?
+        if spec.align != "=":
+            self.repeat_fill(&spec.fill, padding - before)?
+        Ok(())
+
     pub def enter(self: &mut Formatter[W]) -> Result[(), FormatError]:
         if self._depth >= self._max_depth:
             return Err(FormatError.RecursionLimit)
@@ -177,6 +521,11 @@ pub class Formatter[W]:
     pub def leave(self: &mut Formatter[W]) -> ():
         if self._depth > 0:
             self._depth -= 1
+
+def grouped(digits: i64, every: i64) -> i64:
+    if every == 0 or digits == 0:
+        return digits
+    digits + (digits - 1) // every
 
 # Construction only borrows writer requirements; no stream is flushed or closed.
 pub def formatter[W: Writer](writer: W, scratch: Bytes, max_bytes: i64, max_depth: i64) -> Result[Formatter[W], FormatError]:
@@ -216,6 +565,31 @@ pub def to_string[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, F
 pub def to_debug[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]:
     mut output = string_formatter(max_bytes, max_depth)?
     debug(value, &mut output)?
+    finish(&output)
+
+# Writes the `str.repr` spelling, which `print` also uses for aggregates.
+pub def represent[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]:
+    match str.repr(value):
+        case Ok(text):
+            output.text(&text)
+        case Err(error):
+            Err(FormatError.Bytes(BytesError.Allocation(error)))
+
+pub def repr_string[T](value: &T) -> Result[str, FormatError]:
+    match str.repr(value):
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            Err(FormatError.Bytes(BytesError.Allocation(error)))
+
+pub def debug_string(value: &str) -> Result[str, FormatError]:
+    mut output = string_formatter(9223372036854775807, 0)?
+    output.debug_text(value)?
+    finish(&output)
+
+pub def ascii_string(value: &str) -> Result[str, FormatError]:
+    mut output = string_formatter(9223372036854775807, 0)?
+    output.ascii_text(value)?
     finish(&output)
 
 def list_body[T, W, F: Callable[[&T, &mut Formatter[W]], Result[(), FormatError]]](values: &list[T], output: &mut Formatter[W], render: F) -> Result[(), FormatError]:

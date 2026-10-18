@@ -149,11 +149,9 @@ Fixed binary data, such as a file signature or a protocol delimiter, is
 written as a byte literal: `b"..."` holds ASCII characters, the string escapes,
 and `\xHH` for any other byte. Its type is `bytes`, an immutable value in the
 program's read-only data, so it never allocates. It has a length, indexing, and
-iteration; copy it into a `Bytes` with `from_bytes` to use buffer operations:
+iteration:
 
 ```plenty
-import std.bytes
-
 def main() -> Result[(), Failure]:
     magic = b"\x89PNG"
     print(magic, len(magic), magic[1])?
@@ -161,18 +159,46 @@ def main() -> Result[(), Failure]:
     for byte in magic:
         total += i64(byte)
     print(total)?
-    header = std.bytes.from_bytes(b"\x89PNG\r\n\x1a\n")?
-    end = std.bytes.from_bytes(b"\r\n")?
-    print(header.find_bytes(&end, 0, header.len())?)?
-    print(header.matches(0, &std.bytes.from_bytes(magic)?, 0, 4)?)?
     Ok(())
 ```
 ```output
 b"\x89PNG" 4 80
 366
-Option[i64].Some(4)
-True
 ```
+
+Operations that only read another sequence of bytes, such as `find_bytes`,
+`matches`, `find_in`, and `extend`, take a literal as readily as a buffer. Their
+parameter is generic over `ByteSource`, a protocol that both `bytes` and `Bytes`
+implement, so each call reads the bytes where they are and nothing is copied.
+Your own functions can accept either form the same way:
+
+```plenty
+import std.bytes
+from std.bytes import ByteSource
+
+def starts_png[S: ByteSource](data: &S) -> bool:
+    data.len() >= 4 and data[0] == 137u8 and data[1] == 80u8
+
+def main() -> Result[(), Failure]:
+    magic = b"\x89PNG"
+    mut header = std.bytes.from_bytes(magic)?
+    header.extend(b"\r\n\x1a\n")?
+    print(header.find_bytes(b"\r\n", 0, header.len())?)?
+    print(header.matches(0, &magic, 0, 4)?, header.find_in(b"\n\r", 0, header.len())?)?
+    print(starts_png(&header), starts_png(&magic), starts_png(b"GIF8"))?
+    Ok(())
+```
+```output
+Option[i64].Some(4)
+True Option[i64].Some(4)
+True True False
+```
+
+The literal is never converted into a `Bytes` behind your back. To change bytes,
+or to call a `Bytes` method such as `find` or `slice` on them, copy the literal
+with `from_bytes`, as `header` does; the copy allocates, so it returns a
+`Result`. Stream writes in `std.io` accept a literal the same way, as the next
+lessons show.
 
 A byte literal accepts only ASCII characters, so `b"é"` is an error; use
 `from_text` for the UTF-8 encoding of text. See

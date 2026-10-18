@@ -131,13 +131,13 @@ fn sink_failures_are_counted_and_short_writes_retried() {
     assert_eq!(
         run(r#"
 import std.log
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.io import StreamError
 from std.log import Level, Clock
 pub class Flaky:
     calls: i64
     accepted: i64
-    pub def write(self: &mut Flaky, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Flaky, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         self.calls += 1
         if self.calls == 1:
             return Err(StreamError.Interrupted)

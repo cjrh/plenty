@@ -118,8 +118,8 @@ client = client_for("ca.pem")?
 with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
     tcp = connect(&address, &deadline, &cancel).unwrap()
     mut stream = std.tls.connect(tcp, &client, "localhost", &deadline, &cancel).unwrap()
-    message = std.bytes.from_text("hello")?
-    stream.write_all_before(&message, 0, 5, &deadline, &cancel).unwrap()
+    # A literal is encrypted in place (issue #156).
+    stream.write_all_before(b"hello", 0, 5, &deadline, &cancel).unwrap()
     mut reply = std.bytes.with_capacity(16)?
     reply.resize(16, 0u8)?
     count = stream.read_before(&mut reply, 0, 16, &deadline, &cancel).unwrap()

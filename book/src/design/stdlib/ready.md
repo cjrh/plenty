@@ -34,7 +34,7 @@ of input. `error` means a read or write will report the pending error.
 | `wait_until(file: &File, interest: Interest, deadline: &Deadline)` | `Result[Readiness, WaitError]` |
 | `wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken)` | `Result[Readiness, WaitError]` |
 | `read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, WaitError]` |
-| `write_before(stream: &mut FileStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, WaitError]` |
+| `write_before[S: ByteSource](stream: &mut FileStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, WaitError]` |
 | `selector(capacity: i64)` | `Result[Selector, WaitError]` |
 
 - A handle that is already ready succeeds, even when the deadline has passed.

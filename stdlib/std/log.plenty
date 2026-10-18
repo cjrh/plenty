@@ -1,4 +1,4 @@
-from std.bytes import Bytes, BytesError, with_capacity
+from std.bytes import ByteSource, Bytes, BytesError, with_capacity
 from std.fmt import Formatter, FormatError, formatter
 from std.io import Writer, StreamError, write_all
 from std.time import Timestamp, wall_now
@@ -200,7 +200,7 @@ pub class LineBuffer:
     _limit: i64
     _overflow: bool
 
-    pub def write(self: &mut LineBuffer, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut LineBuffer, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start < 0 or start > stop or stop > source.len():
             return Err(StreamError.OutOfRange)
         if stop - start > self._limit - self.data.len():

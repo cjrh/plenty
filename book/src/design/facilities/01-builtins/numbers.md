@@ -119,4 +119,6 @@ names `str.from`.
 
 Formatting uses bounded temporary storage and fallible output construction;
 [small text results](text.md) require no heap allocation. Aggregate formatting
-and format specifications are unsupported.
+and format specifications are unsupported here; an
+[f-string](../../language/04-expressions/format-strings.md) applies a
+compile-time spec.

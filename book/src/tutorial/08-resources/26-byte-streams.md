@@ -67,12 +67,10 @@ def main() -> Result[(), Failure]:
     mut count = 0
     while input.read_until(10u8, &mut line, 64)? > 0:
         count += 1
-        mut label = std.bytes.from_text("line: ")?
-        label.extend(&line)?
-        std.io.write_all(&mut output, &label, 0, label.len())?
+        std.io.write_all(&mut output, b"line: ", 0, 6)?
+        std.io.write_all(&mut output, &line, 0, line.len())?
         line.clear()
-    newline = std.bytes.from_text("\n")?
-    std.io.write_all(&mut output, &newline, 0, 1)?
+    std.io.write_all(&mut output, b"\n", 0, 1)?
     output.flush()?
     print(count, output.pending(), output.capacity())?
     Ok(())
@@ -83,6 +81,13 @@ line: green
 line: blue
 3 0 16
 ```
+
+`write_all` takes the byte literal `b"line: "` as readily as the buffer
+`line`: a stream's `write` accepts any `std.bytes.ByteSource` and reads it in
+place. A class of your own becomes a writer with a `flush` method and a
+`write` method generic in its source, `def write[S: ByteSource](...)` taking
+`source: &S`; the [module reference](../../design/stdlib/io.md#stream-contracts)
+shows one.
 
 `cursor` turns a `Bytes` into a stream, which is how to test stream code
 without a file. `read_until` appends one line, including its newline, and never

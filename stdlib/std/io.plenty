@@ -3,7 +3,7 @@
 # dispatched per concrete class. One read or write call makes at most one
 # attempt and reports the bytes it moved. The helpers below add retry, end of
 # input and failure-after-progress policy. See book/src/design/stdlib/io.md.
-from std.bytes import Bytes, BytesError, with_capacity
+from std.bytes import ByteSource, Bytes, BytesError, with_capacity
 
 pub enum StreamError:
     Interrupted
@@ -38,8 +38,10 @@ pub protocol Reader:
     def read(self: &mut Reader, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         pass
 
+# `write` accepts any ByteSource, so a `b"..."` literal and a `Bytes` buffer
+# are both written without a copy.
 pub protocol Writer:
-    def write(self: &mut Writer, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    def write[S: ByteSource](self: &mut Writer, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         pass
 
     def flush(self: &mut Writer) -> Result[(), StreamError]:
@@ -149,7 +151,7 @@ pub def read_exact[R: Reader](reader: &mut R, buffer: &mut Bytes, start: i64, st
     Ok(())
 
 # Delivers source[start:stop] completely, retrying interrupted and short writes.
-pub def write_all[W: Writer](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), Partial]:
+pub def write_all[W: Writer, S: ByteSource](writer: &mut W, source: &S, start: i64, stop: i64) -> Result[(), Partial]:
     if not within(start, stop, source.len()):
         return Err(Partial(0, StreamError.OutOfRange))
     mut at = start
@@ -361,7 +363,7 @@ pub class BufWriter[W]:
         self._start = 0
         Ok(())
 
-    pub def write(self: &mut BufWriter[W], source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut BufWriter[W], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, source.len())?
         count = stop - start
         if count == 0:
@@ -439,7 +441,7 @@ pub class Cursor:
         self._position += count
         Ok(count)
 
-    pub def write(self: &mut Cursor, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Cursor, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, source.len())?
         count = stop - start
         if count == 0:
@@ -483,9 +485,9 @@ pub class FileStream:
         ranged(start, stop, buffer.len())?
         moved(buffer.read_file(&mut self.file, start, stop))
 
-    pub def write(self: &mut FileStream, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut FileStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, source.len())?
-        moved(source.write_file(&mut self.file, start, stop))
+        moved(__io_file_write(source, start, stop, self.file))
 
     pub def flush(self: &mut FileStream) -> Result[(), StreamError]:
         finished(self.file.flush())
@@ -529,9 +531,9 @@ pub class Stdin:
 pub class Stdout:
     _descriptor: u8
 
-    pub def write(self: &mut Stdout, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Stdout, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, source.len())?
-        moved(source.write_stdout(start, stop))
+        moved(__io_std_write(source, start, stop, 1u8))
 
     pub def flush(self: &mut Stdout) -> Result[(), StreamError]:
         finished(flush_stdout())
@@ -539,9 +541,9 @@ pub class Stdout:
 pub class Stderr:
     _descriptor: u8
 
-    pub def write(self: &mut Stderr, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Stderr, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, source.len())?
-        moved(source.write_stderr(start, stop))
+        moved(__io_std_write(source, start, stop, 2u8))
 
     pub def flush(self: &mut Stderr) -> Result[(), StreamError]:
         finished(flush_stderr())

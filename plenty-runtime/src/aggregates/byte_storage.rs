@@ -91,6 +91,21 @@ pub(super) fn render_slice(bytes: &[u8], out: &mut crate::render_buffer::Buffer)
     out.push(b'"');
 }
 
+/// The bytes of an operand that is only read: a buffer's, or a `bytes`
+/// literal's. A literal is compiler-emitted immortal text, the only value
+/// without a destructor that the compiler passes as a byte source.
+pub(super) unsafe fn source<'a>(value: u128) -> &'a [u8] {
+    // SAFETY: the operand is a live buffer or literal, both of which begin
+    // with a header.
+    unsafe {
+        if (*(value as *const Header)).destroy.is_none() {
+            strings::heap_bytes(value as *const strings::Text)
+        } else {
+            (*(value as *const Storage)).bytes.as_slice()
+        }
+    }
+}
+
 pub(super) fn size(value: u128) -> usize {
     usize::try_from(value as i64).unwrap_or_else(|_| crate::fail("negative byte offset"))
 }
@@ -143,6 +158,13 @@ pub(super) unsafe fn call(
         match op {
             170 => result(create(size(a)).map(|owner| owner as u128)),
             280 => crate::formatting::write_float(storage(a), f64::from_bits(b as u64)) as u128,
+            281 => crate::formatting::write_float_spec(
+                storage(a),
+                f64::from_bits(b as u64),
+                c as i64,
+                d as i64,
+                e as i64,
+            ) as u128,
             171 => storage(a).len() as u128,
             172 => storage(a).capacity() as u128,
             173 => match storage(a).get(size(b)) {
@@ -173,7 +195,7 @@ pub(super) unsafe fn call(
                 }))
             }
             178 => {
-                let source = storage(b);
+                let source = source(b);
                 let source = &source[range(c, d, source.len())];
                 let bytes = storage(a);
                 result(grow(bytes, source.len()).map(|()| {
@@ -182,7 +204,7 @@ pub(super) unsafe fn call(
                 }))
             }
             179 => {
-                let source = storage(c);
+                let source = source(c);
                 let source = &source[range(d, e, source.len())];
                 let bytes = storage(a);
                 let offset = size(b);
@@ -234,7 +256,7 @@ pub(super) unsafe fn call(
                 ))
             }
             189 => {
-                let bytes = storage(a);
+                let bytes = source(a);
                 let source = &bytes[range(b, c, bytes.len())];
                 text_io::result(crate::files::write_bytes(
                     d as *mut crate::files::File,
@@ -248,7 +270,7 @@ pub(super) unsafe fn call(
                 crate::io::io_result(text_io::Stdin.read(target).map(|count| count as u128))
             }
             191 => {
-                let bytes = storage(a);
+                let bytes = source(a);
                 let source = &bytes[range(b, c, bytes.len())];
                 // The process streams keep their existing buffering, so bytes
                 // stay ordered with `print` and the text writers.
@@ -271,7 +293,7 @@ pub(super) unsafe fn call(
                 let bytes = view(a);
                 let within = range(c, d, bytes.len());
                 found(
-                    byte_scan::find_in(&bytes[within.clone()], view(b), e != 0),
+                    byte_scan::find_in(&bytes[within.clone()], source(b), e != 0),
                     within.start,
                 )
             }
@@ -279,7 +301,7 @@ pub(super) unsafe fn call(
                 let bytes = view(a);
                 let within = range(c, d, bytes.len());
                 found(
-                    byte_scan::find_bytes(&bytes[within.clone()], view(b)),
+                    byte_scan::find_bytes(&bytes[within.clone()], source(b)),
                     within.start,
                 )
             }
@@ -288,7 +310,7 @@ pub(super) unsafe fn call(
                 byte_scan::count(&bytes[range(c, d, bytes.len())], b as u8) as u128
             }
             234 => {
-                let other = view(c);
+                let other = source(c);
                 let other = &other[range(d, e, other.len())];
                 prefixed(view(a), size(b), other) as u128
             }

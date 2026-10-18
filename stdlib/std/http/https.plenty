@@ -5,7 +5,7 @@
 # clients do not link TLS. See book/src/design/stdlib/http-client.md.
 import std.http.client
 import std.tls
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.http.client import Client, ClientError, Config, Endpoint, TlsFailure
 from std.io import StreamError
 from std.net import NetError, TcpStream
@@ -30,7 +30,7 @@ pub class Connection:
             case Nothing:
                 Err(ClientError.Net(NetError.Stream(StreamError.Io(IoError.Closed))))
 
-    pub def write_before(self: &mut Connection, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+    pub def write_before[S: ByteSource](self: &mut Connection, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         match &mut self._tls:
             case Some(stream):
                 return secured(stream.write_before(source, start, stop, deadline, cancel))

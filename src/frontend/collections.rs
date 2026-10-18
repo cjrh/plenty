@@ -2354,9 +2354,19 @@ impl Lower<'_> {
                 "str has no `len` method; `len(text)` counts scalars and `text.byte_len()` counts UTF-8 bytes",
             ));
         }
+        // `len` is the one method, so `bytes` satisfies std.bytes.ByteSource
+        // as `Bytes` does; see protocols::builtin_methods.
+        if ty == Ty::ByteStr && name == "len" {
+            if !args.is_empty() {
+                return Err(base.at.error("len takes no arguments"));
+            }
+            ops.push(Op::Collection(CollectionOp::Len(Ty::ByteStr)));
+            Self::end_reads(loans, ops);
+            return Ok(Some(Ty::I64));
+        }
         if ty == Ty::ByteStr {
             return Err(base.at.error(format!(
-                "bytes has no `{name}` method; `len(value)` counts its bytes and `std.bytes.from_bytes(value)?` copies it into a `Bytes` buffer"
+                "bytes has no `{name}` method; `value.len()` counts its bytes, operations taking a `std.bytes.ByteSource` read it in place, and `std.bytes.from_bytes(value)?` copies it into a `Bytes` buffer"
             )));
         }
         if ty == Ty::Str && name == "byte_len" {
