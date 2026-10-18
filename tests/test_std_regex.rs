@@ -670,3 +670,44 @@ def main()"#,
     }
     assert!(reported > 10);
 }
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn compile_allocation_failure_is_reported_as_allocation() {
+    // Issue #258: the empty bytes buffer allocated last in compile reported
+    // its allocation failure as `OutOfRange`.
+    let mut reported = 0;
+    for after in 0..80 {
+        let body = format!(
+            r#"
+limits = std.regex.limits()
+print("__test_fail_allocations_after_{after}__")?
+result = run(&limits)
+print("__test_restore_allocations__")?
+print(result)?
+"#
+        );
+        let source = program(&body).replace(
+            "def main()",
+            r#"def run(limits: &Limits) -> str:
+    match std.regex.compile("(?P<k>\\w+)=(?P<v>[a-z]+)", limits):
+        case Ok(regex):
+            return "compiled"
+        case Err(error):
+            match error:
+                case RegexError.Allocation(cause):
+                    return "allocation"
+                case _:
+                    return "other"
+
+def main()"#,
+        );
+        let out = output(&source);
+        if out == "compiled" {
+            break;
+        }
+        assert_eq!(out, "allocation", "{after}");
+        reported += 1;
+    }
+    assert!(reported > 10);
+}
