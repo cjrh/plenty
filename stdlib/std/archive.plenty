@@ -1194,16 +1194,18 @@ def utf8_flag(name: &list[u8]) -> i64:
 # A ZIP writer for any std.io Writer; it never seeks. Each entry's data is
 # compressed in memory before its header is written. ZIP64 records are
 # added when a size, offset or the entry count needs them. `finish` writes
-# the central directory; without it the archive cannot be read.
+# the central directory; without it the archive cannot be read. After any
+# failed write to inner, later entries and `finish` return InvalidInput.
 pub class ZipWriter[W]:
     pub inner: W
     _central: Bytes
     _count: i64
     _offset: i64
     _finished: bool
+    _failed: bool
 
     def record(self: &mut ZipWriter[W], name: &list[u8], method: i64, crc: i64, payload: &Bytes, size: i64, mode: i64, attributes: i64, mtime: i64) -> Result[(), ArchiveError]:
-        if self._finished:
+        if self._finished or self._failed:
             return Err(ArchiveError.InvalidInput)
         if mtime < 0:
             return Err(ArchiveError.InvalidInput)
@@ -1239,7 +1241,8 @@ pub class ZipWriter[W]:
             put_le(&mut head, 16, 2)?
             put_le(&mut head, size, 8)?
             put_le(&mut head, compressed, 8)?
-        central = &mut self._central
+        mut entry = held(std.bytes.with_capacity(46 + len(name) + 28))?
+        central = &mut entry
         put_le(central, central_signature, 4)?
         put_le(central, made_by, 2)?
         put_le(central, version, 2)?
@@ -1274,10 +1277,15 @@ pub class ZipWriter[W]:
             put_le(central, size, 8)?
             put_le(central, compressed, 8)?
             put_le(central, self._offset, 8)?
+        # Latched until the entry is fully written and recorded, so an
+        # error from inner or from growing the directory poisons the writer.
+        self._failed = True
         send(&mut self.inner, &head, 0, head.len())?
         send(&mut self.inner, payload, 0, compressed)?
+        held(self._central.extend(&entry))?
         self._offset += head.len() + compressed
         self._count += 1
+        self._failed = False
         Ok(())
 
     pub def add_file(self: &mut ZipWriter[W], name: &Path, data: &Bytes, method: Method, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
@@ -1307,6 +1315,8 @@ pub class ZipWriter[W]:
         self.record(&stored, 0, crc, &data, data.len(), symlink_bits | 511, 0, mtime)
 
     pub def finish(self: &mut ZipWriter[W]) -> Result[(), ArchiveError]:
+        if self._failed:
+            return Err(ArchiveError.InvalidInput)
         if not self._finished:
             directory_offset = self._offset
             directory_size = self._central.len()
@@ -1334,13 +1344,15 @@ pub class ZipWriter[W]:
             put_le(&mut tail, smaller(directory_size, u32_max), 4)?
             put_le(&mut tail, smaller(directory_offset, u32_max), 4)?
             put_le(&mut tail, 0, 2)?
+            self._failed = True
             send(&mut self.inner, &self._central, 0, directory_size)?
             send(&mut self.inner, &tail, 0, tail.len())?
+            self._failed = False
             self._finished = True
         moved(self.inner.flush())
 
 pub def zip_writer[W](inner: W) -> Result[ZipWriter[W], ArchiveError]:
-    Ok(ZipWriter(inner, held(std.bytes.empty())?, 0, 0, False))
+    Ok(ZipWriter(inner, held(std.bytes.empty())?, 0, 0, False, False))
 
 # Extraction
 
