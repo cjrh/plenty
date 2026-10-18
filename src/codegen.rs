@@ -472,16 +472,13 @@ pub(crate) fn emit_library_object(
     heap: &Heap,
     output: &Path,
     interface: &crate::exports::Interface,
+    options: &crate::CompileOptions,
 ) -> Result<()> {
-    emit_object(
-        ops,
-        heap,
-        output,
-        None,
-        exports,
-        Some(interface),
-        Build::from_environment(),
-    )
+    let build = Build::new(options, false);
+    let cache = build.cache.clone();
+    emit_object(ops, heap, output, None, exports, Some(interface), build)?;
+    report_cache(options, cache.as_deref());
+    Ok(())
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]

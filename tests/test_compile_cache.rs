@@ -205,6 +205,39 @@ fn flags_and_environment_turn_the_cache_off() {
     assert!(!cache.exists());
 }
 
+/// Library builds honor the cache flags too (issue #160).
+#[test]
+fn library_builds_honor_cache_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let source = dir.path().join("lib.plenty");
+    std::fs::write(
+        &source,
+        "export def value() -> i32 = \"calc_value\":\n    42\n",
+    )
+    .unwrap();
+    let build = |args: &[&str]| {
+        let output = plenty()
+            .arg("--static-library")
+            .arg(&source)
+            .args(["--library-name", "calc", "-o"])
+            .arg(dir.path().join("libcalc.a"))
+            .args(args)
+            .env("PLENTY_CACHE_DIR", &cache)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.status.success(), "{stderr}");
+        stderr
+    };
+    let off = build(&["--no-cache", "--cache-stats"]);
+    assert!(off.contains("compile cache: off"), "{off}");
+    assert!(!cache.exists(), "--no-cache created the cache");
+    let on = build(&["--cache-stats"]);
+    assert!(on.contains(" misses, "), "{on}");
+    assert!(cache.exists());
+}
+
 /// Many compilers writing the same entries at once, then reading them.
 #[test]
 fn concurrent_compilers_share_one_directory() {
