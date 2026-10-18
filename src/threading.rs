@@ -102,6 +102,8 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
         // hard to trace back to the source that reached it.
         let mut callers: HashMap<String, String> = HashMap::new();
         let mut current: Option<String> = None;
+        // The worker itself is named by `origin`; only its callees add context.
+        let root = queue.first().cloned().unwrap_or_default();
         loop {
             let queued = queue.len();
             while let Some(ty) = types.pop() {
@@ -112,7 +114,18 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
                     &mut types,
                     &mut queue,
                 )
-                .map_err(|reason| format!("{origin}: {reason}"))?;
+                .map_err(|reason| {
+                    match current.as_ref().filter(|name| *name != &root) {
+                        // Pending types came from `current`; name it as inspect
+                        // errors do, so the offending signature or local can be found.
+                        Some(name) => format!(
+                            "{origin} reaches {}{}: {reason}",
+                            describe(name, &functions),
+                            path(name, &callers, &functions)
+                        ),
+                        None => format!("{origin}: {reason}"),
+                    }
+                })?;
             }
             if let Some(caller) = &current {
                 for callee in &queue[queued..] {
