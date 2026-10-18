@@ -28,8 +28,11 @@ The rule:
 3. If every entry is trusted, the leftmost is the client. If there are no
    entries, the peer is.
 
-Entries left of the client were written by the client and are never parsed,
-so they cannot cause an error. The other header is always ignored, so a
+Entries left of the client were written by the client. Under
+`X-Forwarded-For` they are never parsed as addresses, but they still count
+toward `max_hops`. Under `Forwarded` every element is syntax-checked and
+counted, so a malformed element or too many elements anywhere in the header
+fails. The other header is always ignored, so a
 deployment that uses `Forwarded` cannot be fooled with `X-Forwarded-For`.
 
 An entry is `192.0.2.1`, `192.0.2.1:8080`, `2001:db8::1` or

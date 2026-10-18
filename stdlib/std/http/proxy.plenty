@@ -1,7 +1,8 @@
 # The client behind trusted reverse proxies. A forwarding header is believed
 # only when the connection comes from a proxy the program names, and only up
 # to the first hop that is not one: everything left of that hop was written
-# by the client and is ignored.
+# by the client and is not believed. Those entries still count toward
+# `max_hops`, and `Forwarded` elements are syntax-checked wherever they are.
 # See book/src/design/stdlib/http-proxy.md.
 import std.bytes
 import std.http
