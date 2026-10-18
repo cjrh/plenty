@@ -128,6 +128,45 @@ def main() -> Result[(), Failure]:
     );
 }
 
+/// Issue #256. The runtime writes whole address entries, so a truncated reply
+/// needs a partial write; this compiles the private decoder from the module
+/// source to feed it short entries directly.
+#[test]
+fn truncated_address_entries_are_invalid() {
+    let module = include_str!("../stdlib/std/net.plenty");
+    let start = module.find("def number(").unwrap();
+    let end = module.find("def address_of(").unwrap();
+    let decoder = &module[start..end];
+    runs(
+        &format!(
+            r#"
+const v4_size: i64 = 7
+const v6_size: i64 = 23
+
+{decoder}
+def show(data: &list[u8]) -> Result[(), Failure]:
+    match decoded(data, 0):
+        case Ok(pair):
+            (address, next) = pair
+            print(address.format()?, next)?
+        case Err(error):
+            print(str.repr(error)?)?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    show(&[4u8]?)?
+    show(&[6u8, 0u8]?)?
+    show(&[4u8, 0u8, 80u8, 127u8, 0u8, 0u8]?)?
+    show(&[6u8, 0u8, 80u8, 0u8, 0u8, 0u8, 0u8, 0u8]?)?
+    show(&[4u8, 0u8, 80u8, 127u8, 0u8, 0u8, 1u8]?)?
+    Ok(())
+"#
+        ),
+        "std.net.NetError.InvalidAddress\nstd.net.NetError.InvalidAddress\n\
+std.net.NetError.InvalidAddress\nstd.net.NetError.InvalidAddress\n127.0.0.1:80 7\n",
+    );
+}
+
 #[test]
 fn tcp_echo_reports_short_reads_and_end_of_input() {
     runs(
