@@ -95,7 +95,7 @@ git merge --ff-only FETCH_HEAD
 |---|---|
 | Verify tag | Requires the tagged commit to be on `main` and the tag to equal `v` plus the `Cargo.toml` version (`scripts/release/check-version.sh`) |
 | Test | The full test suite and release-script tests on the Ubuntu host, with the pinned Rust |
-| Build and test | In the pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite with that toolchain (skipping one curl interoperability test, issue #152), rejects binaries that need more than glibc 2.28 (`check-elf.sh`), and packages the archive (`package.sh`) |
+| Build and test | In the pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite with that toolchain, rejects binaries that need more than glibc 2.28 (`check-elf.sh`), and packages the archive (`package.sh`) |
 | Smoke test | For each pinned distribution image: installs only the documented prerequisites, disconnects the network, and runs `smoke-test.sh` on the archive (`smoke-in-container.sh`) |
 | Publish | Creates a draft release with the archive and checksum, then publishes it (`publish.sh`) |
 

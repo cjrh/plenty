@@ -590,8 +590,9 @@ def main() -> Result[(), Failure]:
         .unwrap();
     assert!(!refused.status.success());
     curl(&["--cacert", &ca, "--resolve", &resolve, &url("/stop")]);
-    // The refused client leaves during its handshake, which is not counted
-    // as a protocol error.
+    // The refused client is not counted as a protocol error whether it
+    // finishes the handshake and closes (OpenSSL 3) or sends a fatal alert
+    // mid-handshake (OpenSSL 1.1.1, issue #152).
     assert_eq!(
         server.finish(),
         "connections=4 requests=4 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0"

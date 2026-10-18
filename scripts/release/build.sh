@@ -56,11 +56,7 @@ target_dir="${CARGO_TARGET_DIR:-$repo/target}"
 "$here/check-elf.sh" "$target_dir/release/plenty" "$target_dir/release/plentyc"
 if [ "$run_tests" = 1 ]; then
     # Keep the tests' compiled-function cache with this build's outputs.
-    # The image's curl 7.61 (OpenSSL 1.1.1) trips issue #152; the workflow's
-    # host test job runs that test with a current curl. Remove the skip when
-    # #152 is fixed.
-    PLENTY_CACHE_DIR="$target_dir/plenty-cache" cargo test --locked --workspace --all-features \
-        -- --skip test_std_http_server_qualification::curl_interoperates_over_tls
+    PLENTY_CACHE_DIR="$target_dir/plenty-cache" cargo test --locked --workspace --all-features
 fi
 "$here/package.sh" --bin-dir "$target_dir/release" --out-dir "$out_dir" \
     --rust-sysroot "$(rustc --print sysroot)"
