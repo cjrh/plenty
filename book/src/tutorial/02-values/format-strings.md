@@ -12,6 +12,8 @@ def main() -> Result[(), Failure]:
     print(f"{name} published in {year}."?)?
     print(f"first score: {scores[0]}, count: {len(scores)}"?)?
     print(f"all scores: {scores}, {{braces}}"?)?
+    print(f"total: {scores[0] + scores[1]}, passed: {scores[1] > 80}"?)?
+    print(f"{name} was {'young' if 1843 - 1815 < 30 else 'older'}"?)?
     Ok(())
 ```
 
@@ -19,11 +21,14 @@ def main() -> Result[(), Failure]:
 Ada published in 1843.
 first score: 90, count: 2
 all scores: [90, 85], {braces}
+total: 175, passed: True
+Ada was young
 ```
 
 A field shows its value as `print` would. Double the braces for literal ones.
-A field may be a name or a literal with field access, indexing, and calls.
-Bind anything else, such as arithmetic, to a name first.
+A field can be any expression. A `?` inside a field returns from your
+function, as `?` does anywhere else; the `?` after the f-string handles only
+failure to build the text.
 
 After a colon, a format spec chooses width, alignment, fill, sign, digit
 grouping, precision, and a type, as in Python:
@@ -45,6 +50,22 @@ def main() -> Result[(), Failure]:
 1,234,567 1_234_567 0xff 11111111 -0042
 ```
 
+A spec can take its width or precision from a nested field, and its fill or
+alignment from a nested `str` field:
+
+```plenty
+def main() -> Result[(), Failure]:
+    width = 8
+    digits = 2
+    align = "^"
+    print(f"[{3.14159:{width}.{digits}f}] [{'tea':*{align}{width}}]"?)?
+    Ok(())
+```
+
+```output
+[    3.14] [**tea***]
+```
+
 `!r` shows the value's representation, with quotes around text, and `=` shows
 the field's source before its value, which helps when debugging:
 
@@ -59,6 +80,9 @@ def main() -> Result[(), Failure]:
 ```output
 "Ada" name="Ada" year=1843
 ```
+
+`!a` is like `!r` but spells every non-ASCII character as an escape, so
+`f"{'café'!a}"` gives `"caf\u{e9}"`.
 
 The compiler checks every spec against the field's type. A precision does not
 apply to an integer:

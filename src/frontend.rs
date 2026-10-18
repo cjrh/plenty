@@ -3070,6 +3070,11 @@ impl Lower<'_> {
                 }
             }
             Expression::Method(base, name, args, pos) => {
+                if name == "format" {
+                    if let Some(ty) = self.format_method(base, args, &e.at, ops) {
+                        return ty;
+                    }
+                }
                 ide::enter_method(*pos, name);
                 let ty = self.method(base, name, args, ops);
                 ide::leave_method();

@@ -52,7 +52,8 @@
             contains: [prefix ? byteEscape : escape],
         });
         // An f-string: `{{` and `}}` are literal braces, and a field holds
-        // ordinary code up to its closing brace.
+        // ordinary code up to its closing brace, including nested fields in
+        // its format spec.
         const fstring = (quote, multiline) => ({
             className: "string",
             begin: new RegExp("\\bf" + quote),
@@ -60,7 +61,13 @@
             contains: [
                 escape,
                 { begin: /\{\{|\}\}/, relevance: 0 },
-                { className: "subst", begin: /\{/, end: /\}/, relevance: 0 },
+                {
+                    className: "subst",
+                    begin: /\{/,
+                    end: /\}/,
+                    relevance: 0,
+                    contains: [{ begin: /\{/, end: /\}/, relevance: 0 }],
+                },
             ],
         });
         // A declaration keyword, then the declared name. `def once(...)`

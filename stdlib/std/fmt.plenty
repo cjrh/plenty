@@ -22,6 +22,7 @@ pub class Spec:
     pub fill: str
     pub align: str
     pub sign: str
+    pub coerce_zero: bool
     pub alternate: bool
     pub zero: bool
     pub width: i64
@@ -29,8 +30,45 @@ pub class Spec:
     pub precision: i64
     pub kind: str
 
-pub def spec(fill: str = " ", align: str = "", sign: str = "", alternate: bool = False, zero: bool = False, width: i64 = 0, grouping: str = "", precision: i64 = -1, kind: str = "") -> Spec:
-    Spec(fill, align, sign, alternate, zero, width, grouping, precision, kind)
+pub def spec(fill: str = " ", align: str = "", sign: str = "", coerce_zero: bool = False, alternate: bool = False, zero: bool = False, width: i64 = 0, grouping: str = "", precision: i64 = -1, kind: str = "") -> Spec:
+    Spec(fill, align, sign, coerce_zero, alternate, zero, width, grouping, precision, kind)
+
+# Checks the parts of a spec that an f-string's nested fields supply at run
+# time; the rest of the spec was checked when compiling. A fill needs an
+# alignment, so a nested value cannot silently change a spec's meaning.
+pub def spec_fill(fill: &str, align: &str) -> Result[str, FormatError]:
+    if fill == "":
+        return Ok(" ")
+    if align == "":
+        return Err(FormatError.InvalidSpec)
+    match ord(fill):
+        case Ok(code):
+            match chr(code):
+                case Ok(scalar):
+                    Ok(scalar)
+                case Err(_):
+                    Err(FormatError.InvalidSpec)
+        case Err(_):
+            Err(FormatError.InvalidSpec)
+
+pub def spec_align(align: &str) -> Result[str, FormatError]:
+    if align == "":
+        Ok("")
+    elif align == "<":
+        Ok("<")
+    elif align == ">":
+        Ok(">")
+    elif align == "^":
+        Ok("^")
+    elif align == "=":
+        Ok("=")
+    else:
+        Err(FormatError.InvalidSpec)
+
+pub def spec_count(value: i64) -> Result[i64, FormatError]:
+    if value < 0 or value > 4096:
+        return Err(FormatError.InvalidSpec)
+    Ok(value)
 
 def valid_layout(spec: &Spec) -> bool:
     if len(spec.fill) != 1 or spec.width < 0 or spec.width > 4096 or spec.precision < -1 or spec.precision > 4096:
@@ -201,6 +239,44 @@ pub class Formatter[W]:
                     self.text(scalar)?
         self.text("\"")
 
+    # `!a`: the text with every non-ASCII scalar spelled `\u{hex}`, as
+    # `debug_text` spells controls.
+    pub def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]:
+        for scalar in value:
+            code = ord(scalar).unwrap()
+            if code < 128u32:
+                self.text(scalar)?
+            else:
+                self.text("\\u{")?
+                self.unsigned(u64(code), 16, 0)?
+                self.text("}")?
+        Ok(())
+
+    # Type `c`: the scalar with code point `code`, laid out like a number
+    # (default right; `0` pads with zeros) without sign, `#`, grouping, or
+    # precision. A value that is not a Unicode scalar is `InvalidSpec`.
+    pub def char_spec(self: &mut Formatter[W], code: i64, spec: &Spec) -> Result[(), FormatError]:
+        if not valid_layout(spec) or spec.sign != "" or spec.coerce_zero or spec.alternate or spec.grouping != "" or spec.precision != -1 or spec.kind != "c":
+            return Err(FormatError.InvalidSpec)
+        if code < 0 or code > 1114111:
+            return Err(FormatError.InvalidSpec)
+        match chr(u32(code)):
+            case Ok(value):
+                padding = spec.width - 1
+                if spec.zero:
+                    self.repeat_fill("0", padding)?
+                    return self.text(&value)
+                mut before = padding
+                if spec.align == "<":
+                    before = 0
+                elif spec.align == "^":
+                    before = padding // 2
+                self.repeat_fill(&spec.fill, before)?
+                self.text(&value)?
+                self.repeat_fill(&spec.fill, padding - before)
+            case Err(_):
+                Err(FormatError.InvalidSpec)
+
     def ensure_scratch(self: &mut Formatter[W], size: i64) -> Result[(), FormatError]:
         if self._scratch.len() < size:
             stored(self._scratch.resize(size, 0u8))?
@@ -216,7 +292,7 @@ pub class Formatter[W]:
     # Text options: fill, alignment (default left), width and precision, which
     # truncates. Both count Unicode scalars.
     pub def text_spec(self: &mut Formatter[W], value: &str, spec: &Spec) -> Result[(), FormatError]:
-        if not valid_layout(spec) or spec.align == "=" or spec.sign != "" or spec.alternate or spec.zero or spec.grouping != "" or (spec.kind != "" and spec.kind != "s"):
+        if not valid_layout(spec) or spec.align == "=" or spec.sign != "" or spec.coerce_zero or spec.alternate or spec.zero or spec.grouping != "" or (spec.kind != "" and spec.kind != "s"):
             return Err(FormatError.InvalidSpec)
         mut shown = len(value)
         if spec.precision >= 0 and spec.precision < shown:
@@ -250,7 +326,9 @@ pub class Formatter[W]:
         self.whole(value, False, spec)
 
     def whole(self: &mut Formatter[W], magnitude: u64, negative: bool, spec: &Spec) -> Result[(), FormatError]:
-        if not valid_layout(spec) or spec.precision != -1:
+        if not valid_layout(spec) or spec.precision != -1 or spec.coerce_zero:
+            return Err(FormatError.InvalidSpec)
+        if spec.kind == "n" and spec.grouping != "":
             return Err(FormatError.InvalidSpec)
         mut base = 10
         mut prefix = ""
@@ -267,7 +345,7 @@ pub class Formatter[W]:
         elif spec.kind == "b":
             base = 2
             prefix = "0b"
-        elif spec.kind != "" and spec.kind != "d":
+        elif spec.kind != "" and spec.kind != "d" and spec.kind != "n":
             return Err(FormatError.InvalidSpec)
         if base != 10 and spec.grouping == ",":
             return Err(FormatError.InvalidSpec)
@@ -322,7 +400,9 @@ pub class Formatter[W]:
                 style = 4
         elif kind == "e" or kind == "E":
             style = 2
-        elif kind == "g" or kind == "G":
+        elif kind == "g" or kind == "G" or kind == "n":
+            if kind == "n" and spec.grouping != "":
+                return Err(FormatError.InvalidSpec)
             style = 3
         elif kind == "%":
             scaled = value * 100.0
@@ -347,6 +427,23 @@ pub class Formatter[W]:
         mut start = SPELLING
         if negative:
             start += 1
+        # `z`: a spelling whose digits before any exponent are all zero, such
+        # as `-0.00`, loses its sign. `-inf` has no digits and keeps it.
+        mut signed = negative
+        if negative and spec.coerce_zero:
+            mut digits = 0
+            mut nonzero = False
+            mut at = start
+            while at < end:
+                code = stored(self._scratch.get(at))?
+                if code == 101u8 or code == 69u8:
+                    break
+                if code >= 48u8 and code <= 57u8:
+                    digits += 1
+                    if code != 48u8:
+                        nonzero = True
+                at += 1
+            signed = digits == 0 or nonzero
         mut digits_end = start
         while digits_end < end:
             code = stored(self._scratch.get(digits_end))?
@@ -359,7 +456,7 @@ pub class Formatter[W]:
             while at + 1 < end:
                 stored(self._scratch.set(at, stored(self._scratch.get(at + 1))?))?
                 at += 1
-            return self.number(True, "", digits_end - 1, end - 1, suffix, 3, spec)
+            return self.number(signed, "", digits_end - 1, end - 1, suffix, 3, spec)
         self.number(False, "", digits_end, end, suffix, 3, spec)
 
     # Lays out an unsigned spelling held in scratch: integer digits from
@@ -488,6 +585,11 @@ pub def repr_string[T](value: &T) -> Result[str, FormatError]:
 pub def debug_string(value: &str) -> Result[str, FormatError]:
     mut output = string_formatter(9223372036854775807, 0)?
     output.debug_text(value)?
+    finish(&output)
+
+pub def ascii_string(value: &str) -> Result[str, FormatError]:
+    mut output = string_formatter(9223372036854775807, 0)?
+    output.ascii_text(value)?
     finish(&output)
 
 def list_body[T, W, F: Callable[[&T, &mut Formatter[W]], Result[(), FormatError]]](values: &list[T], output: &mut Formatter[W], render: F) -> Result[(), FormatError]:
