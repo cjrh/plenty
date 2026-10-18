@@ -55,6 +55,13 @@ pub fn lex(source: &str) -> Result<Vec<Tok<'_>>> {
             continue;
         }
         if c == '"' {
+            let unterminated = || -> Box<dyn Error> {
+                let before = &source[..i];
+                let line = before.matches('\n').count() + 1;
+                let line_start = before.rfind('\n').map_or(0, |n| n + 1);
+                let column = before[line_start..].chars().count() + 1;
+                format!("{line}:{column}: unterminated string literal").into()
+            };
             let start = i + 1;
             let end;
             loop {
@@ -65,11 +72,11 @@ pub fn lex(source: &str) -> Result<Vec<Tok<'_>>> {
                     }
                     Some((_, '\\')) => {
                         if iter.next().is_none() {
-                            return Err("unterminated string literal".into());
+                            return Err(unterminated());
                         }
                     }
                     Some(_) => continue,
-                    None => return Err("unterminated string literal".into()),
+                    None => return Err(unterminated()),
                 }
             }
             toks.push(Tok::Text(&source[start..end]));
@@ -97,4 +104,23 @@ pub fn lex(source: &str) -> Result<Vec<Tok<'_>>> {
         }
     }
     Ok(toks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The error names the opening quote's line and character column, in
+    /// the modern frontend's `line:column` form (issue #181).
+    #[test]
+    fn unterminated_string_reports_opening_quote() {
+        for (source, location) in [
+            ("\"abc", "1:1"),
+            ("1 .\n  \"tail\\", "2:3"),
+            ("\"é\" é \"x", "1:7"),
+        ] {
+            let error = lex(source).unwrap_err().to_string();
+            assert_eq!(error, format!("{location}: unterminated string literal"));
+        }
+    }
 }
