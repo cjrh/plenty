@@ -64,6 +64,7 @@ pub enum Route:
     Broken
     Authority
     Late
+    Declared
 
 pub class App:
     pub label: str
@@ -131,6 +132,12 @@ pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange
                         pass
                     case _:
                         return Err(Failure.Unspecified)
+            case Route.Declared:
+                # Declares a length but writes nothing, as a HEAD answer may.
+                mut head = std.http.response(200, "OK")?
+                head.add("Content-Length", "5")?
+                exchange.start(head)?
+                exchange.end()?
         Ok(())
 
 pub def routes() -> Result[Router[Route], ServerError]:
@@ -147,6 +154,7 @@ pub def routes() -> Result[Router[Route], ServerError]:
     table.add("GET", "/files/{path...}", Route.Param)?
     table.add("GET", "/authority", Route.Authority)?
     table.add("POST", "/late", Route.Late)?
+    table.add("GET", "/declared", Route.Declared)?
     Ok(table)
 
 pub def counts(report: &Report) -> Result[str, Failure]:
@@ -317,6 +325,23 @@ def main() -> Result[(), Failure]:
         r##"HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||homeHTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||a/b|HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 6||x/y/z|HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 1|||HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 5||a=1&bHTTP/1.1 200 OK|Content-Type: application/octet-stream|Content-Length: 3||abcHTTP/1.1 200 OK|Transfer-Encoding: chunked||HTTP/1.1 200 OK|Transfer-Encoding: chunked||2|ab|4|cdef|0||HTTP/1.1 200 OK|Content-Length: 5||helloHTTP/1.1 500 Internal Server Error|Content-Type: text/plain; charset=utf-8|Content-Length: 22||Internal Server Error
 
 connections=1 requests=10 handler_errors=1 protocol_errors=0 timeouts=0 cancelled=0 rejected=0"##,
+    );
+}
+
+/// A streamed HEAD response keeps its declared Content-Length, adds no other
+/// framing, and ends without writing the body (issue #251).
+#[test]
+fn head_streams_end_without_writing_the_declared_length() {
+    runs(
+        SCRIPTED,
+        r##"
+def main() -> Result[(), Failure]:
+    config = std.http.server.config()
+    scripted("HEAD /declared HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", 5, False, &config)?
+    Ok(())
+"##,
+        r##"HTTP/1.1 200 OK|Content-Length: 5||HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||home
+connections=1 requests=2 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0"##,
     );
 }
 

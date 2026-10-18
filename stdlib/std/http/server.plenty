@@ -850,10 +850,11 @@ pub class Exchange[T]:
         self._state = state
         Ok(())
 
-    # Ends a streamed response. A sized response must have sent every byte.
+    # Ends a streamed response. A sized response must have sent every byte,
+    # except for HEAD, whose Content-Length describes a body never sent.
     pub def end(self: &mut Exchange[T]) -> Result[(), HttpError]:
         if self._state == sized:
-            if self._remaining != 0:
+            if self._remaining != 0 and not self._head_only:
                 self._state = broken
                 return Err(HttpError.LengthMismatch)
         elif self._state == chunked:
