@@ -71,6 +71,8 @@ differs.
 - A message body that is not valid JSON is answered with a `-32700` parse
   error and the session continues. A header without a valid `Content-Length`
   leaves the stream unframed, so the server exits as if the input had ended.
+- After `shutdown`, the server answers any other request with a `-32600`
+  invalid-request error and ignores notifications until `exit`.
 
 ## Other editors
 

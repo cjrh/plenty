@@ -142,6 +142,18 @@ impl Server {
         let method = message["method"].as_str().unwrap_or_default().to_owned();
         let params = &message["params"];
         let id = message.get("id").cloned();
+        // After `shutdown` the protocol allows only `exit`: other requests get
+        // an InvalidRequest error and notifications are dropped.
+        if self.shutdown && method != "exit" {
+            if id.is_some() {
+                write_message(
+                    output,
+                    &json!({"jsonrpc": "2.0", "id": id, "error": {
+                        "code": -32600, "message": format!("{method} after shutdown")}}),
+                )?;
+            }
+            return Ok(true);
+        }
         let result = match method.as_str() {
             "initialize" => Some(self.initialize(params)),
             "shutdown" => {
