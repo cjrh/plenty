@@ -206,9 +206,8 @@ impl Lexer<'_> {
                         .advance()
                         .ok_or_else(|| start.error("unterminated escape"))?;
                     text.push(
-                        escape(escaped).ok_or_else(|| {
-                            start.error(format!("unsupported escape \\{escaped}"))
-                        })?,
+                        escape(escaped)
+                            .ok_or_else(|| at.error(format!("unsupported escape \\{escaped}")))?,
                     );
                 }
                 '{' if self.char_at(0) == Some('{') => {
