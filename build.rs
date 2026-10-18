@@ -329,6 +329,20 @@ fn build_ring(dir: &Path) {
     );
 }
 
+/// The rustc sysroot, queried once: `remap` runs for every vendored crate and
+/// runtime build, and each query starts a rustc process.
+fn sysroot() -> &'static str {
+    static SYSROOT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SYSROOT.get_or_init(|| {
+        let output = Command::new(std::env::var_os("RUSTC").unwrap())
+            .args(["--print", "sysroot"])
+            .output()
+            .expect("query rustc sysroot");
+        assert!(output.status.success(), "querying rustc sysroot failed");
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    })
+}
+
 fn remap(rustc: &mut Command, out: &Path) {
     // Precompiled standard-library objects remain toolchain inputs.
     for (path, replacement) in [
@@ -343,15 +357,7 @@ fn remap(rustc: &mut Command, out: &Path) {
             path.display()
         ));
     }
-    let sysroot = Command::new(std::env::var_os("RUSTC").unwrap())
-        .args(["--print", "sysroot"])
-        .output()
-        .expect("query rustc sysroot");
-    assert!(sysroot.status.success(), "querying rustc sysroot failed");
-    rustc.arg(format!(
-        "--remap-path-prefix={}=/rust-toolchain",
-        String::from_utf8(sysroot.stdout).unwrap().trim()
-    ));
+    rustc.arg(format!("--remap-path-prefix={}=/rust-toolchain", sysroot()));
     // Separate, explicit flags allow runtime sanitizer builds without silently
     // leaking compiler-only flags (coverage/link arguments/metadata) into an ABI library.
     if let Ok(flags) = std::env::var("PLENTY_RUNTIME_RUSTFLAGS") {
