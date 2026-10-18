@@ -675,13 +675,17 @@ pub class TlsStream:
         Ok(())
 
     # Sends close_notify, then closes the TCP stream. The peer's own
-    # close_notify is not awaited.
+    # close_notify is not awaited. The TCP stream is closed even when
+    # sending close_notify fails; that error is returned first.
     pub def close_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+        mut flushed: Result[(), TlsError] = Ok(())
         if not self._closed:
             self._closed = True
             __tls_close(self._session)
-            self.flush_before(deadline, cancel)?
-        net(flowed_net(self._tcp.close()))
+            flushed = self.flush_before(deadline, cancel)
+        closed = net(flowed_net(self._tcp.close()))
+        flushed?
+        closed
 
     # Ends the stream in `direction` without closing it. Ending writes sends
     # close_notify first, without waiting: ciphertext the socket does not
@@ -724,12 +728,16 @@ pub class TlsStream:
     pub def flush(self: &mut TlsStream) -> Result[(), StreamError]:
         Ok(())
 
+    # Like `close_before`, without a deadline.
     pub def close(self: &mut TlsStream) -> Result[(), StreamError]:
+        mut flushed: Result[(), StreamError] = Ok(())
         if not self._closed:
             self._closed = True
             __tls_close(self._session)
-            self.flush_blocking()?
-        self._tcp.close()
+            flushed = self.flush_blocking()
+        closed = self._tcp.close()
+        flushed?
+        closed
 
     # The application protocol both sides chose (ALPN), or Nothing.
     pub def application_protocol(self) -> Result[Option[str], TlsError]:
