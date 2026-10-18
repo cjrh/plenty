@@ -89,9 +89,9 @@ impl Lower<'_> {
                 template.type_params.clone(),
             )
         } else if let Some(sig) = self.sigs.get(name) {
-            if sig.outputs.len() > 1 {
-                return Err(at.error("named arguments require a single-result Plenty function"));
-            }
+            // Frontend signatures carry at most one output; only textual IR
+            // signatures can have several, and those never reach `self.sigs`.
+            debug_assert!(sig.outputs.len() <= 1);
             (
                 sig.inputs
                     .iter()
