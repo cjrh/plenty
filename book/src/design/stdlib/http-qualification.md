@@ -2,8 +2,8 @@
 
 This page records what has been checked before [`std.http.server`](http-server.md)
 could be called production-ready, what that showed, and how to run the
-server in the meantime. **The server is not yet production-ready.** No
-gate fails, but some are only partly covered; see [Gates](#gates). HTTP/2 and HTTP/3 need
+server in the meantime. **The server is not yet labelled production-ready.**
+Every gate passes; see [Gates](#gates). HTTP/2 and HTTP/3 need
 separate adoption decisions and are not part of these gates.
 
 The suites are in `tests/test_std_http_server_qualification.rs`, with the
@@ -18,7 +18,7 @@ tests need a network, once, to pull their images.
 | Gate | Status | Evidence |
 |---|---|---|
 | Parser conformance and a retained corpus | Pass | About 80 corpus requests, each replayed in 64-byte reads and one byte at a time; 600 mutated copies. Includes the RFC 9112 section 3.2 `Host` rules and absolute-form targets |
-| Fuzzing | Partial | Deterministic mutation of the corpus through the whole connection loop, here and in `test_std_http.rs`; no coverage-guided fuzzing |
+| Fuzzing | Pass | Coverage-guided libFuzzer runs of the whole connection loop, seeded from the corpus, with every response status checked: 16.9 million inputs in 30 minutes, no finding. A short run is part of the test suite (`test_fuzz.rs`), beside deterministic corpus mutations here and in `test_std_http.rs`. See [Fuzzing](#fuzzing) |
 | Interoperability | Pass | curl over plain HTTP and TLS (reuse, sized, chunked and `100-continue` uploads, HTTP/1.0, `HEAD`, chunked and 64 MiB responses, 404/405); `std.http.client` (pooling, streamed chunked upload, large downloads) |
 | Slow clients | Pass | Idle and silent clients, partial request heads, partial TLS handshakes, slow readers and slow body senders are cut off at their deadlines without holding the server; heads and handshakes wait parked, not on a worker. See [Slow request heads](#slow-request-heads) |
 | Refusals without a reset | Pass | Refusals of requests not read to the end (`431`, `413`, `400`, a failed body read), each followed by more input, end with the whole answer and a clean end, over plain TCP (parked and on a worker) and TLS (`close_notify`). See [Refusals and resets](#refusals-and-resets) |
@@ -190,6 +190,50 @@ below) for up to 2 s, then closes
 `refusals_end_cleanly_instead_of_resetting` and
 `tls_refusals_end_with_close_notify` in the qualification suite check this.
 
+## Fuzzing
+
+`fuzz/http_server/main.plenty` is a [libFuzzer target](../toolchain/01-building/fuzzing.md):
+`plenty --fuzz` counts every block the compiled program runs, including the
+standard library's, and libFuzzer keeps the inputs that reach new ones. Each
+input is one client connection served by `serve_connection` over an
+in-memory stream. Its first byte selects the read size (1 to 64 bytes),
+small limits (a 64-byte line, a 256-byte head, 4 fields, a 16-byte body)
+and a limit of two requests per connection; the rest is what the client
+sends. The routes are those of the corpus. Response bodies never repeat the
+request, so the target finds every response head in what the server wrote
+and traps on a status outside 100, 200, 400, 404, 405, 413, 431, 500, 501
+and 505. Traps of the server itself, stack exhaustion and hangs over 10 s
+are findings too.
+
+`fuzz/http_server/run.py` builds the target with `--release`, seeds it with
+every corpus case in four variants (whole, 7-byte reads, 1-byte reads, small
+limits) and runs it with the HTTP dictionary `fuzz/http_server/http.dict`.
+Findings go to `WORK/findings`; the default `WORK` is
+`target/fuzz-http-server`.
+
+```text
+cargo build --release --locked
+python3 fuzz/http_server/run.py --time 1800 --jobs 2
+target/fuzz-http-server/http_server_fuzzer FINDING    # replay one finding
+```
+
+On 2026-10-18, on the machine of the [baselines](#baselines), two jobs ran
+for 30 minutes each (rustc 1.99.0, clang 22.1.8's libFuzzer), starting from
+the corpus of an earlier 10-minute run: 16.9 million inputs, about 4,700 per
+second per job, with no finding. 3,777 of the program's 13,878 blocks were
+reached, nearly all within the first seconds; most of the rest belong to
+functions the target never calls, such as `serve` and TLS, which a fuzz
+build keeps.
+
+To act on a finding, replay it, reduce it with `-minimize_crash=1 -runs=100000`,
+and handle it as a parser defect under
+[Security fixes](#security-fixes-and-backend-updates): its request joins the
+corpus, and so the seeds.
+
+Not covered: TLS records (rustls and ring are fuzzed upstream), the
+`std.ready` parking of real sockets, and timeouts, since the in-memory stream
+never waits.
+
 ## Reverse proxies
 
 `tests/test_std_http_server_proxy.rs` puts nginx and Caddy, each in its stock
@@ -309,6 +353,7 @@ PLENTY_DOCKER_TESTS=1 cargo test --locked --test integration test_std_http_serve
 cargo build --release --locked
 python3 examples/http_server_bench.py --compiler target/release/plenty --output target/http-bench --runs 3
 python3 examples/http_server_bench.py --compiler target/release/plenty --output target/https-bench --runs 3 --tls
+python3 fuzz/http_server/run.py --time 1800 --jobs 2
 ```
 
 The curl tests are skipped when curl is not installed. The proxy tests
@@ -316,6 +361,8 @@ need Docker and curl and are skipped, with a message, unless
 `PLENTY_DOCKER_TESTS=1` (see [reverse-proxy tests](../../development/workflow.md#reverse-proxy-tests));
 the `proxy_tests` job in `.github/workflows/ci.yml` runs them on every push
 and pull request. The benchmark needs ApacheBench (`ab`) and `taskset`, and
-with `--tls` also curl. Busy machines distort the benchmark: check
+with `--tls` also curl. Fuzzing needs clang's libFuzzer; without it the
+libFuzzer tests in `test_fuzz.rs` print a note and pass, unless
+`PLENTY_FUZZ_TESTS=1`. Busy machines distort the benchmark: check
 the load average first, and keep the total number of busy threads at or
 below the number of physical cores.
