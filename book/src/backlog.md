@@ -12,7 +12,7 @@ stages describe technical dependencies, not a second priority list.
 
 ## Current position
 
-Reconciled against local `main` at `736fe80` on 2026-10-12, merged local PRs,
+Reconciled against local `main` at `6c23c08` on 2026-10-18, merged local PRs,
 the reference and tutorial, and the shared issues register. **B34's bounded
 cleanup and review batch is complete.** Its ownership, diagnostics, compiler
 performance, collection conveniences, and documentation fixes have landed.
@@ -21,31 +21,46 @@ not mean all candidates or every concurrency diagnostic are implemented.
 
 ### Next batches
 
-1. **Standard-library foundations.** The first B39 compact-bytes slice (issue
-   #76), B41 error context (issue #78), and B42 time/deadlines (issue #79) have
-   landed, as have B40 binary streams (issue #77) with direct `Bytes` I/O, B49
-   heaps and generator adapters (issue #86), and B54 binary encodings (issue
-   #91). B43 environment/processes (issue #80), B50 randomness/secrets (issue
-   #87), B51 JSON (issue #88), B53 CSV (issue #90), and B60 URLs (issue #97)
-   have also landed. B39 index syntax, iteration, and `fill` landed (issue
-   #76); only sub-range view values remain, blocked on B11. Bulk byte scanning
-   landed (issue #115) and is used by `std.csv`, `std.json`, and `std.url`.
-2. **A focused CLI/data workflow.** Select a concrete use case and its acceptance
-   checks, then compose the needed CLI parsing, encodings, codecs, filesystem,
-   and test-support slices. B44/B51–B55/B57 are candidates, not one mandatory
-   umbrella delivery. Networking and HTTP follow their prerequisites and B66
-   qualification rather than displacing this sequence.
+1. **Error composition and presentation (B14/B71).** Settle member-pattern
+   grammar and implement general sums with lossless injection/widening and
+   exhaustive matching. Then settle the formatter API, support enum formatting
+   and sum dispatch, and integrate entrypoint reports. Migrate examples,
+   libraries where appropriate, fixtures and documentation before removing
+   builtin `Failure`. Use non-error sums and the mutual-TLS lesson as acceptance
+   cases. This is the agreed next language batch; B71 records its boundaries.
+2. **Validate composition in existing applications.** Reuse the installed
+   CLI/data and JSON-service workflows already qualified under B66 to check
+   precise errors, context, reporting and cleanup through real library calls.
+   Extend the typed-stream prototype to production stream/HTTP composition as
+   a separately scoped B71 slice, preserving operation and partial-progress
+   information. These workflows supply acceptance checks, not another library
+   foundation project.
+3. **Measured compiler follow-up (B19/B17).** Use the phase profiler to choose
+   bounded improvements and verify cold/warm build time, allocation and memory
+   costs. Per-module caching is the next cache-design candidate; remote caching
+   follows a useful local contract. Broader architecture changes need measured
+   benefit before scheduling. Independent performance work need not wait for
+   the error-composition batch.
 
-Issue severity still takes precedence when a new defect needs attention. Claims
+The initial B39–B70 library slices, B17 package tooling, installed CLI/data
+workflow and B66 HTTP qualification have landed. Preserve those checks during
+the batches above. Further library breadth, B11 stored-reference extensions and
+B72 typestate/linear-obligation experiments remain candidates requiring a
+concrete use case and an agreed contract.
+
+Issue severity still takes precedence: the current open defects are the
+register-allocator context cost (issue #153, normal) and TLS rejection counting
+(issue #152, low). Claims
 and implementation/review status belong in `issues.db`; this sequence assigns no
 ownership. Table row order below remains a catalogue, not a second priority list.
 
 ### Deliberate deferrals
 
-- **B19:** issue #59 remains open for cache/streaming costs and the remaining
-  serial parsing, lowering, and IR construction. Parallel function checking and
-  table/pass reductions have landed; further architectural optimization needs
-  measurements and a focused batch, and does not keep B34 open.
+- **B19:** issue #59 is closed after declaration reuse and measured evaluation
+  of parallel parsing/lowering. Compiled-function caching has landed (issue
+  #144). Remaining serial efficiency, per-module caching and streaming
+  lowering/emission need measurements and a focused batch; they do not keep
+  B34 open.
 - **B22:** join/shutdown checks for sending workers are implemented (issues
   #12/#74). Scoped joins also check receiving workers against surviving senders
   (issue #108), and blocking future-result checks are implemented (issue #109).
@@ -113,7 +128,7 @@ ownership remain in the shared `issues.db`.
 | ID | Work | Scope / dependency |
 | --- | --- | --- |
 | B11 | Broader borrowing | Borrowed enum matching and payload loans complete. A `mut` reference binding is reassigned only through itself (issue #1). Remaining: stored references, relationships among multiple reference parameters, more precise collection loans, retargeting a reference binding to another borrow of the same owner, and field-precise loans through `mut` reference bindings. Borrowed iteration now consistently yields references (issue #30, also B12). Mutable matching of copyable enum payloads (issue #41) is complete through B35. B30 completed ordinary nested writes; disjoint-index precision remains here. Evaluate precision against compile-time cost; the current single-parameter returned-borrow rule is documented in the [reference](design/language/05-ownership/04-returned-references.md). |
-| B12 | Practical I/O and iteration | Text-file iteration and a consistent borrowed-iteration rule are implemented (issue #30, also B11); borrowed temporary source owners survive through their loop scope (issue #75). Allocation-free `enumerate`, `zip`, and `reversed` loop/comprehension sources and short-circuiting boolean `any`/`all` reductions are implemented for issue #35 (also B38). Remaining: explicit binary buffers and read/write, buffering, reusable iterator/view protocols, and first-class adapters. Lossless platform paths and binary argument/I/O transport are concrete gaps (issue #61); coordinate their representation with B38's filesystem work. Follow familiar Python conventions where they fit ownership and Result-based errors. |
+| B12 | Practical I/O and iteration | Text-file iteration and a consistent borrowed-iteration rule are implemented (issue #30, also B11); borrowed temporary source owners survive through their loop scope (issue #75). Allocation-free `enumerate`, `zip`, and `reversed` loop/comprehension sources and short-circuiting boolean `any`/`all` reductions are implemented for issue #35 (also B38). Binary buffers, read/write and buffering are delivered by B39/B40; owned-generator adapters by B49. Lossless Unix arguments and binary I/O (issue #61) and native Linux `std.path` are implemented. Remaining: reusable iterator/view protocols, adapters over borrowed collections, borrowed sub-range views (B11/B39), and portable path semantics (coordinate with B18). Further adapters need concrete use cases. |
 | B13 | Public allocator control | Global/default and per-container selection, allocator state/lifetimes, and buffer provenance. Internal object allocator identity already exists. Consider bounded/inline-capacity storage separately. [Memory design](proposals/memory-parallelism-and-simd.md). |
 | B14 | Typed error composition | Adopt [general anonymous sums](proposals/error-sets.md), with error composition as the first use: preserve payloads, normalize membership, and allow lossless injection/widening without user-defined conversions. B71 sequences implementation and removal of builtin `Failure`; its erasure rule remains current behavior until migration. Allocation-free `Option.unwrap_or` and explicit `Option.ok_or` conversion to typed Result are implemented for the first slice of issue #35 (also B38). Additional Option/Result conveniences remain separate API work. |
 | B16 | Additional inference and value conveniences | Consider expected-result inference, partial explicit type arguments, and contextual literals across generic arguments. B35 completed inline storage (issue #17); classes still move. Mutable component borrows work for every `mut` tuple, with independent copied storage; direct indexed assignment stays unsupported (issue #68). Numeric augmented assignment evaluates each target index once and protects its owner during right-side evaluation (issue #32). The bare numeric cast checks its range and `T.wrapping_from` names truncation (issues #39 and #65). `T.try_from` returns a single-variant `RangeError`, with explicit mapping to `ParseError` documented (issue #66), and unsigned negation is rejected even for literals such as `-0u8` (issue #67). Related gaps: a saturating conversion, which has no spelling now that out-of-range float-to-integer casts trap, and typed composition between parsing and conversion errors (B14). Standalone unit bindings/parameters/storage, nested unpacking, and slice syntax/steps also need concrete use cases and contracts. These remain candidates, not automatic extensions of today's inference rules. |
@@ -132,7 +147,7 @@ ownership remain in the shared `issues.db`.
 | B33 | Deep operations on recursive values | Recursive source storage is implemented under B10. Replace native recursive copy/format traversals with iterative fallible work storage before enabling them; select an explicit bounded-memory contract for structural equality and membership without adding hidden allocation failure. Preserve failure cleanup, shared-string ownership, and float/NaN semantics. [Design rationale](proposals/recursive-data.md). |
 | B36 | Named arguments and defaults | Implemented for named functions, methods and constructors: static name binding, source-order argument evaluation, fresh per-call defaults, callee-local error propagation and nonescaping default loans. See [call rules](design/language/06-functions/01-signatures-and-calls.md) and [rationale](proposals/completed/named-arguments-and-fresh-defaults.md). Callable values/builtins remain positional; protocol-constrained generic bodies conservatively reject named method calls. Remaining candidates: finer protocol receiver tracking and deliberate builtin names. Structured initialization for large records remains separate. Splats, variadics and `/`/`*` markers remain in the [older unpacking proposal](proposals/keyword-arguments-and-unpacking.md). |
 | B37 | Ordering beyond `sort()` | `list.sort()` orders integers, floats, `str`, and tuples of those in place; `swap` and assignment to several targets are complete (issue #31). Lexicographic string comparisons are implemented (issue #22). Allocation-free unstable `sort_by_key` with shared element borrows and recomputed keys, positional descending bools, and fallible natural-order `sorted` copies are implemented (issue #64). Tuple relational operators matching the total sort order are implemented (issue #111). Remaining extensions: cached or fallible keys, stable sorting, comparison functions, and class ordering protocols. Preserve no hidden allocation. |
-| B38 | Standard library scope | Issue #49 is split into B39–B70, with [catalogue rationale](proposals/standard-library-scope.md) and [HTTP acceptance](proposals/standard-http.md). [std.math](design/stdlib/math.md), [std.path](design/stdlib/path.md), [std.fs](design/stdlib/fs.md), [std.deque](design/stdlib/deque.md), [std.error](design/stdlib/error.md), [std.bytes](design/stdlib/bytes.md), [std.time](design/stdlib/time.md), [std.io](design/stdlib/io.md), [std.encoding](design/stdlib/encoding.md), [std.collections](design/stdlib/collections.md), [std.iter](design/stdlib/iter.md), [std.url](design/stdlib/url.md), [std.csv](design/stdlib/csv.md), [std.random](design/stdlib/random.md), [std.secrets](design/stdlib/secrets.md), [std.json](design/stdlib/json.md), [std.env](design/stdlib/env.md), and [std.process](design/stdlib/process.md) are implemented; reuse completed issues #22/#29/#31/#33/#34/#35/#39/#60/#61 rather than duplicating them. Remaining numerical candidates: accurate summation/norms, float decomposition/adjacent values and special functions, each with numerical contracts/tests. Defaults and arbitrary constant expressions are language candidates; reusable iterator contracts remain B12. Portable paths remain B12; packages/runner remain B17, issue #45. Further library breadth needs a concrete use case and its own scope before scheduling. |
+| B38 | Standard library scope | Issue #49's initial slices B39–B70 are implemented; the rows below record their delivered contracts and remaining candidates. See [catalogue rationale](proposals/standard-library-scope.md) and [HTTP acceptance](proposals/standard-http.md). Reuse completed issues #22/#29/#31/#33/#34/#35/#39/#60/#61 rather than duplicating them. Remaining numerical candidates: accurate summation/norms, float decomposition/adjacent values and special functions, each with numerical contracts/tests. Named-function/method/constructor defaults are implemented (B36); arbitrary constant expressions remain a language candidate. Reusable iterator contracts and portable paths remain B12; package tooling and the test runner are implemented (B17/B57). Further library breadth needs a concrete use case and its own scope before scheduling. |
 
 ### Stdlib-driven language ergonomics
 
@@ -146,28 +161,28 @@ ownership remain in the shared `issues.db`.
 These entries replace issue #49's umbrella scope. Each linked issue records
 acceptance checks, errors, allocation/ownership contracts and dependencies.
 Dependencies identify technical prerequisites; row order is not a priority or
-approval of a proposed API. All slices remain unimplemented unless explicitly
-recorded otherwise. B39/B41/B42 are foundational contracts; a useful CLI/data
-slice composes them with B40/B44/B51/B52/B53/B55/B57 and B17 tooling. HTTP must
-pass B66 before it is described as production-ready. Libraries use checked
-Plenty; approved platform/backend boundaries remain narrow.
+approval of a proposed API. The initial slices have landed; each row separates
+the delivered contract from remaining extensions. The installed CLI/data
+workflow composes these foundations with B17 tooling, and HTTP has passed B66
+qualification. Libraries use checked Plenty; approved platform/backend
+boundaries remain narrow.
 
 | ID | Work / issue | Scope / dependency |
 | --- | --- | --- |
 | B39 | Compact bytes — issue #76 | [std.bytes](design/stdlib/bytes.md) owning buffers, checked ranges, explicit copies, `&Bytes`/`&mut Bytes` views under the ordinary loan rules, index syntax with list index rules, iteration, and native `fill` are implemented. Remaining: first-class sub-range view values (needs B11 stored references). Slice syntax is deliberately omitted: it would hide a copy. Bulk scans landed with issue #115 and are used by `std.csv`, `std.json`, and `std.url`; short-token parsers are bounded by per-call cost. Direct `Bytes` I/O landed with B40. B12; #61 transport keeps `list[u8]`. |
 | B40 | Binary streams — issue #77 | Complete: [std.io](design/stdlib/io.md) delivers statically dispatched reader/writer/seek/close contracts with explicit partial progress, `read_exact`/`write_all`/`read_up_to`/`copy_all`, fixed-capacity buffering, flush-versus-close errors, and file, process-stream and memory adapters over `Bytes`. Unscheduled candidates: nonblocking descriptors, vectored I/O, peeking, type-erased streams; text and formatting over streams are B45/B47. |
-| B41 | Error context — issue #78 | [std.error](design/stdlib/error.md) is implemented: `Context[E]` with operation/path/typed cause, explicit conversion, descriptions and stderr reports with nonallocating fallbacks, and module conventions. Unit Results are supported (issue #110). Remaining: OS description text and entrypoint rendering of a `Context`. B14. |
+| B41 | Error context — issue #78 | [std.error](design/stdlib/error.md) is implemented: `Context[E]` with operation/path/typed cause, explicit conversion, descriptions and stderr reports with nonallocating fallbacks, and module conventions. Unit Results are supported (issue #110). Remaining: OS description text and human-readable entrypoint rendering of a `Context` (currently structural). B14/B71. |
 | B42 | Time/deadlines — issue #79 | Complete: [std.time](design/stdlib/time.md) delivers checked `Duration`, monotonic `Instant`/`Deadline`, wall `Timestamp`, and sleep. Unscheduled candidates: `Duration`/`Deadline` overloads of timed waits, calendar and formatting support. |
-| B43 | Environment/processes — issue #80 | Complete: [std.env](design/stdlib/env.md) lossless variable reads, snapshot and working directory; [std.process](design/stdlib/process.md) argument-vector spawning with no implicit shell, per-child env/cwd, piped streams, deadlock-free bounded output collection, exit/signal status, termination and explicit reaping. Remaining candidates under B38: deadline waits through pidfd and cancellation tokens; redirecting a stream to a file or another child and merging stderr into stdout; a reaping policy for dropped children (needs owner destructors); process groups. |
+| B43 | Environment/processes — issue #80 | Complete: [std.env](design/stdlib/env.md) lossless variable reads, snapshot and working directory; [std.process](design/stdlib/process.md) argument-vector spawning with no implicit shell, per-child env/cwd, piped streams, deadlock-free bounded output collection, exit/signal status, termination and explicit reaping. Remaining candidates under B38: deadline waits through pidfd and cancellation tokens; redirecting a stream to a file or another child and merging stderr into stdout; a reaping policy for dropped children (user destructors exist; the shutdown/reaping policy still needs a contract); process groups. |
 | B44 | CLI parsing — issue #81 | Implemented: checked `std.cli` schemas, typed options/positionals, repeatable values, `--`, help/errors and lossless path arguments. Depends on B41. |
 | B45 | Formatting — issue #82 | Implemented: [std.fmt](design/stdlib/fmt.md) provides static user display/debug contracts, scalar and callback aggregate formatting, bounded streaming with partial progress, and fallible strings over B40 writers. Widths count bytes; recursion is explicit and bounded. No dynamic format strings, automatic derive, locale or precision controls. |
 | B46 | Structured logs — issue #83 | Done: `std.log` leveled events with typed fields, explicit `Logger[S]` over caller-chosen sinks (logfmt `TextSink` over any writer, bounded `MemorySink`, nonblocking `ChannelSink` with `drain`), fixed/wall/off clocks and bounded lines. Candidates: JSON-lines sink, sampling/rate limits, per-module thresholds, span context. |
 | B47 | Text/Unicode — issue #84 | Implemented: bounded reusable [builders/join/scalar wrapping](design/stdlib/text.md) and [Unicode 17 NFC/NFD/NFKC/NFKD](design/stdlib/unicode.md), with combining-class/Mark classification. Reuses B39 bytes and #22 text primitives. Grapheme/display-width wrapping and broader classification remain outside this slice. |
 | B48 | Regex — issue #85 | Done: [std.regex](design/stdlib/regex.md) linear-time Pike VM in Plenty with explicit pattern, nesting, repetition, instruction, memory, work, output and match-count limits; text and bytes; captures, iteration, split, replacement. Candidates: a faster engine (lazy DFA or one-pass) and literal prefilters, full Unicode case folding, script and general-category properties. |
-| B49 | Collections/iterators — issue #86 | [std.collections](design/stdlib/collections.md) binary heaps (`Heap`, comparator `HeapBy`, `drain`) and [std.iter](design/stdlib/iter.md) `map`/`filter`/`take`/`fold`/`try_fold` over owned generators are implemented. Remaining: adapters over borrowed collections and a user iterator protocol (B12, needs B11 stored references); tuple `<` so `Heap` accepts tuples (issue #111); further adapters need a use case. |
+| B49 | Collections/iterators — issue #86 | [std.collections](design/stdlib/collections.md) binary heaps (`Heap`, comparator `HeapBy`, `drain`) and [std.iter](design/stdlib/iter.md) `map`/`filter`/`take`/`fold`/`try_fold` over owned generators are implemented. Tuple ordering and tuple-valued `Heap` are implemented (issue #111). Remaining: adapters over borrowed collections and a user iterator protocol (B12, needs B11 stored references); further adapters need a use case. |
 | B50 | Randomness/secrets — issue #87 | Complete: [std.random](design/stdlib/random.md) provides caller-owned seeded xoshiro256** generators with a published version-stable sequence, unbiased ranges, shuffle, index sampling, and byte fill; [std.secrets](design/stdlib/secrets.md) provides OS-backed fill, byte/hex/base64url tokens, and unbiased integers over one `getrandom` primitive with no fallback. Remaining candidates under B38: jump/split streams, distributions and float ranges, weighted choice and element sampling, scratch-free secret integers, a zero-on-drop buffer. |
 | B51 | JSON — issue #88 | Complete: [std.json](design/stdlib/json.md) is a strict RFC 8259 codec in Plenty: resumable event `Decoder`, validating `Encoder`, and a `Json` value tree, all under `Limits` (depth, input, output, duplicate keys), with located `JsonError`s and stream integration through `std.io`. Remaining candidates under B38: bulk scanning outside string runs, pretty-printing, JSON Lines, derived typed codecs. |
-| B52 | TOML — issue #89 | Done: `std.toml` strict TOML 1.0 parser and writer over a value tree, bounded by depth/input/output limits, with located errors. Remaining: comment-preserving editing for manifest tooling stays B17 (#45); an independent conformance check (toml-test or a reference crate); TOML 1.1 when final. |
+| B52 | TOML — issue #89 | Done: `std.toml` strict TOML 1.0 parser and writer over a value tree, bounded by depth/input/output limits, with located errors. Remaining: comment-preserving editing for manifest tooling stays B17 (#45); an independent conformance check (toml-test or a reference crate); evaluate TOML 1.1 support. |
 | B53 | CSV — issue #90 | Complete: [std.csv](design/stdlib/csv.md) streaming `Reader`/`Writer` over `std.io` with a reusable `Record`, explicit `Dialect` (delimiter, quote, newline, quoting, width policy, field/record/field-count limits), strict RFC 4180 quoting, and positioned `CsvError`. Remaining candidates under B38: lenient parsing and recovery after syntax errors, header mapping and typed columns, non-UTF-8 encodings, multi-byte delimiters, and a throughput benchmark. |
 | B54 | Binary encodings — issue #91 | Complete: [std.encoding](design/stdlib/encoding.md) strict hex/base64/base64url and explicit-endian `u16`..`i64` packing over `std.bytes`. Candidates under B38: bulk native codec/packing primitives for throughput, streaming codecs, float packing, varints, base32. |
 | B55 | Filesystem helpers — issue #92 | Implemented: descriptor-rooted no-follow operations, anonymous temporary file publication, empty-only temporary-directory cleanup, bounded copy/delete and byte glob filtering. Linux O_TMPFILE/procfs and trusted-parent rename limits are explicit in the reference. |
@@ -175,7 +190,7 @@ Plenty; approved platform/backend boundaries remain narrow.
 | B57 | Library test support — issue #94 | Done: [std.test](design/stdlib/test.md) assertions explain failures on stderr; `Scratch` directories, seeded `rng()`, `FakeClock` and `FakeStream` (short reads/writes, injected I/O errors) fixtures; `plenty test` runs module-level `test_*` functions in parallel processes with filters, `--jobs`, `--timeout`, per-test `TMPDIR` cleanup, `--list`, `--no-capture` and `--seed`; assertion failures report the caller's position, and `plenty test` executables can fail allocations and file I/O on demand (local PR #142). |
 | B58 | Trusted I/O effects — issue #95 | Done: every native primitive declares a worker effect (`src/effects.rs`), with no std-wide exemption; native handles cross threads under the loan rules; only `set_current_dir` is denied. [std.ready](design/stdlib/ready.md) provides deadline- and token-bounded readiness waits: bounded blocking waits on explicit workers, cancellation within a 10 ms slice. Tokens now wake waits directly and selectors wait on many handles (B59). |
 | B59 | Sockets/DNS — issue #96 | Done: [std.net](design/stdlib/net.md) TCP/UDP sockets and addresses over `std.ready` (local PR #135); tokens wake waits directly, `std.ready` selectors wait on many handles, `resolve` is deadline- and token-bounded on a helper thread, `NetError.HandleLimit` reports the descriptor limit, and accept-queue bounds are measured (local PR #140). Unix-domain sockets declined for now (see net.md). x86-64 Linux only. |
-| B60 | URLs — issue #97 | Complete: [std.url](design/stdlib/url.md) provides strict RFC 3986 absolute URL parsing and validated formatting without normalization, component-aware percent encoding, and query pairs. Remaining candidates under B38: relative reference resolution, normalization/equivalence helpers, IDNA, form encoding, and use of the `std.bytes` bulk scans. |
+| B60 | URLs — issue #97 | Complete: [std.url](design/stdlib/url.md) provides strict RFC 3986 absolute URL parsing and validated formatting without normalization, component-aware percent encoding, and query pairs. Bulk byte scans are used (issue #115). Remaining candidates under B38: relative reference resolution, normalization/equivalence helpers, IDNA, and form encoding. |
 | B61 | TLS — issue #98 | Done: [std.tls](design/stdlib/tls.md) TLS 1.2/1.3 client and server streams over std.net with vendored rustls 0.23 + ring, verification against PEM or system roots, std.net deadlines and cancellation, typed certificate errors (local PR #145); client certificates, ALPN, SNI certificate selection, version and cipher suite choice, CRL revocation, and selector-driven `try_` methods (local PR #147). Declined: recoverable allocation inside rustls (no fallible API), session resumption and 0-RTT, OCSP. |
 | B62 | HTTP/1.1 messages — issue #99 | Done: [std.http](design/stdlib/http.md) reads and writes HTTP/1.1 heads and streams `Content-Length`, chunked and close-delimited bodies over `std.io`, with explicit limits, strict rejection of ambiguous framing, and a mutation-tested regression corpus (local PR #139). |
 | B63 | HTTP client — issue #100 | Done: [std.http.client](design/stdlib/http-client.md) (HTTP/1.1) with pooling, per-phase and caller deadlines, cancellation, bounded redirects with cross-origin credential stripping, an explicit forward proxy, and replay of idempotent requests only (local PR #146); `https` through `std.http.https` with mandatory verification, proxy `CONNECT` tunnels, and streamed request bodies with `Expect: 100-continue` (local PR #154). Declined: a thread-shared pool until std.sync has a mutex; a client cookie jar and content decoding (callers handle `Set-Cookie` and decode with std.compress under their own limit). |
@@ -191,10 +206,11 @@ Plenty; approved platform/backend boundaries remain narrow.
 
 Issue #61's initial lossless Unix transport is implemented with owned `list[u8]`,
 explicit UTF-8 conversion, raw arguments, binary file helpers, and NUL stream
-records. The finder now exercises those contracts with `--null`. Under B38/B12,
-compact byte buffers (B39), platform path abstractions (B12), buffered streams
-(B40), and broader `std` distribution (B17) remain future work. Directory
-traversal and metadata from issue #60 are implemented in `std.fs`.
+records. The finder now exercises those contracts with `--null`. Compact byte
+buffers (B39), native Linux paths (`std.path`), buffered streams (B40), embedded
+`std` distribution and package tooling (B17) have also landed. Portable path
+semantics and borrowed sub-range views remain candidates under B12/B11.
+Directory traversal and metadata from issue #60 are implemented in `std.fs`.
 
 Integer bitwise operators, checked shift counts, and explicit wrapping
 add/subtract/multiply are implemented for issue #33. The numeric reference and
@@ -228,7 +244,7 @@ active list.
 | Length-aware strings | Strings already store explicit lengths and support embedded NULs. The original `strlen`-based premise is obsolete; adopting a two-word source value is not required to resolve it. |
 | Precompiled runtime archive | The runtime archive is built with the compiler and embedded for linking. It is not rebuilt from C source for each program. See [runtime](runtime.md). |
 | Foundation batch | Main/imports/visibility, fallible allocation APIs, borrowing, tuples/items, typed ranges, generic functions, and structural protocols have implemented paths. See the [current status](design/toolchain/02-architecture/support.md). |
-| Allocation syntax and error convenience | Allocating operations return Result by default; `?`, explicit success values, and `Failure` replace the old `try`/`try_` alternatives and repetitive unwraps. |
+| Allocation syntax and error convenience | Allocating operations return Result by default; `?`, explicit success values, and `Failure` replace the old `try`/`try_` alternatives and repetitive unwraps. This records the original implementation; B14/B71 now plan replacement of `Failure` with precise errors and sums. |
 | Generic argument inference | Calls infer concrete type parameters from arguments; explicit arguments remain available. Unit type arguments work in function specializations, including `Result`/`Option` payloads (issue #110); standalone unit parameters/storage remain B16. See [generic functions](design/language/07-generics/index.md). |
 | Catch-all matching | `case _:` already handles remaining enum variants. See the [enum lesson](tutorial/06-data/06-enums.md). |
 | mdBook migration | Reference and tutorial pages live under `book/src/`, are listed in `SUMMARY.md`, and tutorial examples run in tests. Literate-source generation is the separate B21 candidate. |
