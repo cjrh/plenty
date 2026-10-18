@@ -157,6 +157,10 @@ two-second resolution. ZIP64 fields are written for an entry whose size or
 offset reaches 2³²−1, and ZIP64 end records when there are 65535 or more
 entries or the central directory lies beyond 2³²−1.
 
+An error while writing an entry or the directory to `inner` leaves the
+archive unusable: that call returns the error, and every later `add_*` or
+`finish` call returns `InvalidInput` without writing.
+
 ## Extraction
 
 `extract_tar` and `extract_zip` create `destination`, a single name, under

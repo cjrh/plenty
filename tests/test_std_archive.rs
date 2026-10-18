@@ -60,6 +60,32 @@ def text(value: &str) -> Result[Bytes, Failure]:
 
 def name(value: &str) -> Result[path.Path, Failure]:
     Ok(path.from_text(value)?)
+
+# A writer that accepts `left` more bytes, then fails like a full disk.
+pub class Budget:
+    pub inner: io.Cursor
+    pub left: i64
+
+    pub def write[S: std.bytes.ByteSource](self: &mut Budget, source: &S, start: i64, stop: i64) -> Result[i64, io.StreamError]:
+        if self.left <= 0:
+            return Err(io.StreamError.WriteZero)
+        mut count = stop - start
+        if count > self.left:
+            count = self.left
+        written = self.inner.write(source, start, start + count)?
+        self.left -= written
+        Ok(written)
+
+    pub def flush(self: &mut Budget) -> Result[(), io.StreamError]:
+        self.inner.flush()
+
+def outcome(result: Result[(), ArchiveError]) -> Result[(), Failure]:
+    match result:
+        case Ok(_):
+            print("ok")?
+        case Err(error):
+            print(error)?
+    Ok(())
 "#;
 
 struct Program {
@@ -886,4 +912,30 @@ report(second)?
         }
     }
     assert!(seen_ok);
+}
+
+#[test]
+fn zip_writer_refuses_entries_and_finish_after_a_failed_write() {
+    let directory = tempfile::tempdir().unwrap();
+    // The first stored entry takes 30 + 5 + 5 bytes; the second fails three
+    // bytes into its data, after its 35-byte header reached `inner`.
+    let program = Program::new(
+        r#"
+mut zip = archive.zip_writer(Budget(io.cursor(std.bytes.empty()?), 78))?
+outcome(zip.add_file(&name("a.txt")?, &text("hello")?, Method.Stored, 420, 1700000000))?
+outcome(zip.add_file(&name("b.txt")?, &text("world world")?, Method.Stored, 420, 1700000000))?
+zip.inner.left = 1000
+outcome(zip.add_file(&name("c.txt")?, &text("later")?, Method.Stored, 420, 1700000000))?
+outcome(zip.finish())?
+print(zip.inner.inner.data.len())?
+"#,
+    );
+    assert_eq!(
+        program.run(directory.path()),
+        "ok
+Stream(std.io.StreamError.WriteZero)
+InvalidInput
+InvalidInput
+78"
+    );
 }
