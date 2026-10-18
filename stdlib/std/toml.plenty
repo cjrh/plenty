@@ -125,6 +125,15 @@ def unplaced[T](result: Result[T, TomlFault]) -> Result[T, TomlError]:
         case Err(fault):
             Err(TomlError(fault, 0, 0, 0))
 
+# A fault before scanning starts, such as an allocation failure while setting
+# up, points at the start of the document.
+def started[T](result: Result[T, TomlFault]) -> Result[T, TomlError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(fault):
+            Err(TomlError(fault, 0, 1, 1))
+
 def push_byte(target: &mut Bytes, value: i64) -> Result[(), TomlFault]:
     faulted(target.push(u8(value)))
 
@@ -907,7 +916,7 @@ def run(source: Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
     count = source.len()
     if count > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    mut state = unplaced(parser(source, bounds))?
+    mut state = started(parser(source, bounds))?
     match state.src.utf8_run(0, count):
         case Ok(valid_end):
             if valid_end != count:
@@ -924,21 +933,23 @@ def run(source: Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
         case Ok(value):
             Ok(value)
         case Err(fault):
-            Err(TomlError(fault, count, 0, 0))
+            # Building happens after the whole document has been scanned.
+            state.at = count
+            Err(state.located(fault))
 
 pub def parse(source: &Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
     if not valid(bounds):
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
     if source.len() > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    run(unplaced(faulted(source.copy()))?, bounds)
+    run(started(faulted(source.copy()))?, bounds)
 
 pub def parse_text(text: &str, bounds: &Limits) -> Result[Toml, TomlError]:
     if not valid(bounds):
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
     if text.byte_len() > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    run(unplaced(faulted(std.bytes.from_text(text)))?, bounds)
+    run(started(faulted(std.bytes.from_text(text)))?, bounds)
 
 # Reads `reader` to end of input, then parses. One byte past `max_input` is
 # enough to tell a full document from an oversized one.
@@ -953,7 +964,11 @@ pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, T
             room += 1
         else:
             room = read_chunk
-        unplaced(faulted(data.resize(have + room, 0u8)))?
+        match faulted(data.resize(have + room, 0u8)):
+            case Ok(_):
+                pass
+            case Err(fault):
+                return Err(TomlError(fault, have, 0, 0))
         outcome = reader.read(&mut data, have, have + room)
         match outcome:
             case Ok(count):

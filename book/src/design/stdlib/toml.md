@@ -165,7 +165,9 @@ syntax fault points at the offending byte. A fault about a whole key or header
 key or header causes) points at the first byte of its key or `[`. A
 `DepthExceeded` that an array or inline table causes points at its opening
 bracket, and a fault about a number or date-time at the value's first byte.
-`UnexpectedEnd` points one past the last byte.
+`UnexpectedEnd` points one past the last byte. An allocation failure before
+scanning starts points at offset 0, line 1, column 1; one while assembling the
+value after a successful scan points one past the last byte.
 
 For writing and for stream failures, `offset` is the number of bytes produced,
 written, or read when the call failed, and `line` and `column` are 0.

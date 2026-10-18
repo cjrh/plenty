@@ -856,6 +856,9 @@ for which in range(3):
                             fault = 1
                         case _:
                             fault = 2
+                    # A parse fault has a real position (issue #262).
+                    if error.line < 1 or error.column < 1 or error.offset < 0 or error.offset > source.len():
+                        fault = 2
         elif which == 1:
             mut reader = Trickle(source.copy()?, 0, 5)
             print(markers[count])?
@@ -870,6 +873,9 @@ for which in range(3):
                             fault = 1
                         case _:
                             fault = 2
+                    # Reading reports bytes read; parsing reports a position.
+                    if error.offset < 0 or error.offset > source.len() or (error.line == 0) != (error.column == 0):
+                        fault = 2
         else:
             print(markers[count])?
             result = std.toml.encode(&value, &bounds)
