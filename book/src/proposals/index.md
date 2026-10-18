@@ -53,14 +53,15 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Plenty's next language phase](next-language-phase.md) | Nine of eleven recommendations, at least in part | B13, B23, and others |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | Named calls and fresh defaults under the narrower design above | B36: splats and signature markers remain separate candidates |
-| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md); isolated typed-stream experiment | B71: production stream composition and broader framing |
+| [Explicit error composition](error-composition.md) | [Result mapping](../design/stdlib/error.md); isolated typed-stream experiment | B71: sums, formatting, Failure removal, and independent production stream composition |
 | [Bundled HTTP acceptance](standard-http.md) | [Client](../design/stdlib/http-client.md), [server](../design/stdlib/http-server.md), TLS and deployment helpers | B66 qualification |
 
 ## Not implemented
 
 | Proposal | Backlog |
 | --- | --- |
-| [Finite error sets](error-sets.md) | B71 |
+| [Finite error sets as general anonymous sums](error-sets.md) — agreed direction; error composition first | B14/B71 |
+| [Human-readable formatting and error reports](error-formatting.md) — enum protocols and sum formatting | B71 |
 | [Typestate and owned transitions](typestate-and-owned-transitions.md) — assessment and experiments using existing facilities | B72 |
 | [Linear obligations](linear-obligations.md), including [aggregate and error rules](linear-obligations/values-and-errors.md) — opt-in non-abandonment | B72 (issue #149) |
 | [Synchronous resolution scopes](linear-scope-resolution.md) — consuming scope policy; depends on linear obligations | B72 (issue #149) |

@@ -1,7 +1,11 @@
 # Finite error sets as anonymous sums
 
-Status: exploratory alternative within [explicit error composition](error-composition.md),
-not accepted syntax. Scheduling belongs in [B71](../backlog.md).
+Status: not implemented. General anonymous sums are the agreed direction;
+error composition is their first implementation use case. The current
+[propagation reference](../design/language/08-errors/01-sums-and-propagation.md)
+remains authoritative until implementation. Scheduling belongs in B14/B71 in
+the [backlog](../backlog.md). Human-readable presentation is specified separately
+in [formatting and error reports](error-formatting.md).
 
 ## Motivation and research
 
@@ -27,9 +31,9 @@ The reported mixed Reddit reaction is not used as evidence here: no particular
 thread was supplied or independently assessed. The following objections are
 design analysis, not attributed community consensus.
 
-## A possible deliberately small contract
+## Agreed initial contract
 
-All notation below is hypothetical:
+The following notation describes the target design, not executable Plenty today:
 
 ```text
 def load() -> Result[Config, IoError | ParseError]:
@@ -37,7 +41,9 @@ def load() -> Result[Config, IoError | ParseError]:
     parse_source(source)
 ```
 
-If this direction is accepted:
+`A | B` is a general type expression, available in ordinary value positions
+as well as Result errors. Error composition supplies the first acceptance cases;
+the type system must not restrict sums to the second argument of Result.
 
 1. Treat `A | B` as a tagged, owned sum of whole nominal types, not a C union
    and not an untagged overlap of values. No boxing is implicit. Storage must
@@ -48,11 +54,16 @@ If this direction is accepted:
    wrappers. Publish no stable tag-number/FFI-layout guarantee by accident.
 3. Permit lossless injection of `E` into a destination containing `E`, and
    widening of a source set into a superset. Do not invoke arbitrary user
-   conversions. Specify these rules for expected-type checking of `Err`, direct
-   returns, and assignments as well as `?`, or surprising inconsistencies result.
+   conversions. Apply these rules in expected-type checking for bindings,
+   assignments, arguments, `Err`, direct returns, and `?`. Also permit
+   `Result[T, E]` to widen to `Result[T, F]` when E is a member/subset of F:
+   success moves unchanged and failure is retagged without allocation.
+   This does not establish covariance for arbitrary generic containers or
+   references, and does not change the success type.
 4. Reject propagation when any source alternative is absent. Diagnostics name
-   the missing alternatives and source operation. Keep `Failure` erasure explicit
-   through its existing `?` rule.
+   the missing alternatives and source operation. The final design removes
+   builtin `Failure` and its special erasure rule; the existing rule remains
+   only during migration.
 5. Provide exhaustive, unambiguous matching by member type. Exact syntax needs
    a separate decision: existing enum constructor patterns cannot identify every
    possible class payload. Do not silently reinterpret existing pattern `|`.
@@ -64,10 +75,58 @@ If this direction is accepted:
    free syntax sugar. An uninhabited empty set and conversion to infallible `T`
    also need a decision; do not use inhabited unit as an empty error type.
 
-Restrictions to error positions initially could limit inference scope, but
-would introduce special-case type rules. General anonymous sums provide broader
-consistency at greater compiler and teaching cost. Decide this before adopting
-surface syntax.
+Function return types remain declared. Do not infer a public error set from
+the body or silently widen a declared binding after a later assignment.
+Expected types guide injection; inference must not guess between distinct
+generic substitutions that satisfy membership. Normalize again after concrete
+generic substitution, so a generic set can collapse to a single member.
+
+Injection and widening evaluate the source once and preserve the active payload.
+Owned noncopyable payloads move; inactive alternatives are never initialized or
+dropped. Early exits and destruction follow the existing sum ownership rules.
+Copyability and thread-transfer eligibility require every member to qualify.
+Existing restrictions on sum payloads and recursive storage continue to apply;
+general sums do not independently introduce stored references.
+
+## Matching and remaining surface decisions
+
+Matching must select a whole member type and bind its payload, including class
+payloads. A proposed spelling is `case cause: IoError:`. This spelling remains
+subject to a parser/pattern review; it is not an accepted extension of existing
+pattern `|`. An enum member can then be matched by its constructors normally.
+
+The initial contract requires exhaustive coverage of normalized members, or a
+wildcard. A guarded arm alone cannot establish coverage. Reject duplicate
+unguarded member arms, including members that coincide after generic
+substitution. Specify those diagnostics on concrete specializations rather than
+pretending generic alternatives always remain distinct.
+
+Owned matching follows ordinary move rules; matching through `&` or `&mut`
+borrows the active payload with the corresponding permission and cannot let it
+outlive the owner. A wildcard does not infer a smaller residual sum in this
+version. Empty sums, automatic error-set subtraction, and automatic conversion
+to infallible values are deferred.
+
+Before implementation, settle type-expression precedence and grouping with
+callable types, the typed-member pattern grammar, and how member patterns behave
+when normalization leaves a single ordinary type. Diagnostics must cover these
+cases alongside generic inference ambiguity. These are bounded surface decisions,
+not reasons to restrict sums to errors.
+
+## Replacing Failure
+
+Replace uses of builtin `Failure` with precise errors or finite sums, optionally
+named by ordinary type aliases. Keep domain enums where they express policy;
+`map_error` remains the explicit way to classify or wrap a cause. Do not replace
+erasure with an implicit catch-all member or mandatory reporting bound.
+
+Removal includes the prelude builtin, special checking/code generation, fixtures,
+examples, reference and tutorial text, and agent-facing probe guidance. The
+mutual-TLS lesson is an acceptance case: configuration and networking errors
+propagate with `?`, retaining details; intentional matches still demonstrate
+certificate rejection. Migrate only after sum propagation and reporting work.
+The final change must reject reliance on the removed builtin rather than silently
+reinterpreting old erasure. User-defined types named Failure are ordinary types.
 
 ## What sets do not solve
 
@@ -100,5 +159,9 @@ client recovery code. Tests must cover aliases, duplicate types, permutation,
 nested sets, ambiguous generic members, missing-member diagnostics, payload
 destruction, exhaustive matching, and no implicit allocation.
 
-Recommendation: keep this as an independently evaluated option. Explicit
-mapping has a smaller semantic footprint and should provide the first baseline.
+Explicit mapping is the implemented baseline. Add ordinary non-error sum values
+to the acceptance cases, plus Result widening on both success and failure,
+generic normalization, borrowed/mutable matching, and entrypoint reporting of
+each active member. The final migration must leave no dependency on the builtin
+Failure or its erasure semantics. Production typed-stream migration remains a
+separate change: sums cannot restore causes already discarded by an adapter.

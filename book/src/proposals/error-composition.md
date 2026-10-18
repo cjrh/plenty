@@ -1,9 +1,12 @@
 # Explicit error composition
 
-Status: library mapping implemented; typed streams prototyped outside the
-stdlib API. The `?` error contract is unchanged. Remaining work belongs in [B71](../backlog.md).
-The companion [error sets](error-sets.md) page evaluates anonymous sums;
-[typestate](typestate-and-owned-transitions.md) addresses lifecycle invariants.
+Status: partly implemented. Library mapping implemented; typed streams prototyped
+outside the stdlib API. The `?` error contract is unchanged. Remaining work
+belongs in [B71](../backlog.md).
+The companion [error sets](error-sets.md) page records the agreed general-sum
+direction and removal of builtin Failure; [formatting](error-formatting.md)
+records the agreed enum-capable presentation direction. Neither has shipped.
+[Typestate](typestate-and-owned-transitions.md) addresses lifecycle invariants.
 
 ## Problem and recommendation
 
@@ -13,10 +16,13 @@ translate failures. A second, independent problem is that `std.io.Reader`
 fixes its error type to `StreamError`: HTTP adapters store richer causes in a
 separate field and return a generic error through the stream interface.
 
-Recommend explicit result mapping first, and an experiment with parameterized
-stream errors second. Neither requires dynamic error objects or anonymous sums.
-Keep named domain errors where they encode useful policy. Evaluate error sets
-separately rather than making them a prerequisite for these improvements.
+Explicit result mapping and an isolated parameterized-stream experiment now
+provide the baseline. The next agreed language direction is general anonymous
+sums, with error composition as their first use, plus human-readable formatting
+for enums and classes. Replace builtin Failure once lossless composition and
+reporting are available. Keep named domain errors where they encode useful
+policy. Production stream migration remains independently reviewable; neither
+mapping nor sums alone can recover causes discarded by existing stream APIs.
 
 ## Evidence in the stdlib
 
@@ -107,8 +113,11 @@ not equivalent to a finite typed sum. [Rust trait objects](https://doc.rust-lang
 
 Do not make a reporting protocol mandatory for error payloads: Plenty currently
 allows ordinary typed data in `Err`. Reporting and recoverability are separate.
-Keep `Failure`'s existing deliberate, allocation-free loss of detail distinct
-from any future detail-preserving erased error.
+The agreed [formatting protocol](error-formatting.md) provides presentation
+without an existential error container. Extend protocol support to enums and
+define formatting dispatch for anonymous sums whose members all qualify.
+Remove builtin Failure through the coordinated sum migration; an erased error
+container and heterogeneous cause-chain interface remain deferred.
 
 ## Removing the stream error side channel
 
