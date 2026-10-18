@@ -307,7 +307,9 @@ pub(crate) extern "C" fn plenty_readline() -> *mut Text {
     match std::io::stdin().lock().read_until(b'\n', &mut line) {
         Ok(0) => return ptr::null_mut(),
         Ok(_) => {}
-        Err(_) => return ptr::null_mut(),
+        // Std already reports a closed stdin (EBADF) as EOF; any other error
+        // would otherwise truncate input silently.
+        Err(error) => crate::fail(&format!("stdin read failed: {error}")),
     }
     if line.last() == Some(&b'\n') {
         line.pop();

@@ -243,6 +243,25 @@ fn run_command_inherits_stdin() {
     assert_eq!(out.stdout, b"hello native input\n");
 }
 
+/// A directory as stdin makes `read` fail with EISDIR; that must not read as EOF.
+#[cfg(unix)]
+#[test]
+fn legacy_readline_fails_on_stdin_read_error() {
+    let path = write_tempfile(":readline drop :println", "stdin-error");
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(plenty_bin())
+        .arg("--legacy")
+        .arg(&path)
+        .stdin(std::fs::File::open(dir.path()).unwrap())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(path);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.starts_with("error: stdin read failed: "), "{stderr}");
+}
+
 #[cfg(unix)]
 #[test]
 fn run_command_cleans_temporary_files_after_success_and_failure() {
