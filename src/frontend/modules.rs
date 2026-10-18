@@ -325,6 +325,7 @@ impl Parser {
 /// than the first token of the next item, where it reports a missing block.
 const LOOKAHEAD: usize = 1;
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn parse(source: &str, path: Option<&Path>, name: String) -> Result<(Module, Token)> {
     if let Some(parsed) = parse_buffered(source, path, name.clone(), LOOKAHEAD)? {
         return Ok(parsed);
@@ -495,6 +496,7 @@ impl Module {
     }
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn single(source: &str) -> Result<Resolved> {
     let (module, at) = parse(source, None, String::new())?;
     if let Some(import) = module.imports.first() {
@@ -513,6 +515,7 @@ pub(super) fn generated_interface(source: &str) -> Result<Resolved> {
     resolve(vec![module], vec![vec![]], at, false)
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn load(path: &Path, root: Option<&Path>, require_main: bool) -> Result<Resolved> {
     let entry = path
         .canonicalize()
@@ -565,6 +568,7 @@ fn module_path_of(relative: &Path) -> Option<String> {
 /// entry package are qualified by the package identity, so equal module and
 /// type names in unrelated packages stay distinct and an alias never becomes
 /// part of a declaration's identity.
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn load_graph(
     path: &Path,
     graph: &crate::project::SourceGraph,
@@ -1464,6 +1468,7 @@ fn canonical_facility_expression(e: &mut Expr) {
 const PARALLEL_FUNCTIONS: usize = 256;
 const PARALLEL_CLASSES: usize = 64;
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn resolve(
     mut modules: Vec<Module>,
     dependencies: Vec<Vec<usize>>,

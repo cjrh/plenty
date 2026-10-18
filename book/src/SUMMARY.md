@@ -6,6 +6,7 @@
 
 - [Backlog](backlog.md)
 - [Development workflow](development/workflow.md)
+- [Profiling the compiler](development/profiling.md)
 
 # Learn Plenty
 

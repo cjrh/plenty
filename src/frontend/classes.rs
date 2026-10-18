@@ -186,6 +186,7 @@ fn statement(at: &Token, kind: Statement) -> Stmt {
     }
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<Vec<Function>> {
     let mut functions = Vec::new();
     for class in classes {

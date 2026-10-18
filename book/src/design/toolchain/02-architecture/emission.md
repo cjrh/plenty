@@ -69,6 +69,9 @@ and a fourfold-input scaling ratio. `tests/test_compile_scaling.rs` guards again
 superlinear checking of classes, functions, protocols, enum variants, and
 `match` cases.
 
+For time and allocations per compiler phase in one run, build with the
+`profile` feature; see [Profiling the compiler](../../../development/profiling.md).
+
 For the 2026-10-10 release measurement on an AMD Ryzen 7 7840HS, x86_64 Linux,
 16 hardware threads: 4,000 units / 156,003 lines checked in 1.61 s and 16,000
 units / 624,003 lines in 6.69 s. Parallel emission and omitting release-build

@@ -247,6 +247,8 @@ mod test_parameterized_protocols;
 mod test_patterns;
 #[path = "test_practical_io.rs"]
 mod test_practical_io;
+#[path = "test_profile.rs"]
+mod test_profile;
 #[path = "test_project.rs"]
 mod test_project;
 #[path = "test_propagation.rs"]

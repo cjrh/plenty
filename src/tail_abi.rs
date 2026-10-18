@@ -123,6 +123,7 @@ pub(crate) type Signatures<'a> = dyn Fn(&str) -> Option<Arc<FnSig>> + 'a;
 /// operations: a full copy of every body was a quarter of the compiler's peak
 /// memory (issue #54), and a copy of every later definition after the first
 /// fallback cost time per function (issue #57).
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn prepare(ops: &mut [Op], workers: usize) {
     let mut table: HashMap<&str, &Arc<FnSig>> = HashMap::with_capacity(ops.len());
     collect(ops, &mut table);

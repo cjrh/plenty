@@ -8,6 +8,12 @@ use std::process::ExitCode;
 
 mod compiler_cli;
 
+// With `profile-alloc`, every allocation is counted against the measured
+// function that makes it (issue #150).
+#[cfg(feature = "profile-alloc")]
+#[global_allocator]
+static ALLOCATOR: hotpath::CountingAllocator = hotpath::CountingAllocator::new();
+
 const PROJECT_USAGE: &str = "\
 Project commands (run inside a directory containing plenty.toml or below it):
        plenty new PATH [--lib] [--name NAME]
@@ -50,6 +56,8 @@ Single-file compiler (also available as plentyc):
 
 fn main() -> ExitCode {
     pretty_env_logger::init();
+    #[cfg(feature = "profile")]
+    let _profile = plenty::profile::start();
     match run(std::env::args().skip(1).collect()) {
         Ok(code) => code,
         Err(error) => {

@@ -183,6 +183,7 @@ pub(crate) fn key_prefix() -> Vec<u8> {
 
 impl Cache {
     /// The cache `mode` names, or `None` when it is off or unusable.
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     pub(crate) fn open(mode: &CacheMode) -> Option<Arc<Cache>> {
         let dir = mode.directory()?;
         if let Err(error) = fs::create_dir_all(dir.join(ENTRIES)) {
@@ -233,10 +234,12 @@ impl Cache {
         self.dir.join(ENTRIES).join(&hex[..2]).join(hex)
     }
 
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn read(&self, key: &[u8]) -> Option<(Duration, Vec<u8>)> {
         read_entry(&self.path(key))
     }
 
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     fn write(&self, key: &[u8], compile_time: Duration, payload: &[u8]) {
         if self.writes_disabled.load(Ordering::Relaxed) {
             return;
@@ -255,6 +258,7 @@ impl Cache {
 
     /// Called once a compilation is complete: trims the directory to its
     /// size limit when it is due.
+    #[cfg_attr(feature = "profile", hotpath::measure)]
     pub(crate) fn finish(&self) {
         if !self.wrote.load(Ordering::Relaxed) {
             return;

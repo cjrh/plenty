@@ -33,6 +33,8 @@ mod op;
 mod ownership;
 mod parallel;
 mod process;
+#[cfg(feature = "profile")]
+pub mod profile;
 pub mod project;
 mod record;
 mod regex;
@@ -70,6 +72,7 @@ pub use toolchain::{
 /// it or generating native code. Requires a parameterless `main` returning
 /// `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`, just like
 /// [`compile_source_to_executable`].
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
     let program = frontend::compile(source, &mut heap)?;

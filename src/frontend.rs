@@ -4191,10 +4191,12 @@ fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
     })
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
     lower(modules::single(source)?, heap)
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn compile_file(
     path: &std::path::Path,
     root: Option<&std::path::Path>,
@@ -4204,6 +4206,7 @@ pub(crate) fn compile_file(
     lower(modules::load(path, root, require_main)?, heap)
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn compile_graph(
     path: &std::path::Path,
     graph: &crate::project::SourceGraph,
@@ -4253,6 +4256,7 @@ fn register_signature(
 /// `generics::prepare` already resolved, or that resolves them when
 /// `resolved` is `None`. Resolving a type again would find the same type, so
 /// only the cost differs.
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn register_resolved(
     f: &Function,
     resolved: Option<generics::Signature>,
@@ -4330,6 +4334,7 @@ fn register_resolved(
 /// Lowers one function. An error in the body of a generic instance is reported
 /// at the use that first required the instance, with the body position in a
 /// note: see `ownership::Instantiation`.
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn lower_function(
     f: Arc<Function>,
     heap: &mut Heap,
@@ -4617,6 +4622,7 @@ fn lower_body(
 
 /// Checks every function's native frame layout and generator operations on
 /// several threads, reporting the first failure in program order.
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn validate_frames(ops: &[Op]) -> std::result::Result<(), String> {
     let validate = |f: &crate::op::CompiledFn| -> std::result::Result<(), String> {
         let mut frame_bytes = 0usize;
@@ -4644,6 +4650,7 @@ fn validate_frames(ops: &[Op]) -> std::result::Result<(), String> {
     .collect()
 }
 
+#[cfg_attr(feature = "profile", hotpath::measure)]
 fn lower(resolved: modules::Resolved, heap: &mut Heap) -> Result<Program> {
     let modules::Resolved {
         standard_sources,

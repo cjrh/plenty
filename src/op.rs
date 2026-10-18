@@ -1428,6 +1428,7 @@ pub(crate) fn mark_tail_calls(body: &mut [Op]) {
 
 /// Independently check a complete module's operations and function signatures.
 /// Abstract operand stacks track concrete types without executing the program.
+#[cfg_attr(feature = "profile", hotpath::measure)]
 pub fn check(ops: &[Op]) -> Result<()> {
     check_with(ops, crate::parallel::workers())
 }
