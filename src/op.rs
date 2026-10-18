@@ -1163,6 +1163,12 @@ fn parse_integer_literal(word: &str) -> Result<Option<IntLiteral>> {
             explicit_ty: false,
         }));
     }
+    // A signed digit string that `i64` rejects is an out-of-range number, not
+    // a word; falling through would compile it as text (issue #168).
+    let unsigned = word.strip_prefix(['-', '+']).unwrap_or(word);
+    if !unsigned.is_empty() && unsigned.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("integer literal `{word}` does not fit i64").into());
+    }
 
     for (suffix, ty) in [
         ("i8", Ty::I8),
@@ -2582,6 +2588,20 @@ def main() -> ():
         for workers in [2, 8] {
             let error = check_with(&program.ops, workers).unwrap_err().to_string();
             assert_eq!(error, first);
+        }
+    }
+
+    #[test]
+    fn legacy_unsuffixed_literal_must_fit_i64() {
+        for source in [
+            "18446744073709551615 .",
+            "-9223372036854775809 .",
+            ": f { -> i64 } 9223372036854775808 ;",
+        ] {
+            let toks = crate::lexer::lex(source).unwrap();
+            let mut heap = crate::value::Heap::default();
+            let error = compile(&toks, &mut heap).unwrap_err().to_string();
+            assert!(error.contains("does not fit i64"), "{source}: {error}");
         }
     }
 
