@@ -2373,10 +2373,9 @@ impl Lowerer<'_, '_> {
         }
     }
 
-    /// Emit the calls that print the current compile-time stack — the
-    /// Render the legacy operand stack. The print
-    /// helpers all have fixed signatures, so we can resolve each
-    /// `FuncId` to a local `FuncRef` once at the top and reuse it.
+    /// Render the legacy operand stack (`.`, `--legacy` syntax only).
+    /// Each print helper's `FuncId` is resolved to a local `FuncRef`
+    /// once at the top and reused.
     fn lower_display(&mut self) -> Result<()> {
         // Snapshot the stack so we don't iterate-and-mutate; printing
         // leaves the stack untouched (`.` doesn't pop in Plenty).
