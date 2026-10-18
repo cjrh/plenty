@@ -180,7 +180,7 @@ never to an origin. Nothing is read from the environment: `HTTP_PROXY` and
 
 | Field | Meaning | `config()` |
 |---|---|---|
-| `limits` | `std.http` `Limits` for response heads and bodies | `std.http.limits()` |
+| `limits` | `std.http` `Limits` for response heads and bodies, including a proxy's `CONNECT` reply | `std.http.limits()` |
 | `connect_timeout` | Resolve the host and connect | 10 s |
 | `write_timeout` | Any one write | 10 s |
 | `head_timeout` | From the end of the request to the end of the final response head | 30 s |
@@ -204,7 +204,7 @@ and its per-operation timeout.
 | `protocol Transport` | `read_before` and `write_before` with `TcpStream`'s parameters, returning `Result[i64, ClientError]`; `write_before` is generic in its `S: ByteSource` source |
 | `protocol Connector[T]` | `open(self: &mut, endpoint: &Endpoint, deadline, cancel) -> Result[T, ClientError]` |
 | `Endpoint(scheme, host, port: u16, tunnel: Option[Tunnel])` | Where to connect: the origin, or the proxy; `host` is lowercase without brackets |
-| `Tunnel(host, port: u16, authorization: Option[str])` | The proxy to reach the origin through with `CONNECT` |
+| `Tunnel(host, port: u16, authorization: Option[str], limits: Limits)` | The proxy to reach the origin through with `CONNECT`; `limits` bounds the proxy's reply head |
 | `dial(&endpoint, &deadline, &cancel)` | `Result[TcpStream, ClientError]`: a TCP connection to the endpoint, through its tunnel if it has one |
 | `Plain`, `TcpConnector` | A TCP connection; the connector refuses `https` and tunnels with `UnsupportedScheme` |
 

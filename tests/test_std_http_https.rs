@@ -232,6 +232,68 @@ CONNECT localhost:9 HTTP/1.1|Host: localhost:9|Proxy-Authorization: Basic cHJveH
     );
 }
 
+/// The proxy's `CONNECT` reply is read within `Config.limits`, not the
+/// defaults (issue #281): a 40-byte header line fails a 32-byte `max_line`.
+#[test]
+fn connect_replies_are_read_within_the_configured_limits() {
+    let source = r##"import std.bytes
+import std.http.client as hc
+import std.http.https
+import std.net
+import std.time
+import std.tls
+from std.net import TcpListener
+from std.sync import CancellationToken
+from std.time import Deadline
+
+def later() -> Result[Deadline, Failure]:
+    Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
+
+# Answers each CONNECT with a 2xx reply whose Via line is 40 bytes long.
+def proxy(listener: TcpListener) -> Result[(), Failure]:
+    never = CancellationToken()?
+    reply = std.bytes.from_text("HTTP/1.1 200 Connection Established\r\nVia: 1.1 a-proxy-with-a-long-name-here\r\n\r\n")?
+    for index in range(2):
+        mut tcp = listener.accept(&later()?, &never)?
+        tcp.write_all_before(&reply, 0, reply.len(), &later()?, &never)?
+    Ok(())
+
+def fetch(port: u16, max_line: i64) -> Result[(), Failure]:
+    never = CancellationToken()?
+    mut settings = hc.config()?
+    settings.limits.max_line = max_line
+    settings.proxy = Some(hc.proxy(&"http://127.0.0.1:".concat(&str.from(i64(port))?)?)?)
+    tls = std.tls.client_config(&std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem")?).unwrap()).unwrap()
+    mut client = std.http.https.client(settings, tls)?
+    match client.get("https://localhost:9/", &later()?, &never):
+        case Ok(_):
+            print("answered")?
+        case Err(error):
+            print(error)?
+    Ok(())
+
+def main() -> Result[(), Failure]:
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
+    port = listener.local_address()?.port
+    with spawn(proxy, listener)? as task:
+        fetch(port, 32)?
+        # The default limits accept the reply; the TLS handshake then fails
+        # on the closed connection.
+        fetch(port, 8192)?
+        task.join()?
+    Ok(())
+"##
+    .replace("FIXTURES", &fixtures());
+    let printed = output(&source);
+    let lines: Vec<&str> = printed.lines().collect();
+    assert_eq!(lines.len(), 2, "{printed}");
+    assert_eq!(
+        lines[0],
+        "std.http.client.ClientError.Http(std.http.HttpError.LineTooLong)"
+    );
+    assert_ne!(lines[1], lines[0]);
+}
+
 /// The client and its TCP connector do not reference std.tls, so a program
 /// that only speaks `http` links none of rustls or ring.
 #[test]

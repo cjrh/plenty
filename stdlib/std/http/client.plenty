@@ -56,11 +56,13 @@ pub enum TlsFailure:
     CertificateRequired
     Incompatible
 
-# A proxy to reach the endpoint through with CONNECT.
+# A proxy to reach the endpoint through with CONNECT. `limits` bounds the
+# proxy's reply head; the client passes its Config.limits.
 pub class Tunnel:
     pub host: str
     pub port: u16
     pub authorization: Option[str]
+    pub limits: Limits
 
 # Where a connection goes: the origin, or the proxy. `host` has no brackets.
 # `tunnel` is set for an `https` origin reached through a proxy.
@@ -207,7 +209,7 @@ def tunnelled(stream: TcpStream, endpoint: &Endpoint, via: &Tunnel, deadline: &D
     proxied(&mut conn, sent)?
     mut interim = 0
     while True:
-        answer = match std.http.read_response(&mut conn, &std.http.limits()):
+        answer = match std.http.read_response(&mut conn, &via.limits):
             case Ok(Some(found)):
                 found
             case Ok(Nothing):
@@ -979,7 +981,7 @@ pub class Client[T, C]:
                             secret = Some(*value)
                         case Nothing:
                             pass
-                    endpoint.tunnel = Some(Tunnel(chosen.endpoint.host, chosen.endpoint.port, secret))
+                    endpoint.tunnel = Some(Tunnel(chosen.endpoint.host, chosen.endpoint.port, secret, copy_limits(&self._config.limits)))
             case Nothing:
                 pass
         key = alloc(key_of(&endpoint, proxied))?
