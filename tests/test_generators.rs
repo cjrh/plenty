@@ -165,6 +165,18 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
     "`a` is moved in a loop"
 )]
 #[case("def condition(g: Generator[i64]) -> bool:\n    True\na = count(2)\nwhile condition(a):\n    pass", "`a` is moved in a loop")]
+#[case(
+    "a = count(2)\nlist((x for x in zip(a))).unwrap()",
+    "`zip` expects 2 arguments, got 1"
+)]
+#[case(
+    "list((x for x in enumerate())).unwrap()",
+    "`enumerate` expects 1 or 2 arguments, got 0"
+)]
+#[case(
+    "a = count(2)\nlist((x for x in reversed(a, a))).unwrap()",
+    "`reversed` expects 1 arguments, got 2"
+)]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(&format!("{COUNT}{source}"))
         .unwrap_err()

@@ -145,13 +145,16 @@ impl Lower<'_> {
                 && !self.generics.templates.contains_key(name)
                 && !self.aliases.contains_key(name)
             {
-                let valid = match name.as_str() {
-                    "enumerate" => (1..=2).contains(&args.len()),
-                    "zip" => args.len() == 2,
-                    _ => args.len() == 1,
+                let (valid, expected) = match name.as_str() {
+                    "enumerate" => ((1..=2).contains(&args.len()), "1 or 2"),
+                    "zip" => (args.len() == 2, "2"),
+                    _ => (args.len() == 1, "1"),
                 };
                 if !valid {
-                    return Err(source.at.error(format!("invalid {name} argument count")));
+                    return Err(source.at.error(format!(
+                        "`{name}` expects {expected} arguments, got {}",
+                        args.len()
+                    )));
                 }
                 let args = args
                     .iter()
