@@ -535,8 +535,12 @@ fn limits_are_enforced() {
         r#"
 base = std.regex.limits()
 print(shown(std.regex.compile("abc", &Limits(2, 128, 1000, 100000, 67108864, 100000000)))?)?
+print(shown(std.regex.compile("", &Limits(100, 0, 1000, 100000, 67108864, 100000000)))?)?
+print(shown(std.regex.compile("a|b", &Limits(100, 0, 1000, 100000, 67108864, 100000000)))?)?
+print(shown(std.regex.compile("(a)", &Limits(100, 0, 1000, 100000, 67108864, 100000000)))?)?
+print(shown(std.regex.compile("(a)", &Limits(100, 1, 1000, 100000, 67108864, 100000000)))?)?
+print(shown(std.regex.compile("((a))", &Limits(100, 1, 1000, 100000, 67108864, 100000000)))?)?
 print(shown(std.regex.compile("((a))", &Limits(100, 2, 1000, 100000, 67108864, 100000000)))?)?
-print(shown(std.regex.compile("((a))", &Limits(100, 3, 1000, 100000, 67108864, 100000000)))?)?
 print(shown(std.regex.compile("a{1001}", &base))?)?
 print(shown(std.regex.compile("a{99999999999999999999}", &base))?)?
 print(shown(std.regex.compile("(a{1000}){1000}", &base))?)?
@@ -555,6 +559,10 @@ print(shown(std.regex.compile(&"".join(deep)?, &base))?)?
 "#,
         r#"
 LimitExceeded(PatternBytes)
+ok
+ok
+LimitExceeded(Nesting)
+ok
 LimitExceeded(Nesting)
 ok
 LimitExceeded(Repetition)

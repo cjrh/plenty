@@ -324,9 +324,6 @@ class Compiler:
         Ok(pc)
 
     def alternation(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
-        self._depth += 1
-        if self._depth > self._max_nesting:
-            return Err(RegexError.LimitExceeded(Limit.Nesting))
         start = len(self._op)
         mut ends = integers()?
         self.concat(pattern)?
@@ -335,7 +332,6 @@ class Compiler:
             self.concat(pattern)?
         if len(ends) > 0:
             self.alternate(start, &ends)?
-        self._depth -= 1
         Ok(())
 
     def concat(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
@@ -640,7 +636,12 @@ class Compiler:
             held(self._names.append(""))?
         if capture >= 0:
             self.emit(op_save, capture * 2, 0)?
+        # Only groups count toward `max_nesting`; the top-level alternation does not.
+        self._depth += 1
+        if self._depth > self._max_nesting:
+            return Err(RegexError.LimitExceeded(Limit.Nesting))
         self.alternation(pattern)?
+        self._depth -= 1
         if not self.eat(pattern, 41):
             return Err(RegexError.Syntax(SyntaxError(open, "unclosed group")))
         self._flags = saved
