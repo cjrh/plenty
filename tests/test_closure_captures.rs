@@ -154,3 +154,18 @@ fn owned_captures_enforce_moves_and_explicit_lists() {
         assert!(error.contains(expected), "expected {expected}: {error}");
     }
 }
+
+#[rstest::rstest]
+#[case::duplicate_capture("f = def [value, value]() -> i64:", "3:21: duplicate closure capture")]
+#[case::shadowing_parameter(
+    "f = def [value](value: i64) -> i64:",
+    "3:21: a parameter cannot shadow a closure capture"
+)]
+fn capture_name_errors_report_the_name(#[case] header: &str, #[case] expected: &str) {
+    // Issue #200: these errors pointed at `def`.
+    let source = format!(
+        "def main() -> Result[(), Failure]:\n    value = 1\n    {header}\n        value\n    Ok(())\n"
+    );
+    let error = check_source(&source).unwrap_err().to_string();
+    assert!(error.ends_with(expected), "{error}");
+}

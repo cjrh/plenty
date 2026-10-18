@@ -1420,9 +1420,10 @@ impl Parser {
             while !self.eat("]") {
                 let borrowed = self.eat("&");
                 let mutable = self.eat("mut");
+                let name_at = self.peek().clone();
                 let name = self.name()?;
                 if captures.iter().any(|c: &Capture| c.name == name) {
-                    return Err(at.error("duplicate closure capture"));
+                    return Err(name_at.error("duplicate closure capture"));
                 }
                 captures.push(Capture {
                     name,
@@ -1466,7 +1467,7 @@ impl Parser {
             let param_at = self.peek().clone();
             let param = self.name()?;
             if captures.iter().any(|c| c.name == param) {
-                return Err(at.error("a parameter cannot shadow a closure capture"));
+                return Err(param_at.error("a parameter cannot shadow a closure capture"));
             }
             if inputs.iter().any(|(n, _)| n == &param) {
                 return Err(param_at.error("duplicate parameter"));
