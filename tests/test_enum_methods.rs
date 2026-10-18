@@ -148,6 +148,17 @@ fn invalid_enum_methods_have_actionable_diagnostics() {
 }
 
 #[test]
+fn empty_variant_parentheses_are_reported_at_the_variant() {
+    let error = support::check_source("enum E:\n    A()\n    B\n")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("2:5: declare a nullary variant without parentheses"),
+        "{error}"
+    );
+}
+
+#[test]
 fn protocol_checks_reject_missing_wrong_and_method_generic_signatures() {
     let prefix = "protocol Readable:\n    def read(self) -> i64:\n        pass\ndef read[T: Readable](value: &T) -> ():\n    pass\n";
     for (method, expected) in [

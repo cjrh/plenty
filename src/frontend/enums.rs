@@ -94,6 +94,7 @@ impl Parser {
             if public {
                 return Err(self.peek().error("enum variants inherit the enum's visibility; pub requires a method declaration"));
             }
+            let variant_at = self.peek().clone();
             let variant = self.name()?;
             if !declared.insert(variant.clone()) {
                 return Err(self.peek().error(format!("duplicate variant `{variant}`")));
@@ -108,7 +109,7 @@ impl Parser {
                     self.expect(",")?;
                 }
                 if fields.is_empty() {
-                    return Err(at.error("declare a nullary variant without parentheses"));
+                    return Err(variant_at.error("declare a nullary variant without parentheses"));
                 }
             }
             self.kind(Kind::Newline, "the end of the variant declaration")?;
