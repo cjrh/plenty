@@ -17,25 +17,42 @@ pub enum Value {
     U64(u64),
 }
 
-/// Source string literals retained for the duration of compilation.
+/// Source string and byte literals retained for the duration of compilation.
+/// Both kinds share one handle space because both become one read-only data
+/// symbol with the same counted layout.
 #[derive(Default)]
 pub struct Heap {
-    strings: Vec<String>,
+    literals: Vec<Literal>,
+}
+
+enum Literal {
+    Text(String),
+    Bytes(Box<[u8]>),
 }
 
 impl Heap {
     /// Store `s` and return a handle to it.
     pub fn add_str(&mut self, s: String) -> StrId {
-        let id = StrId(self.strings.len() as u32);
-        self.strings.push(s);
+        self.add(Literal::Text(s))
+    }
+
+    /// Store the contents of a `b"..."` literal and return a handle to it.
+    pub fn add_bytes(&mut self, bytes: Box<[u8]>) -> StrId {
+        self.add(Literal::Bytes(bytes))
+    }
+
+    fn add(&mut self, literal: Literal) -> StrId {
+        let id = StrId(self.literals.len() as u32);
+        self.literals.push(literal);
         id
     }
 
-    /// Borrow the string behind `id`.
-    ///
-    /// Panics only if given a handle this `Heap` never issued, which can only
-    /// happen through a bug in the compiler — never through a user's program.
-    pub fn str(&self, id: StrId) -> &str {
-        &self.strings[id.0 as usize]
+    /// The literal's bytes and its scalar count. A byte literal has no
+    /// scalars; its count repeats the byte length.
+    pub fn data(&self, id: StrId) -> (&[u8], usize) {
+        match &self.literals[id.0 as usize] {
+            Literal::Text(text) => (text.as_bytes(), text.chars().count()),
+            Literal::Bytes(bytes) => (bytes, bytes.len()),
+        }
     }
 }

@@ -20,7 +20,8 @@ for source beginning with comments. An already-open buffer can be corrected with
 `:setlocal filetype=plenty` after the runtime path is available.
 
 Highlighting includes keywords, primitive and collection types, function
-declarations, numbers and suffixes, strings and escapes, operators, and comments.
+declarations, numbers and suffixes, strings, byte literals and escapes,
+operators, and comments.
 Single- and double-quoted strings stay on one line; triple-quoted strings span
 lines. See [source syntax](../../language/02-source/index.md).
 

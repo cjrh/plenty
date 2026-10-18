@@ -45,6 +45,8 @@ mod test_borrowing;
 mod test_boxed_callables;
 #[path = "test_boxes.rs"]
 mod test_boxes;
+#[path = "test_byte_literals.rs"]
+mod test_byte_literals;
 #[path = "test_call_borrowing.rs"]
 mod test_call_borrowing;
 #[path = "test_callable_bounds.rs"]

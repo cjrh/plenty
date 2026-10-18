@@ -758,11 +758,13 @@ impl Lower<'_> {
                 }
                 let (key, value) = match &ty {
                     Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
-                    Ty::List(_) | Ty::Str | Ty::Range(_) => (Ty::I64, ty.element().unwrap()),
+                    Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_) => {
+                        (Ty::I64, ty.element().unwrap())
+                    }
                     _ => {
                         return Err(e
                             .at
-                            .error("indexing requires list, dict, str, range, or Bytes"))
+                            .error("indexing requires list, dict, str, bytes, range, or Bytes"))
                     }
                 };
                 let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;

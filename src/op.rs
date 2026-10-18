@@ -44,6 +44,9 @@ pub enum Ty {
     /// Stored enum payload marker; source-level unit expressions have no operand.
     Unit,
     Str,
+    /// `bytes`: an immutable byte literal in read-only data. It is copied as
+    /// a pointer and never released, so it needs no ownership.
+    ByteStr,
     File,
     /// Private native owners used by the embedded filesystem library.
     FsReadDir,
@@ -404,6 +407,7 @@ impl fmt::Display for Ty {
             Ty::F64 => "f64",
             Ty::Unit => "()",
             Ty::Str => "str",
+            Ty::ByteStr => "bytes",
             Ty::File => "File",
             Ty::FsReadDir => "FsReadDir",
             Ty::FsDirEntry => "FsDirEntry",
@@ -621,6 +625,8 @@ pub enum Op {
     FloatNeg,
     /// Push a string literal — already stored in the heap — onto the stack.
     PushStr(StrId),
+    /// Push a byte literal, stored in the heap's literal pool, as `bytes`.
+    PushBytes(StrId),
     /// Push a `Bool` literal onto the stack (`true` / `false`).
     PushBool(bool),
     /// Pop two values; push their sum (integers) or concatenation (text).
@@ -1809,6 +1815,7 @@ fn step(
             }
         }
         Op::PushStr(_) => stack.push(Ty::Str),
+        Op::PushBytes(_) => stack.push(Ty::ByteStr),
         Op::PushBool(_) => stack.push(Ty::Bool),
         Op::ForeignNull(ty) => {
             if !matches!(ty, Ty::ForeignPtr(_)) {

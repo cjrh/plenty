@@ -58,6 +58,7 @@ enum Kind {
     Word(String),
     Number(String),
     Text(String),
+    Bytes(Vec<u8>),
     Symbol(String),
     Newline,
     Indent,
@@ -202,6 +203,82 @@ impl<'a> Lexer<'a> {
         });
     }
 
+    /// The string prefix at the cursor, when a known spelling is directly
+    /// followed by a quote, and its width. Any other word before a quote stays
+    /// a word.
+    fn literal_prefix(&self) -> Option<(std::result::Result<Prefix, &'static str>, usize)> {
+        let bytes = self.source.as_bytes();
+        let width = bytes[self.pos..]
+            .iter()
+            .take_while(|c| c.is_ascii_alphabetic())
+            .count();
+        if !matches!(bytes.get(self.pos + width), Some(b'\'' | b'"')) {
+            return None;
+        }
+        let prefix = match &bytes[self.pos..self.pos + width] {
+            b"b" => Ok(Prefix::Bytes),
+            b"B" => Err("byte literals use a lowercase `b` prefix"),
+            _ => return None,
+        };
+        Some((prefix, width))
+    }
+
+    /// The body of `b"..."` from its opening quote. Only ASCII characters and
+    /// escapes may appear, so each byte has exactly one spelling.
+    fn byte_literal(&mut self, start: &Token) -> Result<Vec<u8>> {
+        let source = self.source;
+        let bytes = source.as_bytes();
+        let quote = bytes[self.pos];
+        let closes = |pos: usize| bytes.get(pos) == Some(&quote);
+        let triple = closes(self.pos + 1) && closes(self.pos + 2);
+        let width = if triple { 3 } else { 1 };
+        self.pos += width;
+        self.column += width;
+        let mut value = Vec::new();
+        loop {
+            let here = Token {
+                kind: Kind::Eof,
+                line: self.line,
+                column: self.column,
+                source: None,
+            };
+            let ch = source[self.pos..]
+                .chars()
+                .next()
+                .ok_or_else(|| start.error("unterminated byte literal"))?;
+            if ch == quote as char && (!triple || (closes(self.pos + 1) && closes(self.pos + 2))) {
+                self.pos += width;
+                self.column += width;
+                return Ok(value);
+            }
+            if ch == '\n' && !triple {
+                return Err(start.error("newline in a quoted byte literal"));
+            }
+            if !ch.is_ascii() {
+                return Err(here.error(format!(
+                    "a byte literal holds only ASCII characters; write `{ch}` with `\\x` escapes or convert text with `std.bytes.from_text`"
+                )));
+            }
+            self.pos += 1;
+            self.column += 1;
+            if ch == '\n' {
+                self.line += 1;
+                self.column = 1;
+            }
+            if ch != '\\' {
+                value.push(ch as u8);
+                continue;
+            }
+            if self.pos == bytes.len() {
+                return Err(start.error("unterminated escape"));
+            }
+            let (byte, width) = byte_escape(&source[self.pos..]).map_err(|m| here.error(m))?;
+            value.push(byte);
+            self.pos += width;
+            self.column += width;
+        }
+    }
+
     fn lex_item(&mut self, out: &mut VecDeque<Token>) -> Result<()> {
         // Every character with a meaning outside strings and comments is
         // ASCII, and no byte of a longer UTF-8 sequence is, so the bytes are
@@ -314,20 +391,9 @@ impl<'a> Lexer<'a> {
                                 .ok_or_else(|| start.error("unterminated escape"))?;
                             self.pos += escaped.len_utf8();
                             self.column += 1;
-                            text.push(match escaped {
-                                '0' => '\0',
-                                'n' => '\n',
-                                'r' => '\r',
-                                't' => '\t',
-                                '\\' => '\\',
-                                '\'' => '\'',
-                                '"' => '"',
-                                _ => {
-                                    return Err(
-                                        start.error(format!("unsupported escape \\{escaped}"))
-                                    )
-                                }
-                            });
+                            text.push(escape(escaped).ok_or_else(|| {
+                                start.error(format!("unsupported escape \\{escaped}"))
+                            })?);
                         } else {
                             if ch == '\n' {
                                 self.line += 1;
@@ -337,6 +403,17 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     self.push(out, Kind::Text(text), line, column);
+                }
+                c if c.is_ascii_alphabetic() && self.literal_prefix().is_some() => {
+                    let (prefix, width) = self.literal_prefix().expect("checked prefix");
+                    self.pos += width;
+                    self.column += width;
+                    match prefix.map_err(|message| start.error(message))? {
+                        Prefix::Bytes => {
+                            let value = self.byte_literal(&start)?;
+                            self.push(out, Kind::Bytes(value), line, column);
+                        }
+                    }
                 }
                 c if c.is_ascii_alphabetic() || c == b'_' => {
                     let begin = self.pos;
@@ -848,6 +925,7 @@ enum Expression {
     Member(Box<Expr>, String),
     Number(String),
     Text(String),
+    Bytes(Vec<u8>),
     Bool(bool),
     Collection {
         kind: String,
@@ -1873,6 +1951,7 @@ impl Parser {
         let kind = match &at.kind {
             Kind::Number(n) => Expression::Number(n.clone()),
             Kind::Text(s) => Expression::Text(s.clone()),
+            Kind::Bytes(b) => Expression::Bytes(b.clone()),
             Kind::Word(s) if s == "True" || s == "False" => Expression::Bool(s == "True"),
             Kind::Word(s) if s == "not" => Expression::Unary(s.clone(), Box::new(self.expr(3)?)),
             Kind::Word(s) if s == "lambda" => {
@@ -2091,6 +2170,44 @@ impl Parser {
     }
 }
 
+/// A string prefix. Each has exactly one spelling, matched in
+/// `Lexer::literal_prefix`.
+#[derive(Clone, Copy, Debug)]
+enum Prefix {
+    Bytes,
+}
+
+/// Decodes the escape after a backslash in byte text: a shared escape or
+/// `\xHH`. Returns the byte and the source bytes consumed after the backslash.
+fn byte_escape(rest: &str) -> std::result::Result<(u8, usize), String> {
+    let escaped = rest.chars().next().expect("caller checked for input");
+    if escaped == 'x' {
+        let digits = rest
+            .get(1..3)
+            .filter(|digits| digits.bytes().all(|b| b.is_ascii_hexdigit()))
+            .ok_or("`\\x` needs exactly two hexadecimal digits")?;
+        return Ok((u8::from_str_radix(digits, 16).expect("hex digits"), 3));
+    }
+    match escape(escaped) {
+        Some(byte) => Ok((byte as u8, 1)),
+        None => Err(format!("unsupported escape \\{escaped} in a byte literal")),
+    }
+}
+
+/// The escapes string and byte literals share; byte literals add `\xHH`.
+fn escape(c: char) -> Option<char> {
+    Some(match c {
+        '0' => '\0',
+        'n' => '\n',
+        'r' => '\r',
+        't' => '\t',
+        '\\' => '\\',
+        '\'' => '\'',
+        '"' => '"',
+        _ => return None,
+    })
+}
+
 fn named_type(name: &str) -> Type {
     Some(match name {
         "i8" => Ty::I8,
@@ -2105,6 +2222,7 @@ fn named_type(name: &str) -> Type {
         "f64" => Ty::F64,
         "bool" => Ty::Bool,
         "str" => Ty::Str,
+        "bytes" => Ty::ByteStr,
         "File" => Ty::File,
         "FsReadDir" => Ty::FsReadDir,
         "FsDirEntry" => Ty::FsDirEntry,
@@ -2837,6 +2955,10 @@ impl Lower<'_> {
             Expression::Text(s) => {
                 ops.push(Op::PushStr(self.heap.add_str(s.clone())));
                 Some(Ty::Str)
+            }
+            Expression::Bytes(b) => {
+                ops.push(Op::PushBytes(self.heap.add_bytes(b.as_slice().into())));
+                Some(Ty::ByteStr)
             }
             Expression::Bool(b) => {
                 ops.push(Op::PushBool(*b));

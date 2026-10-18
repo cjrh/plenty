@@ -39,6 +39,8 @@
 //! existing CLIF paths; `Str Str` calls `plenty_concat` / `plenty_str_eq`
 //! in the Rust runtime. `Display` prints strings via `plenty_print_str`,
 //! and `match` patterns of type `Str` become `plenty_str_eq` + `brif`.
+//! A byte literal (`Op::PushBytes`) uses the same immortal layout and is
+//! tagged `Ty::ByteStr`; it is never released and never reaches a text helper.
 //!
 //! The precompiled `plenty-runtime` archive is embedded in the compiler. AOT
 //! builds write it beside the Cranelift object and invoke `cc` only to link.
@@ -1033,12 +1035,12 @@ const PTR_TY: types::Type = types::I64;
 
 /// Serialize the runtime's 32-byte immortal string prefix and exact UTF-8 bytes.
 /// AOT targets the host, so serialization uses native byte order.
-fn string_literal_bytes(s: &str) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(32 + s.len());
-    for word in [u64::MAX, 0, s.len() as u64, s.chars().count() as u64] {
+fn string_literal_bytes((data, scalars): (&[u8], usize)) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(32 + data.len());
+    for word in [u64::MAX, 0, data.len() as u64, scalars as u64] {
         bytes.extend_from_slice(&word.to_ne_bytes());
     }
-    bytes.extend_from_slice(s.as_bytes());
+    bytes.extend_from_slice(data);
     bytes
 }
 
@@ -1059,8 +1061,7 @@ fn declare_str_data(
         // keeps the symbol names predictable when reading disassembly.
         let name = format!("plenty_str_{i}");
         let data_id = module.declare_data(&name, Linkage::Local, false, false)?;
-        let s = heap.str(id);
-        let bytes = string_literal_bytes(s);
+        let bytes = string_literal_bytes(heap.data(id));
         let mut desc = DataDescription::new();
         desc.define(bytes.into_boxed_slice());
         desc.set_align(8);
@@ -1074,7 +1075,7 @@ fn declare_str_data(
 fn declare_eof_empty_str(module: &mut ObjectModule) -> Result<DataId> {
     let id = module.declare_data("plenty_readline_eof_empty", Linkage::Local, false, false)?;
     let mut desc = DataDescription::new();
-    desc.define(string_literal_bytes("").into_boxed_slice());
+    desc.define(string_literal_bytes((b"", 0)).into_boxed_slice());
     desc.set_align(8);
     module.define_data(id, &desc)?;
     Ok(id)
@@ -1090,7 +1091,7 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
                 collect_str_ids(condition, out, seen);
                 collect_str_ids(body, out, seen);
             }
-            Op::PushStr(id) if seen.insert(*id, ()).is_none() => out.push(*id),
+            Op::PushStr(id) | Op::PushBytes(id) if seen.insert(*id, ()).is_none() => out.push(*id),
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     if let Pattern::Str(id) = arm.pattern {
@@ -1818,7 +1819,8 @@ impl Lowerer<'_, '_> {
                 let v = self.bcx.ins().iconst(types::I8, if *b { 1 } else { 0 });
                 self.stack.push((v, Ty::Bool));
             }
-            Op::PushStr(id) => self.lower_push_str(*id)?,
+            Op::PushStr(id) => self.lower_push_str(*id, Ty::Str)?,
+            Op::PushBytes(id) => self.lower_push_str(*id, Ty::ByteStr)?,
             Op::Add => self.lower_add()?,
             Op::Sub => self.lower_checked_arith(ArithKind::Sub)?,
             Op::Mul => self.lower_checked_arith(ArithKind::Mul)?,
@@ -2415,10 +2417,10 @@ impl Lowerer<'_, '_> {
         }
     }
 
-    /// Lower `Op::PushStr`: emit `global_value` for the data symbol
-    /// that holds this literal's bytes, push the address (typed as
-    /// `Ty::Str`) onto the compile-time stack.
-    fn lower_push_str(&mut self, id: StrId) -> Result<()> {
+    /// Lower `Op::PushStr` or `Op::PushBytes`: emit `global_value` for the
+    /// data symbol that holds this literal's bytes, push the address (typed
+    /// as `ty`) onto the compile-time stack.
+    fn lower_push_str(&mut self, id: StrId, ty: Ty) -> Result<()> {
         let data_id = *self.str_data.get(&id).ok_or_else(|| -> Box<dyn Error> {
             // `declare_str_data` is supposed to register every StrId
             // reachable through ops; missing here means the collection
@@ -2427,7 +2429,7 @@ impl Lowerer<'_, '_> {
         })?;
         let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
         let addr = self.bcx.ins().global_value(PTR_TY, gv);
-        self.stack.push((addr, Ty::Str));
+        self.stack.push((addr, ty));
         Ok(())
     }
 
@@ -2465,7 +2467,7 @@ impl Lowerer<'_, '_> {
         if self
             .stack
             .last()
-            .is_some_and(|(_, ty)| ty.uses_value_runtime())
+            .is_some_and(|(_, ty)| ty.uses_value_runtime() || *ty == Ty::ByteStr)
         {
             let (a, b, ty) = self.pop_pair()?;
             let eq = self.collection_call(8, &[a, b], Some(&ty))?;

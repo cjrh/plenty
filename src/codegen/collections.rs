@@ -353,6 +353,10 @@ impl Lowerer<'_, '_> {
             | CollectionOp::Get(Ty::Str)
             | CollectionOp::IterGet(Ty::Str)
             | CollectionOp::Contains(Ty::Str) => Some(&Ty::Str),
+            CollectionOp::Len(Ty::ByteStr)
+            | CollectionOp::Get(Ty::ByteStr)
+            | CollectionOp::IterGet(Ty::ByteStr)
+            | CollectionOp::Contains(Ty::ByteStr) => Some(&Ty::ByteStr),
             CollectionOp::TextByteLen => Some(&Ty::Str),
             _ => None,
         };

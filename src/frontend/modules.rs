@@ -1415,6 +1415,7 @@ impl Scope {
             | Expression::ClassReady(..)
             | Expression::Number(_)
             | Expression::Text(_)
+            | Expression::Bytes(_)
             | Expression::Bool(_)
             | Expression::Unit
             | Expression::Name(_) => {}

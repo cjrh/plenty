@@ -104,6 +104,7 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
         | Expression::Type(_)
         | Expression::Number(_)
         | Expression::Text(_)
+        | Expression::Bytes(_)
         | Expression::Bool(_)
         | Expression::Unit => {}
     }
