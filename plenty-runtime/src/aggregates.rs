@@ -1747,6 +1747,7 @@ pub(crate) unsafe fn collection_at(
             84 => crate::text_io::input(),
             142..=149 => crate::text_io::result(bytes::call(op, a, b, descriptor)),
             80 | 82 => crate::io::write_stream(a as *const Text, op == 82),
+            510 => crate::io::report_write(a as *const Text, b as i64),
             81 | 83 => crate::io::flush_stream(op == 83),
             79 => match crate::numbers::format(a, (*descriptor).kind) {
                 Ok(text) => wrap(text as u128, 0),

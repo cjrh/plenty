@@ -1,0 +1,193 @@
+from std.bytes import Bytes, BytesError, with_capacity
+
+pub enum FormatError:
+    InvalidSpec
+    LimitExceeded
+    RecursionLimit
+    Bytes(BytesError)
+    Output(IoError)
+    WriteZero
+    OutputClosed
+
+enum Destination:
+    Stderr
+    String(Bytes)
+
+def stored[T](result: Result[T, BytesError]) -> Result[T, FormatError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(FormatError.Bytes(error))
+
+# Reserve the whole UTF-8 spelling before mutation: allocation failure leaves
+# both the accepted byte count and the collector's valid prefix unchanged.
+def append(data: &mut Bytes, text: &str) -> Result[(), FormatError]:
+    stored(data.reserve(text.byte_len()))?
+    for scalar in text:
+        code = ord(scalar).unwrap()
+        if code < 128u32:
+            stored(data.push(u8(code)))?
+        elif code < 2048u32:
+            stored(data.push(u8(192u32 + code // 64u32)))?
+            stored(data.push(u8(128u32 + code % 64u32)))?
+        elif code < 65536u32:
+            stored(data.push(u8(224u32 + code // 4096u32)))?
+            stored(data.push(u8(128u32 + code // 64u32 % 64u32)))?
+            stored(data.push(u8(128u32 + code % 64u32)))?
+        else:
+            stored(data.push(u8(240u32 + code // 262144u32)))?
+            stored(data.push(u8(128u32 + code // 4096u32 % 64u32)))?
+            stored(data.push(u8(128u32 + code // 64u32 % 64u32)))?
+            stored(data.push(u8(128u32 + code % 64u32)))?
+    Ok(())
+
+def digit(value: u64) -> str:
+    match value:
+        case 0u64:
+            "0"
+        case 1u64:
+            "1"
+        case 2u64:
+            "2"
+        case 3u64:
+            "3"
+        case 4u64:
+            "4"
+        case 5u64:
+            "5"
+        case 6u64:
+            "6"
+        case 7u64:
+            "7"
+        case 8u64:
+            "8"
+        case 9u64:
+            "9"
+        case 10u64:
+            "a"
+        case 11u64:
+            "b"
+        case 12u64:
+            "c"
+        case 13u64:
+            "d"
+        case 14u64:
+            "e"
+        case _:
+            "f"
+
+pub class Formatter:
+    _destination: Destination
+    _limit: i64
+    _written: i64
+    _depth: i64
+    _max_depth: i64
+    _failed: bool
+
+    pub def completed(self) -> i64:
+        self._written
+
+    pub def failed(self) -> bool:
+        self._failed
+
+    pub def text(self: &mut Formatter, value: &str) -> Result[(), FormatError]:
+        if self._failed:
+            return Err(FormatError.OutputClosed)
+        count = value.byte_len()
+        if count > self._limit - self._written:
+            return Err(FormatError.LimitExceeded)
+        match &mut self._destination:
+            case Destination.String(data):
+                append(data, value)?
+                self._written += count
+            case Destination.Stderr:
+                mut at = 0
+                while at < count:
+                    match __report_write(value, at):
+                        case Ok(moved):
+                            if moved == 0:
+                                self._failed = True
+                                return Err(FormatError.WriteZero)
+                            at += moved
+                            self._written += moved
+                        case Err(error):
+                            match error:
+                                case IoError.System(4):
+                                    pass
+                                case _:
+                                    self._failed = True
+                                    return Err(FormatError.Output(error))
+        Ok(())
+
+    pub def boolean(self: &mut Formatter, value: bool) -> Result[(), FormatError]:
+        if value:
+            self.text("True")
+        else:
+            self.text("False")
+
+    pub def unsigned(self: &mut Formatter, value: u64, base: i64) -> Result[(), FormatError]:
+        if base != 2 and base != 8 and base != 10 and base != 16:
+            return Err(FormatError.InvalidSpec)
+        mut divisor = 1u64
+        radix = u64(base)
+        while value // divisor >= radix:
+            divisor *= radix
+        mut remaining = value
+        while divisor > 0u64:
+            self.text(&digit(remaining // divisor))?
+            remaining %= divisor
+            divisor //= radix
+        Ok(())
+
+    pub def integer(self: &mut Formatter, value: i64) -> Result[(), FormatError]:
+        if value < 0:
+            self.text("-")?
+            self.unsigned(u64(-(value + 1)) + 1u64, 10)
+        else:
+            self.unsigned(u64(value), 10)
+
+    pub def enter(self: &mut Formatter) -> Result[(), FormatError]:
+        if self._depth >= self._max_depth:
+            return Err(FormatError.RecursionLimit)
+        self._depth += 1
+        Ok(())
+
+    pub def leave(self: &mut Formatter) -> ():
+        if self._depth > 0:
+            self._depth -= 1
+
+pub protocol Formattable:
+    def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        pass
+
+def validate(max_bytes: i64, max_depth: i64) -> Result[(), FormatError]:
+    if max_bytes < 0 or max_depth < 0 or max_depth > 64:
+        return Err(FormatError.InvalidSpec)
+    Ok(())
+
+pub def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter, FormatError]:
+    validate(max_bytes, max_depth)?
+    Ok(Formatter(Destination.Stderr, max_bytes, 0, 0, max_depth, False))
+
+pub def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter, FormatError]:
+    validate(max_bytes, max_depth)?
+    Ok(Formatter(Destination.String(stored(with_capacity(0))?), max_bytes, 0, 0, max_depth, False))
+
+pub def finish(output: &Formatter) -> Result[str, FormatError]:
+    match &output._destination:
+        case Destination.String(data):
+            stored(data.to_text())
+        case Destination.Stderr:
+            Err(FormatError.InvalidSpec)
+
+pub def render[T: Formattable](value: &T, output: &mut Formatter) -> Result[(), FormatError]:
+    output.enter()?
+    result = value.format(output)
+    output.leave()
+    result
+
+pub def to_string[T: Formattable](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]:
+    mut output = string_formatter(max_bytes, max_depth)?
+    render(value, &mut output)?
+    finish(&output)

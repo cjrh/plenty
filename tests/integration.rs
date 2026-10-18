@@ -359,6 +359,8 @@ mod test_std_random;
 mod test_std_ready;
 #[path = "test_std_regex.rs"]
 mod test_std_regex;
+#[path = "test_std_report.rs"]
+mod test_std_report;
 #[path = "test_std_secrets.rs"]
 mod test_std_secrets;
 #[path = "test_std_signal.rs"]

@@ -21,7 +21,7 @@ pub(crate) struct File {
 /// write raised is consumed before the mask is restored; one that was already
 /// pending is left for whoever expects it.
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
-fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+pub(crate) fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
     // glibc's sigset_t is 1024 bits; signal 13 is bit 12 of the first word.
     type Set = [u64; 16];
     #[repr(C)]
@@ -62,7 +62,7 @@ fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> std::io::Re
 }
 
 #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
-fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+pub(crate) fn without_sigpipe<T>(write: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
     write()
 }
 

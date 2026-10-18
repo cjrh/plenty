@@ -108,8 +108,9 @@ outer.describe_with(&outer.cause.describe()?)
 ```
 
 That gives `load settings: read_bytes "missing/settings": IoError.System(2)`.
-An application error enum matches its variants and calls the method that fits
-each payload; there is no formatting protocol.
+An application error enum can match its variants and call the method that fits
+each payload. [`std.report.Formattable`](report.md) provides borrowed formatting
+for application types; `Context` does not implement it automatically yet.
 
 ## Reports
 

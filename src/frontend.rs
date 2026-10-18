@@ -2365,6 +2365,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "write_stderr"
                 | "__caller_location"
                 | "__test_fault"
+                | "__report_write"
                 | "flush_stdout"
                 | "flush_stderr"
                 | "input"
@@ -3592,10 +3593,10 @@ impl Lower<'_> {
                 if let Some(operation) = match name.as_str() {
                     "__caller_location" => Some(CollectionOp::CallerLocation),
                     "__test_fault" => Some(CollectionOp::TestFault),
+                    "__report_write" => Some(CollectionOp::ReportWrite),
                     _ => None,
                 } {
-                    // Hooks for std.test, not user-visible API: see "Caller
-                    // locations" in the errors reference.
+                    // Trusted std hooks are not user-visible API.
                     let standard =
                         e.at.source
                             .as_ref()

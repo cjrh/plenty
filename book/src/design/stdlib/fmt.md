@@ -6,6 +6,10 @@ Formatting policy is checked Plenty; the only new native primitive writes a
 bounded floating-point spelling into existing byte storage. There is no runtime
 reflection, format-string interpreter, or dynamic writer object.
 
+For a small monomorphic formatting contract with allocation-free stderr
+construction, see [`std.report`](report.md). Its `Formattable.format` protocol
+is separate from the writer-generic display/debug methods on this page.
+
 ## Writers and strings
 
 `formatter(writer, scratch, max_bytes, max_depth)` consumes a writer and a

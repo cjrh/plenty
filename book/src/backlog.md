@@ -24,9 +24,11 @@ not mean all candidates or every concurrency diagnostic are implemented.
 1. **Error composition and presentation (B14/B71).** General sums now provide
    `case value: Type:` member patterns, normalization, lossless injection/widening
    and exhaustive matching. Enums now support ordinary methods, structural
-   protocols, and explicit `std.fmt` display/debug formatting. Next settle the
-   allocation-free reporting formatter API, add sum dispatch, and integrate
-   entrypoint reports. Migrate examples,
+   protocols, and explicit `std.fmt` display/debug formatting. The concrete
+   [`std.report`](design/stdlib/report.md) formatter and `Formattable` protocol
+   provide allocation-free stderr text/integer/boolean formatting and fallible
+   string collection. Next add sum dispatch, integrate entrypoint reports and
+   typed context formatting. Migrate examples,
    libraries where appropriate, fixtures and documentation before removing
    builtin `Failure`. Use non-error sums and the mutual-TLS lesson as acceptance
    cases. This is the agreed next language batch; B71 records its boundaries.
@@ -158,7 +160,7 @@ ownership remain in the shared `issues.db`.
 
 | ID | Work item | Scope |
 | --- | --- | --- |
-| B71 | Error composition and presentation | `std.error.map_error` and eleven HTTP/JSON adopters are implemented; issue #141 separates specialization depth and total budgets. [General sums](design/language/03-types/anonymous-sums.md) now implement normalization, injection/Result widening, ownership and exhaustive typed-member matching, including non-error values. [Enum methods](design/language/03-types/enums.md#methods), structural protocol satisfaction, and explicit `std.fmt` display/debug formatting are implemented. Next: (1) settle and implement the [allocation-free reporting formatter](proposals/error-formatting.md), sum dispatch and entry reports; (2) migrate fixtures, examples, tutorial/reference and probe guidance to precise errors/sums, then remove builtin `Failure` and special erasure. The mutual-TLS lesson remains a migration acceptance case. Independently extend the [typed-stream prototype](proposals/error-composition.md#prototype-findings) to production stream/HTTP composition and other framing modes. Case guards, residual-set inference, empty sums, arbitrary protocol forwarding and dynamic error objects are deferred. |
+| B71 | Error composition and presentation | `std.error.map_error` and eleven HTTP/JSON adopters are implemented; issue #141 separates specialization depth and total budgets. [General sums](design/language/03-types/anonymous-sums.md) now implement normalization, injection/Result widening, ownership and exhaustive typed-member matching, including non-error values. [Enum methods](design/language/03-types/enums.md#methods), structural protocol satisfaction, and explicit `std.fmt` display/debug formatting are implemented. [`std.report`](design/stdlib/report.md) supplies a concrete `Formattable` protocol, allocation-free stderr text/integer/boolean formatting, and fallible string collection. Next: (1) add [sum dispatch, entry reports and typed context formatting](proposals/error-formatting.md); (2) migrate fixtures, examples, tutorial/reference and probe guidance to precise errors/sums, then remove builtin `Failure` and special erasure. The mutual-TLS lesson remains a migration acceptance case. Floating-point report formatting remains an additive core extension. Independently extend the [typed-stream prototype](proposals/error-composition.md#prototype-findings) to production stream/HTTP composition and other framing modes. Case guards, residual-set inference, empty sums, arbitrary protocol forwarding and dynamic error objects are deferred. |
 | B72 | State and ownership ergonomics | Explore [typestate at owned boundaries](proposals/typestate-and-owned-transitions.md) and payload enums for runtime state machines. Proposal assessment recorded for [linear obligations](proposals/linear-obligations.md), separate [resolution scopes](proposals/linear-scope-resolution.md), and their [effects/typestate boundaries](proposals/linear-integration.md) (issue #149); implementation and stdlib conversion remain unapproved. Completed cleanups: tuple-based HTTP response assembly removes placeholder heads (issue #134); ordinary string sharing replaces empty-string copies (issue #135); match-valued bindings replace dummy HTTP Results (issue #136). These use existing language facilities. Typestate experiments and runtime-state enum refactors remain; no blanket conversion or general partial-move feature approved. |
 
 ### Standard library delivery slices

@@ -1,9 +1,9 @@
 # Human-readable formatting and error reports
 
-Status: enum methods and ordinary enum protocol satisfaction are implemented;
-the reporting protocol and its interaction
-with [anonymous sums](error-sets.md) are the agreed direction. Exact public API
-names and formatter operations remain to be specified before implementation.
+Status: enum methods, ordinary enum protocol satisfaction, and the concrete
+[`std.report`](../design/stdlib/report.md) formatting core are implemented.
+Automatic formatting dispatch over [anonymous sums](error-sets.md) and
+entrypoint selection remain the agreed direction below.
 Current behavior is defined by [entry reports](../design/toolchain/01-building/entry-report.md),
 [formatting](../design/facilities/01-builtins/formatting.md), and
 [`std.error`](../design/stdlib/error.md). Scheduling belongs in B71 in the
@@ -24,11 +24,11 @@ Formatting a value does not itself print or terminate the process.
 
 Today entrypoint reports use structural rendering, with special explanations for
 some builtins. `Context.describe()` also uses structural cause text, while
-`describe_with()` accepts caller-provided wording. There is no customizable common
-formatting protocol. Existing protocol bounds accept classes and enums, and both
-can supply the existing `std.fmt` display/debug methods. Those methods use a
-generic writer and allocated scratch; they do not yet define the allocation-free
-entrypoint reporting contract below.
+`describe_with()` accepts caller-provided wording. `std.report.Formattable`
+provides borrowed formatting into a concrete destination; entrypoint reports and
+`Context` do not select it automatically yet. Classes and enums can also supply
+the existing `std.fmt` display/debug methods. Those methods use a generic writer
+and allocated scratch and remain useful for richer application formatting.
 
 ## Borrowed formatting into a destination
 
@@ -44,12 +44,20 @@ their ordinary fallibility. Formatting errors must be explicit, must not replace
 the original application error, and must terminate reporting rather than recurse
 into reporting the formatting error itself.
 
-The implementation contract must define text/scalar writes, destination failure,
-the result type of the formatting method, and which operations may allocate.
-Prefer a small formatter abstraction over making every error generic over all
-I/O writers. Its storage and dispatch must be specified without smuggling in a
-boxed runtime protocol value. This page does not choose a public method spelling
-before those signatures and borrowing rules are reviewed together.
+The implemented contract is `Formattable.format(self, output: &mut Formatter)
+-> Result[(), FormatError]` in `std.report`. `Formatter` stores a private inline
+destination enum: stderr or an owned byte collector, plus byte/depth counters.
+The stderr variant creates no scratch buffer or heap owner. Text, signed/unsigned
+integers and booleans need no allocation; collection and `finish` explicitly
+return storage failures. Floating-point spelling and rich format specifications
+remain with `std.fmt` in this first core slice.
+
+`render` borrows the value, checks its protocol and restores the depth counter on
+success or error. Each native stderr attempt reports its exact byte progress;
+interruption is retried, and other output errors make that formatter terminal.
+No boxed protocol value, generic writer parameter, prefix, newline, exit policy,
+or automatic fallback is hidden in this core. See its reference for byte limits,
+partial output, and collection guarantees.
 
 ## Enum protocols and sum formatting
 
@@ -105,8 +113,8 @@ string collection failure, nested contexts, custom formatter failure before and
 after output, unsupported structural rendering, closed stderr, exactly-once
 payload destruction, and identical compile-and-run/native executable reports.
 
-Resolve the formatter method/result/destination API, partial-output fallback
-wording and context convenience API compatibility
-before coding those interfaces. These are remaining design details within the
-agreed architecture. The implementation must update the reference and tutorial
-with actual syntax and behavior; this proposal does not change current APIs.
+Resolve partial-output fallback wording and context convenience API compatibility
+before coding those reporting interfaces. The formatter method, result and
+destination API are defined in the `std.report` reference. These remaining design
+details belong within the agreed architecture; the reference and tutorial must
+continue to distinguish implemented formatting from planned automatic reporting.

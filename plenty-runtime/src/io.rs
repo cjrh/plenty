@@ -53,6 +53,18 @@ pub(crate) fn flush_stream(stderr: bool) -> u128 {
     io_result(result.map(|()| 0))
 }
 
+/// A single write exposes exact byte progress to the checked reporting loop.
+/// Offsets can split UTF-8 after an OS short write; no decoding occurs here.
+pub(crate) unsafe fn report_write(text: *const Text, offset: i64) -> u128 {
+    // SAFETY: the dispatcher borrows the text throughout the operation.
+    let source = unsafe { strings::bytes(&text) };
+    let result = match usize::try_from(offset).ok().and_then(|at| source.get(at..)) {
+        Some(bytes) => crate::files::without_sigpipe(|| std::io::stderr().lock().write(bytes)),
+        None => Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
+    };
+    io_result(result.map(|written| written as u128))
+}
+
 pub(crate) fn output(bytes: &[u8]) {
     if std::io::stdout().lock().write_all(bytes).is_err() {
         crate::fail("cannot write stdout");
