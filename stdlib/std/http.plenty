@@ -200,7 +200,9 @@ def folded(scalar: &str) -> i64:
         case Err(_):
             -1
 
-def same_name(left: &str, right: &str) -> bool:
+# Whether `left` and `right` are equal ignoring ASCII case. Never allocates;
+# non-ASCII text is never equal.
+pub def same_name(left: &str, right: &str) -> bool:
     if left.byte_len() != right.byte_len() or not left.isascii() or not right.isascii():
         return False
     mut index = 0
