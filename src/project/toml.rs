@@ -187,6 +187,21 @@ impl Parser<'_> {
                                 format!("table `{}` is defined twice", path.join(".")),
                             );
                         }
+                        // `table_at` descends into an array's newest element,
+                        // which TOML allows only for intermediate segments:
+                        // `[a]` after `[[a]]` must not reopen that element.
+                        let (parent, last) = path.split_at(path.len() - 1);
+                        let parent = self.table_at(&mut root, parent, line)?;
+                        if let Some(Entry {
+                            value: Value::Array(_),
+                            ..
+                        }) = parent.get(&last[0])
+                        {
+                            return self.error_at(
+                                line,
+                                format!("`{}` is already defined as an array", path.join(".")),
+                            );
+                        }
                         defined.push(path.clone());
                         self.table_at(&mut root, &path, line)?;
                     }
@@ -514,6 +529,26 @@ mod tests {
     }
 
     #[test]
+    fn subtable_header_extends_newest_array_element() {
+        let text = "[[a]]\nx = 1\n[[a]]\nx = 2\n[a.b]\ny = 3\n";
+        let doc = parse(text, "plenty.toml").unwrap();
+        let Value::Array(items) = get(&doc, "a") else {
+            panic!()
+        };
+        let Value::Table(last) = &items[1] else {
+            panic!()
+        };
+        let Value::Table(b) = get(last, "b") else {
+            panic!()
+        };
+        assert_eq!(get(b, "y"), &Value::Integer(3));
+        let Value::Table(first) = &items[0] else {
+            panic!()
+        };
+        assert!(!first.contains_key("b"));
+    }
+
+    #[test]
     fn errors_name_the_line() {
         for (text, message) in [
             ("a = 1\na = 2\n", "plenty.toml:2: key `a` is defined twice"),
@@ -523,6 +558,14 @@ mod tests {
             ("a = \"x\n", "plenty.toml:1: unterminated string"),
             ("a = 1 b\n", "plenty.toml:1: expected the end of the line"),
             ("a = 1\n[a]\n", "plenty.toml:2: `a` is not a table"),
+            (
+                "[[a]]\nx = 1\n[a]\ny = 2\n",
+                "plenty.toml:3: `a` is already defined as an array",
+            ),
+            (
+                "[x]\n[[x.a]]\n[x.a]\n",
+                "plenty.toml:3: `x.a` is already defined as an array",
+            ),
             (
                 "a = \"\"\"x\"\"\"\n",
                 "multi-line strings are not supported",
