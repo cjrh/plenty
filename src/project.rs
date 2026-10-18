@@ -711,9 +711,8 @@ impl Project {
                 .into());
             }
         }
-        if let Some(existing) = self.same_git_package(&target_source) {
-            return self.merge_git(existing, &target_source, chain);
-        }
+        // Check the chain first: a Git package still being visited is also
+        // found by `same_git_package`, which would accept the cycle.
         if chain_directories(self, chain).contains(&path) {
             let name = self
                 .packages
@@ -722,6 +721,9 @@ impl Project {
                 .map(|p| p.manifest.name.clone())
                 .unwrap_or_default();
             return Err(format!("dependency cycle: {} -> {name}", chain.join(" -> ")).into());
+        }
+        if let Some(existing) = self.same_git_package(&target_source) {
+            return self.merge_git(existing, &target_source, chain);
         }
         self.visit(path, target_source, chain, resolver)
     }
