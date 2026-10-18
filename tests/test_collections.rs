@@ -241,6 +241,27 @@ fn native_collection_edges(#[case] source: &str, #[case] expected: &str) {
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }
 
+#[rstest]
+#[case(
+    "xs = [1, 2].unwrap()\nd = dict(xs)",
+    "dict conversion requires a dictionary",
+    "hashable"
+)]
+#[case(
+    "xs = [1.0, 2.0].unwrap()\ns = set(xs).unwrap()",
+    "set elements must be hashable",
+    "dict"
+)]
+fn set_and_dict_conversion_errors_name_their_own_cause(
+    #[case] source: &str,
+    #[case] expected: &str,
+    #[case] unrelated: &str,
+) {
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
+    assert!(!error.contains(unrelated), "{error}");
+}
+
 #[test]
 fn collection_context_does_not_bypass_name_shadowing() {
     let error = support::check_source("list = 1\nxs: list[i64] = list().unwrap()").unwrap_err();

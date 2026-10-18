@@ -3140,10 +3140,8 @@ impl Lower<'_> {
                 ops.push(Op::Enum(crate::sum::EnumOp::New(result.clone(), 0)));
                 return Ok(Ty::Enum(result));
             }
-            _ => {
-                return Err(at
-                    .error("set elements must be hashable; dict conversion requires a dictionary"))
-            }
+            "dict" => return Err(at.error("dict conversion requires a dictionary")),
+            _ => return Err(at.error("set elements must be hashable")),
         };
         self.try_collect_on_stack(ty, out, at, ops)
     }
