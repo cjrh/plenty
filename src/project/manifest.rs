@@ -170,7 +170,11 @@ struct Reader<'a> {
 
 impl Reader<'_> {
     fn error<T>(&self, entry: &Entry, message: impl std::fmt::Display) -> Result<T, String> {
-        Err(format!("{}:{}: {message}", self.name, entry.line))
+        self.error_at(entry.line, message)
+    }
+
+    fn error_at<T>(&self, line: usize, message: impl std::fmt::Display) -> Result<T, String> {
+        Err(format!("{}:{line}: {message}", self.name))
     }
 
     fn string(&self, key: &str, entry: &Entry) -> Result<String, String> {
@@ -403,13 +407,16 @@ pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Docume
                 return reader.error(entry, "`bin` must be an array of tables: use [[bin]]");
             };
             let mut binaries: Vec<(String, PathBuf)> = vec![];
-            for item in items {
+            for (index, item) in items.iter().enumerate() {
                 let Value::Table(table) = item else {
                     return reader.error(entry, "`bin` must be an array of tables: use [[bin]]");
                 };
                 reader.known(table, "[[bin]]", &["name", "path"])?;
                 let (Some(name_entry), Some(path)) = (table.get("name"), table.get("path")) else {
-                    return reader.error(entry, "each [[bin]] requires `name` and `path`");
+                    // A `[[bin]]` element has no entry of its own; point at
+                    // its header rather than the array's first one.
+                    let line = entry.header_lines.get(index).copied().unwrap_or(entry.line);
+                    return reader.error_at(line, "each [[bin]] requires `name` and `path`");
                 };
                 let bin = reader.string("name", name_entry)?;
                 if !valid_name(&bin) {
@@ -810,6 +817,10 @@ mod tests {
             ),
             ("[lib]\npath = \"../x.plenty\"\n", "below src/"),
             ("[[bin]]\nname = \"a\"\n", "requires `name` and `path`"),
+            (
+                "[[bin]]\nname = \"a\"\npath = \"src/a.plenty\"\n[[bin]]\nname = \"b\"\n",
+                "plenty.toml:8: each [[bin]] requires `name` and `path`",
+            ),
             (
                 "[dependencies]\nx = { path = \"a\", branch = \"main\" }\n",
                 "unknown key `branch`",

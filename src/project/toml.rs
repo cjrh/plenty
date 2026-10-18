@@ -28,6 +28,8 @@ pub(crate) struct Entry {
     /// Whether `[[...]]` headers created this array. TOML lets headers extend
     /// and descend into only these arrays, not statically defined ones.
     pub(crate) table_array: bool,
+    /// For such an array, the line of each element's header.
+    pub(crate) header_lines: Vec<usize>,
 }
 
 impl Value {
@@ -173,10 +175,12 @@ impl Parser<'_> {
                             value: Value::Array(vec![]),
                             line,
                             table_array: true,
+                            header_lines: vec![],
                         });
                         match &mut entry.value {
                             Value::Array(items) if entry.table_array => {
                                 items.push(Value::Table(Table::new()));
+                                entry.header_lines.push(line);
                                 // Headers below `path` named tables of the
                                 // previous element; the new element may define
                                 // them again. Sorted order keeps them adjacent.
@@ -259,6 +263,7 @@ impl Parser<'_> {
                             value,
                             line,
                             table_array: false,
+                            header_lines: vec![],
                         },
                     );
                 }
@@ -280,6 +285,7 @@ impl Parser<'_> {
                 value: Value::Table(Table::new()),
                 line,
                 table_array: false,
+                header_lines: vec![],
             });
             table = match &mut entry.value {
                 Value::Table(table) => table,
@@ -404,6 +410,7 @@ impl Parser<'_> {
                             value,
                             line,
                             table_array: false,
+                            header_lines: vec![],
                         },
                     );
                     self.blank();
