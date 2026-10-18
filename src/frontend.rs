@@ -736,7 +736,16 @@ impl TypeRef {
                 .resolve(aliases)?
                 .ok_or_else(|| self.at.error("generator elements cannot be unit"))?;
             if element.restricted_storage() {
-                return Err(self.at.error("generators cannot yield generators"));
+                // Closures stay rejected even when a heap owner could store
+                // them: generator expressions reject them too.
+                let subject = match &element {
+                    Ty::Generator(_) => "generators",
+                    Ty::Closure(_) => "closures",
+                    Ty::Ref(..) => "references",
+                    Ty::Task(_) => "scoped tasks",
+                    _ => "enums carrying references, generators, closures, or scoped tasks",
+                };
+                return Err(self.at.error(format!("generators cannot yield {subject}")));
             }
             return Ok(Some(crate::generator::ty(element, None)));
         }
