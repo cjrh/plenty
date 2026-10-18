@@ -5,7 +5,7 @@
 # and cancellation bound every handshake and transfer.
 # See book/src/design/stdlib/tls.md.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
 from std.io import StreamError
 from std.net import NetError, Shutdown, TcpStream
 from std.ready import Interest, Selector
@@ -132,6 +132,13 @@ def stored[T](result: Result[T, BytesError]) -> Result[T, TlsError]:
             Err(TlsError.Net(NetError.Stream(StreamError.OutOfRange)))
 
 # A count, or a runtime failure code other than `would_block`.
+# Encrypts source[start:stop] into the session: the count taken, or one of
+# the negative codes.
+def encrypted[S: ByteSource](session: &ByteStorage, source: &S, start: i64, stop: i64) -> Result[i64, BytesError]:
+    if start < 0 or start > stop or stop > source.len():
+        return Err(BytesError.OutOfRange)
+    Ok(__tls_write(session, source, start, stop))
+
 def counted(result: Result[i64, BytesError]) -> Result[i64, TlsError]:
     count = stored(result)?
     if count < 0 and count != would_block:
@@ -605,7 +612,7 @@ pub class TlsStream:
     # takes at once; the count taken. Nothing, with nothing taken, while the
     # handshake is incomplete or earlier ciphertext is still unsent. What the
     # socket did not take is sent by later `try_` calls.
-    pub def try_write(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
+    pub def try_write[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
         if self._closed:
             return Err(TlsError.Closed)
         if not self.try_handshake()?:
@@ -615,7 +622,7 @@ pub class TlsStream:
         mut end = stop
         if stop - start > buffer_size:
             end = start + buffer_size
-        count = counted(source.tls_write(&self._session, start, end))?
+        count = counted(encrypted(&self._session, source, start, end))?
         self.try_flush()?
         Ok(Some(count))
 
@@ -651,17 +658,17 @@ pub class TlsStream:
     # Encrypts at most 16 KiB of source[start:stop] and sends it before the
     # deadline; the count taken. On failure, an unknown prefix has been sent
     # and the rest stays buffered for the next call.
-    pub def write_before(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+    pub def write_before[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
         if self._closed:
             return Err(TlsError.Closed)
         mut end = stop
         if stop - start > buffer_size:
             end = start + buffer_size
-        count = counted(source.tls_write(&self._session, start, end))?
+        count = counted(encrypted(&self._session, source, start, end))?
         self.flush_before(deadline, cancel)?
         Ok(count)
 
-    pub def write_all_before(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+    pub def write_all_before[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
         mut at = start
         while at < stop:
             at += self.write_before(source, at, stop, deadline, cancel)?
@@ -703,13 +710,13 @@ pub class TlsStream:
             flowed(self.receive_blocking())?
         Ok(0)
 
-    pub def write(self: &mut TlsStream, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         if self._closed:
             return Err(StreamError.Io(IoError.Closed))
         mut end = stop
         if stop - start > buffer_size:
             end = start + buffer_size
-        count = flowed(counted(source.tls_write(&self._session, start, end)))?
+        count = flowed(counted(encrypted(&self._session, source, start, end)))?
         self.flush_blocking()?
         Ok(count)
 

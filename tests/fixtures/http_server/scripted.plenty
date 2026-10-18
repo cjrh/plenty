@@ -2,7 +2,7 @@ import std.bytes
 import std.encoding
 import std.http
 import std.http.server
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.http.server import Config, Exchange, Report, Router, ServerError, Transport
 from std.net import NetError, Shutdown
 from std.sync import CancellationToken
@@ -34,7 +34,7 @@ pub class Script:
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
             return Err(NetError.Cancelled)
         source.write_stdout(start, stop).unwrap()

@@ -9,6 +9,14 @@ pub enum BytesError:
     InvalidUtf8
     Allocation(AllocError)
 
+# Bytes that operations read in place: a `b"..."` literal or a `Bytes`
+# buffer. Generic code is checked per concrete type, so `source[i]` and
+# `for byte in source` work for both as well. Operations taking a
+# `&S` with `S: ByteSource` read either form without copying.
+pub protocol ByteSource:
+    def len(self) -> i64:
+        pass
+
 pub class Bytes:
     _owner: ByteStorage
 
@@ -82,18 +90,18 @@ pub class Bytes:
         __bytes_fill(self._owner, start, stop, value)
         Ok(())
 
-    pub def extend(self: &mut Bytes, source: &Bytes) -> Result[(), BytesError]:
-        stored(__bytes_append(self._owner, source._owner, 0, __bytes_len(source._owner)))
+    pub def extend[S: ByteSource](self: &mut Bytes, source: &S) -> Result[(), BytesError]:
+        stored(__bytes_append(self._owner, source, 0, source.len()))
 
-    pub def extend_range(self: &mut Bytes, source: &Bytes, start: i64, stop: i64) -> Result[(), BytesError]:
-        checked(start, stop, __bytes_len(source._owner))?
-        stored(__bytes_append(self._owner, source._owner, start, stop))
+    pub def extend_range[S: ByteSource](self: &mut Bytes, source: &S, start: i64, stop: i64) -> Result[(), BytesError]:
+        checked(start, stop, source.len())?
+        stored(__bytes_append(self._owner, source, start, stop))
 
-    pub def overwrite(self: &mut Bytes, offset: i64, source: &Bytes, start: i64, stop: i64) -> Result[(), BytesError]:
-        checked(start, stop, __bytes_len(source._owner))?
+    pub def overwrite[S: ByteSource](self: &mut Bytes, offset: i64, source: &S, start: i64, stop: i64) -> Result[(), BytesError]:
+        checked(start, stop, source.len())?
         if offset < 0 or offset > __bytes_len(self._owner) - (stop - start):
             return Err(BytesError.OutOfRange)
-        __bytes_overwrite(self._owner, offset, source._owner, start, stop)
+        __bytes_overwrite(self._owner, offset, source, start, stop)
         Ok(())
 
     pub def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]:
@@ -113,20 +121,20 @@ pub class Bytes:
         Ok(located(__bytes_find(self._owner, value, start, stop)))
 
     # The first byte that equals any byte of `set`. An empty set finds nothing.
-    pub def find_in(self, set: &Bytes, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+    pub def find_in[S: ByteSource](self, set: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(located(__bytes_find_in(self._owner, set._owner, start, stop, 1u8)))
+        Ok(located(__bytes_find_in(self._owner, set, start, stop, 1u8)))
 
     # The first byte that equals no byte of `set`: the end of a run.
-    pub def find_not_in(self, set: &Bytes, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+    pub def find_not_in[S: ByteSource](self, set: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(located(__bytes_find_in(self._owner, set._owner, start, stop, 0u8)))
+        Ok(located(__bytes_find_in(self._owner, set, start, stop, 0u8)))
 
     # The first position where all of `needle` occurs inside the range. An
     # empty needle is found at `start`.
-    pub def find_bytes(self, needle: &Bytes, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+    pub def find_bytes[S: ByteSource](self, needle: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(located(__bytes_find_bytes(self._owner, needle._owner, start, stop)))
+        Ok(located(__bytes_find_bytes(self._owner, needle, start, stop)))
 
     pub def count(self, value: u8, start: i64, stop: i64) -> Result[i64, BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
@@ -134,11 +142,11 @@ pub class Bytes:
 
     # Whether source[start:stop] occurs at `offset`. Too few bytes after
     # `offset` is False, not an error.
-    pub def matches(self, offset: i64, source: &Bytes, start: i64, stop: i64) -> Result[bool, BytesError]:
-        checked(start, stop, __bytes_len(source._owner))?
+    pub def matches[S: ByteSource](self, offset: i64, source: &S, start: i64, stop: i64) -> Result[bool, BytesError]:
+        checked(start, stop, source.len())?
         if offset < 0 or offset > __bytes_len(self._owner):
             return Err(BytesError.OutOfRange)
-        Ok(__bytes_matches(self._owner, offset, source._owner, start, stop))
+        Ok(__bytes_matches(self._owner, offset, source, start, stop))
 
     # Whether the UTF-8 bytes of `text` occur at `offset`.
     pub def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]:
@@ -228,9 +236,9 @@ pub class Bytes:
     # that did not come from `compress_state` stops the process. Its bytes are
     # the codec's pending output, which a step never grows past the capacity
     # reserved at creation.
-    pub def compress_step(self: &mut Bytes, input: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
-        checked(start, stop, __bytes_len(input._owner))?
-        Ok(__compress_step(self._owner, input._owner, start, stop))
+    pub def compress_step[S: ByteSource](self: &mut Bytes, input: &S, start: i64, stop: i64) -> Result[i64, BytesError]:
+        checked(start, stop, input.len())?
+        Ok(__compress_step(self._owner, input, start, stop))
 
     pub def compress_flush(self: &mut Bytes, mode: i64) -> i64:
         __compress_flush(self._owner, mode)
@@ -251,12 +259,8 @@ pub class Bytes:
     pub def sqlite_bind(self, statement: &ByteStorage, index: i64) -> i64:
         __sqlite_bind_blob(statement, index, self._owner)
 
-    # std.net's datagram transfers; import that module instead. `address` is
-    # std.net's encoded form.
-    pub def net_send_to(self, socket: &mut File, start: i64, stop: i64, address: &list[u8]) -> Result[i64, IoError]:
-        transported(start, stop, __bytes_len(self._owner))?
-        __net_send_to(self._owner, start, stop, socket, address)
-
+    # std.net's datagram receive; import that module instead. Sending reads
+    # any ByteSource, so std.net calls its primitive directly.
     pub def net_receive_from(self: &mut Bytes, socket: &mut File, start: i64, stop: i64, sender: &mut Bytes) -> Result[i64, IoError]:
         transported(start, stop, __bytes_len(self._owner))?
         __net_receive_from(self._owner, start, stop, socket, sender._owner)
@@ -280,10 +284,6 @@ pub class Bytes:
     pub def tls_read(self: &mut Bytes, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
         Ok(__tls_read(session, self._owner, start, stop))
-
-    pub def tls_write(self, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        Ok(__tls_write(session, self._owner, start, stop))
 
     # std.tls's session details, copied into the whole buffer: the
     # negotiated protocol (0), the requested server name (1) or the peer's

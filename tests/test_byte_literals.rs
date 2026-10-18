@@ -282,8 +282,8 @@ fn bytes_is_distinct_from_text_and_buffers() {
             "operator `<` does not accept bytes",
         ),
         (
-            r#"value = b"a".len()"#,
-            "bytes has no `len` method; `len(value)` counts its bytes",
+            r#"value = b"a".count(97u8)"#,
+            "bytes has no `count` method; `value.len()` counts its bytes",
         ),
     ] {
         let message = rejected(source);

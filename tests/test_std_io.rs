@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 const PRELUDE: &str = r#"import std.bytes
 import std.io
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.io import StreamError, SeekFrom, Partial, CopyError, CloseError
 
 # Each call consumes one step: n > 0 moves at most n bytes, 0 reports no
@@ -50,7 +50,7 @@ pub class Fake:
         self.at += count
         Ok(count)
 
-    pub def write(self: &mut Fake, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Fake, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         step = self.step()
         if step == -1:
             return Err(StreamError.Interrupted)

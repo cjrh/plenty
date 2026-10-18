@@ -201,7 +201,7 @@ and its per-operation timeout.
 
 | Item | Meaning |
 |---|---|
-| `protocol Transport` | `read_before` and `write_before` with `TcpStream`'s parameters, returning `Result[i64, ClientError]` |
+| `protocol Transport` | `read_before` and `write_before` with `TcpStream`'s parameters, returning `Result[i64, ClientError]`; `write_before` is generic in its `S: ByteSource` source |
 | `protocol Connector[T]` | `open(self: &mut, endpoint: &Endpoint, deadline, cancel) -> Result[T, ClientError]` |
 | `Endpoint(scheme, host, port: u16, tunnel: Option[Tunnel])` | Where to connect: the origin, or the proxy; `host` is lowercase without brackets |
 | `Tunnel(host, port: u16, authorization: Option[str])` | The proxy to reach the origin through with `CONNECT` |

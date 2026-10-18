@@ -8,7 +8,7 @@ import std.bytes
 import std.http
 import std.net
 import std.time
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.http.client import ClientError, Endpoint, Request
 from std.http import HttpError
 from std.net import NetError
@@ -49,7 +49,7 @@ pub class Script:
         self.at += count
         Ok(count)
 
-    pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         if cancel.is_cancelled():
             return Err(ClientError.Net(NetError.Cancelled))
         mut count = stop - start

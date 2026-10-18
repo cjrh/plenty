@@ -580,7 +580,7 @@ mod native {
                 }
                 415 => set_option(file(a)?, b, c),
                 416 => {
-                    let bytes = &(*(a as *const Storage)).bytes;
+                    let bytes = byte_storage::source(a);
                     let source = &bytes[byte_storage::range(b, c, bytes.len())];
                     send_to(file(d)?, source, &contiguous(e)?)
                 }

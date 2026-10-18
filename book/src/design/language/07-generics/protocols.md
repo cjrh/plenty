@@ -30,12 +30,57 @@ Visibility is checked from the bound's defining module before method signatures
 supply evidence. Public contracts cannot expose private protocols, requirement
 types, or concrete arguments. Importing a protocol adds no methods to a type.
 
-Protocols constrain class and enum arguments rather than defining runtime value types or
-existential containers. Protocol parameters cannot have their own bounds;
-protocol arguments exclude unit, references, generators, and closure environments.
-Fields, inheritance, multiple bounds, defaults, associated types, lifecycle
-requirements, and method-local requirement parameters are unsupported. A generic
-implementation method cannot satisfy a monomorphic requirement.
+A requirement may declare its own type parameters, each unconstrained or
+constrained by one protocol. An implementation then declares a generic method
+with as many parameters, the same constraints, and the same signature once its
+parameter names are replaced by the requirement's; the names may differ.
+Calls through the bound instantiate the implementation for each argument type:
+
+```python
+protocol Sized:
+    def size(self) -> i64:
+        pass
+
+protocol Sink:
+    def put[S: Sized](self: &mut Sink, item: &S) -> i64:
+        pass
+
+class Crate:
+    width: i64
+
+    def size(self) -> i64:
+        self.width
+
+class Total:
+    sum: i64
+
+    def put[T: Sized](self: &mut Total, item: &T) -> i64:
+        self.sum += item.size()
+        self.sum
+
+def feed[K: Sink, S: Sized](sink: &mut K, item: &S) -> i64:
+    sink.put(item)
+
+def main() -> Result[(), Failure]:
+    mut total = Total(0)
+    feed(&mut total, &Crate(3))
+    print(feed(&mut total, &Crate(4)))?
+    Ok(())
+```
+```output
+7
+```
+
+A generic method cannot satisfy a requirement without type parameters, and a
+non-generic method cannot satisfy one with them. This is how `std.io.Writer`
+accepts any [`std.bytes.ByteSource`](../../stdlib/bytes.md#byte-sources).
+
+Protocols constrain class and enum arguments, and the built-in `bytes`, rather
+than defining runtime value types or existential containers. `bytes` has one
+method, `len(self) -> i64`; other built-in types have none to offer. Protocol
+parameters cannot have their own bounds; protocol arguments exclude unit,
+references, generators, and closure environments. Fields, inheritance, multiple
+bounds, defaults, associated types, and lifecycle requirements are unsupported.
 
 Generic bodies are checked per concrete instance. Requirements express the
 minimum interface rather than a separately checked abstract body. `IntType` and

@@ -1,5 +1,13 @@
 //! Intrinsic methods for the opaque, affine file owner.
 use super::*;
+use crate::nominal::Nominal;
+use crate::record::ClassType;
+
+/// A read-only byte operand supplied by a `Bytes` buffer or a `bytes` literal.
+enum ByteSource {
+    Buffer(Nominal<ClassType>),
+    Literal,
+}
 
 // One list of modes serves this check and the runtime's `open`.
 #[path = "../../plenty-runtime/src/open_modes.rs"]
@@ -28,6 +36,58 @@ impl Lower<'_> {
         Ok(Some(output))
     }
 
+    /// How the argument for a native's read-only byte operand is supplied,
+    /// when it is a `Bytes` or `bytes` value or reference.
+    fn byte_source(&self, arg: &Expr) -> Option<ByteSource> {
+        let ty = match self.place_type(arg)? {
+            Ty::Ref(inner, _) => (*inner).clone(),
+            other => other,
+        };
+        if ty == Ty::ByteStr {
+            return Some(ByteSource::Literal);
+        }
+        byte_buffers::byte_buffer(&ty).map(ByteSource::Buffer)
+    }
+
+    /// Whether the argument for `source` is a `bytes` literal, so that the
+    /// native's literal variant reads it.
+    pub(super) fn literal_source(&self, source: Option<usize>, args: &[Expr]) -> bool {
+        source
+            .and_then(|index| args.get(index))
+            .is_some_and(|arg| matches!(self.byte_source(arg), Some(ByteSource::Literal)))
+    }
+
+    /// Observes one native operand. A `Bytes` buffer or reference given for
+    /// a read-only source operand passes its storage, so std code generic
+    /// over `std.bytes.ByteSource` reaches either form without a copy.
+    fn operand(
+        &mut self,
+        arg: &Expr,
+        expected: Ty,
+        source: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Vec<usize>> {
+        if source && expected == Ty::ByteStorage {
+            if let Some(ByteSource::Buffer(class)) = self.byte_source(arg) {
+                let loan = self.byte_storage_place(&class, arg, false, ops)?;
+                ops.push(Op::ReadRef(Ty::ByteStorage));
+                return Ok(vec![loan]);
+            }
+            let other = match self.place_type(arg) {
+                Some(Ty::Ref(inner, _)) => Some((*inner).clone()),
+                other => other,
+            };
+            if let Some(other) = other.filter(|ty| *ty != Ty::ByteStorage) {
+                return Err(arg.at.error(format!(
+                    "bytes are read in place only from a `std.bytes.Bytes` buffer or a `bytes` literal, got {other}"
+                )));
+            }
+        }
+        let (actual, loans) = self.observe_expected(arg, Some(expected.clone()), ops)?;
+        self.same(Some(actual), Some(expected), &arg.at)?;
+        Ok(loans)
+    }
+
     pub(super) fn bytes_call(
         &mut self,
         operation: crate::bytes::BytesOp,
@@ -35,8 +95,20 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        let operation = match operation.literal() {
+            Some(literal) if self.literal_source(operation.source(), args) => literal,
+            _ => operation,
+        };
         if !operation.mutable() {
-            return self.system_call(CollectionOp::Bytes(operation), args, at, ops);
+            let source = operation.source();
+            return self.exclusive_call(
+                CollectionOp::Bytes(operation),
+                &|_| false,
+                source,
+                args,
+                at,
+                ops,
+            );
         }
         let (inputs, output) = operation.signature();
         if args.len() != inputs.len() {
@@ -54,10 +126,8 @@ impl Lower<'_> {
         )?;
         ops.push(Op::ReadRef(inputs[0].clone()));
         let mut reads = Vec::new();
-        for (arg, expected) in args.iter().zip(inputs).skip(1) {
-            let (actual, loans) = self.observe_expected(arg, Some(expected.clone()), ops)?;
-            self.same(Some(actual), Some(expected), &arg.at)?;
-            reads.extend(loans);
+        for (index, (arg, expected)) in args.iter().zip(inputs).enumerate().skip(1) {
+            reads.extend(self.operand(arg, expected, operation.source() == Some(index), ops)?);
         }
         ops.push(Op::Collection(CollectionOp::Bytes(operation)));
         ops.push(Op::UseLoan(loan));
@@ -66,11 +136,13 @@ impl Lower<'_> {
     }
 
     /// A native primitive whose `exclusive` operands are written through and
-    /// need exclusive loans; the rest are observed.
+    /// need exclusive loans; the rest are observed. `source` is the operand
+    /// only read for its bytes, if any.
     pub(super) fn exclusive_call(
         &mut self,
         operation: CollectionOp,
         exclusive: &dyn Fn(usize) -> bool,
+        source: Option<usize>,
         args: &[Expr],
         at: &Token,
         ops: &mut Vec<Op>,
@@ -91,9 +163,7 @@ impl Lower<'_> {
                 ops.push(Op::ReadRef(expected));
                 loans.push(loan);
             } else {
-                let (actual, observed) = self.observe_expected(arg, Some(expected.clone()), ops)?;
-                self.same(Some(actual), Some(expected), &arg.at)?;
-                reads.extend(observed);
+                reads.extend(self.operand(arg, expected, source == Some(index), ops)?);
             }
         }
         ops.push(Op::Collection(operation));

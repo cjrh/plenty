@@ -244,6 +244,15 @@ impl TypeAliases {
         placeholders: impl IntoIterator<Item = &'a String>,
         check: impl FnOnce(&TypeAliases) -> Result<T>,
     ) -> Result<T> {
+        self.probe_bound(placeholders.into_iter().map(|name| (name, Ty::I64)), check)
+    }
+    /// `probe` with a chosen type for each placeholder, so that signatures
+    /// naming different placeholders resolve to different types.
+    pub(super) fn probe_bound<'a, T>(
+        &self,
+        placeholders: impl IntoIterator<Item = (&'a String, Ty)>,
+        check: impl FnOnce(&TypeAliases) -> Result<T>,
+    ) -> Result<T> {
         let mut shapes = self.data.shapes.borrow_mut();
         let validation = shapes.get_or_insert_with(|| Self {
             named: self.named.clone(),
@@ -259,7 +268,7 @@ impl TypeAliases {
         });
         let shadowed: Vec<_> = placeholders
             .into_iter()
-            .map(|name| (name, validation.named.insert(name.clone(), Some(Ty::I64))))
+            .map(|(name, ty)| (name, validation.named.insert(name.clone(), Some(ty))))
             .collect();
         let result = check(validation);
         // Restore in reverse so a repeated placeholder gets its original binding back.

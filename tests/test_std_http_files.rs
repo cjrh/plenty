@@ -15,7 +15,7 @@ import std.http.cookie
 import std.http.files
 import std.http.server
 import std.path
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.fs import Root
 from std.http.cookie import CookieError
 from std.http.server import Exchange, Router
@@ -41,7 +41,7 @@ pub class Script:
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         Ok(source.write_stdout(start, stop).unwrap())
 
 pub enum Route:
@@ -426,7 +426,7 @@ import std.http.body
 import std.http.server
 import std.path
 import std.test
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.fs import Root
 from std.http.body import BodyError, Content, MultipartLimits
 from std.http.server import Exchange
@@ -455,7 +455,7 @@ pub class Script:
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         Ok(stop - start)
 
 pub enum Route:
@@ -594,7 +594,7 @@ import std.net
 import std.path
 import std.time
 import std.tls
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.fs import Root
 from std.http.server import Exchange
 from std.http.tls import TlsTransport

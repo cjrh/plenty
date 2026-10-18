@@ -9,7 +9,7 @@ const HEADER: &str = r#"import std.bytes
 import std.encoding
 import std.io
 import std.toml
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.io import StreamError
 from std.toml import DateTime, DateTimeKind, Entry, Limits, Toml, TomlError, TomlFault
 
@@ -36,7 +36,7 @@ pub class Sink:
     pub data: Bytes
     pub room: i64
 
-    pub def write(self: &mut Sink, buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write[S: ByteSource](self: &mut Sink, buffer: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         mut count = stop - start
         if count > 3:
             count = 3

@@ -4,7 +4,7 @@
 # it at once. Deadlines, interruption retries and event decoding are the
 # checked policy below. See book/src/design/stdlib/ready.md.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
 from std.io import FileStream, StreamError, classify
 from std.sync import CancellationToken
 from std.time import Deadline, monotonic_now
@@ -109,7 +109,7 @@ pub def read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, sto
 
 # Waits for space, then makes one write of at most 4096 bytes from
 # source[start:stop] and reports the bytes it moved.
-pub def write_before(stream: &mut FileStream, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]:
+pub def write_before[S: ByteSource](stream: &mut FileStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]:
     mut end = stop
     if start >= 0 and stop - start > pipe_page:
         end = start + pipe_page

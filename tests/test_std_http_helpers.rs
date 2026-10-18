@@ -15,7 +15,7 @@ import std.io
 import std.json
 import std.net
 import std.path
-from std.bytes import Bytes
+from std.bytes import ByteSource, Bytes
 from std.fs import Root
 from std.http.body import Content, FormLimits, MultipartLimits
 from std.http.cookie import SameSite
@@ -53,7 +53,7 @@ pub class Script:
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         # Stdout is line buffered and may take only part of the range.
         Ok(source.write_stdout(start, stop).unwrap())
 

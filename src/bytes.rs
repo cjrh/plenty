@@ -38,6 +38,13 @@ pub enum BytesOp {
     ValueItem,
     // A copy of a `bytes` literal, which shares the text layout.
     FromStatic,
+    // The operations above whose `source` operand is a `bytes` literal. The
+    // runtime tells a literal from a buffer by its header.
+    AppendLiteral,
+    OverwriteLiteral,
+    FindInLiteral,
+    FindBytesLiteral,
+    MatchesLiteral,
 }
 
 impl BytesOp {
@@ -74,7 +81,46 @@ impl BytesOp {
         })
     }
 
+    /// The operand the primitive only reads bytes from, which a `Bytes`
+    /// buffer or a `bytes` literal can supply.
+    pub fn source(self) -> Option<usize> {
+        match self.buffer_form() {
+            Self::Append | Self::FindIn | Self::FindBytes => Some(1),
+            Self::Overwrite | Self::Matches => Some(2),
+            _ => None,
+        }
+    }
+
+    /// The variant reading `source` from a `bytes` literal.
+    pub fn literal(self) -> Option<Self> {
+        Some(match self {
+            Self::Append => Self::AppendLiteral,
+            Self::Overwrite => Self::OverwriteLiteral,
+            Self::FindIn => Self::FindInLiteral,
+            Self::FindBytes => Self::FindBytesLiteral,
+            Self::Matches => Self::MatchesLiteral,
+            _ => return None,
+        })
+    }
+
+    fn buffer_form(self) -> Self {
+        match self {
+            Self::AppendLiteral => Self::Append,
+            Self::OverwriteLiteral => Self::Overwrite,
+            Self::FindInLiteral => Self::FindIn,
+            Self::FindBytesLiteral => Self::FindBytes,
+            Self::MatchesLiteral => Self::Matches,
+            other => other,
+        }
+    }
+
     pub fn signature(self) -> (Vec<Ty>, Ty) {
+        let form = self.buffer_form();
+        if form != self {
+            let (mut inputs, output) = form.signature();
+            inputs[form.source().unwrap()] = Ty::ByteStr;
+            return (inputs, output);
+        }
         let storage = || Ty::ByteStorage;
         let storage_ref = |mutable| Ty::Ref(Arc::new(Ty::ByteStorage), mutable);
         let list = || Ty::List(Arc::new(Ty::U8));
@@ -128,6 +174,13 @@ impl BytesOp {
             Self::FromText => (vec![Ty::Str], storage()),
             Self::FromStatic => (vec![Ty::ByteStr], storage()),
             Self::ToText => (vec![storage()], sum::option(Ty::Str)),
+            Self::AppendLiteral
+            | Self::OverwriteLiteral
+            | Self::FindInLiteral
+            | Self::FindBytesLiteral
+            | Self::MatchesLiteral => {
+                unreachable!("a literal variant defers to its buffer form")
+            }
         };
         (inputs, sum::result(output, sum::alloc_error()))
     }
@@ -135,7 +188,7 @@ impl BytesOp {
     /// The first operand is written, so it needs an exclusive loan.
     pub fn mutable(self) -> bool {
         matches!(
-            self,
+            self.buffer_form(),
             Self::Set
                 | Self::SetItem
                 | Self::Fill
@@ -157,6 +210,10 @@ impl BytesOp {
     pub fn opcode(self) -> i64 {
         // The scans, fill, and indexed access sit in their own range (230-239);
         // 184 onward belongs to others.
+        let form = self.buffer_form();
+        if form != self {
+            return form.opcode();
+        }
         match self {
             Self::WriteFloat => 280,
             Self::WriteFloatSpec => 281,
