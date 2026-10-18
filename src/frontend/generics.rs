@@ -384,6 +384,17 @@ fn infer(
     infer_inner(pattern, actual, template, inferred, aliases, at, true)
 }
 
+/// Check an argument against a parameter type that mentions no type parameter.
+fn check_expected(expected: &Ty, actual: &Ty, coercible: bool, at: &Token) -> Result<()> {
+    if crate::generator::refine(expected, actual).is_none()
+        && !(coercible && crate::sum::accepts(expected, actual))
+    {
+        let hint = callables::mismatch_hint(expected, actual).unwrap_or_default();
+        return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
+    }
+    Ok(())
+}
+
 fn infer_inner(
     pattern: &TypeRef,
     actual: &Ty,
@@ -394,13 +405,7 @@ fn infer_inner(
     coercible: bool,
 ) -> Result<()> {
     if let Some(expected) = &pattern.concrete {
-        if crate::generator::refine(expected, actual).is_none()
-            && !(coercible && crate::sum::accepts(expected, actual))
-        {
-            let hint = callables::mismatch_hint(expected, actual).unwrap_or_default();
-            return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
-        }
-        return Ok(());
+        return check_expected(expected, actual, coercible, at);
     }
     if let Some(name) = pattern
         .name
@@ -423,13 +428,7 @@ fn infer_inner(
     }
     if !mentions_parameter(pattern, template) {
         let expected = pattern.resolve(aliases)?.unwrap_or(Ty::Unit);
-        if crate::generator::refine(&expected, actual).is_none()
-            && !(coercible && crate::sum::accepts(&expected, actual))
-        {
-            let hint = callables::mismatch_hint(&expected, actual).unwrap_or_default();
-            return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
-        }
-        return Ok(());
+        return check_expected(&expected, actual, coercible, at);
     }
     if pattern.name.as_deref() == Some("|") {
         let mut candidates = vec![inferred.clone()];
