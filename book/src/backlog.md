@@ -48,9 +48,9 @@ the batches above. Further library breadth, B11 stored-reference extensions and
 B72 typestate/linear-obligation experiments remain candidates requiring a
 concrete use case and an agreed contract.
 
-Issue severity still takes precedence: the current open defects are the
-register-allocator context cost (issue #153, normal) and TLS rejection counting
-(issue #152, low). Claims
+Issue severity still takes precedence: the register-allocator context cost
+(issue #153, normal) remains open; TLS rejection counting (issue #152) is fixed.
+Claims
 and implementation/review status belong in `issues.db`; this sequence assigns no
 ownership. Table row order below remains a catalogue, not a second priority list.
 
