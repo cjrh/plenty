@@ -22,26 +22,32 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+pub enum Route:
+    Files
+    Login
+    Me
+
 pub class Site:
     pub public: Root
     pub keys: list[Bytes]
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
-        if exchange.route == 0:
-            path = exchange.params[0].concat("")?
-            std.http.files.serve(exchange, &self.public, &path)?
-        elif exchange.route == 1:
-            mut head = std.http.response(204, "No Content")?
-            cookie = std.http.cookie.signed_cookie(&self.keys, "user", "Ada")?
-            std.http.cookie.add(&mut head, &cookie)?
-            exchange.respond(head, &std.bytes.empty()?)?
-        else:
-            cookies = std.http.cookie.cookies(&exchange.request.headers, 32)?
-            match std.http.cookie.find_signed(&cookies, &self.keys, "user")?:
-                case Some(name):
-                    exchange.send_text(200, &"hello ".concat(&name)?)?
-                case Nothing:
-                    exchange.send_text(401, "who are you?")?
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Route.Files:
+                path = exchange.params[0].concat("")?
+                std.http.files.serve(exchange, &self.public, &path)?
+            case Route.Login:
+                mut head = std.http.response(204, "No Content")?
+                cookie = std.http.cookie.signed_cookie(&self.keys, "user", "Ada")?
+                std.http.cookie.add(&mut head, &cookie)?
+                exchange.respond(head, &std.bytes.empty()?)?
+            case Route.Me:
+                cookies = std.http.cookie.cookies(&exchange.request.headers, 32)?
+                match std.http.cookie.find_signed(&cookies, &self.keys, "user")?:
+                    case Some(name):
+                        exchange.send_text(200, &"hello ".concat(&name)?)?
+                    case Nothing:
+                        exchange.send_text(401, "who are you?")?
         Ok(())
 
 def fetch(port: u16, request: &str) -> Result[str, Failure]:
@@ -99,10 +105,10 @@ def main() -> Result[(), Failure]:
         staged.publish(&std.path.from_text(name)?)?
         staged.close()?
 
-    mut routes = std.http.server.router()?
-    routes.add("GET", "/files/{path...}", 0)?
-    routes.add("POST", "/login", 1)?
-    routes.add("GET", "/me", 2)?
+    mut routes = std.http.server.router[Route]()?
+    routes.add("GET", "/files/{path...}", Route.Files)?
+    routes.add("POST", "/login", Route.Login)?
+    routes.add("GET", "/me", Route.Me)?
     site = Site(parent.open_dir(directory.name())?, [std.secrets.token_bytes(32)?]?)
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port

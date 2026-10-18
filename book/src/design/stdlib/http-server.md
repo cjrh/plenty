@@ -14,12 +14,12 @@ deployment guidance; the server is production-ready.
 
 | Item | Meaning |
 |---|---|
-| `serve[H: Handler[TcpStream]](listener: TcpListener, router: &Router, handler: &H, config: &Config, stop: &CancellationToken)` | `Result[Report, ServerError]`: serve until `stop` is cancelled, then shut down |
-| `std.http.tls.serve[H: Handler[TlsTransport]](listener, tls: ServerConfig, router, handler, config, stop)` | `serve` over TLS; see [HTTPS](#https) |
-| `serve_with[T: Transport, O: Opener[T], H: Handler[T]](listener, opener: &O, router, handler, config, stop)` | `serve` with a transport that `opener` makes from each accepted `TcpStream` |
-| `serve_connection[T: Transport, H: Handler[T]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
-| `serve_connection_from[T, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
-| `protocol Handler[T]` | `def handle(self, exchange: &mut Exchange[T]) -> Result[(), Failure]` |
+| `serve[R, H: Handler[TcpStream, R]](listener: TcpListener, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken)` | `Result[Report, ServerError]`: serve until `stop` is cancelled, then shut down |
+| `std.http.tls.serve[R, H: Handler[TlsTransport, R]](listener, tls: ServerConfig, router, handler, config, stop)` | `serve` over TLS; see [HTTPS](#https) |
+| `serve_with[T: Transport, O: Opener[T], R, H: Handler[T, R]](listener, opener: &O, router, handler, config, stop)` | `serve` with a transport that `opener` makes from each accepted `TcpStream` |
+| `serve_connection[T: Transport, R, H: Handler[T, R]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
+| `serve_connection_from[T, R, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
+| `protocol Handler[T, R]` | `def handle(self, route: &R, exchange: &mut Exchange[T]) -> Result[(), Failure]` |
 | `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s |
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
 
@@ -27,10 +27,13 @@ deployment guidance; the server is production-ready.
 starts `config.workers` scoped worker threads, then accepts connections on
 its own thread and passes each to the queue once it has input (see
 [Idle connections](#idle-connections)). Every worker shares one borrow of the router, the
-handler and the config, so `handle` takes `self` by shared borrow and cannot
-change the handler; shared state needs a synchronized type such as a channel
-or token. A handler class and its `handle` method must be `pub`, because
-`serve` calls them from another module.
+handler and the config, so `handle` takes `self` and `route` by shared borrow
+and cannot change them; shared state needs a synchronized type such as a
+channel or token. A handler class and its `handle` method must be `pub`,
+because `serve` calls them from another module, and so must the route type
+its signature names. The route type and the handler must be usable on
+worker threads, under the ordinary
+[worker eligibility](../facilities/03-concurrency/index.md) check.
 
 `serve` fails only before serving: `InvalidConfig` for a config outside the
 bounds below, `Allocation` or `Thread` if a channel or worker cannot be made,
@@ -51,10 +54,11 @@ peer or a test that plays one. `stop` and
 
 | Item | Meaning |
 |---|---|
-| `router()` | `Result[Router, ServerError]`: an empty table |
-| `router.add(method, pattern, key: i64)` | `Result[(), ServerError]`: append a route |
+| `router[R]()` | `Result[Router[R], ServerError]`: an empty table whose routes carry values of type `R` |
+| `router.add(method, pattern, route: R)` | `Result[(), ServerError]`: append a route |
 | `router.find(method, path)` | `Result[Match, ServerError]`: the route for a request |
-| `Match.Found(key, params: list[str])` | `params` holds the captures in pattern order, still percent-encoded |
+| `router.route(index)` | `&R`: the value of the route at `index`, in the order routes were added |
+| `Match.Found(index, params: list[str])` | `index` is the matched route's; `params` holds the captures in pattern order, still percent-encoded |
 | `Match.NotFound` | No pattern matches the path |
 | `Match.MethodNotAllowed(allow: str)` | Patterns match but not for this method; `allow` lists the methods, comma-separated |
 
@@ -84,6 +88,48 @@ message.
 The server answers `404`, or `405` with an `Allow` field, without calling the
 handler. A capture that does not percent-decode to UTF-8 gets `400`.
 
+### Route values
+
+Each route carries a value of the application's route type `R`, normally an
+enum with one variant per route. The server passes the matched route's value
+to `handle` as `route`, borrowed from the router, and the handler dispatches
+with a `match`. Matching is exhaustive, so a variant the handler does not
+answer is a compile error naming it (`non-exhaustive match; missing
+Route.Hello(_)`), and a handler whose route type is not the router's is
+rejected at the `serve` call (`conflicting types for R`).
+
+```text
+pub enum Route:
+    Home
+    Hello(Greeting)
+
+pub class App:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Failure]:
+        match route:
+            case Route.Home:
+                exchange.send_text(200, "home\n")?
+            case Route.Hello(greeting):
+                greeting.handle(exchange)?
+        Ok(())
+
+mut routes = std.http.server.router[Route]()?
+routes.add("GET", "/", Route.Home)?
+routes.add("GET", "/index.html", Route.Home)?
+routes.add("GET", "/hello/{name}", Route.Hello(Greeting("hello, ")))?
+```
+
+A variant's payload can hold the route's own handler object and its state,
+as `Hello` holds a `Greeting`; it is used through a shared borrow, like the
+handler. Several patterns may carry equal values, so two paths can share one
+variant; `DuplicateRoute` depends only on method and pattern shape. `router`
+needs its type argument written out: `router[Route]()`.
+
+The server does not generate the dispatch. A route enum cannot implement
+`Handler` itself, because enums have no methods and protocols constrain only
+classes, and a router of handler objects of different classes would need
+existential protocol values, which Plenty does not have. One `match` in one
+handler class keeps dispatch static and checked.
+
 ## Exchanges
 
 The handler receives an `Exchange[T]` for one request.
@@ -93,7 +139,6 @@ The handler receives an `Exchange[T]` for one request.
 | `request: RequestHead` | Method, target, version and fields as read |
 | `authority: str` | `host[:port]` the request names: an absolute-form target's authority, else the `Host` value; empty only for HTTP/1.0 without `Host` |
 | `path`, `query` | The target's path and the text after its first `?`, both still percent-encoded; an absolute-form target's scheme and authority are removed |
-| `route: i64` | The key of the matched route |
 | `params: list[str]` | Captures, percent-decoded |
 | `peer: Option[SocketAddress]` | The address the connection came from: a reverse proxy's, when there is one (see [`std.http.proxy`](http-proxy.md)) |
 | `read_body(&mut buffer, start, stop)` | `Result[i64, HttpError]`: part of the request body; `0` is the end |
@@ -202,7 +247,7 @@ report = std.http.tls.serve(listener, tls, &table, &App(), &config, &stop)?
 ```
 
 `std.http.tls.serve` takes a [`std.tls`](tls.md) `ServerConfig` and calls a
-handler of type `Handler[TlsTransport]`; `TlsTransport.stream` is the
+handler of type `Handler[TlsTransport, R]`; `TlsTransport.stream` is the
 `TlsStream`. Each handshake must finish within `handshake_timeout` of the
 accept. Workers advance it as the client's messages arrive, and between
 them the connection waits parked, so a client that stalls mid-handshake
