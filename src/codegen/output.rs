@@ -72,6 +72,8 @@ pub(super) struct Output {
     targets: Targets,
     context: Context,
     cache: Option<Arc<Cache>>,
+    /// Instrument functions built on workers for coverage ([`coverage`]).
+    pub coverage: bool,
 }
 
 struct Code {
@@ -113,6 +115,7 @@ impl Output {
             targets,
             context: Context::new(),
             cache,
+            coverage: false,
         })
     }
 
@@ -168,6 +171,7 @@ impl Output {
         let (finished, results) = mpsc::channel::<(usize, Finished)>();
         let targets = self.targets.clone();
         let cache = self.cache.clone();
+        let coverage = self.coverage;
         std::thread::scope(|scope| {
             let shared = (&queue, &stop, &build, &targets, &declared, &cache);
             let mut helpers = 0;
@@ -177,8 +181,12 @@ impl Output {
                     .stack_size(crate::parallel::HELPER_STACK_BYTES)
                     .spawn_scoped(scope, move || {
                         let (queue, stop, build, targets, declared, cache) = shared;
-                        let mut worker =
-                            Worker::new(targets.clone(), Arc::clone(declared), cache.clone());
+                        let mut worker = Worker::new(
+                            targets.clone(),
+                            Arc::clone(declared),
+                            cache.clone(),
+                            coverage,
+                        );
                         work(queue, stop, build, &mut worker, &finished);
                     });
                 // A helper that cannot be spawned only costs speed.
@@ -187,7 +195,12 @@ impl Output {
                 }
             }
             if helpers == 0 {
-                let mut worker = Worker::new(targets.clone(), Arc::clone(&declared), cache.clone());
+                let mut worker = Worker::new(
+                    targets.clone(),
+                    Arc::clone(&declared),
+                    cache.clone(),
+                    coverage,
+                );
                 work(&queue, &stop, &build, &mut worker, &finished);
             }
             drop(finished);
@@ -220,7 +233,7 @@ impl Output {
             };
             for built in finished? {
                 self.place(built.id, built.code, |module, relocs| {
-                    symbols::resolve(module, runtime, &built.requests, relocs)
+                    symbols::resolve(module, runtime, built.id, &built.requests, relocs)
                 })?;
             }
         }
@@ -278,17 +291,24 @@ pub(super) struct Worker {
     targets: Targets,
     declared: Arc<Declared>,
     cache: Option<Arc<Cache>>,
+    coverage: bool,
     built: Vec<Built>,
 }
 
 impl Worker {
-    fn new(targets: Targets, declared: Arc<Declared>, cache: Option<Arc<Cache>>) -> Self {
+    fn new(
+        targets: Targets,
+        declared: Arc<Declared>,
+        cache: Option<Arc<Cache>>,
+        coverage: bool,
+    ) -> Self {
         Self {
             builder: FunctionBuilderContext::new(),
             context: Context::new(),
             targets,
             declared,
             cache,
+            coverage,
             built: Vec::new(),
         }
     }
@@ -299,7 +319,10 @@ impl Worker {
     }
 
     /// Compile `func`, built against `symbols`, as the body of `id`.
-    pub(super) fn define(&mut self, id: FuncId, func: Function, symbols: Symbols) {
+    pub(super) fn define(&mut self, id: FuncId, mut func: Function, mut symbols: Symbols) {
+        if self.coverage {
+            super::coverage::instrument(&mut func, &mut symbols);
+        }
         let isa = self.targets.for_function(&func);
         let code = compile(&mut self.context, isa, id, func, self.cache.as_deref());
         self.built.push(Built {
@@ -417,7 +440,7 @@ mod tests {
     fn worker_machine_code(targets: &Targets, func: &Function) -> Vec<u8> {
         let output = Output::new(targets.clone(), None).unwrap();
         let declared = Declared::snapshot(&output.module, targets.ordinary.clone());
-        let mut worker = Worker::new(targets.clone(), Arc::new(declared), None);
+        let mut worker = Worker::new(targets.clone(), Arc::new(declared), None, false);
         let symbols = worker.symbols();
         worker.define(FuncId::from_u32(0), func.clone(), symbols);
         worker.built.pop().unwrap().code.unwrap().bytes
@@ -478,6 +501,45 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
         }
         source.push_str("    y\n\n");
         assert_same_object_for_any_worker_count(source);
+    }
+
+    /// Coverage counters are requested symbols like any other: the
+    /// instrumented object is the same for every worker count and cache
+    /// state, including a cache holding the plain build's entries.
+    #[test]
+    fn coverage_object_does_not_depend_on_worker_count() {
+        let mut source: String = (0..UNITS).map(unit).collect();
+        source.push_str("def main() -> ():\n    pass\n");
+        let coverage = Build {
+            coverage: true,
+            ..Build::default()
+        };
+        let serial = object(&source, 1, coverage.clone());
+        assert!(
+            serial == object(&source, 8, coverage),
+            "workers changed the object"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let plain = cached(dir.path(), false);
+        assert!(
+            serial != object(&source, 1, plain),
+            "coverage changed nothing"
+        );
+        let cached = Build {
+            coverage: true,
+            ..cached(dir.path(), false)
+        };
+        // Equal bytes also show no plain entry was taken for an instrumented
+        // function.
+        assert!(
+            serial == object(&source, 2, cached.clone()),
+            "cache changed the object"
+        );
+        assert!(
+            serial == object(&source, 8, cached),
+            "warm cache changed the object"
+        );
     }
 
     /// The object for `source` with `build`, as bytes.

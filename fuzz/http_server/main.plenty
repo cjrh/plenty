@@ -1,0 +1,137 @@
+# libFuzzer target for std.http.server: serves each input as the bytes of one
+# client connection and checks every response the server writes. Build and
+# run it as book/src/design/stdlib/http-qualification.md#fuzzing describes.
+#
+# The first input byte selects the read size, 1 to 64 bytes (its low six
+# bits plus one), so a request head also arrives split at every point; bit 6
+# selects small limits, so the refusals they cause are reached, and bit 7 a
+# limit of two requests per connection. The rest is what the client sends.
+# A trap is a finding, including the one this harness raises when the server
+# writes a status outside the documented set.
+import fuzz_input
+import std.bytes
+import std.http.server
+from std.bytes import Bytes
+from std.http.server import Exchange, Router, ServerError
+from std.net import NetError, Shutdown
+from std.sync import CancellationToken
+from std.time import Deadline
+
+pub class Script:
+    pub input: Bytes
+    pub at: i64
+    pub step: i64
+    # What the server wrote, and how much of it `check` has read.
+    pub output: Bytes
+    pub checked: i64
+
+    pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        if cancel.is_cancelled():
+            return Err(NetError.Cancelled)
+        left = self.input.len() - self.at
+        if left == 0:
+            return Ok(0)
+        mut count = stop - start
+        if count > self.step:
+            count = self.step
+        if count > left:
+            count = left
+        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        self.at += count
+        Ok(count)
+
+    pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
+        Ok(())
+
+    pub def write_before(self: &mut Script, source: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        if cancel.is_cancelled():
+            return Err(NetError.Cancelled)
+        self.output.extend_range(source, start, stop).unwrap()
+        self.checked = check(&self.output, self.checked).unwrap()
+        Ok(stop - start)
+
+# Response bodies never repeat the request, so every `HTTP/1.` in the output
+# begins a response head.
+pub class App:
+    pub def handle(self, exchange: &mut Exchange[Script]) -> Result[(), Failure]:
+        route = exchange.route
+        if route == 0:
+            exchange.send_text(200, "home")?
+        elif route == 1:
+            mut body = std.bytes.empty()?
+            exchange.read_all(&mut body)?
+            exchange.send_text(200, &str.from(body.len())?)?
+        elif route == 2:
+            exchange.send_text(200, "hello")?
+        else:
+            return Err(Failure.Unspecified)
+        Ok(())
+
+def routes() -> Result[Router, ServerError]:
+    mut table = std.http.server.router()?
+    table.add("GET", "/", 0)?
+    table.add("POST", "/echo", 1)?
+    table.add("GET", "/hello/{name}", 2)?
+    table.add("GET", "/fail", 3)?
+    Ok(table)
+
+def documented(status: i64) -> bool:
+    for allowed in [100, 200, 400, 404, 405, 413, 431, 500, 501, 505].unwrap():
+        if status == allowed:
+            return True
+    False
+
+def digit(output: &Bytes, at: i64) -> Result[i64, Failure]:
+    value = i64.wrapping_from(output.get(at)?) - 48
+    if value < 0 or value > 9:
+        return Err(Failure.Unspecified)
+    Ok(value)
+
+# Checks the status of every response head in `output` from `at`, and
+# returns where the next check starts: at a head whose status has not all
+# been written yet, or near the end.
+def check(output: &Bytes, at: i64) -> Result[i64, Failure]:
+    marker = std.bytes.from_text("HTTP/1.")?
+    mut next = at
+    while True:
+        match output.find_bytes(&marker, next, output.len())?:
+            case Some(found):
+                # `HTTP/1.x NNN`
+                if found + 12 > output.len():
+                    return Ok(found)
+                status = digit(output, found + 9)? * 100 + digit(output, found + 10)? * 10 + digit(output, found + 11)?
+                if not documented(status):
+                    return Err(Failure.Unspecified)
+                next = found + 12
+            case Nothing:
+                # A marker may have begun in the last few bytes.
+                if output.len() - next > marker.len():
+                    return Ok(output.len() - marker.len())
+                return Ok(next)
+    Ok(next)
+
+def main() -> Result[(), Failure]:
+    size = i64.wrapping_from(fuzz_input.size())
+    if size == 0:
+        return Ok(())
+    first = i64.wrapping_from(fuzz_input.byte(0u64))
+    step = first % 64 + 1
+    mut input = std.bytes.empty()?
+    input.reserve(size - 1)?
+    mut at = 1
+    while at < size:
+        input.push(fuzz_input.byte(u64.wrapping_from(at)))?
+        at += 1
+    table = routes()?
+    mut config = std.http.server.config()
+    if first // 64 % 2 == 1:
+        config.limits.max_line = 64
+        config.limits.max_head = 256
+        config.limits.max_headers = 4
+        config.limits.max_body = 16
+    if first >= 128:
+        config.max_requests = 2
+    stop = CancellationToken()?
+    script = Script(input, 0, step, std.bytes.empty()?, 0)
+    report = std.http.server.serve_connection(script, &table, &App(), &config, &stop, &stop)
+    Ok(())

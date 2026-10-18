@@ -67,6 +67,7 @@ mod channels;
 mod closures;
 mod collections;
 mod control;
+mod coverage;
 mod enums;
 mod executors;
 mod exports;
@@ -304,6 +305,25 @@ fn compile_ops_to_executable(
     compile_to_object(ops, heap, &obj_path, returns_status, build)?;
     report_cache(options, cache.as_deref());
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
+    if let Some(libfuzzer) = &options.fuzz {
+        let driver = workspace.path().join("plenty_fuzz_driver.o");
+        std::fs::write(&driver, FUZZ_DRIVER)?;
+        let mut options = options.clone();
+        let mut inputs = vec![
+            driver.into_os_string(),
+            "-Wl,--wrap=main".into(),
+            libfuzzer.clone().into_os_string(),
+        ];
+        // libFuzzer's `memcmp` and `strcmp` interceptors report the strings
+        // compared to it, so it can try them, when its build has them.
+        let interceptors = libfuzzer.with_file_name(FUZZ_INTERCEPTORS);
+        if interceptors.is_file() {
+            inputs.push(interceptors.into_os_string());
+        }
+        inputs.push("-lstdc++".into());
+        options.link_args.splice(0..0, inputs);
+        return crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, &options);
+    }
     if !test_hooks {
         return crate::toolchain::link(&obj_path, &rt_path, RUNTIME_LINK_ARGS, output, options);
     }
@@ -322,6 +342,8 @@ struct Build {
     optimize: bool,
     /// Lower std's `__test_fault` to the `plenty test` hook object.
     test_hooks: bool,
+    /// Count each block's runs for libFuzzer ([`coverage`]).
+    coverage: bool,
     /// Reuse compiled functions from here, and add this build's to it.
     cache: Option<Arc<Cache>>,
     /// Compile every cached function again and assert the code matches
@@ -336,6 +358,7 @@ impl Build {
         Self {
             optimize: options.optimize,
             test_hooks,
+            coverage: options.fuzz.is_some(),
             cache: Cache::open(&options.cache),
             check_cache_hits: false,
         }
@@ -363,6 +386,11 @@ fn report_cache(options: &crate::CompileOptions, cache: Option<&Cache>) {
 /// Failure injection for `plenty test` builds, compiled from
 /// `plenty-runtime/native/test_hooks.c`. Linked into no other executable.
 const TEST_HOOKS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plenty_test_hooks.o"));
+/// The libFuzzer entry of `--fuzz` executables, compiled from
+/// `plenty-runtime/native/fuzz_driver.c`. Linked into no other executable.
+const FUZZ_DRIVER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plenty_fuzz_driver.o"));
+/// Found beside the `--libfuzzer` archive, as clang installs them.
+const FUZZ_INTERCEPTORS: &str = "libclang_rt.fuzzer_interceptors.a";
 /// The C library calls the hook object intercepts. Only references from the
 /// program and runtime objects are redirected; the C library's own internal
 /// calls are not.
@@ -513,6 +541,7 @@ fn object_module(
         single_pass: optimized_isa("single_pass", opt_level, build.check_cache_hits)?,
     };
     let mut out = Output::new(targets, build.cache.clone())?;
+    out.coverage = build.coverage;
 
     let mut runtime = declare_runtime(&mut out.module, build.test_hooks)?;
 

@@ -25,6 +25,25 @@ fn validate_target_pair(requested: &str, packaged: &str) -> Result<(), Box<dyn s
     Ok(())
 }
 
+/// libFuzzer's archive without its `main`, as `clang` reports it: the
+/// default `--libfuzzer` of `--fuzz` builds.
+pub fn find_libfuzzer() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    const ARCHIVE: &str = "libclang_rt.fuzzer_no_main.a";
+    let missing = || {
+        format!("libFuzzer not found: `clang -print-file-name={ARCHIVE}` names no file; install clang's compiler-rt or pass --libfuzzer PATH")
+    };
+    let output = Command::new("clang")
+        .arg(format!("-print-file-name={ARCHIVE}"))
+        .output()
+        .map_err(|error| format!("{}: {error}", missing()))?;
+    // clang echoes the bare name when it has no such file.
+    let path = PathBuf::from(String::from_utf8(output.stdout)?.trim());
+    if !output.status.success() || !path.is_absolute() || !path.is_file() {
+        return Err(missing().into());
+    }
+    Ok(path)
+}
+
 /// The exact runtime embedded in this compiler and its native dependencies.
 #[derive(Debug)]
 pub struct RuntimeArtifacts {
@@ -75,6 +94,10 @@ pub struct CompileOptions {
     pub cache: crate::cache::CacheMode,
     /// Print the cache's hit and miss counts after compiling.
     pub cache_stats: bool,
+    /// Build a libFuzzer target linked with this libFuzzer archive (clang's
+    /// `libclang_rt.fuzzer_no_main.a`): count every block's runs and enter
+    /// through the fuzz driver. See book/src/design/toolchain/01-building/fuzzing.md.
+    pub fuzz: Option<PathBuf>,
 }
 
 impl Default for CompileOptions {
@@ -86,6 +109,7 @@ impl Default for CompileOptions {
             optimize: false,
             cache: crate::cache::CacheMode::Environment,
             cache_stats: false,
+            fuzz: None,
         }
     }
 }
