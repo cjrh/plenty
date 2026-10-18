@@ -394,6 +394,51 @@ def main() -> Result[(), Failure]:
     );
 }
 
+/// A type rejected in a callee's signature or locals names that callee and
+/// the call path, like an inspect-time rejection (issue #185). A type in the
+/// worker's own body is named by the worker alone.
+#[test]
+fn worker_type_rejections_name_the_callee_and_the_call_path() {
+    for (source, expected) in [
+        (
+            r#"
+def values() -> Generator[i64]:
+    yield 1
+def helper() -> i64:
+    numbers = values()
+    7
+def middle() -> i64:
+    helper()
+def work() -> i64:
+    middle()
+def main() -> Result[(), Failure]:
+    with spawn(work)?:
+        pass
+    Ok(())
+"#,
+            "worker `work` reaches `helper` through `middle`: \
+             generator worker eligibility is not implemented yet",
+        ),
+        (
+            r#"
+def values() -> Generator[i64]:
+    yield 1
+def work() -> i64:
+    numbers = values()
+    7
+def main() -> Result[(), Failure]:
+    with spawn(work)?:
+        pass
+    Ok(())
+"#,
+            "worker `work`: generator worker eligibility is not implemented yet",
+        ),
+    ] {
+        let error = plenty::check_source(source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_start_preserves_borrowed_job_and_joins_prior_tasks() {

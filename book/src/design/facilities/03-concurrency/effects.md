@@ -34,7 +34,8 @@ the `Signals` handle the main thread opened. Nothing in the language writes
 the environment.
 
 When the rejected function is reached through others, the diagnostic lists
-them from the worker outward. A generic function is named by the location of
+them from the worker outward. A rejected type in a called function's
+signature or locals names that function and its path the same way. A generic function is named by the location of
 its definition, and a method as `Class.method`:
 
 ```text
