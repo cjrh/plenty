@@ -241,7 +241,8 @@ TLS failures map to `ClientError`:
 
 | `TlsError` | `ClientError` |
 |---|---|
-| `Net(e)` | `Net(e)` |
+| `Net(Stream(Allocation(a)))` | `Allocation(a)` |
+| Any other `Net(e)` | `Net(e)` |
 | `Truncated` | `Net(Stream(UnexpectedEof))`, so a closed pooled connection is replayed as a TCP one is |
 | `Closed` | `Net(Stream(Io(Closed)))` |
 | `Allocation(e)` | `Allocation(e)` |
