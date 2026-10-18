@@ -1,9 +1,8 @@
 # HTTP server qualification
 
-This page records what has been checked before [`std.http.server`](http-server.md)
-could be called production-ready, what that showed, and how to run the
-server in the meantime. **The server is not yet labelled production-ready.**
-Every gate passes; see [Gates](#gates). HTTP/2 and HTTP/3 need
+This page records what was checked before [`std.http.server`](http-server.md)
+was labelled production-ready, what that showed, and how to deploy it.
+**The server is production-ready:** every gate passes; see [Gates](#gates). HTTP/2 and HTTP/3 need
 separate adoption decisions and are not part of these gates.
 
 The suites are in `tests/test_std_http_server_qualification.rs`, with the

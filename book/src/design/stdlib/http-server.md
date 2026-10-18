@@ -8,7 +8,7 @@ graceful shutdown. Framing comes from [`std.http`](http.md).
 are checked Plenty in `stdlib/std/http/` and add no runtime primitives. The tutorial lesson [Serve HTTP requests](../../tutorial/11-concurrency/http-server.md)
 shows a complete server. [Qualification](http-qualification.md) records
 which production gates the server passes, its measured baselines, and
-deployment guidance; it is not yet production-ready.
+deployment guidance; the server is production-ready.
 
 ## Serving
 
