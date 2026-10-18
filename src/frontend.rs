@@ -775,21 +775,26 @@ impl TypeRef {
             }
             return Ok(Some(Ty::Channel(Arc::new(message), name == "Sender")));
         }
-        if matches!(
-            name.as_str(),
-            "Option"
-                | "Result"
-                | "SpawnError"
-                | "SendError"
-                | "SendTimeoutError"
-                | "Selected"
-                | "SubmitError"
-                | "ParallelError"
-        ) {
-            let count = if matches!(name.as_str(), "Result" | "Selected") {
-                2
-            } else {
-                1
+        // The constructor's arity fixes how many type arguments the name takes.
+        enum SumCtor {
+            One(fn(Ty) -> Ty),
+            Two(fn(Ty, Ty) -> Ty),
+        }
+        let sum_ctor = match name.as_str() {
+            "Option" => Some(SumCtor::One(crate::sum::option)),
+            "Result" => Some(SumCtor::Two(crate::sum::result)),
+            "SpawnError" => Some(SumCtor::One(crate::sum::spawn_error)),
+            "SendError" => Some(SumCtor::One(crate::sum::send_error)),
+            "SendTimeoutError" => Some(SumCtor::One(crate::sum::send_timeout_error)),
+            "Selected" => Some(SumCtor::Two(crate::sum::selected)),
+            "SubmitError" => Some(SumCtor::One(crate::sum::submit_error)),
+            "ParallelError" => Some(SumCtor::One(crate::sum::parallel_error)),
+            _ => None,
+        };
+        if let Some(ctor) = sum_ctor {
+            let count = match ctor {
+                SumCtor::One(_) => 1,
+                SumCtor::Two(_) => 2,
             };
             if self.args.len() != count {
                 return Err(self
@@ -811,22 +816,14 @@ impl TypeRef {
                     .at
                     .error("references cannot be stored in enum payloads"));
             }
-            return Ok(Some(if name == "Option" {
-                crate::sum::option(args[0].clone())
-            } else if name == "SpawnError" {
-                crate::sum::spawn_error(args[0].clone())
-            } else if name == "SendError" {
-                crate::sum::send_error(args[0].clone())
-            } else if name == "SendTimeoutError" {
-                crate::sum::send_timeout_error(args[0].clone())
-            } else if name == "Selected" {
-                crate::sum::selected(args[0].clone(), args[1].clone())
-            } else if name == "SubmitError" {
-                crate::sum::submit_error(args[0].clone())
-            } else if name == "ParallelError" {
-                crate::sum::parallel_error(args[0].clone())
-            } else {
-                crate::sum::result(args[0].clone(), args[1].clone())
+            let mut args = args.into_iter();
+            let mut next = || args.next().expect("argument count checked above");
+            return Ok(Some(match ctor {
+                SumCtor::One(make) => make(next()),
+                SumCtor::Two(make) => {
+                    let first = next();
+                    make(first, next())
+                }
             }));
         }
         if matches!(name.as_str(), "list" | "dict" | "set") {
