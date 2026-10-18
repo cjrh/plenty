@@ -725,7 +725,14 @@ fn find_name(
 ) -> Option<(usize, u32)> {
     let line_end = |line: usize| starts.get(line).map_or(text.len(), |&s| s - 1);
     // A header or an import spans a few lines at most.
-    let near = |from: usize| text.len().min(from + 4096);
+    // The window end must not split a character, or slicing it panics.
+    let near = |from: usize| {
+        let mut to = text.len().min(from + 4096);
+        while !text.is_char_boundary(to) {
+            to -= 1;
+        }
+        to
+    };
     let length = |name: &str| name.chars().count() as u32;
     match find {
         Find::At(length) => Some((offset, *length)),
@@ -876,6 +883,24 @@ mod tests {
         assert_eq!(
             find_name(text, &starts, color, 3, &Find::Below("Red".into())),
             Some((text.find("Red").unwrap(), 3))
+        );
+    }
+
+    #[test]
+    fn a_search_window_ends_on_a_character_boundary() {
+        // Byte 4096 falls inside a two-byte "é", so the window must stop short.
+        let text = format!("def f() -> ():\n# {}\n", "é".repeat(2100));
+        let starts: Vec<usize> = std::iter::once(0)
+            .chain(text.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+        assert!(!text.is_char_boundary(4096));
+        assert_eq!(
+            find_name(&text, &starts, 0, 1, &Find::After("f".into())),
+            Some((4, 1))
+        );
+        assert_eq!(
+            find_name(&text, &starts, 0, 1, &Find::After("missing".into())),
+            None
         );
     }
 }
