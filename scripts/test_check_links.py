@@ -48,6 +48,22 @@ class CheckLinksTests(unittest.TestCase):
         )
         self.assertEqual(check_links.check(self.root, page), (1, 1, []))
 
+    def test_list_content_and_lazy_continuations_are_prose(self):
+        page = self.page(
+            '- Item one\n\n    - [Nested](missing-nested.md)\n\n'
+            'Some paragraph text\n    [continued](missing-lazy.md)\n\n'
+            '1. Item\n\n   ```\n   [fenced](missing.md)\n   ```\n\n'
+            '       [indented](missing.md)\n\n'
+            '# Heading\n    [indented](missing.md)\n'
+        )
+        self.assertEqual(
+            check_links.check(self.root, page),
+            (1, 2, [
+                'guide/page.md:3: missing target missing-nested.md',
+                'guide/page.md:6: missing target missing-lazy.md',
+            ]),
+        )
+
     def test_missing_targets_keep_original_line_numbers(self):
         page = self.page('```\n[code](ignored.md)\n```\n\n[broken](gone.md)\n')
         self.assertEqual(

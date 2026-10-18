@@ -17,6 +17,8 @@ from urllib.parse import unquote, urlsplit
 DESTINATION = r"(?:<([^<>\n]+)>|((?:\\.|[^\\\s()]|\([^()\n]*\))+))"
 INLINE_LINK = re.compile(r"(?<!\\)\]\(\s*" + DESTINATION)
 REFERENCE = re.compile(r"^ {0,3}\[[^\]\n]+\]:\s*" + DESTINATION, re.MULTILINE)
+LIST_ITEM = re.compile(r"^([-+*]|\d{1,9}[.)])(?:( +)(?=\S)|\s*$)")
+HEADING_OR_RULE = re.compile(r"^(#{1,6}(\s|$)|([-*_])(\s*\3){2,}\s*$)")
 INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)(.*?)\1(?!`)", re.DOTALL)
 
 
@@ -28,24 +30,51 @@ def blank(text):
 def prose(markdown):
     lines = []
     fence = None
+    # Content columns of open list items, innermost last. Indentation inside a
+    # list item is measured from its content column, as in CommonMark.
+    items = []
+    paragraph = False
+    previous_blank = True
     for line in markdown.splitlines(keepends=True):
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+        text = line.rstrip("\r\n").expandtabs(4)
         if fence:
             lines.append(blank(line))
-            if (
-                marker
-                and marker[1][0] == fence[0]
-                and len(marker[1]) >= len(fence)
-                and not marker[2].strip()
-            ):
+            closing = re.match(r"^\s*(`{3,}|~{3,})\s*$", text)
+            if closing and closing[1][0] == fence[0] and len(closing[1]) >= len(fence):
                 fence = None
-        elif marker:
+            continue
+        if not text.strip():
+            lines.append(line)
+            paragraph, previous_blank = False, True
+            continue
+        indent = len(text) - len(text.lstrip(" "))
+        rule = HEADING_OR_RULE.match(text[indent:])
+        item = not rule and LIST_ITEM.match(text[indent:])
+        # A less indented line closes list items unless it lazily continues
+        # their paragraph.
+        while items and indent < items[-1] and (previous_blank or item or not paragraph):
+            items.pop()
+        relative = indent - (items[-1] if items else 0)
+        previous_blank = False
+        # An indented code block cannot interrupt a paragraph, so an indented
+        # line after paragraph text is a lazy continuation.
+        if relative >= 4 and not paragraph:
+            lines.append(blank(line))
+            continue
+        marker = re.match(r"^(`{3,}|~{3,})(.*)$", text[indent:])
+        if marker and not (marker[1][0] == "`" and "`" in marker[2]):
             fence = marker[1]
             lines.append(blank(line))
-        elif line.startswith("    ") or line.startswith("\t"):
-            lines.append(blank(line))
+            paragraph = False
+            continue
+        lines.append(line)
+        if item:
+            spaces = len(item[2] or "")
+            width = len(item[1]) + (spaces if 1 <= spaces <= 4 else 1)
+            items.append(indent + width)
+            paragraph = bool(text[indent + len(item[0]):].strip())
         else:
-            lines.append(line)
+            paragraph = not rule
     text = re.sub(
         r"<!--.*?-->", lambda match: blank(match[0]), "".join(lines), flags=re.DOTALL
     )
