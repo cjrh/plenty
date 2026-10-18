@@ -139,7 +139,14 @@ pub fn compile_file_to_library(
         .tempdir_in(directory)?;
     let object = workspace.path().join("plenty_exports.o");
     let ops = std::mem::take(&mut program.ops);
-    crate::codegen::emit_library_object(ops, &program.exports, &heap, &object, &interface)?;
+    crate::codegen::emit_library_object(
+        ops,
+        &program.exports,
+        &heap,
+        &object,
+        &interface,
+        &options.compile,
+    )?;
     let built = workspace.path().join("library");
     match options.kind {
         LibraryKind::Static => {
