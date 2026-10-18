@@ -126,6 +126,31 @@ Result[std.log.MemorySink, std.log.LogError].Err(std.log.LogError.InvalidSpec)"
     );
 }
 
+// Issue #267: the nine-digit fraction rendered 5 s + 1.5e9 ns as 5.5 s.
+#[test]
+fn out_of_range_nanoseconds_write_nothing() {
+    assert_eq!(
+        run(r#"
+import std.log
+import std.io
+import std.bytes
+from std.log import Level, Clock, Event
+from std.time import Timestamp
+def main() -> Result[(), Failure]:
+    mut log = std.log.logger(std.log.text_sink(std.io.cursor(std.bytes.empty()?), 80)?, Level.Info, Clock.Fixed(Timestamp(5, 1500000000u32)))
+    print(str.repr(log.info("fixed", []?))?)?
+    print(str.repr(log.emit(Event(Level.Info, "given", []?, Some(Timestamp(5, 1000000000u32)))))?)?
+    log.emit(Event(Level.Info, "edge", []?, Some(Timestamp(5, 999999999u32))))?
+    print(log.emitted(), log.failed())?
+    print(log.sink.writer.data.to_text()?)?
+    Ok(())
+"#),
+        "Result[(), std.log.LogError].Err(std.log.LogError.InvalidSpec)\n\
+Result[(), std.log.LogError].Err(std.log.LogError.InvalidSpec)\n\
+1 2\ntime=5.999999999 level=info msg=\"edge\"\n"
+    );
+}
+
 #[test]
 fn sink_failures_are_counted_and_short_writes_retried() {
     assert_eq!(

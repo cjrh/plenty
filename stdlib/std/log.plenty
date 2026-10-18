@@ -277,6 +277,14 @@ pub class TextSink[W]:
         for field in &event.fields:
             if not valid_key(&field.key):
                 return Err(LogError.InvalidKey)
+        # `Timestamp` construction is unchecked, and the nine-digit fraction
+        # would hide an excess of whole seconds behind a plausible time.
+        match &event.time:
+            case Some(at):
+                if u64(at.nanoseconds) >= 1000000000u64:
+                    return Err(LogError.InvalidSpec)
+            case Nothing:
+                pass
         self._out.writer.reset()
         match render(&mut self._out, &event):
             case Ok(_):
