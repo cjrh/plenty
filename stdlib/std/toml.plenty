@@ -1054,6 +1054,8 @@ class Emitter:
     path: list[str]
     bare: Bytes
     escaped: Bytes
+    # Scratch for one integer's digits, so writing one allocates nothing.
+    spelling: Bytes
     max_depth: i64
     max_output: i64
 
@@ -1067,9 +1069,15 @@ class Emitter:
             return Err(TomlFault.OutputTooLarge)
         faulted(self.out.extend_range(source, start, stop))
 
-    def raw(self: &mut Emitter, text: &str) -> Result[(), TomlFault]:
-        source = faulted(std.bytes.from_text(text))?
-        self.extend(&source, 0, source.len())
+    def raw(self: &mut Emitter, token: bytes) -> Result[(), TomlFault]:
+        if token.len() > self.max_output - self.out.len():
+            return Err(TomlFault.OutputTooLarge)
+        faulted(self.out.extend(token))
+
+    def spelled(self: &mut Emitter, start: i64, stop: i64) -> Result[(), TomlFault]:
+        if stop - start > self.max_output - self.out.len():
+            return Err(TomlFault.OutputTooLarge)
+        faulted(self.out.extend_range(&self.spelling, start, stop))
 
     def number(self: &mut Emitter, value: i64, width: i64) -> Result[(), TomlFault]:
         mut divisor = 1
@@ -1080,8 +1088,29 @@ class Emitter:
             divisor //= 10
         Ok(())
 
+    # Digits come from the negated value, right to left, so `i64.MIN` needs no
+    # special case. `//` and `%` floor, hence the digit arithmetic.
+    def integer(self: &mut Emitter, value: i64) -> Result[(), TomlFault]:
+        mut rest = value
+        if rest > 0:
+            rest = -rest
+        stop = self.spelling.len()
+        mut at = stop
+        while True:
+            digit = (10 - rest % 10) % 10
+            at -= 1
+            faulted(self.spelling.set(at, u8(48 + digit)))?
+            rest = (rest + digit) // 10
+            if rest == 0:
+                break
+        if value < 0:
+            at -= 1
+            faulted(self.spelling.set(at, u8(45)))?
+        self.spelled(at, stop)
+
     # A basic string. `"`, `\`, and control characters are escaped; every
-    # other scalar is written as UTF-8.
+    # other scalar is written as UTF-8. The copy of `text` lets each unescaped
+    # run be written at once; see the costs in book/src/design/stdlib/toml.md.
     def quote(self: &mut Emitter, text: &str) -> Result[(), TomlFault]:
         source = faulted(std.bytes.from_text(text))?
         count = source.len()
@@ -1105,7 +1134,7 @@ class Emitter:
             elif byte == 13:
                 self.put(114)?
             else:
-                self.raw("u00")?
+                self.raw(b"u00")?
                 self.put(48 + byte // 16)?
                 digit = byte % 16
                 if digit < 10:
@@ -1125,18 +1154,28 @@ class Emitter:
             return self.extend(&source, 0, count)
         self.quote(name)
 
+    # ASCII text, all or none.
+    def ascii(self: &mut Emitter, text: &str) -> Result[(), TomlFault]:
+        if text.byte_len() > self.max_output - self.out.len():
+            return Err(TomlFault.OutputTooLarge)
+        for character in text:
+            push_byte(&mut self.out, i64(ord(character).unwrap()))?
+        Ok(())
+
     def decimal(self: &mut Emitter, value: f64) -> Result[(), TomlFault]:
         if value != value:
-            return self.raw("nan")
+            return self.raw(b"nan")
         if value == f64.INF:
-            return self.raw("inf")
+            return self.raw(b"inf")
         if value == -f64.INF:
-            return self.raw("-inf")
+            return self.raw(b"-inf")
+        # `write_float_spec` would avoid this string, but it builds its own
+        # spelling on the heap, where a refused allocation aborts.
         text = reserved(str.from(value))?
-        self.raw(&text)?
+        self.ascii(&text)?
         if "." in text or "e" in text:
             return Ok(())
-        self.raw(".0")
+        self.raw(b".0")
 
     def moment(self: &mut Emitter, stamp: &DateTime) -> Result[(), TomlFault]:
         if not date_text_ok(stamp):
@@ -1199,12 +1238,11 @@ class Emitter:
         match value:
             case Toml.Bool(flag):
                 if *flag:
-                    self.raw("true")
+                    self.raw(b"true")
                 else:
-                    self.raw("false")
+                    self.raw(b"false")
             case Toml.Int(number):
-                text = reserved(str.from(*number))?
-                self.raw(&text)
+                self.integer(*number)
             case Toml.Float(number):
                 self.decimal(*number)
             case Toml.Text(text):
@@ -1217,7 +1255,7 @@ class Emitter:
                 mut first = True
                 for item in items:
                     if not first:
-                        self.raw(", ")?
+                        self.raw(b", ")?
                     first = False
                     self.inline(item, level + 1)?
                 self.put(93)
@@ -1225,17 +1263,17 @@ class Emitter:
                 self.deeper(level + 1)?
                 unique(entries)?
                 if len(entries) == 0:
-                    return self.raw("{}")
-                self.raw("{ ")?
+                    return self.raw(b"{}")
+                self.raw(b"{ ")?
                 mut first = True
                 for entry in entries:
                     if not first:
-                        self.raw(", ")?
+                        self.raw(b", ")?
                     first = False
                     self.key(&entry.key)?
-                    self.raw(" = ")?
+                    self.raw(b" = ")?
                     self.inline(&entry.value, level + 1)?
-                self.raw(" }")
+                self.raw(b" }")
 
     def heading(self: &mut Emitter, array: bool) -> Result[(), TomlFault]:
         if self.out.len() > 0:
@@ -1259,7 +1297,7 @@ class Emitter:
         for entry in entries:
             if not sectioned(&entry.value):
                 self.key(&entry.key)?
-                self.raw(" = ")?
+                self.raw(b" = ")?
                 self.inline(&entry.value, level)?
                 self.put(10)?
         for entry in entries:
@@ -1293,7 +1331,10 @@ def emitter(bounds: &Limits) -> Result[Emitter, TomlFault]:
     bare = bare_bytes()?
     mut escaped = control_bytes(34, 92)?
     push_byte(&mut escaped, 9)?
-    Ok(Emitter(out, path, bare, escaped, bounds.max_depth, bounds.max_output))
+    # Longer than any i64 spelling.
+    mut spelling = faulted(std.bytes.with_capacity(32))?
+    faulted(spelling.resize(32, 0u8))?
+    Ok(Emitter(out, path, bare, escaped, spelling, bounds.max_depth, bounds.max_output))
 
 # The root must be a table. Errors carry the bytes produced so far.
 pub def encode(value: &Toml, bounds: &Limits) -> Result[Bytes, TomlError]:
