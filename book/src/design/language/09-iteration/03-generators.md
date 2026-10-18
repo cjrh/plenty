@@ -21,9 +21,9 @@ def main() -> Result[(), Failure]:
 
 Resumption executes until a statement-only `yield value`, bare `return`, or
 fallthrough. Yield types are exact and owned payloads transfer to the caller.
-Reference, generator, and unit yields are rejected; a generator body cannot
-return a value. An ordinary factory without `yield` may return another frame
-by moving it. `?` is unsupported in a generator body; match fallible results
+Reference, generator, closure, and unit yields are rejected; a generator body
+cannot return a value. An ordinary factory without `yield` may return another
+frame by moving it. `?` is unsupported in a generator body; match fallible results
 explicitly.
 
 `next(&mut g) -> Option[T]` borrows a mutable generator owner or reborrows an

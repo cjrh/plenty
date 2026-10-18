@@ -78,5 +78,5 @@ Breaking out of consuming iteration drops the generator without resuming its
 body. Yielding an owned value transfers ownership; to keep it, handle
 `copy(value)`'s result and yield the copy.
 
-Generators cannot yield other generators. Generator expressions, `yield from`,
-`send`, and async operations are unsupported.
+Generators cannot yield other generators, references, or closures. Generator
+expressions, `yield from`, `send`, and async operations are unsupported.
