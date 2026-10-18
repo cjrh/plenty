@@ -262,6 +262,11 @@ impl Parser {
                 Literal::Integer(text.clone(), negative)
             }
             Kind::Text(text) => Literal::Text(text.clone()),
+            Kind::Format(_) => {
+                return Err(
+                    at.error("a pattern cannot be an f-string; match a plain string literal")
+                )
+            }
             Kind::Word(word) if word == "True" || word == "False" => Literal::Bool(word == "True"),
             _ => return Ok(None),
         };

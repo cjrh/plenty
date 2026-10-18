@@ -32,6 +32,13 @@ syntax region plentyString start=/'/ skip=/\\./ end=/'/ oneline contains=plentyE
 " Later definitions take precedence over the single-quote regions.
 syntax region plentyString start=/"""/ skip=/\\./ end=/"""/ contains=plentyEscape,@Spell
 syntax region plentyString start=/'''/ skip=/\\./ end=/'''/ contains=plentyEscape,@Spell
+" f-strings: `{{` and `}}` are literal braces; a field is ordinary code.
+syntax match plentyFormatBrace /{{\|}}/ contained
+syntax region plentyFormatField matchgroup=plentySpecial start=/{\%({\)\@!/ end=/}/ contained contains=plentyKeyword,plentyBoolean,plentyType,plentyNumber,plentyFloat,plentyOperator,plentyDelimiter,plentyString
+syntax region plentyFormatString start=/\<f"/ skip=/\\./ end=/"/ oneline contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
+syntax region plentyFormatString start=/\<f'/ skip=/\\./ end=/'/ oneline contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
+syntax region plentyFormatString start=/\<f"""/ skip=/\\./ end=/"""/ contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
+syntax region plentyFormatString start=/\<f'''/ skip=/\\./ end=/'''/ contains=plentyEscape,plentyFormatBrace,plentyFormatField,@Spell
 syntax sync fromstart
 
 highlight default link plentyKeyword Keyword
@@ -50,5 +57,8 @@ highlight default link plentyTodo Todo
 highlight default link plentyComment Comment
 highlight default link plentyEscape SpecialChar
 highlight default link plentyString String
+highlight default link plentyFormatString String
+highlight default link plentyFormatBrace SpecialChar
+highlight default link plentySpecial Special
 
 let b:current_syntax = 'plenty'

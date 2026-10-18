@@ -138,6 +138,13 @@ pub(super) unsafe fn call(
         match op {
             170 => result(create(size(a)).map(|owner| owner as u128)),
             280 => crate::formatting::write_float(storage(a), f64::from_bits(b as u64)) as u128,
+            281 => crate::formatting::write_float_spec(
+                storage(a),
+                f64::from_bits(b as u64),
+                c as i64,
+                d as i64,
+                e as i64,
+            ) as u128,
             171 => storage(a).len() as u128,
             172 => storage(a).capacity() as u128,
             173 => match storage(a).get(size(b)) {

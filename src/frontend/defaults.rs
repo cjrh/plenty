@@ -35,6 +35,11 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
                 expression(arg, forbidden)?;
             }
         }
+        Expression::Format(format) => {
+            for arg in format.operands() {
+                expression(arg, forbidden)?;
+            }
+        }
         Expression::Member(base, _)
         | Expression::NamedArgument(_, base)
         | Expression::Unary(_, base)

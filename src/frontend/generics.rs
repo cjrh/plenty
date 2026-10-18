@@ -1131,6 +1131,11 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
                     expression(arg)?;
                 }
             }
+            Expression::Format(format) => {
+                for arg in format.operands() {
+                    expression(arg)?;
+                }
+            }
             Expression::Invoke(base, args) => {
                 expression(base)?;
                 for arg in args {
@@ -1359,6 +1364,11 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         }
         Expression::Tuple(args) => {
             for arg in args {
+                substitute_expr(arg, substitutions)?;
+            }
+        }
+        Expression::Format(format) => {
+            for arg in format.operands_mut() {
                 substitute_expr(arg, substitutions)?;
             }
         }

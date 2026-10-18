@@ -46,6 +46,7 @@ constructor allocates and can report `Allocation`.
 | `to_text()` | shared | `Result[str, BytesError]` | Strictly validated UTF-8 copy; otherwise `InvalidUtf8` |
 | `set(index, value)` | exclusive | `Result[(), BytesError]` | Replace one byte |
 | `write_float(value: f64)` | exclusive | `Result[i64, BytesError]` | Write shortest scientific ASCII into existing bytes at zero; requires `len() >= 32`, returns bytes written, never allocates or changes length |
+| `write_float_spec(value: f64, style: i64, precision: i64, offset: i64)` | exclusive | `Result[i64, BytesError]` | Write a Python format-spec spelling at `offset` for [`std.fmt`](fmt.md): style 1 fixed, 2 exponent, 3 general, 4 general keeping `.0`, 5 f64 and 6 f32 `print` spelling, plus 16 for `#`; a negative value starts with `-`. Returns bytes written, or the negated total length needed when shorter, writing nothing. Other styles, precision outside `0..=4096`, or an offset past the length are `OutOfRange` |
 | `fill(start, stop, value)` | exclusive | `Result[(), BytesError]` | Replace every byte of a range |
 | `overwrite(offset, source, start, stop)` | exclusive | `Result[(), BytesError]` | Copy `source[start:stop]` over existing bytes at `offset`; never grows |
 | `push(value)` | exclusive | `Result[(), BytesError]` | Append one byte |

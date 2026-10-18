@@ -29,6 +29,7 @@ mod enums;
 mod executors;
 mod files;
 mod foreign;
+mod fstrings;
 mod generators;
 mod generics;
 mod modules;
@@ -58,6 +59,8 @@ enum Kind {
     Word(String),
     Number(String),
     Text(String),
+    /// An `f"..."` literal's text and fields; see `fstrings`.
+    Format(Vec<fstrings::Part>),
     Symbol(String),
     Newline,
     Indent,
@@ -110,7 +113,7 @@ fn sendable(error: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Token {
     kind: Kind,
     line: usize,
@@ -337,6 +340,10 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     self.push(out, Kind::Text(text), line, column);
+                }
+                b'f' if matches!(bytes.get(self.pos + 1), Some(b'"' | b'\'')) => {
+                    let kind = self.format_string(&start)?;
+                    self.push(out, kind, line, column);
                 }
                 c if c.is_ascii_alphabetic() || c == b'_' => {
                     let begin = self.pos;
@@ -873,6 +880,8 @@ enum Expression {
     Member(Box<Expr>, String),
     Number(String),
     Text(String),
+    /// An f-string, or one of its fields inside a generated function.
+    Format(Box<fstrings::Format>),
     Bool(bool),
     Collection {
         kind: String,
@@ -949,6 +958,8 @@ struct Parser {
     /// parsed after its left operand moves that operand down a level, so the
     /// depth of the calls into `expr` alone does not bound the tree.
     deepest: usize,
+    /// Whether the module has an f-string, which needs `std.fmt`.
+    formats: bool,
 }
 impl Parser {
     /// A parser for a module whose tokens name `origin` as their source file.
@@ -970,6 +981,7 @@ impl Parser {
             type_depth: 0,
             depth: 0,
             deepest: 0,
+            formats: false,
         }
     }
     /// Releases the tokens of the items already parsed and buffers the next
@@ -1926,6 +1938,7 @@ impl Parser {
         let kind = match &at.kind {
             Kind::Number(n) => Expression::Number(n.clone()),
             Kind::Text(s) => Expression::Text(s.clone()),
+            Kind::Format(parts) => self.format_literal(parts)?,
             Kind::Word(s) if s == "True" || s == "False" => Expression::Bool(s == "True"),
             Kind::Word(s) if s == "not" => Expression::Unary(s.clone(), Box::new(self.expr(3)?)),
             Kind::Word(s) if s == "lambda" => {
@@ -2879,6 +2892,7 @@ impl Lower<'_> {
                 }
             }
             Expression::Tuple(values) => Some(self.tuple(values, None, &e.at, ops)?),
+            Expression::Format(format) => self.format(format, &e.at, ops)?,
             Expression::Collection { .. } => Some(self.fallible_display(e, None, ops)?),
             Expression::Index(..) => {
                 let ty = self.index(e, ops)?;

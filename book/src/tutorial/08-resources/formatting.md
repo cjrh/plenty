@@ -1,6 +1,8 @@
 # Formatting into a reusable writer
 
-Use `std.fmt` when output must go to a string or a chosen byte writer. Numeric
+An [f-string](../02-values/format-strings.md) is the short way to build a
+`str`; it compiles to the calls below. Use `std.fmt` directly when output must
+go to a chosen byte writer, reuse storage, or stay within a byte budget. Numeric
 widths count bytes and include the sign. Every call is fallible, and the byte
 budget includes punctuation and padding.
 
