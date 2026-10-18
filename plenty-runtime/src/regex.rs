@@ -1,6 +1,8 @@
-//! Allocation-free primitives for `std.regex`: Unicode properties from the
-//! toolchain's `core` tables, simple case mappings, and reads of borrowed
-//! UTF-8 text by byte offset. Parsing, compilation and matching are Plenty.
+//! Primitives for `std.regex`: Unicode properties from the toolchain's `core`
+//! tables, simple case mappings, and reads of borrowed UTF-8 text by byte
+//! offset. They do not allocate, except `TextSlice` (op 363), which copies a
+//! byte range into a new string and can fail with an allocation error.
+//! Parsing, compilation and matching are Plenty.
 use crate::strings::{self, Text};
 
 fn property(code: u32, property: i64) -> bool {

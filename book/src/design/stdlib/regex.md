@@ -7,9 +7,10 @@ pattern or search can consume has an explicit limit. Errors are one type,
 `RegexError`.
 
 The parser, compiler and matcher (a Pike VM) are Plenty code in the module.
-The runtime supplies only allocation-free primitives: Unicode properties and
-single-scalar case mappings from the toolchain's Unicode 17 tables, and
-reads of borrowed UTF-8 by byte offset.
+The runtime supplies only primitives: Unicode properties and single-scalar
+case mappings from the toolchain's Unicode 17 tables, and reads of borrowed
+UTF-8 by byte offset. They do not allocate, except the one that copies a byte
+range into a new `str`, which can fail with an allocation error.
 
 ## Functions and types
 
