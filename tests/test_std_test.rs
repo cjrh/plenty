@@ -44,6 +44,8 @@ std.test.equal(&"text", &"text")?
 std.test.not_equal(&1u8, &2u8)?
 std.test.less(&"a", &"b")?
 std.test.close(0.1 + 0.2, 0.3, 0.000000001)?
+std.test.close(f64.INF, f64.INF, 0.0)?
+std.test.close(-f64.INF, -f64.INF, 0.0)?
 good: Result[i64, IoError] = Ok(1)
 std.test.is_ok(&good)?
 bad: Result[i64, IoError] = Err(IoError.Closed)
@@ -96,6 +98,10 @@ fn failed_assertions_show_their_values() {
         (
             "nan = 0.0 / 0.0\nstd.test.close(nan, nan, 1.0)?",
             "assertion failed: |left - right| <= tolerance\n      left: NaN\n     right: NaN\n tolerance: 1.0\n",
+        ),
+        (
+            "std.test.close(f64.INF, -f64.INF, 0.0)?",
+            "assertion failed: |left - right| <= tolerance\n      left: inf\n     right: -inf\n tolerance: 0.0\n",
         ),
         (
             "result: Result[i64, IoError] = Err(IoError.Closed)\nstd.test.is_ok(&result)?",
