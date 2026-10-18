@@ -983,6 +983,29 @@ mut sink = std.io.cursor(std.bytes.with_capacity(4096)?)
     }
 }
 
+/// Issue #271: `same_name` compares header names without allocating, and
+/// `std.http.cookie.cookies` uses it to find `Cookie` fields in any case.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn header_names_compare_without_allocating() {
+    let body = r#"
+long = "A-Header-Name-Too-Long-For-Inline-Storage"
+print("__test_begin_no_allocations__")?
+same = std.http.same_name(long, "a-header-name-too-long-for-inline-storage")
+shorter = std.http.same_name(long, "a-header-name")
+other = std.http.same_name("Cookie", "cookif")
+print("__test_end_no_allocations__")?
+print(same, shorter, other)?
+headers = [Header(long, "x"), Header("COOKIE", "a=1; b=2"), Header("cookie", "c=3")]?
+for cookie in std.http.cookie.cookies(&headers, 8).unwrap():
+    print(cookie.name, cookie.value)?
+"#;
+    assert_eq!(
+        output(&format!("import std.http.cookie\n{}", program(body))),
+        "True False False\na 1\nb 2\nc 3"
+    );
+}
+
 /// Issue #135: the authority shares the Host value's storage instead of
 /// copying it, so `request_target` for an origin-form `/` allocates nothing,
 /// and the authority outlives the head it came from.

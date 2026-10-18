@@ -337,7 +337,7 @@ def tag_listed(field: &str, tag: &Bytes) -> Result[bool, FilesError]:
 def unchanged(headers: &list[Header], tag: &Option[Bytes], modified: Option[i64]) -> Result[bool, FilesError]:
     mut asked = False
     for index in range(len(headers)):
-        if same_name(&headers[index].name, "if-none-match"):
+        if std.http.same_name(&headers[index].name, "if-none-match"):
             asked = True
             match tag:
                 case Some(value):
@@ -361,13 +361,6 @@ def unchanged(headers: &list[Header], tag: &Option[Bytes], modified: Option[i64]
         case Nothing:
             pass
     Ok(False)
-
-def same_name(name: &str, lower: &str) -> bool:
-    match name.lower():
-        case Ok(folded):
-            folded == lower
-        case Err(_):
-            False
 
 # Serving
 

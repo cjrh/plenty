@@ -144,16 +144,9 @@ def split_pairs(field: &str, cookies: &mut list[Cookie], limit: i64) -> Result[(
 pub def cookies(headers: &list[Header], limit: i64) -> Result[list[Cookie], CookieError]:
     mut found = allocated(list[Cookie].new())?
     for index in range(len(headers)):
-        if same_name(&headers[index].name, "cookie"):
+        if std.http.same_name(&headers[index].name, "cookie"):
             split_pairs(&headers[index].value, &mut found, limit)?
     Ok(found)
-
-def same_name(name: &str, lower: &str) -> bool:
-    match name.lower():
-        case Ok(folded):
-            folded == lower
-        case Err(_):
-            False
 
 # The index of the first cookie named `name`.
 pub def find(cookies: &list[Cookie], name: &str) -> Option[i64]:

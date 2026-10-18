@@ -21,6 +21,7 @@ primitives. The same code runs over a [`std.net`](net.md) `TcpStream`, a
 | `request(method, target)`, `response(status, reason)` | A head with HTTP/1.1 and no fields |
 | `head.add(name, value)` | `Result[(), HttpError]`: append a field |
 | `find(headers: &list[Header], name: &str)` | `Option[i64]`: index of the first field named `name`, ignoring ASCII case |
+| `same_name(left: &str, right: &str)` | `bool`: whether two names are equal ignoring ASCII case; never allocates, and non-ASCII text never matches |
 
 Parsed names keep the case they arrived in. Values have surrounding spaces
 and tabs removed. Fields stay in arrival order and repeated names stay

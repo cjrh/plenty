@@ -207,7 +207,7 @@ def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
 def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes], ProxyError]:
     mut out = allocated(list[Bytes].new())?
     for index in range(len(headers)):
-        if not same_name(&headers[index].name, name):
+        if not std.http.same_name(&headers[index].name, name):
             continue
         data = lifted(std.bytes.from_text(&headers[index].value))?
         count = data.len()
@@ -231,13 +231,6 @@ def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes],
                 allocated(out.append(lifted(data.slice(first, last))?))?
             at = stop + 1
     Ok(out)
-
-def same_name(name: &str, lower: &str) -> bool:
-    match name.lower():
-        case Ok(folded):
-            folded == lower
-        case Err(_):
-            False
 
 def scheme_of(value: &Bytes) -> Result[str, ProxyError]:
     match lifted(value.to_text())?.lower():
@@ -316,7 +309,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
 def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyError]:
     mut hops = allocated(list[Hop].new())?
     for index in range(len(headers)):
-        if not same_name(&headers[index].name, "forwarded"):
+        if not std.http.same_name(&headers[index].name, "forwarded"):
             continue
         data = lifted(std.bytes.from_text(&headers[index].value))?
         count = data.len()
