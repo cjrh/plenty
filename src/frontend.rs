@@ -1481,7 +1481,7 @@ impl Parser {
                 return Err(at.error("a parameter cannot shadow a closure capture"));
             }
             if inputs.iter().any(|(n, _)| n == &param) {
-                return Err(self.peek().error("duplicate parameter"));
+                return Err(param_at.error("duplicate parameter"));
             }
             let ty = if let Some(class) =
                 class.filter(|_| param == "self" && inputs.is_empty() && !self.peek().is(":"))

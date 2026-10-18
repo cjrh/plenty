@@ -165,6 +165,14 @@ fn unsupported_escape_reports_the_backslash(#[case] source: &str, #[case] expect
 }
 
 #[test]
+fn duplicate_parameter_reports_the_duplicate_name() {
+    // Issue #198: the error pointed at the `:` after the name.
+    let source = "def f(x: i64, x: i64) -> i64:\n    x\n";
+    let error = plenty::check_source(source).unwrap_err().to_string();
+    assert!(error.ends_with("1:15: duplicate parameter"), "{error}");
+}
+
+#[test]
 fn local_slot_limit_is_a_diagnostic() {
     let source = (0..257)
         .map(|i| format!("x{i} = {i}\n"))
