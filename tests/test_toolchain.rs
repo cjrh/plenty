@@ -162,6 +162,22 @@ fn cli_rejects_missing_or_unused_link_options() {
         assert!(!output.status.success());
         assert!(!String::from_utf8_lossy(&output.stderr).contains("reading"));
     }
+    for args in [
+        vec!["--version", "--link-arg", "x"],
+        vec!["-V", "--linker", "cc"],
+        vec!["--print-target", "--linker", "cc"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("linker options require compilation or execution"),
+            "{args:?}: {stderr}"
+        );
+    }
 }
 
 #[test]
