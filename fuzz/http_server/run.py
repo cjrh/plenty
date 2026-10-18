@@ -19,8 +19,8 @@ ROOT = HERE.parent.parent
 CORPUS = ROOT / "tests" / "fixtures" / "http_server" / "corpus.txt"
 
 # The target's first byte selects its read size, `byte % 64 + 1`, and with
-# 64 small limits: each case is seeded whole, in 7-byte reads, one byte at a
-# time, and in 7-byte reads with small limits.
+# 64 small limits: each case is seeded in 64-byte reads (the largest step), in
+# 7-byte reads, one byte at a time, and in 7-byte reads with small limits.
 STEPS = (63, 6, 0, 70)
 
 
