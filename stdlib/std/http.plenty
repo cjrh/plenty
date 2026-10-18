@@ -476,11 +476,13 @@ def name_byte(code: i64) -> bool:
         return True
     code == 33 or code == 36 or (code >= 38 and code <= 46) or code == 59 or code == 61 or code == 95 or code == 126
 
-# Whether `value` is `uri-host [ ":" port ]` (RFC 9110 section 7.2). An IP
+# Whether `value` is `uri-host [ ":" port ]` (RFC 9110 section 7.2). An IPv6
 # literal is checked for its characters, not parsed as an address.
 def valid_authority(value: &str) -> bool:
-    # States: 0 reg-name, 1 IPv6 literal, 2 IPvFuture literal, 3 after `]`,
-    # 4 port. `escape` counts the hex digits a `%` still needs.
+    # States: 0 reg-name, 1 IPv6 literal, 3 after `]`, 4 port. IPvFuture
+    # (`"v" 1*HEXDIG "." 1*(unreserved / sub-delims / ":")`) uses 2 after `v`,
+    # 5 in the version digits, 6 after `.` and 7 in the address. `escape`
+    # counts the hex digits a `%` still needs.
     mut state = 0
     mut escape = 0
     mut first = True
@@ -500,16 +502,27 @@ def valid_authority(value: &str) -> bool:
                 escape = 2
             elif not name_byte(code):
                 return False
-        elif state == 1 or state == 2:
+        elif state == 1:
             if code == 93 and inside > 0:
                 state = 3
-            elif state == 1 and inside == 0 and code == 118:
+            elif inside == 0 and code == 118:
                 state = 2
+            elif hex_value(code) >= 0 or code == 58 or code == 46:
                 inside += 1
-            elif state == 1 and (hex_value(code) >= 0 or code == 58 or code == 46):
-                inside += 1
-            elif state == 2 and (name_byte(code) or code == 58):
-                inside += 1
+            else:
+                return False
+        elif state == 2 or state == 5:
+            if hex_value(code) >= 0:
+                state = 5
+            elif state == 5 and code == 46:
+                state = 6
+            else:
+                return False
+        elif state == 6 or state == 7:
+            if state == 7 and code == 93:
+                state = 3
+            elif name_byte(code) or code == 58:
+                state = 7
             else:
                 return False
         elif state == 3:
@@ -519,7 +532,7 @@ def valid_authority(value: &str) -> bool:
         elif not digit(code):
             return False
         first = False
-    escape == 0 and state != 1 and state != 2
+    escape == 0 and (state == 0 or state == 3 or state == 4)
 
 # The scalar index after `http://` or `https://`, scheme in any case.
 def authority_start(target: &str) -> Result[i64, HttpError]:

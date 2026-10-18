@@ -353,6 +353,8 @@ fn request_targets_and_host_are_checked() {
         (b"GET / HTTP/1.1\r\nHost:\r\n\r\n", "|/|"),
         (b"GET / HTTP/1.1\r\nHost: [::1]:80\r\n\r\n", "[::1]:80|/|"),
         (b"GET / HTTP/1.1\r\nHost: [v1.a:b]\r\n\r\n", "[v1.a:b]|/|"),
+        (b"GET / HTTP/1.1\r\nHost: [v1.x]:80\r\n\r\n", "[v1.x]:80|/|"),
+        (b"GET / HTTP/1.1\r\nHost: [VaF.:]\r\n\r\n", "[VaF.:]|/|"),
         (
             b"GET / HTTP/1.1\r\nHost: a%2Fb.c_d~e!$&'()*+,;=\r\n\r\n",
             "a%2Fb.c_d~e!$&'()*+,;=|/|",
@@ -393,6 +395,17 @@ fn request_targets_and_host_are_checked() {
             (b"GET / HTTP/1.1\r\nHost: []\r\n\r\n", "InvalidHost"),
             (b"GET / HTTP/1.1\r\nHost: x[::1]\r\n\r\n", "InvalidHost"),
             (b"GET / HTTP/1.1\r\nHost: [::g]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [v]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [vx]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [v1]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [v1.]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [vx.a]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [v1x]\r\n\r\n", "InvalidHost"),
+            (b"GET / HTTP/1.1\r\nHost: [v.a]\r\n\r\n", "InvalidHost"),
+            (
+                b"GET http://[vx]/ HTTP/1.1\r\nHost: x\r\n\r\n",
+                "InvalidTarget",
+            ),
             (b"GET / HTTP/1.1\r\nHost: h\xc3\xa9\r\n\r\n", "InvalidHost"),
             (
                 b"GET http://x/ HTTP/1.1\r\nHost: a b\r\n\r\n",
