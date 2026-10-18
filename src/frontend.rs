@@ -3483,9 +3483,6 @@ impl Lower<'_> {
                     return self.call_value(&callee, args, ops);
                 }
                 if name == "print" {
-                    if self.names.contains_key(name) {
-                        return Err(e.at.error(format!("binding `{name}` is not callable")));
-                    }
                     let mut types = Vec::new();
                     let mut reads = Vec::new();
                     for argument in args {
