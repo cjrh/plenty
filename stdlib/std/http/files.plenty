@@ -308,11 +308,10 @@ def trimmed(data: &Bytes, start: i64, stop: i64) -> (i64, i64):
     (first, last)
 
 # Weak comparison (RFC 9110 section 8.8.3.2): `W/` is ignored on both sides.
-def tag_listed(field: &str, tag: &Bytes) -> Result[bool, FilesError]:
+# `*` matches any existing file, including one without a tag (section 13.1.2).
+def tag_listed(field: &str, tag: &Option[Bytes]) -> Result[bool, FilesError]:
     data = lifted(std.bytes.from_text(field))?
     count = data.len()
-    # `tag` is `W/"..."`; compare its quoted part.
-    quoted = tag.len() - 2
     mut at = 0
     while at <= count:
         mut stop = count
@@ -324,11 +323,17 @@ def tag_listed(field: &str, tag: &Bytes) -> Result[bool, FilesError]:
         (first, last) = trimmed(&data, at, stop)
         if last - first == 1 and data[first] == 42u8:
             return Ok(True)
-        mut begin = first
-        if last - first >= 2 and data[first] == 87u8 and data[first + 1] == 47u8:
-            begin = first + 2
-        if last - begin == quoted and same_bytes(&data, begin, tag, 2, quoted):
-            return Ok(True)
+        match tag:
+            case Some(value):
+                mut begin = first
+                if last - first >= 2 and data[first] == 87u8 and data[first + 1] == 47u8:
+                    begin = first + 2
+                # `value` is `W/"..."`; compare its quoted part.
+                quoted = value.len() - 2
+                if last - begin == quoted and same_bytes(&data, begin, value, 2, quoted):
+                    return Ok(True)
+            case Nothing:
+                pass
         at = stop + 1
     Ok(False)
 
@@ -339,12 +344,8 @@ def unchanged(headers: &list[Header], tag: &Option[Bytes], modified: Option[i64]
     for index in range(len(headers)):
         if same_name(&headers[index].name, "if-none-match"):
             asked = True
-            match tag:
-                case Some(value):
-                    if tag_listed(&headers[index].value, value)?:
-                        return Ok(True)
-                case Nothing:
-                    pass
+            if tag_listed(&headers[index].value, tag)?:
+                return Ok(True)
     if asked:
         return Ok(False)
     match std.http.find(headers, "if-modified-since"):
