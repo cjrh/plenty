@@ -514,6 +514,32 @@ print(first, last, found, same, count, room, buffer.capacity())?
     );
 }
 
+// Issue #298: float spellings were built in Rust `String`s, so a refused
+// allocation aborted the program.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn float_spellings_do_not_allocate() {
+    native(
+        r#"
+mut buffer = std.bytes.with_capacity(4500)?
+buffer.resize(4500, 0u8)?
+print("__test_fail_allocations_after_0__")?
+print("__test_begin_no_allocations__")?
+fixed = buffer.write_float_spec(-1.7976931348623157e308, 17, 4096, 0)?
+exponent = buffer.write_float_spec(1234.5, 2, 2, 0)?
+general = buffer.write_float_spec(0.00001, 3, 6, 0)?
+point = buffer.write_float_spec(12.0, 4, 3, 0)?
+display = buffer.write_float_spec(0.1, 5, 0, 0)?
+single = buffer.write_float_spec(0.1, 6, 0, 0)?
+short = buffer.write_float_spec(1.5, 1, 4096, 4490)?
+print("__test_restore_allocations__")?
+print("__test_end_no_allocations__")?
+print(fixed, exponent, general, point, display, single, short)?
+"#,
+        "4407 8 5 4 3 3 -8588",
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn allocation_failure_is_reported_and_leaves_buffers_unchanged() {

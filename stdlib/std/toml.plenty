@@ -1184,8 +1184,6 @@ class Emitter:
             return self.raw(b"inf")
         if value == -f64.INF:
             return self.raw(b"-inf")
-        # `write_float_spec` would avoid this string, but it builds its own
-        # spelling on the heap, where a refused allocation aborts.
         text = reserved(str.from(value))?
         self.ascii(&text)?
         if "." in text or "e" in text:
