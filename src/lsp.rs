@@ -31,9 +31,12 @@ pub fn serve() -> Result<()> {
         let stdin = std::io::stdin();
         let mut input = stdin.lock();
         loop {
-            let message = read_message(&mut input);
-            let end = !matches!(message, Ok(Some(_)));
-            if sender.send(message.ok().flatten()).is_err() || end {
+            // An I/O error or a bad header leaves the stream unframed, so it
+            // ends the session like end of input; a body that is not JSON was
+            // read whole, so the server answers it and keeps reading.
+            let message = read_message(&mut input).ok().flatten();
+            let end = message.is_none();
+            if sender.send(message).is_err() || end {
                 break;
             }
         }
@@ -59,13 +62,28 @@ pub fn serve() -> Result<()> {
         let Some(Some(message)) = message else {
             return Ok(());
         };
+        let message = match message {
+            Ok(message) => message,
+            Err(error) => {
+                write_message(
+                    &mut output,
+                    &json!({"jsonrpc": "2.0", "id": null, "error": {
+                        "code": -32700, "message": format!("parse error: {error}")}}),
+                )?;
+                continue;
+            }
+        };
         if !server.handle(message, &mut output)? {
             return Ok(());
         }
     }
 }
 
-fn read_message(input: &mut impl BufRead) -> Result<Option<Value>> {
+/// Read one framed message: `None` at end of input, and an inner error for a
+/// body that is not JSON.
+fn read_message(
+    input: &mut impl BufRead,
+) -> Result<Option<std::result::Result<Value, serde_json::Error>>> {
     let mut length = None;
     loop {
         let mut line = String::new();
@@ -84,7 +102,7 @@ fn read_message(input: &mut impl BufRead) -> Result<Option<Value>> {
     }
     let mut body = vec![0; length.ok_or("message without Content-Length")?];
     input.read_exact(&mut body)?;
-    Ok(Some(serde_json::from_slice(&body)?))
+    Ok(Some(serde_json::from_slice(&body)))
 }
 
 fn write_message(output: &mut impl Write, message: &Value) -> Result<()> {

@@ -68,6 +68,9 @@ differs.
   between checks. A program importing `std.http.server`, `std.json`, and five
   other large `std` modules checks in about 0.2 s with a release build.
 - Find references, document symbols, and signature help are not implemented.
+- A message body that is not valid JSON is answered with a `-32700` parse
+  error and the session continues. A header without a valid `Content-Length`
+  leaves the stream unframed, so the server exits as if the input had ended.
 
 ## Other editors
 

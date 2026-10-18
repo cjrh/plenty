@@ -38,7 +38,10 @@ impl Client {
     }
 
     fn send(&mut self, message: Value) {
-        let body = message.to_string();
+        self.send_raw(&message.to_string());
+    }
+
+    fn send_raw(&mut self, body: &str) {
         write!(self.input, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
         self.input.flush().unwrap();
     }
@@ -153,6 +156,26 @@ impl Client {
         self.notify("exit", Value::Null);
         assert!(self.child.wait().unwrap().success());
     }
+}
+
+#[test]
+fn a_body_that_is_not_json_gets_a_parse_error_and_the_session_continues() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::start(&dir.path().join("cache"));
+    client.send_raw("{not json");
+    let error = client.receive();
+    assert_eq!(error["id"], Value::Null, "{error}");
+    assert_eq!(error["error"]["code"], -32700, "{error}");
+    client.exit();
+}
+
+#[test]
+fn a_header_without_content_length_ends_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Client::start(&dir.path().join("cache"));
+    write!(client.input, "Content-Type: x\r\n\r\n{{}}").unwrap();
+    client.input.flush().unwrap();
+    assert!(client.child.wait().unwrap().success());
 }
 
 fn uri(path: &Path) -> String {
