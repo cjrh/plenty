@@ -320,7 +320,21 @@ impl Ty {
     }
 }
 
+/// Byte budget for the identity names that make up one concrete type name.
+pub const MAX_IDENTITY_NAME_LEN: usize = 16_384;
+
 impl Ty {
+    /// Whether the members' identity names together exceed
+    /// [`MAX_IDENTITY_NAME_LEN`]. Callers choose the diagnostic, since some
+    /// pair this with a layout-depth check under a nesting message.
+    pub fn identity_names_exceed_limit(members: &[Ty]) -> bool {
+        members
+            .iter()
+            .map(|t| t.identity_name().len())
+            .sum::<usize>()
+            > MAX_IDENTITY_NAME_LEN
+    }
+
     /// Stable compiler spelling for names derived from concrete types. Display
     /// may describe origins shared by distinct specialized environments.
     pub fn identity_name(&self) -> String {

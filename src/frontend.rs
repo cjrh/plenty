@@ -609,12 +609,7 @@ impl TypeRef {
                 .iter()
                 .map(|t| t.resolve(aliases).map(|t| t.unwrap_or(Ty::Unit)))
                 .collect::<Result<Vec<_>>>()?;
-            if members
-                .iter()
-                .map(|t| t.identity_name().len())
-                .sum::<usize>()
-                > 16_384
-            {
+            if Ty::identity_names_exceed_limit(&members) {
                 return Err(self
                     .at
                     .error("concrete type name exceeds the implementation limit"));
@@ -689,12 +684,7 @@ impl TypeRef {
             if let Some(barrier) = fields.iter().find_map(Ty::storage_barrier) {
                 return Err(self.at.error(barrier.message("tuples")));
             }
-            if fields
-                .iter()
-                .map(|t| t.identity_name().len())
-                .sum::<usize>()
-                > 16_384
-            {
+            if Ty::identity_names_exceed_limit(&fields) {
                 return Err(self
                     .at
                     .error("concrete type name exceeds the implementation limit"));
@@ -796,7 +786,7 @@ impl TypeRef {
                 .iter()
                 .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<Vec<_>>>()?;
-            if args.iter().map(|t| t.identity_name().len()).sum::<usize>() > 16_384 {
+            if Ty::identity_names_exceed_limit(&args) {
                 return Err(self
                     .at
                     .error("concrete type name exceeds the implementation limit"));
